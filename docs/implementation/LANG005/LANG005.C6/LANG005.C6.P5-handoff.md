@@ -32,11 +32,12 @@ Part I establishes the canonical evidence-driven iteration seam and a focused pr
    - Run the passing built-in source probes:
      ```sh
      RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core canonical_range_for_publishes_semantic_iteration_lane
+     RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core canonical_range_iterator_is_stateful_and_respects_bounds
      RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core canonical_set_iterator_direct_path_is_fresh_sticky_and_ordered
      RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core canonical_bytes_and_string_view_iteration_is_stateful
      ```
    - Tuple: Implement `TupleIterator` / `impl CanonicalIterable for Tuple` once `TupleIterator::Item` typing is settled.
-   - Note on `canonical_range_iterator_is_stateful_and_respects_bounds`: The direct iterator methods (`exclusive.next.isSome`, `done.isNone`) and `for` loop lowering are verified; inline unlinked script fallback to legacy cursor `iterate(_)` hits the known pre-existing `Option.match` generic call-entry baseline (`C6-BL-INHERITED-01`), which is not a blocker for canonical stateful iteration.
+   - `canonical_range_iterator_is_stateful_and_respects_bounds` passes completely without `#[ignore]`.
    - Certify Gate G3.
 
 2. **Task T9: Stateful Lazy Iterator Adapters**:

@@ -4,9 +4,9 @@ use super::artifact::ModuleMaterializationPlan;
 use crate::typing::{MetadataPoolId, RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{
-    EntryOwnership, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent, ModuleId, ModuleKind,
-    ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId, SourceLocation,
-    UniverseSourceProvider, classify_entry_ownership,
+    EntryOwnership, FilesystemSourceProvider, ImportSurface, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent,
+    ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId,
+    SourceLocation, UniverseSourceProvider, classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -217,6 +217,10 @@ pub struct AnalyzedProgram {
     pub linked: Arc<LinkedProgram>,
     pub semantic: Arc<phalcom_semantic::SemanticSnapshot>,
     pub sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    /// Modules that this program owns at runtime. Semantic support modules may
+    /// be present in `linked` and `sources` without being rematerialized into
+    /// an already-bootstrapped Universe VM.
+    pub runtime_modules: BTreeSet<ModuleId>,
     pub entry: ModuleId,
 }
 
@@ -339,8 +343,6 @@ impl ProgramAnalyzer {
                 let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
                 let mut interfaces = BTreeMap::new();
                 interfaces.insert(entry_id.clone(), interface);
-                let linker = ModuleLinker::new(universe.clone(), interfaces);
-                let linked = Arc::new(linker.link(entry_id.clone(), &BTreeMap::new())?);
 
                 let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
                     entry_id.clone(),
@@ -352,6 +354,43 @@ impl ProgramAnalyzer {
                 let mut sources = BTreeMap::new();
                 sources.insert(entry_id.clone(), parsed_unit);
 
+                // Inline evaluation has an implicit Universe runtime. Its semantic
+                // workspace must therefore include the same source-authored
+                // conformance declarations, rather than treating native member
+                // surfaces as a substitute for canonical trait evidence.
+                let provider = UniverseSourceProvider::new();
+                let filesystem = FilesystemSourceProvider::new();
+                let mut resolver = ModuleResolver::new(&universe, &filesystem);
+                for node in provider.nodes().iter().filter(|node| {
+                    matches!(node.path, ["collections", "iterator_laws"] | ["collections", "range"])
+                }) {
+                    let path = ModulePath::from_components(
+                        node.path
+                            .iter()
+                            .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                            .collect::<Vec<_>>(),
+                    );
+                    let module = ModuleId::universe(path);
+                    interfaces.insert(module.clone(), provider.load_interface(&module)?);
+                    sources.insert(module.clone(), provider.load_parsed(&module)?);
+                }
+                let mut resolved = BTreeMap::new();
+                for (module, interface) in &interfaces {
+                    if !module.project.is_universe() {
+                        continue;
+                    }
+                    for import in &interface.imports {
+                        let path = match import {
+                            ImportSurface::Module(decl) => &decl.path,
+                            ImportSurface::Selective(decl) => &decl.path,
+                            ImportSurface::ReExport(decl) => &decl.path,
+                        };
+                        let target = resolver.resolve_import(module, path)?;
+                        resolved.insert((module.clone(), path.to_string()), target.id);
+                    }
+                }
+                let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link_all(entry_id.clone(), &resolved)?);
+
                 let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0));
 
                 Ok(AnalyzedProgram {
@@ -359,6 +398,7 @@ impl ProgramAnalyzer {
                     linked,
                     semantic: analysis.snapshot,
                     sources,
+                    runtime_modules: BTreeSet::from([entry_id.clone()]),
                     entry: entry_id,
                 })
             }
@@ -443,6 +483,7 @@ impl ProgramAnalyzer {
             linked,
             semantic: analysis.snapshot,
             sources,
+            runtime_modules: BTreeSet::from([entry_id.clone()]),
             entry: entry_id,
         })
     }
@@ -508,6 +549,7 @@ impl ProgramAnalyzer {
 
         Ok(AnalyzedProgram {
             project_universe: universe,
+            runtime_modules: linked.modules.keys().cloned().collect(),
             linked,
             semantic: analysis.snapshot,
             sources,
@@ -551,6 +593,9 @@ impl ProgramCompiler {
         let mut runtime_trait_root_specs = Vec::<RuntimeTraitEnvironmentRootSpec>::new();
         let mut runtime_trait_root_seen = BTreeSet::new();
         for (id, _) in &analyzed.linked.modules {
+            if !analyzed.runtime_modules.contains(id) {
+                continue;
+            }
             if let Some(source) = analyzed.sources.get(id) {
                 for (range, ty) in super::semantic_lowering::anonymous_product_type_roots(id, &analyzed.semantic, &source.program) {
                     runtime_root_specs.push((id.clone(), range, ty, format!("anonymous-product-{}-{}", range.start, range.end)));
@@ -790,6 +835,9 @@ impl ProgramCompiler {
         >::new();
 
         for (callable, analysis) in analyzed.semantic.callable_analyses.iter() {
+            if !analyzed.runtime_modules.contains(callable.owner.module()) {
+                continue;
+            }
             let caller_owner_sig = match &callable.owner {
                 phalcom_semantic::identity::CallableOwnerId::Declaration(decl) => {
                     if callable.side == phalcom_semantic::identity::DispatchSide::Instance {
@@ -1148,6 +1196,9 @@ impl ProgramCompiler {
         }
         let mut modules = BTreeMap::new();
         for (id, linked_module) in &analyzed.linked.modules {
+            if !analyzed.runtime_modules.contains(id) {
+                continue;
+            }
             let (source, source_text) = if let Some(parsed_unit) = analyzed.sources.get(id) {
                 (parsed_unit.source.clone(), Some(parsed_unit.text.clone()))
             } else {
@@ -1172,7 +1223,13 @@ impl ProgramCompiler {
             linked: analyzed.linked.clone(),
             modules,
             entry: analyzed.entry.clone(),
-            initialization_order: analyzed.linked.initialization_order.clone(),
+            initialization_order: analyzed
+                .linked
+                .initialization_order
+                .iter()
+                .filter(|id| analyzed.runtime_modules.contains(*id))
+                .cloned()
+                .collect(),
             semantic_metadata: Some(metadata_bundle),
         })
     }

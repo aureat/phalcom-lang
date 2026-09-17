@@ -177,6 +177,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
 
     let analyzed = AnalyzedProgram {
         project_universe,
+        runtime_modules: linked.modules.keys().cloned().collect(),
         linked,
         semantic: semantic.snapshot,
         sources,

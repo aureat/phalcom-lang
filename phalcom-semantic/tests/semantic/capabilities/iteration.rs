@@ -27,7 +27,6 @@ class Probe {
     assert_eq!(f.binding(run, "observed").current, TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend));
     assert!(run.for_iteration_lanes.is_empty(), "legacy cursor protocol must not publish a canonical lane");
 }
-
 /// LAW: branch joins compose nested collection element precision.
 #[test]
 fn constructor_branch_nested_inside_collection_preserves_composed_specific_type() {
@@ -170,4 +169,3 @@ class Probe {
     let observed = f.binding(run, "observed");
     assert!(observed.current.is_unknown() || observed.current.is_dynamic());
 }
-

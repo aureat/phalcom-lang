@@ -1093,8 +1093,15 @@ Mechanical drift may be adapted. Architectural drift requires consultation.
 - **T8 continuation**: `RangeIterator` now owns `_range`, `_started`, and
   `_done` state, validates bounds on first `next`, preserves forward
   exclusive/inclusive/unbounded semantics, and retains legacy cursor methods
-  for transition. Its focused runtime path reaches the inherited
-  `Option<Number>` generic call-entry baseline at `Option.isNone`.
+  for transition. Inline semantic workspaces now load the canonical
+  `collections.iterator_laws` and `collections.range` source modules as
+  analysis support, so the source-authored `Range |= Iterable` proof publishes
+  the canonical `for` lane. This is deliberately not a VM inference path.
+- **Runtime ownership boundary**: `AnalyzedProgram::runtime_modules`
+  distinguishes analysis-support modules from modules a compiled program owns.
+  Projection, metadata-root collection, module materialization, and
+  initialization use that boundary, so the support sources do not overwrite
+  the already bootstrapped canonical Universe modules.
 - **Range lifecycle correction**: opaque-call invalidation was erasing the
   current type of every instance field, including a definitely initialized
   field whose validated/assumed lifecycle contract remains authoritative.
@@ -1104,23 +1111,25 @@ Mechanical drift may be adapted. Architectural drift requires consultation.
 - **Focused evidence**: the field-flow regression and the canonical Range
   lowering characterization pass; the latter proves the
   `RangeIterator.next` `lowerOpt.isNone` call recipe closes `Option.T` as
-  `Number`. Native-surface generation is current (334 declarations).
-  The direct ignored Range runtime probe now advances to the pre-existing
-  nested `Option.unwrapOr -> Option.match` template-materialization failure;
-  it no longer fails because Range field flow is unknown.
+  `Number`. The inline Range lane regression proves that the compiled program
+  has one semantic iteration lane but only its synthetic entry module at
+  runtime. `canonical_range_iterator_is_stateful_and_respects_bounds` now
+  passes without `#[ignore]`. Native-surface generation remains current (334
+  declarations).
 - **T6 Tuple disposition**: a bounded `TupleIterator` attempt was reverted
   because publishing `TupleIterator |= Iterator` with `Item = Dynamic` changes
   the canonical Universe baseline to `impl.conformance.incomplete`. Tuple
   remains blocked pending the semantic associated-type decision; no baseline
   assertion was weakened.
-- **Gate state**: G3 remains stopped. T9–T11 remain unstarted. The broader
-  canonical group has two direct Set/Map passes and five legacy/List/parallel
-  failures at the pre-existing cursor/Option boundary; those failures are
-  classified baseline/deferred, not masked.
-- **Next action**: finish the bounded invocation-transport audit and obtain or
-  implement the approved `Option<Number>`/legacy call-entry correction before
-  promoting Range or G3. Preserve the no-VM-inference and no-permissive-
-  template invariants.
+- **Gate state**: G3 remains stopped. T9–T11 remain unstarted. The focused
+  iteration group passes the Range checks but still has six List/Bytes/
+  parallel-loop failures in inherited generic `List<T>`/`Option<T>` call-entry
+  materialization, plus the existing ignored Set/Map probes. Those failures
+  are baseline/deferred and are not masked.
+- **Next action**: resolve Tuple's publishable Item model and the remaining
+  generic source-call environment failures for List/Bytes/parallel iteration,
+  then rerun the blocked probes before G3. Preserve the no-VM-inference and
+  no-permissive-template invariants.
 
 ---
 
