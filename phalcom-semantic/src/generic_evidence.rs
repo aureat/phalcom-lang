@@ -78,6 +78,16 @@ pub enum GenericObligationProof {
     Subtype(RelationOutcome<()>),
 }
 
+impl GenericObligationProof {
+    pub fn is_proven(&self) -> bool {
+        match self {
+            Self::Conformance(p) => p.is_proven(),
+            Self::Equivalent(p) => p.is_proven(),
+            Self::Subtype(outcome) => outcome.is_proven(),
+        }
+    }
+}
+
 /// Typed direct conformance proof result preserving rich terminal outcomes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GenericConformanceProof {
@@ -92,6 +102,12 @@ pub enum GenericConformanceProof {
     Cancelled,
     BudgetExceeded(BudgetReport),
     InternalFailure(Box<str>),
+}
+
+impl GenericConformanceProof {
+    pub fn is_proven(&self) -> bool {
+        matches!(self, Self::Proven(_))
+    }
 }
 
 /// Typed generic equivalence proof result preserving rich terminal outcomes.
@@ -586,6 +602,27 @@ pub fn prove_constraint(
                 if proof.is_proven() {
                     return GenericObligationProof::Equivalent(proof);
                 }
+                if let (Some(surfaces), Some(store)) = (context.trait_surfaces, context.store.as_deref_mut()) {
+                    for (assumed_key, _) in env.conformances() {
+                        if let Some(surface) = surfaces.get(&assumed_key.trait_ref.declaration) {
+                            if let Some(signature) = &surface.generic_signature {
+                                let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(
+                                    store,
+                                    signature,
+                                    &assumed_key.subject,
+                                    &assumed_key.trait_ref,
+                                );
+                                for constraint in contract_constraints {
+                                    if let GenericConstraint::Equivalent { left: cl, right: cr } = constraint {
+                                        if (cl == left && cr == right) || (cl == right && cr == left) {
+                                            return GenericObligationProof::Equivalent(GenericEquivalenceProof::Proven);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             GenericObligationProof::Equivalent(GenericEquivalenceProof::NotProven)
         }
@@ -731,6 +768,29 @@ fn evaluate_conformance_goal(
             let equiv_key = GenericConformanceKey::new(equiv_subject, key.trait_ref.clone());
             if let Some(assumed) = env.assumed_conformance(&equiv_key) {
                 return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed.clone()));
+            }
+        }
+        if let (Some(surfaces), Some(store)) = (context.trait_surfaces, context.store.as_deref_mut()) {
+            for (assumed_key, assumed_evidence) in env.conformances() {
+                if let Some(surface) = surfaces.get(&assumed_key.trait_ref.declaration) {
+                    if let Some(signature) = &surface.generic_signature {
+                        let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(
+                            store,
+                            signature,
+                            &assumed_key.subject,
+                            &assumed_key.trait_ref,
+                        );
+                        for constraint in contract_constraints {
+                            if let GenericConstraint::Conforms { subject, trait_ref } = constraint {
+                                if trait_ref == key.trait_ref {
+                                    if subject == key.subject || env.are_equivalent(&subject, &key.subject).is_proven() {
+                                        return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed_evidence.clone()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

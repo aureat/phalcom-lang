@@ -1544,6 +1544,9 @@ pub fn build_conformance_witness_plan(
     data_candidates: &BTreeMap<crate::traits::TraitRequirementId, (crate::identity::DataComponentId, TypeId)>,
     terminal_candidates: &BTreeMap<crate::traits::TraitRequirementId, ConformanceCompleteness>,
     associated_type_plan: ConformanceAssociatedTypePlan,
+    conformance_index: &ConformanceIndex,
+    trait_surfaces: &TraitSurfaceTable,
+    all_associated_type_plans: &BTreeMap<ImplId, ConformanceAssociatedTypePlan>,
 ) -> ConformanceWitnessPlan {
     let associated_type_plan = associated_type_plan;
     let mut requirement_views = instantiate_conformance_requirements(
@@ -1691,6 +1694,126 @@ pub fn build_conformance_witness_plan(
         }
     }
     failures.extend(associated_type_plan.failures.iter().cloned().map(ConformanceFailure::AssociatedType));
+
+    // Validate trait generic contract where-clauses under the staged associated bindings
+    if let Some(signature) = &trait_surface.generic_signature {
+        if !signature.constraints.is_empty() {
+            let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(
+                store,
+                signature,
+                &TypeTerm::Canonical(contribution.target_head),
+                &contribution.trait_ref,
+            );
+            let staged_associated_types = associated_type_plan
+                .bindings
+                .iter()
+                .map(|(req, binding)| {
+                    (
+                        req.clone(),
+                        ExactAssociatedTypeBinding {
+                            requirement: req.clone(),
+                            value: binding.value_template,
+                            source_impl: binding.source_impl.clone(),
+                            source: binding.source.clone(),
+                        },
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            let witness_plans_map: BTreeMap<crate::identity::ImplId, std::sync::Arc<ConformanceWitnessPlan>> = all_associated_type_plans
+                .iter()
+                .map(|(impl_id, p)| {
+                    (
+                        impl_id.clone(),
+                        std::sync::Arc::new(ConformanceWitnessPlan {
+                            impl_id: impl_id.clone(),
+                            source_module: impl_id.module.clone(),
+                            target_template: store.unit(),
+                            trait_ref_template: TraitRef::new(crate::identity::DeclarationId::new(impl_id.module.clone(), "dummy".into()), Box::<[TypeId]>::default()),
+                            generic_signature: None,
+                            requirement_views: BTreeMap::new(),
+                            requirements: BTreeMap::new(),
+                            associated_type_plan: p.clone(),
+                            fingerprint: ProductFingerprint::default(),
+                            invalid_explicit_members: false,
+                            completeness: ConformanceCompleteness::Complete,
+                            diagnostics: Box::new([]),
+                        }),
+                    )
+                })
+                .collect();
+            for constraint in contract_constraints {
+                let mut budget = QueryBudget::default();
+                let cancel = CancellationToken::new();
+                let mut norm_ctx = crate::types::ProjectionNormalizationContext::new(
+                    crate::types::ProjectionNormalizationMode::Exact {
+                        conformance_index,
+                        witness_plans: &witness_plans_map,
+                        trait_surfaces,
+                        declarations,
+                        hierarchy,
+                    },
+                    &mut budget,
+                    &cancel,
+                )
+                .with_current_exact_evidence(contribution.target_head, &contribution.trait_ref, &staged_associated_types);
+
+                match constraint {
+                    GenericConstraint::Conforms { subject, trait_ref } => {
+                        let norm_subject = match subject {
+                            TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
+                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
+                                other => other.type_id().map(TypeTerm::Canonical).unwrap_or(subject),
+                            },
+                            other => other,
+                        };
+                        if let TypeTerm::Canonical(target_ty) = norm_subject {
+                            let matches = conformance_index.query_exact(store, target_ty, &trait_ref);
+                            if matches.is_empty() {
+                                failures.push(ConformanceFailure::AssociatedType(AssociatedTypeBindingFailure {
+                                    kind: AssociatedTypeBindingFailureKind::Invalid,
+                                    name: trait_ref.declaration.name.clone(),
+                                    source: crate::diagnostic::SemanticSourceSpan::new(contribution.source.module.clone(), contribution.source.range),
+                                    reason: format!("associated type `{}` does not conform to trait `{}`", store.format_type(target_ty), trait_ref.declaration.name).into_boxed_str(),
+                                    requirement: None,
+                                }));
+                            }
+                        }
+                    }
+                    GenericConstraint::Equivalent { left, right } => {
+                        let norm_left = match left {
+                            TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
+                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
+                                other => other.type_id().map(TypeTerm::Canonical).unwrap_or(left),
+                            },
+                            other => other,
+                        };
+                        let norm_right = match right {
+                            TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
+                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
+                                other => other.type_id().map(TypeTerm::Canonical).unwrap_or(right),
+                            },
+                            other => other,
+                        };
+                        if norm_left != norm_right {
+                            let (l_str, r_str) = match (&norm_left, &norm_right) {
+                                (TypeTerm::Canonical(l), TypeTerm::Canonical(r)) => (store.format_type(*l), store.format_type(*r)),
+                                _ => (format!("{norm_left:?}"), format!("{norm_right:?}")),
+                            };
+                            failures.push(ConformanceFailure::AssociatedType(AssociatedTypeBindingFailure {
+                                kind: AssociatedTypeBindingFailureKind::Invalid,
+                                name: "contract equality".into(),
+                                source: crate::diagnostic::SemanticSourceSpan::new(contribution.source.module.clone(), contribution.source.range),
+                                reason: format!("trait contract equality constraint unsatisfied: `{l_str}` != `{r_str}`").into_boxed_str(),
+                                requirement: None,
+                            }));
+                        }
+                    }
+                    GenericConstraint::Subtype { .. } => {}
+                }
+            }
+        }
+    }
     let completeness = if !failures.is_empty() || invalid_explicit_members {
         ConformanceCompleteness::Incomplete {
             failures: failures.into_boxed_slice(),
@@ -1927,6 +2050,70 @@ pub fn resolve_conformance_evidence_with_surfaces(
             other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
         };
         associated_types.get_mut(requirement).expect("associated binding remains staged").value = value;
+    }
+    if let Some(signature) = &trait_surface.generic_signature {
+        if !signature.constraints.is_empty() {
+            let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(
+                store,
+                signature,
+                &TypeTerm::Canonical(target),
+                trait_ref,
+            );
+            for constraint in contract_constraints {
+                let mut budget = QueryBudget::default();
+                let cancel = CancellationToken::new();
+                let mut normalization_context = crate::types::ProjectionNormalizationContext::new(
+                    crate::types::ProjectionNormalizationMode::Exact {
+                        conformance_index: index,
+                        witness_plans: plans,
+                        trait_surfaces,
+                        declarations,
+                        hierarchy,
+                    },
+                    &mut budget,
+                    &cancel,
+                )
+                .with_current_exact_evidence(target, trait_ref, &associated_types);
+
+                match constraint {
+                    GenericConstraint::Conforms { subject, trait_ref: c_trait_ref } => {
+                        let norm_subject = match subject {
+                            TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
+                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
+                                other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
+                            },
+                            other => other,
+                        };
+                        if let TypeTerm::Canonical(target_ty) = norm_subject {
+                            let matches = index.query_exact(store, target_ty, &c_trait_ref);
+                            if matches.is_empty() {
+                                return ConformanceResolution::InvalidSource(head.impl_id.clone());
+                            }
+                        }
+                    }
+                    GenericConstraint::Equivalent { left, right } => {
+                        let norm_left = match left {
+                            TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
+                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
+                                other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
+                            },
+                            other => other,
+                        };
+                        let norm_right = match right {
+                            TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
+                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
+                                other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
+                            },
+                            other => other,
+                        };
+                        if norm_left != norm_right {
+                            return ConformanceResolution::InvalidSource(head.impl_id.clone());
+                        }
+                    }
+                    GenericConstraint::Subtype { .. } => {}
+                }
+            }
+        }
     }
     let mut requirement_views = trait_surface.instantiate(store, &environment);
     for view in requirement_views.values_mut() {

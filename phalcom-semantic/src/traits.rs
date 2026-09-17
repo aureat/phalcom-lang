@@ -614,16 +614,32 @@ fn validate_constraints(
     for (index, constraint) in signature.constraints.iter().enumerate() {
         match constraint {
             GenericConstraint::Subtype { lower, upper } => {
-                let left = substitute_constraint_term(store, &substitution, lower, index)?;
-                let right = substitute_constraint_term(store, &substitution, upper, index)?;
+                let left = match substitute_constraint_term(store, &substitution, lower, index) {
+                    Ok(ty) => ty,
+                    Err(TraitRefFormationError::ConstraintNotCanonical { .. }) => continue,
+                    Err(err) => return Err(err),
+                };
+                let right = match substitute_constraint_term(store, &substitution, upper, index) {
+                    Ok(ty) => ty,
+                    Err(TraitRefFormationError::ConstraintNotCanonical { .. }) => continue,
+                    Err(err) => return Err(err),
+                };
                 if !is_subtype(store, hierarchy, left, right) {
                     return Err(TraitRefFormationError::ConstraintUnsatisfied { index });
                 }
             }
             GenericConstraint::Equivalent { left, right } => {
-                let left = substitute_constraint_term(store, &substitution, left, index)?;
-                let right = substitute_constraint_term(store, &substitution, right, index)?;
-                if !is_subtype(store, hierarchy, left, right) || !is_subtype(store, hierarchy, right, left) {
+                let left_ty = match substitute_constraint_term(store, &substitution, left, index) {
+                    Ok(ty) => ty,
+                    Err(TraitRefFormationError::ConstraintNotCanonical { .. }) => continue,
+                    Err(err) => return Err(err),
+                };
+                let right_ty = match substitute_constraint_term(store, &substitution, right, index) {
+                    Ok(ty) => ty,
+                    Err(TraitRefFormationError::ConstraintNotCanonical { .. }) => continue,
+                    Err(err) => return Err(err),
+                };
+                if !is_subtype(store, hierarchy, left_ty, right_ty) || !is_subtype(store, hierarchy, right_ty, left_ty) {
                     return Err(TraitRefFormationError::ConstraintUnsatisfied { index });
                 }
             }
@@ -635,6 +651,25 @@ fn validate_constraints(
     Ok(())
 }
 
+fn type_contains_self(store: &TypeStore, ty: TypeId) -> bool {
+    match store.get(ty) {
+        crate::types::store::TypeData::SelfType(_) => true,
+        crate::types::store::TypeData::AssociatedProjection(p) => {
+            type_contains_self(store, p.subject) || p.trait_ref.arguments.iter().any(|&arg| type_contains_self(store, arg))
+        }
+        crate::types::store::TypeData::Applied { origin, arguments } => {
+            type_contains_self(store, *origin) || arguments.iter().any(|&arg| type_contains_self(store, arg))
+        }
+        crate::types::store::TypeData::ExactCase { enum_type, .. } => type_contains_self(store, *enum_type),
+        crate::types::store::TypeData::Union(types) => types.iter().any(|&t| type_contains_self(store, t)),
+        crate::types::store::TypeData::Tuple(elems) => elems.iter().any(|e| type_contains_self(store, e.ty)),
+        crate::types::store::TypeData::Callable(c) => {
+            type_contains_self(store, c.return_type) || c.parameters.iter().any(|p| type_contains_self(store, p.ty))
+        }
+        _ => false,
+    }
+}
+
 fn substitute_constraint_term(
     store: &mut TypeStore,
     substitution: &crate::types::substitution::TypeSubstitution,
@@ -642,7 +677,13 @@ fn substitute_constraint_term(
     index: usize,
 ) -> Result<TypeId, TraitRefFormationError> {
     match term {
-        TypeTerm::Canonical(ty) => Ok(substitution.apply(store, *ty)),
+        TypeTerm::Canonical(ty) => {
+            let applied = substitution.apply(store, *ty);
+            if type_contains_self(store, applied) {
+                return Err(TraitRefFormationError::ConstraintNotCanonical { index });
+            }
+            Ok(applied)
+        }
         TypeTerm::SelfType(_) | TypeTerm::Infer(_) => Err(TraitRefFormationError::ConstraintNotCanonical { index }),
     }
 }

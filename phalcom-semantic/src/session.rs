@@ -7267,6 +7267,9 @@ fn publish_conformance_witness_plans(
                 .get(impl_id)
                 .cloned()
                 .unwrap_or_else(|| crate::impls::ConformanceAssociatedTypePlan::empty(impl_id.clone())),
+            conformance_index,
+            trait_surfaces,
+            conformance_associated_type_plans,
         );
         if let crate::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness {
             let mut diagnostic = SemanticDiagnostic::error_in(
