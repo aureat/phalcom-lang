@@ -173,6 +173,23 @@ let result = byteSum == 24 and directFirst and directSecond and directThird and 
 }
 
 #[test]
+fn canonical_range_for_publishes_semantic_iteration_lane() {
+    let source = r#"
+let sum = 0
+for value in (1..4) { sum = sum + value }
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source)))
+        .expect("canonical Range iteration compiles");
+    assert_eq!(program.modules.len(), 1, "semantic support modules must not be rematerialized into the Universe VM");
+    assert_eq!(program.initialization_order, vec![program.entry.clone()]);
+    assert_eq!(
+        program.modules[&program.entry].lowering.for_iteration_lanes.len(),
+        1,
+        "Range for-loop must use the semantic canonical Iterator/Iterable lane"
+    );
+}
+
+#[test]
 #[ignore = "BASELINE: generic call-entry type recipe cannot instantiate generic MapIterator<K,V>"]
 fn canonical_map_iterator_and_views_yield_labeled_entries() {
     let source = r#"
@@ -211,7 +228,6 @@ let result = count == 2 and directFirst and directSecond and done.isNone and key
 }
 
 #[test]
-#[ignore = "BASELINE: generic Option<Number> bound extraction cannot instantiate Option::match"]
 fn canonical_range_iterator_is_stateful_and_respects_bounds() {
     let source = r#"
 let exclusive = (1..4).iterator
