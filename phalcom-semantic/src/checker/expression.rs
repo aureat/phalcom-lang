@@ -828,10 +828,8 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             if let Some(ref upper) = r.upper {
                 analyze_expression(ctx, upper, &ExpectedType::None);
             }
-            let object_decl = ctx.core_ids.object.clone();
-            let Some(ty) = ctx.core_type(&object_decl) else {
-                return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
-            };
+            let range_decl = ctx.core_ids.range.clone();
+            let ty = ctx.core_type(&range_decl).unwrap_or_else(|| ctx.store.nominal(range_decl));
             TypedExpression::established(ty, EvidenceOrigin::Flow, r.range)
         }
         // Ellipsis is a compiler/runtime singleton, not a statically declared

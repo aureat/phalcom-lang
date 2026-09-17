@@ -324,7 +324,7 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 | `LANG005.C6.P2` | Generic/qualified associated projections, associated specialization/equality, projection-driven inference, durable associated constraint metadata | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T1–T10 complete; generic associated projections, refinements, equality, and inference verified; G1–G5 pass |
 | `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T0–T8 complete; recursive proof engine, cycle/memoization, derived runtime evidence, and cross-module/incremental integration verified; Gates G1–G6 pass |
 | `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 complete; canonical law and focused gates pass; positive legacy iteration corpus is reproduced baseline-blocked at clean HEAD |
-| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I plus Bytes/String, Set, and Map direct canonical stateful lanes are implemented; getter recipe transport and metadata-pool rebasing are focused-tested; Range remains blocked at the inherited Option<Number> boundary, Tuple Dynamic Item remains semantically unpublished, and G3/T9–T11 are not started |
+| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I plus Bytes/String, Set, and Map direct canonical stateful lanes are implemented; Range's field-lifecycle producer and `Option<Number>` getter metadata are focused-tested, while the direct runtime probe remains blocked at nested `Option.unwrapOr -> Option.match` materialization; Tuple Dynamic Item remains semantically unpublished, and G3/T9–T11 are not started |
 | `LANG005.C6.P6` | Remaining generic-constraint closure, higher-kind integration where specified, alias/GADT/tooling/performance/stress/certification | PROPOSED | NOT_STARTED | UNVERIFIED | C6 closure plan; exact scope may be amended |
 
 The precise numbering/content of P2–P6 may be amended by later live repository analysis. The dependency structure is more authoritative than the placeholder plan names.
@@ -1095,6 +1095,19 @@ Mechanical drift may be adapted. Architectural drift requires consultation.
   exclusive/inclusive/unbounded semantics, and retains legacy cursor methods
   for transition. Its focused runtime path reaches the inherited
   `Option<Number>` generic call-entry baseline at `Option.isNone`.
+- **Range lifecycle correction**: opaque-call invalidation was erasing the
+  current type of every instance field, including a definitely initialized
+  field whose validated/assumed lifecycle contract remains authoritative.
+  It now drops only narrower write-derived knowledge and restores the
+  lifecycle read knowledge. This preserves constructor-derived initialization
+  authority without treating an unchecked field as readable.
+- **Focused evidence**: the field-flow regression and the canonical Range
+  lowering characterization pass; the latter proves the
+  `RangeIterator.next` `lowerOpt.isNone` call recipe closes `Option.T` as
+  `Number`. Native-surface generation is current (334 declarations).
+  The direct ignored Range runtime probe now advances to the pre-existing
+  nested `Option.unwrapOr -> Option.match` template-materialization failure;
+  it no longer fails because Range field flow is unknown.
 - **T6 Tuple disposition**: a bounded `TupleIterator` attempt was reverted
   because publishing `TupleIterator |= Iterator` with `Item = Dynamic` changes
   the canonical Universe baseline to `impl.conformance.incomplete`. Tuple

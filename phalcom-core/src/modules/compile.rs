@@ -1222,3 +1222,45 @@ fn compile_module(
         lowering,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::typing::RuntimeTypeRecipe;
+    use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
+
+    #[test]
+    fn canonical_range_lower_option_closes_number_at_is_none_call_edge() {
+        let canonical = crate::modules::canonical_universe_program().expect("canonical Universe should build");
+        let range_id = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("collections").expect("collections component"),
+            ModuleComponent::from_identifier("range").expect("range component"),
+        ]));
+        let source = canonical
+            .source_index()
+            .unit(&range_id)
+            .map(|module| module.text.clone())
+            .expect("canonical Range source text");
+        let source = source.as_ref();
+        let lower_offset = source.find("let lowerOpt = _range._$lower").expect("RangeIterator lower binding");
+        let is_none_offset = source[lower_offset..]
+            .find("lowerOpt.isNone")
+            .map(|offset| lower_offset + offset)
+            .expect("RangeIterator lower isNone observation");
+        let is_none_end = is_none_offset + "lowerOpt.isNone".len();
+        let module = canonical.program().modules.get(&range_id).expect("canonical Range module artifact");
+        let (range, recipe) = module
+            .lowering
+            .call_environment_recipes
+            .iter()
+            .find(|(range, recipe)| {
+                range.start >= is_none_offset
+                    && range.end <= is_none_end
+                    && recipe.callable.selector.as_ref() == "isNone"
+            })
+            .expect("RangeIterator lowerOpt.isNone call recipe");
+        assert!(
+            matches!(recipe.bindings.as_ref(), [(_, RuntimeTypeRecipe::Closed(_))]),
+            "RangeIterator lowerOpt.isNone must close Option.T as Number at {range:?}, got {recipe:?}"
+        );
+    }
+}

@@ -8444,7 +8444,10 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 labeled: &[],
                 rest: None,
             },
-            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            returns: &::phalcom_native_meta::TypeExprSpec::Applied {
+                origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+            },
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
@@ -8452,11 +8455,14 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                     labeled: &[],
                     rest: None,
                 },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
+                    origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                },
                 constraints: &[],
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
-            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
             flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
             termination: TerminationSpec::Unknown,
             since: None,
@@ -8474,7 +8480,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         },
         kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Unknown,
+        return_shape: NativeReturnShape::Instance("Option"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {
@@ -8491,7 +8497,10 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 labeled: &[],
                 rest: None,
             },
-            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            returns: &::phalcom_native_meta::TypeExprSpec::Applied {
+                origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+            },
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
@@ -8499,11 +8508,14 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                     labeled: &[],
                     rest: None,
                 },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
+                    origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                },
                 constraints: &[],
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
-            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
             flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
             termination: TerminationSpec::Unknown,
             since: None,
@@ -8521,7 +8533,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         },
         kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Unknown,
+        return_shape: NativeReturnShape::Instance("Option"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {
@@ -8538,7 +8550,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 labeled: &[],
                 rest: None,
             },
-            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bool),
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
@@ -8546,11 +8558,11 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                     labeled: &[],
                     rest: None,
                 },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bool),
                 constraints: &[],
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
-            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
             flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
             termination: TerminationSpec::Unknown,
             since: None,
@@ -8568,7 +8580,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         },
         kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Unknown,
+        return_shape: NativeReturnShape::Instance("Bool"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {

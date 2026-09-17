@@ -170,3 +170,4 @@ class Probe {
     let observed = f.binding(run, "observed");
     assert!(observed.current.is_unknown() || observed.current.is_dynamic());
 }
+

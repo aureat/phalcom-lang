@@ -234,3 +234,82 @@ class Probe {
         phalcom_semantic::types::parameter::TypeParameterOwner::Callable(_)
     ));
 }
+
+#[test]
+fn instance_method_on_generic_class_publishes_owner_call_specialization() {
+    let fixture = Fixture::new(
+        r#"
+class Box<T> {
+  @constructor new() {}
+  fetch(_ x: Int) -> T { 42 }
+}
+
+class Probe {
+  @class
+  run() {
+    let b: Box<Int> = Box<Int>.new()
+    let value = b.fetch(1)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let diags = fixture.analysis.snapshot.diagnostics();
+    println!("DIAGNOSTICS: {diags:?}");
+    let call = fixture.expression(run, "b.fetch(1)");
+    println!("CALL: {call:#?}");
+    let specialization = call.call_specialization.as_ref().expect("instance method call on generic class should have call_specialization");
+    assert_eq!(specialization.bindings.len(), 1);
+    assert_eq!(specialization.bindings[0].1, fixture.ty("Int"));
+}
+
+#[test]
+fn range_like_option_unwrap_or_call_specialization() {
+    let fixture = Fixture::new(
+        r#"
+class Range {
+  _$lower -> Option<Number> { Some(0) }
+}
+
+class RangeIterator {
+  _range: Range
+  @constructor new(_ r: Range) { _range = r }
+  next() {
+    let lowerOpt = _range._$lower
+    let lower = lowerOpt.unwrapOr(0)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("RangeIterator", "next", DispatchSide::Instance);
+    let call = fixture.expression(run, "lowerOpt.unwrapOr(0)");
+    println!("RANGE CALL: {call:#?}");
+    let specialization = call.call_specialization.as_ref().expect("lowerOpt.unwrapOr(0) should have call_specialization");
+    println!("SPECIALIZATION: {specialization:#?}");
+}
+
+#[test]
+fn range_iterator_next_is_some_call_specialization() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let exclusive = (1..4).iterator
+    let directFirst = exclusive.next.isSome
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let exclusive = fixture.expression(run, "(1..4).iterator");
+    println!("EXCLUSIVE: {exclusive:#?}");
+    let exclusive_next = fixture.expression(run, "exclusive.next");
+    println!("EXCLUSIVE_NEXT: {exclusive_next:#?}");
+    let is_some = fixture.expression(run, "exclusive.next.isSome");
+    println!("IS_SOME: {is_some:#?}");
+}
+
+
+
+

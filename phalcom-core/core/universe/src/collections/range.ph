@@ -54,7 +54,7 @@ class Range is Iterable {
     let end = size
     let lower = self._$lower
     if (lower.isSome) {
-      let coordinate = lower.unwrapOr(None)
+      let coordinate = lower.unwrapOr(0)
       if (not self.isSliceCoordinate(coordinate)) {
         return Result::Error(SliceError.new("Range lower bound must be an integer coordinate"))
       }
@@ -62,7 +62,7 @@ class Range is Iterable {
     }
     let upper = self._$upper
     if (upper.isSome) {
-      let coordinate = upper.unwrapOr(None)
+      let coordinate = upper.unwrapOr(0)
       if (not self.isSliceCoordinate(coordinate)) {
         return Result::Error(SliceError.new("Range upper bound must be an integer coordinate"))
       }
@@ -87,13 +87,13 @@ class Range is Iterable {
     lowerOpt.isNone.ifTrue || {
       throw ArgumentError.new("Range iteration unsupported when lower bound is absent")
     }
-    let lower = lowerOpt.unwrapOr(None)
+    let lower = lowerOpt.unwrapOr(0)
     (self.isSliceCoordinate(lower)).ifFalse || {
       throw ArgumentError.new("Range iteration unsupported: lower bound must be an integer")
     }
 
     let hasUpper = upperOpt.isSome
-    let upper = hasUpper.ifTrue(|| { upperOpt.unwrapOr(None) }, ifFalse: || { None })
+    let upper = hasUpper.ifTrue(|| { upperOpt.unwrapOr(0) }, ifFalse: || { 0 })
     hasUpper.ifTrue || {
       (self.isSliceCoordinate(upper)).ifFalse || {
         throw ArgumentError.new("Range iteration unsupported: upper bound must be an integer")
@@ -192,15 +192,15 @@ class Range is Iterable {
   toString {
     let lowerOpt = self._$lower
     let upperOpt = self._$upper
-    let lowerStr = lowerOpt.isNone.ifTrue(|| { "" }, ifFalse: || { lowerOpt.unwrapOr(None).toString })
-    let upperStr = upperOpt.isNone.ifTrue(|| { "" }, ifFalse: || { upperOpt.unwrapOr(None).toString })
+    let lowerStr = lowerOpt.isNone.ifTrue(|| { "" }, ifFalse: || { lowerOpt.unwrapOr(0).toString })
+    let upperStr = upperOpt.isNone.ifTrue(|| { "" }, ifFalse: || { upperOpt.unwrapOr(0).toString })
     let op = self._$upperInclusive.ifTrue(|| { "..=" }, ifFalse: || { ".." })
     return lowerStr + op + upperStr
   }
 
   hash {
-    let h1 = self._$lower.isSome.ifTrue(|| { self._$lower.unwrapOr(None).hash }, ifFalse: || { 17 })
-    let h2 = self._$upper.isSome.ifTrue(|| { self._$upper.unwrapOr(None).hash }, ifFalse: || { 31 })
+    let h1 = self._$lower.isSome.ifTrue(|| { self._$lower.unwrapOr(0).hash }, ifFalse: || { 17 })
+    let h2 = self._$upper.isSome.ifTrue(|| { self._$upper.unwrapOr(0).hash }, ifFalse: || { 31 })
     let h3 = self._$upperInclusive.ifTrue(|| { 1 }, ifFalse: || { 0 })
     return h1 + h2 * 37 + h3 * 97
   }
@@ -228,14 +228,14 @@ class RangeIterator {
       if (lowerOpt.isNone) {
         throw ArgumentError.new("Range iteration unsupported when lower bound is absent")
       }
-      let lower = lowerOpt.unwrapOr(None)
+      let lower = lowerOpt.unwrapOr(0)
       if (not (lower.is(Number) and ((lower % 1) == 0))) {
         throw ArgumentError.new("Range iteration unsupported: lower bound must be an integer")
       }
 
       let upperOpt = _range._$upper
       if (upperOpt.isSome) {
-        let upper = upperOpt.unwrapOr(None)
+        let upper = upperOpt.unwrapOr(0)
         if (not (upper.is(Number) and ((upper % 1) == 0))) {
           throw ArgumentError.new("Range iteration unsupported: upper bound must be an integer")
         }
@@ -252,7 +252,7 @@ class RangeIterator {
 
     let upperOpt = _range._$upper
     if (upperOpt.isSome) {
-      let upper = upperOpt.unwrapOr(None)
+      let upper = upperOpt.unwrapOr(0)
       let live = _range._$upperInclusive.ifTrue(|| { _nextValue <= upper }, ifFalse: || { _nextValue < upper })
       if (not live) {
         _done = true

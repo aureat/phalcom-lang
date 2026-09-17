@@ -128,7 +128,7 @@ mod field_tests {
     }
 
     #[test]
-    fn opaque_call_drops_alias_sensitive_facts_without_rewriting_contracts() {
+    fn opaque_call_drops_alias_sensitive_facts_and_restores_definite_field_contracts() {
         let mut store = TypeStore::new();
         let int_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
         let immutable = BindingId(1);
@@ -172,8 +172,8 @@ mod field_tests {
         let field = flow.get_field(&field_id).expect("field state");
         assert_eq!(field.contract, contract);
         assert_eq!(field.initialization, FieldInitialization::DefinitelyInitialized);
-        assert_eq!(field.current, TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
-        assert_eq!(field.validity, FieldContractValidity::Unchecked);
+        assert_eq!(field.current, TypeKnowledge::established(int_ty, EvidenceOrigin::FieldLifecycle));
+        assert_eq!(field.validity, FieldContractValidity::Validated);
     }
 }
 
@@ -817,8 +817,10 @@ impl FlowState {
     /// Binding contracts remain persistent declarations. Immutable local facts
     /// remain valid because this flow model has no path for an opaque call to
     /// rewrite them. Mutable local predicates are removed because an aliased
-    /// or captured write cannot be ruled out. Instance-field current facts are
-    /// dropped while their contracts and initialization state remain intact.
+    /// or captured write cannot be ruled out. Instance fields lose any
+    /// narrower write-derived fact, but a definitely initialized field whose
+    /// contract has already been validated remains readable through that
+    /// lifecycle contract.
     pub fn invalidate_opaque_calls(&mut self) {
         self.facts.facts.retain(|predicate, _| {
             predicate
@@ -829,9 +831,16 @@ impl FlowState {
 
         for field in self.fields.values_mut() {
             if matches!(field.current, TypeKnowledge::Known(_)) {
-                field.current = TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence);
-                field.validity = FieldContractValidity::Unchecked;
-                field.version += 1;
+                let fallback = crate::checker::field_lifecycle::lifecycle_read_knowledge(
+                    &field.contract,
+                    field.initialization,
+                    &field.validity,
+                    field.causal_invalidity,
+                );
+                if field.current != fallback {
+                    field.current = fallback;
+                    field.version += 1;
+                }
             }
         }
     }
