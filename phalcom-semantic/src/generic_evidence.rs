@@ -46,12 +46,48 @@ pub enum NestedGenericEvidence {
     Subtype,
 }
 
-/// Derived conformance evidence for an instantiated conditional conformance.
+/// Origin of a derived conformance proof.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DerivedConformanceOrigin {
+    ConditionalSource {
+        exact_source: Arc<ConformanceEvidence>,
+    },
+    GuardedRule {
+        rule: Arc<crate::derived_conformance::DerivedConformanceRule>,
+        exact_subject: TypeId,
+        exact_trait_ref: TraitRef,
+    },
+}
+
+/// Derived conformance evidence for an instantiated conditional conformance or guarded rule.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DerivedConformanceEvidence {
-    pub exact_source: Arc<ConformanceEvidence>,
+    pub origin: DerivedConformanceOrigin,
     pub impl_bindings: TypeSubstitution,
     pub nested: Box<[NestedGenericEvidence]>,
+}
+
+impl DerivedConformanceEvidence {
+    pub fn exact_source(&self) -> Option<&Arc<ConformanceEvidence>> {
+        match &self.origin {
+            DerivedConformanceOrigin::ConditionalSource { exact_source } => Some(exact_source),
+            DerivedConformanceOrigin::GuardedRule { .. } => None,
+        }
+    }
+
+    pub fn requirements(&self) -> &BTreeMap<crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate> {
+        match &self.origin {
+            DerivedConformanceOrigin::ConditionalSource { exact_source } => &exact_source.requirements,
+            DerivedConformanceOrigin::GuardedRule { rule, .. } => &rule.requirements,
+        }
+    }
+
+    pub fn requirement_views(&self) -> &BTreeMap<crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement> {
+        match &self.origin {
+            DerivedConformanceOrigin::ConditionalSource { exact_source } => &exact_source.requirement_views,
+            DerivedConformanceOrigin::GuardedRule { rule, .. } => &rule.requirement_views,
+        }
+    }
 }
 
 /// Proven generic conformance evidence: exact (unconditional source impl),
@@ -406,6 +442,7 @@ pub struct ConformanceProofContext<'a> {
     pub conformance_index: Option<&'a ConformanceIndex>,
     pub witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
     pub trait_surfaces: Option<&'a TraitSurfaceTable>,
+    pub derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
     pub declarations: Option<&'a DeclarationTypeTable>,
     pub hierarchy: Option<&'a dyn TypeHierarchy>,
     pub store: Option<&'a mut TypeStore>,
@@ -430,6 +467,7 @@ impl<'a> ConformanceProofContext<'a> {
             conformance_index,
             witness_plans,
             trait_surfaces,
+            derived_rules: None,
             declarations,
             hierarchy,
             store,
@@ -438,6 +476,14 @@ impl<'a> ConformanceProofContext<'a> {
             budget: QueryBudget::default(),
             cancellation: CancellationToken::new(),
         }
+    }
+
+    pub fn with_derived_rules(
+        mut self,
+        derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
+    ) -> Self {
+        self.derived_rules = derived_rules;
+        self
     }
 
     pub fn with_budget_and_cancellation(
@@ -795,61 +841,157 @@ fn evaluate_conformance_goal(
         }
     }
 
-    // 2. Exact fallback for canonical types
-    match &key.subject {
-        TypeTerm::Canonical(target_type) => {
-            let target_type = *target_type;
-            let (Some(index), Some(plans), Some(surfaces), Some(decls), Some(hier)) = (
-                context.conformance_index,
-                context.witness_plans,
-                context.trait_surfaces,
-                context.declarations,
-                context.hierarchy,
-            ) else {
-                return GenericConformanceProof::Missing;
-            };
+    // 2. Candidate collection across exact/conditional nominal sources and guarded derived rules
+    let mut successes = Vec::new();
+    let mut failure_proofs = Vec::new();
+    let mut conflicting_impls = Vec::new();
 
-            if !surfaces.contains(&key.trait_ref.declaration) {
-                return GenericConformanceProof::InternalFailure("trait surface is unavailable".into());
-            }
+    // 2A. Nominal conformance index lookup (exact / conditional)
+    if let TypeTerm::Canonical(target_type) = key.subject {
+        if let (Some(index), Some(plans), Some(surfaces), Some(decls), Some(hier)) = (
+            context.conformance_index,
+            context.witness_plans,
+            context.trait_surfaces,
+            context.declarations,
+            context.hierarchy,
+        ) {
+            if surfaces.contains(&key.trait_ref.declaration) {
+                if let Some(store) = context.store.as_deref_mut() {
+                    let matches = index.query_exact(store, target_type, &key.trait_ref);
+                    match matches.len() {
+                        0 => {}
+                        1 => {
+                            let head = &matches[0];
+                            if let Some(plan) = plans.get(&head.impl_id) {
+                                if !matches!(&plan.completeness, crate::impls::ConformanceCompleteness::Incomplete { .. }) {
+                                    let generic_signature = plan.generic_signature.as_ref();
+                                    let constraints = generic_signature.map_or(&[] as &[GenericConstraint], |s| &s.constraints);
 
-            let Some(store) = context.store.as_deref_mut() else {
-                return GenericConformanceProof::InternalFailure("type store is unavailable".into());
-            };
+                                    if constraints.is_empty() {
+                                        let store = context.store.as_deref_mut().unwrap();
+                                        let exact_res = crate::impls::resolve_conformance_evidence_with_surfaces(
+                                            index,
+                                            plans,
+                                            surfaces,
+                                            decls,
+                                            store,
+                                            hier,
+                                            target_type,
+                                            &key.trait_ref,
+                                        );
+                                        match exact_res {
+                                            crate::impls::ConformanceResolution::Proven(exact_ev) => {
+                                                conflicting_impls.push(head.impl_id.clone());
+                                                successes.push(GenericConformanceEvidence::Exact(exact_ev));
+                                            }
+                                            other => {
+                                                failure_proofs.push(map_conformance_resolution_to_proof(other));
+                                            }
+                                        }
+                                    } else {
+                                        let impl_bindings = TypeSubstitution::from_bindings(head.impl_bindings.clone());
+                                        let constraints_vec = constraints.to_vec();
+                                        let mut nested_evidences = Vec::with_capacity(constraints_vec.len());
+                                        let mut failure_proof = None;
 
-            let matches = index.query_exact(store, target_type, &key.trait_ref);
-            match matches.len() {
-                0 => GenericConformanceProof::Missing,
-                1 => {
-                    let head = &matches[0];
-                    let Some(plan) = plans.get(&head.impl_id) else {
-                        return GenericConformanceProof::Incomplete(head.impl_id.clone());
-                    };
-                    if let crate::impls::ConformanceCompleteness::Incomplete { .. } = &plan.completeness {
-                        return GenericConformanceProof::Incomplete(head.impl_id.clone());
+                                        for constraint in &constraints_vec {
+                                            let obligation_proof = prove_constraint(constraint, &impl_bindings, context);
+                                            match obligation_proof {
+                                                GenericObligationProof::Conformance(GenericConformanceProof::Proven(ev)) => {
+                                                    nested_evidences.push(NestedGenericEvidence::Conformance(ev));
+                                                }
+                                                GenericObligationProof::Conformance(failing) => {
+                                                    failure_proof = Some(failing);
+                                                    break;
+                                                }
+                                                GenericObligationProof::Equivalent(GenericEquivalenceProof::Proven) => {
+                                                    nested_evidences.push(NestedGenericEvidence::Equivalent);
+                                                }
+                                                GenericObligationProof::Equivalent(failing) => {
+                                                    failure_proof = Some(map_equivalence_proof_to_conformance_proof(failing));
+                                                    break;
+                                                }
+                                                GenericObligationProof::Subtype(outcome) => {
+                                                    if outcome.is_proven() {
+                                                        nested_evidences.push(NestedGenericEvidence::Subtype);
+                                                    } else {
+                                                        failure_proof = Some(map_subtype_outcome_to_conformance_proof(outcome));
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if let Some(failing) = failure_proof {
+                                            failure_proofs.push(failing);
+                                        } else {
+                                            let (index, plans, surfaces, decls, hier) = (
+                                                context.conformance_index.unwrap(),
+                                                context.witness_plans.unwrap(),
+                                                context.trait_surfaces.unwrap(),
+                                                context.declarations.unwrap(),
+                                                context.hierarchy.unwrap(),
+                                            );
+                                            let store = context.store.as_deref_mut().unwrap();
+                                            let exact_res = crate::impls::resolve_conformance_evidence_with_surfaces(
+                                                index,
+                                                plans,
+                                                surfaces,
+                                                decls,
+                                                store,
+                                                hier,
+                                                target_type,
+                                                &key.trait_ref,
+                                            );
+                                            match exact_res {
+                                                crate::impls::ConformanceResolution::Proven(exact_ev) => {
+                                                    conflicting_impls.push(head.impl_id.clone());
+                                                    let derived = Arc::new(DerivedConformanceEvidence {
+                                                        origin: DerivedConformanceOrigin::ConditionalSource { exact_source: exact_ev },
+                                                        impl_bindings,
+                                                        nested: nested_evidences.into_boxed_slice(),
+                                                    });
+                                                    successes.push(GenericConformanceEvidence::Derived(derived));
+                                                }
+                                                other => failure_proofs.push(map_conformance_resolution_to_proof(other)),
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    failure_proofs.push(GenericConformanceProof::Incomplete(head.impl_id.clone()));
+                                }
+                            } else {
+                                failure_proofs.push(GenericConformanceProof::Incomplete(head.impl_id.clone()));
+                            }
+                        }
+                        _ => {
+                            return GenericConformanceProof::CoherenceConflict(
+                                matches.into_iter().map(|item| item.impl_id).collect::<Vec<_>>().into_boxed_slice(),
+                            );
+                        }
                     }
+                }
+            }
+        }
+    }
 
-                    let generic_signature = plan.generic_signature.as_ref();
-                    let constraints = generic_signature.map_or(&[] as &[GenericConstraint], |s| &s.constraints);
+    // 2B. Guarded derived conformance rules lookup
+    if let (Some(rules), Some(surfaces)) = (context.derived_rules, context.trait_surfaces) {
+        if surfaces.contains(&key.trait_ref.declaration) {
+            let candidate_rules = rules.rules_for_trait(&key.trait_ref.declaration);
+            for rule in candidate_rules {
+                if let TypeTerm::Canonical(target_type) = key.subject {
+                    let mut impl_bindings = TypeSubstitution::new();
+                    impl_bindings.bind(rule.target_parameter, target_type);
 
-                    if constraints.is_empty() {
-                        // Unconditional candidate: resolve exact evidence directly
-                        let store = context.store.as_deref_mut().unwrap();
-                        let exact_res = crate::impls::resolve_conformance_evidence_with_surfaces(
-                            index,
-                            plans,
-                            surfaces,
-                            decls,
-                            store,
-                            hier,
-                            target_type,
-                            &key.trait_ref,
-                        );
-                        map_conformance_resolution_to_proof(exact_res)
+                    let instantiated_trait_ref = if let Some(store) = context.store.as_deref_mut() {
+                        substitute_trait_ref(&rule.trait_ref, &impl_bindings, store)
                     } else {
-                        // Conditional candidate: instantiate constraints and prove each recursively
-                        let impl_bindings = TypeSubstitution::from_bindings(head.impl_bindings.clone());
-                        let constraints_vec = constraints.to_vec();
+                        rule.trait_ref.clone()
+                    };
+
+                    if instantiated_trait_ref == key.trait_ref {
+                        let constraints_vec = rule.generic_signature.constraints.clone();
                         let mut nested_evidences = Vec::with_capacity(constraints_vec.len());
                         let mut failure_proof = None;
 
@@ -882,47 +1024,70 @@ fn evaluate_conformance_goal(
                         }
 
                         if let Some(failing) = failure_proof {
-                            failing
+                            failure_proofs.push(failing);
                         } else {
-                            let (index, plans, surfaces, decls, hier) = (
-                                context.conformance_index.unwrap(),
-                                context.witness_plans.unwrap(),
-                                context.trait_surfaces.unwrap(),
-                                context.declarations.unwrap(),
-                                context.hierarchy.unwrap(),
-                            );
-                            let store = context.store.as_deref_mut().unwrap();
-                            let exact_res = crate::impls::resolve_conformance_evidence_with_surfaces(
-                                index,
-                                plans,
-                                surfaces,
-                                decls,
-                                store,
-                                hier,
-                                target_type,
-                                &key.trait_ref,
-                            );
-                            match exact_res {
-                                crate::impls::ConformanceResolution::Proven(exact_ev) => {
-                                    let derived = Arc::new(DerivedConformanceEvidence {
-                                        exact_source: exact_ev,
-                                        impl_bindings,
-                                        nested: nested_evidences.into_boxed_slice(),
-                                    });
-                                    GenericConformanceProof::Proven(GenericConformanceEvidence::Derived(derived))
-                                }
-                                other => map_conformance_resolution_to_proof(other),
-                            }
+                            conflicting_impls.push(rule.impl_id.clone());
+                            let derived = Arc::new(DerivedConformanceEvidence {
+                                origin: DerivedConformanceOrigin::GuardedRule {
+                                    rule: rule.clone(),
+                                    exact_subject: target_type,
+                                    exact_trait_ref: key.trait_ref.clone(),
+                                },
+                                impl_bindings,
+                                nested: nested_evidences.into_boxed_slice(),
+                            });
+                            successes.push(GenericConformanceEvidence::Derived(derived));
                         }
                     }
                 }
-                _ => GenericConformanceProof::CoherenceConflict(
-                    matches.into_iter().map(|item| item.impl_id).collect::<Vec<_>>().into_boxed_slice(),
-                ),
             }
         }
-        _ => GenericConformanceProof::Missing,
     }
+
+    // 3. Classify candidate successes / coherence / failures
+    if successes.len() == 1 {
+        return GenericConformanceProof::Proven(successes.remove(0));
+    }
+    if successes.len() > 1 {
+        return GenericConformanceProof::CoherenceConflict(conflicting_impls.into_boxed_slice());
+    }
+
+    for failure in &failure_proofs {
+        if matches!(failure, GenericConformanceProof::BudgetExceeded(_)) {
+            return failure.clone();
+        }
+    }
+    for failure in &failure_proofs {
+        if matches!(failure, GenericConformanceProof::Cancelled) {
+            return failure.clone();
+        }
+    }
+    for failure in &failure_proofs {
+        if matches!(failure, GenericConformanceProof::InternalFailure(_)) {
+            return failure.clone();
+        }
+    }
+    for failure in &failure_proofs {
+        if matches!(failure, GenericConformanceProof::Blocked(_)) {
+            return failure.clone();
+        }
+    }
+    for failure in &failure_proofs {
+        if matches!(failure, GenericConformanceProof::Dynamic(_)) {
+            return failure.clone();
+        }
+    }
+    for failure in &failure_proofs {
+        if matches!(failure, GenericConformanceProof::Incomplete(_)) {
+            return failure.clone();
+        }
+    }
+    for failure in &failure_proofs {
+        if matches!(failure, GenericConformanceProof::Unknown(_)) {
+            return failure.clone();
+        }
+    }
+    GenericConformanceProof::Missing
 }
 
 /// Recursive conformance proof query evaluated under an explicit session context.
@@ -965,6 +1130,7 @@ pub fn query_generic_conformance_proof(
     conformance_index: Option<&ConformanceIndex>,
     witness_plans: Option<&BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
     trait_surfaces: Option<&TraitSurfaceTable>,
+    derived_rules: Option<&crate::derived_conformance::DerivedConformanceRuleIndex>,
     declarations: Option<&DeclarationTypeTable>,
     hierarchy: Option<&dyn TypeHierarchy>,
     store: Option<&mut TypeStore>,
@@ -977,7 +1143,7 @@ pub fn query_generic_conformance_proof(
         declarations,
         hierarchy,
         store,
-    );
+    ).with_derived_rules(derived_rules);
     let key = GenericConformanceKey::new(subject.clone(), trait_ref.clone());
     prove_conformance_with_context(&key, &mut context)
 }

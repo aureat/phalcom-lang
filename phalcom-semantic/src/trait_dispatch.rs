@@ -78,6 +78,7 @@ pub struct ConformanceSemanticView<'a> {
     pub conformance_index: &'a ConformanceIndex,
     pub witness_plans: &'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
     pub trait_surfaces: &'a TraitSurfaceTable,
+    pub derived_conformance_rules: &'a crate::derived_conformance::DerivedConformanceRuleIndex,
 }
 
 impl ConformanceSemanticView<'_> {
@@ -91,6 +92,9 @@ impl ConformanceSemanticView<'_> {
         for (declaration, surface) in self.trait_surfaces.iter() {
             declaration.hash(&mut hasher);
             crate::db::fingerprint::trait_surface_product_fingerprint(surface).raw().hash(&mut hasher);
+        }
+        for rule in self.derived_conformance_rules.iter() {
+            rule.fingerprint.raw().hash(&mut hasher);
         }
         ProductFingerprint::new(hasher.finish())
     }

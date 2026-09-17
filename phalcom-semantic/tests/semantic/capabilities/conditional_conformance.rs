@@ -1305,8 +1305,9 @@ impl<T> Container for Box<T>
         phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
             phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived)
         ) => {
-            assert_eq!(derived.exact_source.associated_types.len(), 1);
-            let (_req, binding) = derived.exact_source.associated_types.iter().next().unwrap();
+            let exact_source = derived.exact_source().unwrap();
+            assert_eq!(exact_source.associated_types.len(), 1);
+            let (_req, binding) = exact_source.associated_types.iter().next().unwrap();
             assert_eq!(binding.value, user_ty);
         }
         other => panic!("expected Derived conformance evidence, got {:?}", other),

@@ -3990,6 +3990,7 @@ impl SemanticWorkspaceSession {
             conformance_index: &conformance_index,
             witness_plans: &conformance_witness_plans,
             trait_surfaces: &trait_surfaces,
+            derived_conformance_rules: &derived_conformance_rules,
         };
 
         // Trait defaults are checked once against the complete abstract

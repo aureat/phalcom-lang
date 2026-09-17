@@ -943,3 +943,598 @@ impl<T> Target for T
     assert!(codes1.contains(&DiagnosticCode::DerivedConformanceOverlap));
     assert!(codes2.contains(&DiagnosticCode::DerivedConformanceOverlap));
 }
+
+#[test]
+fn exact_iterator_derives_iterable() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class ItemType {}
+class Counter {}
+
+impl Iterator for Counter {
+    type Item = ItemType
+}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let counter_ty = fixture.ty("Counter");
+    let iterable_decl = fixture.decl("Iterable");
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(counter_ty),
+        trait_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    match proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived),
+        ) => {
+            match &derived.origin {
+                phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule { exact_subject, .. } => {
+                    assert_eq!(*exact_subject, counter_ty);
+                }
+                _ => panic!("expected GuardedRule origin"),
+            }
+            assert_eq!(derived.nested.len(), 1);
+        }
+        other => panic!("expected Proven(Derived) proof, got {:?}", other),
+    }
+}
+
+#[test]
+fn non_iterator_does_not_derive_iterable() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class User {}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let user_ty = fixture.ty("User");
+    let iterable_decl = fixture.decl("Iterable");
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(user_ty),
+        trait_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    assert_eq!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Missing);
+}
+
+#[test]
+fn assumed_iterator_derives_iterable() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class Container<T>
+    where T |= Iterator
+{}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let container_decl = fixture.decl("Container");
+    let iterable_decl = fixture.decl("Iterable");
+    let iterator_decl = fixture.decl("Iterator");
+
+    let container_info = fixture.analysis.snapshot.declarations.get(&container_decl).expect("container decl");
+    let generics = container_info.generic_signature.as_ref().expect("generics on Container");
+    let t_param = generics.parameters[0];
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let t_param_ty = store.parameter_form(t_param);
+
+    let env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+        &generics.constraints,
+        generics.owner.clone(),
+        &fixture.analysis.snapshot.trait_surfaces,
+    ).expect("evidence env");
+
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        Some(&env),
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(t_param_ty),
+        trait_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    match proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived),
+        ) => {
+            assert_eq!(derived.nested.len(), 1);
+            match &derived.nested[0] {
+                phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
+                    phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(assumed),
+                ) => {
+                    assert_eq!(assumed.key.trait_ref.declaration, iterator_decl);
+                }
+                other => panic!("expected nested Assumed evidence, got {:?}", other),
+            }
+        }
+        other => panic!("expected Proven(Derived) proof, got {:?}", other),
+    }
+}
+
+#[test]
+fn conditional_iterator_feeds_derived_iterable() {
+    let fixture = Fixture::new(
+        r#"
+trait Element {}
+
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class Box<T> {}
+
+impl<T> Iterator for Box<T>
+    where T |= Element
+{
+    type Item = T
+}
+
+class GoodElem {}
+
+impl Element for GoodElem {}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let box_form = fixture.ty("Box");
+    let good_elem_ty = fixture.ty("GoodElem");
+    let iterable_decl = fixture.decl("Iterable");
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let box_elem_ty = store.apply_type_form(box_form, &[good_elem_ty]).unwrap();
+
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(box_elem_ty),
+        trait_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    match proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived),
+        ) => {
+            assert_eq!(derived.nested.len(), 1);
+            match &derived.nested[0] {
+                phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
+                    phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(cond_derived),
+                ) => {
+                    assert!(cond_derived.exact_source().is_some());
+                }
+                other => panic!("expected nested conditional Derived evidence, got {:?}", other),
+            }
+        }
+        other => panic!("expected Proven(Derived), got {:?}", other),
+    }
+}
+
+#[test]
+fn nested_derived_chain_works() {
+    let fixture = Fixture::new(
+        r#"
+trait Base {}
+trait Middle {}
+trait Top {}
+
+impl<T> Middle for T
+    where T |= Base
+{}
+
+impl<T> Top for T
+    where T |= Middle
+{}
+
+class Leaf {}
+
+impl Base for Leaf {}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let leaf_ty = fixture.ty("Leaf");
+    let top_decl = fixture.decl("Top");
+    let top_ref = phalcom_semantic::traits::TraitRef::new(top_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(leaf_ty),
+        top_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    match proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(top_derived),
+        ) => {
+            assert_eq!(top_derived.nested.len(), 1);
+            match &top_derived.nested[0] {
+                phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
+                    phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(mid_derived),
+                ) => {
+                    assert_eq!(mid_derived.nested.len(), 1);
+                    match &mid_derived.nested[0] {
+                        phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
+                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_),
+                        ) => {}
+                        other => panic!("expected innermost Exact evidence, got {:?}", other),
+                    }
+                }
+                other => panic!("expected nested Middle Derived evidence, got {:?}", other),
+            }
+        }
+        other => panic!("expected Proven(Derived) proof, got {:?}", other),
+    }
+}
+
+#[test]
+fn self_cycle_blocks_proof() {
+    let fixture = Fixture::new(
+        r#"
+trait SelfLoop {}
+
+impl<T> SelfLoop for T
+    where T |= SelfLoop
+{}
+
+class Candidate {}
+"#,
+    );
+
+    let candidate_ty = fixture.ty("Candidate");
+    let loop_decl = fixture.decl("SelfLoop");
+    let loop_ref = phalcom_semantic::traits::TraitRef::new(loop_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(candidate_ty),
+        loop_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    match proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(
+            phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint,
+        ) => {}
+        other => panic!("expected Blocked(RecursiveFixpoint), got {:?}", other),
+    }
+}
+
+#[test]
+fn mutual_cycle_blocks_proof() {
+    let fixture = Fixture::new(
+        r#"
+trait TraitA {}
+trait TraitB {}
+
+impl<T> TraitA for T
+    where T |= TraitB
+{}
+
+impl<T> TraitB for T
+    where T |= TraitA
+{}
+
+class Candidate {}
+"#,
+    );
+
+    let candidate_ty = fixture.ty("Candidate");
+    let a_decl = fixture.decl("TraitA");
+    let a_ref = phalcom_semantic::traits::TraitRef::new(a_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(candidate_ty),
+        a_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    match proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(
+            phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint,
+        ) => {}
+        other => panic!("expected Blocked(RecursiveFixpoint), got {:?}", other),
+    }
+}
+
+#[test]
+fn budget_and_cancellation_preserved_in_rule_proof() {
+    let fixture = Fixture::new(
+        r#"
+trait TraitA {}
+trait TraitB {}
+
+impl<T> TraitA for T
+    where T |= TraitB
+{}
+
+class Candidate {}
+
+impl TraitB for Candidate {}
+"#,
+    );
+
+    let candidate_ty = fixture.ty("Candidate");
+    let a_decl = fixture.decl("TraitA");
+    let a_ref = phalcom_semantic::traits::TraitRef::new(a_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(candidate_ty),
+        a_ref,
+    );
+
+    // 1. Budget exceeded
+    let budget = phalcom_semantic::types::outcome::QueryBudget::new(0);
+    let cancel = phalcom_semantic::types::outcome::CancellationToken::new();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules))
+     .with_budget_and_cancellation(budget, cancel);
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    assert!(matches!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::BudgetExceeded(_)));
+
+    // 2. Cancellation
+    let budget = phalcom_semantic::types::outcome::QueryBudget::default();
+    let cancel = phalcom_semantic::types::outcome::CancellationToken::new();
+    cancel.cancel();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules))
+     .with_budget_and_cancellation(budget, cancel);
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    assert_eq!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Cancelled);
+}
+
+#[test]
+fn derived_rule_failed_has_no_partial_evidence() {
+    let fixture = Fixture::new(
+        r#"
+trait Req1 {}
+trait Req2 {}
+trait DerivedTarget {}
+
+impl<T> DerivedTarget for T
+    where
+        T |= Req1,
+        T |= Req2
+{}
+
+class HalfCandidate {}
+
+impl Req1 for HalfCandidate {}
+"#,
+    );
+
+    let half_ty = fixture.ty("HalfCandidate");
+    let target_decl = fixture.decl("DerivedTarget");
+    let target_ref = phalcom_semantic::traits::TraitRef::new(target_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(half_ty),
+        target_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    assert_eq!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Missing);
+}
+
+#[test]
+fn explicit_and_derived_exact_relation_conflict() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {}
+trait Iterable {}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{}
+
+class MyType {}
+
+impl Iterator for MyType {}
+impl Iterable for MyType {}
+"#,
+    );
+
+    let my_ty = fixture.ty("MyType");
+    let iterable_decl = fixture.decl("Iterable");
+    let iterable_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(my_ty),
+        iterable_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    match proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::CoherenceConflict(impls) => {
+            assert_eq!(impls.len(), 2);
+        }
+        other => panic!("expected CoherenceConflict proof result, got {:?}", other),
+    }
+}
+
+
+

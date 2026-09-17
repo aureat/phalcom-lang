@@ -2192,6 +2192,7 @@ fn discharge_generic_conformance_obligations(
                         ctx.conformance_semantics.map(|cs| cs.conformance_index),
                         ctx.conformance_semantics.map(|cs| cs.witness_plans),
                         ctx.conformance_semantics.map(|cs| cs.trait_surfaces),
+                        ctx.conformance_semantics.map(|cs| cs.derived_conformance_rules),
                         Some(ctx.declarations),
                         Some(ctx.hierarchy.inner()),
                         Some(&mut ctx.store),

@@ -813,7 +813,7 @@ impl ProgramCompiler {
                                 }
                             }
                             phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
-                                if let Some(selection) = evidence.exact_source.requirements.get(&slot_key.requirement) {
+                                if let Some(selection) = evidence.requirements().get(&slot_key.requirement) {
                                     let selector = analyzed
                                         .semantic
                                         .trait_surfaces
