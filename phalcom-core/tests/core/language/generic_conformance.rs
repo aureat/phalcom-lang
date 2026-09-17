@@ -239,7 +239,6 @@ let res = PairFormatter.format_both(l, r)
 }
 
 #[test]
-#[ignore = "scheduled for T5 owner/receiver evidence composition"]
 fn owner_generic_evidence_executes_after_receiver_specialization() {
     let source = r#"
 trait Printable {
@@ -282,7 +281,6 @@ let res = c.show()
 }
 
 #[test]
-#[ignore = "scheduled for T5 owner/receiver evidence composition"]
 fn owner_and_method_local_evidence_execute_together() {
     let source = r#"
 trait First {
@@ -334,7 +332,6 @@ let res = w.combine(b)
 }
 
 #[test]
-#[ignore = "scheduled for exact-enum-case generic bounds in T3-T5"]
 fn exact_enum_case_conformance_executes() {
     let source = r#"
 trait StatusReport {

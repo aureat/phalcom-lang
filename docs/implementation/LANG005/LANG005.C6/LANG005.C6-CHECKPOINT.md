@@ -954,7 +954,7 @@ The final C6 completion state must be truthfully distinguished from individual p
 The active next action is:
 
 ```text
-Begin `LANG005.C6.P3` (Conditional Conformance Proofs & Cycles) according to its authoritative plan when scheduled. The P2 walkthrough and handoff contain the completed generic associated projections, refinements, equality, and inference substrate.
+Execute `LANG005.C6.P4` (Iterator / Iterable Generic Laws, Guarded Derived Conformance, Trait-Contract Entailment, and Canonical Universe Staging) sequentially from Task T1 through T9 and Gates G1 through G7 according to its authoritative plan `LANG005.C6.P4-iterator-iterable-laws-derived-conformance-and-universe-staging-plan.md`.
 ```
 
 Before implementation:
@@ -970,9 +970,10 @@ Then re-read:
 
 ```text
 LANG005.C6-CHECKPOINT.md
-LANG005.C6.P2-walkthrough.md
-LANG005.C6.P2-handoff.md
-docs/specs/generic-constraints.md
+LANG005.C6.P3-walkthrough.md
+LANG005.C6.P3-handoff.md
+LANG005.C6.P4-requirements-analysis.md
+LANG005.C6.P4-iterator-iterable-laws-derived-conformance-and-universe-staging-plan.md
 ```
 
 Mechanical drift may be adapted. Architectural drift requires consultation.
@@ -1041,4 +1042,33 @@ Exact-variant work and broader P2 projection implementation are outside this run
   - T8: Source index mapping for associated projection targets, occurrence resolution, and semantic fingerprint parity (`INV-13`).
   - T9: Purely behavioral runtime boundary closure (`INV-37`) with zero runtime projection bytecodes or associated dictionary machinery.
   - T10: All 5 stabilization gates G1–G5 passed cleanly.
+
+### C6.P3 Completion & Verification Record — 2026-09-16
+
+- **Plan**: `LANG005.C6.P3` (Conditional Conformances, Recursive Proof Evidence, Cycles, and Coherence)
+- **Status**: `COMPLETE` / `IMPLEMENTED` / `FOCUSED_TESTED`
+- **Accomplishments**:
+  - T1: Attached canonical `GenericSignature` to `impl` blocks and `ConformanceContribution`, populated lexical assumed generic evidence in `impl` bodies, enforced no-overlap coherence with conditional constraints.
+  - T2: Implemented recursive `prove_conformance_with_context` in `phalcom-semantic/src/generic_evidence.rs`, with goal-stack cycle tracking (`ProofMemoState::Visiting`), proof memoization (`memo`), budget/cancellation checks, and nested obligation derivation.
+  - T3: Built `DerivedConformanceEvidence`, wired dispatch candidate selection to capture nested proofs, and preserved distinct terminal states.
+  - T4: Maintained strict coherence preventing overlapping conditional heads, symmetric overlap detection, and declaration-order independence.
+  - T5: Integrated `normalize_term_in_context` into recursive proof for `Equivalent` and `Subtype` constraints.
+  - T6: Extended `RuntimeConformanceSlot` and `RuntimeConformanceSlotRecipe` with `DerivedConditional`, lowered `GenericCallConformanceSource::Derived` to runtime recipes, materialized nested environments, and preserved zero solver state in the VM.
+  - T7: Verified cross-module conditional proof, cross-module runtime execution, canonical witness plan fingerprinting across where-clause condition permutations, and precise incremental invalidation.
+  - T8: Successfully ran all focused regression gates G1–G6.
+
+### C6.P4 Takeover Audit (T0 / G0) — 2026-09-17
+
+- **Plan/Task**: `LANG005.C6.P4.T0`
+- **Starting Revision**: `2da270877ee34693357784d9e2077f63da721802`
+- **Predecessor Scheduled Tests**:
+  - `owner_generic_evidence_executes_after_receiver_specialization`: PASS
+  - `owner_and_method_local_evidence_execute_together`: PASS
+  - `exact_enum_case_conformance_executes`: PASS
+  - Unignored all three in `phalcom-core/tests/core/language/generic_conformance.rs` (10/10 passing).
+- **Callable-Reference Conformance Environment**: Confirmed Outcome A (existing `BoundMethodObject` captures and activates `conformance_environment` directly with zero persistent evidence side table).
+- **Memoization & Runtime Environment Reuse**: Confirmed existing P3 test coverage (`cv33_memoization_reuses_completed_proof`, `cv51_environment_reuse_repeated_invocations`, `cv73_runtime_rooting_nested_evidence_survives_gc`). Derived-rule memoization and environment reuse discriminators identified for P4 T4/T6.
+- **Continuation Records**: Reconciled live interface names (`ProofMemoState::Visiting`, `ConformanceProofContext.memo`, `DerivedConformanceEvidence`).
+- **Gate G0 Result**: PASSED. Ready for T1.
+
 
