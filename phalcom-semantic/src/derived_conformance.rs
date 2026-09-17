@@ -126,8 +126,9 @@ pub fn derived_conformance_rule_fingerprint(rule: &DerivedConformanceRule) -> Pr
     let mut hasher = DefaultHasher::new();
     rule.trait_ref.declaration.hash(&mut hasher);
     rule.trait_ref.arguments.hash(&mut hasher);
-    rule.generic_signature.parameters.len().hash(&mut hasher);
-    rule.generic_signature.constraints.hash(&mut hasher);
+    let mut sorted_constraints = rule.generic_signature.constraints.to_vec();
+    sorted_constraints.sort();
+    sorted_constraints.hash(&mut hasher);
     for (req, sel) in &rule.requirements {
         req.hash(&mut hasher);
         match sel {

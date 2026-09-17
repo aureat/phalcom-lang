@@ -21,6 +21,28 @@ trait Iterator {
 
   iterator { self }
 }
+
+The relationship between these contracts is realized by the ordinary guarded
+generic-conformance mechanism, not by a special compiler or VM branch:
+
+```phalcom
+impl<I> Iterable for I
+    where I |= Iterator
+{
+  type Item = <I as Iterator>::Item
+  type Iterator = I
+  iterator { self }
+}
+```
+
+This is the canonical source law. Its antecedent is `I |= Iterator`; its
+associated bindings establish that the iterable item is the iterator item and
+that the iterator type is the subject itself. The rule is subject to ordinary
+trait ownership, evidence, coherence, cycle, and generic-contract rules.
+The standard library may stage this declaration in a transition module while
+legacy cursor classes remain in production; that staging does not change the
+normative law or grant cursor inheritance the `Iterator` or `Iterable` trait
+without conformance evidence.
 ```
 
 Every iterator is iterable over itself. Not every iterable is an iterator.

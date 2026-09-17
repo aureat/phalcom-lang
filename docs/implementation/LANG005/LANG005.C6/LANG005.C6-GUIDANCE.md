@@ -42,15 +42,19 @@ This is **guidance**, not a competing checkpoint status record. Live lifecycle t
 
 # 1. Current checkpoint state
 
-At guidance creation:
+Current lifecycle state:
 
 ```text
 checkpoint: LANG005.C6
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active plan: none (P1 closed)
-latest completed C6 plan: LANG005.C6.P1
+active plan: none
+latest completed C6 plan: LANG005.C6.P4
+next plan: LANG005.C6.P5
+verification note: P4 is IMPLEMENTED / BASELINE_BLOCKED because the positive
+legacy iteration corpus failure reproduces at clean HEAD; P4 canonical and
+focused semantic/runtime gates are green.
 ```
 
 C5 is complete as `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` and is the predecessor takeover authority.
@@ -67,6 +71,12 @@ P4 Iterator/Iterable generic laws
 P5 production stateful iteration migration
 P6 remaining closure / stress / certification
 ```
+
+P4 established the canonical source law in the staged Universe transition
+module `universe.collections.iterator_laws`. P5 owns the public-name transition
+and production migration; do not reopen the derived rule, move proof into the
+VM, or remove the legacy cursor protocol during P5 planning without a new
+checkpoint amendment.
 
 The exact future numbering can be amended by repository evidence. The dependency order must not be bypassed.
 

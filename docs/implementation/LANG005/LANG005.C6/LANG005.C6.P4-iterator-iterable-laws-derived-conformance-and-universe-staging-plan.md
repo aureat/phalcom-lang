@@ -4,9 +4,9 @@ category: LANG
 program: LANG005
 checkpoint: LANG005.C6
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: BASELINE_BLOCKED
 depends_on:
   - LANG005.C6.P3
 follows: LANG005.C6.P3

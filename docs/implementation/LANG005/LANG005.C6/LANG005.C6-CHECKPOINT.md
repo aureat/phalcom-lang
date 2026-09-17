@@ -9,9 +9,9 @@ completion: PARTIAL
 verification: FOCUSED_TESTED
 requires:
   - LANG005.C5
-active_plan: LANG005.C6.P4
-latest_completed_plan: LANG005.C6.P3
-next_plan: LANG005.C6.P4
+active_plan: null
+latest_completed_plan: LANG005.C6.P4
+next_plan: LANG005.C6.P5
 next_checkpoint: null
 planning_baseline_revision: 14352f3824e8dcfc9f5b3f46d9f4a4bb5cf48709
 prepared: 2026-09-16
@@ -323,7 +323,7 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 | `LANG005.C6.P1` | Direct generic conformance propositions, lexical assumed evidence, generic body dispatch, exact/forwarded call discharge, runtime evidence transport, stable metadata/tooling | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Direct-bound vertical is green; one unrelated recomputation baseline retained |
 | `LANG005.C6.P2` | Generic/qualified associated projections, associated specialization/equality, projection-driven inference, durable associated constraint metadata | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T1–T10 complete; generic associated projections, refinements, equality, and inference verified; G1–G5 pass |
 | `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T0–T8 complete; recursive proof engine, cycle/memoization, derived runtime evidence, and cross-module/incremental integration verified; Gates G1–G6 pass |
-| `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on recursive proof/equality authority |
+| `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 complete; canonical law and focused gates pass; positive legacy iteration corpus is reproduced baseline-blocked at clean HEAD |
 | `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on P4 semantic laws |
 | `LANG005.C6.P6` | Remaining generic-constraint closure, higher-kind integration where specified, alias/GADT/tooling/performance/stress/certification | PROPOSED | NOT_STARTED | UNVERIFIED | C6 closure plan; exact scope may be amended |
 
@@ -954,7 +954,7 @@ The final C6 completion state must be truthfully distinguished from individual p
 The active next action is:
 
 ```text
-Execute `LANG005.C6.P4` (Iterator / Iterable Generic Laws, Guarded Derived Conformance, Trait-Contract Entailment, and Canonical Universe Staging) sequentially from Task T1 through T9 and Gates G1 through G7 according to its authoritative plan `LANG005.C6.P4-iterator-iterable-laws-derived-conformance-and-universe-staging-plan.md`.
+Prepare and execute `LANG005.C6.P5` for production `for`, collection, lazy-iterator, cursor, and runtime-superclass migration using the completed P4 handoff; do not reopen P4 law/proof architecture.
 ```
 
 Before implementation:
@@ -1071,4 +1071,24 @@ Exact-variant work and broader P2 projection implementation are outside this run
 - **Continuation Records**: Reconciled live interface names (`ProofMemoState::Visiting`, `ConformanceProofContext.memo`, `DerivedConformanceEvidence`).
 - **Gate G0 Result**: PASSED. Ready for T1.
 
+### C6.P4 T7 / G5 Durable publication and incremental evidence — 2026-09-17
 
+- **Plan/Tasks**: `LANG005.C6.P4.T7`, with predecessor T1–T6 already implemented in commits `892ef89f`, `c3386937`, `368c5051`, `ceec43a1`, `992e821b`, and `b4207def`.
+- **Implementation**: published derived rule products remain cross-module snapshot data; rule and generic-contract fingerprints canonicalize constraint order; semantic dependencies record exact, assumed, derived, trait-surface, and nested conformance sources; conformance/rule edits force affected callable recomputation without global invalidation; derived proof validates the consequent trait contract without duplicating antecedent evidence.
+- **Focused verification**: `capabilities::derived_conformance` 38/38; `capabilities::conditional_conformance` 42/42; `capabilities::generic_associated_constraints` 10/10; `capabilities::generic_conformance` 15/15; `incremental::derived_conformance` 8/8. `git diff --check` passed.
+- **Gate G5 Result**: PASSED.
+
+### C6.P4 T8 / G6 Canonical Universe law staging — 2026-09-17
+
+- **Transition decision**: U-B. The canonical `Iterator`/`Iterable` traits and guarded `Iterator => Iterable` rule are installed in `universe.collections.iterator_laws`; the legacy runtime `Iterable` class and cursor consumers remain unchanged for P5. The module is registered in the canonical Universe source provider and exports both traits.
+- **Focused verification**: `language::derived_conformance` 11/11, including `universe_iterator_trait_loads`, `universe_iterable_trait_contract_loads`, `universe_iterator_derives_iterable`, and `universe_iterator_derived_item_projection_is_int`; `language::conditional_conformance` 10/10; affected-crate `cargo check` for `phalcom-modules`, `phalcom-semantic`, and `phalcom-core` passed. Legacy `language-corpus` `iteration_negative` and `iteration_disasm` passed.
+- **Baseline classification**: `language-corpus::iteration` remains a pre-existing baseline failure at clean `HEAD` (`b4207def`) with `Option.unwrapOr` reporting `generic call-entry type recipe could not be instantiated`; it is not attributed to P4.
+- **Gate G6 Result**: PASSED for the canonical law and named passing legacy lanes; positive iteration certification remains `BASELINE_BLOCKED`.
+
+### C6.P4 Completion & Verification Record — 2026-09-17
+
+- **Plan**: `LANG005.C6.P4` (Iterator / Iterable Generic Laws, Guarded Derived Conformance, Trait-Contract Entailment, and Canonical Universe Staging)
+- **Status**: `COMPLETE` / `IMPLEMENTED` / `BASELINE_BLOCKED`
+- **Coverage**: CV-01–65 and CV-71–80 are PASS or accounted for by predecessor evidence and the focused gates; CV-66–68 pass through the real Universe transition module; CV-69–70 retain the clean-HEAD baseline disposition documented in the walkthrough.
+- **Records**: `LANG005.C6.P4-walkthrough.md` and `LANG005.C6.P4-handoff.md` created. Plan metadata is synchronized.
+- **Next owner**: P5 planner/implementer; production collection, `for`, lazy-adapter, cursor, and runtime-superclass migration remain out of P4.

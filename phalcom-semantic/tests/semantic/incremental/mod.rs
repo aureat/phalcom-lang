@@ -5,6 +5,7 @@ mod callable_dependencies;
 mod checker_dependencies;
 mod db;
 mod declaration_authority;
+mod derived_conformance;
 mod fingerprints;
 mod generic_contracts;
 mod match_analysis;

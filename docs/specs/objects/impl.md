@@ -137,6 +137,31 @@ A conforming implementation may precompute effective member surfaces, dispatch t
 >
 > An inherent `impl` is never a runtime reopening or monkey-patching operation.
 
+## Guarded generic-target conformance
+
+A guarded generic-target conformance is a distinct conformance form:
+
+```phalcom
+impl<I> Iterable for I
+    where I |= Iterator
+{
+  type Item = <I as Iterator>::Item
+  type Iterator = I
+  iterator { self }
+}
+```
+
+It establishes a derived conformance rule, not an inherent implementation and
+not an unconditional conformance for every possible `I`. The consequent trait
+must be owned by the declaration module that publishes the rule. The rule's
+`where` clause uses ordinary generic-constraint semantics; each obligation is
+proved for the concrete target before the consequent evidence is usable.
+
+Ordinary nominal/exact targets and their explicit conformances retain their
+existing identity, ownership, witness, and coherence rules. A guarded rule
+cannot be used to introduce a second source of conformance identity or to
+override an applicable exact conformance.
+
 ---
 
 # Authorization

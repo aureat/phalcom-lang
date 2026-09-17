@@ -287,7 +287,9 @@ fn hash_generic_signature(signature: &GenericSignature, hasher: &mut impl Hasher
     } else {
         "legacy-generic-parameter-metadata-absent".hash(hasher);
     }
-    for constraint in signature.constraints.iter() {
+    let mut sorted_constraints = signature.constraints.to_vec();
+    sorted_constraints.sort();
+    for constraint in &sorted_constraints {
         constraint.hash(hasher);
     }
 }

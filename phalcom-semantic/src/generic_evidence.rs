@@ -628,7 +628,11 @@ pub fn prove_constraint(
 
     match subst_constraint {
         GenericConstraint::Conforms { subject, trait_ref } => {
-            let key = GenericConformanceKey::new(subject, trait_ref);
+            let normalized_subject = match normalize_term_in_context(&subject, context) {
+                Ok(term) => term,
+                Err(proof) => return GenericObligationProof::Conformance(map_equivalence_proof_to_conformance_proof(proof)),
+            };
+            let key = GenericConformanceKey::new(normalized_subject, trait_ref);
             let proof = prove_conformance_with_context(&key, context);
             GenericObligationProof::Conformance(proof)
         }
@@ -993,7 +997,7 @@ fn evaluate_conformance_goal(
                     };
 
                     if instantiated_trait_ref == key.trait_ref {
-                        let constraints_vec = rule.generic_signature.constraints.clone();
+                        let constraints_vec = rule.generic_signature.constraints.to_vec();
                         let mut nested_evidences = Vec::with_capacity(constraints_vec.len());
                         let mut failure_proof = None;
 
@@ -1020,6 +1024,50 @@ fn evaluate_conformance_goal(
                                     } else {
                                         failure_proof = Some(map_subtype_outcome_to_conformance_proof(outcome));
                                         break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // The rule's antecedent evidence is the executable
+                        // evidence product. Validate the consequent trait
+                        // contract in the same proof session, but do not add
+                        // its implied constraints to `nested`: the Iterator
+                        // proof is already present and must be reused rather
+                        // than duplicated in derived evidence.
+                        if failure_proof.is_none() {
+                            let contract_constraints = surfaces
+                                .get(&key.trait_ref.declaration)
+                                .and_then(|trait_surface| trait_surface.generic_signature.as_ref())
+                                .and_then(|signature| {
+                                    context.store.as_deref_mut().map(|store| {
+                                        crate::traits::instantiate_trait_generic_contract_for_term(
+                                            store,
+                                            signature,
+                                            &key.subject,
+                                            &key.trait_ref,
+                                        )
+                                    })
+                                })
+                                .unwrap_or_default();
+                            for constraint in &contract_constraints {
+                                let obligation_proof = prove_constraint(constraint, &impl_bindings, context);
+                                match obligation_proof {
+                                    GenericObligationProof::Conformance(GenericConformanceProof::Proven(_))
+                                    | GenericObligationProof::Equivalent(GenericEquivalenceProof::Proven) => {}
+                                    GenericObligationProof::Conformance(failing) => {
+                                        failure_proof = Some(failing);
+                                        break;
+                                    }
+                                    GenericObligationProof::Equivalent(failing) => {
+                                        failure_proof = Some(map_equivalence_proof_to_conformance_proof(failing));
+                                        break;
+                                    }
+                                    GenericObligationProof::Subtype(outcome) => {
+                                        if !outcome.is_proven() {
+                                            failure_proof = Some(map_subtype_outcome_to_conformance_proof(outcome));
+                                            break;
+                                        }
                                     }
                                 }
                             }

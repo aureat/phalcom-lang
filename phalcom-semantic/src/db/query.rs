@@ -1312,7 +1312,10 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             }
         }
         crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) => {
-            if inputs.conformance_semantics.is_some_and(|view| view.conformance_index.get(impl_id).is_some()) {
+            if inputs.conformance_semantics.is_some_and(|view| {
+                view.conformance_index.get(impl_id).is_some()
+                    || view.derived_conformance_rules.get_rule(impl_id).is_some()
+            }) {
                 QueryOutcome::Ready(())
             } else {
                 QueryOutcome::Blocked(BlockReason::SuppressedDependency)

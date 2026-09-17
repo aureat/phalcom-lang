@@ -2200,6 +2200,8 @@ fn discharge_generic_conformance_obligations(
 
                     match proof {
                         crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Exact(ev)) => {
+                            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(ev.source_impl.clone()));
+                            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(instantiated_trait_ref.declaration.clone()));
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
                                 callee_conformance: crate::generic_evidence::GenericConformanceKey::new(
                                     instantiated_subject,
@@ -2209,6 +2211,7 @@ fn discharge_generic_conformance_obligations(
                             });
                         }
                         crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Assumed(assumed)) => {
+                            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(instantiated_trait_ref.declaration.clone()));
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
                                 callee_conformance: crate::generic_evidence::GenericConformanceKey::new(
                                     instantiated_subject,
@@ -2218,6 +2221,22 @@ fn discharge_generic_conformance_obligations(
                             });
                         }
                         crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Derived(derived)) => {
+                            match &derived.origin {
+                                crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(exact_source.source_impl.clone()));
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(exact_source.exact_trait_ref.declaration.clone()));
+                                }
+                                crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, exact_trait_ref, .. } => {
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(rule.impl_id.clone()));
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(exact_trait_ref.declaration.clone()));
+                                }
+                            }
+                            for nested in derived.nested.iter() {
+                                if let crate::generic_evidence::NestedGenericEvidence::Conformance(crate::generic_evidence::GenericConformanceEvidence::Exact(ev)) = nested {
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(ev.source_impl.clone()));
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(ev.exact_trait_ref.declaration.clone()));
+                                }
+                            }
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
                                 callee_conformance: crate::generic_evidence::GenericConformanceKey::new(
                                     instantiated_subject,

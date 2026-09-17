@@ -231,6 +231,33 @@ A generic conformance constraint supplies **assumed evidence** while checking th
 
 Assumed generic evidence is not a fabricated concrete `impl`, witness, or exact conformance identity.
 
+### Guarded derived-conformance rules
+
+A guarded generic-target conformance rule has the form:
+
+```phalcom
+impl<I> Iterable for I
+    where I |= Iterator
+{
+  type Item = <I as Iterator>::Item
+  type Iterator = I
+  iterator { self }
+}
+```
+
+The rule's `where` clause is an ordinary generic signature. The trait's own
+generic contract is entailed by conformance evidence: `Self` is instantiated
+from the concrete conformance subject, and the contract's constraints are
+proved in the same evidence environment. The rule therefore supplies no
+reverse search and does not make a subject conform merely because it has
+members with matching names.
+
+Rule application succeeds only after every antecedent obligation and the
+consequent trait contract is proven. The resulting evidence preserves the
+selected rule, its canonical substitutions, associated bindings, and nested
+antecedent evidence. Cyclic or ambiguous rule applications are not successful
+proofs and do not publish partial evidence.
+
 `Dynamic` does not satisfy `T |= Trait` merely because runtime dispatch is possible.
 
 ---

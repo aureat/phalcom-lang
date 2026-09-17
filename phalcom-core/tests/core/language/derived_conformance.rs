@@ -8,6 +8,30 @@ fn named(vm: &phalcom_core::vm::VM, module: phalcom_core::heap::ObjRef, name: &s
     vm.heap.module(module).get(symbol)
 }
 
+fn run_universe_iterator_project(source: &str) -> (phalcom_core::vm::VM, phalcom_core::heap::ObjRef) {
+    let temp = tempfile::tempdir().expect("temporary project");
+    let root = temp.path();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"universe_iterator_law\"\nnamespace = \"universe_iterator_law\"\nversion = \"0.1.0\"\nentry = \"universe_iterator_law.main\"\n",
+    )
+    .expect("project manifest");
+    let source_root = root.join("src");
+    std::fs::create_dir_all(&source_root).expect("source directory");
+    std::fs::write(source_root.join("package.ph"), "expose .main\n").expect("package manifest");
+    std::fs::write(source_root.join("main.ph"), source).expect("entry source");
+
+    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(
+        phalcom_core::modules::compile::EntrySelection::Project(root.to_path_buf()),
+    )
+    .expect("canonical Universe Iterator law project compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("canonical Universe Iterator law execution");
+    let entry_id = program.initialization_order.last().expect("entry module");
+    let module = vm.module_registry.get(entry_id).expect("entry module registered").object;
+    (vm, module)
+}
+
 #[test]
 fn cv40_iterator_like_derived_iterable_iterator_preserves_identity() {
     let source = r#"
@@ -394,4 +418,100 @@ let res = Probe.check(Iter.new())
 "#;
     let (vm, module) = vm_support::run_inline(source).expect("vm execution without solver");
     assert_eq!(named(&vm, module, "res").expect("res").as_bool(), Some(true));
+}
+
+#[test]
+fn universe_iterator_derives_iterable() {
+    let (vm, module) = run_universe_iterator_project(r#"
+from universe.collections.iterator_laws import Iterator, Iterable
+
+class OneIter {
+  @constructor
+  new() {}
+  next -> Option<Int> { None }
+}
+
+impl Iterator for OneIter {
+  type Item = Int
+}
+
+class Probe {
+  @class
+  sameTraversal<I>(_ iterator: I) -> Bool
+    where I |= Iterable
+  {
+    iterator.iterator === iterator
+  }
+}
+
+let res = Probe.sameTraversal(OneIter.new())
+"#);
+    assert_eq!(named(&vm, module, "res").expect("res").as_bool(), Some(true));
+}
+
+#[test]
+fn universe_iterator_trait_loads() {
+    let (vm, module) = run_universe_iterator_project(
+        r#"
+from universe.collections.iterator_laws import Iterator
+
+class OneIter {
+  @constructor
+  new() {}
+  next -> Option<Int> { Some(1) }
+}
+
+impl Iterator for OneIter { type Item = Int }
+let res = OneIter.new().next
+"#,
+    );
+    assert_eq!(named(&vm, module, "res").expect("res").to_string(&vm), "Some(1)");
+}
+
+#[test]
+fn universe_iterable_trait_contract_loads() {
+    let (vm, module) = run_universe_iterator_project(
+        r#"
+from universe.collections.iterator_laws import Iterator, Iterable
+
+class OneIter {
+  @constructor
+  new() {}
+  next -> Option<Int> { None }
+}
+impl Iterator for OneIter { type Item = Int }
+
+class Source {
+  @constructor
+  new() {}
+  iterator -> OneIter { OneIter.new() }
+}
+impl Iterable for Source {
+  type Item = Int
+  type Iterator = OneIter
+}
+
+let res = Source.new().iterator.next
+"#,
+    );
+    assert_eq!(named(&vm, module, "res").expect("res").to_string(&vm), "None");
+}
+
+#[test]
+fn universe_iterator_derived_item_projection_is_int() {
+    let (vm, module) = run_universe_iterator_project(
+        r#"
+from universe.collections.iterator_laws import Iterator, Iterable
+
+class OneIter {
+  @constructor
+  new() {}
+  next -> Option<Int> { Some(7) }
+}
+impl Iterator for OneIter { type Item = Int }
+
+let res = OneIter.new().iterator.next
+"#,
+    );
+    assert_eq!(named(&vm, module, "res").expect("res").to_string(&vm), "Some(7)");
 }

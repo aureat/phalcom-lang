@@ -269,10 +269,15 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["collections"],
         kind: ModuleKind::Package,
-        children: &["iterable", "list", "map", "set", "tuple", "record", "range", "bytes"],
+        children: &["iterable", "iterator_laws", "list", "map", "set", "tuple", "record", "range", "bytes"],
     },
     UniverseNodeSpec {
         path: &["collections", "iterable"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "iterator_laws"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -619,6 +624,9 @@ impl UniverseSourceProvider {
             [c] if c.as_str() == "collections" => include_str!("../../phalcom-core/core/universe/src/collections/package.ph"),
             [c, m] if c.as_str() == "collections" && m.as_str() == "iterable" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/iterable.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "iterator_laws" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/iterator_laws.ph")
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "list" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/list.ph")

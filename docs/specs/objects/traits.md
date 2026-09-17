@@ -719,6 +719,39 @@ The generic declaration does not become unconditionally conforming merely becaus
 >
 > Conformance applies only where the semantic environment proves its declared conditions.
 
+## Derived and synthesized conformances
+
+A specification may define a **derived conformance** as a guarded generic-target
+conformance rule. It is a separate conformance category from an ordinary exact
+conformance declaration:
+
+```text
+impl<I> Iterable for I
+    where I |= Iterator
+```
+
+The rule's consequent trait owns the derived relation. Its generic signature is
+an ordinary conjunctive constraint contract, and the rule applies only when all
+of its antecedent obligations are proven for the exact subject and trait
+reference. The rule does not create a superclass relationship, structural
+conformance, or an open-world search rule.
+
+Successful application produces conformance evidence whose source is the
+derived rule and whose nested evidence records the obligations that justified
+the application. Associated bindings and witnesses are still owned by the
+consequent conformance plan; they are not copied into the target's inherent
+surface.
+
+Derived evidence participates in the same coherence relation as exact
+evidence. For one exact target and trait reference, an applicable exact and
+derived relation cannot both win silently. Proof search is finite and
+cycle-aware; a failed or cyclic rule application publishes no partial
+conformance evidence.
+
+The language defines each derived rule explicitly. Implementations must not
+special-case a trait by declaration name or infer a derived relation merely
+from matching members.
+
 ---
 
 # Conformance Evidence

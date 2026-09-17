@@ -1472,6 +1472,24 @@ impl SemanticWorkspaceSession {
             }
             for module in &contribution_delta.structural_modules {
                 roots.insert(QueryKey::SourceStructure(module.clone()));
+                if let Some(previous) = previous_snapshot.as_ref() {
+                    for (impl_id, _) in previous.conformance_index.iter() {
+                        if &impl_id.module == module {
+                            roots.insert(QueryKey::ConformanceDispatch(impl_id.clone()));
+                        }
+                    }
+                    for rule in previous.derived_conformance_rules.iter() {
+                        if &rule.impl_id.module == module {
+                            roots.insert(QueryKey::ConformanceDispatch(rule.impl_id.clone()));
+                        }
+                    }
+                    for (trait_decl, _) in previous.trait_headers.iter() {
+                        if &trait_decl.module == module {
+                            roots.insert(QueryKey::TraitHeader(trait_decl.clone()));
+                            roots.insert(QueryKey::TraitSurface(trait_decl.clone()));
+                        }
+                    }
+                }
             }
             for module in &changed_modules {
                 // Source-only body edits already have a typed CallableBody
@@ -1504,7 +1522,7 @@ impl SemanticWorkspaceSession {
                         _ => None,
                     })
             }));
-            let closure = self.db.index().reverse_closure(roots);
+            let closure = self.db.index().reverse_closure(roots.clone());
             stats.reverse_candidates_considered = closure.len();
             for key in &closure {
                 match key {
@@ -1519,6 +1537,9 @@ impl SemanticWorkspaceSession {
                     }
                     QueryKey::FieldSignature(field) => {
                         field_signature_work.insert(field.clone());
+                    }
+                    QueryKey::CallableBody(callable) => {
+                        callable_body_work.insert(callable.clone());
                     }
                     _ => {}
                 }
@@ -4202,17 +4223,21 @@ impl SemanticWorkspaceSession {
                                     conformance_semantics: Some(&conformance_semantics),
                                 };
 
-                                if previous_snapshot.is_some()
-                                    && !callable_body_work.contains(&callable_id)
-                                    && callable_analyses.contains_key(&callable_id)
-                                    && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
-                                    && self.db.validate_ready(&query_key)
-                                {
-                                    callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                    continue;
-                                }
+                                let forced = callable_body_work.contains(&callable_id);
+                                if forced {
+                                    self.db.discard_for_recompute(&query_key);
+                                } else {
+                                    if previous_snapshot.is_some()
+                                        && callable_analyses.contains_key(&callable_id)
+                                        && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
+                                        && self.db.validate_ready(&query_key)
+                                    {
+                                        callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                        continue;
+                                    }
 
-                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
+                                    refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
+                                }
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
@@ -4365,16 +4390,20 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                     conformance_semantics: Some(&conformance_semantics),
                                 };
-                                if previous_snapshot.is_some()
-                                    && !callable_body_work.contains(&callable)
-                                    && callable_analyses.contains_key(&callable)
-                                    && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
-                                    && self.db.validate_ready(&query_key)
-                                {
-                                    callable_dispositions.entry(callable).or_insert(CallableRevisionDisposition::Reused);
-                                    continue;
+                                let forced = callable_body_work.contains(&callable);
+                                if forced {
+                                    self.db.discard_for_recompute(&query_key);
+                                } else {
+                                    if previous_snapshot.is_some()
+                                        && callable_analyses.contains_key(&callable)
+                                        && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
+                                        && self.db.validate_ready(&query_key)
+                                    {
+                                        callable_dispositions.entry(callable).or_insert(CallableRevisionDisposition::Reused);
+                                        continue;
+                                    }
+                                    refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
                                 }
-                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
@@ -4553,17 +4582,21 @@ impl SemanticWorkspaceSession {
                                     conformance_semantics: Some(&conformance_semantics),
                                 };
 
-                                if previous_snapshot.is_some()
-                                    && !callable_body_work.contains(&callable_id)
-                                    && callable_analyses.contains_key(&callable_id)
-                                    && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
-                                    && self.db.validate_ready(&query_key)
-                                {
-                                    callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                    continue;
-                                }
+                                let forced = callable_body_work.contains(&callable_id);
+                                if forced {
+                                    self.db.discard_for_recompute(&query_key);
+                                } else {
+                                    if previous_snapshot.is_some()
+                                        && callable_analyses.contains_key(&callable_id)
+                                        && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
+                                        && self.db.validate_ready(&query_key)
+                                    {
+                                        callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                        continue;
+                                    }
 
-                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
+                                    refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
+                                }
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
