@@ -3,6 +3,7 @@
 expose .error
 expose .result
 expose .argument
+expose .iteration
 expose .indexing
 expose .contracts
 expose .unsupported

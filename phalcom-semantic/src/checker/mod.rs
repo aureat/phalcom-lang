@@ -21,6 +21,7 @@ pub mod flow;
 pub mod gadt_proof;
 pub mod incident;
 pub mod inference;
+pub(crate) mod iteration;
 pub(crate) mod loop_analysis;
 pub mod pattern;
 pub mod result;
@@ -30,7 +31,7 @@ pub mod typed_expr;
 
 pub use analysis::{
     AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex,
-    FlowStateSummary,
+    FlowStateSummary, ForIterationLaneResolution, ForIterationLaneResolutionIndex, ForIterationRequirementResolution,
 };
 pub use associated::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,

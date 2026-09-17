@@ -6,12 +6,12 @@ checkpoint: LANG005.C6
 kind: checkpoint-record
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 requires:
   - LANG005.C5
-active_plan: null
+active_plan: LANG005.C6.P5.PART-II
 latest_completed_plan: LANG005.C6.P4
-next_plan: LANG005.C6.P5
+next_plan: LANG005.C6.P5.PART-II
 next_checkpoint: null
 planning_baseline_revision: 14352f3824e8dcfc9f5b3f46d9f4a4bb5cf48709
 prepared: 2026-09-16
@@ -324,7 +324,7 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 | `LANG005.C6.P2` | Generic/qualified associated projections, associated specialization/equality, projection-driven inference, durable associated constraint metadata | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T1–T10 complete; generic associated projections, refinements, equality, and inference verified; G1–G5 pass |
 | `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T0–T8 complete; recursive proof engine, cycle/memoization, derived runtime evidence, and cross-module/incremental integration verified; Gates G1–G6 pass |
 | `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 complete; canonical law and focused gates pass; positive legacy iteration corpus is reproduced baseline-blocked at clean HEAD |
-| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on P4 semantic laws |
+| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I plus Bytes/String canonical stateful lanes implemented and focused-tested; Set/Map constructors, Tuple Dynamic Item, and Range Option extraction remain baseline-blocked; G3 and T9–T11 are not started |
 | `LANG005.C6.P6` | Remaining generic-constraint closure, higher-kind integration where specified, alias/GADT/tooling/performance/stress/certification | PROPOSED | NOT_STARTED | UNVERIFIED | C6 closure plan; exact scope may be amended |
 
 The precise numbering/content of P2–P6 may be amended by later live repository analysis. The dependency structure is more authoritative than the placeholder plan names.
@@ -954,8 +954,28 @@ The final C6 completion state must be truthfully distinguished from individual p
 The active next action is:
 
 ```text
-Prepare and execute `LANG005.C6.P5` for production `for`, collection, lazy-iterator, cursor, and runtime-superclass migration using the completed P4 handoff; do not reopen P4 law/proof architecture.
+Resolve the generic runtime call-entry / Option<Number> boundary and obtain architectural guidance for Tuple's publishable Item type before resuming P5 Part II T6/T7/T8 and attempting G3.
+Do not begin T9–T11 or reopen P4 law/proof architecture.
 ```
+
+### C6.P5 Part I T0 takeover — 2026-09-17
+
+- **Starting revision**: `06e37b6830cd9114d03f2a794d0b9a973f8cdc82` on `main`.
+- **Worktree**: only the four user-provided P5 planning artifacts are untracked;
+  no unrelated tracked edits were changed.
+- **Census**: semantic `for` still calls
+  `resolve_iteration_element_application`; compiler lowering still emits
+  `iterate`/`iteratorValue` and `$for_cursor`; `List` remains cursor-backed;
+  strict zip still raises `ArgumentError`.
+- **Focused controls**: semantic derived-conformance `38/38`; core derived-
+  conformance `11/11`.
+- **Baseline**: `language-corpus` iteration ran `2/3` passing
+  (`iteration_negative`, `iteration_disasm`); positive `iteration` fails at
+  clean HEAD in the pre-existing `Option.unwrapOr` generic call-entry recipe
+  path. Classified as inherited baseline `C6-BL-INHERITED-01`, not caused by
+  P5 T0.
+- **Next**: implement T1 semantic lane publication, preserving the P4
+  evidence/normalization owners and the existing loop flow solver.
 
 Before implementation:
 
@@ -978,6 +998,65 @@ LANG005.C6.P4-iterator-iterable-laws-derived-conformance-and-universe-staging-pl
 
 Mechanical drift may be adapted. Architectural drift requires consultation.
 
+### C6.P5 Part I implementation checkpoint — 2026-09-17
+
+- **Implemented**: `CallableAnalysis.for_iteration_lanes` publishes one
+  canonical lane product per source expression. The product retains source,
+  item, and iterator types, canonical requirement identities/signatures, and
+  exact/assumed/derived conformance evidence. Its semantic content is included
+  in the callable product fingerprint and semantic dependencies.
+- **Lowering**: `ModuleLoweringSemantics.for_iteration_lanes` projects the
+  semantic product into selected-trait or active generic requirement-slot
+  specifications. Compiler helpers emit existing VM trait opcodes from those
+  specs without proof, lookup, or projection normalization.
+- **Production vertical**: `ListIterator<T>` owns an independent mutable index;
+  `List` has canonical `Iterable` evidence and returns a fresh iterator. The
+  canonical compiler loop evaluates sources before iterator acquisition,
+  advances every lane once, preserves `Option` payload extraction, supports
+  patterns/ordinals/break/continue, and raises `ZipLengthMismatchError` for
+  mixed parallel exhaustion. Legacy cursor collection methods remain for the
+  staged compatibility boundary.
+- **Focused evidence**: semantic iteration `6/6`, semantic derived
+  conformance `38/38`, core derived conformance `11/11`, and core canonical
+  iteration `5/5` passed. The strict-zip runtime discriminator observed the
+  expected mismatch error.
+- **Residual classification**: the positive `language-corpus` iteration lane
+  remains baseline-blocked at the pre-existing `Option.unwrapOr` generic
+  call-entry recipe failure; non-List built-in migration and cursor retirement
+  remain Part II/III work. Part I is therefore `IMPLEMENTED` for the landed
+  slice but checkpoint `PARTIAL / BASELINE_BLOCKED`.
+- **Bootstrap constraint**: the current Universe still contains cursor-based
+  `for` sources such as `collections.bytes`; the compiler retains a compatibility
+  fallback so Universe bootstrap remains buildable. This fallback is not the
+  canonical semantic authority and is owned by Part II/III retirement work.
+- **Next owner**: Part II T6, after review of the handoff, to migrate remaining
+  built-in sources and retire the compatibility cursor path.
+
+### C6.P5 Part II implementation checkpoint — 2026-09-17
+
+- **Implemented**: `SetIterator<T>`, `BytesIterator`, `MapIterator<K,V>`,
+  stateful Map key/value/entry views, and stateful String byte/code-point view
+  iterators were added at their owning Universe collection seams. Map
+  canonical Items are labeled `(key: K, value: V)`; legacy cursor selectors
+  remain for the staged transition.
+- **Focused evidence**: canonical Bytes/String view iteration passed; the
+  existing canonical List/`for` suite passed `6` tests with `3` explicitly
+  ignored baseline probes. `git diff --check` passed. Adjacent collection
+  coverage passed `10/11`; the remaining Range-slice failure is the inherited
+  generic call-entry runtime failure and was not attributed to the Part II
+  source edits.
+- **Blocked probes**: Set/Map iterator construction reaches `generic
+  call-entry type recipe could not be instantiated`; Range bound extraction
+  reaches the same failure through `Option<Number>`; Tuple's
+  `CanonicalIterator::Item = Dynamic` was rejected by semantic associated-type
+  publication. No baseline entries or assertions were weakened for these
+  probes.
+- **Gate state**: G3 is not passed because P5-owned canonical sources are not
+  all executable. T9, T10, and T11 remain unstarted; cursor fallback and the
+  legacy runtime superclass remain compatibility infrastructure.
+- **Next owner**: resolve the generic runtime/Option boundary and Tuple Item
+  architecture, then resume T6/T7/T8 and rerun the blocked probes before G3.
+
 ---
 
 ## 16. Lifecycle truth
@@ -998,7 +1077,7 @@ The current checkpoint is:
 ```yaml
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 ```
 
 That state must remain until actual implementation evidence justifies an update.

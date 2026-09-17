@@ -179,7 +179,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["errors"],
         kind: ModuleKind::Package,
-        children: &["error", "result", "argument", "indexing", "contracts", "unsupported", "unimplemented"],
+        children: &["error", "result", "argument", "iteration", "indexing", "contracts", "unsupported", "unimplemented"],
     },
     UniverseNodeSpec {
         path: &["errors", "error"],
@@ -193,6 +193,11 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["errors", "argument"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["errors", "iteration"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -658,6 +663,9 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "errors" && m.as_str() == "argument" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/argument.ph")
+            }
+            [c, m] if c.as_str() == "errors" && m.as_str() == "iteration" => {
+                include_str!("../../phalcom-core/core/universe/src/errors/iteration.ph")
             }
             [c, m] if c.as_str() == "errors" && m.as_str() == "indexing" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/indexing.ph")

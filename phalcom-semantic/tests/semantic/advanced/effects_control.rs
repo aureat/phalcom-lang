@@ -33,6 +33,7 @@ fn mock_callable(expressions: BTreeMap<ExpressionId, ExpressionAnalysis>) -> Cal
         body_range: RANGE,
         expressions,
         bindings: BTreeMap::new(),
+        for_iteration_lanes: Arc::new(BTreeMap::new()),
         associated_resolutions: Arc::new(BTreeMap::new()),
         callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),

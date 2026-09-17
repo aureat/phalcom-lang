@@ -1,3 +1,5 @@
+from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+
 @native
 class Map<K, V> is Iterable {
   @class @native new() -> Map
@@ -104,6 +106,8 @@ class Map<K, V> is Iterable {
 
   entries { MapEntriesView.new(self) }
 
+  iterator -> MapIterator<K, V> { MapIterator<K, V>.new(self) }
+
   // Copies a positive Record's Symbol labels and values into a fresh mutable
   // Map. `#{}` canonicalizes to Unit, which represents the empty Record form.
   @class
@@ -122,8 +126,8 @@ class Map<K, V> is Iterable {
     return result
   }
 
-  // DEC-CT-E: the cursor value `iteratorValue` yields is the KEY (both Map and Set yield keys).
-  // Pair traversal uses `entries.each`, not a receiver-specific callback arity.
+  // Legacy cursor traversal remains key-only until the Part III superclass
+  // retirement. Canonical Iterator traversal below yields labeled entries.
   iteratorValue(_ cursor) { self._$keyAt(cursor) }
 
   // Structural equality: same key set, pairwise-== values (order-independent
@@ -154,25 +158,69 @@ class Map<K, V> is Iterable {
   }
 }
 
+class MapIterator<K, V> {
+  _source: Map<K, V>
+  _index: Int
+  _done: Bool
+
+  @constructor
+  new(_ source: Map<K, V>) {
+    _source = source
+    _index = 0
+    _done = false
+  }
+
+  next -> Option<(key: K, value: V)> {
+    if (_done) { return None }
+    if (_index >= _source.size) {
+      _done = true
+      return None
+    }
+    let key = _source._$keyAt(_index)
+    let value = _source._$valueAt(_index)
+    _index = _index + 1
+    Some((key: key, value: value))
+  }
+
+  iterator { self }
+}
+
+impl<K, V> CanonicalIterator for MapIterator<K, V> {
+  type Item = (key: K, value: V)
+}
+
+impl<K, V> CanonicalIterable for Map<K, V> {
+  type Item = (key: K, value: V)
+  type Iterator = MapIterator<K, V>
+  iterator -> MapIterator<K, V> { MapIterator<K, V>.new(self) }
+}
 
 
 // Map projections are ordinary retained-source Iterable views. They inherit
 // the generic cursor walk and deliberately leave active-iteration mutation
 // behavior unspecified.
-class MapKeysView is Iterable {
+class MapKeysView<K, V> is Iterable {
   @constructor
-  new(_ map) { _map = map }
+  new(_ map: Map<K, V>) { _map = map }
 
   size { _map.size }
+
+  at(_ index) { _map._$keyAt(index) }
+
+  iterator -> MapKeysIterator<K, V> { MapKeysIterator<K, V>.new(self) }
 
   iteratorValue(_ cursor) { _map._$keyAt(cursor) }
 }
 
-class MapValuesView is Iterable {
+class MapValuesView<K, V> is Iterable {
   @constructor
-  new(_ map) { _map = map }
+  new(_ map: Map<K, V>) { _map = map }
 
   size { _map.size }
+
+  at(_ index) { _map._$valueAt(index) }
+
+  iterator -> MapValuesIterator<K, V> { MapValuesIterator<K, V>.new(self) }
 
   iteratorValue(_ cursor) { _map._$valueAt(cursor) }
 }
@@ -191,11 +239,123 @@ class Entry {
   value { _value }
 }
 
-class MapEntriesView is Iterable {
+class MapEntriesView<K, V> is Iterable {
   @constructor
-  new(_ map) { _map = map }
+  new(_ map: Map<K, V>) { _map = map }
 
   size { _map.size }
 
-  iteratorValue(_ cursor) { Entry.new(_map._$keyAt(cursor), _map._$valueAt(cursor)) }
+  at(_ index) { (key: _map._$keyAt(index), value: _map._$valueAt(index)) }
+
+  iterator -> MapEntriesIterator<K, V> { MapEntriesIterator<K, V>.new(self) }
+
+  iteratorValue(_ cursor) { (key: _map._$keyAt(cursor), value: _map._$valueAt(cursor)) }
+}
+
+class MapKeysIterator<K, V> {
+  _source: MapKeysView<K, V>
+  _index: Int
+  _done: Bool
+
+  @constructor
+  new(_ source: MapKeysView<K, V>) {
+    _source = source
+    _index = 0
+    _done = false
+  }
+
+  next -> Option<K> {
+    if (_done) { return None }
+    if (_index >= _source.size) {
+      _done = true
+      return None
+    }
+    let value = _source.at(_index)
+    _index = _index + 1
+    Some(value)
+  }
+
+  iterator { self }
+}
+
+class MapValuesIterator<K, V> {
+  _source: MapValuesView<K, V>
+  _index: Int
+  _done: Bool
+
+  @constructor
+  new(_ source: MapValuesView<K, V>) {
+    _source = source
+    _index = 0
+    _done = false
+  }
+
+  next -> Option<V> {
+    if (_done) { return None }
+    if (_index >= _source.size) {
+      _done = true
+      return None
+    }
+    let value = _source.at(_index)
+    _index = _index + 1
+    Some(value)
+  }
+
+  iterator { self }
+}
+
+class MapEntriesIterator<K, V> {
+  _source: MapEntriesView<K, V>
+  _index: Int
+  _done: Bool
+
+  @constructor
+  new(_ source: MapEntriesView<K, V>) {
+    _source = source
+    _index = 0
+    _done = false
+  }
+
+  next -> Option<(key: K, value: V)> {
+    if (_done) { return None }
+    if (_index >= _source.size) {
+      _done = true
+      return None
+    }
+    let value = _source.at(_index)
+    _index = _index + 1
+    Some(value)
+  }
+
+  iterator { self }
+}
+
+impl<K, V> CanonicalIterator for MapKeysIterator<K, V> {
+  type Item = K
+}
+
+impl<K, V> CanonicalIterable for MapKeysView<K, V> {
+  type Item = K
+  type Iterator = MapKeysIterator<K, V>
+  iterator -> MapKeysIterator<K, V> { MapKeysIterator<K, V>.new(self) }
+}
+
+impl<K, V> CanonicalIterator for MapValuesIterator<K, V> {
+  type Item = V
+}
+
+impl<K, V> CanonicalIterable for MapValuesView<K, V> {
+  type Item = V
+  type Iterator = MapValuesIterator<K, V>
+  iterator -> MapValuesIterator<K, V> { MapValuesIterator<K, V>.new(self) }
+}
+
+impl<K, V> CanonicalIterator for MapEntriesIterator<K, V> {
+  type Item = (key: K, value: V)
+}
+
+impl<K, V> CanonicalIterable for MapEntriesView<K, V> {
+  type Item = (key: K, value: V)
+  type Iterator = MapEntriesIterator<K, V>
+  iterator -> MapEntriesIterator<K, V> { MapEntriesIterator<K, V>.new(self) }
 }

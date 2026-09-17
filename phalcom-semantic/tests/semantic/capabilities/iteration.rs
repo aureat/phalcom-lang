@@ -2,7 +2,7 @@ use crate::semantic::support::{Fixture, assert_source_contract};
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::{EvidenceStatus, TypeKnowledge, UnknownReason};
 
-/// LAW: parameterized iteration cannot project a return without a cursor application.
+/// Legacy cursor-shaped members are not a substitute for the canonical traits.
 #[test]
 fn custom_iterable_element_type_comes_from_protocol_not_first_generic_argument() {
     let f = Fixture::new(
@@ -23,8 +23,9 @@ class Probe {
 "#,
     );
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    assert_eq!(f.binding(run, "value").current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
-    assert_eq!(f.binding(run, "observed").current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
+    assert_eq!(f.binding(run, "value").current, TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend));
+    assert_eq!(f.binding(run, "observed").current, TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend));
+    assert!(run.for_iteration_lanes.is_empty(), "legacy cursor protocol must not publish a canonical lane");
 }
 
 /// LAW: branch joins compose nested collection element precision.
@@ -95,7 +96,7 @@ class Probe {
     f.assert_no_error_diagnostics();
 }
 
-/// I02: changing the receiver application changes the protocol element type.
+/// I02: a legacy cursor receiver does not publish a canonical iteration lane.
 #[test]
 fn generic_iterator_receiver_substitution_selects_second_parameter() {
     let f = Fixture::new(
@@ -114,12 +115,12 @@ class Probe {
 "#,
     );
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    assert_eq!(f.binding(run, "value").current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
-    assert_eq!(f.binding(run, "observed").current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
+    assert_eq!(f.binding(run, "value").current, TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend));
+    assert_eq!(f.binding(run, "observed").current, TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend));
+    assert!(run.for_iteration_lanes.is_empty(), "legacy cursor protocol must not publish a canonical lane");
 }
 
-/// I03: structured `for` patterns decompose the protocol element fact into
-/// independent pattern bindings rather than losing the tuple components.
+/// I03: structured legacy cursor iteration remains outside the canonical lane.
 #[test]
 fn for_tuple_pattern_decomposes_protocol_element_type() {
     let f = Fixture::new(
@@ -139,11 +140,12 @@ class Probe {
 "#,
     );
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    let unknown = TypeKnowledge::Unknown(UnknownReason::UncheckedExpression);
+    let unknown = TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend);
     assert_eq!(f.binding(run, "key").current, unknown);
     assert_eq!(f.binding(run, "value").current, unknown);
     assert_eq!(f.binding(run, "observedKey").current, unknown);
     assert_eq!(f.binding(run, "observedValue").current, unknown);
+    assert!(run.for_iteration_lanes.is_empty(), "legacy cursor protocol must not publish a canonical lane");
 }
 
 /// I05: a collection protocol without formal element evidence stays incomplete.

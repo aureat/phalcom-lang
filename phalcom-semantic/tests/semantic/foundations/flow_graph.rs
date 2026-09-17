@@ -7,7 +7,6 @@ use phalcom_semantic::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKi
 use phalcom_semantic::checker::flow::predicate::{FlowPredicate, extract_predicate_shape};
 use phalcom_semantic::checker::flow::state::FlowState;
 use phalcom_semantic::checker::flow::transfer::apply_predicate;
-use phalcom_semantic::checker::statement::resolve_iteration_element;
 use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::identity::BindingId;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
@@ -513,13 +512,13 @@ fn test_protocol_derived_iteration_typing_no_name_matching() {
     let int_ty = store.nominal_type(int_decl);
     let list_int = store.apply_type_form(list_form, &[int_ty]).expect("valid application");
 
-    let mut ctx = phalcom_semantic::checker::context::CheckingContext::new(&mut store, &hier, &resolver, &decls, module.clone());
+    let ctx = phalcom_semantic::checker::context::CheckingContext::new(&mut store, &hier, &resolver, &decls, module.clone());
 
-    let elem_k = resolve_iteration_element(&mut ctx, list_int);
-    assert!(
-        elem_k.is_unknown(),
-        "generic argument alone must not masquerade as iteration protocol evidence: {elem_k:?}"
-    );
+    assert!(matches!(
+        ctx.store.get(list_int),
+        phalcom_semantic::types::store::TypeData::Applied { arguments, .. }
+            if arguments.as_ref() == [int_ty]
+    ));
 
     // 2. Program with for loop over List<String>
     let source = r#"

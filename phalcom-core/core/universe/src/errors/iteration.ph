@@ -1,0 +1,1 @@
+class ZipLengthMismatchError is Error {}

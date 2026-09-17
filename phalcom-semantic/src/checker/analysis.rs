@@ -154,6 +154,44 @@ pub struct CallSpecialization {
     pub conformances: Box<[GenericCallConformanceBinding]>,
 }
 
+/// Evidence-backed semantic resolution for one `for` lane.
+///
+/// The source expression is the stable key.  The compiler consumes the
+/// selected requirements and evidence from this product; it must not infer
+/// iteration from selector names or repeat associated-type normalization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ForIterationLaneResolution {
+    pub source_expression: ExpressionId,
+    pub source_range: SourceRange,
+    pub source_type: TypeId,
+    pub item_type: TypeId,
+    pub iterator_type: TypeId,
+    pub iterator: ForIterationRequirementResolution,
+    pub next: ForIterationRequirementResolution,
+}
+
+/// Executable authority for one implicit iteration requirement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ForIterationRequirementResolution {
+    /// A requirement selected by exact, assumed, or derived conformance
+    /// evidence.  Keeping the evidence variant intact is important for
+    /// generic callers and for derived `Iterator => Iterable` dispatch.
+    Evidence {
+        conformance: crate::generic_evidence::GenericConformanceKey,
+        evidence: crate::generic_evidence::GenericConformanceEvidence,
+        requirement: crate::traits::TraitRequirementId,
+        signature: crate::signature::CallableSemanticSignature,
+    },
+    /// A trait default body is checked under an active abstract requirement.
+    AbstractRequirement {
+        requirement: crate::traits::TraitRequirementId,
+        signature: crate::signature::CallableSemanticSignature,
+    },
+}
+
+/// Deterministic index of canonical semantic `for` lane resolutions.
+pub type ForIterationLaneResolutionIndex = BTreeMap<ExpressionId, ForIterationLaneResolution>;
+
 /// Binding flow state tracking persistent declared constraint vs. current path knowledge.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BindingState {
@@ -358,6 +396,8 @@ pub struct CallableAnalysis {
     pub body_range: SourceRange,
     pub expressions: ExpressionAnalysisIndex,
     pub bindings: BindingAnalysisIndex,
+    /// Canonical evidence-backed iteration facts consumed by core lowering.
+    pub for_iteration_lanes: Arc<ForIterationLaneResolutionIndex>,
     pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
     pub callable_reference_resolutions: Arc<crate::checker::associated::CallableReferenceResolutionIndex>,
     pub family_applications: Arc<crate::checker::associated::FamilyApplicationResolutionIndex>,

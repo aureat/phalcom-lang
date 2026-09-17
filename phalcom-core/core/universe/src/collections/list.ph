@@ -1,3 +1,5 @@
+from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+
 @native
 class List<T> is Iterable {
   @class @native new() -> List
@@ -18,6 +20,11 @@ class List<T> is Iterable {
     if (self.size == 0) { return None }
     return Some(self.at(self.size - 1))
   }
+
+  // Canonical LANG005.C6 iterator entry point. The legacy cursor selectors
+  // below remain available during the staged migration, but `for` consumes
+  // this fresh, stateful iterator through the canonical trait evidence.
+  iterator -> ListIterator<T> { ListIterator.new(self) }
 
   at(_ i) {
     return self._$at(i)
@@ -275,6 +282,37 @@ class List<T> is Iterable {
   !=(_ other) {
     return not (self == other)
   }
+}
+
+class ListIterator<T> {
+  _values: List<T>
+  _index: Int
+
+  @constructor new(_ values: List<T>) {
+    _values = values
+    _index = 0
+  }
+
+  next -> Option<T> {
+    if (_index < _values.size) {
+      let value = _values[_index]
+      _index = _index + 1
+      return Some(value)
+    }
+    None
+  }
+
+  iterator { self }
+}
+
+impl<T> CanonicalIterator for ListIterator<T> {
+  type Item = T
+}
+
+impl<T> CanonicalIterable for List<T> {
+  type Item = T
+  type Iterator = ListIterator<T>
+  iterator -> ListIterator<T> { ListIterator.new(self) }
 }
 
 // Kernel Map/Set (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 1): native

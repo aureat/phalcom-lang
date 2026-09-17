@@ -1,3 +1,5 @@
+from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+
 @native
 class Set<T> is Iterable {
   @class @native new() -> Set
@@ -43,6 +45,8 @@ class Set<T> is Iterable {
 
   iteratorValue(_ cursor) { self._$at(cursor) }
 
+  iterator -> SetIterator<T> { SetIterator<T>.new(self) }
+
   // Structural equality: same members, order-independent. Same-size plus
   // "every element of self is in other" is sufficient since neither set
   // holds duplicates (add_ is idempotent).
@@ -63,4 +67,40 @@ class Set<T> is Iterable {
   !=(_ other) {
     return not (self == other)
   }
+}
+
+class SetIterator<T> {
+  _source: Set<T>
+  _index: Int
+  _done: Bool
+
+  @constructor
+  new(_ source: Set<T>) {
+    _source = source
+    _index = 0
+    _done = false
+  }
+
+  next -> Option<T> {
+    if (_done) { return None }
+    if (_index >= _source.size) {
+      _done = true
+      return None
+    }
+    let value = _source.at(_index)
+    _index = _index + 1
+    Some(value)
+  }
+
+  iterator { self }
+}
+
+impl<T> CanonicalIterator for SetIterator<T> {
+  type Item = T
+}
+
+impl<T> CanonicalIterable for Set<T> {
+  type Item = T
+  type Iterator = SetIterator<T>
+  iterator -> SetIterator<T> { SetIterator<T>.new(self) }
 }

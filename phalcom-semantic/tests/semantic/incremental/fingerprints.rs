@@ -112,6 +112,7 @@ fn callable_analysis() -> CallableAnalysis {
         body_range: SourceRange { start: 0, end: 20 },
         expressions: BTreeMap::new(),
         bindings: BTreeMap::new(),
+        for_iteration_lanes: Arc::new(BTreeMap::new()),
         associated_resolutions: Arc::new(BTreeMap::new()),
         callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),

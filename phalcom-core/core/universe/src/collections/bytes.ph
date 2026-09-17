@@ -1,3 +1,5 @@
+from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+
 // U-BYTES (PDR-0011, docs/spec/v0.2/core/bytes.md): the kernel octet buffer's
 // `.ph` protocol over the eleven floor primitives. Bulk no-user-code work is
 // native (bytes.md §3.1); everything here is validation-lifting, derivation,
@@ -87,6 +89,8 @@ class Bytes is Iterable {
   }
 
   iteratorValue(_ cursor) { self._$at(cursor) }
+
+  iterator -> BytesIterator { BytesIterator.new(self) }
 
   // An octet is an integer Number in 0..255 (bytes.md §2). `and` is lazy,
   // so the arithmetic tests never run on a non-Number. (No trailing `_`:
@@ -235,6 +239,42 @@ class Bytes is Iterable {
     }
     return out
   }
+}
+
+class BytesIterator {
+  _source: Bytes
+  _index: Int
+  _done: Bool
+
+  @constructor
+  new(_ source: Bytes) {
+    _source = source
+    _index = 0
+    _done = false
+  }
+
+  next -> Option<Int> {
+    if (_done) { return None }
+    if (_index >= _source.size) {
+      _done = true
+      return None
+    }
+    let value = _source.at(_index)
+    _index = _index + 1
+    Some(value)
+  }
+
+  iterator { self }
+}
+
+impl CanonicalIterator for BytesIterator {
+  type Item = Int
+}
+
+impl CanonicalIterable for Bytes {
+  type Item = Int
+  type Iterator = BytesIterator
+  iterator -> BytesIterator { BytesIterator.new(self) }
 }
 
 class OpenMode {

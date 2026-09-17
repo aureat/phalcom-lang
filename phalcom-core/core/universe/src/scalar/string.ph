@@ -1,3 +1,5 @@
+from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+
 @native
 class String is Object {
   @native +(_ other: String) -> String
@@ -313,9 +315,14 @@ class StringByteSequence {
   @constructor
   new(_ s) { _string = s }
 
+  iterator -> StringByteIterator { StringByteIterator.new(self) }
+
   size { _string._$byteCount }
 
   at(_ i) { _string._$byteAt(i) }
+
+  @internal
+  _$rawByteAt(_ i) { _string._$byteAt(i) }
 
   each(_ f) {
     let i = 0
@@ -335,10 +342,48 @@ class StringByteSequence {
   }
 }
 
+class StringByteIterator {
+  _source: StringByteSequence
+  _offset: Int
+  _done: Bool
+
+  @constructor
+  new(_ source: StringByteSequence) {
+    _source = source
+    _offset = 0
+    _done = false
+  }
+
+  next -> Option<Int> {
+    if (_done) { return None }
+    if (_offset >= _source.size) {
+      _done = true
+      return None
+    }
+    let value = _source._$rawByteAt(_offset)
+    _offset = _offset + 1
+    Some(value)
+  }
+
+  iterator { self }
+}
+
+impl CanonicalIterator for StringByteIterator {
+  type Item = Int
+}
+
+impl CanonicalIterable for StringByteSequence {
+  type Item = Int
+  type Iterator = StringByteIterator
+  iterator -> StringByteIterator { StringByteIterator.new(self) }
+}
+
 // Codepoint-level sequence view (U-STRING §2.4, ADR-0048 shaped).
 class StringCodePointSequence {
   @constructor
   new(_ s) { _string = s }
+
+  iterator -> StringCodePointIterator { StringCodePointIterator.new(self) }
 
   // Codepoint count: full scan (no native "codepoint length").
   size {
@@ -352,6 +397,15 @@ class StringCodePointSequence {
   }
 
   at(_ byteOffset) { _string.codePointAt(byteOffset) }
+
+  @internal
+  _$byteCountView { _string._$byteCount }
+
+  @internal
+  _$rawCodePointAt(_ byteOffset) { _string.codePointAt(byteOffset) }
+
+  @internal
+  _$rawLeadByteLen(_ byteOffset) { _string.leadByteLen(byteOffset) }
 
   each(_ f) {
     let i = self.nextCursor(None)
@@ -369,4 +423,47 @@ class StringCodePointSequence {
     })
     return (next < _string._$byteCount).ifTrue(|| { next }, ifFalse: || { None })
   }
+}
+
+class StringCodePointIterator {
+  _source: StringCodePointSequence
+  _offset: Int
+  _done: Bool
+
+  @constructor
+  new(_ source: StringCodePointSequence) {
+    _source = source
+    _offset = 0
+    _done = false
+  }
+
+  next -> Option<Int> {
+    if (_done) { return None }
+    if (_offset >= _source._$byteCountView) {
+      _done = true
+      return None
+    }
+    let value = _source._$rawCodePointAt(_offset)
+    if (value == None) {
+      throw Error.new("String code-point iterator encountered an invalid sequence")
+    }
+    let length = _source._$rawLeadByteLen(_offset)
+    if (length == None) {
+      throw Error.new("String code-point iterator encountered an invalid lead byte")
+    }
+    _offset = _offset + length
+    Some(value)
+  }
+
+  iterator { self }
+}
+
+impl CanonicalIterator for StringCodePointIterator {
+  type Item = Int
+}
+
+impl CanonicalIterable for StringCodePointSequence {
+  type Item = Int
+  type Iterator = StringCodePointIterator
+  iterator -> StringCodePointIterator { StringCodePointIterator.new(self) }
 }

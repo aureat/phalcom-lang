@@ -411,6 +411,25 @@ pub struct TraitRequirementInvocationSpec {
     pub requirement_slot: u16,
 }
 
+/// One executable requirement used by the canonical `for` lowering.
+/// Exact/derived evidence is lowered through the selected-trait path; an
+/// assumed generic obligation is lowered through the active conformance slot.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ForIterationRequirementSpec {
+    Selected(TraitInvocationSpec),
+    Requirement(TraitRequirementInvocationSpec),
+}
+
+/// Frozen semantic projection for one canonical iteration source.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ForIterationLoweringSpec {
+    pub source: SourceRange,
+    pub item_type: TypeId,
+    pub iterator_type: TypeId,
+    pub iterator: ForIterationRequirementSpec,
+    pub next: ForIterationRequirementSpec,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DetachedMethodSource {
     ConformanceWitness {
@@ -451,6 +470,7 @@ pub struct ModuleLoweringSemantics {
     pub conditional_invocations: BTreeMap<LoweringSite, ConditionalInvocationSpec>,
     pub trait_invocations: BTreeMap<LoweringSite, TraitInvocationSpec>,
     pub trait_requirement_invocations: BTreeMap<LoweringSite, TraitRequirementInvocationSpec>,
+    pub for_iteration_lanes: BTreeMap<SourceRange, ForIterationLoweringSpec>,
     pub detached_methods: BTreeMap<CallableId, DetachedMethodSpec>,
 }
 
@@ -473,6 +493,7 @@ impl ModuleLoweringSemantics {
             conditional_invocations: BTreeMap::new(),
             trait_invocations: BTreeMap::new(),
             trait_requirement_invocations: BTreeMap::new(),
+            for_iteration_lanes: BTreeMap::new(),
             detached_methods: BTreeMap::new(),
         }
     }
@@ -844,6 +865,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
     let mut conditional_invocations = BTreeMap::new();
     let mut trait_invocations = BTreeMap::new();
     let mut trait_requirement_invocations = BTreeMap::new();
+    let mut for_iteration_lanes = BTreeMap::new();
     let mut detached_methods = BTreeMap::new();
 
     for definition in snapshot
@@ -994,6 +1016,30 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                 generic_evidence = generic_evidence.try_compose(&callable_env, &snapshot.trait_surfaces).map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
             }
         }
+
+        for lane in analysis.for_iteration_lanes.values() {
+            let iterator = project_for_iteration_requirement(&lane.iterator, &generic_evidence, &requirement_slots)?;
+            let next = project_for_iteration_requirement(&lane.next, &generic_evidence, &requirement_slots)?;
+            if for_iteration_lanes
+                .insert(
+                    lane.source_range,
+                    ForIterationLoweringSpec {
+                        source: lane.source_range,
+                        item_type: lane.item_type,
+                        iterator_type: lane.iterator_type,
+                        iterator,
+                        next,
+                    },
+                )
+                .is_some()
+            {
+                return Err(ProjectionError::AmbiguousLoweringSiteAttachment(LoweringSite::new(
+                    source_id.clone(),
+                    lane.source_range,
+                    LoweringSiteKind::TraitInvoke,
+                )));
+            }
+        }
         // Family-valued expressions
         for expression in analysis.expressions.values() {
             let is_associated_family = matches!(
@@ -1131,8 +1177,112 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         conditional_invocations,
         trait_invocations,
         trait_requirement_invocations,
+        for_iteration_lanes,
         detached_methods,
     })
+}
+
+fn project_for_iteration_requirement(
+    requirement: &phalcom_semantic::checker::ForIterationRequirementResolution,
+    generic_evidence: &phalcom_semantic::generic_evidence::GenericEvidenceEnvironment,
+    requirement_slots: &BTreeMap<phalcom_semantic::traits::TraitRequirementId, u16>,
+) -> Result<ForIterationRequirementSpec, ProjectionError> {
+    match requirement {
+        phalcom_semantic::checker::ForIterationRequirementResolution::AbstractRequirement { requirement, .. } => {
+            let requirement_slot = requirement_slots
+                .get(requirement)
+                .copied()
+                .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+            Ok(ForIterationRequirementSpec::Requirement(TraitRequirementInvocationSpec {
+                requirement: requirement.clone(),
+                requirement_slot,
+            }))
+        }
+        phalcom_semantic::checker::ForIterationRequirementResolution::Evidence {
+            conformance,
+            evidence,
+            requirement,
+            signature,
+        } => match evidence {
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(_) => {
+                let key = phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(conformance.clone(), requirement.clone());
+                let requirement_slot = generic_evidence
+                    .slot_for(&key)
+                    .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                Ok(ForIterationRequirementSpec::Requirement(TraitRequirementInvocationSpec {
+                    requirement: requirement.clone(),
+                    requirement_slot,
+                }))
+            }
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(exact) => {
+                let selection = exact
+                    .requirements
+                    .get(requirement)
+                    .cloned()
+                    .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                let selection = phalcom_semantic::trait_dispatch::TraitDispatchSelection {
+                    source_impl: exact.source_impl.clone(),
+                    exact_target: exact.exact_target,
+                    exact_trait_ref: exact.exact_trait_ref.clone(),
+                    requirement: requirement.clone(),
+                    callable: Some(signature.callable.clone()),
+                    signature: signature.clone(),
+                    evidence_fingerprint: exact.fingerprint,
+                    selection,
+                    requirement_targets: exact.requirements.clone(),
+                };
+                let requirement_slot = requirement_slots
+                    .get(requirement)
+                    .copied()
+                    .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                Ok(ForIterationRequirementSpec::Selected(TraitInvocationSpec {
+                    selection,
+                    requirement_slot,
+                    requirement_slots: requirement_slots.iter().map(|(id, slot)| (id.clone(), *slot)).collect(),
+                }))
+            }
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) => {
+                let (source_impl, exact_target, exact_trait_ref, evidence_fingerprint) = match &derived.origin {
+                    phalcom_semantic::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => (
+                        exact_source.source_impl.clone(),
+                        exact_source.exact_target,
+                        exact_source.exact_trait_ref.clone(),
+                        exact_source.fingerprint,
+                    ),
+                    phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule {
+                        rule,
+                        exact_subject,
+                        exact_trait_ref,
+                    } => (rule.impl_id.clone(), *exact_subject, exact_trait_ref.clone(), rule.fingerprint),
+                };
+                let selection = derived
+                    .requirements()
+                    .get(requirement)
+                    .cloned()
+                    .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                let selection = phalcom_semantic::trait_dispatch::TraitDispatchSelection {
+                    source_impl,
+                    exact_target,
+                    exact_trait_ref,
+                    requirement: requirement.clone(),
+                    callable: Some(signature.callable.clone()),
+                    signature: signature.clone(),
+                    evidence_fingerprint,
+                    selection,
+                    requirement_targets: derived.requirements().clone(),
+                };
+                let requirement_slot = requirement_slots
+                    .get(requirement)
+                    .copied()
+                    .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                Ok(ForIterationRequirementSpec::Selected(TraitInvocationSpec {
+                    selection,
+                    requirement_slot,
+                    requirement_slots: requirement_slots.iter().map(|(id, slot)| (id.clone(), *slot)).collect(),
+                }))
+            }
+        },
+    }
 }
 
 fn project_slot_repr(declared_type: &phalcom_semantic::DeclaredTypeFact, snapshot: &SemanticSnapshot) -> crate::product::ProductSlotRepr {

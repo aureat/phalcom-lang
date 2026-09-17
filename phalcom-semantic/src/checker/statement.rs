@@ -2,23 +2,21 @@
 
 use super::analysis::AnalysisStatus;
 use super::binding::{BindingContract, BindingContractOrigin, BindingSeed, reconcile_binding_relation};
-use super::call::{CallPremise, CallableApplicationTarget, UnresolvedApplicationReason, analyze_unresolved_application, apply_resolved_callable};
+use super::call::CallPremise;
 use super::causal::CausalInvalidity;
 use super::context::CheckingContext;
 use super::control::StatementControl;
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
 use super::flow::FlowState;
+use super::iteration::resolve_for_iteration_lane;
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{ContractAssumptionEligibility, DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
-use crate::types::id::TypeId;
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use crate::types::rigid::LocalType;
 use phalcom_ast::ast::{BindingKind, Pattern, Statement};
-use phalcom_common::range::SourceRange;
-use phalcom_common::selector::{Selector, SelectorSlot};
 
 /// Checks a single statement, updating context bindings, recording exits, and
 /// reporting the resulting [`StatementControl`].
@@ -262,10 +260,19 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             let mut lane_facts = Vec::new();
             for lane in &for_stmt.lanes {
                 let iter_typed = analyze_expression(ctx, &lane.iter, &ExpectedType::None);
-                let premise = CallPremise::from_typed(ctx, &iter_typed);
                 let (elem_knowledge, iteration_causal_invalidity) = match &iter_typed.knowledge {
                     TypeKnowledge::Known(evidence) => {
-                        let result = resolve_iteration_element_application(ctx, &premise, evidence.ty(), lane.iter.range());
+                        let premise = CallPremise::from_typed(ctx, &iter_typed);
+                        let (resolution, result) = resolve_for_iteration_lane(
+                            ctx,
+                            &premise,
+                            iter_typed.expression_id,
+                            evidence.ty(),
+                            lane.iter.range(),
+                        );
+                        if let Some(resolution) = resolution {
+                            ctx.for_iteration_lanes.insert(resolution.source_expression, resolution);
+                        }
                         if !result.status.is_ready() {
                             ctx.record_call_status(result.status.clone());
                         }
@@ -539,71 +546,4 @@ fn bind_pattern(
         }
         _ => {}
     }
-}
-
-/// Compatibility wrapper for callers that only need element knowledge.
-pub fn resolve_iteration_element(ctx: &mut CheckingContext<'_>, receiver_ty: TypeId) -> TypeKnowledge {
-    let premise = CallPremise::established(TypeKnowledge::established(receiver_ty, EvidenceOrigin::DeclarationSemantics));
-    resolve_iteration_element_application(ctx, &premise, receiver_ty, SourceRange::default()).knowledge
-}
-
-fn resolve_iteration_element_application(
-    ctx: &mut CheckingContext<'_>,
-    premise: &CallPremise,
-    receiver_ty: TypeId,
-    call_range: SourceRange,
-) -> super::call::CallCheckResult {
-    // Parameterized protocol application has no modeled cursor expression here.
-    if let Ok(selector) = Selector::method("iteratorValue", vec![SelectorSlot::Positional]) {
-        match ctx.resolve_dispatch_target(receiver_ty, &selector, crate::dispatch::DispatchLookup::Normal) {
-            crate::dispatch::ResolvedDispatchResult::Found(_) | crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::IterationArgumentUnavailable);
-            }
-            crate::dispatch::ResolvedDispatchResult::TraitTerminal(terminal) => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal));
-            }
-            crate::dispatch::ResolvedDispatchResult::Dynamic => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection));
-            }
-            crate::dispatch::ResolvedDispatchResult::Missing { .. } => {}
-        }
-    }
-
-    // A zero-argument protocol getter is a real callable application.
-    if let Ok(selector) = Selector::getter("iteratorValue") {
-        match ctx.resolve_dispatch_target(receiver_ty, &selector, crate::dispatch::DispatchLookup::Normal) {
-            crate::dispatch::ResolvedDispatchResult::Found(resolved) => {
-                let target = CallableApplicationTarget::from_dispatch(resolved);
-                return apply_resolved_callable(ctx, &target, premise, &[], &ExpectedType::None, call_range);
-            }
-            crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::DispatchAmbiguous(call_range));
-            }
-            crate::dispatch::ResolvedDispatchResult::TraitTerminal(terminal) => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal));
-            }
-            crate::dispatch::ResolvedDispatchResult::Dynamic => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection));
-            }
-            crate::dispatch::ResolvedDispatchResult::Missing { .. } => {}
-        }
-    }
-
-    // `iterate(_)` is also parameterized; do not consume its return contract.
-    if let Ok(selector) = Selector::method("iterate", vec![SelectorSlot::Positional]) {
-        match ctx.resolve_dispatch_target(receiver_ty, &selector, crate::dispatch::DispatchLookup::Normal) {
-            crate::dispatch::ResolvedDispatchResult::Found(_) | crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::IterationArgumentUnavailable);
-            }
-            crate::dispatch::ResolvedDispatchResult::TraitTerminal(terminal) => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal));
-            }
-            crate::dispatch::ResolvedDispatchResult::Dynamic => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection));
-            }
-            crate::dispatch::ResolvedDispatchResult::Missing { .. } => {}
-        }
-    }
-
-    analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::DispatchMissing)
 }

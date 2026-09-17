@@ -59,3 +59,5 @@ mod generic_conformance;
 mod conditional_conformance;
 #[path = "derived_conformance.rs"]
 mod derived_conformance;
+#[path = "iteration.rs"]
+mod iteration;

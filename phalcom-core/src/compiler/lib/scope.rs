@@ -100,6 +100,40 @@ impl<'vm> Compiler<'vm> {
         Ok(true)
     }
 
+    /// Emits one canonical `for` requirement from the already projected lane
+    /// spec. The compiler does not perform selector lookup or conformance
+    /// proof here; it only chooses the VM's existing selected/slot opcode.
+    pub(crate) fn emit_for_iteration_requirement(
+        &mut self,
+        spec: &crate::modules::semantic_lowering::ForIterationRequirementSpec,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        match spec {
+            crate::modules::semantic_lowering::ForIterationRequirementSpec::Selected(spec) => {
+                self.prepare_trait_invocation_methods(spec)?;
+                let index = self
+                    .functions
+                    .last_mut()
+                    .expect("compiler always has an active function")
+                    .chunk
+                    .executable_semantics
+                    .add_trait_invocation(spec.clone(), range)?;
+                self.emit(Bytecode::InvokeTraitSelected { selection: index, arity: 0 }, range);
+            }
+            crate::modules::semantic_lowering::ForIterationRequirementSpec::Requirement(spec) => {
+                let index = self
+                    .functions
+                    .last_mut()
+                    .expect("compiler always has an active function")
+                    .chunk
+                    .executable_semantics
+                    .add_trait_requirement_invocation(spec.clone(), range)?;
+                self.emit(Bytecode::InvokeTraitRequirement { slot: index, arity: 0 }, range);
+            }
+        }
+        Ok(())
+    }
+
     /// Emits a read of the receiver `self` for the current body.
     ///
     /// In a method/module body `self` is the frame receiver, emitted as

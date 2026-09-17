@@ -857,6 +857,92 @@ fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
     summary.fact_count.hash(hasher);
 }
 
+fn hash_iteration_evidence(evidence: &crate::generic_evidence::GenericConformanceEvidence, hasher: &mut impl Hasher) {
+    match evidence {
+        crate::generic_evidence::GenericConformanceEvidence::Exact(exact) => {
+            0u8.hash(hasher);
+            exact.fingerprint.hash(hasher);
+            exact.source_impl.hash(hasher);
+            exact.exact_target.hash(hasher);
+            exact.exact_trait_ref.hash(hasher);
+        }
+        crate::generic_evidence::GenericConformanceEvidence::Assumed(assumed) => {
+            1u8.hash(hasher);
+            assumed.key.hash(hasher);
+            assumed.owner.hash(hasher);
+        }
+        crate::generic_evidence::GenericConformanceEvidence::Derived(derived) => {
+            2u8.hash(hasher);
+            match &derived.origin {
+                crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
+                    0u8.hash(hasher);
+                    exact_source.fingerprint.hash(hasher);
+                }
+                crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, exact_subject, exact_trait_ref } => {
+                    1u8.hash(hasher);
+                    rule.fingerprint.hash(hasher);
+                    exact_subject.hash(hasher);
+                    exact_trait_ref.hash(hasher);
+                }
+            }
+            let mut bindings = derived.impl_bindings.bindings().iter().collect::<Vec<_>>();
+            bindings.sort_by_key(|(parameter, _)| **parameter);
+            bindings.hash(hasher);
+            for nested in derived.nested.iter() {
+                match nested {
+                    crate::generic_evidence::NestedGenericEvidence::Conformance(nested) => {
+                        0u8.hash(hasher);
+                        hash_iteration_evidence(nested, hasher);
+                    }
+                    crate::generic_evidence::NestedGenericEvidence::Equivalent => 1u8.hash(hasher),
+                    crate::generic_evidence::NestedGenericEvidence::Subtype => 2u8.hash(hasher),
+                }
+            }
+        }
+    }
+}
+
+fn hash_iteration_requirement(
+    requirement: &crate::checker::analysis::ForIterationRequirementResolution,
+    hasher: &mut impl Hasher,
+) {
+    match requirement {
+        crate::checker::analysis::ForIterationRequirementResolution::Evidence {
+            conformance,
+            evidence,
+            requirement,
+            signature,
+        } => {
+            0u8.hash(hasher);
+            conformance.hash(hasher);
+            hash_iteration_evidence(evidence, hasher);
+            requirement.hash(hasher);
+            callable_signature_product_fingerprint(signature).raw().hash(hasher);
+        }
+        crate::checker::analysis::ForIterationRequirementResolution::AbstractRequirement { requirement, signature } => {
+            1u8.hash(hasher);
+            requirement.hash(hasher);
+            callable_signature_product_fingerprint(signature).raw().hash(hasher);
+        }
+    }
+}
+
+fn hash_iteration_lanes(
+    lanes: &crate::checker::analysis::ForIterationLaneResolutionIndex,
+    hasher: &mut impl Hasher,
+) {
+    lanes.len().hash(hasher);
+    for (expression, lane) in lanes {
+        expression.hash(hasher);
+        lane.source_expression.hash(hasher);
+        lane.source_type.hash(hasher);
+        lane.item_type.hash(hasher);
+        lane.iterator_type.hash(hasher);
+        hash_iteration_requirement(&lane.iterator, hasher);
+        hash_iteration_requirement(&lane.next, hasher);
+    }
+}
+
 fn hash_causal_invalidity_shape(causal: &CausalInvalidity, hasher: &mut impl Hasher) {
     match causal {
         CausalInvalidity::Clean => 0u8.hash(hasher),
@@ -1537,6 +1623,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     }
 
     hash_match_resolutions(&analysis.match_resolutions, &mut hasher);
+    hash_iteration_lanes(&analysis.for_iteration_lanes, &mut hasher);
     hash_flow_graph_semantics(&analysis.flow_graph, &mut hasher);
     hash_flow_summary(&analysis.entry_flow, &mut hasher);
     hash_exit_facts(&analysis.exits, &mut hasher);

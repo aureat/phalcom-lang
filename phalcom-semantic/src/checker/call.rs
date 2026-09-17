@@ -3187,7 +3187,6 @@ pub(crate) enum UnresolvedApplicationReason {
     DispatchMissing,
     DispatchAmbiguous(SourceRange),
     DynamicShape(DynamicReason),
-    IterationArgumentUnavailable,
 }
 
 pub(crate) fn analyze_unresolved_application(
@@ -3210,7 +3209,6 @@ pub(crate) fn analyze_unresolved_application(
         UnresolvedApplicationReason::DispatchMissing | UnresolvedApplicationReason::DispatchAmbiguous(_) => {
             TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
         }
-        UnresolvedApplicationReason::IterationArgumentUnavailable => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
         UnresolvedApplicationReason::TraitTerminal(terminal) => match terminal {
             crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
             crate::trait_dispatch::TraitDispatchTerminal::Dynamic(_) => TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection),
@@ -3259,7 +3257,6 @@ pub(crate) fn analyze_unresolved_application(
             UnresolvedApplicationReason::PremiseDynamic(reason) | UnresolvedApplicationReason::DynamicShape(reason) => {
                 AnalysisStatus::DynamicBoundary(reason.clone())
             }
-            UnresolvedApplicationReason::IterationArgumentUnavailable => AnalysisStatus::Ready,
             _ => AnalysisStatus::Ready,
         });
     let local_type = local_type_from_arguments(ctx, knowledge.ty(), &local_types);
