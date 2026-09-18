@@ -2,7 +2,7 @@
 
 > **Status:** Draft normative specification  
 > **Semantic ownership:** structural callable reflection: exact Method probes, capability probes, Behavior extraction, MethodFamily snapshots, BoundMethodFamily, reflective dynamic sends, and the distinction between reflection and execution.  
-> **Related specifications:** [Selectors](selectors.md), [Dispatch](dispatch.md), [Methods](method.md), [Bound Methods](bound-method.md), [References and Families](references-and-families.md), [Functions](functions.md).
+> **Related specifications:** [Selectors](selectors.md), [Dispatch](dispatch.md), [Methods](methods.md), [Bound Methods](bound-methods.md), [References](references.md), [Families](families.md), [Callable Values and Function](callable-values.md).
 
 Callable reflection observes or reifies existing behavior without changing the fundamental distinction among:
 
@@ -281,7 +281,7 @@ method.invokeOn(receiver, ***arguments)
 method.bind(receiver)
 ```
 
-are Method semantics and are defined by [Methods](method.md).
+are Method semantics and are defined by [Methods](methods.md).
 
 Reflection must not redefine those operations with different access, receiver, or shape rules.
 
