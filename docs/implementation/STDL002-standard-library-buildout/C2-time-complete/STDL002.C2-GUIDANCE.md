@@ -8,17 +8,19 @@ status: ACTIVE_PLANNING_GUIDANCE
 requires:
   - STDL002.C2-CHECKPOINT.md
 prepared: 2026-09-17
+updated: 2026-09-18
 repository: aureat/phalcom-lang
 planning_baseline_revision: e0a77646c56f8b1a7e7692993d378d43bf3fc424
+latest_planning_baseline_observed: 206e0ab91129e189782c4028de5a40379bcc033c
 ---
 
 # Implementer Guidance — STDL002.C2 `time` Upgrade
 
 ## 0. Purpose
 
-This file is the persistent architectural and execution guidance for all `STDL002.C2` planning and implementation sessions.
+This file is the persistent architectural and execution guidance for all `STDL002.C2` implementation sessions.
 
-C2 has two plans:
+C2 has exactly two implementation plans:
 
 ```text
 C2.P1
@@ -27,25 +29,31 @@ C2.P1
     civil Gregorian calendar
     fixed offsets
     package/prelude exposure
+    minimum prerequisite language closure where still missing
 
 C2.P2
-    IANA timezone backend
+    stable timezone database/backend lifetime
+    TimeZone / transitions / local ambiguity
     zoned semantics
     current local conveniences
-    parsing/formatting
+    canonical parsing/formatting
     deterministic test clocks
-    integration/specification closure
+    ordinary-package/reflection/provenance/GC/performance closure
+    final C2 checkpoint certification
 ```
 
 The checkpoint's core architectural sentence is:
 
-> The `time` package is ordinary Phalcom source first: transparent immutable temporal values use `data`, identity/resource capabilities use classes, Rust supplies only irreducible host facts or an explicitly native timezone backend, visibility is lexical and identity-based, and Universe status never justifies spelling-based access, implicit privilege, temporal VM special cases, or a `System` date/time façade.
+> The `time` package is ordinary Phalcom source first: transparent immutable temporal values use `data`, identity/resource capabilities use classes, Rust/provider code enters only through explicit Native boundaries, genuinely irreducible host observations may be classified with non-operative `@primitive` metadata, visibility is lexical and identity-based, and Universe status never justifies spelling-based access, implicit privilege, temporal VM special cases, or a `System` date/time façade.
 
 Every C2 patch must preserve that sentence.
 
-This file is guidance, not a competing status log. Lifecycle truth belongs in `STDL002.C2-CHECKPOINT.md`. Exact tasks, files, tests, and gates belong in the active P1/P2 patch-grade plan.
+Two amendments are already binding:
 
----
+1. LANG006 defines implementation kind as `Phalcom`, `Native`, or `Foreign`; `@primitive` / `@intrinsic` are independent non-operative metadata. Older C2/P1 language describing a primitive implementation kind is superseded.
+2. Existing `time.md` material is stale and excluded. Authoritative time specification work is `USER-DEFERRED` and is not a C2 completion requirement unless explicitly re-enabled.
+
+This file is guidance, not a competing status log. Lifecycle truth belongs in `STDL002.C2-CHECKPOINT.md`. Exact tasks, files, tests, and gates belong in the authored P1/P2 patch-grade plans.
 
 # 1. Required read order
 
@@ -63,7 +71,7 @@ docs/workflow/sol-principal-architect-project-doctrine.md
 
 The project planning doctrine assigns architecture, ownership, invariants, test-surface design, and escalation criteria to the principal architect; the implementer should act narrowly under those decisions.
 
-The patch-plan schema requires each P1/P2 plan to separate fixed architecture, mechanical flexibility, verify-first assumptions, bounded testing, and STOP/CONSULT triggers.
+The patch-plan schema requires P1/P2 execution to separate fixed architecture, mechanical flexibility, verify-first assumptions, bounded testing, and STOP/CONSULT triggers.
 
 ## 1.2 Program/checkpoint authority
 
@@ -73,11 +81,30 @@ docs/implementation/STDL002-standard-library-buildout/C1-time/STDL002.C1-CHECKPO
 docs/implementation/STDL002-standard-library-buildout/C1-time/STDL002.C1.P1-monotonic-clock-instant-duration.md
 STDL002.C2-CHECKPOINT.md
 STDL002.C2-GUIDANCE.md
-active C2 plan
-latest completed C2 walkthrough/handoff, if any
+```
+
+For P1 execution also read:
+
+```text
+STDL002.C2.P1-plan-00-shared-header.md
+STDL002.C2.P1-01-body.md
+latest P1 walkthrough/handoff if continuing a partially completed implementation
+```
+
+For P2 execution also read:
+
+```text
+STDL002.C2.P2-plan.md
+completed STDL002.C2.P1-walkthrough.md
+completed STDL002.C2.P1-handoff.md
+LANG006.C1-CHECKPOINT.md
+LANG006.C1.P1-HEADER.md
+LANG006.C1.P1-BODY.md
 ```
 
 C1 is predecessor evidence, not current C2 architecture authority where C2 explicitly changes the surface.
+
+Earlier references to `STDL002.C2.P1-plan-01-body.md` resolve to the installed `STDL002.C2.P1-01-body.md`; do not create a duplicate body.
 
 ## 1.3 Normative language authority
 
@@ -89,16 +116,16 @@ visibility/access control
 classes/inheritance/abstract declarations
 data declarations/construction/invariants
 enums/payload enums/pattern matching
-native and primitive method declaration kinds
+ImplementationKind::Phalcom / Native / Foreign
 @intrinsic and @primitive metadata
-intrinsic/native/primitive reflection/provenance
+native/foreign reflection and metadata provenance
 generic data
 inherent impls/extensions
 errors
 reflection
 ```
 
-The visibility and native/primitive areas are actively changing. Verify live documents and code rather than trusting legacy visibility decorators, implementation-selector spellings, decorator-based native declarations, or old primitive-registry documentation.
+LANG006 is the current authority for implementation kind and metadata semantics. Do not trust older checkpoint/header wording that treated `primitive` as an implementation kind.
 
 ## 1.4 Time implementation
 
@@ -108,7 +135,6 @@ Inspect the live equivalents of:
 phalcom-core/core/universe/src/time/package.ph
 phalcom-core/core/universe/src/time/clock.ph
 phalcom-core/core/universe/src/package.ph
-docs/spec/current/stdlib/time.md
 
 System.clock / current monotonic native bridge
 System.sleep(Duration)
@@ -116,12 +142,19 @@ Future.timeout(Duration)
 reactor deadline conversion
 semantic time capability tests
 runtime/language-corpus time tests
-reflection/native-surface/floor invariants
+reflection/native-surface/metadata-floor invariants
 ```
 
-Do not re-audit unrelated standard-library packages.
+Do **not** read existing `time.md` documents as semantic authority. In particular, P1/P2 do not depend on:
 
----
+```text
+docs/spec/current/stdlib/time.md
+docs/implementation/time.md
+```
+
+unless a later explicit user instruction re-enables specification work.
+
+Do not re-audit unrelated standard-library packages.
 
 # 2. Authority and drift rules
 
@@ -129,13 +162,13 @@ Use this order when authorities disagree:
 
 ```text
 1. explicit user-ratified C2 decisions / approved checkpoint amendments
-2. current authoritative language specs
+2. current authoritative language specs, including LANG006
 3. STDL002.C2-CHECKPOINT.md durable invariants
 4. this guidance
 5. completed C2 walkthroughs/handoffs
-6. C1 as-built behavior that C2 has not superseded
-7. live implementation mechanics
-8. active patch-grade plan mechanics
+6. active P1/P2 patch-grade plan architecture/mechanics
+7. C1 as-built behavior that C2 has not superseded
+8. live implementation mechanics
 9. historical plans/drafts/legacy tests
 ```
 
@@ -149,11 +182,26 @@ planning-time helper names / paths / private signatures
 
 Mechanical drift is adaptable.
 
-Architectural drift in visibility identity, declaration implementation kind, primitive/native semantics, clock identity, temporal representation, timezone lifetime, semantic authority, or public API requires consultation.
+Architectural drift in visibility identity, declaration implementation kind, metadata semantics, clock identity, temporal representation, timezone lifetime/snapshot/identity, semantic authority, or public API requires consultation.
 
 Do not let a stale test re-ratify C1 surface that C2 intentionally supersedes.
 
----
+Do not let stale `time.md` material become semantic authority merely because an older P1 header/checkpoint revision mentioned it.
+
+The approved amendments are interpretation rules for older planning text:
+
+```text
+older "primitive implementation kind"
+    -> Native implementation + @primitive metadata when irreducible
+
+older "native/primitive distinction"
+    -> Native implementation versus primitive-floor metadata classification
+
+older "final time specification"
+    -> USER-DEFERRED, not a C2 completion gate
+```
+
+These are architectural reconciliations, not optional executor choices.
 
 # 3. Session bootstrap
 
@@ -188,7 +236,7 @@ Do not begin by running workspace tests.
 
 # 4. Language-transition takeover rule
 
-The live C1 time implementation predates the intended final visibility and implementation-kind model.
+The live C1 time implementation predates the intended final visibility and LANG006 implementation-kind model.
 
 C2 therefore treats these as **legacy takeover artifacts**:
 
@@ -198,6 +246,7 @@ implementation-only selector prefixes
 the System-owned monotonic host-read seam
 Clock's legacy hidden singleton accessor
 Instant's legacy hidden construction/accessor selectors
+legacy primitive registration assumptions
 ```
 
 They are not the target pattern.
@@ -211,8 +260,9 @@ module
 package
 internal
 
-native keyword
-primitive keyword
+ImplementationKind::Phalcom
+ImplementationKind::Native
+ImplementationKind::Foreign
 
 @intrinsic
 @primitive
@@ -228,11 +278,10 @@ If it is partially landed:
 - do not create a time-specific compatibility layer;
 - do not reintroduce spelling-based access;
 - do not make metadata attributes operative;
+- do not recreate a primitive implementation kind for time;
 - STOP AND CONSULT if C2 would duplicate or contradict the active language transition.
 
 C2 is a production consumer of the new model, not its alternative implementation.
-
----
 
 # 5. Visibility rules to keep loaded
 
@@ -294,18 +343,21 @@ Keep these axes separate.
 
 ## 6.1 Implementation kind
 
+LANG006 normalizes declaration implementation kind to:
+
 ```text
-source
-    body implemented in Phalcom
+Phalcom
+    body is implemented in ordinary Phalcom source
 
-native
-    body supplied in Rust through Phalcom native APIs;
-    behavior remains conceptually a library implementation
+Native
+    body is supplied by Phalcom's native implementation provider
+    (typically Rust in the current implementation)
 
-primitive
-    irreducible host/runtime operation not expressible from available
-    Phalcom-language values
+Foreign
+    body crosses an external interoperability boundary
 ```
+
+There is no `primitive` implementation kind.
 
 ## 6.2 Metadata
 
@@ -321,7 +373,7 @@ They do not:
 ```text
 supply a body
 select native linkage
-select primitive linkage
+select foreign linkage
 change visibility
 change identity
 change representation
@@ -330,45 +382,66 @@ force bytecode/intrinsic lowering
 alter typechecking
 ```
 
-If an operation uses the `primitive` implementation kind, the active plan may also require `@primitive` metadata for descriptive/reflection purposes if that is the current canonical Universe convention. The attribute is still not what makes the method primitive.
+`@primitive` records an irreducible host/runtime-floor classification where appropriate. It is not what makes a declaration Native and it must never become an implementation registry key.
+
+Expected C2 combination for irreducible host observations:
+
+```text
+Native declaration
++ @primitive metadata
+```
+
+Expected combination for timezone database/rule operations:
+
+```text
+Native declaration
+without @primitive merely because the implementation is Rust-backed
+```
 
 `@intrinsic` should not appear in time merely to encourage optimization. Use it only if a separately ratified intrinsic fact exists.
 
----
+# 7. Phalcom/Native/primitive-metadata decision test
 
-# 7. Primitive/native decision test
+Before assigning implementation kind or primitive metadata, ask two separate questions.
 
-Before assigning either implementation kind, ask:
+First:
 
 ```text
-Can this result be correctly derived in ordinary Phalcom from values and
+Can this behavior be correctly derived in ordinary Phalcom from values and
 language facilities already available to the program?
 ```
 
-If **no** because the operation observes an external host/runtime fact, `primitive` may be appropriate.
+- If yes, `ImplementationKind::Phalcom` is the default.
+- If yes but the operation intentionally delegates a substantial implementation to Rust/provider code or external rule data for engineering reasons, `ImplementationKind::Native` may be appropriate.
+- If it is an external interoperability boundary rather than a Phalcom-owned provider implementation, use `ImplementationKind::Foreign` according to LANG006. C2 does not expect this for ordinary time behavior.
 
-If **yes**, source is the default.
+Second, independently:
 
-If **yes**, but the operation intentionally delegates a substantial implementation to Rust/external data for engineering reasons, `native` may be appropriate.
+```text
+Does the operation expose an irreducible host/runtime fact unavailable from
+existing Phalcom values?
+```
+
+If yes, the Native declaration may be marked `@primitive`.
 
 Expected C2 classification:
 
-| Operation | Classification |
-|---|---|
-| observe monotonic host clock | `primitive` |
-| observe wall host clock | `primitive` |
-| discover host configured timezone | `primitive` |
-| open/query IANA/TZif rule database | `native` |
-| Gregorian arithmetic | source |
-| Duration/Timestamp arithmetic | source |
-| fixed-offset conversion | source |
-| local ambiguity policy | source |
-| ZonedDateTime shift/advance | source |
-| ISO parsing/formatting | source |
+| Operation | Implementation kind | Metadata |
+|---|---|---|
+| observe monotonic host clock | Native | `@primitive` |
+| observe wall host clock | Native | `@primitive` |
+| discover host configured timezone | Native | `@primitive` |
+| open/query IANA/TZif rule database | Native | none required |
+| Gregorian arithmetic | Phalcom | none |
+| Duration/Timestamp arithmetic | Phalcom | none |
+| fixed-offset conversion | Phalcom | none |
+| local ambiguity policy | Phalcom | none |
+| ZonedDateTime equality/shift/advance | Phalcom | none |
+| ISO parsing/formatting | Phalcom | none |
 
-Performance does not convert source behavior into primitive behavior.
+Performance does not convert Phalcom behavior into primitive-floor behavior.
 
----
+Do not use `@primitive` to imply Native linkage; do not use Native linkage to imply `@primitive`.
 
 # 8. Object-model taxonomy
 
@@ -606,7 +679,7 @@ DateOverflow
 UtcOffset
 package module topology
 prelude exposure
-primitive host-clock ownership
+Native host-clock ownership + primitive metadata classification
 visibility policy for time internals
 ```
 
@@ -618,13 +691,14 @@ In particular, do not make `UtcOffset` pretend to be `TimeZone`.
 
 # 13. P2 architectural boundary
 
-P2 builds only after the P1 value/capability model is stable.
+P2 builds only after the P1 value/capability model is stable and its completed walkthrough/handoff has been consumed.
 
 P2 owns:
 
 ```text
-TimeZone database lifetime/cache
-TimeZone named/fixed/system/UTC forms
+TimeZone database adapter and stable snapshot/generation lifetime
+cached named-zone handles
+TimeZone UTC/fixed/named/system forms and semantic identity
 ZoneTransition
 LocalTimeResolution
 LocalTimeDisambiguation
@@ -632,12 +706,20 @@ ZonedDateTime
 system-local current date/time conveniences
 zone conversions
 DST gap/overlap behavior
-ISO/RFC parsing/formatting
-testing clocks package
+backend range conversion without narrowing P1 values
+canonical machine formatting and parsing
+offset/zone consistency
+lossless round trips
+time.testing deterministic clocks
 ordinary-package equivalence certification
-reflection/provenance certification
-final time specification
+reflection/type-observation certification
+Native/@primitive provenance certification
+GC/lifetime certification
+lazy-init/performance/resource sanity
+final C2 checkpoint walkthrough/handoff closure
 ```
+
+Authoritative time specification work is `USER-DEFERRED` and is not part of P2 acceptance unless explicitly re-enabled.
 
 P2 must not reopen:
 
@@ -649,11 +731,11 @@ DateTime timezone-free meaning
 UtcOffset fixed-value meaning
 prelude policy
 System façade removal
+LANG006 implementation-kind/metadata semantics
+specification deferral
 ```
 
 without checkpoint amendment.
-
----
 
 # 14. Temporal semantic laws
 
@@ -736,7 +818,7 @@ Canonical `ZonedDateTime` state:
 Timestamp + TimeZone
 ```
 
-Derived:
+Derived only:
 
 ```text
 offset
@@ -746,12 +828,14 @@ Time
 civil components
 ```
 
+Do not store derived offset/civil fields as independent canonical equality state.
+
 Exact movement:
 
 ```text
 shift(Duration)
-    mutate timestamp coordinate logically
-    preserve zone
+    change timestamp coordinate
+    preserve TimeZone
 ```
 
 Calendar movement:
@@ -759,22 +843,23 @@ Calendar movement:
 ```text
 advance(Period)
     derive local DateTime
-    advance in civil space
-    resolve through zone
+    apply P1 civil Period semantics
+    resolve through same TimeZone
+    use Compatible disambiguation
 ```
 
 Zone conversion:
 
 ```text
 withTimeZone(other)
-    same Timestamp
-    new TimeZone interpretation
+    preserve Timestamp
+    change TimeZone interpretation
 ```
 
 Equality:
 
 ```text
-same Timestamp + same TimeZone
+same Timestamp + same TimeZone semantic identity
 ```
 
 Instant comparison is explicit:
@@ -786,7 +871,23 @@ compareInstant
 
 Do not make structural equality silently instant-only.
 
----
+Current-time conveniences compose the canonical P1 wall-clock path rather than observing time independently:
+
+```text
+Date.today
+    Timestamp.now + TimeZone.system -> Date
+
+Date.today(in: zone)
+    Timestamp.now + zone -> Date
+
+ZonedDateTime.now
+    Timestamp.now + TimeZone.system
+
+ZonedDateTime.now(in: zone)
+    Timestamp.now + zone
+```
+
+Do not add Native `Date.today`, Native `ZonedDateTime.now`, backend-specific `now()`, or a public `System` temporal discovery façade.
 
 # 16. Local-time ambiguity
 
@@ -795,16 +896,42 @@ P2 must never assume every `DateTime + TimeZone` maps to one instant.
 Resolution states:
 
 ```text
-Unique
+Unique(value)
 Ambiguous(earlier, later)
 Gap(before, after)
 ```
 
-The backend supplies factual rule results.
+Required payload ordering:
 
-Phalcom source owns public policy.
+```text
+Ambiguous.earlier
+    earlier absolute instant
 
-A native timezone operation should return enough factual information for Phalcom to build the public enum. Do not bury `Earlier`/`Later`/`Compatible` policy inside Rust unless the source-level wrapper is purely forwarding an already-ratified policy contract.
+Ambiguous.later
+    later absolute instant
+```
+
+Required gap semantics:
+
+```text
+Gap.before
+    requested local DateTime interpreted with the pre-transition offset
+
+Gap.after
+    requested local DateTime interpreted with the post-transition offset
+```
+
+The backend supplies factual rule results. Phalcom source owns public enum construction and disambiguation policy.
+
+A Native timezone operation must return enough factual information for Phalcom to preserve unique/overlap/gap distinctions. Do not bury `Earlier` / `Later` / `Compatible` policy inside Rust.
+
+Policy table:
+
+| Case | Reject | Earlier | Later | Compatible |
+|---|---|---|---|---|
+| Unique | value | value | value | value |
+| overlap | error | earlier | later | earlier |
+| gap | error | before | after | after |
 
 Default guidance:
 
@@ -816,23 +943,29 @@ ZonedDateTime.advance(Period)
     Compatible by default
 ```
 
-The former is explicit conversion from an underspecified civil coordinate; the latter is calendar scheduling within an already-zoned value.
+The exact gap payload semantics must be verified against at least:
 
----
+```text
+one ordinary one-hour gap
+one non-one-hour transition
+one historical transition
+```
 
-# 17. Timezone backend/lifetime guidance
+If the backend cannot expose these facts cleanly without applying its own public policy, STOP AND CONSULT.
 
-Prefer a mature Rust backend such as Jiff behind a Phalcom-owned adapter, subject to P2's fresh dependency/API verification.
+# 17. Timezone backend/lifetime and TimeZone identity guidance
 
-Public API must not expose Jiff types.
+Prefer a mature Rust backend such as Jiff behind a Phalcom-owned Native adapter, subject to P2's fresh dependency/API verification at execution time.
+
+Public API must not expose backend/Jiff types.
 
 Preferred ownership:
 
 ```text
-VM/process lifetime timezone database snapshot
+VM/process lifetime timezone database snapshot/generation
     canonical database adapter
     cached named-zone handles
-    TimeZone source objects store stable lightweight handle/identity
+    TimeZone source objects store stable lightweight logical handle/identity
 ```
 
 Requirements:
@@ -840,37 +973,79 @@ Requirements:
 ```text
 database init lazy
 no tzdb load at plain time import
+UTC/fixed zones do not require named tzdb initialization
+one coherent database snapshot/generation per intended VM/process lifetime
 existing TimeZone objects do not silently change rules mid-process
+named lookup reuses cached handles
+backend finite ranges are explicit interop errors, not P1 range definitions
 tests use controlled/pinned data or explicit fixtures where host tzdata drift matters
-no per-TimeZone custom GC ownership if a stable VM-lifetime handle works
+system timezone discovery is an integration capability test, not the sole rule oracle
+no per-TimeZone custom GC ownership if a stable adapter/handle model works
 ```
 
-STOP AND CONSULT if the chosen backend forces materially different lifetime/identity semantics.
+The default backend global database/cache is not automatically acceptable merely because it is convenient. P2 must prove that its invalidation/reload behavior is compatible with the stable-snapshot invariant or wrap/select a database source that is.
 
----
+`TimeZone` semantic identity is:
+
+```text
+UTC
+    canonical UTC identity
+
+fixed
+    UtcOffset value identity
+
+named
+    database snapshot/generation identity + stable canonical logical identifier
+
+system
+    no distinct mutable identity category after discovery;
+    TimeZone.system returns an ordinary resolved TimeZone value
+```
+
+Named `TimeZone` equality must not use raw backend pointer equality. Alias/canonical-name behavior is verify-first and must be locked before final equality/hash behavior.
+
+`TimeZone.system` performs host discovery on invocation. Previously returned zones remain stable if host configuration later changes. Discovery failure is explicit and must not silently substitute UTC.
+
+Backend ranges never narrow P1's `Timestamp` or civil semantics. Named-zone operations outside the backend's supported conversion range fail explicitly; UTC/fixed operations should continue through Phalcom arithmetic wherever P1 values remain valid.
+
+Second-resolution historical offsets must survive backend conversion and `UtcOffset` representation where data and P1 bounds permit them.
+
+STOP AND CONSULT if the chosen backend forces materially different lifetime, identity, ambiguity, range, offset precision, or GC semantics.
 
 # 18. Textual forms
 
-P2 should own one stable machine grammar, not a locale presentation framework.
+P2 owns one stable machine grammar, not a locale presentation framework.
 
-Expected canonical families:
+Canonical families include:
 
 ```text
-Date             2026-09-17
-Time             13:47:12.345678901
-DateTime         2026-09-17T13:47:12.345678901
-UtcOffset        +03:00
-Timestamp        2026-09-17T10:47:12.345678901Z
-ZonedDateTime    2026-09-17T13:47:12.345678901+03:00[Europe/Istanbul]
-Period           ISO-style calendar form
-Duration         ISO-style exact-time form without calendar-month/year semantics
+Date             YYYY-MM-DD with expanded signed years where P1 range permits
+Time             HH:MM:SS[.fffffffff]
+DateTime         <Date>T<Time>
+UtcOffset        ±HH:MM or ±HH:MM:SS when second precision is required
+Timestamp        <Date>T<Time>Z
+ZonedDateTime    <Date>T<Time><offset>[<zone-identity>]
+Period           lossless calendar months+days form
+Duration         lossless exact-time form without calendar-month/year semantics
 ```
 
-A zoned string containing both explicit offset and zone identifier must be checked for consistency at that timestamp.
+P2's concrete plan further locks these requirements:
 
-Parsing stays Phalcom-owned where expressible. The native timezone backend may validate rules but does not own the entire public parser grammar.
+```text
+nanosecond precision is lossless
+fractions parse at 1..9 digits with no silent >9-digit rounding
+second-resolution historical offsets survive text round trips
+expanded/negative years follow the P1 civil range
+Timestamp text normalizes accepted numeric offsets to an absolute value
+ZonedDateTime text containing both offset and zone validates their consistency
+explicit overlap offsets must not be ignored
+Period formatting/parsing must round-trip every valid months+days value,
+including mixed-sign fields if P1 permits them
+```
 
----
+Parsing stays Phalcom-owned where expressible. The Native timezone backend may validate timezone facts but does not own the public accepted grammar or canonical formatter.
+
+C2 does not add locale/CLDR presentation, natural-language parsing, or a general `strftime`-style formatting language.
 
 # 19. No time-specific trait hierarchy
 
@@ -921,13 +1096,13 @@ compiler recognition of Date/Duration names
 
 If profiling later justifies transparent specialization, that is separate optimization work.
 
-Runtime should see normal classes/data/enums and ordinary method dispatch except at explicit native/primitive call boundaries.
+Runtime should see normal classes/data/enums and ordinary method dispatch except at explicit Native/Foreign provider boundaries.
 
 ---
 
 # 21. Language-feature certification intent
 
-C2 intentionally serves as a production acceptance test.
+C2 intentionally serves as a production acceptance test for the ordinary language/runtime pipeline.
 
 Expected exercised language features include:
 
@@ -943,7 +1118,7 @@ abstract classes
 abstract methods
 inheritance
 protected access
-module/package visibility
+module/package/internal visibility
 class-side singleton state
 exported module values
 grouped imports/exports
@@ -953,24 +1128,23 @@ arbitrary Int arithmetic
 negative division/modulo
 strings/parsing
 errors
-native methods
-primitive methods
-Universe-only metadata
+Native methods
+LANG006 @primitive/@intrinsic metadata semantics
 reflection
 GC
 concurrency integration
 ```
 
+`Foreign` is part of the general LANG006 implementation-kind model but is not expected to be required by ordinary C2 time behavior.
+
 When time exposes a defect in one of these general features:
 
 ```text
 prefer fixing the owning language implementation
-over hiding the problem in Rust or Universe privilege
+over hiding the problem in Rust, metadata, or Universe privilege
 ```
 
 If the required language fix collides with active architecture in another checkpoint, consult rather than patching around it.
-
----
 
 # 22. Ordinary-package certification
 
@@ -1045,9 +1219,9 @@ No unchanged failing test should be rerun unless relevant state changed.
 
 # 24. Coverage dimensions to plan explicitly
 
-Each plan should map tests to checkpoint invariants and select the dimensions it actually owns.
+Each plan maps tests to checkpoint invariants and selects the dimensions it actually owns.
 
-P1 should include at minimum:
+P1 includes at minimum:
 
 ```text
 singleton/export identity
@@ -1065,21 +1239,24 @@ Period normalization/order absence
 grouped import/export
 prelude identity
 visibility negatives
-primitive provenance/ownership
+Native + @primitive host-observation provenance
 ordinary package consumption
 concurrency Duration compatibility
 reflection of migrated declarations
 ```
 
-P2 should include at minimum:
+P2 includes at minimum:
 
 ```text
 UTC/fixed/named zones
 system timezone
+named-zone identity/cache
+stable timezone database snapshot/lifetime
 historical offset with seconds if backend data provides one
 transitionBefore/After
 known DST gap
 known DST overlap
+non-one-hour transition fixture
 Unique/Ambiguous/Gap payload semantics
 disambiguation policies
 same instant/different zones
@@ -1088,16 +1265,19 @@ Date.today zone dependence
 parse/format round trips
 invalid parse
 offset-zone mismatch
+backend interop range failures without P1 narrowing
 lazy database initialization
 zone handle lifetime/GC
 ordinary package consumption
-native provenance
+Native/@primitive provenance
 final reflection surface
+time.testing clocks
+resource/cache sanity
 ```
 
 Property testing is particularly valuable for civil epoch-day round trips and parser/formatter round trips.
 
----
+Deterministic timezone tests must use controlled/pinned fixtures where rule drift matters; ambient host tzdata is reserved for capability/integration smoke tests.
 
 # 25. Failure classification
 
@@ -1153,28 +1333,33 @@ Stop immediately if any of these appears:
 
 1. visibility requires spelling-based exceptions;
 2. protected construction cannot express the Clock/Instant capability;
-3. package/module visibility is being inferred from path/string rather than canonical identity;
+3. package/module/internal visibility is being inferred from path/string rather than canonical identity;
 4. `@primitive` or `@intrinsic` must become operative to complete a task;
-5. primitive/native implementation-kind semantics conflict with this checkpoint;
-6. a legacy spelling-based or special-attribute compatibility shim starts becoming permanent architecture;
+5. live LANG006 `Phalcom` / `Native` / `Foreign` semantics conflict with this checkpoint;
+6. a legacy spelling-based, primitive-registry, or special-attribute compatibility shim starts becoming permanent architecture;
 7. abstract-member obligations require a competing class-completeness model;
 8. `data` validation would require abandoning transparency or introducing a parallel constructor model;
 9. Timestamp needs floating-point canonical storage;
 10. DateTime would need an implicit timezone to make an API work;
 11. Period would need exact-duration semantics;
 12. UtcOffset is being used as a substitute for named timezone rules;
-13. backend local resolution cannot preserve 0/1/2 factual mappings cleanly;
+13. backend local resolution cannot preserve unique/ambiguous/gap factual mappings cleanly;
 14. timezone handles create uncertain GC/root/lifetime behavior;
-15. ZonedDateTime needs redundant public state for correctness;
-16. a new temporal VM value/bytecode seems necessary;
-17. a source-level time bug can only be bypassed by moving large semantics to Rust;
-18. C2 conflicts materially with an active language checkpoint;
-19. expected semantic test behavior would have to change;
-20. checkpoint scope expands into timers/reactor redesign, general FFI redesign, or whole-Universe migration.
+15. no coherent stable VM/process timezone-database snapshot/generation can be provided;
+16. backend ranges would force narrowing P1 temporal semantics;
+17. historical second-resolution offsets would be lost;
+18. named TimeZone identity would require raw pointer equality or repeated full-rule comparison;
+19. ZonedDateTime needs redundant public state for correctness;
+20. a new temporal VM value/bytecode seems necessary;
+21. a source-level time bug can only be bypassed by moving large semantics to Rust;
+22. C2 conflicts materially with an active language checkpoint;
+23. expected semantic test behavior would have to change to accommodate an implementation defect;
+24. deterministic timezone semantics can only be tested against mutable ambient host tzdata;
+25. canonical text cannot round-trip all valid values required by P2;
+26. checkpoint scope expands into timers/reactor redesign, locale/CLDR, recurrence, general FFI redesign, or whole-Universe migration;
+27. an older `time.md` would need to be revived merely to satisfy superseded planning text.
 
 A triggered condition cannot be self-waived.
-
----
 
 # 28. Consultation packet for C2
 
@@ -1204,14 +1389,20 @@ At P1/P2 start:
 
 ```text
 update C2 checkpoint active plan
-record start revision if useful
-consume predecessor handoff
+record execution revision
+consume predecessor handoff where applicable
+record the standing C2 amendments if not already present:
+    LANG006 implementation-kind reconciliation
+    time specification USER-DEFERRED
 ```
 
 During a plan update the checkpoint only for durable events:
 
 ```text
 stable new interface/invariant
+backend/version/snapshot decision
+TimeZone identity decision
+text grammar decision
 consultation/amendment
 meaningful deferred failure
 coherent verification gate
@@ -1225,7 +1416,7 @@ established interfaces
 tests actually run
 tests deferred
 baseline failures
-consultations
+consultations/amendments
 next action
 ```
 
@@ -1241,22 +1432,40 @@ STDL002.C2.P2-handoff.md
 
 as applicable.
 
+At final P2 closure, explicitly record:
+
+```text
+C2 completion revision
+backend/version/features
+timezone database snapshot/lifetime model
+TimeZone identity rule
+backend interop ranges
+canonical text grammar
+ordinary-package/reflection/provenance evidence
+GC/resource evidence
+specification = USER-DEFERRED
+```
+
 Do not create a competing plan-specific checkpoint-state document.
 
----
+# 30. P1 execution instructions
 
-# 30. P1 planning instructions
+The P1 plan set already exists. Do not create another P1 plan.
 
-The very next planning artifact should be P1.
+Execute from:
 
-Before writing it, verify:
+```text
+STDL002.C2.P1-plan-00-shared-header.md
+STDL002.C2.P1-01-body.md
+```
+
+At takeover, verify:
 
 ```text
 current grouped import/export syntax
 current visibility syntax/semantics
-current native keyword syntax/registration
-current primitive keyword syntax/registration
-current @intrinsic/@primitive handling
+current Phalcom/Native/Foreign registration
+current @intrinsic/@primitive metadata handling
 current abstract-member status
 current data constructor/validation model
 current static/class-side singleton field syntax
@@ -1264,71 +1473,74 @@ current time consumers
 current C1 tests/floor/reflection contracts
 ```
 
-Then produce a Luna patch-grade plan using the canonical schema.
-
-P1 tasks should be coherent vertical slices rather than one task per type.
-
-A likely task dependency shape is:
+Interpret older P1-header language through the standing C2 amendments:
 
 ```text
-T0 takeover + live language-surface verification
+primitive implementation kind
+    -> Native + @primitive metadata for irreducible host facts
 
-T1 minimal language prerequisite closure
-    only if live tree still lacks required general capability
-
-T2 monotonic model migration
-    Duration / Measurement / Clock / SystemClock / Instant / clock
-
-T3 absolute time
-    Timestamp / WallClock / SystemWallClock / wallClock
-
-T4 civil primitives and algorithms
-    Month / Weekday / Period / epoch-day foundation
-
-T5 validated civil value layer
-    Date / Time / DateTime / partial values / UtcOffset
-
-T6 package/prelude/concurrency/ordinary-package integration
-
-Gates
-    focused semantics
-    runtime/calendar properties
-    integration/reflection
+existing time.md authority/spec requirement
+    -> excluded / USER-DEFERRED
 ```
 
-The final P1 plan may adapt the task grouping after live verification but must preserve the P1 ownership boundary.
+P1 T1 remains conditional: it may close only the minimum general-language prerequisite that is missing and already architecturally ratified. It must not implement the wider LANG006 transition itself.
 
----
+P1 must finish with its walkthrough/handoff before P2 production execution proceeds.
 
-# 31. P2 planning instructions
+# 31. P2 execution instructions
 
-Do not write P2 until P1 has a completed walkthrough/handoff unless explicitly instructed otherwise.
-
-P2 planning must consume the exact stable P1 interfaces instead of restating speculative versions.
-
-A likely dependency shape is:
+The P2 patch-grade plan already exists:
 
 ```text
-timezone dependency/backend spike and ownership verification
-    ↓
-native TimeZoneDatabase adapter
-    ↓
-TimeZone + transitions
-    ↓
-LocalTimeResolution/Disambiguation
-    ↓
-ZonedDateTime conversions/arithmetic/current-time conveniences
-    ↓
-parsing/formatting
-    ↓
-testing clocks + ordinary-package/reflection/provenance closure
-    ↓
-final specification and checkpoint certification
+STDL002.C2.P2-plan.md
 ```
 
-The P2 plan must include exact timezone fixture strategy and backend-version verification rather than depending on ambient host tzdata for all behavioral assertions.
+It was authored before P1 implementation only by explicit user instruction. This does not waive its hard execution dependency.
 
----
+Before P2 production work:
+
+```text
+read completed P1 walkthrough/handoff
+reconcile exact P1 signatures, ranges, paths, visibility, reflection categories,
+and Native/@primitive linkage into P2 T0
+verify exact timezone backend version/features fresh
+verify stable database snapshot strategy
+verify alias/identity semantics
+verify backend interop ranges
+verify controlled/pinned timezone fixture strategy
+```
+
+The intended dependency shape is:
+
+```text
+T0  P1 handoff/LANG006/backend re-ground
+ ↓
+T1  backend dependency + snapshot/lifetime proof
+ ↓
+T2  Native TimeZoneDatabase adapter/cache
+ ↓
+T3  TimeZone + transitions
+ ↓
+T4  LocalTimeResolution/Disambiguation
+ ↓
+T5  ZonedDateTime semantics
+ ↓
+T6  current-time conveniences
+ ↓
+T7  canonical formatting
+ ↓
+T8  parsing/consistency/round trips
+ ↓
+T9  time.testing clocks
+ ↓
+T10 ordinary-package/reflection/provenance/GC/performance closure
+ ↓
+T11 checkpoint/walkthrough/handoff certification
+```
+
+P2 must not depend on ambient host tzdata for all behavioral assertions.
+
+Authoritative time specification work remains `USER-DEFERRED`; do not add it back to T11 unless explicitly re-enabled.
 
 # 32. Things not to redesign during implementation
 
@@ -1348,34 +1560,41 @@ Duration != Period
 UtcOffset != TimeZone
 DateTime != ZonedDateTime
 ZonedDateTime canonical state = Timestamp + TimeZone
-timezone backend is native, not the primitive floor
-host observations are primitive
+timezone backend/rule operations are Native, not primitive-floor metadata by default
+host observations are Native + @primitive metadata
+ImplementationKind is Phalcom / Native / Foreign
 @intrinsic/@primitive metadata is non-operative
 visibility is identity-based and lexical
 no special implementation-selector naming in final C2 time source
 no broad temporal trait hierarchy
 no temporal VM specialization by default
+stable timezone database snapshot/lifetime is required
+backend finite ranges do not narrow P1 temporal semantics
+canonical parser/formatter semantics are Phalcom-owned
+existing stale time.md files are excluded
+specification work is USER-DEFERRED
 ```
 
 These are architect decisions, not implementer convenience choices.
 
----
-
 # 33. Current next action
 
-Create `STDL002.C2.P1` only.
+Execute `STDL002.C2.P1` from the existing plan set.
 
-Do not implement C2 and do not draft P2 in the same planning turn unless explicitly requested.
+Do not create another requirements analysis or another P1 plan unless a material architectural consultation changes the checkpoint.
 
-P1 must be sufficiently patch-grade that the implementer can spend most of the session coding rather than rediscovering:
+The immediate implementation sequence is:
 
 ```text
-the new visibility model
-the native/primitive distinction
-the C1 migration boundary
-the data/class/enum representation choices
-the module/prelude policy
-the calendar laws
-the intended testing budget
-the exact conditions that require architectural consultation
+1. P1 T0 live takeover
+2. verify required LANG006/general-language prerequisites
+3. execute P1 through final focused acceptance
+4. produce P1 walkthrough + handoff
+5. begin P2 T0 and consume the as-built P1 contract
+6. execute P2 through final C2 certification
+7. update checkpoint to truthful COMPLETE state only when its final gate passes
 ```
+
+The P2 plan is already authored, but production P2 work remains dependent on the completed P1 walkthrough/handoff.
+
+Do not revive stale `time.md` work during this sequence. Authoritative time specification remains `USER-DEFERRED`.
