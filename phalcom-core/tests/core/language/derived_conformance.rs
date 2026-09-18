@@ -21,10 +21,9 @@ fn run_universe_iterator_project(source: &str) -> (phalcom_core::vm::VM, phalcom
     std::fs::write(source_root.join("package.ph"), "expose .main\n").expect("package manifest");
     std::fs::write(source_root.join("main.ph"), source).expect("entry source");
 
-    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(
-        phalcom_core::modules::compile::EntrySelection::Project(root.to_path_buf()),
-    )
-    .expect("canonical Universe Iterator law project compiles");
+    let program =
+        phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(phalcom_core::modules::compile::EntrySelection::Project(root.to_path_buf()))
+            .expect("canonical Universe Iterator law project compiles");
     let mut vm = vm_support::universe_vm();
     vm.run_compiled(&program).expect("canonical Universe Iterator law execution");
     let entry_id = program.initialization_order.last().expect("entry module");
@@ -422,7 +421,8 @@ let res = Probe.check(Iter.new())
 
 #[test]
 fn universe_iterator_derives_iterable() {
-    let (vm, module) = run_universe_iterator_project(r#"
+    let (vm, module) = run_universe_iterator_project(
+        r#"
 from universe.collections.iterator_laws import Iterator, Iterable
 
 class OneIter {
@@ -445,7 +445,8 @@ class Probe {
 }
 
 let res = Probe.sameTraversal(OneIter.new())
-"#);
+"#,
+    );
     assert_eq!(named(&vm, module, "res").expect("res").as_bool(), Some(true));
 }
 

@@ -451,9 +451,8 @@ pub fn register_native_surfaces_from_records(
         // constructor basis so generic declaration parameters remain an
         // owner-relative domain during class-side application; treating it as
         // an opaque native value loses the applied receiver's type arguments.
-        let is_class_constructor = side == crate::identity::DispatchSide::Class
-            && selector.encode() == "new()"
-            && matches!(record.flow(), ReturnFlowSpec::Receiver);
+        let is_class_constructor =
+            side == crate::identity::DispatchSide::Class && selector.encode() == "new()" && matches!(record.flow(), ReturnFlowSpec::Receiver);
         let declared_return_basis = if is_class_constructor {
             crate::declaration_type::DeclaredTypeBasis::ConstructorSemantics
         } else {

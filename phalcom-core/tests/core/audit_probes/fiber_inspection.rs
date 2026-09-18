@@ -10,8 +10,7 @@ use phalcom_core::{
 };
 
 fn inspect(vm: &mut VM, _: &Value, _: &[Value]) -> PhResult<Value> {
-    let current =
-        phalcom_core::primitive::fiber::fiber_current(vm, &Value::unit(), &[])?.as_obj().unwrap();
+    let current = phalcom_core::primitive::fiber::fiber_current(vm, &Value::unit(), &[])?.as_obj().unwrap();
     let active = vm.heap.fiber(current);
     assert_eq!(active.status, FiberStatus::Running);
     assert!(active.stack.is_empty() && active.frames.is_empty());
@@ -49,9 +48,7 @@ fn fiber_state_inspection_during_yield() {
         .iter()
         .find_map(|value| {
             let id = value.as_obj()?;
-            (matches!(vm.heap.get(id), Object::Method(_))
-                && vm.resolve_symbol(vm.heap.method(id).selector()) == "check()")
-            .then_some(id)
+            (matches!(vm.heap.get(id), Object::Method(_)) && vm.resolve_symbol(vm.heap.method(id).selector()) == "check()").then_some(id)
         })
         .unwrap();
     vm.heap.method_mut(method).kind = MethodKind::Primitive(PrimitiveFn::Legacy(inspect));

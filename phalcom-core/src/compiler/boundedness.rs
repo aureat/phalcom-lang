@@ -63,7 +63,7 @@ pub(crate) fn infer_source_facts(expr: &Expr, const_env: &HashMap<String, Source
         },
         Expr::ListLiteral(_) | Expr::TupleLiteral(_) | Expr::MapLiteral(_) | Expr::SetLiteral(_) => concrete(Boundedness::Bounded),
         Expr::Var { value, .. } => const_env.get(value).copied().unwrap_or(UNKNOWN),
-        Expr::GetProperty(property) if property.property == "iter" => {
+        Expr::GetProperty(property) if property.property == "iter" || property.property == "iterator" => {
             let source = infer_source_facts(&property.object, const_env);
             match source.mode {
                 IterationMode::Concrete | IterationMode::LazyPipeline => lazy(source.boundedness),
@@ -107,7 +107,7 @@ pub(crate) fn check_method_call(call: &MethodCallExpr, const_env: &HashMap<Strin
     Ok(())
 }
 
-/// Applies the getter catalog (`toList`, `toSet`, `toMap`) to a property send.
+/// Applies the getter catalog (`toList`, `toSet`, `toMap`, `last`, `count`, `join`) to a property send.
 pub(crate) fn check_property(property: &str, receiver: &Expr, range: SourceRange, const_env: &HashMap<String, SourceFacts>) -> Result<(), CompilerError> {
     let facts = infer_source_facts(receiver, const_env);
     if is_eager_getter_selector(property, facts.mode) {
@@ -122,13 +122,17 @@ fn infer_method_call_facts(call: &MethodCallExpr, const_env: &HashMap<String, So
 
     if receiver.mode == IterationMode::LazyPipeline {
         return match selector.as_str() {
-            "map(_)" | "filter(_)" | "skip(_)" => lazy(receiver.boundedness),
+            "map(_)" | "filter(_)" | "filterMap(_)" | "inspect(_)" | "skip(_)" | "skipWhile(_)" => lazy(receiver.boundedness),
             "take(_)" => lazy(Boundedness::Bounded),
-            "takeWhile(_)" => lazy(match receiver.boundedness {
+            "takeWhile(_)" | "mapWhile(_)" => lazy(match receiver.boundedness {
                 Boundedness::Bounded => Boundedness::Bounded,
                 Boundedness::Unbounded | Boundedness::Unknown => Boundedness::Unknown,
             }),
             "flatMap(_)" => lazy(match receiver.boundedness {
+                Boundedness::Unbounded => Boundedness::Unbounded,
+                Boundedness::Bounded | Boundedness::Unknown => Boundedness::Unknown,
+            }),
+            "chain(_)" | "zip(_)" => lazy(match receiver.boundedness {
                 Boundedness::Unbounded => Boundedness::Unbounded,
                 Boundedness::Bounded | Boundedness::Unknown => Boundedness::Unknown,
             }),
@@ -166,7 +170,7 @@ fn canonical_method_selector(call: &MethodCallExpr) -> String {
 }
 
 fn is_eager_getter_selector(selector: &str, mode: IterationMode) -> bool {
-    matches!(mode, IterationMode::Concrete | IterationMode::LazyPipeline) && matches!(selector, "toList" | "toSet" | "toMap")
+    matches!(mode, IterationMode::Concrete | IterationMode::LazyPipeline) && matches!(selector, "toList" | "toSet" | "toMap" | "last" | "count" | "join")
 }
 
 fn is_eager_method_selector(selector: &str, mode: IterationMode) -> bool {
@@ -181,6 +185,7 @@ fn is_eager_method_selector(selector: &str, mode: IterationMode) -> bool {
             | "group(by)"
             | "partition(where)"
             | "toMap(merging)"
+            | "join(_)"
     );
     let concrete_only = matches!(selector, "map(_)" | "filter(_)" | "flatMap(_)");
     common || (mode == IterationMode::Concrete && concrete_only)
@@ -236,6 +241,15 @@ mod tests {
         }))
     }
 
+    fn iterator_prop(expr: Expr) -> Expr {
+        Expr::GetProperty(Box::new(GetPropertyExpr {
+            object: expr,
+            property: "iterator".into(),
+            property_range: None,
+            range: EmptySourceRange,
+        }))
+    }
+
     #[test]
     fn infers_ranges_and_lazy_stages_conservatively() {
         let env = HashMap::new();
@@ -243,15 +257,32 @@ mod tests {
         assert_eq!(infer_source_facts(&range(true, false), &env), concrete(Boundedness::Unbounded));
         assert_eq!(infer_source_facts(&range(false, true), &env), concrete(Boundedness::Unknown));
         assert_eq!(infer_source_facts(&iter(range(true, false)), &env), lazy(Boundedness::Unbounded));
+        assert_eq!(infer_source_facts(&iterator_prop(range(true, false)), &env), lazy(Boundedness::Unbounded));
         assert_eq!(infer_source_facts(&call(iter(range(true, false)), "map"), &env), lazy(Boundedness::Unbounded));
         assert_eq!(
             infer_source_facts(&call(iter(range(true, false)), "filter"), &env),
             lazy(Boundedness::Unbounded)
         );
+        assert_eq!(
+            infer_source_facts(&call(iter(range(true, false)), "filterMap"), &env),
+            lazy(Boundedness::Unbounded)
+        );
+        assert_eq!(
+            infer_source_facts(&call(iter(range(true, false)), "inspect"), &env),
+            lazy(Boundedness::Unbounded)
+        );
         assert_eq!(infer_source_facts(&call(iter(range(true, false)), "skip"), &env), lazy(Boundedness::Unbounded));
+        assert_eq!(
+            infer_source_facts(&call(iter(range(true, false)), "skipWhile"), &env),
+            lazy(Boundedness::Unbounded)
+        );
         assert_eq!(infer_source_facts(&call(iter(range(true, false)), "take"), &env), lazy(Boundedness::Bounded));
         assert_eq!(
             infer_source_facts(&call(iter(range(true, false)), "takeWhile"), &env),
+            lazy(Boundedness::Unknown)
+        );
+        assert_eq!(
+            infer_source_facts(&call(iter(range(true, false)), "mapWhile"), &env),
             lazy(Boundedness::Unknown)
         );
         assert_eq!(
@@ -259,6 +290,8 @@ mod tests {
             lazy(Boundedness::Unbounded)
         );
         assert_eq!(infer_source_facts(&call(iter(range(true, true)), "flatMap"), &env), lazy(Boundedness::Unknown));
+        assert_eq!(infer_source_facts(&call(iter(range(true, false)), "chain"), &env), lazy(Boundedness::Unbounded));
+        assert_eq!(infer_source_facts(&call(iter(range(true, false)), "zip"), &env), lazy(Boundedness::Unbounded));
         assert_eq!(
             infer_source_facts(
                 &Expr::Var {
@@ -273,7 +306,17 @@ mod tests {
 
     #[test]
     fn recognizes_migrated_eager_selectors() {
-        for selector in ["map(indexed)", "each(indexed)", "count(where)"] {
+        for selector in [
+            "map(indexed)",
+            "each(indexed)",
+            "count(where)",
+            "fold(initial,using)",
+            "reduce(using)",
+            "group(by)",
+            "partition(where)",
+            "toMap(merging)",
+            "join(_)",
+        ] {
             assert!(is_eager_method_selector(selector, IterationMode::Concrete), "{selector}");
             assert!(is_eager_method_selector(selector, IterationMode::LazyPipeline), "{selector}");
         }
@@ -281,6 +324,11 @@ mod tests {
         for selector in ["find(where)", "index(where)", "any(where)", "all(where)", "none(where)"] {
             assert!(!is_eager_method_selector(selector, IterationMode::Concrete), "{selector}");
             assert!(!is_eager_method_selector(selector, IterationMode::LazyPipeline), "{selector}");
+        }
+
+        for getter in ["toList", "toSet", "toMap", "last", "count", "join"] {
+            assert!(is_eager_getter_selector(getter, IterationMode::Concrete), "{getter}");
+            assert!(is_eager_getter_selector(getter, IterationMode::LazyPipeline), "{getter}");
         }
     }
 }

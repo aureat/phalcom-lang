@@ -1,4 +1,7 @@
-use crate::ast::{BehaviorMember, ClassMember, DelegatedAccessorKind, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef, VariantDecl};
+use crate::ast::{
+    BehaviorMember, ClassMember, DelegatedAccessorKind, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef,
+    VariantDecl,
+};
 pub use phalcom_common::selector::{
     Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot, decode_label_component, encode_label_component,
 };

@@ -167,7 +167,10 @@ class Caller {
         )
         .await;
     let hover_text = hover["result"]["contents"]["value"].as_str().expect("associated type hover markdown");
-    assert!(hover_text.contains("Cell::Item"), "hover must include the canonical owner and associated name: {hover:#?}");
+    assert!(
+        hover_text.contains("Cell::Item"),
+        "hover must include the canonical owner and associated name: {hover:#?}"
+    );
     assert!(hover_text.contains("associated type"), "hover must identify the target kind: {hover:#?}");
 
     lsp.finish().await;

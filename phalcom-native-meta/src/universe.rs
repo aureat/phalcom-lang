@@ -45,7 +45,7 @@ pub enum UniverseKey {
     None,
     Unit,
 
-    Iterable,
+    Collection,
     List,
     Map,
     Set,
@@ -201,24 +201,24 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
         superclass: Some(UniverseKey::Function),
     },
     UniverseClassRelationSpec {
-        class: UniverseKey::Iterable,
+        class: UniverseKey::Collection,
         superclass: Some(UniverseKey::Object),
     },
     UniverseClassRelationSpec {
         class: UniverseKey::List,
-        superclass: Some(UniverseKey::Iterable),
+        superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
         class: UniverseKey::Map,
-        superclass: Some(UniverseKey::Iterable),
+        superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
         class: UniverseKey::Set,
-        superclass: Some(UniverseKey::Iterable),
+        superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
         class: UniverseKey::Tuple,
-        superclass: Some(UniverseKey::Iterable),
+        superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
         class: UniverseKey::Record,
@@ -226,11 +226,11 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
     },
     UniverseClassRelationSpec {
         class: UniverseKey::Range,
-        superclass: Some(UniverseKey::Iterable),
+        superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
         class: UniverseKey::Bytes,
-        superclass: Some(UniverseKey::Iterable),
+        superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
         class: UniverseKey::Module,
@@ -361,7 +361,7 @@ impl UniverseKey {
             Self::Unit => &["option", "unit"],
             Self::Result => &["errors", "result"],
             Self::Ordering => &["object", "ordering"],
-            Self::Iterable => &["collections", "iterable"],
+            Self::Collection => &["collections", "collection"],
             Self::List => &["collections", "list"],
             Self::Map => &["collections", "map"],
             Self::Set => &["collections", "set"],
@@ -423,7 +423,7 @@ impl UniverseKey {
             Self::Some => "Some",
             Self::None => "None",
             Self::Unit => "Unit",
-            Self::Iterable => "Iterable",
+            Self::Collection => "Collection",
             Self::List => "List",
             Self::Map => "Map",
             Self::Set => "Set",
@@ -490,7 +490,7 @@ impl UniverseKey {
             "Some" => Some(Self::Some),
             "None" => Some(Self::None),
             "Unit" => Some(Self::Unit),
-            "Iterable" => Some(Self::Iterable),
+            "Collection" => Some(Self::Collection),
             "List" => Some(Self::List),
             "Map" => Some(Self::Map),
             "Set" => Some(Self::Set),
@@ -747,8 +747,8 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
         prelude: true,
     },
     UniverseBindingSpec {
-        key: UniverseKey::Iterable,
-        name: "Iterable",
+        key: UniverseKey::Collection,
+        name: "Collection",
         kind: UniverseBindingKind::Class,
         exported: true,
         prelude: true,
@@ -989,13 +989,6 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
 use crate::types::{KindSpec, TypeParameterDeclSpec, UniverseTypeFormSpec};
 
 pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
-    UniverseTypeFormSpec {
-        owner: UniverseKey::Iterable,
-        parameters: &[TypeParameterDeclSpec {
-            name: "T",
-            kind: KindSpec::Type,
-        }],
-    },
     UniverseTypeFormSpec {
         owner: UniverseKey::List,
         parameters: &[TypeParameterDeclSpec {

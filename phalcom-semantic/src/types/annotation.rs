@@ -531,14 +531,21 @@ fn lower_scoped_type_form(
             let form = resolve_type_form(store, declarations, resolver, site, annotation, diagnostics);
             form.map_ready(|ty| intern_scoped_free(store, ty))
         }
-        TypeAnnotationExpr::AssociatedTypeProjection { subject, name, name_range, range } => {
-            resolve_associated_type_projection(store, declarations, resolver, site, subject, name, *name_range, *range, diagnostics)
-                .map_ready(|ty| intern_scoped_free(store, ty))
-        }
-        TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, name, name_range, range } => {
-            resolve_qualified_associated_projection(store, declarations, resolver, site, subject, trait_ref, name, *name_range, *range, diagnostics)
-                .map_ready(|ty| intern_scoped_free(store, ty))
-        }
+        TypeAnnotationExpr::AssociatedTypeProjection {
+            subject,
+            name,
+            name_range,
+            range,
+        } => resolve_associated_type_projection(store, declarations, resolver, site, subject, name, *name_range, *range, diagnostics)
+            .map_ready(|ty| intern_scoped_free(store, ty)),
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection {
+            subject,
+            trait_ref,
+            name,
+            name_range,
+            range,
+        } => resolve_qualified_associated_projection(store, declarations, resolver, site, subject, trait_ref, name, *name_range, *range, diagnostics)
+            .map_ready(|ty| intern_scoped_free(store, ty)),
         TypeAnnotationExpr::Reference(sym_ref) => {
             let name = sym_ref.leaf_name();
             if sym_ref.members.is_empty() {
@@ -1112,12 +1119,19 @@ pub fn resolve_type_form(
                 TypeFormResolution::Unresolved(TypeFormationUnresolved::SelfOutsideOwner)
             }
         }
-        TypeAnnotationExpr::AssociatedTypeProjection { subject, name, name_range, range } => {
-            resolve_associated_type_projection(store, declarations, resolver, site, subject, name, *name_range, *range, diagnostics)
-        }
-        TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, name, name_range, range } => {
-            resolve_qualified_associated_projection(store, declarations, resolver, site, subject, trait_ref, name, *name_range, *range, diagnostics)
-        }
+        TypeAnnotationExpr::AssociatedTypeProjection {
+            subject,
+            name,
+            name_range,
+            range,
+        } => resolve_associated_type_projection(store, declarations, resolver, site, subject, name, *name_range, *range, diagnostics),
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection {
+            subject,
+            trait_ref,
+            name,
+            name_range,
+            range,
+        } => resolve_qualified_associated_projection(store, declarations, resolver, site, subject, trait_ref, name, *name_range, *range, diagnostics),
         TypeAnnotationExpr::Reference(sym_ref) => {
             let name = sym_ref.leaf_name();
             if sym_ref.members.is_empty() {
@@ -1512,12 +1526,7 @@ fn generic_constraint_shape(store: &TypeStore, constraint: &GenericConstraint) -
             } else {
                 format!(
                     "<{}>",
-                    trait_ref
-                        .arguments
-                        .iter()
-                        .map(|ty| store.format_type(*ty))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    trait_ref.arguments.iter().map(|ty| store.format_type(*ty)).collect::<Vec<_>>().join(", ")
                 )
             };
             format!("Conforms({}, {}{})", term_shape(store, subject), trait_ref.declaration.name, args_str)

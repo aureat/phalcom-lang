@@ -7,7 +7,7 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 // ABSENT — inherited from `Iterable` so `Fiber.yield` works mid-iteration
 // (law 8); adding native or local overrides is a spec violation.
 @native
-class Bytes is Iterable {
+class Bytes is Collection {
   @class @native new(_ value: Dynamic) -> Bytes
   @class @internal @native _$fromString(_ value: String) -> Bytes
   @internal @native _$size -> Int

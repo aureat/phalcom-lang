@@ -7,9 +7,9 @@
 
 use crate::db::ProductFingerprint;
 use crate::declarations::DeclarationTypeTable;
+use crate::generic_evidence::GenericConformanceKey;
 use crate::identity::{CallableId, DataComponentId, DeclarationId, DispatchSide, ImplId, TypeId, VariantId};
 use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceTarget, ConformanceWitnessPlan, RequirementSelectionTemplate};
-use crate::generic_evidence::GenericConformanceKey;
 use crate::signature::CallableSemanticSignature;
 use crate::traits::{TraitRef, TraitRequirementId, TraitSurfaceTable};
 use crate::types::evidence::UnknownReason;

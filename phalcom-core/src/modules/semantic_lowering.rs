@@ -416,10 +416,7 @@ pub struct TraitInvocationSpec {
 }
 
 pub type RuntimeTraitEnvironmentKey = (SourceRange, ImplId, phalcom_semantic::traits::TraitRequirementId);
-pub type RuntimeTraitEnvironmentBindings = BTreeMap<
-    RuntimeTraitEnvironmentKey,
-    Box<[(phalcom_type_meta::StableTypeParameterRef, RuntimeTypeRecipe)]>,
->;
+pub type RuntimeTraitEnvironmentBindings = BTreeMap<RuntimeTraitEnvironmentKey, Box<[(phalcom_type_meta::StableTypeParameterRef, RuntimeTypeRecipe)]>>;
 
 /// Abstract requirement call inside a trait default. The active runtime
 /// conformance environment supplies the selected target for this slot.
@@ -493,10 +490,7 @@ pub struct ModuleLoweringSemantics {
     pub detached_methods: BTreeMap<CallableId, DetachedMethodSpec>,
 }
 
-pub(crate) fn attach_runtime_trait_environments(
-    lowering: &mut ModuleLoweringSemantics,
-    environments: &RuntimeTraitEnvironmentBindings,
-) {
+pub(crate) fn attach_runtime_trait_environments(lowering: &mut ModuleLoweringSemantics, environments: &RuntimeTraitEnvironmentBindings) {
     for (site, spec) in lowering.trait_invocations.iter_mut() {
         let key = (site.range, spec.selection.source_impl.clone(), spec.selection.requirement.clone());
         if let Some(bindings) = environments.get(&key) {
@@ -504,11 +498,7 @@ pub(crate) fn attach_runtime_trait_environments(
         }
     }
 
-    fn attach_requirement(
-        requirement: &mut ForIterationRequirementSpec,
-        range: SourceRange,
-        environments: &RuntimeTraitEnvironmentBindings,
-    ) {
+    fn attach_requirement(requirement: &mut ForIterationRequirementSpec, range: SourceRange, environments: &RuntimeTraitEnvironmentBindings) {
         let ForIterationRequirementSpec::Selected(spec) = requirement else { return };
         let key = (range, spec.selection.source_impl.clone(), spec.selection.requirement.clone());
         if let Some(bindings) = environments.get(&key) {
@@ -1027,21 +1017,24 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         let owner_sig = if callable_id.side == phalcom_semantic::identity::DispatchSide::Instance {
             callable_id
                 .try_declaration_owner()
-                .and_then(|owner| snapshot.declarations.generic_signature(owner))
+                .and_then(|owner| {
+                    snapshot
+                        .declarations
+                        .generic_signature(owner)
+                        .or_else(|| snapshot.trait_headers.get(owner).and_then(|h| h.generic_signature.as_ref()))
+                })
                 .or_else(|| match &callable_id.owner {
-                    phalcom_semantic::identity::CallableOwnerId::Conformance(impl_id) => {
-                        snapshot
-                            .conformance_witness_plans
-                            .get(impl_id)
-                            .and_then(|plan| plan.generic_signature.as_ref())
-                            .or_else(|| {
-                                snapshot
-                                    .derived_conformance_rules
-                                    .iter()
-                                    .find(|r| &r.impl_id == impl_id)
-                                    .map(|r| &r.generic_signature)
-                            })
-                    }
+                    phalcom_semantic::identity::CallableOwnerId::Conformance(impl_id) => snapshot
+                        .conformance_witness_plans
+                        .get(impl_id)
+                        .and_then(|plan| plan.generic_signature.as_ref())
+                        .or_else(|| {
+                            snapshot
+                                .derived_conformance_rules
+                                .iter()
+                                .find(|r| &r.impl_id == impl_id)
+                                .map(|r| &r.generic_signature)
+                        }),
                     _ => None,
                 })
         } else {
@@ -1053,8 +1046,11 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                 &owner_sig.constraints,
                 owner_sig.owner.clone(),
                 &snapshot.trait_surfaces,
-            ).map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
-            generic_evidence = generic_evidence.try_compose(&owner_env, &snapshot.trait_surfaces).map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+            )
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+            generic_evidence = generic_evidence
+                .try_compose(&owner_env, &snapshot.trait_surfaces)
+                .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
         }
         if let Some(sig) = snapshot.callable_signatures.get(callable_id) {
             if let Some(generics) = &sig.generics {
@@ -1062,8 +1058,11 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                     &generics.constraints,
                     generics.owner.clone(),
                     &snapshot.trait_surfaces,
-                ).map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
-                generic_evidence = generic_evidence.try_compose(&callable_env, &snapshot.trait_surfaces).map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+                )
+                .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+                generic_evidence = generic_evidence
+                    .try_compose(&callable_env, &snapshot.trait_surfaces)
+                    .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
             }
         }
 
@@ -1134,10 +1133,8 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                     );
                 }
                 Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(selection)) => {
-                    let slot_key = phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(
-                        selection.conformance.clone(),
-                        selection.requirement.clone(),
-                    );
+                    let slot_key =
+                        phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(selection.conformance.clone(), selection.requirement.clone());
                     let requirement_slot = generic_evidence
                         .slot_for(&slot_key)
                         .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()))?;

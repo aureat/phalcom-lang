@@ -2527,11 +2527,7 @@ impl<'source> Parser<'source> {
                     bounds.push(self.parse_trait_requirement()?);
                 }
                 let range = (c_start..self.prev_end).into();
-                constraints.push(GenericConstraintSyntax::Conforms {
-                    subject: left,
-                    bounds,
-                    range,
-                });
+                constraints.push(GenericConstraintSyntax::Conforms { subject: left, bounds, range });
             } else if self.eat(&Token::In) {
                 let in_start = self.cur_start();
                 if self.eat(&Token::LParen) {
@@ -3927,7 +3923,11 @@ impl<'source> Parser<'source> {
 
     /// Returns whether the current member is a direct-field delegation.
     fn starts_delegation(&self) -> bool {
-        let name_offset = if self.starts_mut_member() && matches!(self.peek_at(1), Token::Identifier(_)) { 1 } else { 0 };
+        let name_offset = if self.starts_mut_member() && matches!(self.peek_at(1), Token::Identifier(_)) {
+            1
+        } else {
+            0
+        };
         if !matches!(self.peek_at(name_offset), Token::Identifier(_)) {
             return false;
         }

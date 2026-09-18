@@ -7,10 +7,7 @@ use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution,
 use crate::traits::{TraitRef, TraitRequirementId, TraitSurfaceTable};
 use crate::types::evidence::UnknownReason;
 use crate::types::id::TypeId;
-use crate::types::outcome::{
-    BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget,
-    RelationOutcome,
-};
+use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationOutcome};
 use crate::types::parameter::{GenericConstraint, TypeParameterOwner, TypeTerm};
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::TypeStore;
@@ -261,9 +258,7 @@ pub struct GenericEvidenceEnvironment {
     layout: GenericEvidenceLayout,
 }
 
-fn build_equivalences_and_refinements(
-    constraints: &[GenericConstraint],
-) -> (BTreeMap<TypeTerm, BTreeSet<TypeTerm>>, BTreeMap<TypeTerm, TypeTerm>) {
+fn build_equivalences_and_refinements(constraints: &[GenericConstraint]) -> (BTreeMap<TypeTerm, BTreeSet<TypeTerm>>, BTreeMap<TypeTerm, TypeTerm>) {
     let mut adjacency: BTreeMap<TypeTerm, BTreeSet<TypeTerm>> = BTreeMap::new();
     for c in constraints {
         if let GenericConstraint::Equivalent { left, right } = c {
@@ -347,10 +342,9 @@ impl GenericEvidenceEnvironment {
         for constraint in constraints {
             if let GenericConstraint::Conforms { subject, trait_ref } = constraint {
                 let key = GenericConformanceKey::new(subject.clone(), trait_ref.clone());
-                conformances.entry(key.clone()).or_insert_with(|| AssumedConformanceEvidence {
-                    key,
-                    owner: owner.clone(),
-                });
+                conformances
+                    .entry(key.clone())
+                    .or_insert_with(|| AssumedConformanceEvidence { key, owner: owner.clone() });
             }
         }
         let (equivalences, refinements) = build_equivalences_and_refinements(constraints);
@@ -478,19 +472,12 @@ impl<'a> ConformanceProofContext<'a> {
         }
     }
 
-    pub fn with_derived_rules(
-        mut self,
-        derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
-    ) -> Self {
+    pub fn with_derived_rules(mut self, derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>) -> Self {
         self.derived_rules = derived_rules;
         self
     }
 
-    pub fn with_budget_and_cancellation(
-        mut self,
-        budget: QueryBudget,
-        cancellation: CancellationToken,
-    ) -> Self {
+    pub fn with_budget_and_cancellation(mut self, budget: QueryBudget, cancellation: CancellationToken) -> Self {
         self.budget = budget;
         self.cancellation = cancellation;
         self
@@ -510,11 +497,7 @@ pub fn substitute_trait_ref(trait_ref: &TraitRef, subst: &TypeSubstitution, stor
     TraitRef::new(trait_ref.declaration.clone(), args)
 }
 
-pub fn substitute_generic_constraint(
-    constraint: &GenericConstraint,
-    subst: &TypeSubstitution,
-    store: &mut TypeStore,
-) -> GenericConstraint {
+pub fn substitute_generic_constraint(constraint: &GenericConstraint, subst: &TypeSubstitution, store: &mut TypeStore) -> GenericConstraint {
     match constraint {
         GenericConstraint::Conforms { subject, trait_ref } => GenericConstraint::Conforms {
             subject: substitute_type_term(subject, subst, store),
@@ -531,10 +514,7 @@ pub fn substitute_generic_constraint(
     }
 }
 
-fn normalize_term_in_context(
-    term: &TypeTerm,
-    context: &mut ConformanceProofContext,
-) -> Result<TypeTerm, GenericEquivalenceProof> {
+fn normalize_term_in_context(term: &TypeTerm, context: &mut ConformanceProofContext) -> Result<TypeTerm, GenericEquivalenceProof> {
     match term {
         TypeTerm::Canonical(ty) => {
             let ty = *ty;
@@ -574,40 +554,21 @@ fn normalize_term_in_context(
                 return Ok(TypeTerm::Canonical(ty));
             };
 
-            let mut norm_ctx = crate::types::ProjectionNormalizationContext::new(
-                mode,
-                &mut context.budget,
-                &context.cancellation,
-            );
+            let mut norm_ctx = crate::types::ProjectionNormalizationContext::new(mode, &mut context.budget, &context.cancellation);
 
             match crate::types::normalize_type(store, ty, &mut norm_ctx) {
-                crate::types::ProjectionNormalizationResult::Normalized(norm_ty)
-                | crate::types::ProjectionNormalizationResult::Symbolic(norm_ty) => {
+                crate::types::ProjectionNormalizationResult::Normalized(norm_ty) | crate::types::ProjectionNormalizationResult::Symbolic(norm_ty) => {
                     Ok(TypeTerm::Canonical(norm_ty))
                 }
-                crate::types::ProjectionNormalizationResult::Recursive => {
-                    Err(GenericEquivalenceProof::Recursive)
-                }
-                crate::types::ProjectionNormalizationResult::Blocked(reason) => {
-                    Err(GenericEquivalenceProof::Blocked(reason))
-                }
-                crate::types::ProjectionNormalizationResult::Dynamic(obligation) => {
-                    Err(GenericEquivalenceProof::Dynamic(obligation))
-                }
-                crate::types::ProjectionNormalizationResult::Cancelled => {
-                    Err(GenericEquivalenceProof::Cancelled)
-                }
-                crate::types::ProjectionNormalizationResult::BudgetExceeded(report) => {
-                    Err(GenericEquivalenceProof::BudgetExceeded(report))
-                }
-                crate::types::ProjectionNormalizationResult::InternalFailure(msg) => {
-                    Err(GenericEquivalenceProof::InternalFailure(msg))
-                }
+                crate::types::ProjectionNormalizationResult::Recursive => Err(GenericEquivalenceProof::Recursive),
+                crate::types::ProjectionNormalizationResult::Blocked(reason) => Err(GenericEquivalenceProof::Blocked(reason)),
+                crate::types::ProjectionNormalizationResult::Dynamic(obligation) => Err(GenericEquivalenceProof::Dynamic(obligation)),
+                crate::types::ProjectionNormalizationResult::Cancelled => Err(GenericEquivalenceProof::Cancelled),
+                crate::types::ProjectionNormalizationResult::BudgetExceeded(report) => Err(GenericEquivalenceProof::BudgetExceeded(report)),
+                crate::types::ProjectionNormalizationResult::InternalFailure(msg) => Err(GenericEquivalenceProof::InternalFailure(msg)),
                 crate::types::ProjectionNormalizationResult::Incomplete
                 | crate::types::ProjectionNormalizationResult::Unknown(_)
-                | crate::types::ProjectionNormalizationResult::Ambiguous(_) => {
-                    Ok(TypeTerm::Canonical(ty))
-                }
+                | crate::types::ProjectionNormalizationResult::Ambiguous(_) => Ok(TypeTerm::Canonical(ty)),
             }
         }
         other => Ok(other.clone()),
@@ -615,11 +576,7 @@ fn normalize_term_in_context(
 }
 
 /// Evaluates a generic obligation constraint under the current proof session.
-pub fn prove_constraint(
-    constraint: &GenericConstraint,
-    substitution: &TypeSubstitution,
-    context: &mut ConformanceProofContext,
-) -> GenericObligationProof {
+pub fn prove_constraint(constraint: &GenericConstraint, substitution: &TypeSubstitution, context: &mut ConformanceProofContext) -> GenericObligationProof {
     let subst_constraint = if let Some(store) = context.store.as_deref_mut() {
         substitute_generic_constraint(constraint, substitution, store)
     } else {
@@ -658,12 +615,8 @@ pub fn prove_constraint(
                     for (assumed_key, _) in env.conformances() {
                         if let Some(surface) = surfaces.get(&assumed_key.trait_ref.declaration) {
                             if let Some(signature) = &surface.generic_signature {
-                                let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(
-                                    store,
-                                    signature,
-                                    &assumed_key.subject,
-                                    &assumed_key.trait_ref,
-                                );
+                                let contract_constraints =
+                                    crate::traits::instantiate_trait_generic_contract_for_term(store, signature, &assumed_key.subject, &assumed_key.trait_ref);
                                 for constraint in contract_constraints {
                                     if let GenericConstraint::Equivalent { left: cl, right: cr } = constraint {
                                         if (cl == left && cr == right) || (cl == right && cr == left) {
@@ -700,9 +653,9 @@ pub fn prove_constraint(
                     return GenericObligationProof::Subtype(RelationOutcome::InternalFailure(msg.to_string()));
                 }
                 Err(_) => {
-                    return GenericObligationProof::Subtype(RelationOutcome::Refuted(
-                        crate::types::outcome::RelationFailure::Custom("equivalence failed during subtype normalization".into())
-                    ));
+                    return GenericObligationProof::Subtype(RelationOutcome::Refuted(crate::types::outcome::RelationFailure::Custom(
+                        "equivalence failed during subtype normalization".into(),
+                    )));
                 }
             };
             let upper = match normalize_term_in_context(&upper, context) {
@@ -726,9 +679,9 @@ pub fn prove_constraint(
                     return GenericObligationProof::Subtype(RelationOutcome::InternalFailure(msg.to_string()));
                 }
                 Err(_) => {
-                    return GenericObligationProof::Subtype(RelationOutcome::Refuted(
-                        crate::types::outcome::RelationFailure::Custom("equivalence failed during subtype normalization".into())
-                    ));
+                    return GenericObligationProof::Subtype(RelationOutcome::Refuted(crate::types::outcome::RelationFailure::Custom(
+                        "equivalence failed during subtype normalization".into(),
+                    )));
                 }
             };
 
@@ -740,26 +693,16 @@ pub fn prove_constraint(
                     let sub_ty = *sub_ty;
                     let sup_ty = *sup_ty;
                     if let (Some(hierarchy), Some(store)) = (context.hierarchy, context.store.as_deref_mut()) {
-                        let outcome = crate::types::relation::check_subtype_bounded(
-                            store,
-                            hierarchy,
-                            sub_ty,
-                            sup_ty,
-                            &mut context.budget,
-                            &context.cancellation,
-                        );
+                        let outcome =
+                            crate::types::relation::check_subtype_bounded(store, hierarchy, sub_ty, sup_ty, &mut context.budget, &context.cancellation);
                         GenericObligationProof::Subtype(outcome)
                     } else {
-                        GenericObligationProof::Subtype(RelationOutcome::InternalFailure(
-                            "hierarchy or store is unavailable".into(),
-                        ))
+                        GenericObligationProof::Subtype(RelationOutcome::InternalFailure("hierarchy or store is unavailable".into()))
                     }
                 }
-                _ => GenericObligationProof::Subtype(RelationOutcome::Refuted(
-                    crate::types::outcome::RelationFailure::Custom(
-                        "non-canonical terms cannot be checked for subtyping".into(),
-                    ),
-                )),
+                _ => GenericObligationProof::Subtype(RelationOutcome::Refuted(crate::types::outcome::RelationFailure::Custom(
+                    "non-canonical terms cannot be checked for subtyping".into(),
+                ))),
             }
         }
     }
@@ -769,9 +712,7 @@ fn map_conformance_resolution_to_proof(res: ConformanceResolution) -> GenericCon
     match res {
         ConformanceResolution::Proven(ev) => GenericConformanceProof::Proven(GenericConformanceEvidence::Exact(ev)),
         ConformanceResolution::NotDeclared => GenericConformanceProof::Missing,
-        ConformanceResolution::InvalidSource(impl_id) | ConformanceResolution::Incomplete(impl_id) => {
-            GenericConformanceProof::Incomplete(impl_id)
-        }
+        ConformanceResolution::InvalidSource(impl_id) | ConformanceResolution::Incomplete(impl_id) => GenericConformanceProof::Incomplete(impl_id),
         ConformanceResolution::CoherenceConflict(impls) => GenericConformanceProof::CoherenceConflict(impls),
         ConformanceResolution::Unknown(reason) => GenericConformanceProof::Unknown(reason),
         ConformanceResolution::Blocked(reason) => GenericConformanceProof::Blocked(reason),
@@ -807,10 +748,7 @@ fn map_subtype_outcome_to_conformance_proof(outcome: RelationOutcome<()>) -> Gen
     }
 }
 
-fn evaluate_conformance_goal(
-    key: &GenericConformanceKey,
-    context: &mut ConformanceProofContext,
-) -> GenericConformanceProof {
+fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut ConformanceProofContext) -> GenericConformanceProof {
     // 1. Check lexical assumptions in the environment
     if let Some(env) = context.lexical_evidence {
         if let Some(assumed) = env.assumed_conformance(key) {
@@ -826,12 +764,8 @@ fn evaluate_conformance_goal(
             for (assumed_key, assumed_evidence) in env.conformances() {
                 if let Some(surface) = surfaces.get(&assumed_key.trait_ref.declaration) {
                     if let Some(signature) = &surface.generic_signature {
-                        let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(
-                            store,
-                            signature,
-                            &assumed_key.subject,
-                            &assumed_key.trait_ref,
-                        );
+                        let contract_constraints =
+                            crate::traits::instantiate_trait_generic_contract_for_term(store, signature, &assumed_key.subject, &assumed_key.trait_ref);
                         for constraint in contract_constraints {
                             if let GenericConstraint::Conforms { subject, trait_ref } = constraint {
                                 if trait_ref == key.trait_ref {
@@ -1040,14 +974,10 @@ fn evaluate_conformance_goal(
                                 .get(&key.trait_ref.declaration)
                                 .and_then(|trait_surface| trait_surface.generic_signature.as_ref())
                                 .and_then(|signature| {
-                                    context.store.as_deref_mut().map(|store| {
-                                        crate::traits::instantiate_trait_generic_contract_for_term(
-                                            store,
-                                            signature,
-                                            &key.subject,
-                                            &key.trait_ref,
-                                        )
-                                    })
+                                    context
+                                        .store
+                                        .as_deref_mut()
+                                        .map(|store| crate::traits::instantiate_trait_generic_contract_for_term(store, signature, &key.subject, &key.trait_ref))
                                 })
                                 .unwrap_or_default();
                             for constraint in &contract_constraints {
@@ -1141,10 +1071,7 @@ fn evaluate_conformance_goal(
 }
 
 /// Recursive conformance proof query evaluated under an explicit session context.
-pub fn prove_conformance_with_context(
-    key: &GenericConformanceKey,
-    context: &mut ConformanceProofContext,
-) -> GenericConformanceProof {
+pub fn prove_conformance_with_context(key: &GenericConformanceKey, context: &mut ConformanceProofContext) -> GenericConformanceProof {
     if context.cancellation.is_cancelled() {
         return GenericConformanceProof::Cancelled;
     }
@@ -1185,15 +1112,8 @@ pub fn query_generic_conformance_proof(
     hierarchy: Option<&dyn TypeHierarchy>,
     store: Option<&mut TypeStore>,
 ) -> GenericConformanceProof {
-    let mut context = ConformanceProofContext::new(
-        environment,
-        conformance_index,
-        witness_plans,
-        trait_surfaces,
-        declarations,
-        hierarchy,
-        store,
-    ).with_derived_rules(derived_rules);
+    let mut context = ConformanceProofContext::new(environment, conformance_index, witness_plans, trait_surfaces, declarations, hierarchy, store)
+        .with_derived_rules(derived_rules);
     let key = GenericConformanceKey::new(subject.clone(), trait_ref.clone());
     prove_conformance_with_context(&key, &mut context)
 }

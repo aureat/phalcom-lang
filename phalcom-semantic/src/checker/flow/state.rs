@@ -831,12 +831,8 @@ impl FlowState {
 
         for field in self.fields.values_mut() {
             if matches!(field.current, TypeKnowledge::Known(_)) {
-                let fallback = crate::checker::field_lifecycle::lifecycle_read_knowledge(
-                    &field.contract,
-                    field.initialization,
-                    &field.validity,
-                    field.causal_invalidity,
-                );
+                let fallback =
+                    crate::checker::field_lifecycle::lifecycle_read_knowledge(&field.contract, field.initialization, &field.validity, field.causal_invalidity);
                 if field.current != fallback {
                     field.current = fallback;
                     field.version += 1;

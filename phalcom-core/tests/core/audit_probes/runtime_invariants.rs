@@ -7,7 +7,7 @@ use phalcom_core::{
     value::Value,
     vm::VM,
 };
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn recurse(vm: &mut VM, receiver: &Value, args: &[Value]) -> phalcom_core::error::PhResult<Value> {
     let n = args[0].as_int().unwrap();

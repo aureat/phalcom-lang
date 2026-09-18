@@ -22,9 +22,7 @@ fn callable_id(snapshot: &SemanticSnapshot, module: &phalcom_modules::ModuleId, 
         .iter()
         .map(|(callable, _)| callable)
         .find(|callable| {
-            callable.owner == owner
-                && callable.side == side
-                && matches!(&callable.selector.base, SelectorBase::Named(base) if base.as_str() == name)
+            callable.owner == owner && callable.side == side && matches!(&callable.selector.base, SelectorBase::Named(base) if base.as_str() == name)
         })
         .cloned()
         .unwrap_or_else(|| panic!("missing callable {owner:?}.{name} on {side:?}"))
@@ -91,11 +89,7 @@ export Consumer
         ])
         .expect("initial session");
 
-    assert!(
-        !result.snapshot.has_errors(),
-        "diagnostics: {:?}",
-        result.snapshot.diagnostics
-    );
+    assert!(!result.snapshot.has_errors(), "diagnostics: {:?}", result.snapshot.diagnostics);
 
     let provider_module = result.snapshot.module_for_display_path(&provider_path).expect("provider module").clone();
     let consumer_module = result.snapshot.module_for_display_path(&consumer_path).expect("consumer module").clone();
@@ -134,14 +128,12 @@ export Stream
 
     let mut session = SemanticWorkspaceSession::new();
     let result = session
-        .apply_module_mutations([
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider_loc.clone(),
-                text: Arc::from(provider_src),
-                revision: SourceRevision(1),
-                recovered_program: None,
-            },
-        ])
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider_loc.clone(),
+            text: Arc::from(provider_src),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
         .expect("initial session");
 
     let provider_module = result.snapshot.module_for_display_path(&provider_path).expect("provider module").clone();
@@ -236,14 +228,12 @@ export Counter
 "#;
 
     let out_b = session
-        .apply_module_mutations([
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider_loc.clone(),
-                text: Arc::from(provider_src_b),
-                revision: SourceRevision(2),
-                recovered_program: None,
-            },
-        ])
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider_loc.clone(),
+            text: Arc::from(provider_src_b),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
         .expect("session 2");
     assert!(
         out_b.snapshot.has_errors(),
@@ -336,14 +326,12 @@ export Counter
 "#;
 
     let out_b = session
-        .apply_module_mutations([
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider_loc.clone(),
-                text: Arc::from(provider_src_b),
-                revision: SourceRevision(2),
-                recovered_program: None,
-            },
-        ])
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider_loc.clone(),
+            text: Arc::from(provider_src_b),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
         .expect("session 2");
     assert!(
         !out_b.snapshot.has_errors(),
@@ -441,14 +429,12 @@ export Counter
 "#;
 
     let out_b = session
-        .apply_module_mutations([
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider_loc.clone(),
-                text: Arc::from(provider_src_b),
-                revision: SourceRevision(2),
-                recovered_program: None,
-            },
-        ])
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider_loc.clone(),
+            text: Arc::from(provider_src_b),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
         .expect("session 2");
     assert!(
         out_b.snapshot.has_errors(),
@@ -501,26 +487,22 @@ export Stream
 
     let mut session_a = SemanticWorkspaceSession::new();
     let out_a = session_a
-        .apply_module_mutations([
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider_loc.clone(),
-                text: Arc::from(provider_src_a),
-                revision: SourceRevision(1),
-                recovered_program: None,
-            },
-        ])
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider_loc.clone(),
+            text: Arc::from(provider_src_a),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
         .expect("session A");
 
     let mut session_b = SemanticWorkspaceSession::new();
     let out_b = session_b
-        .apply_module_mutations([
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider_loc.clone(),
-                text: Arc::from(provider_src_b),
-                revision: SourceRevision(1),
-                recovered_program: None,
-            },
-        ])
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider_loc.clone(),
+            text: Arc::from(provider_src_b),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
         .expect("session B");
 
     let provider_module = out_a.snapshot.module_for_display_path(&provider_path).expect("provider module").clone();
@@ -623,14 +605,12 @@ export Counter
 "#;
 
     let out_b = session
-        .apply_module_mutations([
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider_loc.clone(),
-                text: Arc::from(provider_src_b),
-                revision: SourceRevision(2),
-                recovered_program: None,
-            },
-        ])
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider_loc.clone(),
+            text: Arc::from(provider_src_b),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
         .expect("session 2");
     assert!(
         out_b.snapshot.has_errors(),
@@ -722,14 +702,12 @@ export Consumer
         .expect("session 1");
 
     let inc_out = session
-        .apply_module_mutations([
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider_loc.clone(),
-                text: Arc::from(provider_src_2),
-                revision: SourceRevision(2),
-                recovered_program: None,
-            },
-        ])
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider_loc.clone(),
+            text: Arc::from(provider_src_2),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
         .expect("incremental session 2");
 
     let mut cold_session = SemanticWorkspaceSession::new();

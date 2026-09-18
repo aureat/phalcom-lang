@@ -157,11 +157,7 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
             })
         }
         TypeData::ExactCase { enum_type, .. } => export_type_form(store, *enum_type),
-        TypeData::Lambda(_)
-        | TypeData::SelfType(_)
-        | TypeData::ClassObject { .. }
-        | TypeData::Family(_)
-        | TypeData::AssociatedProjection(_) => {
+        TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::ClassObject { .. } | TypeData::Family(_) | TypeData::AssociatedProjection(_) => {
             Err(SemanticExportError::NonExportableTypeForm { form })
         }
     }

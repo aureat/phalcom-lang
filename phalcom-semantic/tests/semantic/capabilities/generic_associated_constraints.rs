@@ -27,7 +27,7 @@ class Tools {
     let first = fixture.callable("Tools", "first", DispatchSide::Class);
     let first_sig = fixture.analysis.snapshot.callable_signatures.get(&first.callable).expect("first signature");
     let generics = first_sig.generics.as_ref().expect("generics");
-    
+
     assert_eq!(generics.parameters.len(), 2);
     let i_param = generics.parameters[0];
     let t_param = generics.parameters[1];
@@ -40,7 +40,9 @@ class Tools {
     for constraint in generics.constraints.iter() {
         match constraint {
             GenericConstraint::Conforms { subject, trait_ref } => {
-                assert!(matches!(subject, TypeTerm::Canonical(ty) if matches!(fixture.analysis.snapshot.store.get(*ty), TypeData::Parameter(p) if *p == i_param)));
+                assert!(
+                    matches!(subject, TypeTerm::Canonical(ty) if matches!(fixture.analysis.snapshot.store.get(*ty), TypeData::Parameter(p) if *p == i_param))
+                );
                 assert_eq!(trait_ref.declaration, iter_trait);
                 has_conforms = true;
             }
@@ -147,7 +149,7 @@ fn generic_evidence_environment_tracks_equivalences_and_refinements() {
     use phalcom_semantic::generic_evidence::{GenericEquivalenceProof, GenericEvidenceEnvironment};
     use phalcom_semantic::traits::{AssociatedTypeRequirementId, TraitRef};
     use phalcom_semantic::types::outcome::{CancellationToken, QueryBudget};
-    use phalcom_semantic::types::projection::{normalize_type, ProjectionNormalizationContext, ProjectionNormalizationMode, ProjectionNormalizationResult};
+    use phalcom_semantic::types::projection::{ProjectionNormalizationContext, ProjectionNormalizationMode, ProjectionNormalizationResult, normalize_type};
 
     let fixture = Fixture::new(
         r#"
@@ -170,11 +172,8 @@ class Tools {
     let first_sig = fixture.analysis.snapshot.callable_signatures.get(&first.callable).expect("first signature");
     let generics = first_sig.generics.as_ref().expect("generics");
 
-    let env = GenericEvidenceEnvironment::try_from_constraints(
-        &generics.constraints,
-        generics.owner.clone(),
-        &fixture.analysis.snapshot.trait_surfaces,
-    ).expect("valid evidence env");
+    let env = GenericEvidenceEnvironment::try_from_constraints(&generics.constraints, generics.owner.clone(), &fixture.analysis.snapshot.trait_surfaces)
+        .expect("valid evidence env");
 
     let i_param = generics.parameters[0];
     let t_param = generics.parameters[1];
@@ -269,7 +268,12 @@ class Pipeline<I>
     );
 
     let transform = fixture.callable("Pipeline", "transform", DispatchSide::Instance);
-    let transform_sig = fixture.analysis.snapshot.callable_signatures.get(&transform.callable).expect("transform signature");
+    let transform_sig = fixture
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&transform.callable)
+        .expect("transform signature");
     assert_eq!(transform_sig.parameters.len(), 2);
 
     let val_ty = transform_sig.parameters[0].declared_type.to_knowledge().ty().expect("value type");
@@ -397,7 +401,7 @@ fn stable_metadata_roundtrips_associated_projections() {
     use phalcom_semantic::metadata::MetadataExporter;
     use phalcom_type_meta::header::MetadataProfile;
     use phalcom_type_meta::type_node::TypeNode;
-    use phalcom_type_meta::validate::{validate_metadata_bundle, ValidationLimits};
+    use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
 
     let fixture = Fixture::new(
         r#"
@@ -429,5 +433,3 @@ class Tools {
     let has_associated_projection = bundle.types.iter().any(|entry| matches!(entry.form, TypeNode::AssociatedProjection { .. }));
     assert!(has_associated_projection, "bundle must contain an AssociatedProjection TypeNode");
 }
-
-

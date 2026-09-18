@@ -263,13 +263,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 let (elem_knowledge, iteration_causal_invalidity) = match &iter_typed.knowledge {
                     TypeKnowledge::Known(evidence) => {
                         let premise = CallPremise::from_typed(ctx, &iter_typed);
-                        let (resolution, result) = resolve_for_iteration_lane(
-                            ctx,
-                            &premise,
-                            iter_typed.expression_id,
-                            evidence.ty(),
-                            lane.iter.range(),
-                        );
+                        let (resolution, result) = resolve_for_iteration_lane(ctx, &premise, iter_typed.expression_id, evidence.ty(), lane.iter.range());
                         if let Some(resolution) = resolution {
                             ctx.for_iteration_lanes.insert(resolution.source_expression, resolution);
                         }

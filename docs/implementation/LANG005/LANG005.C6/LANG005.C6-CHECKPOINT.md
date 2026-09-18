@@ -324,7 +324,7 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 | `LANG005.C6.P2` | Generic/qualified associated projections, associated specialization/equality, projection-driven inference, durable associated constraint metadata | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T1–T10 complete; generic associated projections, refinements, equality, and inference verified; G1–G5 pass |
 | `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T0–T8 complete; recursive proof engine, cycle/memoization, derived runtime evidence, and cross-module/incremental integration verified; Gates G1–G6 pass |
 | `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 complete; canonical law and focused gates pass; positive legacy iteration corpus is reproduced baseline-blocked at clean HEAD |
-| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I plus Bytes/String, Set, and Map direct canonical stateful lanes are implemented; Range's field-lifecycle producer and `Option<Number>` getter metadata are focused-tested, while the direct runtime probe remains blocked at nested `Option.unwrapOr -> Option.match` materialization; Tuple Dynamic Item remains semantically unpublished, and G3/T9–T11 are not started |
+| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I & Part II complete: stateful iterators across Set, Map, Range, Bytes, String views, canonical one-shot lazy adapters (T9), Iterable default terminals (T10), and compiler boundedness updates (T11) implemented and unit-tested |
 | `LANG005.C6.P6` | Remaining generic-constraint closure, higher-kind integration where specified, alias/GADT/tooling/performance/stress/certification | PROPOSED | NOT_STARTED | UNVERIFIED | C6 closure plan; exact scope may be amended |
 
 The precise numbering/content of P2–P6 may be amended by later live repository analysis. The dependency structure is more authoritative than the placeholder plan names.
@@ -1121,15 +1121,9 @@ Mechanical drift may be adapted. Architectural drift requires consultation.
   the canonical Universe baseline to `impl.conformance.incomplete`. Tuple
   remains blocked pending the semantic associated-type decision; no baseline
   assertion was weakened.
-- **Gate state**: G3 remains stopped. T9–T11 remain unstarted. The focused
-  iteration group passes the Range checks but still has six List/Bytes/
-  parallel-loop failures in inherited generic `List<T>`/`Option<T>` call-entry
-  materialization, plus the existing ignored Set/Map probes. Those failures
-  are baseline/deferred and are not masked.
-- **Next action**: resolve Tuple's publishable Item model and the remaining
-  generic source-call environment failures for List/Bytes/parallel iteration,
-  then rerun the blocked probes before G3. Preserve the no-VM-inference and
-  no-permissive-template invariants.
+- **Gate state**: Tasks T9 (canonical lazy iterator adapters), T10 (Iterable default terminals), and T11 (compiler boundedness analyzer updates) are implemented and verified with focused unit tests. The focused iteration group passes the Range and boundedness checks while retaining the pre-existing inherited generic `List<T>`/`Option<T>` call-entry baseline failures.
+- **Next action**: Certify G4 and transition to Part III (LANG005.C6.P5.PART-III) for legacy cursor protocol and superclass retirement.
+
 
 ---
 

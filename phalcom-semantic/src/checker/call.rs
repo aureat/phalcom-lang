@@ -1227,9 +1227,9 @@ fn apply_generic_callable_in_context(
                 }
             }
             TypeKnowledge::Dynamic(reason) => {
-                let has_conformance_bound = domains.signatures().any(|sig| {
-                    sig.constraints.iter().any(|c| matches!(c, GenericConstraint::Conforms { .. }))
-                });
+                let has_conformance_bound = domains
+                    .signatures()
+                    .any(|sig| sig.constraints.iter().any(|c| matches!(c, GenericConstraint::Conforms { .. })));
                 if has_conformance_bound {
                     let diagnostic = SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
@@ -2201,47 +2201,55 @@ fn discharge_generic_conformance_obligations(
                     match proof {
                         crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Exact(ev)) => {
                             ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(ev.source_impl.clone()));
-                            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(instantiated_trait_ref.declaration.clone()));
+                            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                                instantiated_trait_ref.declaration.clone(),
+                            ));
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
-                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(
-                                    instantiated_subject,
-                                    instantiated_trait_ref,
-                                ),
+                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(instantiated_subject, instantiated_trait_ref),
                                 source: crate::checker::analysis::GenericCallConformanceSource::Exact { evidence: ev },
                             });
                         }
                         crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Assumed(assumed)) => {
-                            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(instantiated_trait_ref.declaration.clone()));
+                            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                                instantiated_trait_ref.declaration.clone(),
+                            ));
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
-                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(
-                                    instantiated_subject,
-                                    instantiated_trait_ref,
-                                ),
-                                source: crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance: assumed.key },
+                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(instantiated_subject, instantiated_trait_ref),
+                                source: crate::checker::analysis::GenericCallConformanceSource::Forwarded {
+                                    caller_conformance: assumed.key,
+                                },
                             });
                         }
                         crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Derived(derived)) => {
                             match &derived.origin {
                                 crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
-                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(exact_source.source_impl.clone()));
-                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(exact_source.exact_trait_ref.declaration.clone()));
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(
+                                        exact_source.source_impl.clone(),
+                                    ));
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                                        exact_source.exact_trait_ref.declaration.clone(),
+                                    ));
                                 }
                                 crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, exact_trait_ref, .. } => {
                                     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(rule.impl_id.clone()));
-                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(exact_trait_ref.declaration.clone()));
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                                        exact_trait_ref.declaration.clone(),
+                                    ));
                                 }
                             }
                             for nested in derived.nested.iter() {
-                                if let crate::generic_evidence::NestedGenericEvidence::Conformance(crate::generic_evidence::GenericConformanceEvidence::Exact(ev)) = nested {
+                                if let crate::generic_evidence::NestedGenericEvidence::Conformance(
+                                    crate::generic_evidence::GenericConformanceEvidence::Exact(ev),
+                                ) = nested
+                                {
                                     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(ev.source_impl.clone()));
-                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(ev.exact_trait_ref.declaration.clone()));
+                                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                                        ev.exact_trait_ref.declaration.clone(),
+                                    ));
                                 }
                             }
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
-                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(
-                                    instantiated_subject,
-                                    instantiated_trait_ref,
-                                ),
+                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(instantiated_subject, instantiated_trait_ref),
                                 source: crate::checker::analysis::GenericCallConformanceSource::Derived { evidence: derived },
                             });
                         }
@@ -2251,12 +2259,8 @@ fn discharge_generic_conformance_obligations(
                                 "generic constraint unsatisfied: type does not conform to trait `{}`",
                                 instantiated_trait_ref.declaration.name
                             );
-                            let diagnostic = SemanticDiagnostic::error_in(
-                                ctx.current_module.clone(),
-                                DiagnosticCode::GenericConstraintUnsatisfied,
-                                message,
-                                call_range,
-                            );
+                            let diagnostic =
+                                SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::GenericConstraintUnsatisfied, message, call_range);
                             if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
                                 ctx.record_call_status(AnalysisStatus::Invalid(cause));
                             }
@@ -2318,8 +2322,12 @@ fn discharge_generic_conformance_obligations(
                             &mut budget,
                             &ctx.control.cancellation,
                         );
-                        let norm_left = crate::types::normalize_type(ctx.store, instantiated_left, &mut norm_context).type_id().unwrap_or(instantiated_left);
-                        let norm_right = crate::types::normalize_type(ctx.store, instantiated_right, &mut norm_context).type_id().unwrap_or(instantiated_right);
+                        let norm_left = crate::types::normalize_type(ctx.store, instantiated_left, &mut norm_context)
+                            .type_id()
+                            .unwrap_or(instantiated_left);
+                        let norm_right = crate::types::normalize_type(ctx.store, instantiated_right, &mut norm_context)
+                            .type_id()
+                            .unwrap_or(instantiated_right);
                         let norm_left_term = TypeTerm::Canonical(norm_left);
                         let norm_right_term = TypeTerm::Canonical(norm_right);
                         norm_left == norm_right || ctx.generic_evidence.are_equivalent(&norm_left_term, &norm_right_term).is_proven()
@@ -2343,11 +2351,7 @@ fn discharge_generic_conformance_obligations(
         }
     }
 
-    if failed {
-        None
-    } else {
-        Some(conformances.into_boxed_slice())
-    }
+    if failed { None } else { Some(conformances.into_boxed_slice()) }
 }
 
 fn publish_call_specialization(
@@ -2440,15 +2444,16 @@ fn finalize_owner_call_specialization(ctx: &mut CheckingContext<'_>, target: &Ca
     let Some(owner) = ctx.declaration_generic_signature(owner_id) else {
         return;
     };
-    if owner.parameters.is_empty() && !owner.constraints.iter().any(|constraint| matches!(constraint, GenericConstraint::Conforms { .. })) {
+    if owner.parameters.is_empty()
+        && !owner
+            .constraints
+            .iter()
+            .any(|constraint| matches!(constraint, GenericConstraint::Conforms { .. }))
+    {
         return;
     }
     let existing = ctx.take_call_specialization(expression);
-    let callable_has_generic_domains = target
-        .signature
-        .generics
-        .as_ref()
-        .is_some_and(|signature| !signature.parameters.is_empty());
+    let callable_has_generic_domains = target.signature.generics.as_ref().is_some_and(|signature| !signature.parameters.is_empty());
     if ctx.call_status_is_recorded() || (callable_has_generic_domains && existing.is_none()) {
         return;
     }
@@ -2465,15 +2470,21 @@ fn finalize_owner_call_specialization(ctx: &mut CheckingContext<'_>, target: &Ca
             return;
         }
     }
-    let domains = GenericApplicationDomains { declaration: Some(&owner), callable: target.signature.generics.as_ref() };
+    let domains = GenericApplicationDomains {
+        declaration: Some(&owner),
+        callable: target.signature.generics.as_ref(),
+    };
     let Some(conformances) = discharge_generic_conformance_obligations(ctx, &domains, &bindings, call_range) else {
         return;
     };
-    ctx.publish_call_specialization(expression, crate::checker::analysis::CallSpecialization {
-        callable: callable.clone(),
-        bindings: bindings.into_iter().collect::<Vec<_>>().into_boxed_slice(),
-        conformances,
-    });
+    ctx.publish_call_specialization(
+        expression,
+        crate::checker::analysis::CallSpecialization {
+            callable: callable.clone(),
+            bindings: bindings.into_iter().collect::<Vec<_>>().into_boxed_slice(),
+            conformances,
+        },
+    );
 }
 
 pub(crate) fn apply_resolved_callable(

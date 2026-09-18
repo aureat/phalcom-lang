@@ -171,7 +171,10 @@ let intResult = caller.intTransform(intBox)
     assert_eq!(named(&vm, module, "stringResult").expect("string result").to_string(&vm), "text");
     assert_eq!(named(&vm, module, "intResult").expect("int result").to_string(&vm), "42");
 
-    let class = named(&vm, module, "TransformBox").expect("TransformBox binding").as_obj().expect("TransformBox class");
+    let class = named(&vm, module, "TransformBox")
+        .expect("TransformBox binding")
+        .as_obj()
+        .expect("TransformBox class");
     if let Some(selector) = vm.interner.find("transform") {
         assert!(
             vm.heap.class(class).get_method(selector).is_none(),
@@ -372,7 +375,10 @@ let second = iterator.next
     let failing_program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(failing_source))).expect("failing iterator compiles");
     let mut failing_vm = vm_support::universe_vm();
     let error = failing_vm.run_compiled(&failing_program).expect_err("iterator failure must propagate");
-    assert!(error.to_string().contains("boom"), "iterator failure should preserve the original error: {error}");
+    assert!(
+        error.to_string().contains("boom"),
+        "iterator failure should preserve the original error: {error}"
+    );
 }
 
 #[test]
@@ -428,7 +434,8 @@ export stringResult, intResult
     )
     .expect("consumer module");
 
-    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(directory.path().to_path_buf())).expect("cross-module associated project compiles");
+    let program =
+        ProgramCompiler::compile_entry_selection(EntrySelection::Project(directory.path().to_path_buf())).expect("cross-module associated project compiles");
     let mut vm = vm_support::universe_vm();
     vm.run_compiled(&program).expect("cross-module associated project executes");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
@@ -557,7 +564,11 @@ let entry = PairSource.new(7, "text").first
 let entryResult = entry[#key].toString + ":" + entry[#value]
 "#;
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("dense C5 program compiles");
-    assert!(program.modules[&program.entry].lowering.trait_invocations.len() >= 5, "dense C5 program must retain multiple trait invocation sites: {}", program.modules[&program.entry].lowering.trait_invocations.len());
+    assert!(
+        program.modules[&program.entry].lowering.trait_invocations.len() >= 5,
+        "dense C5 program must retain multiple trait invocation sites: {}",
+        program.modules[&program.entry].lowering.trait_invocations.len()
+    );
     let mut vm = vm_support::universe_vm();
     vm.run_compiled(&program).expect("dense C5 program executes");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;

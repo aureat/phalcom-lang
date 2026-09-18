@@ -97,7 +97,11 @@ fn materialize_type_inner(
                 .map(|&argument| materialize_type_inner(store, argument, instantiation, row_mode, visiting_rows))
                 .collect::<Result<Vec<_>, _>>()?
                 .into_boxed_slice();
-            Ok(store.associated_projection(subject, crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments), projection.requirement))
+            Ok(store.associated_projection(
+                subject,
+                crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments),
+                projection.requirement,
+            ))
         }
         TypeData::Union(members) => {
             let members = members

@@ -83,7 +83,7 @@ trait Display<T> where T <: Int {
         marker.clone(),
         &[],
     )
-        .expect("non-generic trait reference");
+    .expect("non-generic trait reference");
     let display_ref = TraitRef::form(
         &mut store,
         &fixture.analysis.snapshot.trait_headers,
@@ -91,7 +91,7 @@ trait Display<T> where T <: Int {
         display.clone(),
         &[int],
     )
-        .expect("generic trait reference");
+    .expect("generic trait reference");
 
     assert_eq!(marker_ref, TraitRef::new(marker, Box::<[phalcom_semantic::TypeId]>::default()));
     assert_eq!(display_ref, TraitRef::new(display, vec![int].into_boxed_slice()));
@@ -252,7 +252,11 @@ impl<T> Iterable for Box<T> {
 "#,
         )
         .analyze();
-    assert!(!fixture.analysis.snapshot.has_errors(), "associated binding diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "associated binding diagnostics: {:?}",
+        fixture.analysis.snapshot.diagnostics
+    );
 
     let trait_declaration = fixture.decl("main", "Iterable");
     let surface = fixture.analysis.snapshot.trait_surfaces.get(&trait_declaration).expect("trait surface");
@@ -267,8 +271,18 @@ impl<T> Iterable for Box<T> {
     assert!(plan.associated_type_plan.failures.is_empty());
     assert_eq!(plan.associated_type_plan.bindings.len(), 1);
 
-    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
-    let string = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().string).expect("String form");
+    let int = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().int)
+        .expect("Int form");
+    let string = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().string)
+        .expect("String form");
     let use_decl = fixture.decl("main", "Use");
     let take = fixture
         .analysis
@@ -294,7 +308,11 @@ impl<T> Iterable for Box<T> {
     let evidence = fixture.analysis.snapshot.conformance_evidence_for(target, &trait_ref).expect("exact evidence");
     let binding = evidence.associated_types.get(&requirement.requirement).expect("exact Item binding");
     assert_eq!(binding.value, phalcom_semantic::impls::AssociatedTypeBindingValue::Type(int));
-    let text_evidence = fixture.analysis.snapshot.conformance_evidence_for(text_target, &trait_ref).expect("exact String evidence");
+    let text_evidence = fixture
+        .analysis
+        .snapshot
+        .conformance_evidence_for(text_target, &trait_ref)
+        .expect("exact String evidence");
     assert_eq!(
         text_evidence.associated_types[&requirement.requirement].value,
         phalcom_semantic::impls::AssociatedTypeBindingValue::Type(string)
@@ -325,20 +343,33 @@ impl Iterable for Box {
     assert!(failures.iter().any(|failure| {
         matches!(failure, phalcom_semantic::impls::ConformanceFailure::AssociatedType(failure) if failure.reason.contains("no conformance binding"))
     }));
-    let missing = failures.iter().find_map(|failure| {
-        let phalcom_semantic::impls::ConformanceFailure::AssociatedType(failure) = failure else { return None };
-        (failure.kind == phalcom_semantic::impls::AssociatedTypeBindingFailureKind::Missing).then_some(failure)
-    }).expect("missing associated binding failure");
+    let missing = failures
+        .iter()
+        .find_map(|failure| {
+            let phalcom_semantic::impls::ConformanceFailure::AssociatedType(failure) = failure else {
+                return None;
+            };
+            (failure.kind == phalcom_semantic::impls::AssociatedTypeBindingFailureKind::Missing).then_some(failure)
+        })
+        .expect("missing associated binding failure");
     assert_eq!(missing.source.module, fixture.decl("main", "Box").module);
-    assert!(fixture
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeMissing));
-    assert!(fixture.analysis.snapshot.conformance_evidence_for(
-        fixture.analysis.snapshot.declarations.form(&fixture.decl("main", "Box")).expect("Box form"),
-        &TraitRef::new(fixture.decl("main", "Iterable"), Vec::new().into_boxed_slice()),
-    ).is_none());
+    assert!(
+        fixture
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeMissing)
+    );
+    assert!(
+        fixture
+            .analysis
+            .snapshot
+            .conformance_evidence_for(
+                fixture.analysis.snapshot.declarations.form(&fixture.decl("main", "Box")).expect("Box form"),
+                &TraitRef::new(fixture.decl("main", "Iterable"), Vec::new().into_boxed_slice()),
+            )
+            .is_none()
+    );
 }
 
 #[test]
@@ -355,11 +386,13 @@ impl Box {
 "#,
         )
         .analyze();
-    assert!(fixture
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeInherentUnsupported));
+    assert!(
+        fixture
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeInherentUnsupported)
+    );
 }
 
 #[test]
@@ -378,19 +411,31 @@ trait Second {
 "#,
         )
         .analyze();
-    let first = fixture.analysis.snapshot.trait_surfaces.get(&fixture.decl("main", "First")).expect("First surface");
-    let second = fixture.analysis.snapshot.trait_surfaces.get(&fixture.decl("main", "Second")).expect("Second surface");
+    let first = fixture
+        .analysis
+        .snapshot
+        .trait_surfaces
+        .get(&fixture.decl("main", "First"))
+        .expect("First surface");
+    let second = fixture
+        .analysis
+        .snapshot
+        .trait_surfaces
+        .get(&fixture.decl("main", "Second"))
+        .expect("Second surface");
     assert_eq!(first.associated_types.len(), 1);
     assert_eq!(second.associated_types.len(), 1);
     assert_ne!(
         first.associated_type_by_name("Item").expect("First Item").requirement,
         second.associated_type_by_name("Item").expect("Second Item").requirement
     );
-    assert!(fixture
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeDuplicate));
+    assert!(
+        fixture
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeDuplicate)
+    );
 }
 
 #[test]
@@ -412,11 +457,13 @@ impl Iterable for Box {
 "#,
         )
         .analyze();
-    assert!(duplicate
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeDuplicate));
+    assert!(
+        duplicate
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeDuplicate)
+    );
 
     let unknown = WorkspaceFixture::new()
         .module(
@@ -434,11 +481,13 @@ impl Iterable for Box {
 "#,
         )
         .analyze();
-    assert!(unknown
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown));
+    assert!(
+        unknown
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown)
+    );
 
     let invalid = WorkspaceFixture::new()
         .module(
@@ -456,68 +505,72 @@ impl Iterable for Box {
 "#,
         )
         .analyze();
-    assert!(invalid
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeBindingInvalid));
+    assert!(
+        invalid
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeBindingInvalid)
+    );
 }
 
 #[test]
 fn direct_field_delegation_negative_matrix_is_deterministic() {
-    let missing = WorkspaceFixture::new()
-        .module("main", "class Counter { count via _missing }\n")
-        .analyze();
-    assert!(missing
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationFieldNotFound));
+    let missing = WorkspaceFixture::new().module("main", "class Counter { count via _missing }\n").analyze();
+    assert!(
+        missing
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationFieldNotFound)
+    );
 
     let untyped = WorkspaceFixture::new()
         .module("main", "class Counter { _count\n count via _count }\n")
         .analyze();
-    assert!(untyped
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationFieldTypeRequired));
+    assert!(
+        untyped
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationFieldTypeRequired)
+    );
 
     let immutable = WorkspaceFixture::new()
         .module("main", "class Counter { const _count: Int\n count=(_) via _count }\n")
         .analyze();
-    assert!(immutable
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationSetterRequiresMutableField));
+    assert!(
+        immutable
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationSetterRequiresMutableField)
+    );
 
     let superclass = WorkspaceFixture::new()
-        .module(
-            "main",
-            "class Base { mut _count: Int }\nclass Child is Base { count via _count }\n",
-        )
+        .module("main", "class Base { mut _count: Int }\nclass Child is Base { count via _count }\n")
         .analyze();
-    assert!(superclass
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationFieldNotFound));
+    assert!(
+        superclass
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationFieldNotFound)
+    );
 }
 
 #[test]
 fn delegated_accessors_conflict_with_explicit_ordinary_accessors() {
     let getter = WorkspaceFixture::new()
-        .module(
-            "main",
-            "class Counter { mut _count: Int\n count -> Int { _count }\n count via _count }\n",
-        )
+        .module("main", "class Counter { mut _count: Int\n count -> Int { _count }\n count via _count }\n")
         .analyze();
-    assert!(getter
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplMemberConflict));
+    assert!(
+        getter
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplMemberConflict)
+    );
 
     let setter = WorkspaceFixture::new()
         .module(
@@ -525,11 +578,13 @@ fn delegated_accessors_conflict_with_explicit_ordinary_accessors() {
             "class Counter { mut _count: Int\n count=(_ value: Int) { _count = value }\n mut count via _count }\n",
         )
         .analyze();
-    assert!(setter
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplMemberConflict));
+    assert!(
+        setter
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplMemberConflict)
+    );
 }
 
 #[test]
@@ -561,7 +616,12 @@ class CounterImpl {
     assert!(surface.instance.get_callable(&total_getter).is_some());
     assert!(surface.instance.get_callable(&total_setter).is_some());
 
-    let trait_surface = fixture.analysis.snapshot.trait_surfaces.get(&fixture.decl("main", "Counter")).expect("trait surface");
+    let trait_surface = fixture
+        .analysis
+        .snapshot
+        .trait_surfaces
+        .get(&fixture.decl("main", "Counter"))
+        .expect("trait surface");
     assert!(trait_surface.get_by_selector(&count, DispatchSide::Instance).is_some());
     assert!(trait_surface.get_by_selector(&total_getter, DispatchSide::Instance).is_some());
     assert!(trait_surface.get_by_selector(&total_setter, DispatchSide::Instance).is_some());
@@ -587,7 +647,11 @@ impl Counter for CounterImpl {
 "#,
         )
         .analyze();
-    assert!(!fixture.analysis.snapshot.has_errors(), "explicit property witnesses produced errors: {:?}", fixture.analysis.snapshot.diagnostics);
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "explicit property witnesses produced errors: {:?}",
+        fixture.analysis.snapshot.diagnostics
+    );
     let target = fixture
         .analysis
         .snapshot
@@ -595,7 +659,11 @@ impl Counter for CounterImpl {
         .form(&fixture.decl("main", "CounterImpl"))
         .expect("CounterImpl form");
     let trait_ref = TraitRef::new(fixture.decl("main", "Counter"), Vec::new().into_boxed_slice());
-    let evidence = fixture.analysis.snapshot.conformance_evidence_for(target, &trait_ref).expect("complete property conformance");
+    let evidence = fixture
+        .analysis
+        .snapshot
+        .conformance_evidence_for(target, &trait_ref)
+        .expect("complete property conformance");
     assert_eq!(evidence.requirements.len(), 2, "getter and setter should be ordinary witness selections");
 }
 
@@ -618,11 +686,13 @@ impl CounterTrait for Counter {
 "#,
         )
         .analyze();
-    assert!(fixture
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationInConformanceUnsupported));
+    assert!(
+        fixture
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationInConformanceUnsupported)
+    );
 }
 
 #[test]
@@ -673,7 +743,11 @@ fn trait_associated_projection_formation_is_source_order_independent_and_nested(
         .analyze();
 
     for (fixture, trait_name) in [(&before, "Before"), (&after, "After")] {
-        assert!(!fixture.analysis.snapshot.has_errors(), "projection diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+        assert!(
+            !fixture.analysis.snapshot.has_errors(),
+            "projection diagnostics: {:?}",
+            fixture.analysis.snapshot.diagnostics
+        );
         let declaration = fixture.decl("main", trait_name);
         let surface = fixture.analysis.snapshot.trait_surfaces.get(&declaration).expect("trait surface");
         let member = surface
@@ -691,7 +765,10 @@ fn trait_associated_projection_formation_is_source_order_independent_and_nested(
         assert_eq!(projection.trait_ref.arguments.len(), 0);
         assert_eq!(projection.requirement.owner, declaration);
         assert_eq!(projection.requirement.index, 0);
-        assert!(matches!(fixture.analysis.snapshot.store.get(projection.subject), phalcom_semantic::TypeData::SelfType(_)));
+        assert!(matches!(
+            fixture.analysis.snapshot.store.get(projection.subject),
+            phalcom_semantic::TypeData::SelfType(_)
+        ));
     }
 }
 
@@ -712,7 +789,11 @@ trait Second {
 "#,
         )
         .analyze();
-    assert!(!fixture.analysis.snapshot.has_errors(), "projection diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "projection diagnostics: {:?}",
+        fixture.analysis.snapshot.diagnostics
+    );
 
     let projection = |trait_name: &str| {
         let declaration = fixture.decl("main", trait_name);
@@ -746,7 +827,11 @@ fn generic_trait_associated_projection_retains_abstract_trait_arguments() {
 "#,
         )
         .analyze();
-    assert!(!fixture.analysis.snapshot.has_errors(), "projection diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "projection diagnostics: {:?}",
+        fixture.analysis.snapshot.diagnostics
+    );
     let declaration = fixture.decl("main", "Converter");
     let header = fixture.analysis.snapshot.trait_headers.get(&declaration).expect("trait header");
     let parameter = header.generic_signature.as_ref().expect("generic signature").parameters[0];
@@ -810,11 +895,10 @@ impl<T> Sequence for List<T> {
 "#,
         )
         .analyze();
-    assert!(!fixture
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| matches!(diagnostic.code, phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown | phalcom_semantic::DiagnosticCode::AssociatedTypeBindingInvalid)));
+    assert!(!fixture.analysis.snapshot.all_diagnostics().any(|diagnostic| matches!(
+        diagnostic.code,
+        phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown | phalcom_semantic::DiagnosticCode::AssociatedTypeBindingInvalid
+    )));
 
     let declaration = fixture.decl("main", "Sequence");
     let surface = fixture.analysis.snapshot.trait_surfaces.get(&declaration).expect("trait surface");
@@ -841,7 +925,10 @@ impl<T> Sequence for List<T> {
         panic!("expected Collection = List<T> source application");
     };
     assert_eq!(arguments.len(), 1);
-    assert_eq!(fixture.analysis.snapshot.store.get(arguments[0]), fixture.analysis.snapshot.store.get(*element_type));
+    assert_eq!(
+        fixture.analysis.snapshot.store.get(arguments[0]),
+        fixture.analysis.snapshot.store.get(*element_type)
+    );
 
     let next = phalcom_semantic::CallableId::new(
         CallableOwnerId::Conformance(impl_id.clone()),
@@ -854,7 +941,10 @@ impl<T> Sequence for List<T> {
         panic!("expected Option<T> source return");
     };
     assert_eq!(arguments.len(), 1);
-    assert_eq!(fixture.analysis.snapshot.store.get(arguments[0]), fixture.analysis.snapshot.store.get(*element_type));
+    assert_eq!(
+        fixture.analysis.snapshot.store.get(arguments[0]),
+        fixture.analysis.snapshot.store.get(*element_type)
+    );
     assert_eq!(plan.associated_type_plan.failures.len(), 0);
 }
 
@@ -874,19 +964,36 @@ fn source_conformance_projection_is_order_independent_and_cycles_are_incomplete(
     let reverse = make_fixture("  type Collection = List<Self::Element>\n  type Element = T");
 
     for fixture in [&forward, &reverse] {
-        assert!(!fixture
-            .analysis
-            .snapshot
-            .all_diagnostics()
-            .any(|diagnostic| matches!(diagnostic.code, phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown | phalcom_semantic::DiagnosticCode::AssociatedTypeBindingInvalid)));
+        assert!(!fixture.analysis.snapshot.all_diagnostics().any(|diagnostic| matches!(
+            diagnostic.code,
+            phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown | phalcom_semantic::DiagnosticCode::AssociatedTypeBindingInvalid
+        )));
         let plan = fixture.analysis.snapshot.conformance_witness_plans.values().next().expect("conformance plan");
         assert!(plan.associated_type_plan.failures.is_empty());
         assert_eq!(plan.associated_type_plan.bindings.len(), 2);
     }
     let forward_plan = forward.analysis.snapshot.conformance_witness_plans.values().next().expect("forward plan");
     let reverse_plan = reverse.analysis.snapshot.conformance_witness_plans.values().next().expect("reverse plan");
-    assert_eq!(forward_plan.associated_type_plan.bindings.values().map(|binding| binding.value_template.clone()).collect::<Vec<_>>().len(), 2);
-    assert_eq!(reverse_plan.associated_type_plan.bindings.values().map(|binding| binding.value_template.clone()).collect::<Vec<_>>().len(), 2);
+    assert_eq!(
+        forward_plan
+            .associated_type_plan
+            .bindings
+            .values()
+            .map(|binding| binding.value_template.clone())
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
+    assert_eq!(
+        reverse_plan
+            .associated_type_plan
+            .bindings
+            .values()
+            .map(|binding| binding.value_template.clone())
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
 
     let cycle = WorkspaceFixture::new()
         .module(
@@ -907,12 +1014,17 @@ impl Cyclic for Box {
         )
         .analyze();
     let cycle_plan = cycle.analysis.snapshot.conformance_witness_plans.values().next().expect("cycle plan");
-    assert!(matches!(cycle_plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
-    assert!(cycle_plan
-        .associated_type_plan
-        .failures
-        .iter()
-        .any(|failure| failure.reason.contains("cyclic associated type binding")));
+    assert!(matches!(
+        cycle_plan.completeness,
+        phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }
+    ));
+    assert!(
+        cycle_plan
+            .associated_type_plan
+            .failures
+            .iter()
+            .any(|failure| failure.reason.contains("cyclic associated type binding"))
+    );
 }
 
 #[test]
@@ -935,7 +1047,12 @@ impl<T> Iterable for Box<T> {
         .analyze();
     let trait_declaration = fixture.decl("main", "Iterable");
     let target_declaration = fixture.decl("main", "Box");
-    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+    let int = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().int)
+        .expect("Int form");
     let box_form = fixture.analysis.snapshot.declarations.form(&target_declaration).expect("Box form");
     let mut store = (*fixture.analysis.snapshot.store).clone();
     let target = store.apply_type_form(box_form, &[int]).expect("Box<Int>");
@@ -1004,7 +1121,12 @@ impl<T> Iterator for List<T> {
         .analyze();
     let iterator = fixture.decl("main", "Iterator");
     let list = fixture.decl("main", "List");
-    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+    let int = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().int)
+        .expect("Int form");
     let list_form = fixture.analysis.snapshot.declarations.form(&list).expect("List form");
     let mut store = (*fixture.analysis.snapshot.store).clone();
     let target = store.apply_type_form(list_form, &[int]).expect("List<Int>");
@@ -1051,23 +1173,34 @@ impl<T> Iterator for List<T> {
         .expect("accept requirement")
         .requirement
         .clone();
-    let next_return = evidence.requirement_views.get(&next).expect("next view").signature.declared_return.canonical_type().expect("next return");
+    let next_return = evidence
+        .requirement_views
+        .get(&next)
+        .expect("next view")
+        .signature
+        .declared_return
+        .canonical_type()
+        .expect("next return");
     let phalcom_semantic::TypeData::Applied { arguments, .. } = store.get(next_return) else {
         panic!("expected normalized Option<Int>, got {:?}", store.get(next_return));
     };
     assert_eq!(arguments.as_ref(), &[int]);
+    assert_eq!(
+        evidence.requirement_views.get(&accept).expect("accept view").signature.parameters[0]
+            .declared_type
+            .canonical_type(),
+        Some(int)
+    );
     assert_eq!(
         evidence
             .requirement_views
             .get(&accept)
             .expect("accept view")
             .signature
-            .parameters[0]
-            .declared_type
+            .declared_return
             .canonical_type(),
         Some(int)
     );
-    assert_eq!(evidence.requirement_views.get(&accept).expect("accept view").signature.declared_return.canonical_type(), Some(int));
 }
 
 #[test]
@@ -1089,20 +1222,31 @@ impl Defaulted for Box {
 "#,
         )
         .analyze();
-    assert!(!fixture.analysis.snapshot.has_errors(), "unexpected diagnostics: {:?}", fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>());
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "unexpected diagnostics: {:?}",
+        fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
+    );
     let defaulted = fixture.decl("main", "Defaulted");
-    let target = fixture
+    let target = fixture.analysis.snapshot.declarations.form(&fixture.decl("main", "Box")).expect("Box form");
+    let int = fixture
         .analysis
         .snapshot
         .declarations
-        .form(&fixture.decl("main", "Box"))
-        .expect("Box form");
-    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+        .form(&CoreDeclarationIds::default().int)
+        .expect("Int form");
     let trait_ref = TraitRef::new(defaulted.clone(), Vec::new().into_boxed_slice());
-    let evidence = fixture.analysis.snapshot.conformance_evidence_for(target, &trait_ref).expect("default-backed evidence");
+    let evidence = fixture
+        .analysis
+        .snapshot
+        .conformance_evidence_for(target, &trait_ref)
+        .expect("default-backed evidence");
     let surface = fixture.analysis.snapshot.trait_surfaces.get(&defaulted).expect("Defaulted surface");
     let requirement = surface
-        .get_by_selector(&Selector::method("echo", vec![SelectorSlot::Positional]).expect("echo selector"), DispatchSide::Instance)
+        .get_by_selector(
+            &Selector::method("echo", vec![SelectorSlot::Positional]).expect("echo selector"),
+            DispatchSide::Instance,
+        )
         .expect("echo requirement")
         .requirement
         .clone();
@@ -1110,8 +1254,22 @@ impl Defaulted for Box {
         evidence.requirements.get(&requirement),
         Some(phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. })
     ));
-    assert_eq!(evidence.requirement_views.get(&requirement).expect("echo view").signature.parameters[0].declared_type.canonical_type(), Some(int));
-    assert_eq!(evidence.requirement_views.get(&requirement).expect("echo view").signature.declared_return.canonical_type(), Some(int));
+    assert_eq!(
+        evidence.requirement_views.get(&requirement).expect("echo view").signature.parameters[0]
+            .declared_type
+            .canonical_type(),
+        Some(int)
+    );
+    assert_eq!(
+        evidence
+            .requirement_views
+            .get(&requirement)
+            .expect("echo view")
+            .signature
+            .declared_return
+            .canonical_type(),
+        Some(int)
+    );
 }
 
 #[test]
@@ -1134,12 +1292,22 @@ impl Typed for Box {
 "#,
         )
         .analyze();
-    let plan = fixture.analysis.snapshot.conformance_witness_plans.values().next().expect("Typed conformance plan");
-    assert!(matches!(
-        plan.completeness,
-        phalcom_semantic::impls::ConformanceCompleteness::Incomplete { ref failures }
-            if failures.iter().any(|failure| matches!(failure, phalcom_semantic::impls::ConformanceFailure::Behavioral(failure) if failure.reason.contains("subtype") || failure.reason.contains("type")))
-    ), "expected normalized witness incompatibility, got {:?}", plan.completeness);
+    let plan = fixture
+        .analysis
+        .snapshot
+        .conformance_witness_plans
+        .values()
+        .next()
+        .expect("Typed conformance plan");
+    assert!(
+        matches!(
+            plan.completeness,
+            phalcom_semantic::impls::ConformanceCompleteness::Incomplete { ref failures }
+                if failures.iter().any(|failure| matches!(failure, phalcom_semantic::impls::ConformanceFailure::Behavioral(failure) if failure.reason.contains("subtype") || failure.reason.contains("type")))
+        ),
+        "expected normalized witness incompatibility, got {:?}",
+        plan.completeness
+    );
 }
 
 #[test]
@@ -1179,7 +1347,9 @@ impl<T> Abstract for Box<T> {
     let mut abstract_budget = phalcom_semantic::QueryBudget::default();
     let abstract_cancel = phalcom_semantic::CancellationToken::new();
     let mut abstract_context = phalcom_semantic::types::ProjectionNormalizationContext::new(
-        phalcom_semantic::types::ProjectionNormalizationMode::AbstractTrait { trait_ref: &abstract_trait_ref },
+        phalcom_semantic::types::ProjectionNormalizationMode::AbstractTrait {
+            trait_ref: &abstract_trait_ref,
+        },
         &mut abstract_budget,
         &abstract_cancel,
     );
@@ -1233,7 +1403,12 @@ impl<T> Abstract for Box<T> {
         .clone();
     let box_declaration = fixture.decl("main", "Box");
     let box_form = fixture.analysis.snapshot.declarations.form(&box_declaration).expect("Box form");
-    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+    let int = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().int)
+        .expect("Int form");
     let mut exact_store = (*fixture.analysis.snapshot.store).clone();
     let exact_target = exact_store.apply_type_form(box_form, &[int]).expect("Box<Int>");
     let other_ref = TraitRef::new(other_declaration, Vec::new().into_boxed_slice());
@@ -1267,9 +1442,7 @@ fn projection_normalization_propagates_cancellation_and_budget_states() {
     let mut budget = phalcom_semantic::QueryBudget::default();
     let trait_ref = TraitRef::new(fixture_module(), Vec::new().into_boxed_slice());
     let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
-        phalcom_semantic::types::ProjectionNormalizationMode::AbstractTrait {
-            trait_ref: &trait_ref,
-        },
+        phalcom_semantic::types::ProjectionNormalizationMode::AbstractTrait { trait_ref: &trait_ref },
         &mut budget,
         &cancel,
     );
@@ -1440,7 +1613,10 @@ impl Tagged for Value<Marker> {
         &cancel,
     );
     let result = phalcom_semantic::types::normalize_type(&mut store, projection, &mut context);
-    assert!(matches!(result, phalcom_semantic::types::ProjectionNormalizationResult::Ambiguous(ref candidates) if candidates.len() == 2), "expected ambiguity, got {result:?}");
+    assert!(
+        matches!(result, phalcom_semantic::types::ProjectionNormalizationResult::Ambiguous(ref candidates) if candidates.len() == 2),
+        "expected ambiguity, got {result:?}"
+    );
 }
 
 fn fixture_module() -> phalcom_semantic::DeclarationId {
@@ -1495,11 +1671,11 @@ fn trait_surface_reports_duplicate_selector_and_preserves_source_visibility() {
             .range
             .start
             < surface
-            .get_by_selector(&Selector::method("run", []).unwrap(), DispatchSide::Instance)
-            .expect("run member")
-            .source
-            .range
-            .end
+                .get_by_selector(&Selector::method("run", []).unwrap(), DispatchSide::Instance)
+                .expect("run member")
+                .source
+                .range
+                .end
     );
     assert_eq!(
         fixture

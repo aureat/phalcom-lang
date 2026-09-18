@@ -149,7 +149,9 @@ fn test_parse_impl_rejects_fields() {
 fn c5p1_associated_type_binding_preserves_value_and_ranges() {
     let source = "impl<T> Iterable for List<T> { type Item = T }\n";
     let program = parse_source(source, 0).expect("associated type binding parses");
-    let Statement::Impl(impl_def) = &program.statements[0] else { panic!("expected impl") };
+    let Statement::Impl(impl_def) = &program.statements[0] else {
+        panic!("expected impl")
+    };
     let ImplMember::AssociatedTypeBinding(binding) = &impl_def.members[0] else {
         panic!("expected associated type binding")
     };
@@ -172,12 +174,18 @@ impl Counter {
 }
 "#;
     let program = parse_source(source, 0).expect("direct field delegation parses");
-    let Statement::Class(class_def) = &program.statements[0] else { panic!("expected class") };
+    let Statement::Class(class_def) = &program.statements[0] else {
+        panic!("expected class")
+    };
     assert!(matches!(&class_def.members[0], phalcom_ast::ast::ClassMember::Field(field) if field.mutable));
-    assert!(matches!(&class_def.members[1], phalcom_ast::ast::ClassMember::Delegation(delegation) if delegation.kind == DelegatedAccessorKind::Getter && delegation.target_field == "_count"));
+    assert!(
+        matches!(&class_def.members[1], phalcom_ast::ast::ClassMember::Delegation(delegation) if delegation.kind == DelegatedAccessorKind::Getter && delegation.target_field == "_count")
+    );
     assert!(matches!(&class_def.members[2], phalcom_ast::ast::ClassMember::Delegation(delegation) if delegation.kind == DelegatedAccessorKind::Setter));
     assert!(matches!(&class_def.members[3], phalcom_ast::ast::ClassMember::Delegation(delegation) if delegation.kind == DelegatedAccessorKind::ReadWrite));
-    let Statement::Impl(impl_def) = &program.statements[1] else { panic!("expected impl") };
+    let Statement::Impl(impl_def) = &program.statements[1] else {
+        panic!("expected impl")
+    };
     assert!(matches!(&impl_def.members[0], ImplMember::Delegation(delegation) if delegation.kind == DelegatedAccessorKind::Setter));
 }
 

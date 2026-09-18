@@ -127,7 +127,11 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 .map(|&argument| materialize_view(store, argument, env))
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
-            store.associated_projection(subject, crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments), projection.requirement)
+            store.associated_projection(
+                subject,
+                crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments),
+                projection.requirement,
+            )
         }
         TypeData::Applied { origin, arguments } => {
             let subst_origin = materialize_view(store, origin, env);

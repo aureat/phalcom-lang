@@ -59,8 +59,13 @@ pub struct OpenRecordTypeRef {
 pub enum TypeNode {
     Never,
     Unit,
-    Nominal { declaration: StableDeclarationRef },
-    Applied { origin: TypeNodeId, arguments: Box<[TypeNodeId]> },
+    Nominal {
+        declaration: StableDeclarationRef,
+    },
+    Applied {
+        origin: TypeNodeId,
+        arguments: Box<[TypeNodeId]>,
+    },
     Union(Box<[TypeNodeId]>),
     Tuple(Box<[TupleElementRef]>),
     Record(Box<[RecordFieldRef]>),

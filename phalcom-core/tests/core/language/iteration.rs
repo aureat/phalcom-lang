@@ -75,7 +75,10 @@ for left in [1, 2], right in [10] {
     let mut vm = vm_support::universe_vm();
     let error = vm.run_compiled(&program).expect_err("mismatched canonical lanes must raise");
     let rendered = format!("{error:?}");
-    assert!(rendered.contains("strict zip lanes ended at different times"), "unexpected strict zip error: {rendered}");
+    assert!(
+        rendered.contains("strict zip lanes ended at different times"),
+        "unexpected strict zip error: {rendered}"
+    );
 }
 
 #[test]
@@ -178,9 +181,12 @@ fn canonical_range_for_publishes_semantic_iteration_lane() {
 let sum = 0
 for value in (1..4) { sum = sum + value }
 "#;
-    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source)))
-        .expect("canonical Range iteration compiles");
-    assert_eq!(program.modules.len(), 1, "semantic support modules must not be rematerialized into the Universe VM");
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical Range iteration compiles");
+    assert_eq!(
+        program.modules.len(),
+        1,
+        "semantic support modules must not be rematerialized into the Universe VM"
+    );
     assert_eq!(program.initialization_order, vec![program.entry.clone()]);
     assert_eq!(
         program.modules[&program.entry].lowering.for_iteration_lanes.len(),

@@ -75,15 +75,6 @@ impl VM {
         Ok(true)
     }
 
-    /// Checks the generic `*` cursor protocol by lookup alone. This is
-    /// intentionally not a send: dNU, visibility, allocation, and user code
-    /// belong to the ordinary cursor invokes emitted by the compiler.
-    fn has_iteration_protocol(&mut self, value: Value) -> bool {
-        let iterate = self.interner.intern("iterate(_)");
-        let iterator_value = self.interner.intern("iteratorValue(_)");
-        value.lookup_method(self, iterate).is_some() && value.lookup_method(self, iterator_value).is_some()
-    }
-
     /// Copies the ordered labeled lane exposed by a `**` source. The returned
     /// associations own no heap borrows, so destinations may re-enter the VM
     /// while consuming them.
@@ -1242,7 +1233,10 @@ impl VM {
         let type_environment = if slot_entry.type_environment != crate::typing::RuntimeTypeEnvironmentId::EMPTY {
             slot_entry.type_environment
         } else {
-            self.frames.last().map(|frame| frame.type_environment).unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY)
+            self.frames
+                .last()
+                .map(|frame| frame.type_environment)
+                .unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY)
         };
         let method_conf_env = if slot_entry.conformance_environment != crate::typing::RuntimeConformanceEnvironmentId::EMPTY {
             slot_entry.conformance_environment
@@ -1278,7 +1272,9 @@ impl VM {
         let selector_sym = selector_val.as_symbol().unwrap();
         let layout = self.invocation_layout_for_selector(selector_sym, arity)?;
         let type_environment = call_environment.map(|recipe| self.materialize_call_environment(recipe)).transpose()?;
-        let conformance_environment = call_environment.map(|recipe| self.materialize_conformance_environment(receiver, recipe)).transpose()?;
+        let conformance_environment = call_environment
+            .map(|recipe| self.materialize_conformance_environment(receiver, recipe))
+            .transpose()?;
 
         // A Family owns the selector shape of a callable reference. Bracket
         // sends therefore activate the family directly instead of looking up
@@ -1450,8 +1446,8 @@ impl VM {
             .ok_or_else(|| RuntimeError::Internal(format!("missing caller runtime type environment {}", parent_id.0)))?;
         let mut materialized = Vec::with_capacity(bindings.len());
         for (parameter, type_recipe) in bindings.iter().cloned() {
-            let ty = crate::typing::instantiate_type_recipe(type_recipe, &parent, &mut self.runtime_typing_context, &self.typing_registry)
-                .ok_or_else(|| {
+            let ty =
+                crate::typing::instantiate_type_recipe(type_recipe, &parent, &mut self.runtime_typing_context, &self.typing_registry).ok_or_else(|| {
                     RuntimeError::Internal(format!(
                         "generic call-entry type recipe could not be instantiated for parameter {parameter:?}, recipe {type_recipe:?}, against parent {:?}",
                         parent.bindings
@@ -1475,21 +1471,12 @@ impl VM {
         if let Some(method) = receiver.lookup_method(self, selector_sym) {
             return Ok(method);
         }
-        let class_id = callable
-            .owner
-            .try_declaration()
-            .and_then(|decl| self.resolve_declaration_class(decl).ok());
+        let class_id = callable.owner.try_declaration().and_then(|decl| self.resolve_declaration_class(decl).ok());
         let method = class_id.and_then(|cls| {
-            let class_obj = if callable.side.is_class() {
-                self.heap.class(cls).class
-            } else {
-                cls
-            };
+            let class_obj = if callable.side.is_class() { self.heap.class(cls).class } else { cls };
             crate::heap::lookup_method_in_hierarchy(&self.heap, class_obj, selector_sym)
         });
-        method.ok_or_else(|| {
-            RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")).into()
-        })
+        method.ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")).into())
     }
 
     fn materialize_conformance_environment(
@@ -1518,9 +1505,7 @@ impl VM {
                     }));
                 }
                 crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot) => {
-                    let slot_val = self
-                        .runtime_conformance_environments
-                        .slot(caller_conformance_env_id, *caller_slot);
+                    let slot_val = self.runtime_conformance_environments.slot(caller_conformance_env_id, *caller_slot);
                     slots.push(slot_val);
                 }
                 crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional {
@@ -1570,9 +1555,8 @@ impl VM {
                             };
                             nested_conformance_slots.push(nested_slot_val);
                         }
-                        self.runtime_conformance_environments.intern(
-                            crate::typing::RuntimeConformanceEnvironment::new(nested_conformance_slots)
-                        )
+                        self.runtime_conformance_environments
+                            .intern(crate::typing::RuntimeConformanceEnvironment::new(nested_conformance_slots))
                     };
 
                     slots.push(Some(crate::typing::RuntimeConformanceSlot {
@@ -1583,7 +1567,9 @@ impl VM {
                 }
             }
         }
-        Ok(self.runtime_conformance_environments.intern(crate::typing::RuntimeConformanceEnvironment::new(slots)))
+        Ok(self
+            .runtime_conformance_environments
+            .intern(crate::typing::RuntimeConformanceEnvironment::new(slots)))
     }
 
     /// Executes a compiler-emitted call to an internal runtime helper.
@@ -3026,10 +3012,8 @@ impl VM {
                     let source = self.pop()?;
                     if self.try_append_tuple_positionals(source, target)? {
                         self.stack.push(TRUE);
-                    } else if self.has_iteration_protocol(source) {
-                        self.stack.push(FALSE);
                     } else {
-                        return Err(RuntimeError::NonIterableStarOperand { found: source.type_name() }.into());
+                        self.stack.push(FALSE);
                     }
                 }
                 Bytecode::FinishTuplePack => {

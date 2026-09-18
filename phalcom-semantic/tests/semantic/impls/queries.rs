@@ -626,7 +626,9 @@ fn missing_conformance_witness_emits_requirement_diagnostic() {
         panic!("expected incomplete conformance, got {:?}", plan.completeness);
     };
     assert_eq!(failures.len(), 1);
-    assert!(matches!(&failures[0], phalcom_semantic::impls::ConformanceFailure::Behavioral(failure) if failure.reason.contains("no explicit witness or trait default")));
+    assert!(
+        matches!(&failures[0], phalcom_semantic::impls::ConformanceFailure::Behavioral(failure) if failure.reason.contains("no explicit witness or trait default"))
+    );
     assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
         diagnostics.iter().any(|diagnostic| {
             diagnostic.code == phalcom_semantic::DiagnosticCode::ImplConformanceIncomplete
@@ -758,7 +760,9 @@ fn known_witness_failure_outranks_another_requirement_uncertainty() {
     let phalcom_semantic::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness else {
         panic!("known incompatibility must dominate uncertainty: {:?}", plan.completeness);
     };
-    assert!(failures.iter().any(|failure| matches!(failure, phalcom_semantic::impls::ConformanceFailure::Behavioral(failure) if failure.reason.contains("type relation refuted"))));
+    assert!(failures.iter().any(
+        |failure| matches!(failure, phalcom_semantic::impls::ConformanceFailure::Behavioral(failure) if failure.reason.contains("type relation refuted"))
+    ));
 }
 
 #[test]
@@ -854,7 +858,11 @@ fn associated_failure_survives_deferred_conditional_witness() {
     let mut session = SemanticWorkspaceSession::new();
     let output = session.update(single_module_input(module.clone(), source));
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
-    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }), "fixed associated failure must remain incomplete: {:?}", plan.completeness);
+    assert!(
+        matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }),
+        "fixed associated failure must remain incomplete: {:?}",
+        plan.completeness
+    );
     assert!(matches!(
         plan.completeness,
         phalcom_semantic::impls::ConformanceCompleteness::Incomplete { ref failures }
@@ -879,7 +887,10 @@ fn associated_failure_survives_deferred_conditional_witness() {
         exact_target,
         &tagged,
     );
-    assert!(!matches!(resolution, phalcom_semantic::impls::ConformanceResolution::Proven(_)), "fixed associated failure must not be erased by exact conditional applicability: {resolution:?}");
+    assert!(
+        !matches!(resolution, phalcom_semantic::impls::ConformanceResolution::Proven(_)),
+        "fixed associated failure must not be erased by exact conditional applicability: {resolution:?}"
+    );
 }
 
 #[test]
@@ -913,7 +924,10 @@ fn duplicate_associated_failure_survives_deferred_conditional_witness() {
         exact_target,
         &tagged,
     );
-    assert!(!matches!(resolution, phalcom_semantic::impls::ConformanceResolution::Proven(_)), "fixed duplicate associated failure must not be erased: {resolution:?}");
+    assert!(
+        !matches!(resolution, phalcom_semantic::impls::ConformanceResolution::Proven(_)),
+        "fixed duplicate associated failure must not be erased: {resolution:?}"
+    );
 }
 
 #[test]

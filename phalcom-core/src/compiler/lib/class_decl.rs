@@ -1126,7 +1126,10 @@ impl<'vm> Compiler<'vm> {
                         DelegatedAccessorKind::Setter => [true, false],
                         DelegatedAccessorKind::ReadWrite => [false, true],
                     };
-                    for setter in setters.into_iter().take(if matches!(delegation.kind, DelegatedAccessorKind::ReadWrite) { 2 } else { 1 }) {
+                    for setter in setters
+                        .into_iter()
+                        .take(if matches!(delegation.kind, DelegatedAccessorKind::ReadWrite) { 2 } else { 1 })
+                    {
                         let compiled = self.compile_delegated_accessor(&delegation, &delegation.target_field, setter, None)?;
                         self.emit(Bytecode::Constant(compiled.method_obj_idx), compiled.range);
                         self.emit(Bytecode::Method(compiled.selector_const, false), compiled.range);

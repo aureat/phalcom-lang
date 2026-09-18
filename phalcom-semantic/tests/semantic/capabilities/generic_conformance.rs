@@ -9,7 +9,7 @@ use phalcom_semantic::types::parameter::{GenericConstraint, TypeParameterOwner, 
 use phalcom_semantic::types::store::TypeData;
 use phalcom_type_meta::generic::GenericConstraintRef;
 use phalcom_type_meta::header::MetadataProfile;
-use phalcom_type_meta::validate::{validate_metadata_bundle, ValidationLimits};
+use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
 
 #[test]
 fn generic_conformance_constraint_lowering_and_ordering() {
@@ -37,7 +37,7 @@ class Probe {
     assert_eq!(generics.parameters.len(), 1);
     // T |= Beta + Alpha should be canonicalized and sorted into Alpha then Beta!
     assert_eq!(generics.constraints.len(), 2);
-    
+
     let t_param = generics.parameters[0];
     let alpha_trait = fixture.decl("Alpha");
     let beta_trait = fixture.decl("Beta");
@@ -142,7 +142,8 @@ class Probe {
         &generics.constraints,
         generics.owner.clone(),
         &fixture.analysis.snapshot.trait_surfaces,
-    ).expect("valid evidence layout");
+    )
+    .expect("valid evidence layout");
 
     // 1. Exact proof for User |= Alpha
     let exact_proof = phalcom_semantic::generic_evidence::query_generic_conformance_proof(
@@ -158,9 +159,9 @@ class Probe {
         Some(&mut store),
     );
     match exact_proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
-            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(evidence),
-        ) => {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(
+            evidence,
+        )) => {
             assert_eq!(evidence.exact_target, user_ty);
             assert_eq!(evidence.exact_trait_ref, alpha_ref);
         }
@@ -181,9 +182,9 @@ class Probe {
         Some(&mut store),
     );
     match assumed_proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
-            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(assumed),
-        ) => {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(
+            assumed,
+        )) => {
             assert_eq!(assumed.key.subject, TypeTerm::Canonical(t_param_ty));
             assert_eq!(assumed.key.trait_ref, beta_ref);
         }
@@ -231,7 +232,7 @@ class Box<T> where T |= Alpha {
     );
 
     let run = fixture.callable("Box", "run", DispatchSide::Instance);
-    
+
     // Check that both alpha_call and beta_call expressions resolved to TraitDispatchSite::Assumed
     let mut assumed_dispatches = Vec::new();
     for expr in run.expressions.values() {
@@ -240,13 +241,25 @@ class Box<T> where T |= Alpha {
         }
     }
 
-    assert_eq!(assumed_dispatches.len(), 2, "expected 2 assumed trait dispatches in body, found {:?}", assumed_dispatches);
-    
+    assert_eq!(
+        assumed_dispatches.len(),
+        2,
+        "expected 2 assumed trait dispatches in body, found {:?}",
+        assumed_dispatches
+    );
+
     let alpha_trait = fixture.decl("Alpha");
     let beta_trait = fixture.decl("Beta");
 
-    assert!(assumed_dispatches.iter().any(|d| d.conformance.trait_ref.declaration == alpha_trait && matches!(&d.requirement.selector.base, SelectorBase::Named(name) if name == "alpha_call")));
-    assert!(assumed_dispatches.iter().any(|d| d.conformance.trait_ref.declaration == beta_trait && matches!(&d.requirement.selector.base, SelectorBase::Named(name) if name == "beta_call")));
+    assert!(assumed_dispatches.iter().any(
+        |d| d.conformance.trait_ref.declaration == alpha_trait && matches!(&d.requirement.selector.base, SelectorBase::Named(name) if name == "alpha_call")
+    ));
+    assert!(
+        assumed_dispatches
+            .iter()
+            .any(|d| d.conformance.trait_ref.declaration == beta_trait
+                && matches!(&d.requirement.selector.base, SelectorBase::Named(name) if name == "beta_call"))
+    );
 }
 
 #[test]
@@ -294,7 +307,8 @@ class Probe {
         &gen1.constraints,
         gen1.owner.clone(),
         &fixture1.analysis.snapshot.trait_surfaces,
-    ).expect("valid evidence layout");
+    )
+    .expect("valid evidence layout");
 
     let run2 = fixture2.callable("Probe", "run", DispatchSide::Class);
     let sig2 = fixture2.analysis.snapshot.callable_signatures.get(&run2.callable).expect("sig2");
@@ -303,7 +317,8 @@ class Probe {
         &gen2.constraints,
         gen2.owner.clone(),
         &fixture2.analysis.snapshot.trait_surfaces,
-    ).expect("valid evidence layout");
+    )
+    .expect("valid evidence layout");
 
     // Both layouts must have 3 slots: (T, Alpha.first), (T, Beta.second), (U, Alpha.first)
     assert_eq!(env1.layout().len(), 3);
@@ -410,7 +425,10 @@ class AmbiguousProbe {
     let ambiguous = fixture.callable("AmbiguousProbe", "run", DispatchSide::Class);
     // Two conflicting assumed traits expose the same selector: no single assumed dispatch site can be formed
     for expr in ambiguous.expressions.values() {
-        assert!(expr.trait_dispatch.is_none(), "ambiguous assumed traits must not resolve to a single dispatch site");
+        assert!(
+            expr.trait_dispatch.is_none(),
+            "ambiguous assumed traits must not resolve to a single dispatch site"
+        );
     }
 }
 
@@ -539,7 +557,7 @@ class DynamicCaller {
 
 #[test]
 fn generic_evidence_layout_overflow_is_a_checked_failure() {
-    use phalcom_semantic::generic_evidence::{GenericEvidenceLayout, GenericEvidenceLayoutError, GenericConformanceKey, AssumedConformanceEvidence};
+    use phalcom_semantic::generic_evidence::{AssumedConformanceEvidence, GenericConformanceKey, GenericEvidenceLayout, GenericEvidenceLayoutError};
     use std::collections::BTreeMap;
 
     let fixture = Fixture::new(
@@ -560,25 +578,35 @@ trait Alpha {
             TypeTerm::Canonical(phalcom_semantic::types::id::TypeId(i as u32)),
             phalcom_semantic::traits::TraitRef::new(alpha_decl.clone(), vec![]),
         );
-        conformances.insert(key.clone(), AssumedConformanceEvidence {
-            key,
-            owner: owner.clone(),
-        });
+        conformances.insert(key.clone(), AssumedConformanceEvidence { key, owner: owner.clone() });
     }
 
-    let constraints = conformances.keys().map(|key| GenericConstraint::Conforms {
-        subject: key.subject.clone(), trait_ref: key.trait_ref.clone(),
-    }).collect::<Vec<_>>();
+    let constraints = conformances
+        .keys()
+        .map(|key| GenericConstraint::Conforms {
+            subject: key.subject.clone(),
+            trait_ref: key.trait_ref.clone(),
+        })
+        .collect::<Vec<_>>();
     let surfaces = &fixture.analysis.snapshot.trait_surfaces;
     use phalcom_semantic::generic_evidence::GenericEvidenceEnvironment;
-    assert!(matches!(GenericEvidenceEnvironment::try_from_constraints(&constraints, owner.clone(), surfaces),
-        Err(GenericEvidenceLayoutError::SlotCapacityExceeded(65536))));
+    assert!(matches!(
+        GenericEvidenceEnvironment::try_from_constraints(&constraints, owner.clone(), surfaces),
+        Err(GenericEvidenceLayoutError::SlotCapacityExceeded(65536))
+    ));
     let left = GenericEvidenceEnvironment::try_from_constraints(&constraints[..32768], owner.clone(), surfaces).unwrap();
     let right = GenericEvidenceEnvironment::try_from_constraints(&constraints[32768..], owner, surfaces).unwrap();
-    assert!(matches!(left.try_compose(&right, surfaces), Err(GenericEvidenceLayoutError::SlotCapacityExceeded(65536))));
+    assert!(matches!(
+        left.try_compose(&right, surfaces),
+        Err(GenericEvidenceLayoutError::SlotCapacityExceeded(65536))
+    ));
 
     let layout_res = GenericEvidenceLayout::build(&conformances, &fixture.analysis.snapshot.trait_surfaces);
-    assert!(matches!(layout_res, Err(GenericEvidenceLayoutError::SlotCapacityExceeded(_))), "expected SlotCapacityExceeded, got {:?}", layout_res);
+    assert!(
+        matches!(layout_res, Err(GenericEvidenceLayoutError::SlotCapacityExceeded(_))),
+        "expected SlotCapacityExceeded, got {:?}",
+        layout_res
+    );
 }
 
 #[test]
@@ -655,7 +683,8 @@ class Probe {
 
 #[test]
 fn receiver_owner_evidence_is_published_without_owner_inference() {
-    let fixture = Fixture::new(r#"
+    let fixture = Fixture::new(
+        r#"
 trait Printable { print -> String }
 class User { @constructor new() {} }
 impl Printable for User { print -> String { "user" } }
@@ -673,24 +702,43 @@ class Runner {
   }
   @class forward<U>(_ c: Container<U>) -> String where U |= Printable { c.show() }
 }
-"#);
+"#,
+    );
     fixture.assert_no_error_diagnostics();
     let show = fixture.callable("Container", "show", DispatchSide::Instance);
-    assert!(show.expressions.values().any(|expression| matches!(expression.trait_dispatch,
-        Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(_)))), "owner body retains assumed dispatch");
+    assert!(
+        show.expressions
+            .values()
+            .any(|expression| matches!(expression.trait_dispatch, Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(_)))),
+        "owner body retains assumed dispatch"
+    );
     let run = fixture.callable("Runner", "run", DispatchSide::Class);
     for (name, expected) in [("show", 1), ("combine", 2)] {
-        let specialization = run.expressions.values().filter_map(|expression| expression.call_specialization.as_ref())
+        let specialization = run
+            .expressions
+            .values()
+            .filter_map(|expression| expression.call_specialization.as_ref())
             .find(|specialization| matches!(&specialization.callable.selector.base, SelectorBase::Named(selector) if selector == name))
             .expect("receiver-specialized call");
         assert_eq!(specialization.conformances.len(), expected);
         assert_eq!(specialization.bindings.len(), expected);
-        assert!(specialization.conformances.iter().all(|binding| matches!(binding.source,
-            phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { .. })));
+        assert!(
+            specialization
+                .conformances
+                .iter()
+                .all(|binding| matches!(binding.source, phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { .. }))
+        );
     }
     let forward = fixture.callable("Runner", "forward", DispatchSide::Class);
-    let specialization = forward.expressions.values().filter_map(|expression| expression.call_specialization.as_ref()).next().expect("forwarded owner call");
+    let specialization = forward
+        .expressions
+        .values()
+        .filter_map(|expression| expression.call_specialization.as_ref())
+        .next()
+        .expect("forwarded owner call");
     assert_eq!(specialization.conformances.len(), 1);
-    assert!(matches!(specialization.conformances[0].source,
-        phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { .. }));
+    assert!(matches!(
+        specialization.conformances[0].source,
+        phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { .. }
+    ));
 }

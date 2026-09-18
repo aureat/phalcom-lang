@@ -370,7 +370,13 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
         header
             .generic_signature
             .as_ref()
-            .map(|signature| signature.parameters.iter().map(|&parameter| ctx.store.parameter_form(parameter)).collect::<Vec<_>>())
+            .map(|signature| {
+                signature
+                    .parameters
+                    .iter()
+                    .map(|&parameter| ctx.store.parameter_form(parameter))
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default()
             .into_boxed_slice(),
     );
@@ -468,17 +474,15 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
             trait_ref.clone(),
             associated_type_context.clone(),
         );
-        let Some(signature) =
-            crate::checker::declaration_signature::semantic_signature_for_syntax_with_owner_and_site(
-                ctx,
-                &owner,
-                &header.declaration,
-                &declaration_resolver,
-                &formation_site,
-                syntax,
-                side,
-            )
-        else {
+        let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_syntax_with_owner_and_site(
+            ctx,
+            &owner,
+            &header.declaration,
+            &declaration_resolver,
+            &formation_site,
+            syntax,
+            side,
+        ) else {
             continue;
         };
         let source = signature
@@ -532,12 +536,10 @@ fn trait_property_signature(
     let callable = CallableId::new(CallableOwnerId::Declaration(owner.clone()), selector.clone(), DispatchSide::Instance);
     let source = SemanticSourceSpan::new(ctx.current_module.clone(), property.range);
     let parameters = if setter {
-        vec![CallableParameterSemantic::new(
-            crate::identity::CallableParameterId::new(callable.clone(), 0),
-            "_",
-            declared_type.clone(),
-        )
-        .with_source(source.clone())]
+        vec![
+            CallableParameterSemantic::new(crate::identity::CallableParameterId::new(callable.clone(), 0), "_", declared_type.clone())
+                .with_source(source.clone()),
+        ]
         .into_boxed_slice()
     } else {
         Box::new([])
@@ -663,9 +665,7 @@ fn type_contains_self(store: &TypeStore, ty: TypeId) -> bool {
         crate::types::store::TypeData::ExactCase { enum_type, .. } => type_contains_self(store, *enum_type),
         crate::types::store::TypeData::Union(types) => types.iter().any(|&t| type_contains_self(store, t)),
         crate::types::store::TypeData::Tuple(elems) => elems.iter().any(|e| type_contains_self(store, e.ty)),
-        crate::types::store::TypeData::Callable(c) => {
-            type_contains_self(store, c.return_type) || c.parameters.iter().any(|p| type_contains_self(store, p.ty))
-        }
+        crate::types::store::TypeData::Callable(c) => type_contains_self(store, c.return_type) || c.parameters.iter().any(|p| type_contains_self(store, p.ty)),
         _ => false,
     }
 }
@@ -778,12 +778,7 @@ fn substitute_term_self_and_params(
     }
 }
 
-fn substitute_type_id_self_and_params(
-    store: &mut TypeStore,
-    ty: TypeId,
-    subject: &TypeTerm,
-    subst: &crate::types::substitution::TypeSubstitution,
-) -> TypeTerm {
+fn substitute_type_id_self_and_params(store: &mut TypeStore, ty: TypeId, subject: &TypeTerm, subst: &crate::types::substitution::TypeSubstitution) -> TypeTerm {
     match store.get(ty).clone() {
         crate::types::store::TypeData::SelfType(_) => subject.clone(),
         crate::types::store::TypeData::Parameter(p) => {
@@ -889,11 +884,9 @@ fn substitute_generic_constraint_self_and_params(
             };
             GenericConstraint::Equivalent { left, right }
         }
-        GenericConstraint::Subtype { lower, upper } => {
-            GenericConstraint::Subtype {
-                lower: substitute_term_self_and_params(store, lower, subject, subst),
-                upper: substitute_term_self_and_params(store, upper, subject, subst),
-            }
-        }
+        GenericConstraint::Subtype { lower, upper } => GenericConstraint::Subtype {
+            lower: substitute_term_self_and_params(store, lower, subject, subst),
+            upper: substitute_term_self_and_params(store, upper, subject, subst),
+        },
     }
 }

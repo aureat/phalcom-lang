@@ -693,11 +693,7 @@ impl Backend {
         Some(sections.join("\n\n---\n\n"))
     }
 
-    fn compiler_associated_type_hover(
-        &self,
-        request: &RequestContext,
-        requirement: &phalcom_semantic::traits::AssociatedTypeRequirementId,
-    ) -> Option<String> {
+    fn compiler_associated_type_hover(&self, request: &RequestContext, requirement: &phalcom_semantic::traits::AssociatedTypeRequirementId) -> Option<String> {
         let compiler = request.compiler.as_deref()?;
         let surface = compiler.trait_surfaces.get(&requirement.owner)?;
         let associated = surface.associated_types.get(requirement)?;

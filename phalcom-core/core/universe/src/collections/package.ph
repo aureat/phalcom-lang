@@ -1,6 +1,6 @@
 @!documentation("Collection and sequence data structures.")
 
-expose .iterable
+expose .collection
 expose .iterator_laws
 expose .list
 expose .map

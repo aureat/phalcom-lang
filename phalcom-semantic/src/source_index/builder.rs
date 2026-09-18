@@ -6,12 +6,12 @@ use crate::identity::{
     CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner,
     SourceSiteId, SourceSiteLocalId, VariantFieldId, VariantId,
 };
-use crate::traits::AssociatedTypeRequirementId;
 use crate::source_index::scope::{
     CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind,
     SourceDeclarationKind, SourceScopeId, SourceScopeIndex,
 };
 use crate::source_index::site::{SourceSite, SourceSiteKind};
+use crate::traits::AssociatedTypeRequirementId;
 use crate::types::annotation::TypeResolver;
 use phalcom_ast::ast::{
     BehaviorMember, BindingKind, BlockExpr, ClassDef, ClassMember, EnumDef, Expr, ForStatement, GenericConstraintSyntax, LetBinding, MemberBody, Pattern,
@@ -573,7 +573,12 @@ impl SourceScopeBuilder<'_> {
                     self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
                 }
             }
-            TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, name_range, .. } => {
+            TypeAnnotationExpr::QualifiedAssociatedTypeProjection {
+                subject,
+                trait_ref,
+                name_range,
+                ..
+            } => {
                 self.visit_annotation_projection_targets(subject);
                 self.visit_annotation_projection_targets(&trait_ref.trait_type);
                 for spec in &trait_ref.associated_specializations {
@@ -809,19 +814,19 @@ impl SourceScopeBuilder<'_> {
                 crate::identity::ImplLocalId(statement_index as u32),
             ));
             for impl_member in &impl_def.members {
-            if let phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) = impl_member {
-                if let Some(requirement) = self
+                if let phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) = impl_member {
+                    if let Some(requirement) = self
                         .context
                         .associated_type_targets
                         .get(&(self.index.module.clone(), binding.name_range))
                         .cloned()
-                {
-                    let site = self.allocate_site(self.current_owner.clone(), binding.name_range, SourceSiteKind::Occurrence);
-                    self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
+                    {
+                        let site = self.allocate_site(self.current_owner.clone(), binding.name_range, SourceSiteKind::Occurrence);
+                        self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
+                    }
+                    self.visit_annotation_projection_targets(&binding.value);
+                    continue;
                 }
-                self.visit_annotation_projection_targets(&binding.value);
-                continue;
-            }
                 let Some(member) = impl_member.behavior() else {
                     continue;
                 };

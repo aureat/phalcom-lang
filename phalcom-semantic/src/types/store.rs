@@ -271,8 +271,18 @@ impl TypeStore {
 
     /// Interns a canonical contextual associated-type projection.
     pub fn associated_projection(&mut self, subject: TypeId, trait_ref: TraitRef, requirement: AssociatedTypeRequirementId) -> TypeId {
-        debug_assert_eq!(requirement.owner, trait_ref.declaration, "associated projection requirement must belong to its trait");
-        self.intern_with_kind(TypeData::AssociatedProjection(AssociatedTypeProjection { subject, trait_ref, requirement }), KindId::TYPE)
+        debug_assert_eq!(
+            requirement.owner, trait_ref.declaration,
+            "associated projection requirement must belong to its trait"
+        );
+        self.intern_with_kind(
+            TypeData::AssociatedProjection(AssociatedTypeProjection {
+                subject,
+                trait_ref,
+                requirement,
+            }),
+            KindId::TYPE,
+        )
     }
 
     #[inline]
@@ -831,7 +841,12 @@ impl TypeStore {
             TypeData::Lambda(_) => "[TypeLambda]".to_string(),
             TypeData::SelfType(_) => "Self".to_string(),
             TypeData::AssociatedProjection(projection) => {
-                format!("<{} as {}>::{}", self.format_type(projection.subject), projection.trait_ref.declaration.name, projection.requirement.index)
+                format!(
+                    "<{} as {}>::{}",
+                    self.format_type(projection.subject),
+                    projection.trait_ref.declaration.name,
+                    projection.requirement.index
+                )
             }
         }
     }
@@ -923,7 +938,11 @@ impl TypeStore {
             TypeData::ExactCase { enum_type, .. } => self.contains_type_parameter(*enum_type, target),
             TypeData::AssociatedProjection(projection) => {
                 self.contains_type_parameter(projection.subject, target)
-                    || projection.trait_ref.arguments.iter().any(|&argument| self.contains_type_parameter(argument, target))
+                    || projection
+                        .trait_ref
+                        .arguments
+                        .iter()
+                        .any(|&argument| self.contains_type_parameter(argument, target))
             }
             _ => false,
         }
@@ -1022,17 +1041,17 @@ mod tests {
         });
         let subject = store.nominal_type(test_decl("List"));
         let requirement = AssociatedTypeRequirementId::new(owner.clone(), 0);
-        let projection = store.associated_projection(
-            self_type,
-            TraitRef::new(owner, Vec::<TypeId>::new().into_boxed_slice()),
-            requirement.clone(),
-        );
+        let projection = store.associated_projection(self_type, TraitRef::new(owner, Vec::<TypeId>::new().into_boxed_slice()), requirement.clone());
         let nested = store.tuple(vec![TupleTypeElement { label: None, ty: projection }].into_boxed_slice());
         let mut environment = TypeEnvironment::new();
         environment.bind_self(subject);
         let materialized = TypeView::new(nested, environment).materialize(&mut store);
-        let TypeData::Tuple(elements) = store.get(materialized) else { panic!("expected tuple") };
-        let TypeData::AssociatedProjection(projected) = store.get(elements[0].ty) else { panic!("expected projection") };
+        let TypeData::Tuple(elements) = store.get(materialized) else {
+            panic!("expected tuple")
+        };
+        let TypeData::AssociatedProjection(projected) = store.get(elements[0].ty) else {
+            panic!("expected projection")
+        };
         assert_eq!(projected.subject, subject);
         assert_eq!(projected.requirement, requirement);
     }

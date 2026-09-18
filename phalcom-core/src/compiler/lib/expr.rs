@@ -87,16 +87,18 @@ impl<'vm> Compiler<'vm> {
     }
 
     /// Adds one positional spread through the shared Tuple/Unit probe, then
-    /// the ordinary cursor protocol. Hidden locals root source and cursor
-    /// across arbitrary sends (including fiber suspension); only append
+    /// the canonical stateful Iterator protocol. Hidden locals root source, iterator,
+    /// and payload across arbitrary sends (including fiber suspension); only append
     /// destination differs between packs and List literals.
     fn compile_positional_expansion(&mut self, target: PositionalExpansionTarget, expr: Expr, range: SourceRange) -> Result<(), CompilerError> {
         self.check_bounded_expansion(&expr, range)?;
         let source_slot = self.reserve_pack_scratch("$pack_source", range)?;
+        let expr_range = expr.range();
         self.compile_expr(expr)?;
         self.emit(Bytecode::SetLocal(source_slot), range);
         self.emit(Bytecode::Pop, range);
-        let cursor_slot = self.reserve_pack_scratch("$pack_cursor", range)?;
+        let iterator_slot = self.reserve_pack_scratch("$pack_iterator", range)?;
+        let item_slot = self.reserve_pack_scratch("$pack_item", range)?;
 
         self.emit(Bytecode::GetLocal(source_slot), range);
         self.emit_positional_target_for_probe(target, range);
@@ -111,30 +113,40 @@ impl<'vm> Compiler<'vm> {
         let done = self.emit_forward_jump(Bytecode::Jump, range);
 
         self.patch_forward_jump(generic);
+        let spec = self.lowering().and_then(|l| l.for_iteration_lanes.get(&expr_range)).cloned();
+
         self.emit(Bytecode::GetLocal(source_slot), range);
-        self.emit(Bytecode::Nil, range);
-        self.emit_operator_send("iterate", 1, range);
-        self.emit(Bytecode::SetLocal(cursor_slot), range);
+        if let Some(spec) = &spec {
+            self.emit_for_iteration_requirement(&spec.iterator, range)?;
+        } else {
+            self.emit_operator_send("iterator", 0, range);
+        }
+        self.emit(Bytecode::SetLocal(iterator_slot), range);
         self.emit(Bytecode::Pop, range);
 
         let loop_start = self.chunk_len();
-        self.emit(Bytecode::GetLocal(cursor_slot), range);
+        self.emit(Bytecode::GetLocal(iterator_slot), range);
+        if let Some(spec) = &spec {
+            self.emit_for_iteration_requirement(&spec.next, range)?;
+        } else {
+            self.emit_operator_send("next", 0, range);
+        }
+        self.emit(Bytecode::Dup, range);
         let exit = self.emit_forward_jump(Bytecode::JumpIfNone, range);
-        self.emit_positional_target_before_value(target, range);
-        self.emit(Bytecode::GetLocal(source_slot), range);
-        self.emit(Bytecode::GetLocal(cursor_slot), range);
-        self.emit_operator_send("iteratorValue", 1, range);
-        self.emit_positional_target_append(target, range);
-        self.emit(Bytecode::GetLocal(source_slot), range);
-        self.emit(Bytecode::GetLocal(cursor_slot), range);
-        self.emit_operator_send("iterate", 1, range);
-        self.emit(Bytecode::SetLocal(cursor_slot), range);
+        self.emit(Bytecode::GetVariantPayload(0), range);
+        self.emit(Bytecode::SetLocal(item_slot), range);
         self.emit(Bytecode::Pop, range);
+
+        self.emit_positional_target_before_value(target, range);
+        self.emit(Bytecode::GetLocal(item_slot), range);
+        self.emit_positional_target_append(target, range);
+
         self.emit_backward_loop(loop_start, range);
         self.patch_forward_jump(exit);
+        self.emit(Bytecode::Pop, range);
         self.patch_forward_jump(done);
 
-        self.release_pack_scratch_from(source_slot, 2, range);
+        self.release_pack_scratch_from(source_slot, 3, range);
         Ok(())
     }
 
@@ -1755,6 +1767,17 @@ impl<'vm> Compiler<'vm> {
                         phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {
                             let sym = self.vm.interner.intern(sym_ref.leaf_name());
                             self.emit_global_reference(sym, sym_ref.range);
+                        }
+                        phalcom_ast::ast::TypeAnnotationExpr::Application { origin, .. } => {
+                            if let phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) = &origin.expr {
+                                let sym = self.vm.interner.intern(sym_ref.leaf_name());
+                                self.emit_global_reference(sym, sym_ref.range);
+                            } else {
+                                return Err(CompilerError::Message(format!(
+                                    "unsupported executable type form at {:?}",
+                                    type_annotation.range
+                                )));
+                            }
                         }
                         _ => {
                             return Err(CompilerError::Message(format!(

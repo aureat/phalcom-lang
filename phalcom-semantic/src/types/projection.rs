@@ -1,10 +1,10 @@
 //! Canonical associated-type projection normalization.
 
 use super::evidence::UnknownReason;
+use super::family::FamilyMemberType;
 use super::id::TypeId;
 use super::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget};
 use super::row::RecordRowField;
-use super::family::FamilyMemberType;
 use super::store::{AssociatedTypeProjection, CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use crate::generic_evidence::{GenericConformanceKey, GenericEvidenceEnvironment};
@@ -144,7 +144,11 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 normalized_arguments.push(argument);
             }
             let normalized = store.apply_type_form(origin, &normalized_arguments).unwrap_or(ty);
-            if symbolic { ProjectionNormalizationResult::Symbolic(normalized) } else { ProjectionNormalizationResult::Normalized(normalized) }
+            if symbolic {
+                ProjectionNormalizationResult::Symbolic(normalized)
+            } else {
+                ProjectionNormalizationResult::Normalized(normalized)
+            }
         }
         TypeData::ExactCase { variant, enum_type } => {
             let result = normalize_type(store, enum_type, context);
@@ -155,7 +159,11 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 Ok(normalized) => normalized,
                 Err(error) => return ProjectionNormalizationResult::InternalFailure(format!("exact-case rebuilding failed: {error:?}").into_boxed_str()),
             };
-            if symbolic { ProjectionNormalizationResult::Symbolic(normalized) } else { ProjectionNormalizationResult::Normalized(normalized) }
+            if symbolic {
+                ProjectionNormalizationResult::Symbolic(normalized)
+            } else {
+                ProjectionNormalizationResult::Normalized(normalized)
+            }
         }
         TypeData::Union(members) => {
             let mut symbolic = false;
@@ -167,7 +175,11 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 normalized_members.push(member);
             }
             let normalized = store.union(&normalized_members);
-            if symbolic { ProjectionNormalizationResult::Symbolic(normalized) } else { ProjectionNormalizationResult::Normalized(normalized) }
+            if symbolic {
+                ProjectionNormalizationResult::Symbolic(normalized)
+            } else {
+                ProjectionNormalizationResult::Normalized(normalized)
+            }
         }
         TypeData::Tuple(elements) => {
             let mut symbolic = false;
@@ -179,7 +191,11 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 normalized_elements.push(TupleTypeElement { label: element.label, ty });
             }
             let normalized = store.tuple(normalized_elements.into_boxed_slice());
-            if symbolic { ProjectionNormalizationResult::Symbolic(normalized) } else { ProjectionNormalizationResult::Normalized(normalized) }
+            if symbolic {
+                ProjectionNormalizationResult::Symbolic(normalized)
+            } else {
+                ProjectionNormalizationResult::Normalized(normalized)
+            }
         }
         TypeData::Record(row_id) => {
             let row = store.record_row(row_id).clone();
@@ -195,7 +211,11 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 Ok(normalized) => normalized,
                 Err(error) => return ProjectionNormalizationResult::InternalFailure(format!("record rebuilding failed: {error:?}").into_boxed_str()),
             };
-            if symbolic { ProjectionNormalizationResult::Symbolic(normalized) } else { ProjectionNormalizationResult::Normalized(normalized) }
+            if symbolic {
+                ProjectionNormalizationResult::Symbolic(normalized)
+            } else {
+                ProjectionNormalizationResult::Normalized(normalized)
+            }
         }
         TypeData::Callable(callable) => {
             let mut symbolic = false;
@@ -213,8 +233,15 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
             let result = normalize_type(store, callable.return_type, context);
             symbolic |= result.is_symbolic();
             let Some(return_type) = result.type_id() else { return result };
-            let normalized = store.callable(CallableType { parameters: parameters.into_boxed_slice(), return_type });
-            if symbolic { ProjectionNormalizationResult::Symbolic(normalized) } else { ProjectionNormalizationResult::Normalized(normalized) }
+            let normalized = store.callable(CallableType {
+                parameters: parameters.into_boxed_slice(),
+                return_type,
+            });
+            if symbolic {
+                ProjectionNormalizationResult::Symbolic(normalized)
+            } else {
+                ProjectionNormalizationResult::Normalized(normalized)
+            }
         }
         TypeData::Family(family_id) => {
             let family = store.get_family(family_id).clone();
@@ -234,7 +261,11 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 Ok(normalized) => normalized,
                 Err(error) => return ProjectionNormalizationResult::InternalFailure(format!("family rebuilding failed: {error:?}").into_boxed_str()),
             };
-            if symbolic { ProjectionNormalizationResult::Symbolic(normalized) } else { ProjectionNormalizationResult::Normalized(normalized) }
+            if symbolic {
+                ProjectionNormalizationResult::Symbolic(normalized)
+            } else {
+                ProjectionNormalizationResult::Normalized(normalized)
+            }
         }
         _ => ProjectionNormalizationResult::Normalized(ty),
     }
@@ -275,7 +306,11 @@ fn normalize_projection(
 
     match &context.mode {
         ProjectionNormalizationMode::AbstractTrait { .. } => ProjectionNormalizationResult::Symbolic(rewritten),
-        ProjectionNormalizationMode::SourceConformance { trait_ref: current, target, plan } => {
+        ProjectionNormalizationMode::SourceConformance {
+            trait_ref: current,
+            target,
+            plan,
+        } => {
             if &trait_ref != *current || subject != *target {
                 return ProjectionNormalizationResult::Symbolic(rewritten);
             }
@@ -311,7 +346,7 @@ fn normalize_projection(
                 if !context.active.insert(projection.clone()) {
                     return ProjectionNormalizationResult::Recursive;
                 }
-                        let result = normalize_associated_binding(store, &binding.value, context);
+                let result = normalize_associated_binding(store, &binding.value, context);
                 context.active.remove(&projection);
                 return result;
             }
@@ -357,7 +392,8 @@ fn normalize_projection(
                                     Some(declarations),
                                     Some(*hierarchy),
                                     Some(store),
-                                ).with_derived_rules(Some(rules));
+                                )
+                                .with_derived_rules(Some(rules));
 
                                 let mut all_constraints_satisfied = true;
                                 for constraint in &rule.generic_signature.constraints {
@@ -414,7 +450,9 @@ fn normalize_projection(
             let key = GenericConformanceKey::new(TypeTerm::Canonical(subject), trait_ref.clone());
             let has_assumed = evidence.assumed_conformance(&key).is_some()
                 || evidence.equivalent_terms(&TypeTerm::Canonical(subject)).iter().any(|equiv| {
-                    evidence.assumed_conformance(&GenericConformanceKey::new(equiv.clone(), trait_ref.clone())).is_some()
+                    evidence
+                        .assumed_conformance(&GenericConformanceKey::new(equiv.clone(), trait_ref.clone()))
+                        .is_some()
                 });
 
             if has_assumed {
@@ -451,7 +489,8 @@ fn normalize_projection(
                             Some(declarations),
                             Some(*hierarchy),
                             Some(store),
-                        ).with_derived_rules(Some(rules));
+                        )
+                        .with_derived_rules(Some(rules));
 
                         let mut all_satisfied = true;
                         for constraint in &rule.generic_signature.constraints {
@@ -528,7 +567,8 @@ fn normalize_projection(
                                         Some(declarations),
                                         Some(*hierarchy),
                                         Some(store),
-                                    ).with_derived_rules(Some(rules));
+                                    )
+                                    .with_derived_rules(Some(rules));
 
                                     let mut all_constraints_satisfied = true;
                                     for constraint in &rule.generic_signature.constraints {

@@ -109,7 +109,7 @@ impl Universe {
             ("Some", c.some_class),
             ("None", c.none_class),
             ("Unit", c.unit_class),
-            ("Iterable", c.iterable_class),
+            ("Collection", c.collection_class),
             ("List", c.list_class),
             ("Map", c.map_class),
             ("Set", c.set_class),

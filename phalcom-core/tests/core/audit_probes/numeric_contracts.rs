@@ -7,13 +7,7 @@ use phalcom_core::{value::Value, vm::VM};
 fn numeric_contracts_remainder_and_quotient() {
     let mut vm = VM::new_native();
     let cases: [(&str, Value, &str, Value, Value); 4] = [
-        (
-            "negative float remainder",
-            Value::float(-5.0),
-            "%(_)",
-            Value::float(3.0),
-            Value::float(-2.0),
-        ),
+        ("negative float remainder", Value::float(-5.0), "%(_)", Value::float(3.0), Value::float(-2.0)),
         (
             "negative divisor float remainder",
             Value::float(5.0),
@@ -39,9 +33,7 @@ fn numeric_contracts_remainder_and_quotient() {
 
     for (label, receiver, selector, arg, expected) in cases {
         let sym = vm.get_or_intern(selector);
-        let result = vm
-            .send_dynamic(receiver, sym, &[arg])
-            .unwrap_or_else(|e| panic!("failed {label}: {e:?}"));
+        let result = vm.send_dynamic(receiver, sym, &[arg]).unwrap_or_else(|e| panic!("failed {label}: {e:?}"));
         assert_eq!(result, expected, "{label}");
     }
 }

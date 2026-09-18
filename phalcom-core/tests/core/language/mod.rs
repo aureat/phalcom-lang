@@ -35,14 +35,24 @@ mod compiler_lowering;
 #[path = "compiler/lowering_scenarios.rs"]
 mod compiler_lowering_scenarios;
 
+#[path = "associated_traits.rs"]
+mod associated_traits;
+#[path = "conditional_conformance.rs"]
+mod conditional_conformance;
 #[path = "data_e2e.rs"]
 mod data_e2e;
 #[path = "data_runtime.rs"]
 mod data_runtime;
+#[path = "derived_conformance.rs"]
+mod derived_conformance;
+#[path = "generic_conformance.rs"]
+mod generic_conformance;
 #[path = "golden.rs"]
 mod golden;
 #[path = "inherent_impl.rs"]
 mod inherent_impl;
+#[path = "iteration.rs"]
+mod iteration;
 #[path = "numeric_diagnostics.rs"]
 mod numeric_diagnostics;
 #[path = "numeric_values.rs"]
@@ -51,13 +61,3 @@ mod numeric_values;
 mod option;
 #[path = "traits.rs"]
 mod traits;
-#[path = "associated_traits.rs"]
-mod associated_traits;
-#[path = "generic_conformance.rs"]
-mod generic_conformance;
-#[path = "conditional_conformance.rs"]
-mod conditional_conformance;
-#[path = "derived_conformance.rs"]
-mod derived_conformance;
-#[path = "iteration.rs"]
-mod iteration;

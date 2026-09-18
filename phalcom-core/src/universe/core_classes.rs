@@ -110,34 +110,35 @@ impl Universe {
         // positioned after the absence type per ADR-0020's load order
         // (`Bool, Option, Number, Symbol, String → List → …`) and before
         // anything that will depend on it (`Message.args` and method rest capture).
-        let iterable_class = make_core_class(heap, "Iterable", object_class, metaclass_class);
-        let list_class = make_core_class(heap, "List", iterable_class, metaclass_class);
+        let collection_class = make_core_class(heap, "Collection", object_class, metaclass_class);
+        heap.class_mut(collection_class).is_abstract = true;
+        let list_class = make_core_class(heap, "List", collection_class, metaclass_class);
 
         // Kernel `Map`/`Set` (ADR-0032 §1, ADR-0039, U-COLLTYPES): native heap
         // variants over the shared `MapObject` ordered-hash backing struct
         // (DEC-CT-B) — distinct `Object::Map`/`Object::Set` arms, distinct
         // classes, positioned directly after `List` (same "no field layout,
         // no `.ph` construct" load-order rationale as ADR-0020).
-        let map_class = make_core_class(heap, "Map", iterable_class, metaclass_class);
-        let set_class = make_core_class(heap, "Set", iterable_class, metaclass_class);
+        let map_class = make_core_class(heap, "Map", collection_class, metaclass_class);
+        let set_class = make_core_class(heap, "Set", collection_class, metaclass_class);
 
         // Kernel `Tuple` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a fixed
         // immutable slice — the opposite mutability corner from `List`/`Map`/
         // `Set` (Q5: immutable ⇒ value-hashable, a valid `Map`/`Set` key).
-        let tuple_class = make_core_class(heap, "Tuple", iterable_class, metaclass_class);
+        let tuple_class = make_core_class(heap, "Tuple", collection_class, metaclass_class);
         let record_class = make_core_class(heap, "Record", object_class, metaclass_class);
 
         // Kernel `Range` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 3): a lazy
         // numeric interval, three bound fields, no element storage (RG-2).
         // Immutable ⇒ value-hashable, a valid `Map`/`Set` key (Q5).
-        let range_class = make_core_class(heap, "Range", iterable_class, metaclass_class);
+        let range_class = make_core_class(heap, "Range", collection_class, metaclass_class);
 
         // Kernel `Bytes` (PDR-0011, U-BYTES): the native fixed-length octet
         // buffer. Same "no field layout, no `.ph` construct" load-order
         // rationale as `List`; placed after `String` (its `utf8_`/`fromString_`
-        // primitives mint/consume `Str`) and under `Iterable` (bytes.md §1).
+        // primitives mint/consume `Str`) and under `Collection` (bytes.md §1).
         // Mutable contents ⇒ identity hash, not a valid `Map`/`Set` key.
-        let bytes_class = make_core_class(heap, "Bytes", iterable_class, metaclass_class);
+        let bytes_class = make_core_class(heap, "Bytes", collection_class, metaclass_class);
 
         // Kernel `Message` (method-lookup.md §2, ADR-0012): the reified miss
         // send handed to `doesNotUnderstand(_:)`. An ordinary fixed-slot
@@ -226,7 +227,7 @@ impl Universe {
             result_class,
             ordering_class,
             unit_class,
-            iterable_class,
+            collection_class,
             list_class,
             map_class,
             set_class,
@@ -441,8 +442,8 @@ pub struct CoreClasses {
     pub ordering_class: ClassId,
     /// `Unit`, the immediate zero-arity product.
     pub unit_class: ClassId,
-    /// `Iterable`, the kernel iterable root (ADR-0048).
-    pub iterable_class: ClassId,
+    /// `Collection`, the abstract kernel collection root.
+    pub collection_class: ClassId,
     /// `List`, the native array-backed kernel list
     /// ([ADR-0020](../../../docs/adr/accepted/0020-kernel-list-native-array-protocol.md)).
     /// A dedicated [`crate::heap::Object::List`] heap variant, not an
@@ -587,7 +588,7 @@ impl CoreClasses {
             UniverseKey::Some => self.some_class,
             UniverseKey::None => self.none_class,
             UniverseKey::Unit => self.unit_class,
-            UniverseKey::Iterable => self.iterable_class,
+            UniverseKey::Collection => self.collection_class,
             UniverseKey::List => self.list_class,
             UniverseKey::Map => self.map_class,
             UniverseKey::Set => self.set_class,
@@ -672,7 +673,7 @@ impl CoreClasses {
             result_class,
             ordering_class,
             unit_class,
-            iterable_class,
+            collection_class,
             list_class,
             map_class,
             set_class,
@@ -737,7 +738,7 @@ impl CoreClasses {
             result_class,
             ordering_class,
             unit_class,
-            iterable_class,
+            collection_class,
             list_class,
             map_class,
             set_class,

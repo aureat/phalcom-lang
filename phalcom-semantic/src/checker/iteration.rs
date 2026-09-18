@@ -13,9 +13,9 @@ use crate::generic_evidence::{GenericConformanceEvidence, GenericConformanceKey,
 use crate::identity::{DeclarationId, DispatchSide, ExpressionId};
 use crate::traits::{TraitRef, TraitRequirementId};
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
+use crate::types::id::TypeId;
 use crate::types::parameter::TypeTerm;
 use crate::types::projection::{ProjectionNormalizationMode, ProjectionNormalizationResult, normalize_type};
-use crate::types::id::TypeId;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath};
@@ -39,12 +39,10 @@ fn unavailable(
 fn proof_reason(proof: &GenericConformanceProof, range: SourceRange) -> UnresolvedApplicationReason {
     match proof {
         GenericConformanceProof::Missing => UnresolvedApplicationReason::DispatchMissing,
-        GenericConformanceProof::Ambiguous(_) | GenericConformanceProof::CoherenceConflict(_) => {
-            UnresolvedApplicationReason::DispatchAmbiguous(range)
+        GenericConformanceProof::Ambiguous(_) | GenericConformanceProof::CoherenceConflict(_) => UnresolvedApplicationReason::DispatchAmbiguous(range),
+        GenericConformanceProof::Incomplete(impl_id) => {
+            UnresolvedApplicationReason::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Incomplete(impl_id.clone()))
         }
-        GenericConformanceProof::Incomplete(impl_id) => UnresolvedApplicationReason::TraitTerminal(
-            crate::trait_dispatch::TraitDispatchTerminal::Incomplete(impl_id.clone()),
-        ),
         GenericConformanceProof::Unknown(reason) => {
             UnresolvedApplicationReason::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason.clone()))
         }
@@ -54,15 +52,13 @@ fn proof_reason(proof: &GenericConformanceProof, range: SourceRange) -> Unresolv
         GenericConformanceProof::Dynamic(obligation) => {
             UnresolvedApplicationReason::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Dynamic(obligation.clone()))
         }
-        GenericConformanceProof::Cancelled => {
-            UnresolvedApplicationReason::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Cancelled)
-        }
+        GenericConformanceProof::Cancelled => UnresolvedApplicationReason::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Cancelled),
         GenericConformanceProof::BudgetExceeded(report) => {
             UnresolvedApplicationReason::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(report.clone()))
         }
-        GenericConformanceProof::InternalFailure(message) => UnresolvedApplicationReason::TraitTerminal(
-            crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(message.clone()),
-        ),
+        GenericConformanceProof::InternalFailure(message) => {
+            UnresolvedApplicationReason::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(message.clone()))
+        }
         GenericConformanceProof::Proven(_) => UnresolvedApplicationReason::DispatchMissing,
     }
 }
@@ -88,11 +84,7 @@ fn normalize_projection(ctx: &mut CheckingContext<'_>, ty: TypeId) -> Projection
     })
 }
 
-fn prove(
-    ctx: &mut CheckingContext<'_>,
-    subject: TypeTerm,
-    trait_ref: &TraitRef,
-) -> GenericConformanceProof {
+fn prove(ctx: &mut CheckingContext<'_>, subject: TypeTerm, trait_ref: &TraitRef) -> GenericConformanceProof {
     let Some(view) = ctx.conformance_semantics else {
         return GenericConformanceProof::InternalFailure("conformance semantics are unavailable for canonical iteration".into());
     };
@@ -120,16 +112,24 @@ fn record_evidence_dependencies(ctx: &mut CheckingContext<'_>, evidence: &Generi
     match evidence {
         GenericConformanceEvidence::Exact(exact) => {
             ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(exact.source_impl.clone()));
-            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(exact.exact_trait_ref.declaration.clone()));
+            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                exact.exact_trait_ref.declaration.clone(),
+            ));
         }
         GenericConformanceEvidence::Assumed(assumed) => {
-            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(assumed.key.trait_ref.declaration.clone()));
+            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                assumed.key.trait_ref.declaration.clone(),
+            ));
         }
         GenericConformanceEvidence::Derived(derived) => {
             match &derived.origin {
                 crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
-                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(exact_source.source_impl.clone()));
-                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(exact_source.exact_trait_ref.declaration.clone()));
+                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(
+                        exact_source.source_impl.clone(),
+                    ));
+                    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                        exact_source.exact_trait_ref.declaration.clone(),
+                    ));
                 }
                 crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, exact_trait_ref, .. } => {
                     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(rule.impl_id.clone()));
@@ -253,8 +253,20 @@ pub(crate) fn resolve_for_iteration_lane(
         source_type: receiver_ty,
         item_type,
         iterator_type,
-        iterator: requirement_resolution(ctx, iterable_key, iterable_evidence, iterator_member.requirement.clone(), iterator_member.signature.clone()),
-        next: requirement_resolution(ctx, iterator_key, iterator_evidence, next_member.requirement.clone(), next_member.signature.clone()),
+        iterator: requirement_resolution(
+            ctx,
+            iterable_key,
+            iterable_evidence,
+            iterator_member.requirement.clone(),
+            iterator_member.signature.clone(),
+        ),
+        next: requirement_resolution(
+            ctx,
+            iterator_key,
+            iterator_evidence,
+            next_member.requirement.clone(),
+            next_member.signature.clone(),
+        ),
     };
     let result = CallCheckResult {
         knowledge: item_knowledge,

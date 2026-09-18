@@ -8,7 +8,9 @@ use crate::compiler::lib::{Compiler, checked_send_arity};
 use crate::heap::{ObjRef, Object};
 use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
-use phalcom_ast::ast::{AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, IndexAccessor, MemberBody};
+use phalcom_ast::ast::{
+    AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, IndexAccessor, MemberBody,
+};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::SelectorKind;
 use phalcom_modules::DeclarationId;

@@ -84,11 +84,15 @@ impl<'vm> Compiler<'vm> {
         let canonical_specs = for_stmt
             .lanes
             .iter()
-            .map(|lane| self.lowering().and_then(|lowering| lowering.for_iteration_lanes.get(&lane.iter.range())).cloned())
+            .map(|lane| {
+                self.lowering()
+                    .and_then(|lowering| lowering.for_iteration_lanes.get(&lane.iter.range()))
+                    .cloned()
+            })
             .collect::<Option<Vec<_>>>();
         if let Some(specs) = canonical_specs {
-            let generalized_single = for_stmt.lanes.len() == 1
-                && (for_stmt.lanes[0].index.is_some() || !matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. }));
+            let generalized_single =
+                for_stmt.lanes.len() == 1 && (for_stmt.lanes[0].index.is_some() || !matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. }));
             if for_stmt.lanes.len() > 1 || generalized_single {
                 return self.compile_canonical_for_lanes(for_stmt, specs);
             }

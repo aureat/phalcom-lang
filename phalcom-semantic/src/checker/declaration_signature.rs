@@ -13,7 +13,9 @@ use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, Fie
 use crate::types::annotation::{TypeFormationOutcome, TypeFormationSite, type_level_binding_for_parameter};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::parameter::{TypeParameterOwner, TypeTerm};
-use phalcom_ast::ast::{BehaviorMember, ClassMember, DelegatedAccessorDef, DelegatedAccessorKind, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
+use phalcom_ast::ast::{
+    BehaviorMember, ClassMember, DelegatedAccessorDef, DelegatedAccessorKind, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef,
+};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use std::collections::HashMap;
@@ -52,13 +54,8 @@ pub(crate) fn delegated_accessor_signatures(
         };
         let callable = CallableId::new(CallableOwnerId::Declaration(owner.clone()), selector.clone(), DispatchSide::Instance);
         let parameters = if setter {
-            vec![CallableParameterSemantic::new(
-                CallableParameterId::new(callable.clone(), 0),
-                "_",
-                field_type.clone(),
-            )
-            .with_source(source.clone())]
-            .into_boxed_slice()
+            vec![CallableParameterSemantic::new(CallableParameterId::new(callable.clone(), 0), "_", field_type.clone()).with_source(source.clone())]
+                .into_boxed_slice()
         } else {
             Box::new([])
         };
@@ -450,7 +447,8 @@ pub(crate) fn semantic_signature_for_syntax_with_owner(
     syntax: CallableSyntaxRef<'_>,
     declared_side: DispatchSide,
 ) -> Option<CallableSemanticSignature> {
-    let formation_side = if matches!(syntax, CallableSyntaxRef::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor")) {
+    let formation_side = if matches!(syntax, CallableSyntaxRef::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor"))
+    {
         DispatchSide::Class
     } else {
         declared_side
@@ -465,30 +463,19 @@ fn compose_signature_evidence(
     generic_signature: Option<&crate::types::parameter::GenericSignature>,
 ) -> crate::generic_evidence::GenericEvidenceEnvironment {
     let empty_surfaces = crate::traits::TraitSurfaceTable::default();
-    let trait_surfaces = ctx
-        .conformance_semantics
-        .map(|v| v.trait_surfaces)
-        .unwrap_or(&empty_surfaces);
+    let trait_surfaces = ctx.conformance_semantics.map(|v| v.trait_surfaces).unwrap_or(&empty_surfaces);
 
     let mut method_env = crate::generic_evidence::GenericEvidenceEnvironment::empty();
     if let Some(generics) = generic_signature {
-        if let Ok(env) = crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-            &generics.constraints,
-            generics.owner.clone(),
-            trait_surfaces,
-        ) {
+        if let Ok(env) =
+            crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(&generics.constraints, generics.owner.clone(), trait_surfaces)
+        {
             method_env = env;
         }
     }
     let owner_env = ctx
         .declaration_generic_signature(declaration_owner)
-        .and_then(|sig| {
-            crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-                &sig.constraints,
-                sig.owner.clone(),
-                trait_surfaces,
-            ).ok()
-        })
+        .and_then(|sig| crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(&sig.constraints, sig.owner.clone(), trait_surfaces).ok())
         .unwrap_or_default();
     owner_env.try_compose(&method_env, trait_surfaces).unwrap_or(method_env)
 }
@@ -540,17 +527,7 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
                 .params
                 .iter()
                 .enumerate()
-                .map(|(index, parameter)| {
-                    parameter_fact(
-                        ctx,
-                        &callable,
-                        index,
-                        parameter,
-                        &method_resolver,
-                        &member_site,
-                        UnknownReason::NoTypeEvidence,
-                    )
-                })
+                .map(|(index, parameter)| parameter_fact(ctx, &callable, index, parameter, &method_resolver, &member_site, UnknownReason::NoTypeEvidence))
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
             let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");

@@ -555,9 +555,9 @@ let result = Discharger.display(b)
     )
     .expect("consumer source");
 
-    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(
-        phalcom_core::modules::compile::EntrySelection::Project(std::path::PathBuf::from(root)),
-    )
+    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(phalcom_core::modules::compile::EntrySelection::Project(
+        std::path::PathBuf::from(root),
+    ))
     .expect("cross-module conditional project compiles");
     let mut vm = phalcom_core::vm::VM::new();
     vm.run_compiled(&program).expect("cross-module conditional project executes");
@@ -565,4 +565,3 @@ let result = Discharger.display(b)
     let module = vm.module_registry.get(entry_id).expect("entry module registered").object;
     assert_eq!(named(&vm, module, "result").expect("result").to_string(&vm), "provider_box");
 }
-

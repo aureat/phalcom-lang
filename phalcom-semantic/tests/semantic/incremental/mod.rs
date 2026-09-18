@@ -1,6 +1,6 @@
 mod adts;
-mod associated_types;
 mod advisory;
+mod associated_types;
 mod callable_dependencies;
 mod checker_dependencies;
 mod db;

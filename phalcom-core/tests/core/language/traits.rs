@@ -110,7 +110,10 @@ let result = Caller.new().run(User.new())
     assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "witness-user");
     let user = named(&vm, module, "User").expect("User binding").as_obj().expect("User class");
     let marker = vm.interner.find("marker").expect("marker symbol");
-    assert!(vm.heap.class(user).get_method(marker).is_none(), "conformance witness must remain detached from the target class");
+    assert!(
+        vm.heap.class(user).get_method(marker).is_none(),
+        "conformance witness must remain detached from the target class"
+    );
 }
 
 #[test]

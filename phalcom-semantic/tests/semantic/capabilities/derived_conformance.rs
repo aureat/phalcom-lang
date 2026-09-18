@@ -403,7 +403,9 @@ class Inspector {
     let GenericConstraint::Conforms { subject: s_term, .. } = &generics.constraints[0] else {
         panic!("expected Conforms constraint");
     };
-    let TypeTerm::Canonical(s_ty) = *s_term else { panic!("expected canonical term") };
+    let TypeTerm::Canonical(s_ty) = *s_term else {
+        panic!("expected canonical term")
+    };
 
     let mut store = fixture.analysis.snapshot.store.as_ref().clone();
     let s_iter_proj = store.associated_projection(
@@ -428,11 +430,7 @@ class Inspector {
     );
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
-    assert!(
-        proof.is_proven(),
-        "expected assumed Stream to entail Iterator |= Stepper, got: {:?}",
-        proof
-    );
+    assert!(proof.is_proven(), "expected assumed Stream to entail Iterator |= Stepper, got: {:?}", proof);
 }
 
 #[test]
@@ -479,7 +477,9 @@ class Inspector {
     let GenericConstraint::Conforms { subject: s_term, .. } = &generics.constraints[0] else {
         panic!("expected Conforms constraint");
     };
-    let TypeTerm::Canonical(s_ty) = *s_term else { panic!("expected canonical term") };
+    let TypeTerm::Canonical(s_ty) = *s_term else {
+        panic!("expected canonical term")
+    };
 
     let mut store = fixture.analysis.snapshot.store.as_ref().clone();
 
@@ -517,11 +517,8 @@ class Inspector {
         Some(&mut store),
     );
 
-    let proof = phalcom_semantic::generic_evidence::prove_constraint(
-        &constraint,
-        &phalcom_semantic::types::substitution::TypeSubstitution::new(),
-        &mut context,
-    );
+    let proof =
+        phalcom_semantic::generic_evidence::prove_constraint(&constraint, &phalcom_semantic::types::substitution::TypeSubstitution::new(), &mut context);
     assert!(
         proof.is_proven(),
         "expected assumed Stream to entail Item equality constraint, got: {:?}",
@@ -569,10 +566,7 @@ trait Stream
     );
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
-    assert!(
-        !proof.is_proven(),
-        "Int must not statically satisfy Stepper proof"
-    );
+    assert!(!proof.is_proven(), "Int must not statically satisfy Stepper proof");
 }
 
 #[test]
@@ -618,11 +612,7 @@ class Probe<T> {
     );
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
-    assert!(
-        !proof.is_proven(),
-        "Recursive trait contract must terminate as non-proven, got: {:?}",
-        proof
-    );
+    assert!(!proof.is_proven(), "Recursive trait contract must terminate as non-proven, got: {:?}", proof);
 }
 
 #[test]
@@ -838,10 +828,7 @@ impl<T> Iterable for T
     let rule = &fixture.analysis.snapshot.derived_conformance_rules.rules_for_trait(&iterable_decl)[0];
 
     for req in rule.associated_type_plan.bindings.keys() {
-        assert_eq!(
-            req.owner, iterable_decl,
-            "associated type requirement must be owned by the consequent trait"
-        );
+        assert_eq!(req.owner, iterable_decl, "associated type requirement must be owned by the consequent trait");
     }
 }
 
@@ -872,7 +859,11 @@ class NumberStream {}
     let stream_decl = fixture.decl("NumberStream");
     let stream_surface = fixture.analysis.snapshot.surfaces.get(&stream_decl).expect("stream surface");
     assert!(
-        !stream_surface.instance.callables_by_selector.keys().any(|s| matches!(&s.base, phalcom_common::selector::SelectorBase::Named(name) if name == "iterator")),
+        !stream_surface
+            .instance
+            .callables_by_selector
+            .keys()
+            .any(|s| matches!(&s.base, phalcom_common::selector::SelectorBase::Named(name) if name == "iterator")),
         "rule witness must not leak into inherent surface of arbitrary types"
     );
 }
@@ -988,18 +979,16 @@ impl Iterator for Counter {
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(counter_ty),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(counter_ty), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     match proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
-            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived),
-        ) => {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(
+            derived,
+        )) => {
             match &derived.origin {
                 phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule { exact_subject, .. } => {
                     assert_eq!(*exact_subject, counter_ty);
@@ -1051,12 +1040,10 @@ class User {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(user_ty),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(user_ty), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     assert_eq!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Missing);
@@ -1105,7 +1092,8 @@ class Container<T>
         &generics.constraints,
         generics.owner.clone(),
         &fixture.analysis.snapshot.trait_surfaces,
-    ).expect("evidence env");
+    )
+    .expect("evidence env");
 
     let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
     let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
@@ -1116,18 +1104,16 @@ class Container<T>
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(t_param_ty),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(t_param_ty), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     match proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
-            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived),
-        ) => {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(
+            derived,
+        )) => {
             assert_eq!(derived.nested.len(), 1);
             match &derived.nested[0] {
                 phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
@@ -1196,18 +1182,16 @@ impl Element for GoodElem {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(box_elem_ty),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(box_elem_ty), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     match proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
-            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived),
-        ) => {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(
+            derived,
+        )) => {
             assert_eq!(derived.nested.len(), 1);
             match &derived.nested[0] {
                 phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
@@ -1259,18 +1243,16 @@ impl Base for Leaf {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(leaf_ty),
-        top_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(leaf_ty), top_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     match proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
-            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(top_derived),
-        ) => {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(
+            top_derived,
+        )) => {
             assert_eq!(top_derived.nested.len(), 1);
             match &top_derived.nested[0] {
                 phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
@@ -1318,18 +1300,14 @@ class Candidate {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(candidate_ty),
-        loop_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(candidate_ty), loop_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     match proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(
-            phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint,
-        ) => {}
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint) => {}
         other => panic!("expected Blocked(RecursiveFixpoint), got {:?}", other),
     }
 }
@@ -1366,18 +1344,14 @@ class Candidate {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(candidate_ty),
-        a_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(candidate_ty), a_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     match proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(
-            phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint,
-        ) => {}
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint) => {}
         other => panic!("expected Blocked(RecursiveFixpoint), got {:?}", other),
     }
 }
@@ -1404,10 +1378,7 @@ impl TraitB for Candidate {}
     let a_ref = phalcom_semantic::traits::TraitRef::new(a_decl, vec![]);
 
     let mut store = (*fixture.analysis.snapshot.store).clone();
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(candidate_ty),
-        a_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(candidate_ty), a_ref);
 
     // 1. Budget exceeded
     let budget = phalcom_semantic::types::outcome::QueryBudget::new(0);
@@ -1420,8 +1391,9 @@ impl TraitB for Candidate {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules))
-     .with_budget_and_cancellation(budget, cancel);
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules))
+    .with_budget_and_cancellation(budget, cancel);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     assert!(matches!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::BudgetExceeded(_)));
@@ -1438,8 +1410,9 @@ impl TraitB for Candidate {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules))
-     .with_budget_and_cancellation(budget, cancel);
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules))
+    .with_budget_and_cancellation(budget, cancel);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     assert_eq!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Cancelled);
@@ -1478,12 +1451,10 @@ impl Req1 for HalfCandidate {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(half_ty),
-        target_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(half_ty), target_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     assert_eq!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Missing);
@@ -1520,12 +1491,10 @@ impl Iterable for MyType {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(my_ty),
-        iterable_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(my_ty), iterable_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     match proof {
@@ -1696,15 +1665,21 @@ impl Iterator for Counter {
     let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
     let proj = store.associated_projection(counter_ty, trait_ref, item_req);
 
-    let tuple_ty = store.tuple(vec![
-        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: counter_ty },
-        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: proj },
-    ].into_boxed_slice());
+    let tuple_ty = store.tuple(
+        vec![
+            phalcom_semantic::types::store::TupleTypeElement { label: None, ty: counter_ty },
+            phalcom_semantic::types::store::TupleTypeElement { label: None, ty: proj },
+        ]
+        .into_boxed_slice(),
+    );
 
-    let expected_tuple = store.tuple(vec![
-        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: counter_ty },
-        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: item_ty },
-    ].into_boxed_slice());
+    let expected_tuple = store.tuple(
+        vec![
+            phalcom_semantic::types::store::TupleTypeElement { label: None, ty: counter_ty },
+            phalcom_semantic::types::store::TupleTypeElement { label: None, ty: item_ty },
+        ]
+        .into_boxed_slice(),
+    );
 
     let mut budget = phalcom_semantic::types::outcome::QueryBudget::default();
     let cancel = phalcom_semantic::types::outcome::CancellationToken::new();
@@ -1768,13 +1743,18 @@ class Container<T>
         &generics.constraints,
         generics.owner.clone(),
         &fixture.analysis.snapshot.trait_surfaces,
-    ).expect("evidence env");
+    )
+    .expect("evidence env");
 
     let iter_surface = fixture.analysis.snapshot.trait_surfaces.get(&iterable_decl).expect("Iterable surface");
     let iterator_surface = fixture.analysis.snapshot.trait_surfaces.get(&iterator_decl).expect("Iterator surface");
 
     let item_req = iter_surface.associated_type_by_name("Item").expect("Item requirement").requirement.clone();
-    let iter_req = iter_surface.associated_type_by_name("Iterator").expect("Iterator requirement").requirement.clone();
+    let iter_req = iter_surface
+        .associated_type_by_name("Iterator")
+        .expect("Iterator requirement")
+        .requirement
+        .clone();
     let iter_item_req = iterator_surface.associated_type_by_name("Item").expect("Item requirement").requirement.clone();
 
     let iterable_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
@@ -1858,7 +1838,8 @@ impl Iterator for Counter {
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
     let constraint = phalcom_semantic::types::parameter::GenericConstraint::Equivalent {
         left: phalcom_semantic::types::parameter::TypeTerm::Canonical(proj),
@@ -1917,24 +1898,18 @@ impl Iterator for Counter {
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+    )
+    .with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(counter_ty),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(counter_ty), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     match proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
-            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived),
-        ) => {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(
+            derived,
+        )) => {
             assert_eq!(derived.nested.len(), 1);
         }
         other => panic!("expected Proven(Derived) proof, got {:?}", other),
     }
 }
-
-
-
-

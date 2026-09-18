@@ -576,10 +576,7 @@ pub fn generic_constraint_relation(registry: &RuntimeTypingRegistry, handle: cra
     }
 }
 
-pub fn generic_constraint_subject(
-    registry: &RuntimeTypingRegistry,
-    handle: crate::typing::handle::RuntimeGenericConstraintRef,
-) -> Option<RuntimeTypeRef> {
+pub fn generic_constraint_subject(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeGenericConstraintRef) -> Option<RuntimeTypeRef> {
     match generic_constraint_ref(registry, handle)? {
         phalcom_type_meta::generic::GenericConstraintRef::Conforms { subject, .. } => Some(RuntimeTypeRef::Base {
             pool: handle.pool,
@@ -608,7 +605,10 @@ pub fn generic_constraint_trait_arguments(
             trait_application
                 .arguments
                 .iter()
-                .map(|node| RuntimeTypeRef::Base { pool: handle.pool, node: *node })
+                .map(|node| RuntimeTypeRef::Base {
+                    pool: handle.pool,
+                    node: *node,
+                })
                 .collect(),
         ),
         _ => None,

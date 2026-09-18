@@ -134,7 +134,11 @@ impl TypeSubstitution {
                     .map(|&argument| self.apply(store, argument))
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
-                store.associated_projection(subject, crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments), projection.requirement)
+                store.associated_projection(
+                    subject,
+                    crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments),
+                    projection.requirement,
+                )
             }
             TypeData::Lambda(lambda_id) => {
                 if self.is_empty() {
@@ -223,7 +227,11 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 .map(|&argument| specialize_self_type(store, declarations, receiver, argument))
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
-            store.associated_projection(subject, crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments), projection.requirement)
+            store.associated_projection(
+                subject,
+                crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments),
+                projection.requirement,
+            )
         }
         TypeData::Union(members) => {
             let subst_members: Vec<TypeId> = members.iter().map(|&m| specialize_self_type(store, declarations, receiver, m)).collect();

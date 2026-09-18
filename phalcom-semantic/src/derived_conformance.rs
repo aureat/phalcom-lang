@@ -5,8 +5,8 @@ use crate::impls::{ConformanceAssociatedTypePlan, RequirementSelectionTemplate};
 use crate::traits::{InstantiatedTraitRequirement, TraitRef, TraitRequirementId};
 use crate::types::id::TypeParameterId;
 use crate::types::parameter::GenericSignature;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 

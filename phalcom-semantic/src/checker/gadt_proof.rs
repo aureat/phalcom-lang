@@ -500,7 +500,11 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                     .map(|&argument| normalize(store, substitution, argument, states))
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
-                store.associated_projection(subject, crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments), projection.requirement)
+                store.associated_projection(
+                    subject,
+                    crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments),
+                    projection.requirement,
+                )
             }
             TypeData::Union(members) => {
                 let members = members.iter().map(|&member| normalize(store, substitution, member, states)).collect::<Vec<_>>();

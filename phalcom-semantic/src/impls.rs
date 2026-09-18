@@ -1,7 +1,9 @@
 //! Canonical inherent implementation fragment analysis, target resolution, and contribution publication.
 
 use crate::checker::context::{CheckerControl, CheckingContext};
-use crate::checker::declaration_signature::{CallableSyntaxRef, DelegationError, delegated_accessor_signatures, delegated_member_visibility, semantic_signature_for_syntax_with_resolver};
+use crate::checker::declaration_signature::{
+    CallableSyntaxRef, DelegationError, delegated_accessor_signatures, delegated_member_visibility, semantic_signature_for_syntax_with_resolver,
+};
 use crate::db::ProductFingerprint;
 use crate::declaration_type::DeclaredTypeState;
 use crate::declarations::DeclarationTypeTable;
@@ -11,8 +13,8 @@ use crate::signature::CallableSemanticSignature;
 use crate::surface::MemberVisibility;
 use crate::traits::{InstantiatedTraitRequirement, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitSurface, TraitSurfaceTable};
 use crate::types::annotation::{
-    GenericBinderSite, ScopedTypeResolver, TypeFormationOutcome, TypeFormationSite, TypeLevelBinding, TypeResolver,
-    resolve_generic_signature, resolve_type_annotation, type_level_binding_for_parameter,
+    GenericBinderSite, ScopedTypeResolver, TypeFormationOutcome, TypeFormationSite, TypeLevelBinding, TypeResolver, resolve_generic_signature,
+    resolve_type_annotation, type_level_binding_for_parameter,
 };
 use crate::types::environment::TypeEnvironment;
 use crate::types::evidence::{TypeKnowledge, UnknownReason};
@@ -554,7 +556,10 @@ pub fn build_conformance_associated_type_plan(
         })
         .unwrap_or_default();
     let parent = ctx.resolver.clone();
-    let resolver = ScopedTypeResolver { parent: &parent, type_parameters };
+    let resolver = ScopedTypeResolver {
+        parent: &parent,
+        type_parameters,
+    };
     let associated_type_context = trait_surface
         .associated_types
         .values()
@@ -564,11 +569,7 @@ pub fn build_conformance_associated_type_plan(
         let empty_surfaces = crate::traits::TraitSurfaceTable::new();
         let surfaces = ctx.conformance_semantics.map(|cs| cs.trait_surfaces).unwrap_or(&empty_surfaces);
         let owner = crate::types::parameter::TypeParameterOwner::Impl(impl_id.clone());
-        crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-            &sig.constraints,
-            owner,
-            surfaces,
-        ).ok()
+        crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(&sig.constraints, owner, surfaces).ok()
     });
     let mut formation_site = TypeFormationSite::trait_member(
         ctx.current_module.clone(),
@@ -600,7 +601,12 @@ pub fn build_conformance_associated_type_plan(
                 source: member_source.clone(),
                 requirement: None,
             });
-            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeUnknown, reason, binding.name_range));
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AssociatedTypeUnknown,
+                reason,
+                binding.name_range,
+            ));
             continue;
         };
         if !seen_requirements.insert(requirement.requirement.clone()) {
@@ -612,7 +618,12 @@ pub fn build_conformance_associated_type_plan(
                 source: member_source.clone(),
                 requirement: Some(requirement.requirement.clone()),
             });
-            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeDuplicate, reason, binding.name_range));
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AssociatedTypeDuplicate,
+                reason,
+                binding.name_range,
+            ));
             continue;
         }
         pending.insert(
@@ -635,7 +646,12 @@ pub fn build_conformance_associated_type_plan(
                     source: source.clone(),
                     requirement: Some(requirement.clone()),
                 });
-                diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, syntax.range));
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::AssociatedTypeBindingInvalid,
+                    reason,
+                    syntax.range,
+                ));
                 continue;
             }
         };
@@ -660,7 +676,12 @@ pub fn build_conformance_associated_type_plan(
                 source: source.clone(),
                 requirement: Some(requirement.clone()),
             });
-            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, syntax.range));
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AssociatedTypeBindingInvalid,
+                reason,
+                syntax.range,
+            ));
             continue;
         }
         bindings.insert(
@@ -674,7 +695,16 @@ pub fn build_conformance_associated_type_plan(
         );
     }
 
-    normalize_source_associated_bindings(ctx, impl_id, trait_ref, target_head, trait_surface, &mut bindings, &mut failures, &mut diagnostics);
+    normalize_source_associated_bindings(
+        ctx,
+        impl_id,
+        trait_ref,
+        target_head,
+        trait_surface,
+        &mut bindings,
+        &mut failures,
+        &mut diagnostics,
+    );
 
     for requirement in trait_surface.associated_types.values() {
         if bindings.contains_key(&requirement.requirement) {
@@ -747,11 +777,8 @@ fn normalize_source_associated_bindings(
         };
         let result = crate::types::normalize_type(ctx.store, value_template, &mut normalization_context);
         let normalized = match &result {
-            crate::types::ProjectionNormalizationResult::Normalized(ty)
-            | crate::types::ProjectionNormalizationResult::Symbolic(ty) => Some(*ty),
-            crate::types::ProjectionNormalizationResult::Recursive => {
-                Some(value_template)
-            }
+            crate::types::ProjectionNormalizationResult::Normalized(ty) | crate::types::ProjectionNormalizationResult::Symbolic(ty) => Some(*ty),
+            crate::types::ProjectionNormalizationResult::Recursive => Some(value_template),
             crate::types::ProjectionNormalizationResult::Incomplete => None,
             _other => None,
         };
@@ -772,9 +799,10 @@ fn normalize_source_associated_bindings(
             crate::types::ProjectionNormalizationResult::Dynamic(obligation) => {
                 Some(format!("associated type binding normalization crossed a dynamic boundary: {obligation:?}"))
             }
-            crate::types::ProjectionNormalizationResult::Ambiguous(candidates) => {
-                Some(format!("associated type binding normalization is ambiguous across {} candidates", candidates.len()))
-            }
+            crate::types::ProjectionNormalizationResult::Ambiguous(candidates) => Some(format!(
+                "associated type binding normalization is ambiguous across {} candidates",
+                candidates.len()
+            )),
             crate::types::ProjectionNormalizationResult::Cancelled => Some("associated type binding normalization was cancelled".into()),
             crate::types::ProjectionNormalizationResult::BudgetExceeded(report) => {
                 Some(format!("associated type binding normalization exceeded its budget: {report:?}"))
@@ -782,17 +810,17 @@ fn normalize_source_associated_bindings(
             crate::types::ProjectionNormalizationResult::InternalFailure(message) => {
                 Some(format!("associated type binding normalization failed internally: {message}"))
             }
-            crate::types::ProjectionNormalizationResult::Normalized(_)
-            | crate::types::ProjectionNormalizationResult::Symbolic(_) => None,
+            crate::types::ProjectionNormalizationResult::Normalized(_) | crate::types::ProjectionNormalizationResult::Symbolic(_) => None,
         };
         if let Some(reason) = failure_reason {
             let name = trait_surface
                 .associated_type(&requirement)
                 .map(|requirement| requirement.name.clone())
                 .unwrap_or_else(|| "<unknown>".into());
-            let source = bindings.get(&requirement).map(|binding| binding.source.clone()).unwrap_or_else(|| {
-                SemanticSourceSpan::new(ctx.current_module.clone(), phalcom_common::range::SourceRange::default())
-            });
+            let source = bindings
+                .get(&requirement)
+                .map(|binding| binding.source.clone())
+                .unwrap_or_else(|| SemanticSourceSpan::new(ctx.current_module.clone(), phalcom_common::range::SourceRange::default()));
             let source_range = source.range;
             failures.push(AssociatedTypeBindingFailure {
                 kind: AssociatedTypeBindingFailureKind::Invalid,
@@ -845,8 +873,9 @@ fn normalize_source_signature_in_store(
                 &cancel,
             );
             match crate::types::normalize_type(store, *ty, &mut normalization_context) {
-                crate::types::ProjectionNormalizationResult::Normalized(normalized)
-                | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => *ty = normalized,
+                crate::types::ProjectionNormalizationResult::Normalized(normalized) | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => {
+                    *ty = normalized
+                }
                 _ => {}
             }
         }
@@ -903,8 +932,9 @@ fn normalize_exact_requirement_signature(
             )
             .with_current_exact_evidence(target, trait_ref, associated_types);
             match crate::types::normalize_type(store, *ty, &mut context) {
-                crate::types::ProjectionNormalizationResult::Normalized(normalized)
-                | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => *ty = normalized,
+                crate::types::ProjectionNormalizationResult::Normalized(normalized) | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => {
+                    *ty = normalized
+                }
                 other => return Err(other),
             }
         }
@@ -917,10 +947,7 @@ fn normalize_exact_requirement_signature(
     Ok(signature)
 }
 
-fn projection_result_to_conformance_resolution(
-    result: crate::types::ProjectionNormalizationResult,
-    impl_id: ImplId,
-) -> ConformanceResolution {
+fn projection_result_to_conformance_resolution(result: crate::types::ProjectionNormalizationResult, impl_id: ImplId) -> ConformanceResolution {
     match result {
         crate::types::ProjectionNormalizationResult::Normalized(_)
         | crate::types::ProjectionNormalizationResult::Symbolic(_)
@@ -1770,7 +1797,10 @@ pub fn build_conformance_witness_plan(
                             impl_id: impl_id.clone(),
                             source_module: impl_id.module.clone(),
                             target_template: store.unit(),
-                            trait_ref_template: TraitRef::new(crate::identity::DeclarationId::new(impl_id.module.clone(), "dummy".into()), Box::<[TypeId]>::default()),
+                            trait_ref_template: TraitRef::new(
+                                crate::identity::DeclarationId::new(impl_id.module.clone(), "dummy".into()),
+                                Box::<[TypeId]>::default(),
+                            ),
                             generic_signature: None,
                             requirement_views: BTreeMap::new(),
                             requirements: BTreeMap::new(),
@@ -1816,7 +1846,12 @@ pub fn build_conformance_witness_plan(
                                     kind: AssociatedTypeBindingFailureKind::Invalid,
                                     name: trait_ref.declaration.name.clone(),
                                     source: crate::diagnostic::SemanticSourceSpan::new(contribution.source.module.clone(), contribution.source.range),
-                                    reason: format!("associated type `{}` does not conform to trait `{}`", store.format_type(target_ty), trait_ref.declaration.name).into_boxed_str(),
+                                    reason: format!(
+                                        "associated type `{}` does not conform to trait `{}`",
+                                        store.format_type(target_ty),
+                                        trait_ref.declaration.name
+                                    )
+                                    .into_boxed_str(),
                                     requirement: None,
                                 }));
                             }
@@ -1945,16 +1980,7 @@ pub fn resolve_conformance_evidence(
 ) -> ConformanceResolution {
     let mut trait_surfaces = TraitSurfaceTable::new();
     trait_surfaces.insert(Arc::new(trait_surface.clone()));
-    resolve_conformance_evidence_with_surfaces(
-        index,
-        plans,
-        &trait_surfaces,
-        declarations,
-        store,
-        hierarchy,
-        target,
-        trait_ref,
-    )
+    resolve_conformance_evidence_with_surfaces(index, plans, &trait_surfaces, declarations, store, hierarchy, target, trait_ref)
 }
 
 /// Resolves exact evidence with the complete published trait-surface table so
@@ -2062,9 +2088,9 @@ pub fn resolve_conformance_evidence_with_surfaces(
                 ExactAssociatedTypeBinding {
                     requirement: requirement.clone(),
                     value: match &binding.value_template {
-                        AssociatedTypeBindingValue::Type(value) => AssociatedTypeBindingValue::Type(
-                            crate::types::environment::TypeView::new(*value, environment.clone()).materialize(store),
-                        ),
+                        AssociatedTypeBindingValue::Type(value) => {
+                            AssociatedTypeBindingValue::Type(crate::types::environment::TypeView::new(*value, environment.clone()).materialize(store))
+                        }
                         AssociatedTypeBindingValue::Dynamic => AssociatedTypeBindingValue::Dynamic,
                     },
                     source_impl: binding.source_impl.clone(),
@@ -2105,12 +2131,7 @@ pub fn resolve_conformance_evidence_with_surfaces(
     }
     if let Some(signature) = &trait_surface.generic_signature {
         if !signature.constraints.is_empty() {
-            let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(
-                store,
-                signature,
-                &TypeTerm::Canonical(target),
-                trait_ref,
-            );
+            let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(store, signature, &TypeTerm::Canonical(target), trait_ref);
             for constraint in contract_constraints {
                 let mut budget = QueryBudget::default();
                 let cancel = CancellationToken::new();
@@ -2129,7 +2150,10 @@ pub fn resolve_conformance_evidence_with_surfaces(
                 .with_current_exact_evidence(target, trait_ref, &associated_types);
 
                 match constraint {
-                    GenericConstraint::Conforms { subject, trait_ref: c_trait_ref } => {
+                    GenericConstraint::Conforms {
+                        subject,
+                        trait_ref: c_trait_ref,
+                    } => {
                         let norm_subject = match subject {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
                                 crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
@@ -3009,14 +3033,12 @@ fn type_id_mentions_param(store: &TypeStore, ty: TypeId, param: TypeParameterId)
             type_id_mentions_param(store, *origin, param) || arguments.iter().any(|&a| type_id_mentions_param(store, a, param))
         }
         TypeData::AssociatedProjection(proj) => {
-            type_id_mentions_param(store, proj.subject, param)
-                || proj.trait_ref.arguments.iter().any(|&a| type_id_mentions_param(store, a, param))
+            type_id_mentions_param(store, proj.subject, param) || proj.trait_ref.arguments.iter().any(|&a| type_id_mentions_param(store, a, param))
         }
         TypeData::Tuple(elements) => elements.iter().any(|e| type_id_mentions_param(store, e.ty, param)),
         TypeData::Union(types) => types.iter().any(|&t| type_id_mentions_param(store, t, param)),
         TypeData::Callable(callable) => {
-            type_id_mentions_param(store, callable.return_type, param)
-                || callable.parameters.iter().any(|p| type_id_mentions_param(store, p.ty, param))
+            type_id_mentions_param(store, callable.return_type, param) || callable.parameters.iter().any(|p| type_id_mentions_param(store, p.ty, param))
         }
         _ => false,
     }
@@ -3025,15 +3047,10 @@ fn type_id_mentions_param(store: &TypeStore, ty: TypeId, param: TypeParameterId)
 fn constraint_mentions_param(store: &TypeStore, constraint: &GenericConstraint, param: TypeParameterId) -> bool {
     match constraint {
         GenericConstraint::Conforms { subject, trait_ref } => {
-            term_mentions_param(store, subject, param)
-                || trait_ref.arguments.iter().any(|&arg| type_id_mentions_param(store, arg, param))
+            term_mentions_param(store, subject, param) || trait_ref.arguments.iter().any(|&arg| type_id_mentions_param(store, arg, param))
         }
-        GenericConstraint::Equivalent { left, right } => {
-            term_mentions_param(store, left, param) || term_mentions_param(store, right, param)
-        }
-        GenericConstraint::Subtype { lower, upper } => {
-            term_mentions_param(store, lower, param) || term_mentions_param(store, upper, param)
-        }
+        GenericConstraint::Equivalent { left, right } => term_mentions_param(store, left, param) || term_mentions_param(store, right, param),
+        GenericConstraint::Subtype { lower, upper } => term_mentions_param(store, lower, param) || term_mentions_param(store, upper, param),
     }
 }
 
@@ -3790,7 +3807,11 @@ pub fn check_impl_domain_constraints(
                 };
                 let mut proven = false;
                 for amb in ambient_constraints {
-                    if let GenericConstraint::Conforms { subject: amb_subj, trait_ref: amb_trait } = amb {
+                    if let GenericConstraint::Conforms {
+                        subject: amb_subj,
+                        trait_ref: amb_trait,
+                    } = amb
+                    {
                         if let TypeTerm::Canonical(s) = amb_subj {
                             if *s == subject_ty && amb_trait == trait_ref {
                                 proven = true;

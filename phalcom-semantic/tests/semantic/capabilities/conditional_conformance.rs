@@ -30,10 +30,13 @@ impl<T> Printable for Box<T>
     let box_decl = fixture.decl("Box");
 
     let conformance_index = &fixture.analysis.snapshot.conformance_index;
-    let contribution = conformance_index.iter().find(|(_, c)| {
-        c.trait_ref.declaration == printable_trait
-            && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &box_decl)
-    }).expect("conformance contribution").1;
+    let contribution = conformance_index
+        .iter()
+        .find(|(_, c)| {
+            c.trait_ref.declaration == printable_trait && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &box_decl)
+        })
+        .expect("conformance contribution")
+        .1;
 
     let sig = contribution.generic_signature.as_ref().expect("impl generic signature");
     assert_eq!(sig.parameters.len(), 1);
@@ -42,7 +45,9 @@ impl<T> Printable for Box<T>
     match &sig.constraints[0] {
         GenericConstraint::Conforms { subject, trait_ref } => {
             assert_eq!(trait_ref.declaration, printable_trait);
-            assert!(matches!(subject, TypeTerm::Canonical(ty) if matches!(fixture.analysis.snapshot.store.get(*ty), TypeData::Parameter(p) if *p == sig.parameters[0])));
+            assert!(
+                matches!(subject, TypeTerm::Canonical(ty) if matches!(fixture.analysis.snapshot.store.get(*ty), TypeData::Parameter(p) if *p == sig.parameters[0]))
+            );
         }
         other => panic!("expected Conforms, got {:?}", other),
     }
@@ -69,10 +74,13 @@ impl<T> Alpha for Box<T>
     let box_decl = fixture.decl("Box");
 
     let conformance_index = &fixture.analysis.snapshot.conformance_index;
-    let contribution = conformance_index.iter().find(|(_, c)| {
-        c.trait_ref.declaration == alpha_trait
-            && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &box_decl)
-    }).expect("conformance contribution").1;
+    let contribution = conformance_index
+        .iter()
+        .find(|(_, c)| {
+            c.trait_ref.declaration == alpha_trait && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &box_decl)
+        })
+        .expect("conformance contribution")
+        .1;
 
     let sig = contribution.generic_signature.as_ref().expect("impl generic signature");
     assert_eq!(sig.parameters.len(), 1);
@@ -106,10 +114,16 @@ impl<T> Marker for Box<T>
     let marker_trait = fixture.decl("Marker");
     let box_decl = fixture.decl("Box");
 
-    let contribution = fixture.analysis.snapshot.conformance_index.iter().find(|(_, c)| {
-        c.trait_ref.declaration == marker_trait
-            && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &box_decl)
-    }).expect("conformance contribution").1;
+    let contribution = fixture
+        .analysis
+        .snapshot
+        .conformance_index
+        .iter()
+        .find(|(_, c)| {
+            c.trait_ref.declaration == marker_trait && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &box_decl)
+        })
+        .expect("conformance contribution")
+        .1;
 
     let sig = contribution.generic_signature.as_ref().expect("impl generic signature");
     assert_eq!(sig.constraints.len(), 1);
@@ -134,10 +148,16 @@ impl<T> Marker for Box<T>
     let marker_trait = fixture.decl("Marker");
     let box_decl = fixture.decl("Box");
 
-    let contribution = fixture.analysis.snapshot.conformance_index.iter().find(|(_, c)| {
-        c.trait_ref.declaration == marker_trait
-            && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &box_decl)
-    }).expect("conformance contribution").1;
+    let contribution = fixture
+        .analysis
+        .snapshot
+        .conformance_index
+        .iter()
+        .find(|(_, c)| {
+            c.trait_ref.declaration == marker_trait && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &box_decl)
+        })
+        .expect("conformance contribution")
+        .1;
 
     let sig = contribution.generic_signature.as_ref().expect("impl generic signature");
     assert_eq!(sig.constraints.len(), 1);
@@ -166,18 +186,31 @@ impl<I, T> Printable for Stream<I>
     let iterator_trait = fixture.decl("Iterator");
     let stream_decl = fixture.decl("Stream");
 
-    let contribution = fixture.analysis.snapshot.conformance_index.iter().find(|(_, c)| {
-        c.trait_ref.declaration == printable_trait
-            && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &stream_decl)
-    }).expect("conformance contribution").1;
+    let contribution = fixture
+        .analysis
+        .snapshot
+        .conformance_index
+        .iter()
+        .find(|(_, c)| {
+            c.trait_ref.declaration == printable_trait
+                && matches!(c.target, phalcom_semantic::impls::ConformanceTarget::Declaration(ref d) if d == &stream_decl)
+        })
+        .expect("conformance contribution")
+        .1;
 
     let sig = contribution.generic_signature.as_ref().expect("impl generic signature");
     assert_eq!(sig.parameters.len(), 2);
     // 3 constraints: Conforms(I, Iterator), Conforms(T, Printable), Equivalent(Item == T)
     assert_eq!(sig.constraints.len(), 3);
 
-    let has_iter_conforms = sig.constraints.iter().any(|c| matches!(c, GenericConstraint::Conforms { trait_ref, .. } if trait_ref.declaration == iterator_trait));
-    let has_printable_conforms = sig.constraints.iter().any(|c| matches!(c, GenericConstraint::Conforms { trait_ref, .. } if trait_ref.declaration == printable_trait));
+    let has_iter_conforms = sig
+        .constraints
+        .iter()
+        .any(|c| matches!(c, GenericConstraint::Conforms { trait_ref, .. } if trait_ref.declaration == iterator_trait));
+    let has_printable_conforms = sig
+        .constraints
+        .iter()
+        .any(|c| matches!(c, GenericConstraint::Conforms { trait_ref, .. } if trait_ref.declaration == printable_trait));
     let has_equivalent = sig.constraints.iter().any(|c| matches!(c, GenericConstraint::Equivalent { .. }));
 
     assert!(has_iter_conforms);
@@ -223,12 +256,10 @@ impl<T> Printable for Box<T>
         .values()
         .find(|c| matches!(c.callable.owner, phalcom_semantic::identity::CallableOwnerId::Conformance(_)))
         .expect("conformance callable analysis");
-    let has_assumed = callable_analysis.expressions.values().any(|expr| {
-        matches!(
-            expr.trait_dispatch,
-            Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(_))
-        )
-    });
+    let has_assumed = callable_analysis
+        .expressions
+        .values()
+        .any(|expr| matches!(expr.trait_dispatch, Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(_))));
     assert!(has_assumed, "expected assumed trait dispatch for self.get().render()");
 }
 
@@ -343,8 +374,28 @@ impl<T> Alpha for Box<T>
     let alpha1 = fixture1.decl("Alpha");
     let alpha2 = fixture2.decl("Alpha");
 
-    let sig1 = fixture1.analysis.snapshot.conformance_index.iter().find(|(_, c)| c.trait_ref.declaration == alpha1).unwrap().1.generic_signature.as_ref().unwrap();
-    let sig2 = fixture2.analysis.snapshot.conformance_index.iter().find(|(_, c)| c.trait_ref.declaration == alpha2).unwrap().1.generic_signature.as_ref().unwrap();
+    let sig1 = fixture1
+        .analysis
+        .snapshot
+        .conformance_index
+        .iter()
+        .find(|(_, c)| c.trait_ref.declaration == alpha1)
+        .unwrap()
+        .1
+        .generic_signature
+        .as_ref()
+        .unwrap();
+    let sig2 = fixture2
+        .analysis
+        .snapshot
+        .conformance_index
+        .iter()
+        .find(|(_, c)| c.trait_ref.declaration == alpha2)
+        .unwrap()
+        .1
+        .generic_signature
+        .as_ref()
+        .unwrap();
 
     assert_eq!(sig1.constraints.len(), sig2.constraints.len());
 }
@@ -769,7 +820,7 @@ impl<T> Marker for Box<T>
     let user_decl = fixture.decl("User");
     let box_form = fixture.analysis.snapshot.declarations.form(&box_decl).expect("Box form");
     let user_form = fixture.analysis.snapshot.declarations.form(&user_decl).expect("User form");
-    
+
     let mut store = (*fixture.analysis.snapshot.store).clone();
     let target = store.apply_type_form(box_form, &[user_form]).unwrap();
 
@@ -783,15 +834,16 @@ impl<T> Marker for Box<T>
         Some(&mut store),
     );
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(target),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(target), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     assert!(
-        matches!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint)),
-        "expected Blocked(RecursiveFixpoint) for self-cycle, got {:?}", proof
+        matches!(
+            proof,
+            phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint)
+        ),
+        "expected Blocked(RecursiveFixpoint) for self-cycle, got {:?}",
+        proof
     );
 }
 
@@ -820,7 +872,7 @@ impl<T> Beta for Box<T>
     let user_decl = fixture.decl("User");
     let box_form = fixture.analysis.snapshot.declarations.form(&box_decl).expect("Box form");
     let user_form = fixture.analysis.snapshot.declarations.form(&user_decl).expect("User form");
-    
+
     let mut store = (*fixture.analysis.snapshot.store).clone();
     let target = store.apply_type_form(box_form, &[user_form]).unwrap();
 
@@ -834,15 +886,16 @@ impl<T> Beta for Box<T>
         Some(&mut store),
     );
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(target),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(target), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     assert!(
-        matches!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint)),
-        "expected Blocked(RecursiveFixpoint) for mutual cycle, got {:?}", proof
+        matches!(
+            proof,
+            phalcom_semantic::generic_evidence::GenericConformanceProof::Blocked(phalcom_semantic::types::outcome::BlockReason::RecursiveFixpoint)
+        ),
+        "expected Blocked(RecursiveFixpoint) for mutual cycle, got {:?}",
+        proof
     );
 }
 
@@ -874,10 +927,7 @@ impl<T> Printable for Box<T> where T |= Printable {}
         Some(&mut store),
     );
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(user_ty),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(user_ty), trait_ref);
 
     let proof1 = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     assert!(matches!(proof1, phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)));
@@ -916,12 +966,10 @@ impl<T> Printable for Box<T> where T |= Printable {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_budget_and_cancellation(budget, phalcom_semantic::types::outcome::CancellationToken::new());
+    )
+    .with_budget_and_cancellation(budget, phalcom_semantic::types::outcome::CancellationToken::new());
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(user_ty),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(user_ty), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     assert!(matches!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::BudgetExceeded(_)));
@@ -954,12 +1002,10 @@ impl Printable for User {}
         Some(&fixture.analysis.snapshot.declarations),
         Some(fixture.analysis.snapshot.hierarchy.as_ref()),
         Some(&mut store),
-    ).with_budget_and_cancellation(phalcom_semantic::types::outcome::QueryBudget::default(), cancel);
+    )
+    .with_budget_and_cancellation(phalcom_semantic::types::outcome::QueryBudget::default(), cancel);
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(user_ty),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(user_ty), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     assert!(matches!(proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Cancelled));
@@ -1295,16 +1341,13 @@ impl<T> Container for Box<T>
         Some(&mut store),
     );
 
-    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        phalcom_semantic::types::parameter::TypeTerm::Canonical(box_user_ty),
-        trait_ref,
-    );
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(phalcom_semantic::types::parameter::TypeTerm::Canonical(box_user_ty), trait_ref);
 
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
     match proof {
-        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
-            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived)
-        ) => {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(
+            derived,
+        )) => {
             let exact_source = derived.exact_source().unwrap();
             assert_eq!(exact_source.associated_types.len(), 1);
             let (_req, binding) = exact_source.associated_types.iter().next().unwrap();
@@ -1415,7 +1458,8 @@ fn cv55_imported_conditional_associated_projection_normalizes() {
         .apply_module_mutations([
             phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
                 source: provider,
-                text: std::sync::Arc::from(r#"
+                text: std::sync::Arc::from(
+                    r#"
 trait Printable {}
 class User {}
 impl Printable for User {}
@@ -1433,13 +1477,15 @@ impl<T> Container for Box<T>
 }
 
 export Printable, User, Container, Box
-"#),
+"#,
+                ),
                 revision: phalcom_modules::SourceRevision(1),
                 recovered_program: None,
             },
             phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
                 source: consumer,
-                text: std::sync::Arc::from(r#"
+                text: std::sync::Arc::from(
+                    r#"
 import .provider as P
 
 class Consumer {
@@ -1448,7 +1494,8 @@ class Consumer {
         let b: P.Box<P.User>
     }
 }
-"#),
+"#,
+                ),
                 revision: phalcom_modules::SourceRevision(1),
                 recovered_program: None,
             },
@@ -1479,7 +1526,8 @@ fn cv58_cross_module_conditional_proof_proves_consumer_goal() {
         .apply_module_mutations([
             phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
                 source: provider,
-                text: std::sync::Arc::from(r#"
+                text: std::sync::Arc::from(
+                    r#"
 trait Printable {
     render() -> String
 }
@@ -1503,13 +1551,15 @@ impl<T> Printable for Box<T>
 }
 
 export Printable, User, Box
-"#),
+"#,
+                ),
                 revision: phalcom_modules::SourceRevision(1),
                 recovered_program: None,
             },
             phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
                 source: consumer,
-                text: std::sync::Arc::from(r#"
+                text: std::sync::Arc::from(
+                    r#"
 import .provider as P
 
 class Discharger {
@@ -1528,7 +1578,8 @@ class Main {
         Discharger.display(b)
     }
 }
-"#),
+"#,
+                ),
                 revision: phalcom_modules::SourceRevision(1),
                 recovered_program: None,
             },
@@ -1595,9 +1646,7 @@ fn make_input(module: phalcom_modules::identity::ModuleId, source: &str, generat
 fn cv60_incremental_nested_base_conformance_change_invalidates_outer_consumer() {
     let module = phalcom_modules::identity::ModuleId::resolved(
         phalcom_modules::identity::ResolvedProjectId::from_raw(960),
-        phalcom_modules::identity::ModulePath::from_components(vec![
-            phalcom_modules::identity::ModuleComponent::from_identifier("main").unwrap(),
-        ]),
+        phalcom_modules::identity::ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("main").unwrap()]),
     );
 
     let source_a = r#"
@@ -1688,16 +1737,17 @@ class Main {
     assert!(!first.snapshot.has_errors());
 
     let second = incremental.update(make_input(module.clone(), source_b, 2));
-    assert!(second.snapshot.has_errors(), "expected GenericConstraintUnsatisfied after removing base conformance");
+    assert!(
+        second.snapshot.has_errors(),
+        "expected GenericConstraintUnsatisfied after removing base conformance"
+    );
 }
 
 #[test]
 fn cv61_incremental_condition_change_invalidates_consumer() {
     let module = phalcom_modules::identity::ModuleId::resolved(
         phalcom_modules::identity::ResolvedProjectId::from_raw(961),
-        phalcom_modules::identity::ModulePath::from_components(vec![
-            phalcom_modules::identity::ModuleComponent::from_identifier("main").unwrap(),
-        ]),
+        phalcom_modules::identity::ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("main").unwrap()]),
     );
 
     let source_a = r#"
@@ -1797,7 +1847,10 @@ class Main {
     assert!(!first.snapshot.has_errors());
 
     let second = incremental.update(make_input(module.clone(), source_b, 2));
-    assert!(second.snapshot.has_errors(), "expected GenericConstraintUnsatisfied after strengthening condition");
+    assert!(
+        second.snapshot.has_errors(),
+        "expected GenericConstraintUnsatisfied after strengthening condition"
+    );
 }
 
 #[test]
@@ -1814,10 +1867,10 @@ fn cv62_incremental_canonical_reorder_preserves_fingerprint() {
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
 
     let pub1 = session
-        .apply_module_mutations([
-            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider.clone(),
-                text: std::sync::Arc::from(r#"
+        .apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider.clone(),
+            text: std::sync::Arc::from(
+                r#"
 trait Printable {}
 trait Extra {}
 class Box<T> {}
@@ -1827,18 +1880,18 @@ impl<T> Printable for Box<T>
         T |= Printable,
         T |= Extra
 {}
-"#),
-                revision: phalcom_modules::SourceRevision(1),
-                recovered_program: None,
-            },
-        ])
+"#,
+            ),
+            revision: phalcom_modules::SourceRevision(1),
+            recovered_program: None,
+        }])
         .expect("initial setup");
 
     let pub2 = session
-        .apply_module_mutations([
-            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider,
-                text: std::sync::Arc::from(r#"
+        .apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider,
+            text: std::sync::Arc::from(
+                r#"
 trait Printable {}
 trait Extra {}
 class Box<T> {}
@@ -1848,18 +1901,21 @@ impl<T> Printable for Box<T>
         T |= Extra,
         T |= Printable
 {}
-"#),
-                revision: phalcom_modules::SourceRevision(2),
-                recovered_program: None,
-            },
-        ])
+"#,
+            ),
+            revision: phalcom_modules::SourceRevision(2),
+            recovered_program: None,
+        }])
         .expect("reorder setup");
 
     // The witness plan fingerprints should match
     let impl_id = pub1.snapshot.conformance_witness_plans.keys().next().unwrap();
     let fp1 = pub1.snapshot.conformance_witness_plans[impl_id].fingerprint;
     let fp2 = pub2.snapshot.conformance_witness_plans[impl_id].fingerprint;
-    assert_eq!(fp1, fp2, "canonical reordering of where-clause conditions must preserve witness plan fingerprint");
+    assert_eq!(
+        fp1, fp2,
+        "canonical reordering of where-clause conditions must preserve witness plan fingerprint"
+    );
 }
 
 #[test]
@@ -1876,33 +1932,33 @@ fn cv63_cold_and_incremental_parity() {
 
     // Incremental session (2 steps)
     let mut inc_session = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let _ = inc_session.apply_module_mutations([
-        phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+    let _ = inc_session
+        .apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
             source: loc.clone(),
             text: std::sync::Arc::from("class Dummy {}\n"),
             revision: phalcom_modules::SourceRevision(1),
             recovered_program: None,
-        },
-    ]).unwrap();
-    let inc_pub = inc_session.apply_module_mutations([
-        phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+        }])
+        .unwrap();
+    let inc_pub = inc_session
+        .apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
             source: loc.clone(),
             text: std::sync::Arc::from(source_a),
             revision: phalcom_modules::SourceRevision(2),
             recovered_program: None,
-        },
-    ]).unwrap();
+        }])
+        .unwrap();
 
     // Cold session (1 step)
     let mut cold_session = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let cold_pub = cold_session.apply_module_mutations([
-        phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+    let cold_pub = cold_session
+        .apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
             source: loc,
             text: std::sync::Arc::from(source_a),
             revision: phalcom_modules::SourceRevision(1),
             recovered_program: None,
-        },
-    ]).unwrap();
+        }])
+        .unwrap();
 
     assert_eq!(inc_pub.snapshot.has_errors(), cold_pub.snapshot.has_errors());
     assert_eq!(
@@ -1956,4 +2012,3 @@ class Probe {
     let diags = fixture.diagnostics(DiagnosticCode::GenericConstraintUnsatisfied);
     assert_eq!(diags.len(), 1, "expected GenericConstraintUnsatisfied diagnostic");
 }
-

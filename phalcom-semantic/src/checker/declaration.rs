@@ -82,7 +82,12 @@ pub fn build_declared_class_surface(
                         range,
                     ),
                 };
-                ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range));
+                ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    code,
+                    message,
+                    range,
+                ));
                 continue;
             }
         };

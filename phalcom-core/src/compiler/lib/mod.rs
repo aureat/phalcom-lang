@@ -489,13 +489,7 @@ impl<'vm> Compiler<'vm> {
     /// represented by a fabricated AST declaration.  This small codegen-only
     /// path creates the same ordinary closure shape as a user getter/setter,
     /// emitting only the existing `GetField`/`SetField` instructions.
-    pub(crate) fn compile_generated_field_accessor(
-        &mut self,
-        name_sym: Symbol,
-        slot: u16,
-        setter: bool,
-        range: SourceRange,
-    ) -> Result<ObjRef, CompilerError> {
+    pub(crate) fn compile_generated_field_accessor(&mut self, name_sym: Symbol, slot: u16, setter: bool, range: SourceRange) -> Result<ObjRef, CompilerError> {
         let self_sym = self.vm.interner.intern("self");
         let value_sym = self.vm.interner.intern("_value");
         let func_state = FunctionState::new(false, false, true, None);

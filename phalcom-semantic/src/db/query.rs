@@ -655,10 +655,7 @@ pub fn query_hierarchy_edge(
     }
 
     let class_def = class_definition_for(&unit, &class_decl);
-    if class_def.is_none()
-    && enum_definition_for(&unit, &class_decl).is_none()
-    && data_definition_for(&unit, &class_decl).is_none()
-{
+    if class_def.is_none() && enum_definition_for(&unit, &class_decl).is_none() && data_definition_for(&unit, &class_decl).is_none() {
         return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
     }
     let superclass_syntax = class_def.and_then(|class_def| superclass_source(&unit, class_def));
@@ -1312,10 +1309,10 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             }
         }
         crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) => {
-            if inputs.conformance_semantics.is_some_and(|view| {
-                view.conformance_index.get(impl_id).is_some()
-                    || view.derived_conformance_rules.get_rule(impl_id).is_some()
-            }) {
+            if inputs
+                .conformance_semantics
+                .is_some_and(|view| view.conformance_index.get(impl_id).is_some() || view.derived_conformance_rules.get_rule(impl_id).is_some())
+            {
                 QueryOutcome::Ready(())
             } else {
                 QueryOutcome::Blocked(BlockReason::SuppressedDependency)
@@ -1493,19 +1490,19 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         return query_failure(db, key, format!("declaration metadata was not found for {decl_id:?}"));
     };
     let input_fingerprint = if let Some(class_def) = class_def {
-    crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
-} else if let Some(enum_def) = enum_def {
-    crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_def)
-} else {
-    let data_def = data_def.expect("data declaration checked above");
-    let mut hasher = DefaultHasher::new();
-    2_u8.hash(&mut hasher);
-    decl_id.hash(&mut hasher);
-    data_def.range.start.hash(&mut hasher);
-    data_def.range.end.hash(&mut hasher);
-    unit.text.get(data_def.range.start..data_def.range.end).hash(&mut hasher);
-    InputFingerprint::new(hasher.finish())
-};
+        crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
+    } else if let Some(enum_def) = enum_def {
+        crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_def)
+    } else {
+        let data_def = data_def.expect("data declaration checked above");
+        let mut hasher = DefaultHasher::new();
+        2_u8.hash(&mut hasher);
+        decl_id.hash(&mut hasher);
+        data_def.range.start.hash(&mut hasher);
+        data_def.range.end.hash(&mut hasher);
+        unit.text.get(data_def.range.start..data_def.range.end).hash(&mut hasher);
+        InputFingerprint::new(hasher.finish())
+    };
 
     match query_declaration_shell(db, Arc::new(TypeDeclarationShell::Nominal(declaration_info))) {
         QueryOutcome::Ready(_) => {}

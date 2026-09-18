@@ -965,7 +965,11 @@ impl InferenceSession {
                     .collect::<Option<Vec<_>>>()?;
                 store.family_type(members).ok()
             }
-            InferenceTerm::AssociatedProjection { subject, trait_ref, requirement } => {
+            InferenceTerm::AssociatedProjection {
+                subject,
+                trait_ref,
+                requirement,
+            } => {
                 let subject_ty = self.materialize_for_expected(subject, store)?;
                 let mut args = Vec::with_capacity(trait_ref.arguments.len());
                 for arg in trait_ref.arguments.iter() {
@@ -1361,7 +1365,11 @@ impl InferenceSession {
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
             ),
-            InferenceTerm::AssociatedProjection { subject, trait_ref, requirement } => InferenceTerm::AssociatedProjection {
+            InferenceTerm::AssociatedProjection {
+                subject,
+                trait_ref,
+                requirement,
+            } => InferenceTerm::AssociatedProjection {
                 subject: Box::new(self.term_for_expected(subject)),
                 trait_ref: InferenceTraitRef {
                     declaration: trait_ref.declaration.clone(),
@@ -1673,7 +1681,12 @@ impl InferenceSession {
         }
     }
 
-    pub(crate) fn failure_outcome(&mut self, failure: InferenceFailureReason, constraint_index: Option<u32>, origin: Option<ConstraintOrigin>) -> InferenceOutcome {
+    pub(crate) fn failure_outcome(
+        &mut self,
+        failure: InferenceFailureReason,
+        constraint_index: Option<u32>,
+        origin: Option<ConstraintOrigin>,
+    ) -> InferenceOutcome {
         self.failure_outcome_with_related(failure, constraint_index, origin, &[])
     }
 
@@ -1913,8 +1926,7 @@ impl InferenceSession {
             InferenceTerm::Record(record) => record.fields.iter().any(|field| self.term_has_unresolved_variables(&field.term)),
             InferenceTerm::Family(family) => family.iter().any(|member| self.term_has_unresolved_variables(&member.term)),
             InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
-                self.term_has_unresolved_variables(subject)
-                    || trait_ref.arguments.iter().any(|arg| self.term_has_unresolved_variables(arg))
+                self.term_has_unresolved_variables(subject) || trait_ref.arguments.iter().any(|arg| self.term_has_unresolved_variables(arg))
             }
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => false,
         }
@@ -2180,8 +2192,7 @@ impl InferenceSession {
             TypeData::Callable(c) => c.parameters.iter().any(|p| self.occurs_in_type(var, p.ty, store)) || self.occurs_in_type(var, c.return_type, store),
             TypeData::Family(fid) => store.get_family(*fid).members.iter().any(|m| self.occurs_in_type(var, m.ty, store)),
             TypeData::AssociatedProjection(proj) => {
-                self.occurs_in_type(var, proj.subject, store)
-                    || proj.trait_ref.arguments.iter().any(|&a| self.occurs_in_type(var, a, store))
+                self.occurs_in_type(var, proj.subject, store) || proj.trait_ref.arguments.iter().any(|&a| self.occurs_in_type(var, a, store))
             }
             _ => false,
         }
@@ -2353,7 +2364,9 @@ impl InferenceSession {
                     self.unify_terms(&canon, term, store)
                 } else if self.occurs_in_term(rep, term) {
                     Err(InferenceFailureReason::OccursCheck { var: rep })
-                } else if !self.term_has_projection(term, store) && let Ok(ty) = self.materialize(term, store) {
+                } else if !self.term_has_projection(term, store)
+                    && let Ok(ty) = self.materialize(term, store)
+                {
                     self.bind(rep, ty, store)
                 } else {
                     // Constraint replay is expected to revisit the same
@@ -2600,14 +2613,8 @@ impl InferenceSession {
                 }
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
-            (
-                InferenceTerm::Canonical(ty),
-                other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_) | InferenceTerm::AssociatedProjection { .. }),
-            )
-            | (
-                other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_) | InferenceTerm::AssociatedProjection { .. }),
-                InferenceTerm::Canonical(ty),
-            ) => {
+            (InferenceTerm::Canonical(ty), other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_) | InferenceTerm::AssociatedProjection { .. }))
+            | (other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_) | InferenceTerm::AssociatedProjection { .. }), InferenceTerm::Canonical(ty)) => {
                 let canonical = self.type_id_to_inference(*ty, &HashMap::new(), store);
                 if canonical == InferenceTerm::Canonical(*ty) {
                     if matches!(other, InferenceTerm::AssociatedProjection { .. }) {
@@ -3031,7 +3038,11 @@ impl InferenceSession {
                     .collect::<Result<Vec<_>, InferenceMaterializationFailure>>()?;
                 store.family_type(members).map_err(|_| InferenceMaterializationFailure::InternalInvariant)
             }
-            InferenceTerm::AssociatedProjection { subject, trait_ref, requirement } => {
+            InferenceTerm::AssociatedProjection {
+                subject,
+                trait_ref,
+                requirement,
+            } => {
                 let subject_ty = self.materialize(subject, store)?;
                 let mut arg_tys = Vec::with_capacity(trait_ref.arguments.len());
                 for arg in trait_ref.arguments.iter() {

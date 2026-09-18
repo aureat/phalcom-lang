@@ -1,7 +1,7 @@
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
 @native
-class Map<K, V> is Iterable {
+class Map<K, V> is Collection {
   @class @native new() -> Map
   @internal @native _$size -> Int
   @internal @native _$get(_ key: Dynamic) -> Option<Dynamic>
@@ -199,7 +199,7 @@ impl<K, V> CanonicalIterable for Map<K, V> {
 // Map projections are ordinary retained-source Iterable views. They inherit
 // the generic cursor walk and deliberately leave active-iteration mutation
 // behavior unspecified.
-class MapKeysView<K, V> is Iterable {
+class MapKeysView<K, V> is Collection {
   _map: Map<K, V>
 
   @constructor
@@ -214,7 +214,7 @@ class MapKeysView<K, V> is Iterable {
   iteratorValue(_ cursor) { _map._$keyAt(cursor) }
 }
 
-class MapValuesView<K, V> is Iterable {
+class MapValuesView<K, V> is Collection {
   _map: Map<K, V>
 
   @constructor
@@ -243,7 +243,7 @@ class Entry {
   value { _value }
 }
 
-class MapEntriesView<K, V> is Iterable {
+class MapEntriesView<K, V> is Collection {
   _map: Map<K, V>
 
   @constructor

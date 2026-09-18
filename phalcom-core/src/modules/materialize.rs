@@ -10,20 +10,14 @@ use phalcom_modules::LinkedReadSpec;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-fn remap_runtime_type_ref(
-    runtime_type: crate::typing::RuntimeTypeRef,
-    pool_id: crate::typing::MetadataPoolId,
-) -> crate::typing::RuntimeTypeRef {
+fn remap_runtime_type_ref(runtime_type: crate::typing::RuntimeTypeRef, pool_id: crate::typing::MetadataPoolId) -> crate::typing::RuntimeTypeRef {
     match runtime_type {
         crate::typing::RuntimeTypeRef::Base { node, .. } => crate::typing::RuntimeTypeRef::Base { pool: pool_id, node },
         crate::typing::RuntimeTypeRef::Overlay(id) => crate::typing::RuntimeTypeRef::Overlay(id),
     }
 }
 
-fn remap_runtime_type_recipe(
-    recipe: crate::typing::RuntimeTypeRecipe,
-    pool_id: crate::typing::MetadataPoolId,
-) -> crate::typing::RuntimeTypeRecipe {
+fn remap_runtime_type_recipe(recipe: crate::typing::RuntimeTypeRecipe, pool_id: crate::typing::MetadataPoolId) -> crate::typing::RuntimeTypeRecipe {
     match recipe {
         crate::typing::RuntimeTypeRecipe::Closed(runtime_type) => crate::typing::RuntimeTypeRecipe::Closed(remap_runtime_type_ref(runtime_type, pool_id)),
         crate::typing::RuntimeTypeRecipe::Template(runtime_type) => crate::typing::RuntimeTypeRecipe::Template(remap_runtime_type_ref(runtime_type, pool_id)),
@@ -40,15 +34,10 @@ fn remap_runtime_bindings(
         .collect();
 }
 
-fn remap_runtime_conformance_slots(
-    slots: &mut Box<[crate::typing::RuntimeConformanceSlotRecipe]>,
-    pool_id: crate::typing::MetadataPoolId,
-) {
+fn remap_runtime_conformance_slots(slots: &mut Box<[crate::typing::RuntimeConformanceSlotRecipe]>, pool_id: crate::typing::MetadataPoolId) {
     for slot in slots.iter_mut() {
         if let crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional {
-            type_bindings,
-            nested_slots,
-            ..
+            type_bindings, nested_slots, ..
         } = slot
         {
             remap_runtime_bindings(type_bindings, pool_id);
@@ -61,10 +50,7 @@ fn remap_trait_invocation(spec: &mut crate::modules::semantic_lowering::TraitInv
     remap_runtime_bindings(&mut spec.type_bindings, pool_id);
 }
 
-fn remap_for_requirement(
-    requirement: &mut crate::modules::semantic_lowering::ForIterationRequirementSpec,
-    pool_id: crate::typing::MetadataPoolId,
-) {
+fn remap_for_requirement(requirement: &mut crate::modules::semantic_lowering::ForIterationRequirementSpec, pool_id: crate::typing::MetadataPoolId) {
     if let crate::modules::semantic_lowering::ForIterationRequirementSpec::Selected(spec) = requirement {
         remap_trait_invocation(spec, pool_id);
     }
@@ -100,11 +86,7 @@ impl VM {
         metadata_bundle: Arc<phalcom_type_meta::SemanticMetadataBundle>,
     ) -> PhResult<crate::typing::handle::MetadataPoolId> {
         let pool_id = crate::typing::handle::MetadataPoolId(self.typing_registry.pool_count() as u32);
-        let pool = crate::typing::loader::load_metadata_bundle(
-            pool_id,
-            metadata_bundle,
-            &phalcom_type_meta::validate::ValidationLimits::default(),
-        )?;
+        let pool = crate::typing::loader::load_metadata_bundle(pool_id, metadata_bundle, &phalcom_type_meta::validate::ValidationLimits::default())?;
         let registered = self.typing_registry.register_pool(pool);
         debug_assert_eq!(registered, pool_id);
         Ok(registered)

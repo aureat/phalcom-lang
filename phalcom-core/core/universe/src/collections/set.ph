@@ -1,7 +1,7 @@
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
 @native
-class Set<T> is Iterable {
+class Set<T> is Collection {
   @class @native new() -> Set
   @internal @native _$size -> Int
   @internal @native _$add(_ value: Dynamic) -> Dynamic

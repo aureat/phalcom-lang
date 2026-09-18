@@ -4,7 +4,7 @@
 // Product literals compile directly to native build bytecodes.
 
 @native
-class Tuple is Iterable {
+class Tuple is Collection {
   @class @internal @native _$fromList(_ value: List) -> Tuple
   @internal @native _$size -> Int
   @internal @native _$at(_ index: Int) -> Dynamic

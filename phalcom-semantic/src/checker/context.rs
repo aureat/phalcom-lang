@@ -910,9 +910,7 @@ impl<'a> CheckingContext<'a> {
                             &mut budget,
                             &self.control.cancellation,
                         );
-                        session.extract_and_normalize_projections(self.store, |store, ty| {
-                            crate::types::normalize_type(store, ty, &mut norm_context).type_id()
-                        })
+                        session.extract_and_normalize_projections(self.store, |store, ty| crate::types::normalize_type(store, ty, &mut norm_context).type_id())
                     };
                     match norm_progress {
                         Ok(changed) => {
@@ -2088,11 +2086,7 @@ impl<'a> CheckingContext<'a> {
                         right: specialize_term(self, right),
                     },
                     crate::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
-                        let new_args: Vec<TypeId> = trait_ref
-                            .arguments
-                            .iter()
-                            .map(|&arg| specialize_type(self, arg))
-                            .collect();
+                        let new_args: Vec<TypeId> = trait_ref.arguments.iter().map(|&arg| specialize_type(self, arg)).collect();
                         crate::types::parameter::GenericConstraint::Conforms {
                             subject: specialize_term(self, subject),
                             trait_ref: crate::traits::TraitRef::new(trait_ref.declaration.clone(), new_args.into_boxed_slice()),
@@ -2254,12 +2248,7 @@ impl<'a> CheckingContext<'a> {
         })))
     }
 
-    fn resolve_assumed_trait_target(
-        &mut self,
-        receiver: TypeId,
-        selector: &Selector,
-        side: DispatchSide,
-    ) -> Option<ResolvedDispatchResult> {
+    fn resolve_assumed_trait_target(&mut self, receiver: TypeId, selector: &Selector, side: DispatchSide) -> Option<ResolvedDispatchResult> {
         let mut assumed_candidates = Vec::new();
         for (key, _assumed) in self.generic_evidence.conformances() {
             let subject_matches = match &key.subject {
@@ -2318,13 +2307,11 @@ impl<'a> CheckingContext<'a> {
                 self.resolved_callables.insert(expression, callable.clone());
                 self.resolved_trait_dispatches.insert(
                     expression,
-                    crate::trait_dispatch::TraitDispatchSite::Assumed(
-                        crate::trait_dispatch::AssumedTraitDispatchSelection {
-                            conformance: conformance_key,
-                            requirement: member.requirement.clone(),
-                            signature: member.signature.clone(),
-                        },
-                    ),
+                    crate::trait_dispatch::TraitDispatchSite::Assumed(crate::trait_dispatch::AssumedTraitDispatchSelection {
+                        conformance: conformance_key,
+                        requirement: member.requirement.clone(),
+                        signature: member.signature.clone(),
+                    }),
                 );
             }
             Some(ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
@@ -2649,12 +2636,7 @@ impl<'a> CheckingContext<'a> {
 
     /// Resolves the canonical field signature for declaration-owned semantic
     /// elaboration while recording the same dependency as field reads.
-    pub(crate) fn resolve_field_signature(
-        &self,
-        owner: &DeclarationId,
-        side: DispatchSide,
-        name: &str,
-    ) -> Option<&crate::signature::FieldSemanticSignature> {
+    pub(crate) fn resolve_field_signature(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<&crate::signature::FieldSemanticSignature> {
         let field = crate::identity::FieldId::new(owner.clone(), name, side);
         let signature = self.field_signatures?.get(&field)?;
         if is_query_owned_module(&field.owner.module) {

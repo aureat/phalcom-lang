@@ -53,12 +53,9 @@ fn native_lifecycle_nested_dispatch_and_error_propagation() {
             (name, f),
         ] {
             let s = vm.get_or_intern(n);
-            let m = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
-                s,
-                SignatureKind::Method(0),
-                p,
-                class,
-            ))));
+            let m = vm
+                .heap
+                .alloc(Object::Method(Box::new(MethodObject::new_primitive(s, SignatureKind::Method(0), p, class))));
             vm.heap.class_mut(class).add_method(s, m);
         }
         let s = vm.get_or_intern(name);

@@ -878,7 +878,11 @@ fn hash_iteration_evidence(evidence: &crate::generic_evidence::GenericConformanc
                     0u8.hash(hasher);
                     exact_source.fingerprint.hash(hasher);
                 }
-                crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, exact_subject, exact_trait_ref } => {
+                crate::generic_evidence::DerivedConformanceOrigin::GuardedRule {
+                    rule,
+                    exact_subject,
+                    exact_trait_ref,
+                } => {
                     1u8.hash(hasher);
                     rule.fingerprint.hash(hasher);
                     exact_subject.hash(hasher);
@@ -902,10 +906,7 @@ fn hash_iteration_evidence(evidence: &crate::generic_evidence::GenericConformanc
     }
 }
 
-fn hash_iteration_requirement(
-    requirement: &crate::checker::analysis::ForIterationRequirementResolution,
-    hasher: &mut impl Hasher,
-) {
+fn hash_iteration_requirement(requirement: &crate::checker::analysis::ForIterationRequirementResolution, hasher: &mut impl Hasher) {
     match requirement {
         crate::checker::analysis::ForIterationRequirementResolution::Evidence {
             conformance,
@@ -927,10 +928,7 @@ fn hash_iteration_requirement(
     }
 }
 
-fn hash_iteration_lanes(
-    lanes: &crate::checker::analysis::ForIterationLaneResolutionIndex,
-    hasher: &mut impl Hasher,
-) {
+fn hash_iteration_lanes(lanes: &crate::checker::analysis::ForIterationLaneResolutionIndex, hasher: &mut impl Hasher) {
     lanes.len().hash(hasher);
     for (expression, lane) in lanes {
         expression.hash(hasher);

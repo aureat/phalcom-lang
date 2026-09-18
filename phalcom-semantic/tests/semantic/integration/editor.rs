@@ -71,7 +71,8 @@ fn editor_facade_fails_closed_for_unknown_receiver() {
 
 #[test]
 fn associated_type_declaration_and_binding_lhs_share_canonical_source_target() {
-    let source = "trait Iterable { type Item\n next -> Option<Self::Item> }\nclass Box {}\nimpl Iterable for Box { type Item = Int\n next -> Option<Int> { None } }\n";
+    let source =
+        "trait Iterable { type Item\n next -> Option<Self::Item> }\nclass Box {}\nimpl Iterable for Box { type Item = Int\n next -> Option<Int> { None } }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();

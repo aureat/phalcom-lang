@@ -4,7 +4,7 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 // observations preserve omitted endpoints. Stateful traversal is owned by
 // RangeIterator; the legacy cursor methods remain during the staged migration.
 @native
-class Range is Iterable {
+class Range is Collection {
   @internal @native _$lower -> Option<Number>
   @internal @native _$upper -> Option<Number>
   @internal @native _$upperInclusive -> Bool

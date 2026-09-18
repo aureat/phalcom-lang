@@ -98,9 +98,12 @@ fn applied_type_form_lowers_to_ordinary_class_object_reference() {
     let source = "let values = Set<Int>.new()";
     let (vm, program, closure) = compile_inline(source).expect("applied class-side construction should compile");
     let lowering = &program.modules[&program.entry].lowering;
-    assert!(lowering.type_form_values.values().any(|spec| {
-        matches!(spec, RuntimeTypeFormValueSpec::ClassObject { declaration } if declaration.name.as_ref() == "Set")
-    }));
+    assert!(
+        lowering
+            .type_form_values
+            .values()
+            .any(|spec| { matches!(spec, RuntimeTypeFormValueSpec::ClassObject { declaration } if declaration.name.as_ref() == "Set") })
+    );
 
     let chunk = &vm.heap.closure(closure).callable.chunk;
     assert!(matches!(chunk.code.first(), Some(Bytecode::GetLinked(_))));

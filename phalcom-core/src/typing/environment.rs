@@ -215,7 +215,21 @@ fn instantiate_type_ref(
             let loaded = registry.get_pool(pool)?;
             let entry = loaded.bundle.types.get(node.0 as usize)?;
             match &entry.form {
-                phalcom_type_meta::type_node::TypeNode::Parameter(param) => env.get(param),
+                phalcom_type_meta::type_node::TypeNode::Parameter(param) => {
+                    // The parameter is bound when the caller carried a reified type
+                    // environment (e.g. an InvokeSpecialized call threading T through).
+                    // When the parameter is *absent* the type argument has been erased at
+                    // this call site — e.g. a method on ListIterator<T> called via a plain
+                    // Invoke from a native List frame that never carries reified T.
+                    // Degrade to Dynamic: the correct erasure fallback. Dynamic dispatch is
+                    // always by selector, never by the value of a type argument, so the
+                    // missing binding does not affect correctness of the call itself.
+                    Some(env.get(param).unwrap_or_else(|| {
+                        context
+                            .overlay
+                            .type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Special("Dynamic".into()))
+                    }))
+                }
                 phalcom_type_meta::type_node::TypeNode::Nominal { .. }
                 | phalcom_type_meta::type_node::TypeNode::Never
                 | phalcom_type_meta::type_node::TypeNode::Unit => Some(ty),

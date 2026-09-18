@@ -179,7 +179,16 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["errors"],
         kind: ModuleKind::Package,
-        children: &["error", "result", "argument", "iteration", "indexing", "contracts", "unsupported", "unimplemented"],
+        children: &[
+            "error",
+            "result",
+            "argument",
+            "iteration",
+            "indexing",
+            "contracts",
+            "unsupported",
+            "unimplemented",
+        ],
     },
     UniverseNodeSpec {
         path: &["errors", "error"],
@@ -274,10 +283,10 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["collections"],
         kind: ModuleKind::Package,
-        children: &["iterable", "iterator_laws", "list", "map", "set", "tuple", "record", "range", "bytes"],
+        children: &["collection", "iterator_laws", "list", "map", "set", "tuple", "record", "range", "bytes"],
     },
     UniverseNodeSpec {
-        path: &["collections", "iterable"],
+        path: &["collections", "collection"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -627,8 +636,8 @@ impl UniverseSourceProvider {
                 include_str!("../../phalcom-core/core/universe/src/option/unit.ph")
             }
             [c] if c.as_str() == "collections" => include_str!("../../phalcom-core/core/universe/src/collections/package.ph"),
-            [c, m] if c.as_str() == "collections" && m.as_str() == "iterable" => {
-                include_str!("../../phalcom-core/core/universe/src/collections/iterable.ph")
+            [c, m] if c.as_str() == "collections" && m.as_str() == "collection" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/collection.ph")
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "iterator_laws" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/iterator_laws.ph")

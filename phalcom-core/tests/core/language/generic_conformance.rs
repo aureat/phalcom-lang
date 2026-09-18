@@ -187,10 +187,9 @@ let result = Discharger.display(user)
     )
     .expect("consumer source");
 
-    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(
-        phalcom_core::modules::compile::EntrySelection::Project(PathBuf::from(root)),
-    )
-    .expect("cross-module generic project compiles");
+    let program =
+        phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(phalcom_core::modules::compile::EntrySelection::Project(PathBuf::from(root)))
+            .expect("cross-module generic project compiles");
     let mut vm = phalcom_core::vm::VM::new();
     vm.run_compiled(&program).expect("cross-module generic project executes");
     let entry_id = program.initialization_order.last().expect("entry module");
@@ -270,10 +269,14 @@ let u = User.new()
 let c = Container.new(u)
 let res = c.show()
 "#;
-    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(
-        phalcom_core::modules::compile::EntrySelection::Inline(std::sync::Arc::from(source)),
-    ).expect("owner evidence lowering");
-    assert!(!program.modules[&program.entry].lowering.trait_requirement_invocations.is_empty(), "owner body requires canonical trait lowering");
+    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(phalcom_core::modules::compile::EntrySelection::Inline(
+        std::sync::Arc::from(source),
+    ))
+    .expect("owner evidence lowering");
+    assert!(
+        !program.modules[&program.entry].lowering.trait_requirement_invocations.is_empty(),
+        "owner body requires canonical trait lowering"
+    );
     let mut vm = vm_support::universe_vm();
     vm.run_compiled(&program).expect("owner generic evidence execution");
     let module = vm.module_registry.get(&program.entry).unwrap().object;

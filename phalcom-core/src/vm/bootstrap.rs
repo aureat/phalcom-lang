@@ -170,7 +170,8 @@ impl VM {
         // references can use linked reads just like native Universe bindings.
         vm.prepare_universe_source_bindings(canonical)?;
         if let Some(metadata_bundle) = canonical.program().semantic_metadata.clone() {
-            vm.install_semantic_metadata_bundle(metadata_bundle).map_err(crate::error::VmBootstrapError::Runtime)?;
+            vm.install_semantic_metadata_bundle(metadata_bundle)
+                .map_err(crate::error::VmBootstrapError::Runtime)?;
         }
 
         // Compile and run the registered universe modules now that every native
@@ -537,7 +538,7 @@ impl VM {
             let some_key = crate::vm::ClassKey { module: m, name: some_sym };
             self.sealed_classes.insert(some_key, m);
         }
-        add_class!(iterable_class);
+        add_class!(collection_class);
         add_class!(list_class);
         // `Map`/`Set` (ADR-0039, U-COLLTYPES Phase 1): ordinary class globals,
         // native heap arms mirroring `List`.

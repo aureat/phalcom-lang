@@ -216,7 +216,11 @@ class Caller { run(_ user: User) -> String { let f = &user.marker; f() } }
         panic!("expected bound family, got {:?}", resolution.kind);
     };
     assert!(matches!(spec, BehavioralFamilySpec::Exact(_)), "expected exact family, got {spec:?}");
-    assert_eq!(members.len(), 1, "exact trait reference should retain exactly one selected member: {members:#?}");
+    assert_eq!(
+        members.len(),
+        1,
+        "exact trait reference should retain exactly one selected member: {members:#?}"
+    );
     assert!(
         members[0].trait_dispatch.is_some(),
         "bound family member lost trait dispatch evidence: member={:#?}, expression_trait_dispatch={:#?}",
