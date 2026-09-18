@@ -2,7 +2,7 @@
 
 > **Status:** Draft normative specification  
 > **Semantic ownership:** Closure literal forms, lexical capture, Closure parameter restrictions, `self` and `super` capture, local return, and Closure activation.  
-> **Related specifications:** [Functions](functions.md), [Arguments and Parameters](arguments.md), [Execution Contexts](execution-contexts.md), [Dispatch](dispatch.md).
+> **Related specifications:** [Callable Values and Function](callable-values.md), [Arguments and Parameters](arguments.md), [Execution Contexts](execution-contexts.md), [Dispatch](dispatch.md).
 
 A `Closure` is a first-class `Function` containing executable code together with the lexical environment required by that code.
 
