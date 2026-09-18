@@ -47,6 +47,39 @@ pub struct ResolvedReceiver {
 pub struct AccessContext {
     pub enclosing_declaration: Option<DeclarationId>,
     pub enclosing_callable: Option<CallableId>,
+    pub caller_module: Option<ModuleId>,
+    pub caller_package: Option<ModuleId>,
+    pub caller_project: Option<phalcom_modules::ProjectIdentity>,
+}
+
+impl AccessContext {
+    pub fn new(enclosing_declaration: Option<DeclarationId>, enclosing_callable: Option<CallableId>) -> Self {
+        let caller_module = enclosing_declaration.as_ref().map(|d| d.module.clone());
+        let caller_project = caller_module.as_ref().map(|m| m.project);
+        Self {
+            enclosing_declaration,
+            enclosing_callable,
+            caller_module,
+            caller_package: None,
+            caller_project,
+        }
+    }
+
+    pub fn with_provenance(
+        enclosing_declaration: Option<DeclarationId>,
+        enclosing_callable: Option<CallableId>,
+        caller_module: Option<ModuleId>,
+        caller_package: Option<ModuleId>,
+        caller_project: Option<phalcom_modules::ProjectIdentity>,
+    ) -> Self {
+        Self {
+            enclosing_declaration,
+            enclosing_callable,
+            caller_module,
+            caller_package,
+            caller_project,
+        }
+    }
 }
 
 /// Canonical member target returned to protocol adapters.
@@ -430,14 +463,20 @@ impl<'a> EditorSemanticQuery<'a> {
     pub fn access_context_at(&self, module: &ModuleId, offset: usize) -> AccessContext {
         let owner = self.snapshot.source_site_at(module, offset).map(|site| &site.id.owner);
         match owner {
-            Some(SourceOwner::Callable(callable)) => AccessContext {
-                enclosing_declaration: callable.try_declaration_owner().cloned(),
-                enclosing_callable: Some(callable.clone()),
-            },
-            _ => AccessContext {
-                enclosing_declaration: None,
-                enclosing_callable: None,
-            },
+            Some(SourceOwner::Callable(callable)) => AccessContext::with_provenance(
+                callable.try_declaration_owner().cloned(),
+                Some(callable.clone()),
+                Some(module.clone()),
+                None,
+                Some(module.project),
+            ),
+            _ => AccessContext::with_provenance(
+                None,
+                None,
+                Some(module.clone()),
+                None,
+                Some(module.project),
+            ),
         }
     }
 
@@ -1078,7 +1117,14 @@ fn receiver_mode_for_shape(shape: &ValueShape) -> Option<ReceiverMode> {
     }
 }
 
-fn is_visible(hierarchy: &dyn TypeHierarchy, owner: &DeclarationId, visibility: MemberVisibility, access: &AccessContext) -> bool {
+/// Canonical accessibility checker for member lookup across checker and editor.
+pub fn is_member_accessible(
+    visibility: MemberVisibility,
+    owner: &DeclarationId,
+    declaration_package: Option<&ModuleId>,
+    access: &AccessContext,
+    hierarchy: &dyn TypeHierarchy,
+) -> bool {
     match visibility {
         MemberVisibility::Public => true,
         MemberVisibility::Private => access.enclosing_declaration.as_ref() == Some(owner),
@@ -1086,8 +1132,37 @@ fn is_visible(hierarchy: &dyn TypeHierarchy, owner: &DeclarationId, visibility: 
             .enclosing_declaration
             .as_ref()
             .is_some_and(|context| hierarchy.is_subclass(context, owner)),
-        MemberVisibility::Internal => access.enclosing_declaration.as_ref() == Some(owner),
+        MemberVisibility::Module => {
+            let caller_mod = access.caller_module.as_ref().or_else(|| {
+                access.enclosing_declaration.as_ref().map(|d| &d.module)
+            });
+            caller_mod == Some(&owner.module)
+        }
+        MemberVisibility::Package => {
+            if let (Some(caller_pkg), Some(decl_pkg)) = (access.caller_package.as_ref(), declaration_package) {
+                caller_pkg == decl_pkg
+            } else {
+                let caller_mod = access.caller_module.as_ref().or_else(|| {
+                    access.enclosing_declaration.as_ref().map(|d| &d.module)
+                });
+                caller_mod.map(|m| &m.project) == Some(&owner.module.project)
+                    && (caller_mod.map(|m| &m.path) == Some(&owner.module.path)
+                        || caller_mod.and_then(|m| m.path.parent()) == owner.module.path.parent())
+            }
+        }
+        MemberVisibility::Internal => {
+            let caller_proj = access.caller_project.or_else(|| {
+                access.caller_module.as_ref().map(|m| m.project).or_else(|| {
+                    access.enclosing_declaration.as_ref().map(|d| d.module.project)
+                })
+            });
+            caller_proj == Some(owner.module.project)
+        }
     }
+}
+
+fn is_visible(hierarchy: &dyn TypeHierarchy, owner: &DeclarationId, visibility: MemberVisibility, access: &AccessContext) -> bool {
+    is_member_accessible(visibility, owner, None, access, hierarchy)
 }
 
 fn member_sort_key(member: &EditorMember) -> (DeclarationId, String, u8) {

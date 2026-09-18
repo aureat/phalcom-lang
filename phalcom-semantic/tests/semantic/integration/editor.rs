@@ -26,10 +26,7 @@ fn editor_facade_returns_canonical_members_and_targets() {
 
     let members = snapshot.editor().members_for_receiver(
         &receiver,
-        &AccessContext {
-            enclosing_declaration: None,
-            enclosing_callable: None,
-        },
+        &AccessContext::new(None, None),
     );
     let value = CallableId::new(owner.clone(), Selector::method("value", []).unwrap(), DispatchSide::Instance);
     assert!(members.iter().any(|member| member.target == EditorMemberTarget::Callable(value.clone())));
@@ -60,10 +57,7 @@ fn editor_facade_fails_closed_for_unknown_receiver() {
             .editor()
             .members_for_receiver(
                 &receiver,
-                &AccessContext {
-                    enclosing_declaration: None,
-                    enclosing_callable: None,
-                }
+                &AccessContext::new(None, None),
             )
             .is_empty()
     );
@@ -133,10 +127,7 @@ class Caller { run(_ value: Value<Int>) -> String { value.tag } }
                 receiver_type: Some(receiver_type),
             }]),
         },
-        &AccessContext {
-            enclosing_declaration: None,
-            enclosing_callable: None,
-        },
+        &AccessContext::new(None, None),
     );
     let tag = members
         .iter()
@@ -186,10 +177,7 @@ class Caller { run(_ person: Person) -> String { person.name } }
                 receiver_type: Some(receiver_type),
             }]),
         },
-        &AccessContext {
-            enclosing_declaration: None,
-            enclosing_callable: None,
-        },
+        &AccessContext::new(None, None),
     );
     assert!(
         members

@@ -110,6 +110,20 @@ pub enum Token {
     TypeKw,
     /// The `match` keyword introducing pattern elimination expressions (Part 05.1).
     Match,
+    /// The `native` keyword introducing native declarations.
+    Native,
+    /// The `internal` keyword introducing project-internal visibility.
+    Internal,
+    /// The `private` keyword introducing lexical class visibility.
+    Private,
+    /// The `protected` keyword introducing subclass visibility.
+    Protected,
+    /// The `module` keyword introducing module visibility.
+    Module,
+    /// The `package` keyword introducing package visibility.
+    Package,
+    /// The `foreign` keyword introducing foreign declarations.
+    Foreign,
 
     /// An identifier lexeme, e.g. `foo` or a field name like `_bar`.
     Identifier(String),

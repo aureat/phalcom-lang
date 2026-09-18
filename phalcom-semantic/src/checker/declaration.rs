@@ -123,24 +123,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
 }
 
 fn member_visibility(member: &ClassMember) -> MemberVisibility {
-    let (name, attributes, is_field) = match member {
-        ClassMember::Method(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
-        ClassMember::Getter(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
-        ClassMember::Setter(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
-        ClassMember::Delegation(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
-        ClassMember::Field(item) => (Some(item.name.as_str()), item.attributes.as_slice(), true),
-        ClassMember::Variant(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
-        ClassMember::Index(item) => (None, item.attributes.as_slice(), false),
-    };
-    if name.is_some_and(|name| name.starts_with("_$")) {
-        MemberVisibility::Internal
-    } else if is_field || attributes.iter().any(|attribute| attribute.name == "private") {
-        MemberVisibility::Private
-    } else if attributes.iter().any(|attribute| attribute.name == "protected") {
-        MemberVisibility::Protected
-    } else {
-        MemberVisibility::Public
-    }
+    member.visibility()
 }
 
 fn check_field_initializer_against_declared(ctx: &mut CheckingContext<'_>, field: &phalcom_ast::ast::FieldDef, declared: &TypeKnowledge) {

@@ -1,7 +1,10 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::{ClassId, ObjRef, Object, is_strict_subclass, lookup_method_with_definer};
 use crate::interner::Symbol;
-use crate::method::{ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodKind, PrimitiveFn, SignatureKind, decode_selector};
+use crate::method::{
+    ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodKind, PrimitiveFn, RuntimeAccessOrigin,
+    SignatureKind, decode_selector,
+};
 use crate::value::Value;
 use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
@@ -30,7 +33,7 @@ impl VM {
         &mut self,
         behavior: ClassId,
         pattern_id: ObjRef,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<crate::heap::MethodFamilyObject> {
         let pattern = match self.heap.get(pattern_id) {
             Object::SelectorPattern(pattern) => pattern.pattern.clone(),
@@ -126,15 +129,29 @@ impl VM {
         self.frames.last().and_then(|frame| self.heap.closure(frame.closure).lexical_class)
     }
 
+    /// Derives the canonical runtime access origin for the current execution frame.
+    pub(crate) fn current_access_origin(&self) -> RuntimeAccessOrigin {
+        if let Some(context) = self.native_method_contexts.last() {
+            return context.origin;
+        }
+        let Some(frame) = self.frames.last() else {
+            return RuntimeAccessOrigin::none();
+        };
+        let closure_module = self.heap.closure(frame.closure).module;
+        self.access_origin_for_module(closure_module)
+    }
+
+    /// Combines current access class and access origin into a caller authority tuple.
+    pub(crate) fn current_caller_authority(&self) -> (Option<ClassId>, RuntimeAccessOrigin) {
+        (self.current_access_class(), self.current_access_origin())
+    }
+
     /// True only while executing code compiled from the bootstrap core module.
     /// Module-handle identity, rather than a mutable source name, is the
     /// authority boundary. Nested blocks retain their defining module.
     pub(crate) fn current_has_internal_privilege(&self) -> bool {
         if self.compiler_internal_dispatch_depth != 0 {
             return true;
-        }
-        if let Some(context) = self.native_method_contexts.last() {
-            return context.internal;
         }
         let Some(frame) = self.frames.last() else {
             return false;
@@ -195,7 +212,7 @@ impl VM {
     /// separate: an existing inaccessible selector is an access violation,
     /// never a `doesNotUnderstand` miss.
     pub fn authorize_method_access(&self, method: ObjRef) -> PhResult<()> {
-        self.authorize_method_access_as(method, self.current_access_class(), self.current_has_internal_privilege())
+        self.authorize_method_access_as(method, self.current_access_class(), self.current_access_origin())
     }
 
     /// Enforces visibility against an explicitly captured caller authority.
@@ -204,16 +221,31 @@ impl VM {
     /// lexical authority: `bound.call(...)` is authorized by the code that
     /// called `bound`, while sends made *inside* a primitive use its native
     /// method context.
-    pub(crate) fn authorize_method_access_as(&self, method: ObjRef, caller: Option<ClassId>, caller_internal: bool) -> PhResult<()> {
-        let (visibility, owner, selector) = {
+    pub(crate) fn authorize_method_access_as(
+        &self,
+        method: ObjRef,
+        caller: Option<ClassId>,
+        caller_origin: RuntimeAccessOrigin,
+    ) -> PhResult<()> {
+        let (visibility, owner, origin, selector) = {
             let method = self.heap.method(method);
-            (method.visibility, method.access_owner, method.signature.selector)
+            (method.visibility, method.access_owner, method.origin, method.signature.selector)
         };
         let allowed = match visibility {
             MemberVisibility::Public => true,
             MemberVisibility::Private => caller == owner,
-            MemberVisibility::Protected => owner.is_some_and(|owner| caller.is_some_and(|caller| self.is_subclass_of(caller, owner))),
-            MemberVisibility::Internal => caller_internal,
+            MemberVisibility::Protected => {
+                owner.is_some_and(|owner| caller.is_some_and(|caller| self.is_subclass_of(caller, owner)))
+            }
+            MemberVisibility::Module => caller_origin.module.is_some() && caller_origin.module == origin.module,
+            MemberVisibility::Package => caller_origin.package.is_some() && caller_origin.package == origin.package,
+            MemberVisibility::Internal => {
+                if self.compiler_internal_dispatch_depth != 0 {
+                    true
+                } else {
+                    caller_origin.project.is_some() && caller_origin.project == origin.project
+                }
+            }
         };
         if allowed {
             return Ok(());
@@ -222,6 +254,8 @@ impl VM {
         let category = match visibility {
             MemberVisibility::Private => "member.private_access",
             MemberVisibility::Protected => "member.protected_access",
+            MemberVisibility::Module => "member.module_access",
+            MemberVisibility::Package => "member.package_access",
             MemberVisibility::Internal => "internal.selector_access",
             MemberVisibility::Public => unreachable!("public methods are authorized"),
         };
@@ -245,7 +279,7 @@ impl VM {
         method: ObjRef,
         arity: usize,
         source_range: SourceRange,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<()> {
         self.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
         let kind = self.heap.method(method).kind;
@@ -267,7 +301,7 @@ impl VM {
                 self.native_class = Some(class_sym);
                 let native_context = crate::vm::NativeMethodContext {
                     access_owner: method_obj.access_owner.or(method_obj.holder),
-                    internal: true,
+                    origin: method_obj.origin,
                 };
                 let frames_before = self.frames.len();
                 self.switch_pending = false;
@@ -323,7 +357,7 @@ impl VM {
         layout: Option<InvocationLayout>,
         source_range: SourceRange,
     ) -> PhResult<()> {
-        let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
+        let caller_authority = self.current_caller_authority();
         self.call_method_with_selector_as(callee, method, arity, selector, layout, source_range, caller_authority)
     }
 
@@ -338,7 +372,7 @@ impl VM {
         selector: Symbol,
         layout: Option<InvocationLayout>,
         source_range: SourceRange,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<()> {
         self.call_method_with_selector_as_and_environment(
             callee,
@@ -361,7 +395,7 @@ impl VM {
         selector: Symbol,
         layout: Option<InvocationLayout>,
         source_range: SourceRange,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
         type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
     ) -> PhResult<()> {
         self.call_method_with_selector_as_and_environments(
@@ -386,7 +420,7 @@ impl VM {
         selector: Symbol,
         layout: Option<InvocationLayout>,
         source_range: SourceRange,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
         type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
         conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
     ) -> PhResult<()> {
@@ -431,7 +465,7 @@ impl VM {
                 self.native_class = Some(self.interner.intern(&class_name));
                 self.native_method_contexts.push(crate::vm::NativeMethodContext {
                     access_owner: method_obj.access_owner.or(method_obj.holder),
-                    internal: true,
+                    origin: method_obj.origin,
                 });
                 self.switch_pending = false;
                 let frames_before = self.frames.len();
@@ -486,7 +520,7 @@ impl VM {
         selector: Symbol,
         layout: Option<InvocationLayout>,
         source_range: SourceRange,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<CallOutcome> {
         self.dispatch_selected_method_as_with_environments(
             callee,
@@ -510,7 +544,7 @@ impl VM {
         selector: Symbol,
         layout: Option<InvocationLayout>,
         source_range: SourceRange,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
         type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
         conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
     ) -> PhResult<CallOutcome> {
@@ -542,7 +576,7 @@ impl VM {
         selector: Symbol,
         layout: InvocationLayout,
         source_range: SourceRange,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<CallOutcome> {
         let receiver = self.stack[receiver_idx];
         let before = self.frames.len();
@@ -595,7 +629,7 @@ impl VM {
         selector: Symbol,
         layout: InvocationLayout,
         source_range: SourceRange,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<CallOutcome> {
         let receiver = self.stack[receiver_idx];
         let (_, _, kind) = decode_selector(self.resolve_symbol(selector));
@@ -1381,7 +1415,7 @@ impl VM {
 
     /// Forwards a missed send to the receiver's `doesNotUnderstand(_)`
     pub(super) fn forward_does_not_understand(&mut self, receiver_idx: usize, selector: Symbol, source_range: SourceRange) -> PhResult<()> {
-        let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
+        let caller_authority = self.current_caller_authority();
         self.forward_does_not_understand_as(receiver_idx, selector, source_range, caller_authority)
     }
 
@@ -1391,7 +1425,7 @@ impl VM {
         receiver_idx: usize,
         selector: Symbol,
         source_range: SourceRange,
-        caller_authority: (Option<ClassId>, bool),
+        caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<()> {
         let receiver = self.stack[receiver_idx];
         let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
@@ -1425,7 +1459,7 @@ impl VM {
             selector,
             layout,
             SourceRange::default(),
-            (self.current_access_class(), self.current_has_internal_privilege()),
+            self.current_caller_authority(),
         )?;
         self.check_native_reentry()?;
         self.native_reentry_depth += 1;
@@ -1460,7 +1494,7 @@ impl VM {
             }
             .into());
         }
-        let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
+        let caller_authority = self.current_caller_authority();
         self.authorize_method_access_as(method_id, caller_authority.0, caller_authority.1)?;
 
         let receiver_idx = self.stack.len();
@@ -1563,7 +1597,7 @@ impl VM {
         self.stack[receiver_idx] = target_val;
         let call_selector = crate::method::encode_selector("call", &slots, kind);
         let call_sym = self.get_or_intern(&call_selector);
-        let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
+        let caller_authority = self.current_caller_authority();
 
         if let Some(method) = target_val.lookup_method(self, call_sym) {
             if let Some(recipe) = call_environment {

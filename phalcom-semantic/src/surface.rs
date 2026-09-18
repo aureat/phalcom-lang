@@ -84,18 +84,8 @@ impl MemberSurface {
 }
 
 /// Source visibility published with compiler-owned member surfaces.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum MemberVisibility {
-    /// Public member visible from every receiver context.
-    #[default]
-    Public,
-    /// Member visible only from its defining class.
-    Private,
-    /// Member visible from its defining class and subclasses.
-    Protected,
-    /// Core/internal member visible only to privileged consumers.
-    Internal,
-}
+pub use phalcom_common::modifier::Visibility as MemberVisibility;
+pub use phalcom_common::modifier::Visibility;
 
 /// Published semantic surface for a module or class declaration containing both instance and class surfaces.
 #[derive(Clone, Debug, Default)]

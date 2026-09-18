@@ -24,6 +24,10 @@ Program {
                             name: "x",
                             generic_parameters: [],
                             params: [],
+                            visibility: Public,
+                            visibility_range: None,
+                            implementation: Phalcom,
+                            implementation_range: None,
                             return_annotation: None,
                             where_clause: None,
                             body: Block(
@@ -76,6 +80,8 @@ Program {
                 ],
                 attributes: [],
                 invariants: [],
+                implementation: Phalcom,
+                implementation_range: None,
                 range: CopyRange {
                     start: 0,
                     end: 48,

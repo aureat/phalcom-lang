@@ -102,6 +102,32 @@ impl InvocationLayout {
     }
 }
 
+/// Runtime access origin representing the defining module, owning package, and project.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct RuntimeAccessOrigin {
+    pub module: Option<ObjRef>,
+    pub package: Option<ObjRef>,
+    pub project: Option<phalcom_modules::ProjectIdentity>,
+}
+
+impl RuntimeAccessOrigin {
+    pub const fn universe() -> Self {
+        Self {
+            module: None,
+            package: None,
+            project: Some(phalcom_modules::ProjectIdentity::Universe),
+        }
+    }
+
+    pub const fn none() -> Self {
+        Self {
+            module: None,
+            package: None,
+            project: None,
+        }
+    }
+}
+
 /// A compact, non-borrowing view of the current argument window.
 ///
 /// `labels` is always pre-decoded: it is populated at the call site from the
@@ -114,12 +140,12 @@ pub struct ArgumentView {
     receiver_index: usize,
     layout: InvocationLayout,
     caller_access: Option<ClassId>,
-    caller_internal: bool,
+    caller_origin: RuntimeAccessOrigin,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ArgumentView, InvocationLayout};
+    use super::{ArgumentView, InvocationLayout, RuntimeAccessOrigin};
     use crate::interner::Symbol;
     use crate::value::Value;
     use crate::vm::VM;
@@ -128,7 +154,7 @@ mod tests {
     fn argument_view_keeps_labeled_and_setter_offsets_independent() {
         let mut vm = VM::new();
         vm.stack = vec![Value::nil(), Value::int(10), Value::int(20), Value::bool(true), Value::int(99)];
-        let view = ArgumentView::from_layout(0, InvocationLayout::setter(2, Box::new([Symbol(7)])), None, false);
+        let view = ArgumentView::from_layout(0, InvocationLayout::setter(2, Box::new([Symbol(7)])), None, RuntimeAccessOrigin::none());
 
         assert_eq!(view.positional(&vm, 0), Some(Value::int(10)));
         assert_eq!(view.positional(&vm, 1), Some(Value::int(20)));
@@ -145,13 +171,13 @@ impl ArgumentView {
         structural_positionals: usize,
         labels: Box<[Symbol]>,
         caller_access: Option<ClassId>,
-        caller_internal: bool,
+        caller_origin: RuntimeAccessOrigin,
     ) -> Self {
         Self::from_layout(
             receiver_index,
             InvocationLayout::ordinary(structural_positionals, labels),
             caller_access,
-            caller_internal,
+            caller_origin,
         )
     }
 
@@ -161,23 +187,30 @@ impl ArgumentView {
         structural_positionals: usize,
         labels: Box<[Symbol]>,
         caller_access: Option<ClassId>,
-        caller_internal: bool,
+        caller_origin: RuntimeAccessOrigin,
     ) -> Self {
         Self::from_layout(
             receiver_index,
             InvocationLayout::setter(structural_positionals, labels),
             caller_access,
-            caller_internal,
+            caller_origin,
         )
     }
 
     /// Builds a view from an explicit invocation layout.
-    pub(crate) fn from_layout(receiver_index: usize, layout: InvocationLayout, caller_access: Option<ClassId>, caller_internal: bool) -> Self {
+    pub(crate) fn from_layout(
+        receiver_index: usize,
+        layout: InvocationLayout,
+        caller_access: Option<ClassId>,
+        caller_origin: RuntimeAccessOrigin,
+    ) -> Self {
         Self {
             receiver_index,
             layout,
             caller_access,
-            caller_internal,
+            caller_origin,
+        }
+    }
         }
     }
 
@@ -242,8 +275,18 @@ impl ArgumentView {
     }
 
     /// Returns the caller authority captured before entering the native gateway.
-    pub(crate) fn caller_authority(&self) -> (Option<ClassId>, bool) {
-        (self.caller_access, self.caller_internal)
+    pub(crate) fn caller_authority(&self) -> (Option<ClassId>, RuntimeAccessOrigin) {
+        (self.caller_access, self.caller_origin)
+    }
+
+    /// Returns the caller access class if known.
+    pub(crate) fn caller_access(&self) -> Option<ClassId> {
+        self.caller_access
+    }
+
+    /// Returns the caller runtime access origin.
+    pub(crate) fn caller_origin(&self) -> RuntimeAccessOrigin {
+        self.caller_origin
     }
 
     /// Returns a view with a newly resolved selector and invocation layout.
@@ -252,7 +295,7 @@ impl ArgumentView {
             receiver_index: self.receiver_index,
             layout,
             caller_access: self.caller_access,
-            caller_internal: self.caller_internal,
+            caller_origin: self.caller_origin,
         }
     }
 
@@ -315,6 +358,8 @@ pub struct MethodObject {
     pub visibility: super::MemberVisibility,
     /// Lexical source class controlling @private/@protected access.
     pub access_owner: Option<ClassId>,
+    /// Runtime access origin for module/package/internal visibility.
+    pub origin: RuntimeAccessOrigin,
     /// Reflectable `@requires`/`@ensures` predicate metadata (U-ANNOT-CONTRACTS
     /// plan §3.5 "Contracts are reflectable", D-contract-1).
     ///
@@ -352,9 +397,12 @@ impl MethodObject {
             holder,
             visibility: super::MemberVisibility::Public,
             access_owner: holder,
+            origin: RuntimeAccessOrigin::none(),
             contracts: None,
             attributes: Vec::new(),
             attributes_frozen: false,
+        }
+    }
         }
     }
 

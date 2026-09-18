@@ -1122,6 +1122,9 @@ dependencies = [
 [[package]]
 name = "phalcom-native-meta"
 version = "0.1.0"
+dependencies = [
+ "phalcom-common",
+]
 
 [[package]]
 name = "phalcom-native-surface"

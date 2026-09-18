@@ -90,7 +90,7 @@ pub fn method_family_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
 /// Returns [`RuntimeError::Type`] for a non-family receiver or non-symbol
 /// selector, and [`RuntimeError::Arity`] when the selector is missing.
 pub fn method_family_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let caller_authority = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let caller_authority = vm.current_caller_authority();
     method_family_method_for_as(vm, receiver, args, caller_authority)
 }
 
@@ -113,7 +113,12 @@ pub fn method_family_method_for_shape(vm: &mut VM, receiver: Value, args: Argume
     Ok(CallOutcome::Returned(value))
 }
 
-fn method_family_method_for_as(vm: &mut VM, receiver: &Value, args: &[Value], caller_authority: (Option<crate::heap::ClassId>, bool)) -> PhResult<Value> {
+fn method_family_method_for_as(
+    vm: &mut VM,
+    receiver: &Value,
+    args: &[Value],
+    caller_authority: (Option<crate::heap::ClassId>, crate::method::RuntimeAccessOrigin),
+) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
     let selector = match args.first() {
         Some(arg) => match arg.symbol_value() {

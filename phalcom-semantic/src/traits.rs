@@ -509,16 +509,8 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
     surface
 }
 
-fn trait_property_visibility(property: &TraitPropertyRequirement) -> MemberVisibility {
-    if property.name.starts_with("_$") {
-        MemberVisibility::Internal
-    } else if property.attributes.iter().any(|attribute| attribute.name == "private") {
-        MemberVisibility::Private
-    } else if property.attributes.iter().any(|attribute| attribute.name == "protected") {
-        MemberVisibility::Protected
-    } else {
-        MemberVisibility::Public
-    }
+fn trait_property_visibility(_property: &TraitPropertyRequirement) -> MemberVisibility {
+    MemberVisibility::Public
 }
 
 fn trait_property_signature(
@@ -570,22 +562,7 @@ fn trait_property_signature(
 }
 
 pub(crate) fn behavior_member_visibility(member: &BehaviorMember) -> MemberVisibility {
-    let name = match member {
-        BehaviorMember::Method(method) => Some(method.name.as_str()),
-        BehaviorMember::Getter(getter) => Some(getter.name.as_str()),
-        BehaviorMember::Setter(setter) => Some(setter.name.as_str()),
-        BehaviorMember::Index(_) => None,
-    };
-    let attributes = member.attributes();
-    if name.is_some_and(|name| name.starts_with("_$")) {
-        MemberVisibility::Internal
-    } else if attributes.iter().any(|attribute| attribute.name == "private") {
-        MemberVisibility::Private
-    } else if attributes.iter().any(|attribute| attribute.name == "protected") {
-        MemberVisibility::Protected
-    } else {
-        MemberVisibility::Public
-    }
+    member.visibility()
 }
 
 impl TraitRequirementId {

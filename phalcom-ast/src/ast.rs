@@ -7,6 +7,7 @@
 //! `??`/`?.` are desugared to ordinary `Option` message sends by the parser
 //! (see [`crate::parser`]).
 
+pub use phalcom_common::modifier::{ImplementationKind, Visibility};
 pub use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot};
 
@@ -262,6 +263,8 @@ pub struct ClassDef {
     /// method, woven receiver-scoped per
     /// [ADR-0052](../../../docs/adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
     pub invariants: Vec<(Expr, SourceRange)>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
     pub range: SourceRange,
     /// The source span of just the class name identifier (e.g. the `Foo` in
     /// `class Foo is Bar { … }`), distinct from [`Self::range`]'s
@@ -290,6 +293,8 @@ pub struct EnumDef {
     pub where_clause: Option<WhereClauseSyntax>,
     pub variants: Vec<VariantDecl>,
     pub attributes: Vec<Attribute>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
     pub range: SourceRange,
 }
 
@@ -471,6 +476,42 @@ impl BehaviorMember {
             BehaviorMember::Index(i) => i.name_range,
         }
     }
+
+    pub fn visibility(&self) -> Visibility {
+        match self {
+            BehaviorMember::Method(m) => m.visibility,
+            BehaviorMember::Getter(g) => g.visibility,
+            BehaviorMember::Setter(s) => s.visibility,
+            BehaviorMember::Index(i) => i.visibility,
+        }
+    }
+
+    pub fn visibility_range(&self) -> Option<SourceRange> {
+        match self {
+            BehaviorMember::Method(m) => m.visibility_range,
+            BehaviorMember::Getter(g) => g.visibility_range,
+            BehaviorMember::Setter(s) => s.visibility_range,
+            BehaviorMember::Index(i) => i.visibility_range,
+        }
+    }
+
+    pub fn implementation(&self) -> ImplementationKind {
+        match self {
+            BehaviorMember::Method(m) => m.implementation,
+            BehaviorMember::Getter(g) => g.implementation,
+            BehaviorMember::Setter(s) => s.implementation,
+            BehaviorMember::Index(i) => i.implementation,
+        }
+    }
+
+    pub fn implementation_range(&self) -> Option<SourceRange> {
+        match self {
+            BehaviorMember::Method(m) => m.implementation_range,
+            BehaviorMember::Getter(g) => g.implementation_range,
+            BehaviorMember::Setter(s) => s.implementation_range,
+            BehaviorMember::Index(i) => i.implementation_range,
+        }
+    }
 }
 
 /// The semantic shape selected by the shared `impl` declaration syntax.
@@ -619,6 +660,8 @@ pub enum BuiltinAttr {
     Protected,
     Total,
     Internal,
+    Primitive,
+    Intrinsic,
 }
 
 impl BuiltinAttr {
@@ -641,6 +684,8 @@ impl BuiltinAttr {
         BuiltinAttr::Protected,
         BuiltinAttr::Total,
         BuiltinAttr::Internal,
+        BuiltinAttr::Primitive,
+        BuiltinAttr::Intrinsic,
     ];
 
     pub fn name(&self) -> &'static str {
@@ -663,6 +708,8 @@ impl BuiltinAttr {
             BuiltinAttr::Protected => "protected",
             BuiltinAttr::Total => "total",
             BuiltinAttr::Internal => "internal",
+            BuiltinAttr::Primitive => "primitive",
+            BuiltinAttr::Intrinsic => "intrinsic",
         }
     }
 
@@ -686,6 +733,8 @@ impl BuiltinAttr {
             "protected" => Some(BuiltinAttr::Protected),
             "total" => Some(BuiltinAttr::Total),
             "internal" => Some(BuiltinAttr::Internal),
+            "primitive" => Some(BuiltinAttr::Primitive),
+            "intrinsic" => Some(BuiltinAttr::Intrinsic),
             _ => None,
         }
     }
@@ -1093,6 +1142,54 @@ impl ClassMember {
             ClassMember::Field(f) => f.name_range,
         }
     }
+
+    pub fn visibility(&self) -> Visibility {
+        match self {
+            ClassMember::Method(m) => m.visibility,
+            ClassMember::Getter(g) => g.visibility,
+            ClassMember::Setter(s) => s.visibility,
+            ClassMember::Delegation(_) => Visibility::Public,
+            ClassMember::Index(i) => i.visibility,
+            ClassMember::Variant(_) => Visibility::Public,
+            ClassMember::Field(f) => f.visibility,
+        }
+    }
+
+    pub fn visibility_range(&self) -> Option<SourceRange> {
+        match self {
+            ClassMember::Method(m) => m.visibility_range,
+            ClassMember::Getter(g) => g.visibility_range,
+            ClassMember::Setter(s) => s.visibility_range,
+            ClassMember::Delegation(_) => None,
+            ClassMember::Index(i) => i.visibility_range,
+            ClassMember::Variant(_) => None,
+            ClassMember::Field(f) => f.visibility_range,
+        }
+    }
+
+    pub fn implementation(&self) -> ImplementationKind {
+        match self {
+            ClassMember::Method(m) => m.implementation,
+            ClassMember::Getter(g) => g.implementation,
+            ClassMember::Setter(s) => s.implementation,
+            ClassMember::Delegation(_) => ImplementationKind::Phalcom,
+            ClassMember::Index(i) => i.implementation,
+            ClassMember::Variant(_) => ImplementationKind::Phalcom,
+            ClassMember::Field(_) => ImplementationKind::Phalcom,
+        }
+    }
+
+    pub fn implementation_range(&self) -> Option<SourceRange> {
+        match self {
+            ClassMember::Method(m) => m.implementation_range,
+            ClassMember::Getter(g) => g.implementation_range,
+            ClassMember::Setter(s) => s.implementation_range,
+            ClassMember::Delegation(_) => None,
+            ClassMember::Index(i) => i.implementation_range,
+            ClassMember::Variant(_) => None,
+            ClassMember::Field(_) => None,
+        }
+    }
 }
 
 /// A bracket-delimited subscript method definition — `[_ idx] { ... }` /
@@ -1120,6 +1217,10 @@ pub struct IndexMethodDef {
     /// Generic parameter binders for this index member.
     pub generic_parameters: Vec<GenericParameterSyntax>,
     pub accessor: IndexAccessor,
+    pub visibility: Visibility,
+    pub visibility_range: Option<SourceRange>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this index member.
     pub where_clause: Option<WhereClauseSyntax>,
@@ -1202,6 +1303,8 @@ pub struct FieldDef {
     pub mutable: bool,
     /// Whether field storage belongs to declaring class object (`@class`).
     pub is_static: bool,
+    pub visibility: Visibility,
+    pub visibility_range: Option<SourceRange>,
     /// Explicit type annotation, if provided.
     pub annotation: Option<TypeAnnotation>,
     /// The field's default-value expression (`= expr`), or `None` if the
@@ -1304,6 +1407,10 @@ pub struct MethodDef {
     /// Generic parameter binders for this method (Spec 04).
     pub generic_parameters: Vec<GenericParameterSyntax>,
     pub params: Vec<ParameterDef>,
+    pub visibility: Visibility,
+    pub visibility_range: Option<SourceRange>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this method (Spec 04).
     pub where_clause: Option<WhereClauseSyntax>,
@@ -1330,6 +1437,10 @@ pub struct GetterDef {
     pub name: String,
     /// Generic parameter binders for this getter (Spec 04).
     pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub visibility: Visibility,
+    pub visibility_range: Option<SourceRange>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this getter (Spec 04).
     pub where_clause: Option<WhereClauseSyntax>,
@@ -1352,6 +1463,10 @@ pub struct SetterDef {
     /// Generic parameter binders for this setter.
     pub generic_parameters: Vec<GenericParameterSyntax>,
     pub param: ParameterDef,
+    pub visibility: Visibility,
+    pub visibility_range: Option<SourceRange>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this setter.
     pub where_clause: Option<WhereClauseSyntax>,

@@ -88,7 +88,7 @@ pub fn behavior_extract(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
         expected: 1,
         found: 0,
     })?;
-    let caller_authority = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let caller_authority = vm.current_caller_authority();
     behavior_extract_as(vm, behavior, rhs, caller_authority)
 }
 
@@ -107,7 +107,12 @@ pub fn behavior_extract_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
     Ok(CallOutcome::Returned(value))
 }
 
-fn behavior_extract_as(vm: &mut VM, behavior: crate::heap::ClassId, rhs: &Value, caller_authority: (Option<crate::heap::ClassId>, bool)) -> PhResult<Value> {
+fn behavior_extract_as(
+    vm: &mut VM,
+    behavior: crate::heap::ClassId,
+    rhs: &Value,
+    caller_authority: (Option<crate::heap::ClassId>, crate::method::RuntimeAccessOrigin),
+) -> PhResult<Value> {
     if let Some(selector) = rhs.symbol_value() {
         if let Some(method) = lookup_method_in_hierarchy(&vm.heap, behavior, selector) {
             vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;

@@ -263,6 +263,35 @@ impl ModuleTopology {
         }
         None
     }
+
+    /// Returns the nearest owning package for a given module according to canonical topology.
+    ///
+    /// Rules:
+    /// - package.ph module (`ModuleKind::Package`) owns itself.
+    /// - ordinary module resolves to nearest enclosing package node in topology.
+    /// - if no nested package is found up the ancestor chain, resolves to the project root (`ModulePath::root()`).
+    pub fn owning_package(&self, module: &ModuleId) -> ModuleId {
+        if let Some(node) = self.nodes.get(module) {
+            if node.kind == ModuleKind::Package {
+                return module.clone();
+            }
+            let mut curr = node.parent.clone();
+            while let Some(parent_id) = curr {
+                if let Some(parent_node) = self.nodes.get(&parent_id) {
+                    if parent_node.kind == ModuleKind::Package {
+                        return parent_id;
+                    }
+                    curr = parent_node.parent.clone();
+                } else {
+                    break;
+                }
+            }
+        }
+        ModuleId {
+            project: module.project,
+            path: ModulePath::root(),
+        }
+    }
 }
 
 fn compute_topology_fingerprint(

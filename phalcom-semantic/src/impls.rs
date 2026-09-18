@@ -1114,7 +1114,9 @@ fn witness_visibility_covers(required: MemberVisibility, candidate: MemberVisibi
         (MemberVisibility::Public, MemberVisibility::Public)
         | (MemberVisibility::Protected, MemberVisibility::Public | MemberVisibility::Protected)
         | (MemberVisibility::Private, MemberVisibility::Public | MemberVisibility::Protected | MemberVisibility::Private)
-        | (MemberVisibility::Internal, MemberVisibility::Internal) => true,
+        | (MemberVisibility::Internal, MemberVisibility::Internal)
+        | (MemberVisibility::Module, MemberVisibility::Public | MemberVisibility::Module)
+        | (MemberVisibility::Package, MemberVisibility::Public | MemberVisibility::Package) => true,
         _ => false,
     }
 }
@@ -3497,21 +3499,7 @@ pub fn build_effective_surface(
 
 /// Calculates visibility for a behavior member.
 pub fn behavior_member_visibility(member: &BehaviorMember) -> MemberVisibility {
-    let (name, attributes) = match member {
-        BehaviorMember::Method(item) => (Some(item.name.as_str()), item.attributes.as_slice()),
-        BehaviorMember::Getter(item) => (Some(item.name.as_str()), item.attributes.as_slice()),
-        BehaviorMember::Setter(item) => (Some(item.name.as_str()), item.attributes.as_slice()),
-        BehaviorMember::Index(item) => (None, item.attributes.as_slice()),
-    };
-    if name.is_some_and(|name| name.starts_with("_$")) {
-        MemberVisibility::Internal
-    } else if attributes.iter().any(|attribute| attribute.name == "private") {
-        MemberVisibility::Private
-    } else if attributes.iter().any(|attribute| attribute.name == "protected") {
-        MemberVisibility::Protected
-    } else {
-        MemberVisibility::Public
-    }
+    member.visibility()
 }
 
 /// Recursively collects all type parameters owned by `impl_id` in a `TypeId`.

@@ -7,18 +7,13 @@
 
 mod object;
 
-pub use object::{ArgumentView, CallOutcome, InvocationLayout, LegacyPrimitiveFn, MethodKind, MethodObject, PrimitiveFn};
+pub use object::{ArgumentView, CallOutcome, InvocationLayout, LegacyPrimitiveFn, MethodKind, MethodObject, PrimitiveFn, RuntimeAccessOrigin};
 
 use crate::interner::Symbol;
 use phalcom_common::selector as common_selector;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MemberVisibility {
-    Public,
-    Private,
-    Protected,
-    Internal,
-}
+pub use phalcom_common::modifier::Visibility as MemberVisibility;
+pub use phalcom_common::modifier::Visibility;
 
 /// The shape of a selector: what kind of message it names and its arity.
 #[repr(u8)]

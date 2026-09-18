@@ -473,6 +473,13 @@ impl<'input> Lexer<'input> {
                 "where" => Token::Where,
                 "type" => Token::TypeKw,
                 "match" => Token::Match,
+                "native" => Token::Native,
+                "internal" => Token::Internal,
+                "private" => Token::Private,
+                "protected" => Token::Protected,
+                "module" => Token::Module,
+                "package" => Token::Package,
+                "foreign" => Token::Foreign,
                 _ => Token::Identifier(slice.to_string()),
             });
         }

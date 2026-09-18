@@ -9,11 +9,8 @@ pub enum NativeDispatch {
     Class,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub enum NativeVisibility {
-    Public,
-    Internal,
-}
+pub use phalcom_common::modifier::Visibility as NativeVisibility;
+pub use phalcom_common::modifier::Visibility;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum NativeStability {

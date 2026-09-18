@@ -136,7 +136,7 @@ impl VM {
             selector,
             layout,
             source_range,
-            (self.current_access_class(), self.current_has_internal_privilege()),
+            self.current_caller_authority(),
         )
         .map(|_| ())
     }
@@ -180,7 +180,7 @@ impl VM {
         positional_count: usize,
         labels: &[Symbol],
         source_range: SourceRange,
-        caller_authority: (Option<crate::heap::ClassId>, bool),
+        caller_authority: (Option<crate::heap::ClassId>, crate::method::RuntimeAccessOrigin),
     ) -> PhResult<()> {
         let layout = self.heap.method(method).signature.rest.clone().expect("rest lookup only returns rest methods");
         let total = self.stack.len() - receiver_idx - 1;
@@ -262,7 +262,7 @@ impl VM {
         selector: Symbol,
         source_range: SourceRange,
     ) -> PhResult<()> {
-        let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
+        let caller_authority = self.current_caller_authority();
         self.activate_rest_method_as(
             receiver,
             method,
@@ -285,7 +285,7 @@ impl VM {
         labels: &[Symbol],
         selector: Symbol,
         source_range: SourceRange,
-        caller_authority: (Option<crate::heap::ClassId>, bool),
+        caller_authority: (Option<crate::heap::ClassId>, crate::method::RuntimeAccessOrigin),
     ) -> PhResult<()> {
         let total = self.stack.len() - receiver_idx - 1;
         if matches!(
@@ -1204,7 +1204,7 @@ impl VM {
             selector,
             Some(layout),
             callable.chunk.span_at(self.frames.last().map(|frame| frame.ip.saturating_sub(1)).unwrap_or(0)),
-            (self.current_access_class(), self.current_has_internal_privilege()),
+            self.current_caller_authority(),
             type_environment,
             conformance_environment,
         )
@@ -1250,7 +1250,7 @@ impl VM {
             selector,
             Some(layout),
             callable.chunk.span_at(self.frames.last().map(|frame| frame.ip.saturating_sub(1)).unwrap_or(0)),
-            (self.current_access_class(), self.current_has_internal_privilege()),
+            self.current_caller_authority(),
             type_environment,
             method_conf_env,
         )
@@ -1290,7 +1290,7 @@ impl VM {
                 selector_sym,
                 layout.clone(),
                 callable.chunk.span_at(cache_ip),
-                (self.current_access_class(), self.current_has_internal_privilege()),
+                self.current_caller_authority(),
             )?;
             return Ok(());
         }
@@ -1338,7 +1338,7 @@ impl VM {
                     selector_sym,
                     Some(layout.clone()),
                     source_range,
-                    (self.current_access_class(), self.current_has_internal_privilege()),
+                    self.current_caller_authority(),
                     type_environment,
                     conformance_environment,
                 )?;
@@ -1363,7 +1363,7 @@ impl VM {
                     selector_sym,
                     Some(layout.clone()),
                     source_range,
-                    (self.current_access_class(), self.current_has_internal_privilege()),
+                    self.current_caller_authority(),
                     type_environment,
                     conformance_environment,
                 )?;

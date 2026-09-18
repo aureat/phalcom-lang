@@ -21,6 +21,8 @@ Program {
                 members: [],
                 attributes: [],
                 invariants: [],
+                implementation: Phalcom,
+                implementation_range: None,
                 range: CopyRange {
                     start: 0,
                     end: 14,

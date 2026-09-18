@@ -11,7 +11,6 @@ use std::collections::{BTreeMap, BTreeSet};
 fn component(name: &str) -> ModuleComponent {
     ModuleComponent::from_identifier(name).expect("valid module component")
 }
-
 fn path(name: &str) -> ModulePath {
     ModulePath::from_components(vec![component(name)])
 }
@@ -329,4 +328,155 @@ fn import_resolution_product_deterministic_fingerprint() {
     };
     let prod3 = ImportResolutionProduct::new(site, written, prefixes, Ok(other_target), other_deps);
     assert_ne!(prod1.fingerprint, prod3.fingerprint);
+}
+
+#[test]
+fn owning_package_derivation_rules() {
+    let universe = ProjectUniverse::new();
+    let root_pkg = ModuleId::universe(ModulePath::root());
+    let sub_pkg = ModuleId::universe(path("sub"));
+    let mod_in_root = ModuleId::universe(path("utils"));
+    let mod_in_sub = ModuleId::universe(ModulePath::from_components(vec![component("sub"), component("helper")]));
+    let nested_sub_pkg = ModuleId::universe(ModulePath::from_components(vec![component("sub"), component("nested")]));
+    let mod_in_nested = ModuleId::universe(ModulePath::from_components(vec![
+        component("sub"),
+        component("nested"),
+        component("deep"),
+    ]));
+
+    let mut unlinked = BTreeMap::new();
+    unlinked.insert(
+        root_pkg.clone(),
+        UnlinkedModuleInterface {
+            id: root_pkg.clone(),
+            kind: ModuleKind::Package,
+            declarations: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            imports: Vec::new(),
+            exposed_children: BTreeSet::new(),
+            metadata: ModuleMetadata::default(),
+        },
+    );
+    unlinked.insert(
+        sub_pkg.clone(),
+        UnlinkedModuleInterface {
+            id: sub_pkg.clone(),
+            kind: ModuleKind::Package,
+            declarations: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            imports: Vec::new(),
+            exposed_children: BTreeSet::new(),
+            metadata: ModuleMetadata::default(),
+        },
+    );
+    unlinked.insert(
+        mod_in_root.clone(),
+        UnlinkedModuleInterface {
+            id: mod_in_root.clone(),
+            kind: ModuleKind::Module,
+            declarations: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            imports: Vec::new(),
+            exposed_children: BTreeSet::new(),
+            metadata: ModuleMetadata::default(),
+        },
+    );
+    unlinked.insert(
+        mod_in_sub.clone(),
+        UnlinkedModuleInterface {
+            id: mod_in_sub.clone(),
+            kind: ModuleKind::Module,
+            declarations: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            imports: Vec::new(),
+            exposed_children: BTreeSet::new(),
+            metadata: ModuleMetadata::default(),
+        },
+    );
+    unlinked.insert(
+        nested_sub_pkg.clone(),
+        UnlinkedModuleInterface {
+            id: nested_sub_pkg.clone(),
+            kind: ModuleKind::Package,
+            declarations: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            imports: Vec::new(),
+            exposed_children: BTreeSet::new(),
+            metadata: ModuleMetadata::default(),
+        },
+    );
+    unlinked.insert(
+        mod_in_nested.clone(),
+        UnlinkedModuleInterface {
+            id: mod_in_nested.clone(),
+            kind: ModuleKind::Module,
+            declarations: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            imports: Vec::new(),
+            exposed_children: BTreeSet::new(),
+            metadata: ModuleMetadata::default(),
+        },
+    );
+
+    let sources = BTreeMap::from([
+        (
+            root_pkg.clone(),
+            SourceLocation {
+                source_id: SourceId("/universe/package.ph".into()),
+                display_path: "/universe/package.ph".into(),
+            },
+        ),
+        (
+            sub_pkg.clone(),
+            SourceLocation {
+                source_id: SourceId("/universe/sub/package.ph".into()),
+                display_path: "/universe/sub/package.ph".into(),
+            },
+        ),
+        (
+            mod_in_root.clone(),
+            SourceLocation {
+                source_id: SourceId("/universe/utils.ph".into()),
+                display_path: "/universe/utils.ph".into(),
+            },
+        ),
+        (
+            mod_in_sub.clone(),
+            SourceLocation {
+                source_id: SourceId("/universe/sub/helper.ph".into()),
+                display_path: "/universe/sub/helper.ph".into(),
+            },
+        ),
+        (
+            nested_sub_pkg.clone(),
+            SourceLocation {
+                source_id: SourceId("/universe/sub/nested/package.ph".into()),
+                display_path: "/universe/sub/nested/package.ph".into(),
+            },
+        ),
+        (
+            mod_in_nested.clone(),
+            SourceLocation {
+                source_id: SourceId("/universe/sub/nested/deep.ph".into()),
+                display_path: "/universe/sub/nested/deep.ph".into(),
+            },
+        ),
+    ]);
+
+    let topo = ModuleTopology::from_parts(ResolverGeneration(1), &universe, &unlinked, &sources);
+
+    // Rule 1: Package module owns itself
+    assert_eq!(topo.owning_package(&root_pkg), root_pkg);
+    assert_eq!(topo.owning_package(&sub_pkg), sub_pkg);
+    assert_eq!(topo.owning_package(&nested_sub_pkg), nested_sub_pkg);
+
+    // Rule 2: Ordinary module in root resolves to root package
+    assert_eq!(topo.owning_package(&mod_in_root), root_pkg);
+
+    // Rule 3: Ordinary module in subpackage resolves to that subpackage
+    assert_eq!(topo.owning_package(&mod_in_sub), sub_pkg);
+
+    // Rule 4: Ordinary module in nested subpackage resolves to nested subpackage (different from parent package)
+    assert_eq!(topo.owning_package(&mod_in_nested), nested_sub_pkg);
+    assert_ne!(topo.owning_package(&mod_in_nested), sub_pkg);
 }

@@ -19,5 +19,8 @@
 //! `phalcom_core::heap::Heap` — see `phalcom-core/src/heap.rs`. No shared-owner
 //! reference type lives in this crate anymore.
 
+pub mod modifier;
 pub mod range;
 pub mod selector;
+
+pub use modifier::{ImplementationKind, Visibility};

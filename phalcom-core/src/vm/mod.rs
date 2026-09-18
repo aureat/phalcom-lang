@@ -92,7 +92,7 @@ pub enum NativeInstallMode {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NativeMethodContext {
     pub(crate) access_owner: Option<ClassId>,
-    pub(crate) internal: bool,
+    pub(crate) origin: crate::method::RuntimeAccessOrigin,
 }
 
 /// Identity of a class: the module that declares it, plus its name.
@@ -861,6 +861,19 @@ impl VM {
         self.semantic_roots
             .as_ref()
             .ok_or_else(|| crate::error::RuntimeError::Internal("operation requires source-authored Universe bootstrap".into()))
+    }
+
+    /// Derives the canonical runtime access origin for a given module handle.
+    pub fn access_origin_for_module(&self, module_ref: ObjRef) -> crate::method::RuntimeAccessOrigin {
+        if let Some(module) = self.heap.as_module(module_ref) {
+            crate::method::RuntimeAccessOrigin {
+                module: Some(module_ref),
+                package: module.package.or(Some(module_ref)),
+                project: Some(module.id.project),
+            }
+        } else {
+            crate::method::RuntimeAccessOrigin::none()
+        }
     }
 
     /// Checks if a module has privileged Universe status.

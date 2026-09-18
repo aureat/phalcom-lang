@@ -319,6 +319,25 @@ struct Parser<'source> {
     errors: Vec<SyntaxError>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParsedModifiers {
+    pub visibility: Visibility,
+    pub visibility_range: Option<SourceRange>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
+}
+
+impl Default for ParsedModifiers {
+    fn default() -> Self {
+        Self {
+            visibility: Visibility::Public,
+            visibility_range: None,
+            implementation: ImplementationKind::Phalcom,
+            implementation_range: None,
+        }
+    }
+}
+
 impl<'source> Parser<'source> {
     /// Scans `source` and builds a parser positioned at the first token.
     ///
@@ -1281,20 +1300,60 @@ impl<'source> Parser<'source> {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
         }
+        let modifiers = if self.is_modifier_start() {
+            self.parse_declaration_modifiers()?
+        } else {
+            ParsedModifiers::default()
+        };
         if !header_attrs.is_empty()
+            || modifiers.implementation_range.is_some()
+            || modifiers.visibility_range.is_some()
             || ((matches!(self.peek(), Token::Class | Token::Enum | Token::Data | Token::Trait) && matches!(self.peek_next(), Token::Identifier(_)))
                 || matches!(self.peek(), Token::Impl))
         {
+            if let Some(range) = modifiers.visibility_range {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("modifier.illegal_target: top-level declarations cannot have visibility modifiers; use module exports (e.g. 'export')".to_string()),
+                    range: range.start..range.end,
+                });
+            }
+            if modifiers.implementation == ImplementationKind::Foreign {
+                let range = modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(0..0);
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("foreign.illegal_target: 'foreign' modifier is only supported on callables".to_string()),
+                    range,
+                });
+            }
             let stmt = if matches!(self.peek(), Token::Enum) {
-                self.parse_enum(header_attrs)?
+                self.parse_enum(header_attrs, modifiers)?
             } else if matches!(self.peek(), Token::Data) {
+                if let Some(range) = modifiers.implementation_range {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("native.illegal_target: 'data' declarations cannot be marked 'native'".to_string()),
+                        range: range.start..range.end,
+                    });
+                }
                 self.parse_data(header_attrs)?
             } else if matches!(self.peek(), Token::Impl) {
+                if let Some(range) = modifiers.implementation_range {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("native.illegal_target: 'impl' declarations cannot be marked 'native'".to_string()),
+                        range: range.start..range.end,
+                    });
+                }
                 self.parse_impl(header_attrs)?
             } else if matches!(self.peek(), Token::Trait) {
+                if let Some(range) = modifiers.implementation_range {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("native.illegal_target: 'trait' declarations cannot be marked 'native'".to_string()),
+                        range: range.start..range.end,
+                    });
+                }
                 self.parse_trait(header_attrs)?
+            } else if matches!(self.peek(), Token::Class) {
+                self.parse_class(header_attrs, modifiers)?
             } else {
-                self.parse_class(header_attrs)?
+                return Err(self.error_here(strs(&["\"class\"", "\"enum\"", "\"data\"", "\"trait\"", "\"impl\""])));
             };
             out.push(stmt);
             // A compound statement requires a NEWLINE terminator, not EOF.
@@ -3125,11 +3184,175 @@ impl<'source> Parser<'source> {
             Token::Try => "try",
             Token::Where => "where",
             Token::TypeKw => "type",
+            Token::Native => "native",
+            Token::Internal => "internal",
+            Token::Private => "private",
+            Token::Protected => "protected",
+            Token::Module => "module",
+            Token::Package => "package",
+            Token::Foreign => "foreign",
             _ => return None,
         })
     }
 
     // ── Class declarations ───────────────────────────────────────────────────
+
+    fn is_member_name_lookahead(&self) -> bool {
+        matches!(
+            self.peek_next(),
+            Token::Arrow | Token::LParen | Token::Colon | Token::Equal | Token::LBrace | Token::LBracket
+        )
+    }
+
+    fn is_modifier_start(&self) -> bool {
+        if self.is_member_name_lookahead() {
+            return false;
+        }
+        matches!(
+            self.peek(),
+            Token::Native
+                | Token::Foreign
+                | Token::Private
+                | Token::Protected
+                | Token::Module
+                | Token::Package
+                | Token::Internal
+        )
+    }
+
+    fn parse_declaration_modifiers(&mut self) -> ParserResult<ParsedModifiers> {
+        let mut modifiers = ParsedModifiers::default();
+        loop {
+            if self.is_member_name_lookahead() {
+                break;
+            }
+            match self.peek() {
+                Token::Private => {
+                    let start = self.cur_start();
+                    self.advance();
+                    let range = (start..self.prev_end).into();
+                    if modifiers.visibility_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.duplicate_visibility: multiple visibility modifiers are not allowed".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    if modifiers.implementation_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.order: visibility modifier must precede implementation modifier (e.g. 'private native')".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    modifiers.visibility = Visibility::Private;
+                    modifiers.visibility_range = Some(range);
+                }
+                Token::Protected => {
+                    let start = self.cur_start();
+                    self.advance();
+                    let range = (start..self.prev_end).into();
+                    if modifiers.visibility_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.duplicate_visibility: multiple visibility modifiers are not allowed".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    if modifiers.implementation_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.order: visibility modifier must precede implementation modifier (e.g. 'protected native')".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    modifiers.visibility = Visibility::Protected;
+                    modifiers.visibility_range = Some(range);
+                }
+                Token::Module => {
+                    let start = self.cur_start();
+                    self.advance();
+                    let range = (start..self.prev_end).into();
+                    if modifiers.visibility_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.duplicate_visibility: multiple visibility modifiers are not allowed".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    if modifiers.implementation_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.order: visibility modifier must precede implementation modifier (e.g. 'module native')".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    modifiers.visibility = Visibility::Module;
+                    modifiers.visibility_range = Some(range);
+                }
+                Token::Package => {
+                    let start = self.cur_start();
+                    self.advance();
+                    let range = (start..self.prev_end).into();
+                    if modifiers.visibility_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.duplicate_visibility: multiple visibility modifiers are not allowed".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    if modifiers.implementation_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.order: visibility modifier must precede implementation modifier (e.g. 'package native')".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    modifiers.visibility = Visibility::Package;
+                    modifiers.visibility_range = Some(range);
+                }
+                Token::Internal => {
+                    let start = self.cur_start();
+                    self.advance();
+                    let range = (start..self.prev_end).into();
+                    if modifiers.visibility_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.duplicate_visibility: multiple visibility modifiers are not allowed".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    if modifiers.implementation_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.order: visibility modifier must precede implementation modifier (e.g. 'internal native')".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    modifiers.visibility = Visibility::Internal;
+                    modifiers.visibility_range = Some(range);
+                }
+                Token::Native => {
+                    let start = self.cur_start();
+                    self.advance();
+                    let range = (start..self.prev_end).into();
+                    if modifiers.implementation_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.duplicate_implementation: multiple implementation modifiers are not allowed".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    modifiers.implementation = ImplementationKind::Native;
+                    modifiers.implementation_range = Some(range);
+                }
+                Token::Foreign => {
+                    let start = self.cur_start();
+                    self.advance();
+                    let range = (start..self.prev_end).into();
+                    if modifiers.implementation_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.duplicate_implementation: multiple implementation modifiers are not allowed".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    modifiers.implementation = ImplementationKind::Foreign;
+                    modifiers.implementation_range = Some(range);
+                }
+                _ => break,
+            }
+        }
+        Ok(modifiers)
+    }
 
     /// Parses an optional run of `@name(args…) class Name { members }`
     /// class-header attributes (U-ANNOT-LAYOUT §3.3, the `@construct` layout-
@@ -3150,12 +3373,12 @@ impl<'source> Parser<'source> {
     ///
     /// Returns an error if a header attribute, the class name, braces, or any
     /// member is malformed.
-    fn parse_class(&mut self, mut header_attrs: Vec<Attribute>) -> ParserResult<Statement> {
+    fn parse_class(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers) -> ParserResult<Statement> {
         while matches!(self.peek(), Token::At) {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
         }
-        let start = self.cur_start();
+        let start = modifiers.implementation_range.map(|r| r.start).unwrap_or_else(|| self.cur_start());
         self.expect(&Token::Class, &["\"class\""])?;
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["identifier"])?;
@@ -3210,6 +3433,8 @@ impl<'source> Parser<'source> {
             members,
             attributes: header_attrs,
             invariants,
+            implementation: modifiers.implementation,
+            implementation_range: modifiers.implementation_range,
             range,
             name_range,
         }))
@@ -3658,12 +3883,12 @@ impl<'source> Parser<'source> {
         Ok(DataShapeSyntax::Record { components, range })
     }
 
-    fn parse_enum(&mut self, mut header_attrs: Vec<Attribute>) -> ParserResult<Statement> {
+    fn parse_enum(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers) -> ParserResult<Statement> {
         while matches!(self.peek(), Token::At) {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
         }
-        let start = self.cur_start();
+        let start = modifiers.implementation_range.map(|r| r.start).unwrap_or_else(|| self.cur_start());
         self.expect(&Token::Enum, &["\"enum\""])?;
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["identifier"])?;
@@ -3696,6 +3921,8 @@ impl<'source> Parser<'source> {
             where_clause,
             variants,
             attributes: header_attrs,
+            implementation: modifiers.implementation,
+            implementation_range: modifiers.implementation_range,
             range,
         }))
     }
@@ -4026,9 +4253,29 @@ impl<'source> Parser<'source> {
     /// are admitted only for trait-like abstract contexts; ordinary impl
     /// parsing keeps the historical body-required rule.
     fn parse_behavior_member(&mut self, pending_attrs: Vec<Attribute>, allow_index_declaration: bool) -> ParserResult<BehaviorMember> {
-        let start = self.cur_start();
+        let modifiers = if self.is_modifier_start() {
+            self.parse_declaration_modifiers()?
+        } else {
+            ParsedModifiers::default()
+        };
+        let start = modifiers.visibility_range.or(modifiers.implementation_range).map(|r| r.start).unwrap_or_else(|| self.cur_start());
+        if allow_index_declaration {
+            if modifiers.visibility == Visibility::Module || modifiers.visibility == Visibility::Package {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("visibility.trait_unsupported: 'module' and 'package' visibility are not supported on trait members".to_string()),
+                    range: modifiers.visibility_range.map(|r| r.start..r.end).unwrap_or(start..self.prev_end),
+                });
+            }
+            if modifiers.implementation != ImplementationKind::Phalcom {
+                let k = if modifiers.implementation == ImplementationKind::Native { "native" } else { "foreign" };
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: trait requirements cannot be marked '{k}'")),
+                    range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(start..self.prev_end),
+                });
+            }
+        }
         if matches!(self.peek(), Token::LBracket) {
-            let class_member = self.parse_index_member(start, allow_index_declaration)?;
+            let class_member = self.parse_index_member(start, allow_index_declaration, modifiers)?;
             if let ClassMember::Index(mut idx) = class_member {
                 idx.attributes = pending_attrs;
                 return Ok(BehaviorMember::Index(idx));
@@ -4074,11 +4321,24 @@ impl<'source> Parser<'source> {
             };
             self.skip_newlines_if_followed_by(&Token::LBrace);
             let body = self.parse_member_body()?;
+            if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+                if matches!(body, MemberBody::Block(_)) {
+                    let k = if modifiers.implementation == ImplementationKind::Native { "native" } else { "foreign" };
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(format!("{k}.body_forbidden: {k} declarations cannot have a body")),
+                        range: start..self.prev_end,
+                    });
+                }
+            }
             let range = (start..self.prev_end).into();
             return Ok(BehaviorMember::Setter(SetterDef {
                 name,
                 generic_parameters,
                 param,
+                visibility: modifiers.visibility,
+                visibility_range: modifiers.visibility_range,
+                implementation: modifiers.implementation,
+                implementation_range: modifiers.implementation_range,
                 return_annotation,
                 where_clause,
                 body,
@@ -4112,12 +4372,25 @@ impl<'source> Parser<'source> {
         self.skip_newlines_if_followed_by(&Token::LBrace);
 
         let body = self.parse_member_body()?;
+        if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+            if matches!(body, MemberBody::Block(_)) {
+                let k = if modifiers.implementation == ImplementationKind::Native { "native" } else { "foreign" };
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("{k}.body_forbidden: {k} declarations cannot have a body")),
+                    range: start..self.prev_end,
+                });
+            }
+        }
         let range = (start..self.prev_end).into();
         if let Some(params) = params {
             Ok(BehaviorMember::Method(MethodDef {
                 name,
                 generic_parameters,
                 params,
+                visibility: modifiers.visibility,
+                visibility_range: modifiers.visibility_range,
+                implementation: modifiers.implementation,
+                implementation_range: modifiers.implementation_range,
                 return_annotation,
                 where_clause,
                 body,
@@ -4131,6 +4404,10 @@ impl<'source> Parser<'source> {
             Ok(BehaviorMember::Getter(GetterDef {
                 name,
                 generic_parameters,
+                visibility: modifiers.visibility,
+                visibility_range: modifiers.visibility_range,
+                implementation: modifiers.implementation,
+                implementation_range: modifiers.implementation_range,
                 return_annotation,
                 where_clause,
                 body,
@@ -4171,6 +4448,20 @@ impl<'source> Parser<'source> {
             "class".to_string()
         } else if self.eat(&Token::Data) {
             "data".to_string()
+        } else if self.eat(&Token::Native) {
+            "native".to_string()
+        } else if self.eat(&Token::Internal) {
+            "internal".to_string()
+        } else if self.eat(&Token::Private) {
+            "private".to_string()
+        } else if self.eat(&Token::Protected) {
+            "protected".to_string()
+        } else if self.eat(&Token::Module) {
+            "module".to_string()
+        } else if self.eat(&Token::Package) {
+            "package".to_string()
+        } else if self.eat(&Token::Foreign) {
+            "foreign".to_string()
         } else {
             self.expect_identifier(&["attribute name"])?
         };
@@ -4263,7 +4554,14 @@ impl<'source> Parser<'source> {
     /// Returns an error if the field name is missing, the initializer
     /// expression is malformed, or the
     /// declaration is not followed by a newline, `}`, or end-of-file.
-    fn parse_field_decl(&mut self, start: usize, is_const: bool) -> ParserResult<ClassMember> {
+    fn parse_field_decl(&mut self, start: usize, is_const: bool, modifiers: ParsedModifiers) -> ParserResult<ClassMember> {
+        if modifiers.implementation != ImplementationKind::Phalcom {
+            let k = if modifiers.implementation == ImplementationKind::Native { "native" } else { "foreign" };
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: fields cannot be marked '{k}'")),
+                range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(start..self.prev_end),
+            });
+        }
         let name_start = self.cur_start();
         let name = match self.peek().clone() {
             Token::FieldIdentifier(n) | Token::ImplementationFieldIdentifier(n) => {
@@ -4288,6 +4586,8 @@ impl<'source> Parser<'source> {
             name_range,
             mutable: !is_const,
             is_static: false,
+            visibility: modifiers.visibility,
+            visibility_range: modifiers.visibility_range,
             annotation,
             default,
             attributes: Vec::new(),
@@ -4306,7 +4606,12 @@ impl<'source> Parser<'source> {
     /// Returns an error if the member name, parameter list, or body is
     /// malformed.
     fn parse_class_member(&mut self) -> ParserResult<ClassMember> {
-        let start = self.cur_start();
+        let modifiers = if self.is_modifier_start() {
+            self.parse_declaration_modifiers()?
+        } else {
+            ParsedModifiers::default()
+        };
+        let start = modifiers.visibility_range.or(modifiers.implementation_range).map(|r| r.start).unwrap_or_else(|| self.cur_start());
         // Field grammar (ADR-0064 §4, U-BINDINGS §4.1), in dispatch order:
         // `const` unambiguously starts a field; `let` at field position is a
         // hard error (L-2 — there is no mutable-with-keyword field form);
@@ -4315,7 +4620,7 @@ impl<'source> Parser<'source> {
         // through and are rejected as non-selector names below.
         if matches!(self.peek(), Token::Const) {
             self.advance();
-            return self.parse_field_decl(start, true);
+            return self.parse_field_decl(start, true, modifiers);
         }
         if matches!(self.peek(), Token::Let) {
             self.advance();
@@ -4327,7 +4632,7 @@ impl<'source> Parser<'source> {
         }
         if self.starts_mut_member() && matches!(self.peek_at(1), Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_)) {
             self.advance();
-            return self.parse_field_decl(start, false);
+            return self.parse_field_decl(start, false, modifiers);
         }
         if matches!(self.peek(), Token::Class) && matches!(self.peek_next(), Token::Identifier(_)) {
             let range = start..self.cur_start() + 5;
@@ -4339,7 +4644,7 @@ impl<'source> Parser<'source> {
         if matches!(self.peek(), Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_))
             && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal | Token::Colon)
         {
-            return self.parse_field_decl(start, false);
+            return self.parse_field_decl(start, false, modifiers);
         }
         // U-INDEX (ADR-0060): a bracket subscript method (`[_ idx] { ... }` /
         // `[_ idx]=(_ value) { ... }`) is a distinct grammar production, not
@@ -4348,9 +4653,15 @@ impl<'source> Parser<'source> {
         // member's identity. Must be checked before the `Construct`/name
         // branches below, which never expect a leading `[`.
         if matches!(self.peek(), Token::LBracket) {
-            return self.parse_index_member(start, false);
+            return self.parse_index_member(start, false, modifiers);
         }
         if self.starts_delegation() {
+            if modifiers.visibility != Visibility::Public || modifiers.implementation != ImplementationKind::Phalcom {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("delegations cannot have visibility or implementation modifiers".to_string()),
+                    range: start..self.prev_end,
+                });
+            }
             return Ok(ClassMember::Delegation(self.parse_delegation(Vec::new())?));
         }
         if matches!(self.peek(), Token::Construct) {
@@ -4408,11 +4719,24 @@ impl<'source> Parser<'source> {
             };
             self.skip_newlines_if_followed_by(&Token::LBrace);
             let body = self.parse_member_body()?;
+            if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+                if matches!(body, MemberBody::Block(_)) {
+                    let k = if modifiers.implementation == ImplementationKind::Native { "native" } else { "foreign" };
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(format!("{k}.body_forbidden: {k} declarations cannot have a body")),
+                        range: start..self.prev_end,
+                    });
+                }
+            }
             let range = (start..self.prev_end).into();
             return Ok(ClassMember::Setter(SetterDef {
                 name,
                 generic_parameters,
                 param,
+                visibility: modifiers.visibility,
+                visibility_range: modifiers.visibility_range,
+                implementation: modifiers.implementation,
+                implementation_range: modifiers.implementation_range,
                 return_annotation,
                 where_clause,
                 body,
@@ -4446,12 +4770,25 @@ impl<'source> Parser<'source> {
         self.skip_newlines_if_followed_by(&Token::LBrace);
 
         let body = self.parse_member_body()?;
+        if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+            if matches!(body, MemberBody::Block(_)) {
+                let k = if modifiers.implementation == ImplementationKind::Native { "native" } else { "foreign" };
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("{k}.body_forbidden: {k} declarations cannot have a body")),
+                    range: start..self.prev_end,
+                });
+            }
+        }
         let range = (start..self.prev_end).into();
         if let Some(params) = params {
             Ok(ClassMember::Method(MethodDef {
                 name,
                 generic_parameters,
                 params,
+                visibility: modifiers.visibility,
+                visibility_range: modifiers.visibility_range,
+                implementation: modifiers.implementation,
+                implementation_range: modifiers.implementation_range,
                 return_annotation,
                 where_clause,
                 body,
@@ -4465,6 +4802,10 @@ impl<'source> Parser<'source> {
             Ok(ClassMember::Getter(GetterDef {
                 name,
                 generic_parameters,
+                visibility: modifiers.visibility,
+                visibility_range: modifiers.visibility_range,
+                implementation: modifiers.implementation,
+                implementation_range: modifiers.implementation_range,
                 return_annotation,
                 where_clause,
                 body,
@@ -4479,7 +4820,7 @@ impl<'source> Parser<'source> {
     /// Parses a bracket subscript method — `[_ idx] { ... }` /
     /// `[_ idx]=(_ value) { ... }` / `[] { ... }` / `[]=(_ value) { ... }` (U-INDEX,
     /// [ADR-0060](../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
-    fn parse_index_member(&mut self, start: usize, allow_declaration: bool) -> ParserResult<ClassMember> {
+    fn parse_index_member(&mut self, start: usize, allow_declaration: bool, modifiers: ParsedModifiers) -> ParserResult<ClassMember> {
         let name_start = self.cur_start();
         self.expect(&Token::LBracket, &["\"[\""])?;
         let params = self.parse_selector_params(Token::RBracket)?;
@@ -4526,16 +4867,29 @@ impl<'source> Parser<'source> {
             None
         };
         self.skip_newlines_if_followed_by(&Token::LBrace);
-        let body = if allow_declaration {
+        let body = if allow_declaration || modifiers.implementation != ImplementationKind::Phalcom {
             self.parse_member_body()?
         } else {
             crate::ast::MemberBody::Block(self.parse_method_block()?)
         };
+        if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+            if matches!(body, MemberBody::Block(_)) {
+                let k = if modifiers.implementation == ImplementationKind::Native { "native" } else { "foreign" };
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("{k}.body_forbidden: {k} declarations cannot have a body")),
+                    range: start..self.prev_end,
+                });
+            }
+        }
         let range = (start..self.prev_end).into();
         Ok(ClassMember::Index(IndexMethodDef {
             params,
             generic_parameters,
             accessor,
+            visibility: modifiers.visibility,
+            visibility_range: modifiers.visibility_range,
+            implementation: modifiers.implementation,
+            implementation_range: modifiers.implementation_range,
             return_annotation,
             where_clause,
             body,
@@ -4596,6 +4950,13 @@ impl<'source> Parser<'source> {
             // selector for existing APIs such as `Map.from(...)`.
             Token::From => "from".to_string(),
             Token::Match => "match".to_string(),
+            Token::Native => "native".to_string(),
+            Token::Internal => "internal".to_string(),
+            Token::Private => "private".to_string(),
+            Token::Protected => "protected".to_string(),
+            Token::Module => "module".to_string(),
+            Token::Package => "package".to_string(),
+            Token::Foreign => "foreign".to_string(),
             _ => return Err(self.error_here(strs(&["identifier", "operator"]))),
         };
         self.advance();
@@ -4953,7 +5314,7 @@ impl<'source> Parser<'source> {
                     let is_trait = matches!(self.peek(), Token::Trait);
                     let is_impl = matches!(self.peek(), Token::Impl);
                     let stmt = if is_enum {
-                        self.parse_enum(header_attrs)?
+                        self.parse_enum(header_attrs, ParsedModifiers::default())?
                     } else if is_data {
                         self.parse_data(header_attrs)?
                     } else if is_impl {
@@ -4961,7 +5322,7 @@ impl<'source> Parser<'source> {
                     } else if is_trait {
                         self.parse_trait(header_attrs)?
                     } else {
-                        self.parse_class(header_attrs)?
+                        self.parse_class(header_attrs, ParsedModifiers::default())?
                     };
                     let (keyword_start, kw_len, decl_kind) = match &stmt {
                         Statement::Class(class_def) => (class_def.range.start, "class".len(), "class"),
@@ -6815,6 +7176,13 @@ impl<'source> Parser<'source> {
             Token::Or => "or".to_string(),
             Token::Not => "not".to_string(),
             Token::Is => "is".to_string(),
+            Token::Native => "native".to_string(),
+            Token::Internal => "internal".to_string(),
+            Token::Private => "private".to_string(),
+            Token::Protected => "protected".to_string(),
+            Token::Module => "module".to_string(),
+            Token::Package => "package".to_string(),
+            Token::Foreign => "foreign".to_string(),
             _ => return Err(self.error_here(strs(&["identifier", "\"class\"", "operator"]))),
         };
         self.advance();
@@ -9045,5 +9413,153 @@ mod tests {
         assert_eq!(call.method, "on");
         assert_eq!(call.args.len(), 2);
         assert!(matches!(positional_pack_expr(&call.args[1]), Expr::Block(_)));
+    }
+
+    #[test]
+    fn lang006_declaration_modifiers_and_ast_storage() {
+        let source = r#"
+native class NativeClass is Object {
+    private foo() {}
+    protected bar() {}
+    module baz() {}
+    package qux() {}
+    internal quux() {}
+    native corge() -> Int
+    private native grault() -> Int
+    module native garply() -> Int
+    package native waldo() -> Int
+    internal native fred() -> Int
+    foreign plugh() -> Int
+    private _field: Int = 42
+    internal const _const_field: Int = 100
+}
+native enum NativeEnum {
+    A
+    B
+}
+"#;
+        let program = parse_source(source, 0).expect("valid modifier declarations must parse");
+        assert_eq!(program.statements.len(), 2);
+        let Statement::Class(cls) = &program.statements[0] else {
+            panic!("expected class statement");
+        };
+        assert_eq!(cls.implementation, ImplementationKind::Native);
+        assert!(cls.implementation_range.is_some());
+
+        // Check members
+        assert_eq!(cls.members[0].visibility(), Visibility::Private);
+        assert_eq!(cls.members[0].implementation(), ImplementationKind::Phalcom);
+
+        assert_eq!(cls.members[1].visibility(), Visibility::Protected);
+        assert_eq!(cls.members[1].implementation(), ImplementationKind::Phalcom);
+
+        assert_eq!(cls.members[2].visibility(), Visibility::Module);
+        assert_eq!(cls.members[2].implementation(), ImplementationKind::Phalcom);
+
+        assert_eq!(cls.members[3].visibility(), Visibility::Package);
+        assert_eq!(cls.members[3].implementation(), ImplementationKind::Phalcom);
+
+        assert_eq!(cls.members[4].visibility(), Visibility::Internal);
+        assert_eq!(cls.members[4].implementation(), ImplementationKind::Phalcom);
+
+        assert_eq!(cls.members[5].visibility(), Visibility::Public);
+        assert_eq!(cls.members[5].implementation(), ImplementationKind::Native);
+
+        assert_eq!(cls.members[6].visibility(), Visibility::Private);
+        assert_eq!(cls.members[6].implementation(), ImplementationKind::Native);
+
+        assert_eq!(cls.members[7].visibility(), Visibility::Module);
+        assert_eq!(cls.members[7].implementation(), ImplementationKind::Native);
+
+        assert_eq!(cls.members[8].visibility(), Visibility::Package);
+        assert_eq!(cls.members[8].implementation(), ImplementationKind::Native);
+
+        assert_eq!(cls.members[9].visibility(), Visibility::Internal);
+        assert_eq!(cls.members[9].implementation(), ImplementationKind::Native);
+
+        assert_eq!(cls.members[10].visibility(), Visibility::Public);
+        assert_eq!(cls.members[10].implementation(), ImplementationKind::Foreign);
+
+        assert_eq!(cls.members[11].visibility(), Visibility::Private);
+        assert_eq!(cls.members[12].visibility(), Visibility::Internal);
+
+        let Statement::Enum(enm) = &program.statements[1] else {
+            panic!("expected enum statement");
+        };
+        assert_eq!(enm.implementation, ImplementationKind::Native);
+        assert!(enm.implementation_range.is_some());
+    }
+
+    #[test]
+    fn lang006_modifier_negative_diagnostics() {
+        // Noncanonical modifier order
+        let res = parse("class C { native internal foo() -> Int }", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("modifier.order"),
+            _ => false,
+        }), "expected modifier.order error, got {:?}", res.errors);
+
+        // Multiple visibility modifiers
+        let res = parse("class C { private protected foo() {} }", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("modifier.duplicate_visibility"),
+            _ => false,
+        }), "expected modifier.duplicate_visibility error, got {:?}", res.errors);
+
+        // Multiple implementation modifiers
+        let res = parse("class C { native foreign foo() -> Int }", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("modifier.duplicate_implementation"),
+            _ => false,
+        }), "expected modifier.duplicate_implementation error, got {:?}", res.errors);
+
+        // Native body forbidden
+        let res = parse("class C { native foo() -> Int { return 1 } }", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("native.body_forbidden"),
+            _ => false,
+        }), "expected native.body_forbidden error, got {:?}", res.errors);
+
+        // Foreign body forbidden
+        let res = parse("class C { foreign foo() -> Int { return 1 } }", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("foreign.body_forbidden"),
+            _ => false,
+        }), "expected foreign.body_forbidden error, got {:?}", res.errors);
+
+        // Foreign class rejected
+        let res = parse("foreign class C {}", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("foreign.illegal_target"),
+            _ => false,
+        }), "expected foreign.illegal_target error, got {:?}", res.errors);
+
+        // Top-level visibility rejected
+        let res = parse("internal class C {}", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("modifier.illegal_target"),
+            _ => false,
+        }), "expected modifier.illegal_target error, got {:?}", res.errors);
+
+        // Field native rejected
+        let res = parse("class C { native _x = 1 }", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("native.illegal_target"),
+            _ => false,
+        }), "expected native.illegal_target error, got {:?}", res.errors);
+
+        // Trait unsupported module/package visibility
+        let res = parse("trait T { module foo() -> Int }", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("visibility.trait_unsupported"),
+            _ => false,
+        }), "expected visibility.trait_unsupported error, got {:?}", res.errors);
+
+        // Trait native rejected
+        let res = parse("trait T { native foo() -> Int }", 0);
+        assert!(res.errors.iter().any(|e| match &e.kind {
+            SyntaxErrorKind::Message(msg) => msg.contains("native.illegal_target"),
+            _ => false,
+        }), "expected native.illegal_target error, got {:?}", res.errors);
     }
 }

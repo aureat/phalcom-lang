@@ -95,16 +95,8 @@ pub(crate) fn delegated_accessor_signatures(
     Ok(signatures)
 }
 
-pub(crate) fn delegated_member_visibility(name: &str, attributes: &[phalcom_ast::ast::Attribute]) -> crate::surface::MemberVisibility {
-    if name.starts_with("_$") {
-        crate::surface::MemberVisibility::Internal
-    } else if attributes.iter().any(|attribute| attribute.name == "private") {
-        crate::surface::MemberVisibility::Private
-    } else if attributes.iter().any(|attribute| attribute.name == "protected") {
-        crate::surface::MemberVisibility::Protected
-    } else {
-        crate::surface::MemberVisibility::Public
-    }
+pub(crate) fn delegated_member_visibility(_name: &str, _attributes: &[phalcom_ast::ast::Attribute]) -> crate::surface::MemberVisibility {
+    crate::surface::MemberVisibility::Public
 }
 
 #[derive(Clone, Copy, Debug)]

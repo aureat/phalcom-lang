@@ -169,7 +169,7 @@ pub struct ControlActivation {
     pub owner: Option<FrameToken>,
     pub stack_base: usize,
     pub callback_floor: usize,
-    pub caller_authority: (Option<ObjRef>, bool),
+    pub caller_authority: (Option<ObjRef>, crate::method::RuntimeAccessOrigin),
     pub source_range: SourceRange,
     pub destination: ControlDestination,
     pub phase: ControlPhase,
@@ -180,6 +180,12 @@ impl ControlActivation {
     pub fn trace_roots(&self, push: &mut impl FnMut(ObjRef)) {
         if let (Some(auth), _) = self.caller_authority {
             push(auth);
+        }
+        if let Some(module) = self.caller_authority.1.module {
+            push(module);
+        }
+        if let Some(package) = self.caller_authority.1.package {
+            push(package);
         }
         self.phase.trace_roots(push);
     }
@@ -223,7 +229,7 @@ impl ControlStack {
         owner: Option<FrameToken>,
         stack_base: usize,
         callback_floor: usize,
-        caller_authority: (Option<ObjRef>, bool),
+        caller_authority: (Option<ObjRef>, crate::method::RuntimeAccessOrigin),
         source_range: SourceRange,
         destination: ControlDestination,
         phase: ControlPhase,
@@ -313,7 +319,7 @@ impl VM {
         self.stack.push(callable);
         self.stack.extend_from_slice(args);
         let layout = InvocationLayout::ordinary(args.len(), Box::new([]));
-        let view = ArgumentView::from_layout(receiver_idx, layout, self.current_access_class(), self.current_has_internal_privilege());
+        let view = ArgumentView::from_layout(receiver_idx, layout, self.current_access_class(), self.current_access_origin());
         self.activate_function(callable, view, source_range)
     }
 
@@ -398,7 +404,7 @@ impl VM {
                                 isa_sym,
                                 layout,
                                 source_range,
-                                (self.current_access_class(), self.current_has_internal_privilege()),
+                                (self.current_access_class(), self.current_access_origin()),
                             )?;
                             match outcome {
                                 CallOutcome::Returned(matched) => {

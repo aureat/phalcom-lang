@@ -45,8 +45,8 @@ pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
         expected: 1,
         found: args.positional_count(),
     })?;
-    let (caller, internal) = args.caller_authority();
-    vm.authorize_method_access_as(method_id, caller, internal)?;
+    let (caller, origin) = args.caller_authority();
+    vm.authorize_method_access_as(method_id, caller, origin)?;
     let labels = args.labels().to_vec();
     let residual_arity = args.physical_arity().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
         signature: "invokeOn",

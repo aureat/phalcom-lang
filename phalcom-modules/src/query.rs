@@ -112,6 +112,36 @@ impl<'a> ModuleQueryFacade<'a> {
         self.topology.is_some() && self.reverse_imports.is_some()
     }
 
+    /// Returns the nearest owning package for a given module.
+    pub fn owning_package(&self, module: &ModuleId) -> ModuleId {
+        if let Some(topology) = self.topology {
+            return topology.owning_package(module);
+        }
+        self.record_fallback_scan();
+        if let Some(iface) = self.unlinked.get(module) {
+            if iface.kind == crate::source::ModuleKind::Package {
+                return module.clone();
+            }
+        }
+        let mut curr_path = module.path.parent();
+        while let Some(p) = curr_path {
+            let candidate = ModuleId {
+                project: module.project,
+                path: p.clone(),
+            };
+            if let Some(iface) = self.unlinked.get(&candidate) {
+                if iface.kind == crate::source::ModuleKind::Package {
+                    return candidate;
+                }
+            }
+            curr_path = p.parent();
+        }
+        ModuleId {
+            project: module.project,
+            path: ModulePath::root(),
+        }
+    }
+
     fn record_fallback_scan(&self) {
         QUERY_FALLBACK_SCAN_COUNT.fetch_add(1, Ordering::Relaxed);
         if let Some(counter) = self.fallback_scans {
