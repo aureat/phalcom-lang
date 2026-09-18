@@ -40,6 +40,7 @@ pub struct FormalQueryInputs<'a> {
     pub source_resolution_input: InputFingerprint,
     pub linked_component_product: ProductFingerprint,
     pub linked: &'a LinkedProgram,
+    pub topology: &'a phalcom_modules::topology::ModuleTopology,
     pub import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     pub hierarchy: &'a dyn TypeHierarchy,
     pub base_resolver: &'a dyn TypeResolver,
@@ -2537,6 +2538,7 @@ fn query_callable_body_with_requirement(
     db.metrics().record_miss();
 
     // 2. Perform analysis
+    let caller_package = formal_inputs.map(|inputs| inputs.topology.owning_package(&module));
     let analysis = crate::checker::body::analyze_callable_body(
         crate::checker::body::BodyAnalysisContext {
             store,
@@ -2547,6 +2549,8 @@ fn query_callable_body_with_requirement(
             trait_surface,
             conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
             module,
+            caller_package,
+            access_topology: formal_inputs.map(|inputs| inputs.topology),
         },
         crate::checker::body::CallableBodyRequest {
             callable: callable.clone(),

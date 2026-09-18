@@ -110,7 +110,9 @@ impl PrimitiveKey {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub enum ImplementationKind {
+/// Execution provenance of a callable implementation. This is deliberately
+/// separate from the language-level `phalcom | native | foreign` category.
+pub enum ImplementationProvenance {
     Source,
     NativePrimitive,
     Generated,

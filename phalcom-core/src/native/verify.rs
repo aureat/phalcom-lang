@@ -176,7 +176,7 @@ fn verify_class_presentations(ast_index: &NativeSourceIndex) -> Result<(), Nativ
     Ok(())
 }
 
-fn source_key(key: PrimitiveKey) -> NativeMemberKey {
+pub(crate) fn source_key(key: PrimitiveKey) -> NativeMemberKey {
     NativeMemberKey {
         owner: key.owner,
         side: key.side,

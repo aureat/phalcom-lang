@@ -16,8 +16,11 @@ There is no `public` keyword. A declaration without a visibility modifier is
 `Public`.
 
 At most one visibility modifier and at most one implementation modifier may
-precede a declaration. `native` and `foreign` are mutually exclusive. Modifier
-order is otherwise insignificant to the normalized declaration product.
+precede a declaration. `native` and `foreign` are mutually exclusive. The
+authored order is canonical: when both are present, visibility must precede
+implementation (`private native`, not `native private`). The normalized
+products remain orthogonal after parsing, but noncanonical source permutations
+are rejected.
 
 ```phalcom
 native class Buffer {

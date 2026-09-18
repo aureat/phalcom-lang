@@ -76,6 +76,25 @@ async fn modules_decorators_and_all_class_member_forms_are_highlighted() {
 }
 
 #[tokio::test]
+async fn declaration_modifiers_are_keyword_tokens() {
+    let src = "native class NativeThing { private native hidden() -> Int\n protected native guarded() -> Int\n module native local() -> Int\n package native packaged() -> Int\n internal native projectOnly() -> Int\n foreign external() -> Int\n }\n";
+    let uri = "file:///test_declaration_modifiers.ph";
+
+    let mut lsp = TestLsp::start().await;
+    let init = lsp.initialize(None).await;
+    lsp.open(uri, src).await;
+
+    let response = lsp.semantic_tokens_full(uri).await;
+    let decoded = decode(src, &init, &response);
+
+    for keyword in ["native", "foreign", "private", "protected", "module", "package", "internal"] {
+        assert_pair(&decoded, keyword, "keyword");
+    }
+
+    lsp.finish().await;
+}
+
+#[tokio::test]
 async fn operator_symbols_and_named_family_references_follow_parser_syntax() {
     let src = "class Value { move(_ item) { item } }\nlet value = Value.new()\nconst bare = #+\nconst exact = #+(_)\nconst family = &value.move\nconst pattern = &value.move(_, ...)\n";
     let uri = "file:///test_operator_symbols_and_families.ph";

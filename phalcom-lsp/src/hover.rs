@@ -165,6 +165,13 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
         "construct",
         "Introduces a named constructor definition inside a class body (`@constructor new(...) { ... }`) — Phalcom has no implicit `new`; multiple constructors are distinguished by selector, not arity (classes.md §1, ADR-0011).",
     ),
+    ("native", "Marks a declaration as implemented by the native runtime while retaining its source-level visibility and canonical signature."),
+    ("foreign", "Marks a legal declaration whose implementation is supplied by a foreign backend; this repository reports an explicit unsupported-binding diagnostic until one exists."),
+    ("private", "Restricts a member to its exact declaring class."),
+    ("protected", "Restricts a member to its declaring class and subclasses."),
+    ("module", "Restricts a member to its exact declaring module."),
+    ("package", "Restricts a member to declarations in its exact owning package."),
+    ("internal", "Restricts a member to declarations in its exact owning project."),
 ];
 
 /// Maps a keyword [`Token`] variant to its exact surface spelling, or `None`
@@ -196,6 +203,13 @@ fn keyword_spelling(token: &Token) -> Option<&'static str> {
         Token::Not => Some("not"),
         Token::Static => Some("static"),
         Token::Construct => Some("construct"),
+        Token::Native => Some("native"),
+        Token::Foreign => Some("foreign"),
+        Token::Private => Some("private"),
+        Token::Protected => Some("protected"),
+        Token::Module => Some("module"),
+        Token::Package => Some("package"),
+        Token::Internal => Some("internal"),
         Token::Throw => Some("throw"),
         Token::Try => Some("try"),
         Token::Identifier(name) => CONTEXTUAL_WORDS.iter().find(|word| **word == name.as_str()).copied(),

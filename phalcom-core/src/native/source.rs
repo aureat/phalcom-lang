@@ -72,6 +72,7 @@ pub struct NativeClassAnchor {
 #[derive(Clone, Debug)]
 pub struct NativeMemberAnchor {
     pub key: NativeMemberKey,
+    pub module: ModuleId,
     pub class_name: String,
     pub side: NativeDispatch,
     pub selector: String,
@@ -487,6 +488,7 @@ impl NativeSourceIndex {
                 });
                 let anchor = NativeMemberAnchor {
                     key: key.clone(),
+                    module: module.clone(),
                     class_name: variant.name.clone(),
                     side: NativeDispatch::Class,
                     selector,
@@ -672,6 +674,7 @@ impl NativeSourceIndex {
 
         let anchor = NativeMemberAnchor {
             key: key.clone(),
+            module: module.clone(),
             class_name: class_name.to_string(),
             side,
             selector,

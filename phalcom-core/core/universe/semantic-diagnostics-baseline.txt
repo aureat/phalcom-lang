@@ -80,6 +80,7 @@ universe:reflection.export	type.annotation.unresolved	169	175
 universe:reflection.export_table	type.annotation.unresolved	243	249
 universe:reflection.export_table	type.annotation.unsaturated_constructor	114	118
 universe:reflection.export_table	type.annotation.unsaturated_constructor	136	140
+universe:reflection.message	type.annotation.unsaturated_constructor	158	162
 universe:reflection.module	type.annotation.unresolved	172	179
 universe:reflection.module	type.annotation.unresolved	265	272
 universe:reflection.module	type.annotation.unresolved	297	304
@@ -120,6 +121,7 @@ universe:reflection.resolved_project_dependency	type.annotation.unresolved	177	1
 universe:reflection.resolved_project_dependency	type.annotation.unresolved	220	231
 universe:reflection.resolved_project_dependency	type.annotation.unresolved	256	263
 universe:reflection.resolved_project_dependency	type.annotation.unresolved	283	286
+universe:reflection.selector	type.annotation.unsaturated_constructor	323	327
 universe:scalar.string	type.call.argument_mismatch	8056	8071
 universe:scalar.string	type.call.argument_mismatch	8056	8071
 universe:scalar.string	type.call.argument_mismatch	8876	8891

@@ -303,6 +303,7 @@ class Owner {
         source_resolution_input: phalcom_semantic::db::fingerprint::source_resolution_input_fingerprint(&input.interfaces),
         linked_component_product: phalcom_semantic::db::fingerprint::semantic_component_product_fingerprint(&input.linked),
         linked: &input.linked,
+        topology: input.topology.as_deref().expect("workspace input carries canonical topology"),
         import_products: &input.import_products,
         hierarchy: &hierarchy,
         base_resolver: &resolver,

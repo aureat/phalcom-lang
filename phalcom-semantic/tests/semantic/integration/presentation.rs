@@ -1,6 +1,7 @@
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
-use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_common::modifier::ImplementationKind;
+use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::BlockReason;
 use phalcom_semantic::checker::analysis::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary};
 use phalcom_semantic::checker::causal::SuppressionCause;
@@ -83,7 +84,7 @@ fn callable_presentation_joins_canonical_signature_and_source_kind() {
         return_validation: phalcom_semantic::ReturnContractValidation::NotApplicable,
         inferred_return: None,
         source: None,
-        implementation: ImplementationKind::Source,
+        implementation: ImplementationKind::Phalcom,
         native_id: None,
         effects: EffectSpec::Unknown,
         raises: RaisesSpec::Unknown,

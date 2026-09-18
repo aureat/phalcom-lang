@@ -295,6 +295,12 @@ pub enum CompilerError {
     #[error("class.declaration_requires_implementation: member '{0}' has no body and is not `native`.")]
     DeclarationBodyRequiresImplementation(String, SourceRange),
 
+    /// A legal `foreign` declaration reached the compiler without a foreign
+    /// binding backend. Preserve the language category through semantics and
+    /// fail explicitly at this unsupported lowering boundary.
+    #[error("foreign.binding_unimplemented: member '{0}' has no supported foreign binding.")]
+    ForeignBindingUnimplemented(String, SourceRange),
+
     /// Enum lowering staging error.
     #[error("enum lowering is not implemented until the ADT/GADT semantic/runtime parts land")]
     EnumNotLoweredYet(SourceRange),

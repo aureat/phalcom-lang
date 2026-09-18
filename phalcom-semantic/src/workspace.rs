@@ -37,6 +37,22 @@ pub struct SemanticWorkspaceInput {
 
 impl SemanticWorkspaceInput {
     pub fn new(linked: Arc<LinkedProgram>, sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>, generation: u64) -> Self {
+        let mut unlinked = BTreeMap::new();
+        let mut source_locations = BTreeMap::new();
+        for (module, unit) in &sources {
+            if let Ok(interface) = InterfaceBuilder::build(module.clone(), unit.kind, &unit.program) {
+                unlinked.insert(module.clone(), interface);
+            }
+            if let Some(source) = &unit.source {
+                source_locations.insert(module.clone(), source.clone());
+            }
+        }
+        let topology = Arc::new(phalcom_modules::topology::ModuleTopology::from_parts(
+            phalcom_modules::stabilization::ResolverGeneration(generation),
+            &linked.universe,
+            &unlinked,
+            &source_locations,
+        ));
         Self {
             linked,
             sources,
@@ -48,7 +64,7 @@ impl SemanticWorkspaceInput {
             diagnostics: BTreeMap::new(),
             blocked_modules: BTreeSet::new(),
             generation,
-            topology: None,
+            topology: Some(topology),
             reverse_imports: None,
         }
     }

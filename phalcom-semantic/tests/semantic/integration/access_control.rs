@@ -99,6 +99,22 @@ fn is_member_accessible_package() {
 }
 
 #[test]
+fn package_access_requires_canonical_package_identity() {
+    let hierarchy = MapTypeHierarchy::default();
+    let pkg_root = ModuleId::universe(ModulePath::from_components(vec![comp("pkg")]));
+    let mod_a = ModuleId::universe(ModulePath::from_components(vec![comp("pkg"), comp("mod_a")]));
+    let mod_b = ModuleId::universe(ModulePath::from_components(vec![comp("pkg"), comp("mod_b")]));
+    let decl_target = DeclarationId::new(mod_a.clone(), "Target".into());
+    let caller = DeclarationId::new(mod_b.clone(), "Caller".into());
+
+    // A caller without the canonical package product must fail closed. The
+    // old path-based fallback incorrectly treated these sibling paths as a
+    // package match.
+    let access = AccessContext::new(Some(caller), None);
+    assert!(!is_member_accessible(Visibility::Package, &decl_target, Some(&pkg_root), &access, &hierarchy));
+}
+
+#[test]
 fn is_member_accessible_internal() {
     let hierarchy = MapTypeHierarchy::default();
     let proj_1 = ProjectIdentity::Resolved(ResolvedProjectId::from_raw(1));

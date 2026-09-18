@@ -2,7 +2,7 @@ native class Number is Object {
   native +(_ other: Number) -> Self
   native -(_ other: Number) -> Self
   native *(_ other: Number) -> Self
-  native /(_ other: Number) -> Number
+  native /(_ other: Number) -> Float
   native %(_ other: Number) -> Self
   native ~/(_ other: Number) -> Self
   native **(_ other: Number) -> Self
@@ -16,9 +16,9 @@ native class Number is Object {
   native hash -> Int
   native toString -> String
   @class
-  native new() -> Number
+  native new() -> Never
   @class
-  native new(_ value: Dynamic) -> Number
+  native new(_ value: Dynamic) -> Never
 }
 
 native class Int is Number {

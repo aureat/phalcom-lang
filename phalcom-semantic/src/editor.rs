@@ -1,6 +1,7 @@
 //! Compiler-owned, protocol-neutral semantic queries for editor features.
 
 use crate::advisory::{AdvisoryFact, ValueShape, advisory_shape_from_formal};
+pub use crate::access::{is_member_accessible, AccessContext, DeclarationAccessOrigin};
 use crate::identity::{CallableId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
 use crate::impls::receiver_effective_conditional_members;
 use crate::prelude::PreludeTypeMap;
@@ -42,45 +43,6 @@ pub struct ResolvedReceiver {
     pub alternatives: Arc<[ReceiverAlternative]>,
 }
 
-/// Lexical access context for canonical member visibility checks.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AccessContext {
-    pub enclosing_declaration: Option<DeclarationId>,
-    pub enclosing_callable: Option<CallableId>,
-    pub caller_module: Option<ModuleId>,
-    pub caller_package: Option<ModuleId>,
-    pub caller_project: Option<phalcom_modules::ProjectIdentity>,
-}
-
-impl AccessContext {
-    pub fn new(enclosing_declaration: Option<DeclarationId>, enclosing_callable: Option<CallableId>) -> Self {
-        let caller_module = enclosing_declaration.as_ref().map(|d| d.module.clone());
-        let caller_project = caller_module.as_ref().map(|m| m.project);
-        Self {
-            enclosing_declaration,
-            enclosing_callable,
-            caller_module,
-            caller_package: None,
-            caller_project,
-        }
-    }
-
-    pub fn with_provenance(
-        enclosing_declaration: Option<DeclarationId>,
-        enclosing_callable: Option<CallableId>,
-        caller_module: Option<ModuleId>,
-        caller_package: Option<ModuleId>,
-        caller_project: Option<phalcom_modules::ProjectIdentity>,
-    ) -> Self {
-        Self {
-            enclosing_declaration,
-            enclosing_callable,
-            caller_module,
-            caller_package,
-            caller_project,
-        }
-    }
-}
 
 /// Canonical member target returned to protocol adapters.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -461,20 +423,21 @@ impl<'a> EditorSemanticQuery<'a> {
 
     /// Returns lexical access context from the canonical source owner.
     pub fn access_context_at(&self, module: &ModuleId, offset: usize) -> AccessContext {
+        let caller_package = self.snapshot.module_queries().owning_package(module);
         let owner = self.snapshot.source_site_at(module, offset).map(|site| &site.id.owner);
         match owner {
             Some(SourceOwner::Callable(callable)) => AccessContext::with_provenance(
                 callable.try_declaration_owner().cloned(),
                 Some(callable.clone()),
                 Some(module.clone()),
-                None,
+                Some(caller_package),
                 Some(module.project),
             ),
             _ => AccessContext::with_provenance(
                 None,
                 None,
                 Some(module.clone()),
-                None,
+                Some(caller_package),
                 Some(module.project),
             ),
         }
@@ -729,7 +692,8 @@ impl<'a> EditorSemanticQuery<'a> {
                     let member_surface = surface.surface(dispatch_owner.side);
                     for (selector, callable) in &member_surface.callables_by_selector {
                         let visibility = member_surface.callable_visibility.get(selector).copied().unwrap_or_default();
-                        if is_visible(self.snapshot.hierarchy.as_ref(), &current, visibility, access) {
+                        let declaration_package = self.snapshot.module_queries().owning_package(&current.module);
+                        if is_visible(self.snapshot.hierarchy.as_ref(), &current, &declaration_package, visibility, access) {
                             alternative_members.push(EditorMember {
                                 target: EditorMemberTarget::Callable(callable.clone()),
                                 owner: current.clone(),
@@ -739,7 +703,8 @@ impl<'a> EditorSemanticQuery<'a> {
                     }
                     for (name, field) in &member_surface.fields_by_name {
                         let visibility = member_surface.field_visibility.get(name).copied().unwrap_or_default();
-                        if is_visible(self.snapshot.hierarchy.as_ref(), &current, visibility, access) {
+                        let declaration_package = self.snapshot.module_queries().owning_package(&current.module);
+                        if is_visible(self.snapshot.hierarchy.as_ref(), &current, &declaration_package, visibility, access) {
                             alternative_members.push(EditorMember {
                                 target: EditorMemberTarget::Field(field.clone()),
                                 owner: current.clone(),
@@ -820,7 +785,10 @@ impl<'a> EditorSemanticQuery<'a> {
             ambient_constraints,
         )
         .into_iter()
-        .filter(|(owner, member)| is_visible(self.snapshot.hierarchy.as_ref(), owner, member.visibility, access))
+        .filter(|(owner, member)| {
+            let declaration_package = self.snapshot.module_queries().owning_package(&owner.module);
+            is_visible(self.snapshot.hierarchy.as_ref(), owner, &declaration_package, member.visibility, access)
+        })
         .map(|(owner, member)| EditorMember {
             target: EditorMemberTarget::Callable(member.callable),
             owner,
@@ -894,6 +862,7 @@ impl<'a> EditorSemanticQuery<'a> {
                 if !is_visible(
                     self.snapshot.hierarchy.as_ref(),
                     &selection.exact_trait_ref.declaration,
+                    &self.snapshot.module_queries().owning_package(&selection.exact_trait_ref.declaration.module),
                     requirement.visibility,
                     access,
                 ) {
@@ -1117,52 +1086,14 @@ fn receiver_mode_for_shape(shape: &ValueShape) -> Option<ReceiverMode> {
     }
 }
 
-/// Canonical accessibility checker for member lookup across checker and editor.
-pub fn is_member_accessible(
-    visibility: MemberVisibility,
-    owner: &DeclarationId,
-    declaration_package: Option<&ModuleId>,
-    access: &AccessContext,
+fn is_visible(
     hierarchy: &dyn TypeHierarchy,
+    owner: &DeclarationId,
+    declaration_package: &ModuleId,
+    visibility: MemberVisibility,
+    access: &AccessContext,
 ) -> bool {
-    match visibility {
-        MemberVisibility::Public => true,
-        MemberVisibility::Private => access.enclosing_declaration.as_ref() == Some(owner),
-        MemberVisibility::Protected => access
-            .enclosing_declaration
-            .as_ref()
-            .is_some_and(|context| hierarchy.is_subclass(context, owner)),
-        MemberVisibility::Module => {
-            let caller_mod = access.caller_module.as_ref().or_else(|| {
-                access.enclosing_declaration.as_ref().map(|d| &d.module)
-            });
-            caller_mod == Some(&owner.module)
-        }
-        MemberVisibility::Package => {
-            if let (Some(caller_pkg), Some(decl_pkg)) = (access.caller_package.as_ref(), declaration_package) {
-                caller_pkg == decl_pkg
-            } else {
-                let caller_mod = access.caller_module.as_ref().or_else(|| {
-                    access.enclosing_declaration.as_ref().map(|d| &d.module)
-                });
-                caller_mod.map(|m| &m.project) == Some(&owner.module.project)
-                    && (caller_mod.map(|m| &m.path) == Some(&owner.module.path)
-                        || caller_mod.and_then(|m| m.path.parent()) == owner.module.path.parent())
-            }
-        }
-        MemberVisibility::Internal => {
-            let caller_proj = access.caller_project.or_else(|| {
-                access.caller_module.as_ref().map(|m| m.project).or_else(|| {
-                    access.enclosing_declaration.as_ref().map(|d| d.module.project)
-                })
-            });
-            caller_proj == Some(owner.module.project)
-        }
-    }
-}
-
-fn is_visible(hierarchy: &dyn TypeHierarchy, owner: &DeclarationId, visibility: MemberVisibility, access: &AccessContext) -> bool {
-    is_member_accessible(visibility, owner, None, access, hierarchy)
+    is_member_accessible(visibility, owner, Some(declaration_package), access, hierarchy)
 }
 
 fn member_sort_key(member: &EditorMember) -> (DeclarationId, String, u8) {

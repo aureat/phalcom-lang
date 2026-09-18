@@ -198,6 +198,17 @@ pub(crate) struct Compiler<'vm> {
 }
 
 impl<'vm> Compiler<'vm> {
+    /// Allocates an executable method owned by the source module currently
+    /// being compiled. Runtime access authorization needs the declaration's
+    /// exact module/package/project provenance; the VM derives that compact
+    /// origin from the module object here rather than making each producer
+    /// reconstruct it independently.
+    pub(crate) fn alloc_source_method(&mut self, method: crate::method::MethodObject) -> ObjRef {
+        let mut method = method;
+        method.origin = self.vm.access_origin_for_module(self.module);
+        self.vm.heap.alloc(Object::Method(Box::new(method)))
+    }
+
     #[allow(dead_code)]
     /// Creates a compiler seeded from a linked module namespace with default product optimization mode (Enabled).
     pub(crate) fn new_with_bindings(vm: &'vm mut VM, module: ObjRef, source_id: u32, unit_kind: UnitKind, linked_bindings: Option<CompileBindings>) -> Self {

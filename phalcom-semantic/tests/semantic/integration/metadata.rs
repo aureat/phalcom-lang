@@ -161,7 +161,7 @@ fn metadata_round_trip_preserves_callable_generic_owner_and_constraints() {
         return_validation: ReturnContractValidation::NotApplicable,
         inferred_return: None,
         source: None,
-        implementation: phalcom_native_meta::ImplementationKind::NativePrimitive,
+        implementation: phalcom_common::modifier::ImplementationKind::Native,
         native_id: None,
         effects: phalcom_native_meta::EffectSpec::Pure,
         raises: phalcom_native_meta::RaisesSpec::Unknown,

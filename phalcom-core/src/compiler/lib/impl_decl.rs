@@ -5,11 +5,12 @@ use crate::compiler::attributes::CompileMode;
 use crate::compiler::lib::class_decl::{member_visibility, rest_layout, rest_selector};
 use crate::compiler::lib::error::CompilerError;
 use crate::compiler::lib::{Compiler, checked_send_arity};
-use crate::heap::{ObjRef, Object};
+use crate::heap::ObjRef;
 use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, IndexAccessor, MemberBody, Visibility,
+    AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, ImplementationKind, IndexAccessor,
+    MemberBody, Visibility,
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::SelectorKind;
@@ -68,11 +69,11 @@ impl<'vm> Compiler<'vm> {
         let closure = closure?;
 
         let signature_kind = if setter { SignatureKind::Setter } else { SignatureKind::Getter };
-        let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+        let method_obj = self.alloc_source_method(MethodObject::new_single(
             selector_sym,
             signature_kind,
             MethodKind::Closure(closure),
-        ))));
+        ));
         self.vm.heap.method_mut(method_obj).visibility = member_visibility(Visibility::Public);
 
         let strip_metadata = match self.vm.compile_mode {
@@ -190,6 +191,9 @@ impl<'vm> Compiler<'vm> {
                 let body_stmts = match &method_def.body {
                     MemberBody::Block(stmts) => stmts.clone(),
                     MemberBody::Declaration => {
+                        if method_def.implementation == ImplementationKind::Foreign {
+                            return Err(CompilerError::ForeignBindingUnimplemented(method_def.name.clone(), method_def.range));
+                        }
                         return Err(CompilerError::DeclarationBodyRequiresImplementation(method_def.name.clone(), method_def.range));
                     }
                 };
@@ -197,11 +201,11 @@ impl<'vm> Compiler<'vm> {
                 self.compiler_internal = prior_compiler_internal;
                 let closure = closure_result?;
 
-                let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                let method_obj = self.alloc_source_method(MethodObject::new_single(
                     selector_sym,
                     sig_kind,
                     MethodKind::Closure(closure),
-                ))));
+                ));
                 {
                     let method = self.vm.heap.method_mut(method_obj);
                     method.visibility = member_visibility(method_def.visibility);
@@ -245,16 +249,19 @@ impl<'vm> Compiler<'vm> {
                 let body_stmts = match &getter_def.body {
                     MemberBody::Block(stmts) => stmts.clone(),
                     MemberBody::Declaration => {
+                        if getter_def.implementation == ImplementationKind::Foreign {
+                            return Err(CompilerError::ForeignBindingUnimplemented(getter_def.name.clone(), getter_def.range));
+                        }
                         return Err(CompilerError::DeclarationBodyRequiresImplementation(getter_def.name.clone(), getter_def.range));
                     }
                 };
                 let closure = self.compile_block(body_stmts, selector_sym, ClosureParameters::fixed(Vec::new()), true, false, None)?;
 
-                let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                let method_obj = self.alloc_source_method(MethodObject::new_single(
                     selector_sym,
                     SignatureKind::Getter,
                     MethodKind::Closure(closure),
-                ))));
+                ));
                 self.vm.heap.method_mut(method_obj).visibility = member_visibility(getter_def.visibility);
 
                 if !strip_metadata {
@@ -292,6 +299,9 @@ impl<'vm> Compiler<'vm> {
                 let body_stmts = match &setter_def.body {
                     MemberBody::Block(stmts) => stmts.clone(),
                     MemberBody::Declaration => {
+                        if setter_def.implementation == ImplementationKind::Foreign {
+                            return Err(CompilerError::ForeignBindingUnimplemented(setter_def.name.clone(), setter_def.range));
+                        }
                         return Err(CompilerError::DeclarationBodyRequiresImplementation(setter_def.name.clone(), setter_def.range));
                     }
                 };
@@ -304,11 +314,11 @@ impl<'vm> Compiler<'vm> {
                     None,
                 )?;
 
-                let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                let method_obj = self.alloc_source_method(MethodObject::new_single(
                     selector_sym,
                     SignatureKind::Setter,
                     MethodKind::Closure(closure),
-                ))));
+                ));
                 self.vm.heap.method_mut(method_obj).visibility = member_visibility(setter_def.visibility);
 
                 if !strip_metadata {
@@ -356,16 +366,19 @@ impl<'vm> Compiler<'vm> {
                 let body = match &index_def.body {
                     MemberBody::Block(stmts) => stmts.clone(),
                     MemberBody::Declaration => {
+                        if index_def.implementation == ImplementationKind::Foreign {
+                            return Err(CompilerError::ForeignBindingUnimplemented("subscript".into(), index_def.range));
+                        }
                         return Err(CompilerError::DeclarationBodyRequiresImplementation("subscript".into(), index_def.range));
                     }
                 };
                 let closure = self.compile_block(body, selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
 
-                let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                let method_obj = self.alloc_source_method(MethodObject::new_single(
                     selector_sym,
                     sig_kind,
                     MethodKind::Closure(closure),
-                ))));
+                ));
                 self.vm.heap.method_mut(method_obj).visibility = member_visibility(index_def.visibility);
 
                 if !strip_metadata {

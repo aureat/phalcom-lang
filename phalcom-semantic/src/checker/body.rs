@@ -49,6 +49,8 @@ pub struct BodyAnalysisContext<'a> {
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
     pub module: ModuleId,
+    pub caller_package: Option<ModuleId>,
+    pub access_topology: Option<&'a phalcom_modules::topology::ModuleTopology>,
 }
 
 /// Inputs specific to one callable-body analysis.
@@ -87,6 +89,8 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         trait_surface,
         conformance_semantics,
         module,
+        caller_package,
+        access_topology,
     } = context;
     let CallableBodyRequest {
         callable,
@@ -153,6 +157,12 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         type_parameters,
     };
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, &scoped_resolver, declarations, dispatch, module, control);
+    if let Some(package) = caller_package {
+        ctx.set_caller_package(package);
+    }
+    if let Some(topology) = access_topology {
+        ctx.set_access_topology(topology);
+    }
     if let Some(view) = conformance_semantics.or(request_conformance_semantics) {
         ctx.attach_conformance_semantics(view);
     }

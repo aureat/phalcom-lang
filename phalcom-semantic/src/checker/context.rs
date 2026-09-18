@@ -1,4 +1,5 @@
 use crate::checker::analysis::{AnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency};
+use crate::access::{is_member_accessible, AccessContext};
 use crate::checker::binding::{BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingSeed, BindingWriteResult, reconcile_binding_relation};
 use crate::checker::flow::FlowState;
 use crate::checker::incident::{
@@ -402,6 +403,8 @@ pub struct CheckingContext<'a> {
     pub resolver: TrackingTypeResolver<'a>,
     pub declarations: &'a DeclarationTypeTable,
     pub current_module: ModuleId,
+    pub caller_package: Option<ModuleId>,
+    pub access_topology: Option<&'a phalcom_modules::topology::ModuleTopology>,
     pub current_class: Option<DeclarationId>,
     pub current_side: DispatchSide,
     pub current_callable: Option<CallableId>,
@@ -514,6 +517,8 @@ impl<'a> CheckingContext<'a> {
             resolver: TrackingTypeResolver::new(resolver, semantic_dependencies.clone()),
             declarations,
             current_module,
+            caller_package: None,
+            access_topology: None,
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
@@ -605,6 +610,8 @@ impl<'a> CheckingContext<'a> {
             resolver: TrackingTypeResolver::new(resolver, semantic_dependencies.clone()),
             declarations,
             current_module,
+            caller_package: None,
+            access_topology: None,
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
@@ -675,6 +682,8 @@ impl<'a> CheckingContext<'a> {
             resolver: TrackingTypeResolver::new(resolver, self.semantic_dependencies.clone()),
             declarations: self.declarations,
             current_module: self.current_module.clone(),
+            caller_package: self.caller_package.clone(),
+            access_topology: self.access_topology,
             current_class: self.current_class.clone(),
             current_side: self.current_side,
             current_callable: self.current_callable.clone(),
@@ -740,6 +749,50 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
+    /// Supplies the canonical package identity for the current caller module.
+    pub fn set_caller_package(&mut self, package: ModuleId) {
+        self.caller_package = Some(package);
+    }
+
+    pub fn set_access_topology(&mut self, topology: &'a phalcom_modules::topology::ModuleTopology) {
+        self.access_topology = Some(topology);
+    }
+
+    /// Projects the current checker scope into the shared access relation.
+    pub fn access_context(&self) -> AccessContext {
+        AccessContext::with_provenance(
+            self.current_class.clone(),
+            self.current_callable.clone(),
+            Some(self.current_module.clone()),
+            self.caller_package.clone(),
+            Some(self.current_module.project),
+        )
+    }
+
+    fn dispatch_is_accessible(&self, resolved: &ResolvedDispatch) -> bool {
+        let Some(owner) = resolved
+            .trait_dispatch
+            .as_ref()
+            .map(|selection| selection.requirement.owner.clone())
+            .or_else(|| resolved.callable.try_declaration_owner().cloned())
+        else {
+            return true;
+        };
+        let declaration_package = self.access_topology.map(|topology| topology.owning_package(&owner.module));
+        is_member_accessible(
+            resolved.visibility,
+            &owner,
+            declaration_package.as_ref(),
+            &self.access_context(),
+            &self.hierarchy,
+        )
+    }
+
+    fn authorize_dispatch(&self, mut resolved: ResolvedDispatch) -> ResolvedDispatch {
+        resolved.access_denied = !self.dispatch_is_accessible(&resolved);
+        resolved
+    }
+
     /// Runs a speculative flow probe in an isolated child context.
     /// Child-local products (diagnostics, derivations, callable exits, expressions,
     /// dependencies) are discarded while the canonical TypeStore is updated monotonically
@@ -755,6 +808,8 @@ impl<'a> CheckingContext<'a> {
             self.control.clone(),
         );
 
+        probe.caller_package = self.caller_package.clone();
+        probe.access_topology = self.access_topology;
         probe.current_class = self.current_class.clone();
         probe.current_side = self.current_side;
         probe.current_callable = self.current_callable.clone();
@@ -2182,6 +2237,8 @@ impl<'a> CheckingContext<'a> {
         Some(ResolvedDispatch {
             callable: member.callable.clone(),
             signature,
+            visibility: member.visibility,
+            access_denied: false,
             specialization: Some(crate::dispatch::DispatchSignatureSpecialization {
                 receiver: specialization_receiver,
                 declaring_owner: variant.owner.clone(),
@@ -2241,15 +2298,17 @@ impl<'a> CheckingContext<'a> {
                 },
             );
         }
-        Some(ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
+        Some(ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(ResolvedDispatch {
             callable: member.callable.clone(),
             signature,
+            visibility: member.visibility,
+            access_denied: false,
             specialization: None,
             conditional: None,
             trait_dispatch: None,
             abstract_contract: true,
             visited_owners: Box::new([surface.declaration.clone()]),
-        })))
+        }))))
     }
 
     fn resolve_assumed_trait_target(&mut self, receiver: TypeId, selector: &Selector, side: DispatchSide) -> Option<ResolvedDispatchResult> {
@@ -2318,21 +2377,25 @@ impl<'a> CheckingContext<'a> {
                     }),
                 );
             }
-            Some(ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
+            Some(ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(ResolvedDispatch {
                 callable,
                 signature,
+                visibility: assumed_candidates.first().map(|(_, member, _)| member.visibility).unwrap_or_default(),
+                access_denied: false,
                 specialization: None,
                 conditional: None,
                 trait_dispatch: None,
                 abstract_contract: false,
                 visited_owners: vec![].into_boxed_slice(),
-            })))
+            }))))
         } else {
             let ambiguous = assumed_candidates
                 .into_iter()
                 .map(|(_, member, _)| ResolvedDispatch {
                     callable: member.callable.clone(),
                     signature: crate::checker::declaration_signature::project_semantic_signature(&member.signature),
+                    visibility: member.visibility,
+                    access_denied: false,
                     specialization: None,
                     conditional: None,
                     trait_dispatch: None,
@@ -2380,10 +2443,11 @@ impl<'a> CheckingContext<'a> {
             ResolvedDispatchResult::TraitTerminal(_) | ResolvedDispatchResult::Dynamic => Box::new([]),
         };
         if let Some(resolved) = self.resolve_exact_case_conditional(specialization_receiver, side, selector, visited_owners) {
-            return ResolvedDispatchResult::Found(Box::new(resolved));
+            return ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(resolved)));
         }
         match result {
             ResolvedDispatchResult::Found(mut resolved) => {
+                resolved = Box::new(self.authorize_dispatch(*resolved));
                 for owner in resolved.visited_owners.iter() {
                     record_declaration_surface_dependency(&self.semantic_dependencies, owner);
                 }
@@ -2409,6 +2473,7 @@ impl<'a> CheckingContext<'a> {
             }
             ResolvedDispatchResult::Ambiguous(mut ambiguous) => {
                 for resolved in &mut ambiguous {
+                    resolved.access_denied = !self.dispatch_is_accessible(resolved);
                     for owner in resolved.visited_owners.iter() {
                         record_declaration_surface_dependency(&self.semantic_dependencies, owner);
                     }
@@ -2487,9 +2552,11 @@ impl<'a> CheckingContext<'a> {
                                             },
                                         );
                                     }
-                                    return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
+                                    return ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(ResolvedDispatch {
                                         callable: member.callable.clone(),
                                         signature,
+                                        visibility: member.visibility,
+                                        access_denied: false,
                                         specialization: Some(crate::dispatch::DispatchSignatureSpecialization {
                                             receiver: specialization_receiver,
                                             declaring_owner: owner.clone(),
@@ -2506,7 +2573,7 @@ impl<'a> CheckingContext<'a> {
                                         trait_dispatch: None,
                                         abstract_contract: false,
                                         visited_owners,
-                                    }));
+                                    })));
                                 }
                             }
                         }
@@ -2542,15 +2609,22 @@ impl<'a> CheckingContext<'a> {
                                 self.resolved_trait_dispatches
                                     .insert(expression, crate::trait_dispatch::TraitDispatchSite::Evidenced(selection.clone()));
                             }
-                            return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
+                            return ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(ResolvedDispatch {
                                 callable,
                                 signature,
+                                visibility: view
+                                    .trait_surfaces
+                                    .get(&selection.requirement.owner)
+                                    .and_then(|surface| surface.get(&selection.requirement))
+                                    .map(|member| member.visibility)
+                                    .unwrap_or(crate::surface::MemberVisibility::Public),
+                                access_denied: false,
                                 specialization: None,
                                 conditional: None,
                                 trait_dispatch: Some(selection),
                                 abstract_contract: false,
                                 visited_owners: vec![].into_boxed_slice(),
-                            }));
+                            })));
                         }
                         crate::trait_dispatch::TraitDispatchResolution::Ambiguous(candidates) => {
                             if let Some(expression) = self.current_expression_id() {
@@ -2562,6 +2636,13 @@ impl<'a> CheckingContext<'a> {
                                     callable: crate::trait_dispatch::selected_callable(&candidate.selection)
                                         .unwrap_or_else(|| candidate.requirement.source_callable()),
                                     signature: crate::checker::declaration_signature::project_semantic_signature(&candidate.signature),
+                                    visibility: view
+                                        .trait_surfaces
+                                        .get(&candidate.requirement.owner)
+                                        .and_then(|surface| surface.get(&candidate.requirement))
+                                        .map(|member| member.visibility)
+                                        .unwrap_or(crate::surface::MemberVisibility::Public),
+                                    access_denied: false,
                                     specialization: None,
                                     conditional: None,
                                     trait_dispatch: None,

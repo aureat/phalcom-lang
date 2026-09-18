@@ -175,6 +175,16 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     }))
     .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
 
+    if let Some(diagnostic) = semantic
+        .snapshot
+        .diagnostics
+        .values()
+        .flat_map(|diagnostics| diagnostics.iter())
+        .find(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::NativeSignatureMismatch)
+    {
+        return Err(CanonicalUniverseBuildError::NativeContracts(diagnostic.message.clone()));
+    }
+
     let analyzed = AnalyzedProgram {
         project_universe,
         runtime_modules: linked.modules.keys().cloned().collect(),

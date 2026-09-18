@@ -75,7 +75,7 @@ pub(crate) fn delegated_accessor_signatures(
             return_validation: crate::signature::ReturnContractValidation::NotApplicable,
             inferred_return: None,
             source: Some(source.clone()),
-            implementation: phalcom_native_meta::ImplementationKind::Generated,
+            implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
             native_id: None,
             effects: phalcom_native_meta::EffectSpec::Unknown,
             raises: phalcom_native_meta::RaisesSpec::Unknown,
@@ -108,6 +108,15 @@ pub(crate) enum CallableSyntaxRef<'a> {
 }
 
 impl<'a> CallableSyntaxRef<'a> {
+    pub(crate) fn implementation(&self) -> phalcom_common::modifier::ImplementationKind {
+        match self {
+            CallableSyntaxRef::Method(method) => method.implementation,
+            CallableSyntaxRef::Getter(getter) => getter.implementation,
+            CallableSyntaxRef::Setter(setter) => setter.implementation,
+            CallableSyntaxRef::Index(index) => index.implementation,
+        }
+    }
+
     pub(crate) fn range(&self) -> SourceRange {
         match self {
             CallableSyntaxRef::Method(m) => m.range,
@@ -316,7 +325,7 @@ pub(crate) fn canonical_core_class_new_signature(store: &mut crate::types::store
         return_validation: crate::signature::ReturnContractValidation::NotApplicable,
         inferred_return: None,
         source: None,
-        implementation: phalcom_native_meta::ImplementationKind::Generated,
+        implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
         native_id: None,
         effects: phalcom_native_meta::EffectSpec::Unknown,
         raises: phalcom_native_meta::RaisesSpec::Unknown,
@@ -373,9 +382,9 @@ pub(crate) fn project_field_signature(signature: &FieldSemanticSignature) -> Typ
 
 fn initial_return_validation(
     declared_return: &DeclaredTypeFact,
-    implementation: phalcom_native_meta::ImplementationKind,
+    implementation: phalcom_common::modifier::ImplementationKind,
 ) -> crate::signature::ReturnContractValidation {
-    if !matches!(implementation, phalcom_native_meta::ImplementationKind::Source) || declared_return.basis != DeclaredTypeBasis::SourceAnnotation {
+    if !matches!(implementation, phalcom_common::modifier::ImplementationKind::Phalcom) || declared_return.basis != DeclaredTypeBasis::SourceAnnotation {
         return crate::signature::ReturnContractValidation::NotApplicable;
     }
     if declared_return.is_dynamic() {
@@ -700,7 +709,8 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
         }
     };
 
-    let return_validation = initial_return_validation(&declared_return, phalcom_native_meta::ImplementationKind::Source);
+    let implementation = syntax.implementation();
+    let return_validation = initial_return_validation(&declared_return, implementation);
 
     Some(CallableSemanticSignature {
         callable: callable.clone(),
@@ -713,7 +723,7 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
         return_validation,
         inferred_return: None,
         source: Some(crate::diagnostic::SemanticSourceSpan::new(ctx.current_module.clone(), syntax.range())),
-        implementation: phalcom_native_meta::ImplementationKind::Source,
+        implementation,
         native_id: None,
         effects: phalcom_native_meta::EffectSpec::Unknown,
         raises: phalcom_native_meta::RaisesSpec::Unknown,
@@ -879,7 +889,7 @@ pub(crate) fn project_semantic_signature(signature: &CallableSemanticSignature) 
 
     let kind = if signature.declared_return.basis == DeclaredTypeBasis::ConstructorSemantics {
         CallableSemanticKind::Constructor
-    } else if signature.implementation != phalcom_native_meta::ImplementationKind::Source {
+    } else if signature.implementation != phalcom_common::modifier::ImplementationKind::Phalcom {
         CallableSemanticKind::Native
     } else {
         CallableSemanticKind::Ordinary

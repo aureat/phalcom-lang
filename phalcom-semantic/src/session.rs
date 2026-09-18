@@ -492,6 +492,7 @@ pub struct SemanticWorkspaceSession {
     alias_reverse_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
     alias_forms: Arc<BTreeMap<DeclarationId, TypeId>>,
     module_diagnostics: BTreeMap<ModuleId, Vec<phalcom_modules::diagnostic::ModuleDiagnostic>>,
+    canonical_native_diagnostics: BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
     semantic_diagnostic_contributions: BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>,
     last_snapshot: Option<Arc<SemanticSnapshot>>,
     last_known_good: Option<Arc<SemanticSnapshot>>,
@@ -507,6 +508,36 @@ impl Default for SemanticWorkspaceSession {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn canonical_topology_for_input(input: &SemanticWorkspaceInput) -> Arc<phalcom_modules::topology::ModuleTopology> {
+    if let Some(topology) = &input.topology {
+        return topology.clone();
+    }
+
+    let mut unlinked = BTreeMap::new();
+    for (module, interface) in input.interfaces.as_ref() {
+        unlinked.insert(module.clone(), (**interface).clone());
+    }
+    for (module, unit) in &input.sources {
+        if unlinked.contains_key(module) {
+            continue;
+        }
+        if let Ok(interface) = InterfaceBuilder::build(module.clone(), unit.kind, &unit.program) {
+            unlinked.insert(module.clone(), interface);
+        }
+    }
+    let sources = input
+        .sources
+        .iter()
+        .filter_map(|(module, unit)| unit.source.clone().map(|source| (module.clone(), source)))
+        .collect();
+    Arc::new(phalcom_modules::topology::ModuleTopology::from_parts(
+        phalcom_modules::stabilization::ResolverGeneration(input.generation),
+        &input.linked.universe,
+        &unlinked,
+        &sources,
+    ))
 }
 
 impl SemanticWorkspaceSession {
@@ -731,6 +762,7 @@ impl SemanticWorkspaceSession {
         // Native metadata remains authoritative for colliding native members;
         // source-only members (including generic iterator constructors) are
         // added to the same declaration surface consumed by user analysis.
+        let mut canonical_native_diagnostics: BTreeMap<ModuleId, Vec<SemanticDiagnostic>> = BTreeMap::new();
         for node in provider.nodes() {
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
@@ -748,6 +780,7 @@ impl SemanticWorkspaceSession {
                 let mut context =
                     CheckingContext::new_with_dispatch_ref(&mut store, &base_hierarchy, &resolver, &base_declarations, &base_dispatch, module_id.clone());
                 let (source_surface, source_signatures) = crate::checker::declaration::build_declared_class_surface(&mut context, class_def);
+                drop(context);
                 let mut merged = base_dispatch
                     .surface(&declaration)
                     .cloned()
@@ -778,6 +811,25 @@ impl SemanticWorkspaceSession {
                     }
                 }
                 for signature in source_signatures.into_values() {
+                    if signature.implementation == phalcom_common::modifier::ImplementationKind::Native {
+                        let range = signature.source.as_ref().map(|source| source.range).unwrap_or(class_def.range);
+                        let native = base_callable_signatures.get(&signature.callable);
+                        let mismatch = match native {
+                            None => Some("canonical native signature is missing".to_string()),
+                            Some(native) if native.implementation != phalcom_common::modifier::ImplementationKind::Native => {
+                                Some("canonical implementation category is not native".to_string())
+                            }
+                            Some(native) => signature.native_contract_mismatch_with_store(native, Some(&store)),
+                        };
+                        if let Some(reason) = mismatch {
+                            canonical_native_diagnostics.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                module_id.clone(),
+                                DiagnosticCode::NativeSignatureMismatch,
+                                format!("native.signature_mismatch: {}::{} ({reason})", signature.owner.name, signature.selector.encode()),
+                                range,
+                            ));
+                        }
+                    }
                     if base_callable_signatures.get(&signature.callable).is_none() {
                         base_callable_signatures.insert(signature);
                     }
@@ -989,6 +1041,7 @@ impl SemanticWorkspaceSession {
             alias_reverse_dependencies: BTreeMap::new(),
             alias_forms: Arc::new(BTreeMap::new()),
             module_diagnostics: BTreeMap::new(),
+            canonical_native_diagnostics,
             semantic_diagnostic_contributions: BTreeMap::new(),
             last_snapshot: None,
             last_known_good: None,
@@ -1236,6 +1289,7 @@ impl SemanticWorkspaceSession {
         }
 
         self.db.begin_revision();
+        let semantic_topology = canonical_topology_for_input(&input);
         let source_resolution_input = crate::db::fingerprint::source_resolution_input_fingerprint(&input.interfaces);
         let linked_component_product = crate::db::fingerprint::semantic_component_product_fingerprint(&input.linked);
         let mut stats = SemanticUpdateStats::default();
@@ -2188,6 +2242,9 @@ impl SemanticWorkspaceSession {
 
         // 5. Realize Declaration Shells
         let mut diags_by_module: BTreeMap<ModuleId, Vec<SemanticDiagnostic>> = BTreeMap::new();
+        for (module_id, diagnostics) in &self.canonical_native_diagnostics {
+            diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics.iter().cloned());
+        }
         if let Some(previous) = previous_snapshot.as_ref() {
             for (module_id, diagnostics) in previous.diagnostics.iter() {
                 if current_modules.contains(module_id) && !diagnostic_work_modules.contains(module_id) {
@@ -4196,6 +4253,7 @@ impl SemanticWorkspaceSession {
                         source_resolution_input,
                         linked_component_product,
                         linked: &input.linked,
+                        topology: semantic_topology.as_ref(),
                         import_products: &input.import_products,
                         hierarchy: &hierarchy,
                         base_resolver: &resolver,
@@ -4347,6 +4405,7 @@ impl SemanticWorkspaceSession {
                                     source_resolution_input,
                                     linked_component_product,
                                     linked: &input.linked,
+                                    topology: semantic_topology.as_ref(),
                                     import_products: &input.import_products,
                                     hierarchy: &hierarchy,
                                     base_resolver: &resolver,
@@ -4522,9 +4581,10 @@ impl SemanticWorkspaceSession {
                                 let formal_inputs = FormalQueryInputs {
                                     sources: &retained_sources,
                                     source_resolution_input,
-                                    linked_component_product,
-                                    linked: &input.linked,
-                                    import_products: &input.import_products,
+                                linked_component_product,
+                                linked: &input.linked,
+                                topology: semantic_topology.as_ref(),
+                                import_products: &input.import_products,
                                     hierarchy: &hierarchy,
                                     base_resolver: &resolver,
                                     declarations: &declarations,
@@ -4715,6 +4775,7 @@ impl SemanticWorkspaceSession {
                                     source_resolution_input,
                                     linked_component_product,
                                     linked: &input.linked,
+                                    topology: semantic_topology.as_ref(),
                                     import_products: &input.import_products,
                                     hierarchy: &hierarchy,
                                     base_resolver: &resolver,
@@ -4841,6 +4902,7 @@ impl SemanticWorkspaceSession {
                 source_resolution_input,
                 linked_component_product,
                 linked: &input.linked,
+                topology: semantic_topology.as_ref(),
                 import_products: &input.import_products,
                 hierarchy: &hierarchy,
                 base_resolver: &resolver,
@@ -4914,6 +4976,7 @@ impl SemanticWorkspaceSession {
             enum_semantics: &enum_semantics,
             data_semantics: &data_semantics,
             associated_surfaces: &associated_surfaces_table,
+            topology: semantic_topology.as_ref(),
             callable_dispositions: &mut callable_dispositions,
             diagnostics: &mut diags_by_module,
             semantic_work_modules: &semantic_work_modules,
@@ -4937,6 +5000,8 @@ impl SemanticWorkspaceSession {
                 &dispatch,
                 module_id.clone(),
             );
+            ctx.set_caller_package(semantic_topology.owning_package(module_id));
+            ctx.set_access_topology(semantic_topology.as_ref());
             ctx.attach_field_signatures(&field_signatures);
             ctx.attach_field_lifecycle(&field_lifecycle);
             ctx.attach_enum_semantics(&enum_semantics);
@@ -5025,14 +5090,7 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        let topology = input.topology.unwrap_or_else(|| {
-            Arc::new(phalcom_modules::topology::ModuleTopology::from_parts(
-                phalcom_modules::stabilization::ResolverGeneration(input.generation),
-                &input.linked.universe,
-                &unlinked_map,
-                &sources_loc_map,
-            ))
-        });
+        let topology = semantic_topology;
         let reverse_imports = input.reverse_imports.unwrap_or_else(|| {
             let mut rev: BTreeMap<ModuleId, BTreeSet<ModuleId>> = BTreeMap::new();
             for ((importer, _), target) in &resolved_imports_map {
@@ -7109,6 +7167,7 @@ struct InferredCallableRefreshInputs<'a> {
     enum_semantics: &'a EnumSemanticTable,
     data_semantics: &'a DataSemanticTable,
     associated_surfaces: &'a AssociatedFamilyTable,
+    topology: &'a phalcom_modules::topology::ModuleTopology,
     callable_dispositions: &'a mut BTreeMap<CallableId, CallableRevisionDisposition>,
     diagnostics: &'a mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
     semantic_work_modules: &'a BTreeSet<ModuleId>,
@@ -7155,6 +7214,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         enum_semantics,
         data_semantics,
         associated_surfaces,
+        topology,
         callable_dispositions,
         diagnostics,
         semantic_work_modules,
@@ -7320,6 +7380,8 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             trait_surface: None,
                             conformance_semantics: None,
                             module: module_id.clone(),
+                            caller_package: Some(topology.owning_package(&module_id)),
+                            access_topology: Some(topology),
                         },
                         crate::checker::body::CallableBodyRequest {
                             callable: callable.clone(),

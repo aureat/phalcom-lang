@@ -474,8 +474,8 @@ pub fn message_labels(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     Message,
     "args",
     params = [],
-    returns = List,
-    types = "() -> List",
+    returns = Tuple,
+    types = "() -> Tuple",
     effects = pure
 )]
 pub fn message_args(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {

@@ -43,6 +43,7 @@ pub(crate) struct CallableApplicationTarget {
     /// application. It is intentionally kept separate from the callable's
     /// canonical local signature.
     pub declaration_generics: Option<GenericSignature>,
+    pub access_denied: bool,
 }
 
 /// Dispatch result for one canonical member of a union receiver.
@@ -79,6 +80,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            access_denied: false,
         }
     }
 
@@ -91,6 +93,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            access_denied: false,
         }
     }
 
@@ -103,6 +106,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            access_denied: false,
         }
     }
 
@@ -123,6 +127,7 @@ impl CallableApplicationTarget {
             Self::exact(resolved.callable, resolved.signature)
         };
         target.specialization = resolved.specialization;
+        target.access_denied = resolved.access_denied;
         target
     }
 
@@ -135,6 +140,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            access_denied: false,
         }
     }
 
@@ -147,6 +153,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            access_denied: false,
         }
     }
 
@@ -159,6 +166,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            access_denied: false,
         }
     }
 }
@@ -2508,6 +2516,20 @@ pub(crate) fn apply_resolved_callable(
     expected: &ExpectedType,
     call_range: SourceRange,
 ) -> CallCheckResult {
+    if target.access_denied {
+        let mut result = analyze_unresolved_application(ctx, premise, arguments, UnresolvedApplicationReason::DispatchInaccessible);
+        let cause = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::MemberInaccessible,
+            format!("member `{}` is not accessible from this declaration", target.signature.selector.encode()),
+            call_range,
+        ));
+        if let Some(cause) = cause {
+            result.status = AnalysisStatus::Invalid(cause);
+            result.causal_invalidity = result.causal_invalidity.join(CausalInvalidity::One(cause));
+        }
+        return result;
+    }
     ctx.begin_call_causal_capture();
     if let (Some(callable), Some(call_id), Some(specialization)) = (target.callable.clone(), ctx.current_expression_id(), target.specialization.as_ref()) {
         let selection = ctx.record_derivation(
@@ -3214,6 +3236,7 @@ pub(crate) enum UnresolvedApplicationReason {
     PremiseInvalidUnavailable,
     PremiseDynamic(DynamicReason),
     DispatchMissing,
+    DispatchInaccessible,
     DispatchAmbiguous(SourceRange),
     DynamicShape(DynamicReason),
 }
@@ -3235,7 +3258,9 @@ pub(crate) fn analyze_unresolved_application(
         UnresolvedApplicationReason::PremiseUnknown => premise.knowledge.clone(),
         UnresolvedApplicationReason::PremiseInvalidUnavailable => TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause),
         UnresolvedApplicationReason::PremiseDynamic(reason) | UnresolvedApplicationReason::DynamicShape(reason) => TypeKnowledge::Dynamic(reason.clone()),
-        UnresolvedApplicationReason::DispatchMissing | UnresolvedApplicationReason::DispatchAmbiguous(_) => {
+        UnresolvedApplicationReason::DispatchMissing
+        | UnresolvedApplicationReason::DispatchInaccessible
+        | UnresolvedApplicationReason::DispatchAmbiguous(_) => {
             TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
         }
         UnresolvedApplicationReason::TraitTerminal(terminal) => match terminal {

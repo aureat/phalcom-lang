@@ -11737,7 +11737,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 labeled: &[],
                 rest: None,
             },
-            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::List),
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Tuple),
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
@@ -11745,7 +11745,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                     labeled: &[],
                     rest: None,
                 },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::List),
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Tuple),
                 constraints: &[],
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,

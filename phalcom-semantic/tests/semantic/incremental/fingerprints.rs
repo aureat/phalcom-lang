@@ -4,7 +4,8 @@ use phalcom_common::selector::Selector;
 use phalcom_modules::{
     InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId, UnlinkedModuleInterface,
 };
-use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_common::modifier::ImplementationKind;
+use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::checker::analysis::{
     AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowBindingSummary, FlowStateSummary,
@@ -96,7 +97,7 @@ fn semantic_signature() -> CallableSemanticSignature {
         return_validation: phalcom_semantic::ReturnContractValidation::Unchecked,
         inferred_return: None,
         source: Some(SemanticSourceSpan::new(ModuleId::universe_root(), SourceRange { start: 10, end: 20 })),
-        implementation: ImplementationKind::Source,
+        implementation: ImplementationKind::Phalcom,
         native_id: None,
         effects: EffectSpec::Unknown,
         raises: RaisesSpec::Unknown,

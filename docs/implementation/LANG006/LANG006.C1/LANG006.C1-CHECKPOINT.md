@@ -4,14 +4,14 @@ category: LANG
 program: LANG006
 checkpoint: LANG006.C1
 kind: checkpoint-record
-status: COMPLETE
-completion: IMPLEMENTED
-verification: FOCUSED_TESTED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: BASELINE_BLOCKED
 requires:
   - TDR-0076 transition-1 language surface convergence
   - MODL001 universe/project/module architecture
   - canonical native Universe bootstrap infrastructure
-active_plan: LANG006.C1.P1
+active_plan: LANG006.C1.P2
 latest_completed_plan: LANG006.C1.P1
 next_plan: null
 planning_baseline_revision: e0a77646c56f8b1a7e7692993d378d43bf3fc424
@@ -26,9 +26,10 @@ repository: aureat/phalcom-lang
 
 `LANG006.C1` is the first checkpoint of the new `LANG006` language-change package. It standardizes declaration modifiers and access control so Phalcom no longer encodes ordinary visibility or implementation origin through Universe-specific identifier spellings and compiler privilege conventions.
 
-This checkpoint is the planning authority for `LANG006.C1.P1`.
+This checkpoint is the planning authority for the active corrective plan
+`LANG006.C1.P2`; the P1 record remains the historical predecessor.
 
-The immediate planning sequence is intentionally split into three artifacts:
+The original planning sequence was intentionally split into three artifacts:
 
 ```text
 LANG006.C1-CHECKPOINT.md
@@ -2177,6 +2178,7 @@ formatting rewrite was applied.
 | Plan | Status | Completion | Verification | Durable state |
 | --- | --- | --- | --- | --- |
 | `LANG006.C1.P1` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Canonical modifiers/access domains, native authority, Universe migration, AST retirement, tooling/spec/decision parity |
+| `LANG006.C1.P2` | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Exact access provenance transport, selected-call authorization, source/native runtime origins, canonical native conformance, kind/provenance split, Foreign boundary, and focused parity evidence |
 
 ### Durable residuals
 
@@ -2193,3 +2195,52 @@ follow-up for either baseline failure; no additional C1 implementation plan is
 required for the delivered vertical.
 
 It should freeze all shared execution information Luna will need so the final turn can consist almost entirely of ordered, patch-grade implementation tasks.
+
+## 35. Corrective closure state — LANG006.C1.P2
+
+The post-P1 audit reopened the checkpoint at revision
+`9f1d2c9fa98e94edc6088aee1834520361e08d3e`. P2 now has a working corrective
+vertical for exact access provenance, selected-call authorization, runtime
+declaration origin, native conformance, implementation-kind separation,
+bounded `Foreign`, and tooling/specification parity.
+
+Durable interfaces established in the current worktree:
+
+- `phalcom-semantic::access` publishes declaration and caller module/package/
+  project provenance from canonical module topology; editor and checker paths
+  share the same access relation and no longer reconstruct package identity
+  from paths.
+- Formal dispatch authorizes the selected callable after lookup, preserving the
+  distinction between inaccessible and missing members.
+- Source compiler method constructors stamp exact module-derived runtime origin;
+  native anchors carry their declaring `ModuleId`, and bootstrap refreshes
+  installed methods after source modules materialize.
+- Native/source contracts compare canonical owner/side/selector/generics,
+  parameter shape/types, and return types through semantic products. The
+  comparison treats erased/dynamic metadata as non-conflicting and preserves
+  receiver-flow and setter semantics explicitly.
+- `phalcom-common::ImplementationKind` is the language category; the old
+  native-meta axis is now `ImplementationProvenance`. `Foreign` is retained
+  through semantic/presentation products and fails at an explicit unsupported
+  binding boundary.
+
+Focused evidence currently passes: semantic access-control (8), native
+conformance (3), native signature mismatch unit coverage, semantic presentation
+(6), core native unit tests (10), core reflection conformance (3), explicit
+Foreign binding failure, AST modifier regressions (2), LSP hover-filtered
+coverage, native-meta/surface/decl tests, both owning-package compile checks,
+and the exact Universe bootstrap measurement test. The source declaration
+specification and keyword hover/token surfaces were updated with the accepted
+visibility-before-implementation rule.
+
+P2 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`: focused P2 evidence
+passes, but the full semantic suite ended `1420 passed, 22 failed, 50 ignored`
+and the full core suite ended `537 passed, 74 failed, 28 ignored`. The exact
+compiler declaration-dispatch failures for iterator syntax, retired private
+syntax, and bootstrap `Class.allocate()` access reproduce on the pushed P1
+revision. A clean-P1 semantic comparison also reproduces the source-visibility
+surface failure. The remaining broad failures are carried ADT, iterator,
+incremental, conformance, module, and runtime-baseline failures; no P2-specific
+access/native conformance regression was observed. No checkpoint completion
+claim is made until the remaining P2 coverage is certified against those
+baselines.

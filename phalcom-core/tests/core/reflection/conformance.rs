@@ -37,11 +37,22 @@ fn source_method_reflection_reports_source_metadata() {
         }
         let g = Greeter.new()
         let m = g.methodFor(#"sayHello()")
-        let res = [m.isNative, m.isIntrinsic, m.implementationKind == #source]
+        let res = [m.isNative, m.isIntrinsic, m.implementationKind == #phalcom]
         "#,
         "res",
     )
     .expect("eval succeeds");
 
     assert_eq!(result.to_string(&vm), "[false, false, true]");
+}
+
+#[test]
+fn foreign_declaration_fails_at_explicit_binding_boundary() {
+    let mut vm = VM::new();
+    let main = vm.create_module("main", "<foreign test>");
+    let error = vm
+        .interpret_source(main, "class ForeignBox { foreign external() -> Int }\n")
+        .expect_err("foreign declaration must not silently become a missing body");
+
+    assert!(error.to_string().contains("foreign.binding_unimplemented"), "unexpected error: {error}");
 }

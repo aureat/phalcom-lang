@@ -1734,6 +1734,8 @@ fn callable_body_accepts_explicit_trait_owner_generics_without_nominal_entry() {
             trait_surface: None,
             conformance_semantics: None,
             module: fixture.module("main").clone(),
+            caller_package: None,
+            access_topology: None,
         },
         CallableBodyRequest {
             callable: callable.callable.clone(),

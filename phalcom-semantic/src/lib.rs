@@ -3,6 +3,7 @@
 
 pub mod advisory;
 pub mod associated;
+pub mod access;
 pub mod checker;
 pub mod contracts;
 pub mod control_summary;
@@ -59,6 +60,7 @@ pub use advisory::{
     MAX_SHAPE_UNION, ValueShape, analyze_expr, analyze_statements,
 };
 pub use associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
+pub use access::{is_member_accessible, AccessContext, DeclarationAccessOrigin};
 pub use checker::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
     CallableReferenceResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationResolutionIndex,
@@ -84,7 +86,7 @@ pub use dispatch::{
     SurfaceDispatchResolver,
 };
 pub use editor::{
-    AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, EditorTypeHint, EditorTypeHintKind, NativeCallablePresentation, PartialCallPattern,
+    EditorMember, EditorMemberTarget, EditorSemanticQuery, EditorTypeHint, EditorTypeHintKind, NativeCallablePresentation, PartialCallPattern,
     ReceiverAlternative, ReceiverMode, ReferenceDomain, RenameTargetView, ResolvedReceiver, SemanticDefinitionLocation, VisibleSymbol,
 };
 pub use effects::{

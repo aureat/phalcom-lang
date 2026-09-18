@@ -1,6 +1,5 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::attributes::{AttributeRegistry, CompileMode, ExpandCtx, expand_class_attributes};
-use crate::heap::Object;
 use crate::interner::Symbol;
 use crate::method::{
     MemberVisibility, MethodKind, MethodObject, RestLayout, RestMode as RuntimeRestMode, SignatureKind, encode_label_component, encode_selector, make_signature,
@@ -835,6 +834,9 @@ impl<'vm> Compiler<'vm> {
                     let body_stmts = match method_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
+                            if method_def.implementation == ImplementationKind::Foreign {
+                                return Err(CompilerError::ForeignBindingUnimplemented(method_def.name, method_def.range));
+                            }
                             return Err(CompilerError::DeclarationBodyRequiresImplementation(method_def.name, method_def.range));
                         }
                     };
@@ -844,11 +846,11 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
-                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                    let method_obj = self.alloc_source_method(MethodObject::new_single(
                         selector_sym,
                         sig_kind,
                         MethodKind::Closure(closure),
-                    ))));
+                    ));
                     {
                         let method = self.vm.heap.method_mut(method_obj);
                         method.visibility = member_visibility(method_def.visibility);
@@ -882,6 +884,9 @@ impl<'vm> Compiler<'vm> {
                     let body_stmts = match getter_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
+                            if getter_def.implementation == ImplementationKind::Foreign {
+                                return Err(CompilerError::ForeignBindingUnimplemented(getter_def.name, getter_def.range));
+                            }
                             return Err(CompilerError::DeclarationBodyRequiresImplementation(getter_def.name, getter_def.range));
                         }
                     };
@@ -889,11 +894,11 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
-                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                    let method_obj = self.alloc_source_method(MethodObject::new_single(
                         selector_sym,
                         SignatureKind::Getter,
                         MethodKind::Closure(closure),
-                    ))));
+                    ));
                     self.vm.heap.method_mut(method_obj).visibility = member_visibility(getter_def.visibility);
 
                     if !strip_metadata {
@@ -921,6 +926,9 @@ impl<'vm> Compiler<'vm> {
                     let body_stmts = match setter_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
+                            if setter_def.implementation == ImplementationKind::Foreign {
+                                return Err(CompilerError::ForeignBindingUnimplemented(setter_def.name, setter_def.range));
+                            }
                             return Err(CompilerError::DeclarationBodyRequiresImplementation(setter_def.name, setter_def.range));
                         }
                     };
@@ -935,11 +943,11 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
-                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                    let method_obj = self.alloc_source_method(MethodObject::new_single(
                         selector_sym,
                         SignatureKind::Setter,
                         MethodKind::Closure(closure),
-                    ))));
+                    ));
                     self.vm.heap.method_mut(method_obj).visibility = member_visibility(setter_def.visibility);
 
                     if !strip_metadata {
@@ -972,6 +980,9 @@ impl<'vm> Compiler<'vm> {
                     let body_stmts = match construct_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
+                            if construct_def.implementation == ImplementationKind::Foreign {
+                                return Err(CompilerError::ForeignBindingUnimplemented(construct_def.name, construct_def.range));
+                            }
                             return Err(CompilerError::DeclarationBodyRequiresImplementation(construct_def.name, construct_def.range));
                         }
                     };
@@ -987,11 +998,11 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling constructor: {}", selector);
 
-                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                    let method_obj = self.alloc_source_method(MethodObject::new_single(
                         selector_sym,
                         SignatureKind::Method(arity),
                         MethodKind::Closure(closure),
-                    ))));
+                    ));
                     self.vm.heap.method_mut(method_obj).visibility = member_visibility(construct_def.visibility);
 
                     let method_obj_idx = self.add_constant(Value::obj(method_obj));
@@ -1067,6 +1078,9 @@ impl<'vm> Compiler<'vm> {
                     let body = match index_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
+                            if index_def.implementation == ImplementationKind::Foreign {
+                                return Err(CompilerError::ForeignBindingUnimplemented("subscript".into(), range));
+                            }
                             return Err(CompilerError::DeclarationBodyRequiresImplementation("subscript".into(), range));
                         }
                     };
@@ -1074,11 +1088,11 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling subscript method: {}", selector);
 
-                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                    let method_obj = self.alloc_source_method(MethodObject::new_single(
                         selector_sym,
                         sig_kind,
                         MethodKind::Closure(closure),
-                    ))));
+                    ));
                     self.vm.heap.method_mut(method_obj).visibility = member_visibility(index_def.visibility);
 
                     if !strip_metadata {

@@ -140,7 +140,7 @@ pub fn method_is_native(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
         .typing_registry
         .method_implementations
         .get(method_id)
-        .map(|implementation| matches!(implementation.kind, phalcom_native_meta::ImplementationKind::NativePrimitive))
+        .map(|implementation| matches!(implementation.kind, phalcom_native_meta::ImplementationProvenance::NativePrimitive))
         .unwrap_or_else(|| matches!(vm.heap.method(method_id).kind, crate::method::MethodKind::Primitive(_)));
     Ok(Value::bool(is_native))
 }
@@ -176,13 +176,13 @@ pub fn method_implementation_kind(vm: &mut VM, receiver: &Value, _args: &[Value]
         .method_implementations
         .get(method_id)
         .map(|implementation| match implementation.kind {
-            phalcom_native_meta::ImplementationKind::Source => "source",
-            phalcom_native_meta::ImplementationKind::NativePrimitive => "native",
-            phalcom_native_meta::ImplementationKind::Generated => "generated",
-            phalcom_native_meta::ImplementationKind::Abstract => "abstract",
-            phalcom_native_meta::ImplementationKind::External => "external",
+            phalcom_native_meta::ImplementationProvenance::Source
+            | phalcom_native_meta::ImplementationProvenance::Generated
+            | phalcom_native_meta::ImplementationProvenance::Abstract => "phalcom",
+            phalcom_native_meta::ImplementationProvenance::NativePrimitive => "native",
+            phalcom_native_meta::ImplementationProvenance::External => "foreign",
         })
-        .unwrap_or("source");
+        .unwrap_or("phalcom");
     let kind_sym = vm.interner.intern(kind);
     Ok(Value::symbol(kind_sym))
 }

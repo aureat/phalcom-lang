@@ -137,6 +137,8 @@ pub struct ConditionalDispatchSelection {
 pub struct ResolvedDispatch {
     pub callable: CallableId,
     pub signature: CallableSignature,
+    pub visibility: phalcom_common::modifier::Visibility,
+    pub access_denied: bool,
     pub specialization: Option<DispatchSignatureSpecialization>,
     pub conditional: Option<ConditionalDispatchSelection>,
     pub trait_dispatch: Option<crate::trait_dispatch::TraitDispatchSelection>,
@@ -365,6 +367,8 @@ impl SurfaceDispatchResolver {
                     return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
                         callable: callable_id,
                         signature: sig.clone(),
+                        visibility: surface.surface(owner.side).callable_visibility.get(selector).copied().unwrap_or_default(),
+                        access_denied: false,
                         specialization: None,
                         conditional: None,
                         trait_dispatch: None,

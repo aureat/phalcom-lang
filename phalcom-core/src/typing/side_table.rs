@@ -40,12 +40,12 @@ impl MethodSemanticIndex {
     }
 }
 
-use phalcom_native_meta::{ImplementationKind, NativeIntrinsicId, NativeSourceSpec, PrimitiveAbi, PrimitiveKey};
+use phalcom_native_meta::{ImplementationProvenance, NativeIntrinsicId, NativeSourceSpec, PrimitiveAbi, PrimitiveKey};
 
 /// VM-owned runtime implementation provenance metadata.
 #[derive(Clone, Copy, Debug)]
 pub struct RuntimeImplementationRef {
-    pub kind: ImplementationKind,
+    pub kind: ImplementationProvenance,
     pub key: Option<PrimitiveKey>,
     pub intrinsic: Option<NativeIntrinsicId>,
     pub abi: Option<PrimitiveAbi>,

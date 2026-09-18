@@ -7,7 +7,7 @@ use super::store::{TupleTypeElement, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::DeclarationId;
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorBase, SelectorSlot};
 use phalcom_native_meta::types::TypeExprSpec;
 use phalcom_native_meta::universe::UniverseKey;
 use phalcom_native_meta::{GenericConstraintSpec, NativeDispatch, PrimitiveKey, ReturnFlowSpec};
@@ -348,18 +348,18 @@ pub fn register_native_surfaces_from_records(
             NativeDispatch::Class => crate::identity::DispatchSide::Class,
         };
 
-        let selector = Selector::try_decode_exact(record.selector()).map_err(|error| NativeSurfaceImportError::InvalidSelector {
+        let descriptor_selector = Selector::try_decode_exact(record.selector()).map_err(|error| NativeSurfaceImportError::InvalidSelector {
             key: record.surface.key,
             details: error.to_string(),
         })?;
         let callable_spec = record.callable();
 
         let declared_arity = callable_spec.params.positional.len() + callable_spec.params.labeled.len();
-        let selector_arity = match selector.kind {
+        let selector_arity = match descriptor_selector.kind {
             phalcom_common::selector::SelectorKind::Getter => 0,
             phalcom_common::selector::SelectorKind::Setter => 1,
-            phalcom_common::selector::SelectorKind::Method | phalcom_common::selector::SelectorKind::SubscriptGet => selector.slots.len(),
-            phalcom_common::selector::SelectorKind::SubscriptSet => selector.slots.len() + 1,
+            phalcom_common::selector::SelectorKind::Method | phalcom_common::selector::SelectorKind::SubscriptGet => descriptor_selector.slots.len(),
+            phalcom_common::selector::SelectorKind::SubscriptSet => descriptor_selector.slots.len() + 1,
         };
         if declared_arity != selector_arity && callable_spec.params.rest.is_none() {
             return Err(NativeSurfaceImportError::SelectorArityMismatch {
@@ -367,6 +367,28 @@ pub fn register_native_surfaces_from_records(
                 details: format!("selector has {selector_arity} slots but metadata has {declared_arity} parameters"),
             });
         }
+
+        // Rest selectors use a runtime family spelling (`call(***)`) but the
+        // canonical semantic selector contains only fixed slots; the rest
+        // parameter is carried by the signature shape below.  This is the
+        // same identity projection used for source declarations and lets
+        // native/source conformance compare the actual callable contract.
+        let selector = if callable_spec.params.rest.is_some() {
+            match &descriptor_selector.base {
+                SelectorBase::Named(name) if descriptor_selector.kind == phalcom_common::selector::SelectorKind::Method => {
+                    let mut fixed_slots = Vec::with_capacity(callable_spec.params.positional.len() + callable_spec.params.labeled.len());
+                    fixed_slots.extend(std::iter::repeat_n(SelectorSlot::Positional, callable_spec.params.positional.len()));
+                    fixed_slots.extend(callable_spec.params.labeled.iter().map(|parameter| SelectorSlot::Label(parameter.label.to_string())));
+                    Selector::method(name.clone(), fixed_slots).map_err(|error| NativeSurfaceImportError::InvalidSelector {
+                        key: record.surface.key,
+                        details: error.to_string(),
+                    })?
+                }
+                _ => descriptor_selector.clone(),
+            }
+        } else {
+            descriptor_selector.clone()
+        };
 
         let callable_id = crate::identity::CallableId::new(decl.clone(), selector.clone(), side);
         let (generic_signature, parameter_forms) =
@@ -470,7 +492,7 @@ pub fn register_native_surfaces_from_records(
             return_validation: crate::signature::ReturnContractValidation::NotApplicable,
             inferred_return: None,
             source: None,
-            implementation: phalcom_native_meta::ImplementationKind::NativePrimitive,
+            implementation: phalcom_common::modifier::ImplementationKind::Native,
             native_id: Some(record.id()),
             effects: record.effects(),
             raises: record.raises(),

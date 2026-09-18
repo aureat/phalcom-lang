@@ -2,7 +2,8 @@
 
 use super::merge::{MergedClassSurface, SurfaceMergeOutcome};
 use crate::identity::{DeclarationId, DispatchSide};
-use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeIntrinsicId, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_common::modifier::ImplementationKind;
+use phalcom_native_meta::{EffectSpec, ImplementationProvenance, NativeIntrinsicId, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_native_surface::NativeSurfaceId;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -11,6 +12,7 @@ pub struct MethodPresentation {
     pub side: DispatchSide,
     pub display_signature: String,
     pub implementation_kind: ImplementationKind,
+    pub implementation_provenance: ImplementationProvenance,
     pub native_id: Option<NativeSurfaceId>,
     pub intrinsic: Option<NativeIntrinsicId>,
     pub effects: Option<String>,
@@ -46,7 +48,8 @@ impl ClassPresentation {
                         selector: sel.clone(),
                         side: *side,
                         display_signature: sel.to_string(),
-                        implementation_kind: ImplementationKind::NativePrimitive,
+                        implementation_kind: ImplementationKind::Native,
+                        implementation_provenance: ImplementationProvenance::NativePrimitive,
                         native_id: Some(n.id()),
                         intrinsic: n.intrinsic(),
                         effects: effects_str,
@@ -67,7 +70,8 @@ impl ClassPresentation {
                         selector: sel.clone(),
                         side: *side,
                         display_signature: sel.to_string(),
-                        implementation_kind: ImplementationKind::Generated,
+                        implementation_kind: ImplementationKind::Phalcom,
+                        implementation_provenance: ImplementationProvenance::Generated,
                         native_id: Some(n.id()),
                         intrinsic: n.intrinsic(),
                         effects: effects_str,
@@ -83,7 +87,12 @@ impl ClassPresentation {
                         selector: sel.clone(),
                         side: *side,
                         display_signature: sel.to_string(),
-                        implementation_kind: ImplementationKind::Source,
+                        implementation_kind: s.implementation,
+                        implementation_provenance: if s.implementation == ImplementationKind::Foreign {
+                            ImplementationProvenance::External
+                        } else {
+                            ImplementationProvenance::Source
+                        },
                         native_id: None,
                         intrinsic: None,
                         effects: None,
@@ -100,7 +109,8 @@ impl ClassPresentation {
                         selector: sel.clone(),
                         side: *side,
                         display_signature: sel.to_string(),
-                        implementation_kind: ImplementationKind::NativePrimitive,
+                        implementation_kind: ImplementationKind::Native,
+                        implementation_provenance: ImplementationProvenance::NativePrimitive,
                         native_id: Some(native.id()),
                         intrinsic: native.intrinsic(),
                         effects: if native.effects() == EffectSpec::Pure {
@@ -120,7 +130,8 @@ impl ClassPresentation {
                         selector: sel.clone(),
                         side: *side,
                         display_signature: sel.to_string(),
-                        implementation_kind: ImplementationKind::Source,
+                        implementation_kind: ImplementationKind::Phalcom,
+                        implementation_provenance: ImplementationProvenance::Source,
                         native_id: Some(native.id()),
                         intrinsic: native.intrinsic(),
                         effects: None,
@@ -136,7 +147,8 @@ impl ClassPresentation {
                         selector: sel.clone(),
                         side: *side,
                         display_signature: sel.to_string(),
-                        implementation_kind: ImplementationKind::Source,
+                        implementation_kind: ImplementationKind::Phalcom,
+                        implementation_provenance: ImplementationProvenance::Source,
                         native_id: Some(native.id()),
                         intrinsic: None,
                         effects: None,
@@ -178,10 +190,10 @@ impl ClassPresentation {
                 DispatchSide::Class => "*(static)* ",
             };
             let mut badges = Vec::new();
-            if m.implementation_kind == ImplementationKind::NativePrimitive {
+            if m.implementation_kind == ImplementationKind::Native {
                 badges.push("native");
             }
-            if m.implementation_kind == ImplementationKind::Generated {
+            if m.implementation_provenance == ImplementationProvenance::Generated {
                 badges.push("generated");
             }
             if let Some(_intrin) = m.intrinsic {
@@ -218,7 +230,7 @@ impl ClassPresentation {
                 out.push_str(&format!("  @{}\n", eff));
             }
             let static_kw = if m.side == DispatchSide::Class { "static " } else { "" };
-            let native_kw = if m.implementation_kind == ImplementationKind::NativePrimitive { "native " } else { "" };
+            let native_kw = if m.implementation_kind == ImplementationKind::Native { "native " } else { "" };
             out.push_str(&format!("  {}{}{}\n\n", native_kw, static_kw, m.selector));
         }
         out.push_str("}\n");

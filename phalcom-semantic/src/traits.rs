@@ -552,7 +552,7 @@ fn trait_property_signature(
         return_validation: crate::signature::ReturnContractValidation::NotApplicable,
         inferred_return: None,
         source: Some(source),
-        implementation: phalcom_native_meta::ImplementationKind::Abstract,
+        implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
         native_id: None,
         effects: phalcom_native_meta::EffectSpec::Unknown,
         raises: phalcom_native_meta::RaisesSpec::Unknown,
