@@ -865,95 +865,12 @@ A virtualized, flattened, boxed, scalar-replaced, or rematerialized `Point<Int>`
 
 ---
 
-# Relationship to Structural Products
 
-Data objects share product structure with Tuple and Record but differ in type identity.
+# Cross-Spec Ownership
 
-```text
-Tuple / Record
-    structural transparent products
+Data objects are nominal transparent products. Tuple and Record remain structural products; enums remain closed sums with variant identity; ordinary classes remain opaque nominal object abstractions. Reusing runtime layout or dispatch machinery does not collapse those semantic categories.
 
-data
-    nominal transparent products
-```
-
-A declaration such as:
-
-```phalcom
-data Point(
-  x: Int,
-  y: Int,
-)
-```
-
-is not the same type as an anonymous structural product that happens to contain equivalent `x` and `y` values.
-
-An implementation may share physical product machinery between these categories without collapsing their semantic distinction.
-
----
-
-# Relationship to Enums
-
-A data object is not a one-variant enum.
-
-Enums denote closed sums whose semantics include variant identity.
-
-A data declaration introduces one nominal product type directly and has no variant discriminant as part of its semantic model.
-
-Data and enum payloads may share physical storage machinery without becoming the same language category.
-
-> **Category invariant**
->
-> Shared product representation does not imply shared type or declaration semantics.
-
----
-
-# Relationship to Classes
-
-A data object is not an ordinary class instance.
-
-Both are objects and both may provide behavior, but they have different semantic models.
-
-```text
-class
-    opaque nominal object abstraction
-
-data
-    transparent nominal immutable object abstraction
-```
-
-A class may encapsulate opaque instance representation according to class semantics.
-
-A data object's complete constituent state is defined by its components.
-
-An implementation may reuse class-like dispatch tables, behavior identities, runtime descriptors, or other machinery for data objects. Such reuse does not make the data declaration a class declaration.
-
-> **Guarantee**
->
-> Implementation sharing between `data` and `class` cannot erase their source-level or reflective semantic distinction.
-
----
-
-# Relationship to Traits
-
-A data object type may conform to traits.
-
-Trait conformance is not inheritance and does not alter data-object representation.
-
-A conformance may establish behavioral capabilities for a type such as:
-
-```phalcom
-data Point(
-  x: Int,
-  y: Int,
-)
-```
-
-but cannot cause additional components or hidden semantic state to exist in each `Point`.
-
-Data components may participate as witnesses for trait requirements where the trait-conformance rules permit them to do so.
-
-The details of witness selection, associated types, conditional conformance, and conformance coherence belong to the trait specifications.
+Data objects may conform to traits, but conformance is neither inheritance nor representation extension. It cannot add components or hidden semantic instance state. Component/witness compatibility and conformance coherence remain owned by the trait specification.
 
 ---
 
@@ -1022,36 +939,6 @@ Diagnostics and recovery behavior are specified separately from semantic validit
 
 ---
 
-# Non-Normative Implementation Model
-
-This section is non-normative.
-
-A Phalcom implementation may share immutable product-storage machinery between data objects, Tuple, Record, and enum payloads.
-
-An implementation will generally need to preserve separate notions corresponding to:
-
-```text
-nominal declaration identity
-
-exact runtime type identity
-
-logical component identity
-
-behavior/dispatch identity
-
-physical product layout
-```
-
-Multiple exact data object types may map to the same physical layout.
-
-Generic execution may require compact runtime evidence sufficient to reify an exact applied type when a data object becomes observable.
-
-Such evidence should represent generic substitutions established by semantic analysis rather than attempting to reconstruct static generic arguments from runtime classes of component values.
-
-None of these implementation mechanisms are part of Phalcom source semantics.
-
----
-
 # Reserved and Separately Specified Questions
 
 The following policies are intentionally not settled by this chapter.
@@ -1095,59 +982,3 @@ Any facility providing such guarantees requires an explicit specification.
 Data object types may conform to traits, but trait declarations, conformance resolution, witness selection, associated types, conditional conformance, and coherence are defined independently.
 
 ---
-
-# Governing Guarantees
-
-Every conforming implementation of Phalcom must preserve the following guarantees for data objects.
-
-> **Nominality**
->
-> A data object's type identity derives from its declaration rather than merely from its structural shape.
-
-> **Complete state**
->
-> The declared components constitute the entirety of a data object's semantic instance state.
-
-> **Shallow immutability**
->
-> Component bindings cannot be replaced after construction.
-
-> **Non-inheritability**
->
-> A data object type cannot serve as a superclass.
-
-> **Behavioral extensibility**
->
-> Authorized `impl` declarations may add behavior without altering representation.
-
-> **Exact generic identity**
->
-> Every semantically relevant generic argument, including a phantom argument, contributes to exact applied type identity.
-
-> **Evaluation-order preservation**
->
-> Constructor evaluation follows source evaluation order independently of component or storage order.
-
-> **Allocation independence**
->
-> Backing allocation is not observable data-object identity.
-
-> **Representation-independent exactness**
->
-> `===` depends on exact applied type and recursively exact component values rather than pointer or box identity.
-
-> **Truthful reification**
->
-> Exact runtime type information known by language semantics survives materialization and `Dynamic` boundaries.
-
-> **Representation freedom**
->
-> A conforming implementation may box, flatten, scalar-replace, share, copy, or eliminate physical data-object representation without changing meaning.
-
-> **Semantic-category preservation**
->
-> Sharing runtime machinery with classes, enums, Tuple, or Record never makes those categories semantically interchangeable.
-
-The governing rule is:
-
-> **A data object is the value described by its exact nominal type and its declared components. Everything about how that value is physically realized is implementation freedom unless another language specification explicitly makes it observable.**
