@@ -13,11 +13,12 @@ The specifications describe observable language semantics. VM stack layout, byte
 | What is a selector and what makes two selectors identical? | [Selectors](selectors.md) |
 | What argument shape does a call supply? What do `*`, `**`, and `***` mean? | [Arguments and Parameters](arguments.md) |
 | How is a message resolved and dispatched? | [Dispatch](dispatch.md) |
-| What does applying a value mean? What is `Function`? | [Functions](functions.md) |
-| What is one exact reified behavior? | [Methods](method.md) |
-| What is an exact Method paired with a receiver? | [Bound Methods](bound-method.md) |
-| What does a Closure capture and how does it return? | [Closures](closure.md) |
-| What does `&` mean and how does a `Family` activate? | [References and Families](references-and-families.md) |
+| What does applying a value mean? What is `Function`? | [Callable Values and Function](callable-values.md) |
+| What is one exact reified behavior? | [Methods](methods.md) |
+| What is an exact Method paired with a receiver? | [Bound Methods](bound-methods.md) |
+| What does a Closure capture and how does it return? | [Closures](closures.md) |
+| What does `&` mean and what does a callable reference capture? | [References](references.md) |
+| What is a `Family` and how does it activate? | [Families](families.md) |
 | How are Methods and MethodFamily snapshots reflected? | [Callable Reflection](reflection.md) |
 | What are `self`, lexical `super`, caller/callee authority, and callable-local `return`? | [Execution Contexts](execution-contexts.md) |
 
