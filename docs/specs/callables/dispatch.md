@@ -2,7 +2,7 @@
 
 > **Status:** Draft normative specification  
 > **Semantic ownership:** resolution and performance of selector-identified operations: name-resolution boundary, receiver and operand evaluation, exact and rest lookup, access, misses, `doesNotUnderstand`, `super`, and ordinary dispatch on class objects.  
-> **Related specifications:** [Selectors](selectors.md), [Arguments and Parameters](arguments.md), [Functions](functions.md), [Methods](method.md), [References and Families](references-and-families.md), [Execution Contexts](execution-contexts.md).
+> **Related specifications:** [Selectors](selectors.md), [Arguments and Parameters](arguments.md), [Callable Values and Function](callable-values.md), [Methods](methods.md), [References](references.md), [Families](families.md), [Execution Contexts](execution-contexts.md).
 
 Dispatch answers one question:
 
@@ -28,7 +28,7 @@ helper(value)
 
 is resolved before dispatch decides whether value application or an implicit receiver send is intended.
 
-Resolution prefers a value binding in the applicable lexical/module environment. If a value binding resolves, the expression is value application and therefore uses the `call` protocol specified by [Functions](functions.md).
+Resolution prefers a value binding in the applicable lexical/module environment. If a value binding resolves, the expression is value application and therefore uses the `call` protocol specified by [Callable Values and Function](callable-values.md).
 
 If no value binding resolves and the surrounding context admits an implicit receiver, the expression is an ordinary Method send to that receiver.
 

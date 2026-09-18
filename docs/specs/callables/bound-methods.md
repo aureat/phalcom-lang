@@ -2,7 +2,7 @@
 
 > **Status:** Draft normative specification  
 > **Semantic ownership:** reusable exact Method binding: construction, stored receiver, exact activation, mutation behavior, access, and relation to Method and Family.  
-> **Related specifications:** [Methods](method.md), [Functions](functions.md), [Dispatch](dispatch.md), [Execution Contexts](execution-contexts.md), [References and Families](references-and-families.md).
+> **Related specifications:** [Methods](methods.md), [Callable Values and Function](callable-values.md), [Dispatch](dispatch.md), [Execution Contexts](execution-contexts.md), [References](references.md), [Families](families.md).
 
 A `BoundMethod` is a complete Function consisting of:
 
@@ -35,7 +35,7 @@ Binding does not invoke the Method.
 
 Binding also does not perform ordinary selector lookup on the receiver.
 
-As specified by [Methods](method.md), the receiver may be any runtime value; holder-layout compatibility is enforced only by body operations that actually require holder-specific representation.
+As specified by [Methods](methods.md), the receiver may be any runtime value; holder-layout compatibility is enforced only by body operations that actually require holder-specific representation.
 
 ## Application
 

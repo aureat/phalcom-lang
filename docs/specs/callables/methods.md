@@ -2,7 +2,7 @@
 
 > **Status:** Draft normative specification  
 > **Semantic ownership:** reified exact behavior, Method identity, exact invocation, binding, receiver semantics, lexical ownership, access, and Method-specific reflection.  
-> **Related specifications:** [Selectors](selectors.md), [Arguments and Parameters](arguments.md), [Dispatch](dispatch.md), [Execution Contexts](execution-contexts.md), [Bound Methods](bound-method.md), [Reflection](reflection.md), [Functions](functions.md).
+> **Related specifications:** [Selectors](selectors.md), [Arguments and Parameters](arguments.md), [Dispatch](dispatch.md), [Execution Contexts](execution-contexts.md), [Bound Methods](bound-methods.md), [Reflection](reflection.md), [Callable Values and Function](callable-values.md).
 
 A `Method` is one reified exact behavior owned by a behavioral definition context.
 
@@ -81,7 +81,7 @@ method.bind(receiver)
 
 The first is one-shot exact invocation.
 
-The second produces a reusable [BoundMethod](bound-method.md).
+The second produces a reusable [BoundMethod](bound-methods.md).
 
 Neither operation redispatches the Method selector to choose a different entry Method.
 
@@ -193,7 +193,7 @@ Binding does not:
 - capture a replacement Method;
 - grant the receiver or later caller additional access authority.
 
-The semantics of later application belong to [Bound Methods](bound-method.md).
+The semantics of later application belong to [Bound Methods](bound-methods.md).
 
 ## Binding and access authority
 

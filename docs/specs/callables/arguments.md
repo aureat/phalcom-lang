@@ -2,7 +2,7 @@
 
 > **Status:** Draft normative specification  
 > **Semantic ownership:** argument shape, argument evaluation and contribution, positional and labeled lanes, `*` / `**` / `***` expansion, complete argument products, parameter shape, rest capture, shape acceptance, and structural argument binding.  
-> **Related specifications:** [Selectors](selectors.md), [Dispatch](dispatch.md), [Functions](functions.md), [Families](families.md).
+> **Related specifications:** [Selectors](selectors.md), [Dispatch](dispatch.md), [Callable Values and Function](callable-values.md), [Families](families.md).
 
 An invocation in Phalcom does not supply an unstructured list of values. It supplies an **argument shape**: an ordered positional lane together with an ordered labeled lane.
 
@@ -20,7 +20,7 @@ parameter shape
 
 Selector identity depends on the structural shape of a send, while parameter binding determines whether and how a selected callable accepts the resulting values. Runtime argument values and their types do not participate in selector identity or structural parameter matching.
 
-This specification defines call-shape construction and parameter-shape acceptance. Selector identity belongs to [Selectors](selectors.md); behavioral lookup belongs to [Dispatch](dispatch.md); the common first-class callable protocol belongs to [Functions](functions.md).
+This specification defines call-shape construction and parameter-shape acceptance. Selector identity belongs to [Selectors](selectors.md); behavioral lookup belongs to [Dispatch](dispatch.md); the common first-class callable protocol belongs to [Callable Values and Function](callable-values.md).
 
 ## Argument shape
 
@@ -1002,7 +1002,7 @@ Its Function-level equivalence to:
 function(***arguments)
 ```
 
-is specified in [Functions](functions.md).
+is specified in [Callable Values and Function](callable-values.md).
 
 `arguments` must be `Unit` or a `Tuple` complete product.
 
