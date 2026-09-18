@@ -2,7 +2,7 @@
 
 > **Status:** Draft normative specification  
 > **Semantic ownership:** callable execution context: lexical environment, dynamic `self`, lexical `super` anchor, callee access authority, local `return`, and the relation between Method and Closure activations.  
-> **Related specifications:** [Dispatch](dispatch.md), [Methods](method.md), [Bound Methods](bound-method.md), [Closures](closure.md), [Functions](functions.md).
+> **Related specifications:** [Dispatch](dispatch.md), [Methods](methods.md), [Bound Methods](bound-methods.md), [Closures](closures.md), [Callable Values and Function](callable-values.md).
 
 An activation executes inside a context containing the information required to interpret receiver-relative and lexical operations.
 
