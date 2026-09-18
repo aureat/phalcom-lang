@@ -543,11 +543,9 @@ If no such proof exists, the member is not part of the receiver's available surf
 
 ## Constraint language
 
-Implementation constraints use Phalcom's general generic-constraint system.
+Implementation constraints use the general generic-constraint system defined by [Generic Constraints](../generic-constraints.md).
 
-The meaning of `<:`, `:>`, equality constraints, trait constraints, and other constraint forms is defined by the type-system specifications.
-
-The implementation declaration defines only how such proven constraints affect applicability.
+This specification does not redefine kind classification (`:`), trait conformance (`|=`), subtyping (`<:`), type equivalence (`==`), associated specialization, or their inference rules. It defines only how constraints already proven in the implementation's generic environment affect implementation applicability.
 
 ## Reserved target-pattern specialization
 
