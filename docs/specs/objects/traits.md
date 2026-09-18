@@ -842,79 +842,17 @@ The generic-constraint specification defines the source syntax and solver integr
 
 ---
 
-# Interaction with Data Objects
 
-A data object type may conform to traits without changing its representation.
+# Cross-Spec Interactions
 
-Data components may serve as witnesses for compatible readable property requirements.
+Trait conformance composes with neighboring object categories without changing their representation model:
 
-Because data components are immutable, a component alone cannot satisfy a mutable property requirement requiring write capability.
+- data components may witness compatible readable property requirements, but conformance cannot add hidden data-object state and an immutable component alone cannot satisfy a mutable property requirement;
+- enum roots and exact cases may conform independently of the enum's closed-case contracts; one callable may witness both systems only when independently valid, and the requirement identities remain distinct;
+- class inheritance and trait conformance are separate; inherited effective behavior may witness a requirement when it satisfies the ordinary compatibility rules;
+- inherent `impl` contributes target-owned behavior, while `impl Trait for Target` establishes conformance evidence. An inherent member may be reused as a witness without becoming trait-owned behavior.
 
-Trait conformance cannot add hidden state to a data object.
-
----
-
-# Interaction with Enums
-
-An enum root or exact enum case may conform to a trait where the target and ownership rules permit it.
-
-Trait conformance remains separate from the enum's own closed-case behavior contract.
-
-A concrete callable may, where independently compatible, serve both as:
-
-```text
-an enum root-requirement witness
-and
-a trait-requirement witness
-```
-
-The two requirement identities and witness relations remain separate.
-
-Conformance cannot add variants, change exhaustiveness, alter exact-case refinement, or substitute for an enum's closed-case completeness rules.
-
----
-
-# Interaction with Classes
-
-Class inheritance and trait conformance are independent.
-
-A class may inherit behavior according to class semantics and separately conform to traits.
-
-An inherited member that is part of the target's effective accessible behavior may serve as a trait witness when it satisfies the ordinary witness compatibility rules.
-
-An override selected by the class's normal dispatch semantics is the effective member considered for witness compatibility at the conformance target.
-
-Conformance does not create a superclass relationship.
-
----
-
-# Interaction with Inherent `impl`
-
-An inherent implementation:
-
-```phalcom
-impl User {
-  ...
-}
-```
-
-contributes target-owned behavior.
-
-A conformance implementation:
-
-```phalcom
-impl Printable for User {
-  ...
-}
-```
-
-establishes trait evidence.
-
-An inherent member may be reused automatically as a witness.
-
-A conformance-defined witness does not silently create a competing inherent selector.
-
-The implementation-declaration specification governs generic scope, provenance, and common `impl` syntax; this specification governs conformance semantics.
+Generic scope and common `impl` mechanics belong to [Implementation Declarations](impl.md); data, enum, and class representation rules remain owned by their respective specifications.
 
 ---
 
@@ -947,91 +885,21 @@ Reflection descriptors report semantic facts and do not create conformance.
 
 ---
 
+
 # Dispatch and Runtime Freedom
 
-Trait-dependent calls dispatch through witnesses selected by applicable conformance evidence.
+Trait-dependent behavior is selected from applicable conformance evidence and its chosen witnesses. The runtime mechanism used to realize that selection is non-normative.
 
-A conforming implementation may realize this using:
-
-- direct static lowering;
-- witness tables;
-- conformance tables;
-- specialized generic code;
-- cached conformance evidence;
-- other equivalent mechanisms.
-
-Runtime reflection or class-table scanning is not the semantic authority for determining whether a conformance exists.
-
-The static semantic program establishes the conformance relation.
-
-Equivalent programs cannot change conformance or witness selection according to module traversal order, import order, or cache state.
+Runtime reflection, table scanning, module traversal, import order, source order, or cache state cannot create a conformance or change which witness valid evidence selects.
 
 ---
 
-# Traits Are Not Classes
 
-Traits do not:
+# Boundaries and Non-Features
 
-```text
-own instance fields
-define class layout
-establish superclass relationships
-inject representation into conforming targets
-```
+Traits are reusable behavioral contracts, not representation or inheritance declarations. They do not own instance fields, establish superclass relationships, inject representation, or replace an enum's closed-case contract.
 
-A class may conform to a trait, but conformance and inheritance remain different semantic relationships.
-
----
-
-# Traits Are Not Enum Root Contracts
-
-An enum root requirement quantifies over the closed exact cases of one enum.
-
-A trait requirement belongs to a reusable contract satisfied by explicitly conforming targets.
-
-```text
-enum root requirement
-    closed-world, enum-owned obligation
-
-trait requirement
-    reusable, trait-owned obligation
-```
-
-The language does not synthesize hidden traits for enum root requirements, and trait conformance does not replace enum closed-case completeness.
-
----
-
-# Traits Are Not Existential Value Types
-
-A trait declaration does not automatically introduce a first-class runtime value type.
-
-This specification does not define trait objects, existential trait packaging, `dyn Trait`, `any Trait`, or an equivalent feature.
-
-Such a facility requires a separate specification describing representation, dispatch, associated-type erasure, and variance semantics.
-
-> **Existential-separation invariant**
->
-> Trait-as-contract does not imply trait-as-runtime-value-type.
-
----
-
-# Trait Inheritance
-
-This specification does not define trait inheritance, supertraits, or trait composition as a separate language mechanism.
-
-A trait may participate in ordinary generic constraints involving other traits where the generic constraint system permits it, but such a constraint does not itself create an inheritance hierarchy between trait declarations.
-
-A future trait-composition specification may introduce stronger relationships explicitly.
-
----
-
-# Metatype and Class-Side Conformance
-
-This specification does not define syntax for conforming a metatype/class-side target to a trait.
-
-In particular, runtime/reflection expressions such as `.class` are not implicitly repurposed as conformance-target syntax.
-
-Any future class-side conformance model requires a separate specification of the semantic target and source syntax.
+A trait declaration also does not by itself introduce an existential runtime value type. This specification defines no trait objects, `dyn Trait`/`any Trait` equivalent, trait inheritance or supertrait mechanism, or metatype/class-side conformance syntax. Those facilities require separate specifications if introduced.
 
 ---
 
@@ -1105,60 +973,6 @@ Diagnostic codes and exact wording are implementation-defined, but a contract fa
 
 ---
 
-# Non-Normative Implementation Model
-
-This section is non-normative.
-
-A compiler may represent trait semantics conceptually as:
-
-```text
-TraitSurface {
-    requirements
-    defaults
-    associated types
-}
-
-TraitConformance {
-    exact trait reference
-    target
-    substitutions
-    associated bindings
-    witnesses
-    selected defaults
-}
-```
-
-Conformance resolution may produce evidence such as:
-
-```text
-ConformanceEvidence {
-    selected conformance
-    substitutions
-    associated bindings
-    witnesses
-    selected defaults
-    nested evidence
-}
-```
-
-The exact representation is implementation-specific.
-
-The important separation is:
-
-```text
-trait declaration identity
-    ≠
-requirement/default identity
-    ≠
-conformance identity
-    ≠
-witness callable identity
-    ≠
-reflection descriptor identity
-```
-
----
-
 # Reserved Facilities
 
 The following are not defined by this specification:
@@ -1174,97 +988,3 @@ The following are not defined by this specification:
 These facilities may be introduced by later specifications without changing the foundational distinction between traits, conformances, and witnesses.
 
 ---
-
-# Governing Guarantees
-
-> **Behavioral contract**
->
-> A trait defines reusable behavioral and type requirements, not instance representation.
-
-> **Nominal trait identity**
->
-> Structurally identical trait declarations remain distinct contracts.
-
-> **Stable requirement identity**
->
-> Requirements remain distinct from the concrete callables that witness them.
-
-> **Abstract `Self`**
->
-> `Self` denotes the conforming subject and specializes through conformance.
-
-> **Storage independence**
->
-> Property requirements describe capabilities and never inject fields or components.
-
-> **Explicit conformance**
->
-> Matching members do not create conformance without an applicable conformance declaration or another explicitly specified derivation mechanism.
-
-> **Trait-or-target ownership**
->
-> A conformance may be declared only by the module that owns the trait or the target.
-
-> **Witness reuse**
->
-> A unique compatible inherent member is automatically reusable as a witness without losing its inherent identity.
-
-> **Default preservation**
->
-> Trait defaults remain trait-owned behavior selected through conformance evidence.
-
-> **Concrete-witness precedence**
->
-> A compatible concrete witness supersedes a trait default for that conformance.
-
-> **Conformance completeness**
->
-> Every applicable behavioral and associated-type obligation must be satisfied.
-
-> **Visibility coverage**
->
-> A witness must be accessible everywhere the requirement promises the capability.
-
-> **Associated-type dependence**
->
-> Associated type bindings belong to conformances rather than becoming ordinary target aliases by implication.
-
-> **Structured evidence**
->
-> Conformance resolution preserves the selected conformance, substitutions, witnesses, defaults, associated bindings, and nested evidence required to justify the result.
-
-> **Conditional applicability**
->
-> Conditional conformances exist only where their constraints are proven.
-
-> **Coherence**
->
-> One exact target and one exact trait reference have at most one applicable conformance.
-
-> **Generic trait-reference identity**
->
-> Distinct exact generic applications of one trait are distinct trait references and may have independent conformances when otherwise coherent.
-
-> **No default precedence by order**
->
-> Competing trait defaults are never selected by declaration, conformance, import, or source order.
-
-> **No inheritance conflation**
->
-> Trait conformance does not establish class inheritance.
-
-> **No enum-contract conflation**
->
-> Trait requirements remain distinct from closed enum root requirements.
-
-> **No existential implication**
->
-> A trait declaration does not automatically define a first-class runtime trait value.
-
-> **Reflection fidelity**
->
-> Reflection preserves the distinction among trait, requirement, default, conformance, witness, associated type, associated binding, and implementation provenance.
-
-The governing rule is:
-
-> **A trait defines a nominal reusable contract; a conformance supplies the semantic evidence that one target satisfies one exact trait reference. Requirements, defaults, witnesses, associated bindings, and conformance evidence retain distinct identities even when they participate in one dispatch path.**
