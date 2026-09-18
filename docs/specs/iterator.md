@@ -2,7 +2,7 @@
 
 > **Status:** Draft normative specification  
 > **Semantic ownership:** the `Iterable` and `Iterator` contracts, traversal state and exhaustion, `for` iteration semantics, indexed and parallel loop lanes, and the standard item types of core iterable families.  
-> **Related specifications:** [Traits](objects/traits.md), [Associated Types](objects/associated-types.md), [Dispatch](callables/dispatch.md), [Selectors](callables/selectors.md), and the pattern/control-flow specifications.
+> **Related specifications:** [Traits](objects/traits.md), [Associated Types](associated-types.md), [Dispatch](callables/dispatch.md), [Selectors](callables/selectors.md), and the pattern/control-flow specifications.
 
 Iteration in Phalcom is trait-based. An **iterable** is a value that can produce a traversal; an **iterator** is one stateful traversal.
 
