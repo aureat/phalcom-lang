@@ -5,16 +5,16 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 // mutation selector (immutability is structural, TupleObject's Box<[Value]>).
 // Product literals compile directly to native build bytecodes.
 
-@native
-class Tuple is Collection {
-  @class @internal @native _$fromList(_ value: List<Dynamic>) -> Tuple
-  @internal @native _$size -> Int
-  @internal @native _$at(_ index: Int) -> Dynamic
-  @internal @native _$positionalSize -> Int
-  @internal @native _$labelAt(_ index: Int) -> Symbol
-  @internal @native _$positionals -> List<Dynamic>
-  @internal @native _$labeled -> Map<Symbol, Dynamic>
-  @internal @native _$slice(_ start: Int, _ end: Int) -> Tuple
+native class Tuple is Collection {
+  @class
+  internal native _$fromList(_ value: List<Dynamic>) -> Tuple
+  internal native _$size -> Int
+  internal native _$at(_ index: Int) -> Dynamic
+  internal native _$positionalSize -> Int
+  internal native _$labelAt(_ index: Int) -> Symbol
+  internal native _$positionals -> List<Dynamic>
+  internal native _$labeled -> Map<Symbol, Dynamic>
+  internal native _$slice(_ start: Int, _ end: Int) -> Tuple
   size { self._$size }
   positionals { self._$positionals }
   labeled { self._$labeled }
@@ -46,7 +46,7 @@ class Tuple is Collection {
 
   at(_ i) { self._$at(i) }
 
-  @private
+  private
   findLabel(_ sym) {
     let num_labeled = self.size - self._$positionalSize
     let i = 0
@@ -59,7 +59,7 @@ class Tuple is Collection {
     return None
   }
 
-  @private
+  private
   access(_ key) {
     if (key.is(Symbol)) {
       return self.findLabel(key).match(

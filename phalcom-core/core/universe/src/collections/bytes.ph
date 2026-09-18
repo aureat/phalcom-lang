@@ -6,19 +6,20 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 // and the Iterable hookup. `each`/`map`/`filter`/`reduce` are deliberately
 // ABSENT — inherited from `Iterable` so `Fiber.yield` works mid-iteration
 // (law 8); adding native or local overrides is a spec violation.
-@native
-class Bytes is Collection {
-  @class @native new(_ value: Dynamic) -> Bytes
-  @class @internal @native _$fromString(_ value: String) -> Bytes
-  @internal @native _$size -> Int
-  @internal @native _$at(_ index: Int) -> Int
-  @internal @native _$set(_ index: Int, _ value: Int) -> Dynamic
-  @internal @native _$fill(_ value: Int) -> Dynamic
-  @internal @native _$slice(_ start: Int, _ end: Int) -> Bytes
-  @internal @native _$copyInto(_ target: Dynamic, _ offset: Int) -> Dynamic
-  @internal @native _$utf8 -> Bytes
-  @internal @native _$utf8Lossy -> String
-  @internal @native _$equalsConstantTime(_ other: Bytes) -> Bool
+native class Bytes is Collection {
+  @class
+  native new(_ value: Dynamic) -> Bytes
+  @class
+  internal native _$fromString(_ value: String) -> Bytes
+  internal native _$size -> Int
+  internal native _$at(_ index: Int) -> Int
+  internal native _$set(_ index: Int, _ value: Int) -> Dynamic
+  internal native _$fill(_ value: Int) -> Dynamic
+  internal native _$slice(_ start: Int, _ end: Int) -> Bytes
+  internal native _$copyInto(_ target: Dynamic, _ offset: Int) -> Dynamic
+  internal native _$utf8 -> Bytes
+  internal native _$utf8Lossy -> String
+  internal native _$equalsConstantTime(_ other: Bytes) -> Bool
   size { self._$size }
 
   first {
@@ -277,7 +278,7 @@ impl CanonicalIterable for Bytes {
 
 class OpenMode {
   @constructor
-  @private
+  private
   named(_ n) { _name = n }
   @class
   read { OpenMode.named("read") }
@@ -444,11 +445,11 @@ class Path {
 // U-RESOURCE & U-STREAMS
 // ============================================================================
 
-@native
-class Resource is Object {
-  @class @internal @native _$register(_ kind: String) -> Dynamic
-  @internal @native _$close() -> Dynamic
-  @internal @native _$isClosed -> Bool
+native class Resource is Object {
+  @class
+  internal native _$register(_ kind: String) -> Dynamic
+  internal native _$close() -> Dynamic
+  internal native _$isClosed -> Bool
   close {
     self._$close()
     return Result::Ok(None)

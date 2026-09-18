@@ -3,11 +3,10 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 // Range is a native bounds descriptor. Its lower_/upper_/upperInclusive_
 // observations preserve omitted endpoints. Stateful traversal is owned by
 // RangeIterator; the legacy cursor methods remain during the staged migration.
-@native
-class Range is Collection {
-  @internal @native _$lower -> Option<Number>
-  @internal @native _$upper -> Option<Number>
-  @internal @native _$upperInclusive -> Bool
+native class Range is Collection {
+  internal native _$lower -> Option<Number>
+  internal native _$upper -> Option<Number>
+  internal native _$upperInclusive -> Bool
   @class
   new(_ lower, _ upper, _ upperInclusive) {
     if (lower == None) {
@@ -18,13 +17,13 @@ class Range is Collection {
     return upperInclusive.ifTrue(|| { lower..=upper }, ifFalse: || { lower..upper })
   }
 
-  @private
+  private
   isSliceCoordinate(_ value) {
     // TODO(NUMERIC-TOWER): require Int once the tower is fully landed.
     return value.is(Number) and ((value % 1) == 0)
   }
 
-  @private
+  private
   sliceBoundary(_ coordinate, _ size) {
     if (coordinate < 0) {
       if (coordinate < -size) { return 0 }
@@ -34,7 +33,7 @@ class Range is Collection {
     return coordinate
   }
 
-  @private
+  private
   sliceInclusiveEnd(_ coordinate, _ size) {
     if (coordinate < 0) {
       if (coordinate < -size) { return 0 }
@@ -48,8 +47,7 @@ class Range is Collection {
 
   // Normalizes this bound descriptor for a finite sequence of `size` elements.
   // Omitted endpoints are distinct from a supplied None, which is malformed.
-  @internal
-  _$sliceBounds(_ size) {
+  internal _$sliceBounds(_ size) {
     let start = 0
     let end = size
     let lower = self._$lower

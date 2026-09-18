@@ -5,6 +5,7 @@ use crate::vm::ClassKey;
 use phalcom_ast::ast::{
     AssignmentExpr, AttrKind, Attribute, BinaryExpr, BinaryOp, BuiltinAttr, ClassDef, ClassMember, Expr, FieldDef, FieldKind, GetPropertyExpr, GetterDef,
     IndexAccessor, MemberBody, MethodDef, ParameterDef, ReturnStatement, SetterDef, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr, VariantDef,
+    ImplementationKind, Visibility,
 };
 use std::collections::HashMap;
 
@@ -1066,6 +1067,10 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
         is_static: false,
         is_constructor: true,
         attributes: Vec::new(),
+        visibility: Visibility::Public,
+        visibility_range: None,
+        implementation: ImplementationKind::Phalcom,
+        implementation_range: None,
         range: attr_range,
         name_range: attr_range,
     }));
@@ -1207,6 +1212,10 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     }]),
                     is_static: false,
                     attributes: Vec::new(),
+                    visibility: field.visibility,
+                    visibility_range: field.visibility_range,
+                    implementation: ImplementationKind::Phalcom,
+                    implementation_range: None,
                     range: attr.range,
                     name_range: attr.range,
                 }));
@@ -1236,6 +1245,10 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     )]),
                     is_static: false,
                     attributes: Vec::new(),
+                    visibility: field.visibility,
+                    visibility_range: field.visibility_range,
+                    implementation: ImplementationKind::Phalcom,
+                    implementation_range: None,
                     range: attr.range,
                     name_range: attr.range,
                 }));
@@ -1635,6 +1648,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                     }]),
                     is_static: false,
                     attributes: Vec::new(),
+                    visibility: f.visibility,
+                    visibility_range: f.visibility_range,
+                    implementation: ImplementationKind::Phalcom,
+                    implementation_range: None,
                     range: attr_range,
                     name_range: attr_range,
                 }));
@@ -1663,6 +1680,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             is_static: false,
             is_constructor: false,
             attributes: Vec::new(),
+            visibility: Visibility::Public,
+            visibility_range: None,
+            implementation: ImplementationKind::Phalcom,
+            implementation_range: None,
             range: attr_range,
             name_range: attr_range,
         }));
@@ -1679,6 +1700,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             })]),
             is_static: false,
             attributes: Vec::new(),
+            visibility: Visibility::Public,
+            visibility_range: None,
+            implementation: ImplementationKind::Phalcom,
+            implementation_range: None,
             range: attr_range,
             name_range: attr_range,
         }));
@@ -1698,6 +1723,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             })]),
             is_static: false,
             attributes: Vec::new(),
+            visibility: Visibility::Public,
+            visibility_range: None,
+            implementation: ImplementationKind::Phalcom,
+            implementation_range: None,
             range: attr_range,
             name_range: attr_range,
         }));
@@ -1738,6 +1767,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 is_static: false,
                 is_constructor: false,
                 attributes: Vec::new(),
+                visibility: Visibility::Public,
+                visibility_range: None,
+                implementation: ImplementationKind::Phalcom,
+                implementation_range: None,
                 range: attr_range,
                 name_range: attr_range,
             }));
@@ -1828,6 +1861,8 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
                 name_range: v.range,
                 mutable: true,
                 is_static: false,
+                visibility: Visibility::Public,
+                visibility_range: None,
                 annotation: None,
                 default: None,
                 attributes: Vec::new(),
@@ -1877,6 +1912,10 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             is_static: false,
             is_constructor: false,
             attributes: Vec::new(),
+            visibility: Visibility::Private,
+            visibility_range: None,
+            implementation: ImplementationKind::Phalcom,
+            implementation_range: None,
             range: v.range,
             name_range: v.range,
         }));
@@ -1902,6 +1941,8 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
                 range: v.range,
             }],
             invariants: Vec::new(),
+            implementation: ImplementationKind::Phalcom,
+            implementation_range: None,
             range: v.range,
             name_range: v.range,
         }));
@@ -1962,6 +2003,10 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         is_static: false,
         is_constructor: false,
         attributes: vec![synthetic_attr],
+        visibility: Visibility::Public,
+        visibility_range: None,
+        implementation: ImplementationKind::Phalcom,
+        implementation_range: None,
         range: match_range,
         name_range: match_range,
     }));
@@ -2271,6 +2316,8 @@ pub fn expand_class_attributes(
                     | BuiltinAttr::Private
                     | BuiltinAttr::Protected
                     | BuiltinAttr::Internal
+                    | BuiltinAttr::Primitive
+                    | BuiltinAttr::Intrinsic
                     | BuiltinAttr::Total => {}
                 },
                 AttrKind::User(_) => {}
@@ -2570,6 +2617,10 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
                 args: Vec::new(),
                 range,
             }],
+            visibility: method.visibility,
+            visibility_range: method.visibility_range,
+            implementation: ImplementationKind::Phalcom,
+            implementation_range: None,
             range,
             name_range: method.name_range,
         }));
@@ -2583,6 +2634,10 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
             is_static: false,
             is_constructor: true,
             attributes: method.attributes,
+            visibility: method.visibility,
+            visibility_range: method.visibility_range,
+            implementation: ImplementationKind::Phalcom,
+            implementation_range: None,
             range,
             name_range: method.name_range,
         }));

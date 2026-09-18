@@ -1,9 +1,8 @@
 // Monotonic clock values and signed nanosecond durations.
 
 class Duration {
-  @private
   @constructor
-  create(_ nanoseconds: Int) {
+  private create(_ nanoseconds: Int) {
     _nanoseconds = nanoseconds
   }
 
@@ -104,24 +103,20 @@ class Duration {
 }
 
 class Instant {
-  @private
   @constructor
-  create(_ clock: Clock, _ ticks: Int) {
+  private create(_ clock: Clock, _ ticks: Int) {
     _clock = clock
     _ticks = ticks
   }
 
   @class
-  @internal
-  _$from(_ clock: Clock, _ ticks: Int) -> Instant {
+  internal _$from(_ clock: Clock, _ ticks: Int) -> Instant {
     Instant.create(clock, ticks)
   }
 
-  @internal
-  _$clock -> Clock { _clock }
+  internal _$clock -> Clock { _clock }
 
-  @internal
-  _$ticks -> Int { _ticks }
+  internal _$ticks -> Int { _ticks }
 
   elapsed -> Duration {
     _clock.since(self)
@@ -178,8 +173,7 @@ class Instant {
     (_clock.hash * 31) + _ticks.hash
   }
 
-  @private
-  requireSameClock(_ other: Instant) -> Unit {
+  private requireSameClock(_ other: Instant) -> Unit {
     if (_clock === other._$clock) {
       return ()
     }
@@ -191,17 +185,15 @@ class Clock {
   @class _system
 
   @class
-  @internal
-  _$system -> Clock {
+  internal _$system -> Clock {
     if (_system == None) {
       _system = Clock.create()
     }
     _system
   }
 
-  @private
   @constructor
-  create() { self }
+  private create() { self }
 
   now -> Instant {
     self.instant(System._$monotonicNanoseconds)
@@ -211,8 +203,7 @@ class Clock {
     self.now.since(instant)
   }
 
-  @protected
-  instant(_ ticks: Int) -> Instant {
+  protected instant(_ ticks: Int) -> Instant {
     Instant._$from(self, ticks)
   }
 }

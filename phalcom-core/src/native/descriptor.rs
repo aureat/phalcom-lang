@@ -89,11 +89,11 @@ impl PrimitiveDescriptor {
         slots.iter().filter(|slot| **slot == SelectorSlot::Positional).count() as u8
     }
 
-    /// Computes the access owner for an internal primitive.
+    /// Computes lexical access owner for class-scoped native members.
     pub fn internal_access_owner(&self, owner_class: ClassId) -> Option<ClassId> {
         match self.surface.visibility {
-            NativeVisibility::Internal => Some(owner_class),
-            NativeVisibility::Public => None,
+            NativeVisibility::Private | NativeVisibility::Protected => Some(owner_class),
+            NativeVisibility::Public | NativeVisibility::Module | NativeVisibility::Package | NativeVisibility::Internal => None,
         }
     }
 }

@@ -211,8 +211,6 @@ impl ArgumentView {
             caller_origin,
         }
     }
-        }
-    }
 
     /// Number of positional values in the argument lane.
     pub fn positional_count(&self) -> usize {
@@ -401,8 +399,6 @@ impl MethodObject {
             contracts: None,
             attributes: Vec::new(),
             attributes_frozen: false,
-        }
-    }
         }
     }
 

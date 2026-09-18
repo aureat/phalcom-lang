@@ -1,67 +1,42 @@
-@native
-class Object {
+native class Object {
 
-  @native
-  name -> Dynamic
+  native name -> Dynamic
 
-  @native
-  class -> Dynamic
+  native class -> Dynamic
 
-  @native
-  class=(_ value: Dynamic) -> Unit
+  native class=(_ value: Dynamic) -> Unit
 
-  @native
-  toString -> String
+  native toString -> String
 
-  @native
-  hash -> Int
+  native hash -> Int
 
-  @native
-  ==(_ other: Dynamic) -> Bool
+  native ==(_ other: Dynamic) -> Bool
 
-  @native
-  !=(_ other: Dynamic) -> Bool
+  native !=(_ other: Dynamic) -> Bool
 
-  @native
-  ===(_ other: Dynamic) -> Bool
+  native ===(_ other: Dynamic) -> Bool
 
-  @native
-  matches(_ other: Dynamic) -> Bool
+  native matches(_ other: Dynamic) -> Bool
 
-  @native
-  understands(_ selector: Dynamic) -> Bool
+  native understands(_ selector: Dynamic) -> Bool
 
-  @native
-  perform(_ selector: Dynamic, ***args: Dynamic) -> Dynamic
+  native perform(_ selector: Dynamic, ***args: Dynamic) -> Dynamic
 
-  @native
-  respondsTo(_ selector: Dynamic) -> Bool
+  native respondsTo(_ selector: Dynamic) -> Bool
 
-  @native
-  doesNotUnderstand(_ message: Dynamic) -> Dynamic
+  native doesNotUnderstand(_ message: Dynamic) -> Dynamic
 
-  @native
-  methodFor(_ selector: Dynamic) -> Dynamic
+  native methodFor(_ selector: Dynamic) -> Dynamic
 
-  @internal
-  @native
-  _$invariantEnter() -> Dynamic
+  internal native _$invariantEnter() -> Dynamic
 
-  @internal
-  @native
-  _$invariantExit() -> Dynamic
+  internal native _$invariantExit() -> Dynamic
 
-  @internal
-  @native
-  _$attributes -> Dynamic
+  internal native _$attributes -> Dynamic
 
-  @internal
-  @native
-  _$attach(_ attribute: Dynamic) -> Dynamic
+  internal native _$attach(_ attribute: Dynamic) -> Dynamic
 
-  @internal
-  @native
-  _$freezeAttributes() -> Dynamic
+  internal native _$freezeAttributes() -> Dynamic
 
   // Is-kind-of test: true iff `cls` is the receiver's class or an ancestor of
   // it (object-model.md §8, is-tests.md — U-IS). Derived purely over the floor

@@ -6,7 +6,7 @@
 /// Accessibility is computed by comparing caller context against declaration provenance.
 /// Note that visibility does NOT form a simple total order (`Protected` is class-hierarchy
 /// oriented while `Module`, `Package`, `Internal` are provenance-oriented).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Default)]
 pub enum Visibility {
     #[default]
     Public,

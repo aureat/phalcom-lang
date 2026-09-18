@@ -8,14 +8,6 @@ pub fn validate_decl(decl: &NormalizedPrimitiveDecl) -> Result<(), DeclError> {
     if selector.encode() != decl.key.selector && selector.encode() != canonical_rest_spelling {
         return Err(DeclError::InvalidSelector(format!("noncanonical spelling `{}`", decl.key.selector)));
     }
-    let internal_selector = decl.key.selector.starts_with("_$");
-    if internal_selector {
-        if decl.visibility != Some(phalcom_native_meta::NativeVisibility::Internal) {
-            return Err(DeclError::InvalidMetadata("internal selector requires visibility = internal".into()));
-        }
-    } else if decl.visibility == Some(phalcom_native_meta::NativeVisibility::Internal) {
-        return Err(DeclError::InvalidMetadata("internal visibility requires an _$ selector".into()));
-    }
     if decl.replacement.is_some() && decl.deprecated_since.is_none() {
         return Err(DeclError::InvalidMetadata("replacement requires deprecated_since".into()));
     }

@@ -160,12 +160,13 @@ fn emit_surface_record(decl: &NormalizedPrimitiveDecl) -> Result<TokenStream2, S
         NativeDispatch::Class => format_ident!("Class"),
     };
 
-    let is_internal = selector_str.starts_with("_$");
-    let vis = decl
-        .visibility
-        .unwrap_or(if is_internal { NativeVisibility::Internal } else { NativeVisibility::Public });
+    let vis = decl.visibility.unwrap_or(NativeVisibility::Public);
     let vis_ident = match vis {
         NativeVisibility::Public => format_ident!("Public"),
+        NativeVisibility::Private => format_ident!("Private"),
+        NativeVisibility::Protected => format_ident!("Protected"),
+        NativeVisibility::Module => format_ident!("Module"),
+        NativeVisibility::Package => format_ident!("Package"),
         NativeVisibility::Internal => format_ident!("Internal"),
     };
 

@@ -10,8 +10,7 @@
 ///
 /// @typeparam T The type of value carried by `Ok`.
 /// @typeparam E The type of error carried by `Error`.
-@native
-enum Result<T, E> {
+native enum Result<T, E> {
 
     /// A successful result containing a value.
     ///

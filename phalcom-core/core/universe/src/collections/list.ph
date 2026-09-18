@@ -1,14 +1,14 @@
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
-@native
-class List<T> is Collection {
-  @class @native new() -> List<T>
-  @internal @native _$length -> Int
-  @internal @native _$at(_ index: Int) -> Dynamic
-  @internal @native _$set(_ index: Int, _ value: Dynamic) -> Dynamic
-  @internal @native _$push(_ value: Dynamic) -> Dynamic
-  @internal @native _$replaceSlice(_ start: Int, _ end: Int, _ replacement: List<T>) -> Dynamic
-  @native toString -> String
+native class List<T> is Collection {
+  @class
+  native new() -> List<T>
+  internal native _$length -> Int
+  internal native _$at(_ index: Int) -> Dynamic
+  internal native _$set(_ index: Int, _ value: Dynamic) -> Dynamic
+  internal native _$push(_ value: Dynamic) -> Dynamic
+  internal native _$replaceSlice(_ start: Int, _ end: Int, _ replacement: List<T>) -> Dynamic
+  native toString -> String
   size { self._$length }
 
   first {
@@ -41,7 +41,7 @@ class List<T> is Collection {
     return None
   }
 
-  @private
+  private
   sliceByRange(_ range) {
     return range._$sliceBounds(self.size).match(
       ok: |bounds| {

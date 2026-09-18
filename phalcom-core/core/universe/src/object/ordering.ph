@@ -1,5 +1,4 @@
-@native
-enum Ordering {
+native enum Ordering {
     @variant Less
     @variant Equal
     @variant Greater

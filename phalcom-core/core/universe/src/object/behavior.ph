@@ -3,22 +3,16 @@
 // native `_attributes` store every class object carries (M-ATTR-ROOT).
 // Method-only reopen (no new fields) — safe on a bootstrap class (a
 // reopen-with-fields would trip read-before-write).
-@native
-class Behavior is Object {
-  @native
-  superclass -> Dynamic
+native class Behavior is Object {
+  native superclass -> Dynamic
 
-  @native
-  superclass=(_ value: Dynamic) -> Dynamic
+  native superclass=(_ value: Dynamic) -> Dynamic
 
-  @native
-  name -> String
+  native name -> String
 
-  @native
-  methods -> Dynamic
+  native methods -> Dynamic
 
-  @native
-  >>(_ selector: Dynamic) -> Dynamic
+  native >>(_ selector: Dynamic) -> Dynamic
 
   attributes { _$attributes }
 

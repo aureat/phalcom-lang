@@ -298,7 +298,7 @@ pub fn block_while_true_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
     let receiver_idx = args.receiver_index();
     let callback_floor = vm.frames.len();
     let owner = vm.frames.last().and_then(|f| f.home_frame_token);
-    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let caller_auth = (vm.current_access_class(), vm.current_access_origin());
     let source_range = SourceRange::default();
 
     vm.control_stack.push(
@@ -321,7 +321,7 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     vm.stack.push(*receiver);
     vm.stack.extend_from_slice(args);
     let layout = InvocationLayout::ordinary(args.len(), Box::new([]));
-    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_access_origin());
     match block_while_true_shape(vm, *receiver, view)? {
         CallOutcome::Returned(v) => Ok(v),
         CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {
@@ -362,7 +362,7 @@ pub fn block_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhRes
     let receiver_idx = args.receiver_index();
     let callback_floor = vm.frames.len();
     let owner = vm.frames.last().and_then(|f| f.home_frame_token);
-    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let caller_auth = (vm.current_access_class(), vm.current_access_origin());
     let source_range = SourceRange::default();
 
     vm.control_stack.push(
@@ -385,7 +385,7 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
     vm.stack.push(*receiver);
     vm.stack.extend_from_slice(args);
     let layout = InvocationLayout::ordinary(args.len(), Box::new([]));
-    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_access_origin());
     match block_on_shape(vm, *receiver, view)? {
         CallOutcome::Returned(v) => Ok(v),
         CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {
@@ -413,7 +413,7 @@ pub fn block_ensure_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> P
     let receiver_idx = args.receiver_index();
     let callback_floor = vm.frames.len();
     let owner = vm.frames.last().and_then(|f| f.home_frame_token);
-    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let caller_auth = (vm.current_access_class(), vm.current_access_origin());
     let source_range = SourceRange::default();
 
     vm.control_stack.push(
@@ -436,7 +436,7 @@ pub fn block_ensure(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
     vm.stack.push(*receiver);
     vm.stack.extend_from_slice(args);
     let layout = InvocationLayout::ordinary(args.len(), Box::new([]));
-    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_access_origin());
     match block_ensure_shape(vm, *receiver, view)? {
         CallOutcome::Returned(v) => Ok(v),
         CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {

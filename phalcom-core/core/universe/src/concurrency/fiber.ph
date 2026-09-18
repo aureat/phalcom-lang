@@ -1,43 +1,56 @@
-@native
-class System is Object {
+native class System is Object {
 
-  @class @native print(_ value: Object) -> Unit
+  @class
+  native print(_ value: Object) -> Unit
 
-  @class @native new() -> Never
+  @class
+  native new() -> Never
 
-  @class @native schedule(_ fiber: Object) -> Fiber
+  @class
+  native schedule(_ fiber: Object) -> Fiber
 
   @class
   sleep(_ duration: Duration) -> Future<Unit> {
     System._$sleep(duration.nanoseconds)
   }
 
-  @class @internal @native _$sleep(_ nanoseconds: Int) -> Future<Unit>
+  @class
+  internal native _$sleep(_ nanoseconds: Int) -> Future<Unit>
 
   @class
   clock -> Clock {
     Clock._$system
   }
 
-  @class @internal @native _$monotonicNanoseconds -> Int
+  @class
+  internal native _$monotonicNanoseconds -> Int
 
-  @class @internal @native _$nextScheduled -> Option<Fiber>
+  @class
+  internal native _$nextScheduled -> Option<Fiber>
 
-  @class @internal @native _$schedulerFailureCursor -> Int
+  @class
+  internal native _$schedulerFailureCursor -> Int
 
-  @class @internal @native _$takeUnhandledScheduledFailures(_ cursor: Int) -> Option<String>
+  @class
+  internal native _$takeUnhandledScheduledFailures(_ cursor: Int) -> Option<String>
 
-  @class @internal @native _$reportUnhandledScheduledFailures -> Unit
+  @class
+  internal native _$reportUnhandledScheduledFailures -> Unit
 
-  @class @internal @native _$wake(_ fiber: Fiber, _ generation: Int) -> Bool
+  @class
+  internal native _$wake(_ fiber: Fiber, _ generation: Int) -> Bool
 
-  @class @native gc -> Unit
+  @class
+  native gc -> Unit
 
-  @class @internal @native _$write(_ value: String) -> Unit
+  @class
+  internal native _$write(_ value: String) -> Unit
 
-  @class @internal @native _$leakReport -> List<String>
+  @class
+  internal native _$leakReport -> List<String>
 
-  @class @internal @native _$strictResources(_ enabled: Bool) -> Unit
+  @class
+  internal native _$strictResources(_ enabled: Bool) -> Unit
 
   // U-STRING write funnel (ADR-0049 amendment): pure `.ph` control flow over
   // native `write_(_)` and the `toString` message. Additive-only: does not
@@ -49,9 +62,8 @@ class System is Object {
     obj
   }
 
-  @private
   @class
-  writeObject(_ obj: Object) -> Object {
+  private writeObject(_ obj: Object) -> Object {
     const s = obj.toString
     if s is String {
       System._$write(s)
@@ -88,41 +100,45 @@ class System is Object {
   }
 }
 
-@native
-class Fiber is Object {
-  @class @native new(_ body: Function) -> Fiber
+native class Fiber is Object {
+  @class
+  native new(_ body: Function) -> Fiber
 
-  @native call() -> Dynamic
+  native call() -> Dynamic
 
-  @native call(_ value: Dynamic) -> Dynamic
+  native call(_ value: Dynamic) -> Dynamic
 
-  @native try() -> Dynamic
+  native try() -> Dynamic
 
-  @native try(_ value: Dynamic) -> Dynamic
+  native try(_ value: Dynamic) -> Dynamic
 
-  @internal @native _$resumeScheduled() -> Dynamic
+  internal native _$resumeScheduled() -> Dynamic
 
-  @internal @native _$preparePark() -> Int
+  internal native _$preparePark() -> Int
 
-  @internal @native _$park(_ generation: Int) -> Dynamic
+  internal native _$park(_ generation: Int) -> Dynamic
 
-  @internal @native _$onComplete(_ observer: () -> Unit) -> Fiber
+  internal native _$onComplete(_ observer: () -> Unit) -> Fiber
 
-  @internal @native _$terminalValue -> Dynamic
+  internal native _$terminalValue -> Dynamic
 
-  @class @native yield() -> Dynamic
+  @class
+  native yield() -> Dynamic
 
-  @class @native yield(_ value: Dynamic) -> Dynamic
+  @class
+  native yield(_ value: Dynamic) -> Dynamic
 
-  @class @native current -> Fiber
+  @class
+  native current -> Fiber
 
-  @class @native abort(_ error: Error) -> Never
+  @class
+  native abort(_ error: Error) -> Never
 
-  @native isDone -> Bool
+  native isDone -> Bool
 
-  @native isRoot -> Bool
+  native isRoot -> Bool
 
-  @native error -> Option<Error>
+  native error -> Option<Error>
 }
 
 // Explicit readiness registration variant (`ParkedFiber` or `Callback`).
@@ -242,8 +258,7 @@ class Future<T> {
 
   // Internal single settlement transition. Returns `true` if this call settled the future,
   // or `false` if the future was already settled (settle-once).
-  @internal
-  _$trySettle(_ outcome: Result<T, Error>) -> Bool {
+  internal _$trySettle(_ outcome: Result<T, Error>) -> Bool {
     if self.isReady {
       return false
     }
@@ -300,8 +315,7 @@ class Future<T> {
   }
 
   // Amortized compaction to discard detached registration tombstones.
-  @private
-  compactRegistrations() -> Unit {
+  private compactRegistrations() -> Unit {
     const compacted = List.new()
     let i = 0
     const n = _registrations.size
@@ -339,8 +353,7 @@ class Future<T> {
   }
 
   // Backward compatibility helper for internal combinator wiring.
-  @private
-  whenReady(_ continuation: () -> Unit) -> FutureSubscription {
+  private whenReady(_ continuation: () -> Unit) -> FutureSubscription {
     self.subscribeReady(continuation)
   }
 
@@ -412,9 +425,8 @@ class Future<T> {
 
   // Runs `action` to terminal completion and invokes the matching callback.
   // Nonterminal park/yield turns do not call either callback.
-  @private
   @class
-  runToTerminal<U>(_ action: () -> U, _ onSuccess: (U) -> Unit, _ onError: (Error) -> Unit) -> Fiber {
+  private runToTerminal<U>(_ action: () -> U, _ onSuccess: (U) -> Unit, _ onError: (Error) -> Unit) -> Fiber {
     const fiber = Fiber.new(action)
     fiber._$onComplete(|| {
       if fiber.error.isSome {

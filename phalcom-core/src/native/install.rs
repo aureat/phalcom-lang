@@ -4,10 +4,10 @@ use super::descriptor::{PrimitiveDescriptor, PrimitiveEntry};
 use super::registry::PRIMITIVES;
 use crate::error::PhResult;
 use crate::heap::Object;
-use crate::method::{MemberVisibility, MethodObject};
+use crate::method::MethodObject;
 use crate::vm::VM;
 use phalcom_common::selector::{Selector, SelectorBase};
-use phalcom_native_meta::{NativeDispatch, NativeVisibility};
+use phalcom_native_meta::NativeDispatch;
 
 /// Sorts registered descriptors by key and installs each into the VM.
 pub fn install_registered_primitives(vm: &mut VM) -> PhResult<()> {
@@ -40,10 +40,7 @@ fn install_one(vm: &mut VM, desc: &PrimitiveDescriptor) -> PhResult<()> {
         PrimitiveEntry::Shape(f) => MethodObject::new_shape_primitive(selector, signature, f, owner),
     };
 
-    method.visibility = match desc.surface.visibility {
-        NativeVisibility::Public => MemberVisibility::Public,
-        NativeVisibility::Internal => MemberVisibility::Internal,
-    };
+    method.visibility = desc.surface.visibility;
     method.access_owner = desc.internal_access_owner(owner);
 
     let method_id = vm.heap.alloc(Object::Method(Box::new(method)));

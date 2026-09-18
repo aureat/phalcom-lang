@@ -10,8 +10,7 @@
 /// values while `None` propagates through the operation.
 ///
 /// @typeparam T The type of value carried by `Some`.
-@native
-enum Option<T> {
+native enum Option<T> {
 
   /// An `Option` containing a value.
   ///
@@ -39,8 +38,7 @@ impl<T> Option<T> {
   /// this option is `Some`.
   /// @param none A zero-argument callback invoked when this option is `None`.
   /// @returns The value returned by the invoked callback.
-  @native
-  match<R>(some: (T) -> R, none: () -> R) -> R
+  native match<R>(some: (T) -> R, none: () -> R) -> R
 
   /// Performs an action when this option is `None`.
   ///

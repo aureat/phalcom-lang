@@ -1,13 +1,13 @@
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
-@native
-class Set<T> is Collection {
-  @class @native new() -> Set<T>
-  @internal @native _$size -> Int
-  @internal @native _$add(_ value: Dynamic) -> Dynamic
-  @internal @native _$has(_ value: Dynamic) -> Bool
-  @internal @native _$remove(_ value: Dynamic) -> Dynamic
-  @internal @native _$at(_ index: Int) -> Dynamic
+native class Set<T> is Collection {
+  @class
+  native new() -> Set<T>
+  internal native _$size -> Int
+  internal native _$add(_ value: Dynamic) -> Dynamic
+  internal native _$has(_ value: Dynamic) -> Bool
+  internal native _$remove(_ value: Dynamic) -> Dynamic
+  internal native _$at(_ index: Int) -> Dynamic
   size { self._$size }
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s

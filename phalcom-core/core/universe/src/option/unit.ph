@@ -1,5 +1,4 @@
-@native
-class Unit is Object {
+native class Unit is Object {
 
   toString -> String { "()" }
 

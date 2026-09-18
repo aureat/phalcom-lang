@@ -902,8 +902,5 @@ fn native_kind(kind: SignatureKind) -> NativeMemberKind {
 }
 
 fn native_visibility(visibility: MemberVisibility) -> NativeVisibility {
-    match visibility {
-        MemberVisibility::Public => NativeVisibility::Public,
-        MemberVisibility::Private | MemberVisibility::Protected | MemberVisibility::Internal => NativeVisibility::Internal,
-    }
+    visibility
 }

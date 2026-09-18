@@ -95,7 +95,7 @@ pub fn bool_and_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhRes
     vm.stack.truncate(receiver_idx);
     vm.stack.push(block);
     let layout = InvocationLayout::ordinary(0, Box::new([]));
-    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_access_origin());
     vm.activate_function(block, view, SourceRange::default())
 }
 
@@ -129,7 +129,7 @@ pub fn bool_or_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResu
     vm.stack.truncate(receiver_idx);
     vm.stack.push(block);
     let layout = InvocationLayout::ordinary(0, Box::new([]));
-    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_access_origin());
     vm.activate_function(block, view, SourceRange::default())
 }
 
@@ -177,7 +177,7 @@ pub fn bool_if_true_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> P
     let receiver_idx = args.receiver_index();
     let callback_floor = vm.frames.len();
     let owner = vm.frames.last().and_then(|f| f.home_frame_token);
-    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let caller_auth = (vm.current_access_class(), vm.current_access_origin());
     let source_range = SourceRange::default();
 
     vm.control_stack.push(
@@ -229,7 +229,7 @@ pub fn bool_if_false_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> 
     let receiver_idx = args.receiver_index();
     let callback_floor = vm.frames.len();
     let owner = vm.frames.last().and_then(|f| f.home_frame_token);
-    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let caller_auth = (vm.current_access_class(), vm.current_access_origin());
     let source_range = SourceRange::default();
 
     vm.control_stack.push(
@@ -289,7 +289,7 @@ pub fn bool_if_true_if_false_shape(vm: &mut VM, receiver: Value, args: ArgumentV
     vm.stack.truncate(receiver_idx);
     vm.stack.push(branch);
     let layout = InvocationLayout::ordinary(0, Box::new([]));
-    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_access_origin());
     vm.activate_function(branch, view, SourceRange::default())
 }
 

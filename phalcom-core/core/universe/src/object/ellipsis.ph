@@ -10,9 +10,8 @@ class Ellipsis {
     _instance
   }
 
-  @private
   @constructor
-  create() { self }
+  private create() { self }
 
   @class
   new() { Error.new("There can be only one Ellipsis instance").raise() }

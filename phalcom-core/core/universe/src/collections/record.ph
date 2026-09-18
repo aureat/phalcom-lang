@@ -1,8 +1,7 @@
-@native
-class Record is Object {
-  @internal @native _$size -> Int
-  @internal @native _$labelAt(_ index: Int) -> Symbol
-  @internal @native _$valueAt(_ index: Int) -> Dynamic
+native class Record is Object {
+  internal native _$size -> Int
+  internal native _$labelAt(_ index: Int) -> Symbol
+  internal native _$valueAt(_ index: Int) -> Dynamic
   size { self._$size }
   labelAt(_ index) { self._$labelAt(index) }
 

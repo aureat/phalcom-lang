@@ -11,9 +11,8 @@ class Unsupported is Error {
     _instance
   }
 
-  @private
   @constructor
-  create() {
+  private create() {
     // _message = "unsupported"
     // _kind = #unsupported
     // _cause = None

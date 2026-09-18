@@ -865,14 +865,11 @@ impl VM {
 
     /// Derives the canonical runtime access origin for a given module handle.
     pub fn access_origin_for_module(&self, module_ref: ObjRef) -> crate::method::RuntimeAccessOrigin {
-        if let Some(module) = self.heap.as_module(module_ref) {
-            crate::method::RuntimeAccessOrigin {
-                module: Some(module_ref),
-                package: module.package.or(Some(module_ref)),
-                project: Some(module.id.project),
-            }
-        } else {
-            crate::method::RuntimeAccessOrigin::none()
+        let module = self.heap.module(module_ref);
+        crate::method::RuntimeAccessOrigin {
+            module: Some(module_ref),
+            package: module.package.or(Some(module_ref)),
+            project: Some(module.id.project),
         }
     }
 

@@ -146,8 +146,14 @@ fn parse_ident_string(tokens: &TokenStream) -> Result<String, DeclError> {
 fn parse_visibility(tokens: &TokenStream) -> Result<NativeVisibility, DeclError> {
     match parse_ident_string(tokens)?.as_str() {
         "public" => Ok(NativeVisibility::Public),
+        "private" => Ok(NativeVisibility::Private),
+        "protected" => Ok(NativeVisibility::Protected),
+        "module" => Ok(NativeVisibility::Module),
+        "package" => Ok(NativeVisibility::Package),
         "internal" => Ok(NativeVisibility::Internal),
-        other => Err(DeclError::InvalidMetadata(format!("unknown visibility `{other}`"))),
+        other => Err(DeclError::InvalidMetadata(format!(
+            "unknown visibility `{other}`; expected public, private, protected, module, package, or internal"
+        ))),
     }
 }
 

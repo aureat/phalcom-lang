@@ -1,25 +1,15 @@
-@native
-class Bool is Object {
+native class Bool is Object {
   @class
-  @native
-  new() -> Bool
+  native new() -> Bool
   @class
-  @native
-  new(_ value: Dynamic) -> Bool
-  @native
-  and(_ other: Bool) -> Bool
-  @native
-  or(_ other: Bool) -> Bool
-  @native
-  not -> Bool
-  @native
-  ifTrue(_ then: Dynamic) -> Dynamic
-  @native
-  ifFalse(_ otherwise: Dynamic) -> Dynamic
-  @native
-  ifTrue(_ then: Dynamic, ifFalse: Dynamic) -> Dynamic
-  @native
-  hash -> Int
+  native new(_ value: Dynamic) -> Bool
+  native and(_ other: Bool) -> Bool
+  native or(_ other: Bool) -> Bool
+  native not -> Bool
+  native ifTrue(_ then: Dynamic) -> Dynamic
+  native ifFalse(_ otherwise: Dynamic) -> Dynamic
+  native ifTrue(_ then: Dynamic, ifFalse: Dynamic) -> Dynamic
+  native hash -> Int
   // Display (U-CORE-4, R-INV-4.1): derived over the sacred `ifTrue(_,
   // ifFalse)` selector (proven syntax:
   // `control-flow/control_flow_send_equivalence.ph` L9). This `toString` is
@@ -40,8 +30,6 @@ class Bool is Object {
 // so these bodies are intentionally empty. The globals are already bound in Rust
 // (VM::install_core, add_class!) — unlike `None`, they name the class objects,
 // so these reopens re-emit the identical DefineGlobal binding (a harmless no-op).
-@native
-class True is Bool {}
+native class True is Bool {}
 
-@native
-class False is Bool {}
+native class False is Bool {}

@@ -1,24 +1,15 @@
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
-@native
-class String is Object {
-  @native +(_ other: String) -> String
-  @native hash -> Int
+native class String is Object {
+  native +(_ other: String) -> String
+  native hash -> Int
   @class
-  @native
-  new() -> String
+  native new() -> String
   @class
-  @native
-  new(_ value: Dynamic) -> String
-  @internal
-  @native
-  _$byteCount -> Int
-  @internal
-  @native
-  _$byteAt(_ index: Int) -> Option<Int>
-  @internal
-  @native
-  _$slice(_ start: Int, _ end: Int) -> String
+  native new(_ value: Dynamic) -> String
+  internal native _$byteCount -> Int
+  internal native _$byteAt(_ index: Int) -> Option<Int>
+  internal native _$slice(_ start: Int, _ end: Int) -> String
   // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
   // representation read, so this is `.ph`-derivable rather than a floor
   // primitive (ADR-0019's derivability test).
@@ -321,8 +312,7 @@ class StringByteSequence {
 
   at(_ i) { _string._$byteAt(i) }
 
-  @internal
-  _$rawByteAt(_ i) { _string._$byteAt(i) }
+  internal _$rawByteAt(_ i) { _string._$byteAt(i) }
 
   each(_ f) {
     let i = 0
@@ -333,8 +323,7 @@ class StringByteSequence {
   }
 
   // Iterate over byte offsets: cursor steps to next lead byte.
-  @private
-  nextCursor(_ cursor) {
+  private nextCursor(_ cursor) {
     const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || {
       cursor + 1
     })
@@ -398,14 +387,11 @@ class StringCodePointSequence {
 
   at(_ byteOffset) { _string.codePointAt(byteOffset) }
 
-  @internal
-  _$byteCountView { _string._$byteCount }
+  internal _$byteCountView { _string._$byteCount }
 
-  @internal
-  _$rawCodePointAt(_ byteOffset) { _string.codePointAt(byteOffset) }
+  internal _$rawCodePointAt(_ byteOffset) { _string.codePointAt(byteOffset) }
 
-  @internal
-  _$rawLeadByteLen(_ byteOffset) { _string.leadByteLen(byteOffset) }
+  internal _$rawLeadByteLen(_ byteOffset) { _string.leadByteLen(byteOffset) }
 
   each(_ f) {
     let i = self.nextCursor(None)
@@ -416,8 +402,7 @@ class StringCodePointSequence {
   }
 
   // Iterate over byte offsets: cursor steps by UTF-8 char boundary.
-  @private
-  nextCursor(_ cursor) {
+  private nextCursor(_ cursor) {
     const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || {
       cursor + _string.leadByteLen(cursor)
     })

@@ -105,7 +105,7 @@ pub fn option_match(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
     vm.stack.push(*receiver);
     vm.stack.extend_from_slice(args);
     let layout = InvocationLayout::ordinary(args.len(), Box::new([]));
-    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_access_origin());
     match option_match_shape(vm, *receiver, view)? {
         CallOutcome::Returned(v) => Ok(v),
         CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {

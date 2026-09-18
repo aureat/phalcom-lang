@@ -1,2 +1,1 @@
-@native
-class Metaclass is Behavior {}
+native class Metaclass is Behavior {}

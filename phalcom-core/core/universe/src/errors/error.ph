@@ -12,10 +12,9 @@
 // subclass a `super.new(msg)` to route through (error-handling.md §1,
 // U-ERR: `throw ArgumentError("age must be >= 0")`-style user `Error`
 // subclasses need this to carry a real `message`).
-@native
-class Error is Object {
-  @native message -> String
-  @native raise() -> Dynamic
+native class Error is Object {
+  native message -> String
+  native raise() -> Dynamic
   _message // : Option<String>
   _kind // : Option<Symbol>
   _cause // : Option<Error>
@@ -61,14 +60,11 @@ class Error is Object {
   displaced=(_ value) { _displaced = value }
 }
 
-@native
-class MessageNotUnderstood is Error {}
+native class MessageNotUnderstood is Error {}
 
-@native
-class CannotYieldAcrossNativeFrame is Error {}
+native class CannotYieldAcrossNativeFrame is Error {}
 
-@native
-class UseAfterCloseError is Error {}
+native class UseAfterCloseError is Error {}
 
 /// Represents an invalid attempt to extract the opposite variant of a
 /// `Result`.

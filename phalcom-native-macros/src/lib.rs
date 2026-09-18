@@ -245,39 +245,22 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
         ));
     }
 
-    // 2. Validate visibility and _$ prefix
-    let is_internal_sel = args.selector_str.starts_with("_$");
+    // 2. Parse explicit visibility. Selector spelling is not semantic
+    // authority: canonical declaration metadata determines access.
     let visibility = match args.visibility.as_deref() {
-        Some("internal") => {
-            if !is_internal_sel {
-                return Err(Error::new(args.selector_span, "visibility = internal requires selector to begin with '_$'"));
-            }
-            phalcom_native_meta::NativeVisibility::Internal
-        }
-        Some("public") => {
-            if is_internal_sel {
-                return Err(Error::new(
-                    args.selector_span,
-                    "internal selector cannot be public (must use visibility = internal)",
-                ));
-            }
-            phalcom_native_meta::NativeVisibility::Public
-        }
+        Some("public") => phalcom_native_meta::NativeVisibility::Public,
+        Some("private") => phalcom_native_meta::NativeVisibility::Private,
+        Some("protected") => phalcom_native_meta::NativeVisibility::Protected,
+        Some("module") => phalcom_native_meta::NativeVisibility::Module,
+        Some("package") => phalcom_native_meta::NativeVisibility::Package,
+        Some("internal") => phalcom_native_meta::NativeVisibility::Internal,
         Some(other) => {
             return Err(Error::new(
                 Span::call_site(),
-                format!("unknown visibility '{other}', expected public or internal"),
+                format!("unknown visibility '{other}', expected public, private, protected, module, package, or internal"),
             ));
         }
-        None => {
-            if is_internal_sel {
-                return Err(Error::new(
-                    args.selector_span,
-                    "selector beginning with '_$' requires explicit visibility = internal",
-                ));
-            }
-            phalcom_native_meta::NativeVisibility::Public
-        }
+        None => phalcom_native_meta::NativeVisibility::Public,
     };
 
     let anchor = match args.anchor.as_deref() {
@@ -507,6 +490,10 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
     let selector_str = &args.selector_str;
     let visibility_tokens = match visibility {
         phalcom_native_meta::NativeVisibility::Public => quote!(::phalcom_native_meta::NativeVisibility::Public),
+        phalcom_native_meta::NativeVisibility::Private => quote!(::phalcom_native_meta::NativeVisibility::Private),
+        phalcom_native_meta::NativeVisibility::Protected => quote!(::phalcom_native_meta::NativeVisibility::Protected),
+        phalcom_native_meta::NativeVisibility::Module => quote!(::phalcom_native_meta::NativeVisibility::Module),
+        phalcom_native_meta::NativeVisibility::Package => quote!(::phalcom_native_meta::NativeVisibility::Package),
         phalcom_native_meta::NativeVisibility::Internal => quote!(::phalcom_native_meta::NativeVisibility::Internal),
     };
     let side_tokens = match side {
