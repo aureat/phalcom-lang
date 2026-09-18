@@ -1,6 +1,6 @@
 # Control Flow
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Draft 0.1.
 
 ## 1. Sugar
 
@@ -11,13 +11,12 @@ compile to identical opcodes — nothing is lost.
 ```phalcom
 if (c) { ... } else { ... }          // === c.ifTrue { ... }.ifNone { ... }
 while (c) { ... }                    // === { c }.whileTrue { ... }
-for (x in xs) { ... }                // iteration protocol (see iteration.md)
+for (x in xs) { ... }                // canonical iteration (see iteration.md)
 ```
 
-`for` lowers to the **cursor iteration protocol**
-([iteration.md](iteration.md)) — a `while` loop over `iterate(_)`/`iteratorValue(_)`,
-**not** `xs.each { … }` — so `break`/`continue` work as loop control. `.each` is the
-full-traversal combinator over the same protocol.
+`for` iterates an `Iterable` source via its stateful `Iterator`
+([iteration.md](iteration.md)) — **not** `xs.each { … }` — so `break`/`continue` work as direct-jump loop control. `.each` is the
+full-traversal method over the same trait protocol.
 
 ## 2. `and` / `or` / `??` short-circuit
 

@@ -52,7 +52,7 @@ today's semantics. (That reversibility is why it can be a short PDR.)
 
 | Candidate | Where argued | Size |
 |---|---|---|
-| Naming convention: lowercase builtin vs Capitalized `Attribute` class | [README.md](README.md), [mechanism.md](mechanism.md) — **filed as PDR-0021** | small |
+| Naming convention: lowercase builtin vs Capitalized `Attribute` class | [README.md](spec/design/decorators/canonical/README.md), [mechanism.md](mechanism.md) — **filed as PDR-0021** | small |
 | COLL-3 suffix resolution (`@Name` → `NameAttribute` then `Name`) | [mechanism.md](mechanism.md) — **filed as PDR-0022** (pair-ratify with 0021) | small |
 | Labeled attribute arguments (DEF-3 fix — unblocks ratified `@On` surface) | [mechanism.md](mechanism.md) plan §1 | medium |
 | Registry-wide `AttrArity` validation (DEF-6) | [mechanism.md](mechanism.md) plan §4 | small |

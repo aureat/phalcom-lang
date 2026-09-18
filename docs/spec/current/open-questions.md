@@ -1,6 +1,6 @@
 # Open Questions
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Draft 0.1.
 
 Design points that gate dependent implementation. Each must be resolved here
 before the work it blocks begins.

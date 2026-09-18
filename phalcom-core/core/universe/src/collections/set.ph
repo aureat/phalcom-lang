@@ -2,7 +2,7 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 
 @native
 class Set<T> is Collection {
-  @class @native new() -> Set
+  @class @native new() -> Set<T>
   @internal @native _$size -> Int
   @internal @native _$add(_ value: Dynamic) -> Dynamic
   @internal @native _$has(_ value: Dynamic) -> Bool
@@ -42,8 +42,6 @@ class Set<T> is Collection {
   // U-CORE-5 conformance harness (collection-protocol.md §2) needs, and a
   // natural extension of the sequence protocol every collection instantiates.
   at(_ i) { self._$at(i) }
-
-  iteratorValue(_ cursor) { self._$at(cursor) }
 
   iterator -> SetIterator<T> { SetIterator<T>.new(self) }
 

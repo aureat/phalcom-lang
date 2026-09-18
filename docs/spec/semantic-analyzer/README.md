@@ -105,4 +105,4 @@ Focused passing tests establish evidence for their slice. Implementation or migr
 
 ## Manifest
 
-[`MANIFEST.md`](MANIFEST.md) records the exact file set, byte sizes, and SHA-256 hashes. Regenerate it after changing this directory; it contains no semantic authority.
+[`MANIFEST.md`](spec/semantic-analyzer/MANIFEST.md) records the exact file set, byte sizes, and SHA-256 hashes. Regenerate it after changing this directory; it contains no semantic authority.

@@ -1737,11 +1737,23 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
                 contributions.push(typed.knowledge.clone());
                 operands.push(typed);
             }
-            ListLiteralElement::Expansion { expr, .. } => {
+            ListLiteralElement::Expansion { expr, range } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
-                let projected = list_form
-                    .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
-                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause));
+                let mut projected = TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause);
+                if let TypeKnowledge::Known(evidence) = &typed.knowledge {
+                    let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(
+                        ctx,
+                        typed.expression_id,
+                        evidence.ty(),
+                        *range,
+                    );
+                    if let Some(resolution) = resolution {
+                        projected = TypeKnowledge::established(resolution.item_type, EvidenceOrigin::ContextualDerivation);
+                        ctx.positional_expansions.insert(resolution.source_expression, resolution);
+                    } else if let Some(form) = list_form {
+                        projected = crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0);
+                    }
+                }
                 contributions.push(projected);
                 operands.push(typed);
             }
@@ -1964,8 +1976,21 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
                 operands.push(typed);
                 expected_index += 1;
             }
-            TupleLiteralEntry::Expand { expr, .. } => {
+            TupleLiteralEntry::Expand { mode, expr, range } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                if matches!(mode, phalcom_ast::ast::ExpansionMode::Positional) {
+                    if let TypeKnowledge::Known(evidence) = &typed.knowledge {
+                        let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(
+                            ctx,
+                            typed.expression_id,
+                            evidence.ty(),
+                            *range,
+                        );
+                        if let Some(resolution) = resolution {
+                            ctx.positional_expansions.insert(resolution.source_expression, resolution);
+                        }
+                    }
+                }
                 match crate::checker::composition::project_tuple_elements(ctx.store, &typed.knowledge) {
                     Ok(projected) => {
                         let source_labels = typed.knowledge.ty().and_then(|ty| match ctx.store.get(ty) {

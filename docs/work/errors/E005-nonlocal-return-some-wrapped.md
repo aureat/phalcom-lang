@@ -89,7 +89,7 @@ running Phalcom source — so none of them runs a `return` through the fallback 
 ## Fix direction (NOT implemented / NOT verified)
 
 Recorded as a sketch of the space, not a prescription — in this codebase a reproduced diagnosis is
-not a verified fix (see [README](README.md)), and E004 is the standing example of a correct diagnosis
+not a verified fix (see [README](work/errors/README.md)), and E004 is the standing example of a correct diagnosis
 with an unimplementable fix. Re-derive from code before acting.
 
 The defect is **not** local to `bool_if_true`. The primitive cannot currently tell the two cases

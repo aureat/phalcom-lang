@@ -1,6 +1,6 @@
 # Execution contexts, returns, and constructors
 
-[Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Runtime and activation](runtime.md) · [Method](method.md) · [Closure](closure.md) · [Function](function.md)
+[Callables](spec/callables/README.md) · [Dispatch and lowering](dispatch.md) · [Runtime and activation](runtime.md) · [Method](method.md) · [Closure](closure.md) · [Function](function.md)
 
 This chapter defines the execution context shared by Method and Closure bodies:
 lexical scope, `self`, `super`, return, Unit, and compiler-generated

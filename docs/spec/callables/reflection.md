@@ -1,6 +1,6 @@
 # Reflection and exact invocation
 
-[Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Method](method.md) · [BoundMethod](bound-method.md) · [Family](family.md) · [Function](function.md)
+[Callables](spec/callables/README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Method](method.md) · [BoundMethod](bound-method.md) · [Family](family.md) · [Function](function.md)
 
 Reflection exposes Method structure without erasing the distinction between a
 resolved Method, a captured MethodFamily snapshot, and a message sent to a

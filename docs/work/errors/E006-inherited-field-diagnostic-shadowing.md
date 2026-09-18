@@ -110,7 +110,7 @@ field read is refused, and only with the wrong message.
 ## Fix direction (NOT implemented / NOT verified)
 
 Sketch of the space, not a prescription — a reproduced diagnosis is not a verified fix in this
-codebase (see [README](README.md)); E004 is the standing example of a correct diagnosis with an
+codebase (see [README](work/errors/README.md)); E004 is the standing example of a correct diagnosis with an
 unimplementable prescription. Re-derive from code.
 
 The information needed to tell the two cases apart is available at the raise site: if the field name

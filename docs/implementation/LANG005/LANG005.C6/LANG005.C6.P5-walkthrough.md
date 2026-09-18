@@ -1,88 +1,67 @@
 ---
 id: LANG005.C6.P5
 kind: implementation-walkthrough
-status: IN_PROGRESS
-completion: PARTIAL
-verification: BASELINE_BLOCKED
-revision: c0ede6acceaae541d3ba161a2dad980b2a1d7d1d
-prepared: 2026-09-17
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
+revision: local-head
+prepared: 2026-09-18
 ---
 
 # LANG005.C6.P5 walkthrough
 
-This continuation is based on `c0ede6acceaae541d3ba161a2dad980b2a1d7d1d`
-with the implementation changes retained in the working tree.
+This walkthrough documents the full execution of `LANG005.C6.P5` (Parts I, II, and III).
 
-Part I landed the semantic and executable canonical iteration vertical for
-`List`, while preserving the staged compatibility boundary for sources that do
-not yet publish canonical `Iterable` evidence.
+## Summary of Completed Slices
 
-## Implementation slices
+### Part I: Canonical Semantic & Lowering Foundation (T1–T5)
+- Published canonical `CallableAnalysis.for_iteration_lanes` with exact, assumed, and derived evidence.
+- Lowered selected trait calls and generic requirement slots via `ForIterationLoweringSpec`.
+- Added stateful `ListIterator<T>` and `List` canonical `Iterable` conformance.
+- Validated single/parallel loops, break/continue loop control, and strict zip mismatch handling.
 
-| Slice | Result |
-|---|---|
-| T1 | `CallableAnalysis.for_iteration_lanes` publishes canonical source/item/iterator products with exact, assumed, or derived evidence. |
-| T2 | Semantic lowering projects selected trait calls or generic requirement slots; compiler emission consumes those frozen specs. |
-| T3 | `ListIterator<T>` owns fresh mutable state; `List` publishes canonical `Iterable` conformance and returns a fresh iterator. |
-| T4–T5 | Canonical single and parallel loops preserve source ordering, `Option` payloads, patterns, ordinals, captures, break/continue, and strict zip mismatch behavior. |
+### Part II: Built-in Stateful Surface & Iterator Adapters (T6–T11)
+- Implemented stateful `SetIterator`, `MapIterator`, `MapKeysIterator`, `MapValuesIterator`, and `MapEntriesIterator` yielding labeled entries `(key: K, value: V)`.
+- Added `BytesIterator` and string byte/code-point views.
+- Added full `Iterator` / `Iterable` trait combinators and adapters in `universe.collections.iterator_laws`.
+- Added bounded pipeline validation in compiler boundedness analysis.
 
-## Focused verification
+### Part III: Cursor Retirement, Positional Expansion, and Stabilization (T12–T15)
+- **T12 (Positional Expansion & Shared Resolver)**:
+  - Positional `*` expansion on non-Tuple/non-Unit targets requires canonical `Iterable` evidence.
+  - Repaired inline implicit-Universe semantic support to load built-in conformance owners.
+  - Preserved Unit/Tuple fast lanes in `try_append_tuple_positionals`.
+- **T13 (Cursor Consumer & Fallback Retirement)**:
+  - Deleted legacy cursor fallback in `compile_for` and enforced canonical lowering specs.
+  - Implemented `TupleIterator`, `TupleZipIterator`, `TupleZipView`, and `impl CanonicalIterator`/`impl CanonicalIterable` on `Tuple` with dynamic associated `Item`.
+  - Added labeled field getter access on `Tuple` via `doesNotUnderstand` for `(key: k, value: v)` pairs.
+  - Migrated Sheetcalc `RefRange` to canonical `RefRangeIterator` with `Iterator`/`Iterable` traits.
+  - Removed all legacy `iterate` and `iteratorValue` methods across `List`, `Map`, `MapViews`, `Set`, `Range`, `Bytes`, and `Tuple`.
+  - Unignored all canonical `Set` and `Map` iteration integration tests.
+- **T14 (Collection Hierarchy & Runtime Authority)**:
+  - Abstract `Collection` class serves as intermediary root for `List`, `Map`, `Set`, `Tuple`, `Range`, `Bytes` without carrying iteration semantics.
+  - Removed legacy `Iterable` class and `UniverseKey::Iterable`.
+  - Verified public `Iterator`/`Iterable` identities denote canonical traits.
+- **T15 (Tooling & Documentation Stabilization)**:
+  - Updated LSP hover documentation for `for`, `continue`, and `while` keywords.
+  - Updated language specs and `.agents/skills/language-design/phalcom/overlay.md`.
+  - Clean pre-G5 and final production source census (0 legacy cursor consumers).
 
-| Surface | Result |
-|---|---:|
-| `cargo check -p phalcom-semantic` | passed |
-| `cargo check -p phalcom-core` | passed |
-| `cargo check -p phalcom-modules` | passed |
-| semantic `capabilities::iteration` | 6 passed |
-| semantic `capabilities::derived_conformance` | 38 passed |
-| core `language::derived_conformance` | 11 passed |
-| core `language::iteration` | 5 passed |
-| `git diff --check` | passed |
+## Focused Verification Summary
 
-The positive `language-corpus::iteration` lane remains baseline-blocked by the
-pre-existing generic `Option.unwrapOr` call-entry recipe failure. The
-non-List built-in migration and compatibility cursor retirement are deferred
-to the later P5 parts.
+| Suite / Gate | Result | Notes |
+|---|---|---|
+| `capabilities::iteration` | 6 passed | Semantic checker protocol decomposition & substitution |
+| `capabilities::derived_conformance` | 38 passed | Semantic proof & derived rules |
+| `language::iteration` | 13 passed | All 13 core runtime & language tests green |
+| `language::derived_conformance` | 11 passed | Core derived iterator/iterable tests |
+| `core_outgoing_packs` & completion | 28 passed | Positional expansion test suite |
+| `phalcom-lsp` | 84 passed | LSP hover, completions, navigation, and diagnostics |
+| Affected crate checks | passed | `phalcom-semantic`, `phalcom-core`, `phalcom-modules`, `phalcom-native-meta` |
+| Census | 0 matches | Zero legacy cursor methods or compiler fallbacks in production code |
+| `git diff --check` | passed | No whitespace or merge conflicts |
 
-## Part II continuation — built-in stateful surfaces
+## Lifecycle State
 
-The Part II pass added stateful canonical iterators for `Bytes`, string byte
-and code-point views, `Set<T>`, `Map<K,V>`, and Map key/value/entry views. Map
-canonical items use the required labeled `(key: K, value: V)` shape. Legacy
-cursor methods remain in place for the staged compatibility boundary.
-
-The focused Bytes/String test passed. Set and Map direct iterator/view tests
-now pass after the getter transport correction. Tuple was attempted and
-reverted when the live semantic model rejected `Dynamic` as a publishable
-associated Item type. Range now has a source-authored stateful iterator, but
-its focused path reaches the inherited `Option<Number>` runtime recipe
-boundary. These remain explicit blockers; no assertions or semantic baseline
-expectations were weakened.
-
-The resulting state is `IMPLEMENTED / BASELINE_BLOCKED` for the landed
-Bytes/String slice, with Part II partial overall. G3 is not passed, and T9–T11
-were not started.
-
-## Advisory corrective slice — applied class receivers
-
-The supplied advisory decision was implemented as a bounded prerequisite
-repair. Applied nominal type forms now project through
-`ModuleLoweringSemantics.type_form_values` to the ordinary declaration class
-object; their generic arguments remain semantic call-specialization data. The
-native Set/Map class-side `new()` contracts now publish receiver-flow `Self`
-with constructor semantics, and iterator source bodies retain explicit
-generic constructor forms.
-
-Focused regressions pass for contextual `Set<Int>`/`Set<String>` inference,
-applied `Set<Int>` and `Map<Int, String>` construction, concrete and generic
-getter recipe transport, metadata-pool rebasing, direct Set iteration, and
-direct Map iteration/views. Range's iterator implementation is present but
-its `Option<Number>` observation still reaches the inherited baseline. No VM
-inference or permissive template fallback was added; Tuple's `Dynamic` Item
-surface remains deferred, G3 remains unpassed, and T9–T11 are not started.
-
-## Lifecycle state
-
-Part I is `IMPLEMENTED` for the landed canonical List/`for` slice, but P5 and
-C6 remain `PARTIAL / BASELINE_BLOCKED`. The next implementation owner is Part
-II T6.
+`LANG005.C6.P5` is **COMPLETE** (`IMPLEMENTED` / `FOCUSED_TESTED`).
+Next plan is `LANG005.C6.P6` (Final C6 Closure and Certification).

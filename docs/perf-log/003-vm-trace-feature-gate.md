@@ -3,7 +3,7 @@
 Status: **landed** · Unit: [U-TRACE](../units/U-TRACE/plan.md) (Tier 1) · Spec: [performance.md §4 Tier 1](../../spec/current/performance.md), [TDR-0048](../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md) · Behavior-invariant (no ADR, no floor change)
 
 Closes the "Tier 1 — tracing span (~18.3% arith)" candidate that
-[`README.md`](README.md) had ranked next but never turned into a unit.
+[`README.md`](perf-log/README.md) had ranked next but never turned into a unit.
 
 ## The cost
 

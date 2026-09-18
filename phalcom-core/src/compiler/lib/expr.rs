@@ -113,13 +113,13 @@ impl<'vm> Compiler<'vm> {
         let done = self.emit_forward_jump(Bytecode::Jump, range);
 
         self.patch_forward_jump(generic);
-        let spec = self.lowering().and_then(|l| l.for_iteration_lanes.get(&expr_range)).cloned();
+        let spec = self.lowering().and_then(|l| l.positional_expansions.get(&expr_range)).cloned();
 
         self.emit(Bytecode::GetLocal(source_slot), range);
         if let Some(spec) = &spec {
             self.emit_for_iteration_requirement(&spec.iterator, range)?;
         } else {
-            self.emit_operator_send("iterator", 0, range);
+            self.emit_getter_send("iterator", range);
         }
         self.emit(Bytecode::SetLocal(iterator_slot), range);
         self.emit(Bytecode::Pop, range);
@@ -129,7 +129,7 @@ impl<'vm> Compiler<'vm> {
         if let Some(spec) = &spec {
             self.emit_for_iteration_requirement(&spec.next, range)?;
         } else {
-            self.emit_operator_send("next", 0, range);
+            self.emit_getter_send("next", range);
         }
         self.emit(Bytecode::Dup, range);
         let exit = self.emit_forward_jump(Bytecode::JumpIfNone, range);

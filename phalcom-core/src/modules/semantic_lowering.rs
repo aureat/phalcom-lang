@@ -445,6 +445,16 @@ pub struct ForIterationLoweringSpec {
     pub next: ForIterationRequirementSpec,
 }
 
+/// Frozen semantic projection for one canonical positional expansion source.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PositionalExpansionLoweringSpec {
+    pub source: SourceRange,
+    pub item_type: TypeId,
+    pub iterator_type: TypeId,
+    pub iterator: ForIterationRequirementSpec,
+    pub next: ForIterationRequirementSpec,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DetachedMethodSource {
     ConformanceWitness {
@@ -487,6 +497,7 @@ pub struct ModuleLoweringSemantics {
     pub trait_invocations: BTreeMap<LoweringSite, TraitInvocationSpec>,
     pub trait_requirement_invocations: BTreeMap<LoweringSite, TraitRequirementInvocationSpec>,
     pub for_iteration_lanes: BTreeMap<SourceRange, ForIterationLoweringSpec>,
+    pub positional_expansions: BTreeMap<SourceRange, PositionalExpansionLoweringSpec>,
     pub detached_methods: BTreeMap<CallableId, DetachedMethodSpec>,
 }
 
@@ -507,6 +518,12 @@ pub(crate) fn attach_runtime_trait_environments(lowering: &mut ModuleLoweringSem
     }
 
     for spec in lowering.for_iteration_lanes.values_mut() {
+        let range = spec.source;
+        attach_requirement(&mut spec.iterator, range, environments);
+        attach_requirement(&mut spec.next, range, environments);
+    }
+
+    for spec in lowering.positional_expansions.values_mut() {
         let range = spec.source;
         attach_requirement(&mut spec.iterator, range, environments);
         attach_requirement(&mut spec.next, range, environments);
@@ -534,6 +551,7 @@ impl ModuleLoweringSemantics {
             trait_invocations: BTreeMap::new(),
             trait_requirement_invocations: BTreeMap::new(),
             for_iteration_lanes: BTreeMap::new(),
+            positional_expansions: BTreeMap::new(),
             detached_methods: BTreeMap::new(),
         }
     }
@@ -906,6 +924,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
     let mut trait_invocations = BTreeMap::new();
     let mut trait_requirement_invocations = BTreeMap::new();
     let mut for_iteration_lanes = BTreeMap::new();
+    let mut positional_expansions = BTreeMap::new();
     let mut detached_methods = BTreeMap::new();
 
     for definition in snapshot
@@ -1089,6 +1108,29 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                 )));
             }
         }
+        for expansion in analysis.positional_expansions.values() {
+            let iterator = project_for_iteration_requirement(&expansion.iterator, &generic_evidence, &requirement_slots)?;
+            let next = project_for_iteration_requirement(&expansion.next, &generic_evidence, &requirement_slots)?;
+            if positional_expansions
+                .insert(
+                    expansion.source_range,
+                    PositionalExpansionLoweringSpec {
+                        source: expansion.source_range,
+                        item_type: expansion.item_type,
+                        iterator_type: expansion.iterator_type,
+                        iterator,
+                        next,
+                    },
+                )
+                .is_some()
+            {
+                return Err(ProjectionError::AmbiguousLoweringSiteAttachment(LoweringSite::new(
+                    source_id.clone(),
+                    expansion.source_range,
+                    LoweringSiteKind::TraitInvoke,
+                )));
+            }
+        }
         // Family-valued expressions
         for expression in analysis.expressions.values() {
             let is_associated_family = matches!(
@@ -1228,6 +1270,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         trait_invocations,
         trait_requirement_invocations,
         for_iteration_lanes,
+        positional_expansions,
         detached_methods,
     })
 }

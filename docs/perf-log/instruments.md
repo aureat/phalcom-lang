@@ -1,6 +1,6 @@
 # Instruments — what measures what, and where it lives
 
-Companion to [README §Method](README.md#method--instrument-selection-learned-the-hard-way-in-002)
+Companion to [README §Method](perf-log/README.md#method--instrument-selection-learned-the-hard-way-in-002)
 (*which* instrument to reach for) and [SCOREBOARD](SCOREBOARD.md) (the numbers). This
 file is the **symbol-level map**: what exists, where, and what each one refuses to
 answer.

@@ -1,6 +1,6 @@
 # Functions, Blocks & Methods
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Draft 0.1.
 
 This part specifies the **callable tower**: concrete callable values share
 one shape-aware activation gateway over compiled code and captured state.

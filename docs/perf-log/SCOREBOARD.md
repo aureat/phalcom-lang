@@ -2,7 +2,7 @@
 
 > **Purpose.** One file that answers, at any commit: *how fast is Phalcom, how many
 > times slower than Wren is it, what does one operation cost in nanoseconds, and
-> which function is eating the time?* [`README.md`](README.md) records **why** a cut
+> which function is eating the time?* [`README.md`](perf-log/README.md) records **why** a cut
 > landed; [`findings.md`](findings.md) records **what was learned**. This file
 > records **the numbers**, and only the numbers, over time.
 >

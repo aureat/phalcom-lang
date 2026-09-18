@@ -66,12 +66,12 @@ For this specification:
 | `/` | `Float` | `Float` | Always Float-domain division. |
 | `~/` | exact `Int` | exact `Int` | Floors exact represented values; never rounds an Int to Float. |
 | `%` | exact `Int` | `Float` | Floor-remainder semantics in both domains. |
-| `**` | exact `Int` for nonnegative Int exponent; otherwise Float | `Float` | Detailed in §7 and [`float-protocol.md`](float-protocol.md). |
+| `**` | exact `Int` for nonnegative Int exponent; otherwise Float | `Float` | Detailed in §7 and [`float-protocol.md`](__unstructured__/phalcom-numeric-specification/float-protocol.md). |
 | `<`, `<=`, `>`, `>=` | exact order | exact mathematical order or unordered for NaN | No lossy mixed comparison. |
 | `==`, `!=` | exact equality | exact mathematical equality, except NaN follows IEEE public equality | Symmetric across operand order. |
 | `negated` | exact `Int` | IEEE Float negation | `i64::MIN`-like implementation boundaries are not observable. |
 | `hash` | `Int` | `Int` | Must agree with numeric-key equality. |
-| `toString` | `String` | `String` | Canonical rendering is defined in [`text-and-errors.md`](text-and-errors.md). |
+| `toString` | `String` | `String` | Canonical rendering is defined in [`text-and-errors.md`](__unstructured__/phalcom-numeric-specification/text-and-errors.md). |
 
 ## 4. Arithmetic promotion
 

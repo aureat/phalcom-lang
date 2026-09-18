@@ -11,7 +11,7 @@ experiment believing it is new.
 
 ## What was claimed
 
-[README lever 7](README.md#next-measured-levers) ranked this **"the highest
+[README lever 7](perf-log/README.md#next-measured-levers) ranked this **"the highest
 gain-per-effort item on the whole list"**: ~10 lines, *est* **−10–15% skynet `user`**,
 open since origin. [F15](findings.md#f15--value-is-2-wrens-and-objref-blocks-nan-boxing)
 carried it as the top rung of its fiber ladder. The premise, from

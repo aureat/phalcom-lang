@@ -63,14 +63,14 @@ For this specification:
 | `/` | `Float` | `Float` | Always Float-domain division. |
 | `~/` | exact `Int` | exact `Int` | Floors exact represented values; never rounds an Int to Float. |
 | `%` | exact `Int` | `Float` | Floor-remainder semantics in both domains. |
-| `**` | exact `Int` for nonnegative Int exponent; otherwise Float | `Float` | Detailed in §7 and [`float-protocol.md`](float-protocol.md). |
+| `**` | exact `Int` for nonnegative Int exponent; otherwise Float | `Float` | Detailed in §7 and [`float-protocol.md`](spec/library/numbers/float-protocol.md). |
 | `<`, `<=`, `>`, `>=` | exact order | exact mathematical order, or false for NaN | No lossy mixed comparison. |
 | `==`, `!=` | exact equality | exact mathematical equality except IEEE NaN behavior | Symmetric across operand order. |
 | `totalCompare(_)` | `Ordering` | `Ordering` | Total preorder over Number instances; see §8.3. |
 | `negated` | exact `Int` | IEEE Float negation | Private fixed-width boundaries are unobservable. |
 | `floor`, `ceil`, `truncated`, `rounded`, `toIntExact` | self | exact `Int` or specified error | No narrowing through a host fixed-width integer. |
 | `hash` | `Int` | `Int` | Must agree with numeric-key equality. |
-| `toString` | `String` | `String` | Canonical rendering is defined in [`text-and-errors.md`](text-and-errors.md). |
+| `toString` | `String` | `String` | Canonical rendering is defined in [`text-and-errors.md`](spec/library/numbers/text-and-errors.md). |
 
 ## 4. Arithmetic promotion
 
@@ -222,7 +222,7 @@ An Int base with a nonnegative Int exponent returns exact Int. The implementatio
 
 ### 7.3 Float-result power
 
-A negative Int exponent or any Float operand produces Float. The complete special-value behavior is defined in [`float-protocol.md`](float-protocol.md).
+A negative Int exponent or any Float operand produces Float. The complete special-value behavior is defined in [`float-protocol.md`](spec/library/numbers/float-protocol.md).
 
 The following identities take precedence. They return Int `1` on the exact Int path and Float `1.0` on the Float path:
 

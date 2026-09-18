@@ -1,6 +1,6 @@
 # Result
 
-Part of the [Phalcom Language Specification](README.md). Status: Normative
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Normative
 (model fixed by [TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md);
 shape mirrors [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md)).
 

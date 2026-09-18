@@ -180,7 +180,7 @@ No bitwise compound-assignment tokens are introduced.
 - `trailingZeros` on zero: `#undefinedNumericOperation`.
 - Non-Int ordinary operand: standard type error expecting Int.
 
-Errors use the ordinary language Raise path and the source-span rules in [`text-and-errors.md`](text-and-errors.md).
+Errors use the ordinary language Raise path and the source-span rules in [`text-and-errors.md`](__unstructured__/phalcom-numeric-specification/text-and-errors.md).
 
 ## 7. Laws
 

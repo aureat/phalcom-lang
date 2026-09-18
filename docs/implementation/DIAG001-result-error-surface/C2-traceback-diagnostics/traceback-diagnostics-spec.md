@@ -3,7 +3,7 @@
 Dispatch-ready specification for the traceback/diagnostics/observability unit. Written against
 HEAD after PDR-0007/PDR-0008 landed; every `file:line` verified 2026-07-20 (see
 [`verification-2026-07-20.md`](verification-2026-07-20.md)). Companion documents:
-[`README.md`](README.md) (scope + decisions), [`output-catalog.md`](output-catalog.md) (targets
+[`README.md`](spec/README.md) (scope + decisions), [`output-catalog.md`](output-catalog.md) (targets
 by example), [`color.md`](color.md) (roles + palette), [`err-plan.md`](plan.md) (unit order,
 write-sets, edges).
 

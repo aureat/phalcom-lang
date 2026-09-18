@@ -1,6 +1,6 @@
 # Function
 
-[Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Execution contexts](execution.md) · [Closure](closure.md) · [BoundMethod](bound-method.md) · [Family](family.md) · [Method](method.md) · [Reflection](reflection.md)
+[Callables](spec/callables/README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Execution contexts](execution.md) · [Closure](closure.md) · [BoundMethod](bound-method.md) · [Family](family.md) · [Method](method.md) · [Reflection](reflection.md)
 
 `Function` is the abstract, sealed, VM-backed root of complete callables. Its
 concrete descendants are `Closure`, `BoundMethod`, and `Family`. A Function

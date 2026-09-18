@@ -1,6 +1,6 @@
 # BoundMethod
 
-[Callables](README.md) · [Method](method.md) · [Function](function.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Execution contexts](execution.md) · [Reflection](reflection.md)
+[Callables](spec/callables/README.md) · [Method](method.md) · [Function](function.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Execution contexts](execution.md) · [Reflection](reflection.md)
 
 `BoundMethod` is a sealed/final `Function` with one exact semantic identity:
 

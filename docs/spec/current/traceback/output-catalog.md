@@ -2,7 +2,7 @@
 
 Every user-visible rendering surface U-TRACE is responsible for, specified by example.
 
-**Status:** design target, not implemented. See [`README.md`](README.md) for scope, locked
+**Status:** design target, not implemented. See [`README.md`](spec/README.md) for scope, locked
 decisions, and the open decisions that gate several of these renderings.
 
 **These are targets, not fixtures.** Golden tests assert *structure* — frame sequence, event

@@ -77,45 +77,6 @@ class Range is Collection {
 
   iterator -> RangeIterator { RangeIterator.new(self) }
 
-  // iterate and iteratorValue for forward integer iteration (E.2).
-  // The cursor is the current yielded integer value, not an offset from lower.
-  iterate(_ previous) {
-    let lowerOpt = self._$lower
-    let upperOpt = self._$upper
-
-    // lower is required for iteration
-    lowerOpt.isNone.ifTrue || {
-      throw ArgumentError.new("Range iteration unsupported when lower bound is absent")
-    }
-    let lower = lowerOpt.unwrapOr(0)
-    (self.isSliceCoordinate(lower)).ifFalse || {
-      throw ArgumentError.new("Range iteration unsupported: lower bound must be an integer")
-    }
-
-    let hasUpper = upperOpt.isSome
-    let upper = hasUpper.ifTrue(|| { upperOpt.unwrapOr(0) }, ifFalse: || { 0 })
-    hasUpper.ifTrue || {
-      (self.isSliceCoordinate(upper)).ifFalse || {
-        throw ArgumentError.new("Range iteration unsupported: upper bound must be an integer")
-      }
-      (lower > upper).ifTrue || {
-        throw ArgumentError.new("Range iteration unsupported: lower bound exceeds upper (descending traversal not supported)")
-      }
-    }
-
-    let candidate = (previous == None).ifTrue(|| { lower }, ifFalse: || { previous + 1 })
-
-    hasUpper.ifFalse || {
-      return candidate
-    }
-
-    let inclusive = self._$upperInclusive
-    let live = inclusive.ifTrue(|| { candidate <= upper }, ifFalse: || { candidate < upper })
-    return live.ifTrue(|| { candidate }, ifFalse: || { None })
-  }
-
-  iteratorValue(_ cursor) { cursor }
-
   // first, last, size, includes (Spec E.2 / Range specs)
   first {
     let lowerOpt = self._$lower

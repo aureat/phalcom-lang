@@ -1,6 +1,6 @@
 # Error Handling
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
 [TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md) (layered exceptions + `Result`, terminating semantics) ·
@@ -37,7 +37,7 @@ handlers (§2) and the `message` protocol depend on every thrown value being an
 
 ## 2. Handling: a `Block` protocol, with sugar
 
-Everything is a message ([Invariant 1](README.md)), so the primitive is sends on a
+Everything is a message ([Invariant 1](spec/current/README.md)), so the primitive is sends on a
 protected block — the same shape as control flow:
 
 ```phalcom
@@ -77,7 +77,7 @@ try {
 
 Each keyword mirrors the block-protocol method of the **same name**, so the sugar
 adds no semantics the protocol lacks; it exists so a JavaScript programmer is not
-surprised ([Invariant 6](README.md)). `on`/`catch`/`ensure` are **contextual
+surprised ([Invariant 6](spec/current/README.md)). `on`/`catch`/`ensure` are **contextual
 keywords** (reserved only as `try`-clauses), so the `.on()`/`.ensure()` selectors
 and the `Fiber>>try` message keep working.
 

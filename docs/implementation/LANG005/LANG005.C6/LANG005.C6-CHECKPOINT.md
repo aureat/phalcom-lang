@@ -6,12 +6,12 @@ checkpoint: LANG005.C6
 kind: checkpoint-record
 status: IN_PROGRESS
 completion: PARTIAL
-verification: BASELINE_BLOCKED
+verification: FOCUSED_TESTED
 requires:
   - LANG005.C5
-active_plan: LANG005.C6.P5.PART-II
-latest_completed_plan: LANG005.C6.P4
-next_plan: LANG005.C6.P5.PART-II
+active_plan: LANG005.C6.P6
+latest_completed_plan: LANG005.C6.P5
+next_plan: LANG005.C6.P6
 next_checkpoint: null
 planning_baseline_revision: 14352f3824e8dcfc9f5b3f46d9f4a4bb5cf48709
 prepared: 2026-09-16
@@ -1239,3 +1239,38 @@ Exact-variant work and broader P2 projection implementation are outside this run
 - **Coverage**: CV-01–65 and CV-71–80 are PASS or accounted for by predecessor evidence and the focused gates; CV-66–68 pass through the real Universe transition module; CV-69–70 retain the clean-HEAD baseline disposition documented in the walkthrough.
 - **Records**: `LANG005.C6.P4-walkthrough.md` and `LANG005.C6.P4-handoff.md` created. Plan metadata is synchronized.
 - **Next owner**: P5 planner/implementer; production collection, `for`, lazy-adapter, cursor, and runtime-superclass migration remain out of P4.
+
+### C6.P5 Completion & Verification Record — 2026-09-18
+
+- **Plan**: `LANG005.C6.P5` (Production Iterator Surface, Built-in Conformance, Positional Expansion, Cursor Retirement, and Stabilization)
+- **Status**: `COMPLETE` / `IMPLEMENTED` / `FOCUSED_TESTED`
+- **Accomplishments**:
+  - **T12 (Positional Expansion & Shared Resolver)**:
+    - Wired non-Tuple/non-Unit positional `*` expansion to canonical `Iterable` proof evidence and lowering specs.
+    - Repaired inline implicit-Universe semantic support to load actual conformance owners for built-ins.
+    - Maintained Unit/Tuple product-only fast lanes in `try_append_tuple_positionals`.
+  - **T13 (Cursor Consumer & Fallback Retirement)**:
+    - Deleted compiler cursor fallback in `compile_for` and enforced required canonical `ForIterationLoweringSpec`.
+    - Added canonical `TupleIterator`, `TupleZipIterator`, `TupleZipView`, and `impl CanonicalIterator` / `impl CanonicalIterable` for `Tuple` with dynamic associated `Item`.
+    - Implemented labeled field getter access on `Tuple` via `doesNotUnderstand` for `(key: k, value: v)` pairs.
+    - Migrated Sheetcalc `RefRange` to canonical `RefRangeIterator` with `Iterator`/`Iterable` traits.
+    - Removed residual `iterate` and `iteratorValue` methods across `List`, `Map`, `MapViews`, `Set`, `Range`, `Bytes`, and `Tuple`.
+    - Unignored and passed all canonical `Set` and `Map` iteration integration tests.
+  - **T14 (Collection Hierarchy & Runtime Authority)**:
+    - Verified abstract `Collection` class as intermediary root for `List`, `Map`, `Set`, `Tuple`, `Range`, `Bytes` without carrying iteration semantics.
+    - Confirmed legacy `Iterable` class and `UniverseKey::Iterable` are completely removed.
+    - Confirmed public `Iterator`/`Iterable` identities denote canonical traits.
+  - **T15 (Tooling & Documentation Stabilization)**:
+    - Updated LSP hover documentation for `for`, `continue`, and `while` keywords.
+    - Updated language specs and `.agents/skills/language-design/phalcom/overlay.md` to reflect canonical stateful trait iteration.
+    - Verified pre-G5 and final production source census has 0 legacy cursor consumers.
+  - **Gate G5 & G6 Results**:
+    - `capabilities::iteration`: 6/6 PASS
+    - `capabilities::derived_conformance`: 38/38 PASS
+    - `language::iteration`: 13/13 PASS
+    - `language::derived_conformance`: 11/11 PASS
+    - `core_outgoing_packs` & completion: 28/28 PASS
+    - `phalcom-lsp`: 84/84 PASS
+    - Affected crate checks (`phalcom-semantic`, `phalcom-core`, `phalcom-modules`, `phalcom-native-meta`): PASS
+    - `git diff --check`: PASS
+- **Next action**: Proceed to `LANG005.C6.P6` (Final C6 Closure and Certification).

@@ -1,6 +1,6 @@
 # SheetCalc — Testing
 
-Part of the [SheetCalc specification](README.md).
+Part of the [SheetCalc specification](__unstructured__/apps/sheetcalc/README.md).
 Grounded in [00-language-findings.md](00-language-findings.md) §2, §6, §7, §9;
 [02-value-model.md](02-value-model.md) §6.
 

@@ -78,6 +78,10 @@ fn remap_lowering_metadata_pool(lowering: &mut crate::modules::semantic_lowering
         remap_for_requirement(&mut spec.iterator, pool_id);
         remap_for_requirement(&mut spec.next, pool_id);
     }
+    for spec in lowering.positional_expansions.values_mut() {
+        remap_for_requirement(&mut spec.iterator, pool_id);
+        remap_for_requirement(&mut spec.next, pool_id);
+    }
 }
 
 impl VM {

@@ -1,6 +1,6 @@
 # Callable conformance requirements
 
-[Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Execution contexts](execution.md) · [Reflection](reflection.md) · [Method](method.md) · [Function](function.md) · [Closure](closure.md) · [BoundMethod](bound-method.md) · [Family](family.md)
+[Callables](spec/callables/README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Execution contexts](execution.md) · [Reflection](reflection.md) · [Method](method.md) · [Function](function.md) · [Closure](closure.md) · [BoundMethod](bound-method.md) · [Family](family.md)
 
 This chapter is a developer-facing conformance checklist. It states the behavior that compiler, VM, native primitive, reflection, and test changes must preserve. It does not prescribe one Rust data structure beyond the invariants needed for observable semantics.
 

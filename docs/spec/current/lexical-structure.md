@@ -1,6 +1,6 @@
 # Lexical Structure
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Draft 0.1.
 
 ## 1. Statement termination
 

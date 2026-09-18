@@ -2,8 +2,8 @@
 
 **Status:** Normative. Ratified by [TDR-0071](../../decisions/accepted/0071-float-protocol-and-explicit-narrowing.md).
 This document completes the Float surface left open by PDR-0025. The tower rules remain in
-[numeric-tower.md](numeric-tower.md); parsing, rendering, and errors are in
-[text-and-errors.md](text-and-errors.md).
+[numeric-tower.md](__unstructured__/numbers/numeric-tower.md); parsing, rendering, and errors are in
+[text-and-errors.md](__unstructured__/numbers/text-and-errors.md).
 
 ## 1. Binary64 model
 

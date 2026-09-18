@@ -1,6 +1,6 @@
 # Core Execution and Value Semantics
 
-[← Overview](README.md) · [Callable object model →](02-callable-object-model.md)
+[← Overview](__unstructured__/drafts/callables/README.md) · [Callable object model →](02-callable-object-model.md)
 
 ---
 

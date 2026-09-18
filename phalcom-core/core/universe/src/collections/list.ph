@@ -2,12 +2,12 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 
 @native
 class List<T> is Collection {
-  @class @native new() -> List
+  @class @native new() -> List<T>
   @internal @native _$length -> Int
   @internal @native _$at(_ index: Int) -> Dynamic
   @internal @native _$set(_ index: Int, _ value: Dynamic) -> Dynamic
   @internal @native _$push(_ value: Dynamic) -> Dynamic
-  @internal @native _$replaceSlice(_ start: Int, _ end: Int, _ replacement: List) -> Dynamic
+  @internal @native _$replaceSlice(_ start: Int, _ end: Int, _ replacement: List<T>) -> Dynamic
   @native toString -> String
   size { self._$length }
 
@@ -50,7 +50,7 @@ class List<T> is Collection {
         // C.3's consumer-local rule: a reversed normalized interval selects
         // no ascending elements. Range itself gains no descending semantics.
         if (start > end) { end = start }
-        let result = List.new()
+        let result = List<T>.new()
         let i = start
         while (i < end) {
           result._$push(self._$at(i))
@@ -102,13 +102,14 @@ class List<T> is Collection {
   }
 
   prepend(_ value) {
-    let oneElementList = [value]
+    let oneElementList = List<T>.new()
+    oneElementList._$push(value)
     self._$replaceSlice(0, 0, oneElementList)
     return ()
   }
 
   clear {
-    let emptyList = []
+    let emptyList = List<T>.new()
     self._$replaceSlice(0, self.size, emptyList)
     return ()
   }
@@ -120,9 +121,11 @@ class List<T> is Collection {
     if (p < 0 or p > n) {
       return Result::Error(IndexError.new("List#insert: index out of bounds"))
     }
-    let oneElementList = [value]
+    let oneElementList = List<T>.new()
+    oneElementList._$push(value)
     self._$replaceSlice(p, p, oneElementList)
-    return Result::Ok(())
+    let ok: Result<Unit, Error> = Result::Ok(())
+    return ok
   }
 
   remove(at index) {
@@ -133,16 +136,17 @@ class List<T> is Collection {
       return Result::Error(IndexError.new("List#remove: index out of bounds"))
     }
     let captured = self._$at(p)
-    let emptyList = []
+    let emptyList = List<T>.new()
     self._$replaceSlice(p, p + 1, emptyList)
-    return Result::Ok(captured)
+    let ok: Result<Dynamic, Error> = Result::Ok(captured)
+    return ok
   }
 
   popFirst {
     let n = self.size
     if (n == 0) { return None }
     let captured = self._$at(0)
-    let emptyList = []
+    let emptyList = List<T>.new()
     self._$replaceSlice(0, 1, emptyList)
     return Some(captured)
   }
@@ -151,20 +155,24 @@ class List<T> is Collection {
     let n = self.size
     if (n == 0) { return None }
     let captured = self._$at(n - 1)
-    let emptyList = []
+    let emptyList = List<T>.new()
     self._$replaceSlice(n - 1, n, emptyList)
     return Some(captured)
   }
 
   removeAll(where predicate) {
-    let retained = List.new()
+    let retained = List<Dynamic>.new()
     let count = 0
-    for x in self {
+    let i = 0
+    let n = self.size
+    while (i < n) {
+      let x = self._$at(i)
       if (predicate.call(x)) {
         count = count + 1
       } else {
         retained._$push(x)
       }
+      i = i + 1
     }
     self._$replaceSlice(0, self.size, retained)
     return count
@@ -183,26 +191,16 @@ class List<T> is Collection {
       return Result::Error(IndexError.new("List#swap: second index out of bounds"))
     }
     if (idxA == idxB) {
-      return Result::Ok(())
+      let ok: Result<Unit, Error> = Result::Ok(())
+      return ok
     }
     let valA = self._$at(idxA)
     let valB = self._$at(idxB)
     self._$set(idxA, valB)
     self._$set(idxB, valA)
-    return Result::Ok(())
+    let ok: Result<Unit, Error> = Result::Ok(())
+    return ok
   }
-
-  // U-STD item 4 (U-ITER-FIX plan §"Not in this unit", DEC-ITER-A resolved):
-  // drives the cursor protocol (`iterate(_)`/`iteratorValue(_)`, ADR-0035 §1)
-  // rather than a raw `size`/`at(_)` index walk. `for x in self` compiles
-  // to the same `Invoke`-only `iterate`/`iteratorValue`/`isSome` loop as any
-  // user iterable (spec §3.1) — no `block_call`, no index math — so `each`
-  // (and everything below built over it: `map`/`filter`/`reduce`/`includes`)
-  // is protocol-driven behavior-preservingly.
-  // Given a live cursor, yields the element there (ADR-0035 §1,
-  // iteration.md §1). Only ever called with an in-range index, so it defers to
-  // `at(_)` directly.
-  iteratorValue(_ cursor) { self.at(cursor) }
 
   // U-STD (DEFERRED.md #18): the public `.ph` wrapper over `_$set(_,_)`
   // floor primitive — writes `put` at index `i` and returns `self` so writes
@@ -234,7 +232,8 @@ class List<T> is Collection {
         let end = bounds[1]
         if (start > end) { end = start }
         self._$replaceSlice(start, end, replacements)
-        Result::Ok(())
+        let ok: Result<Unit, Error> = Result::Ok(())
+        ok
       },
       err: |error| { Result::Error(error) }
     )

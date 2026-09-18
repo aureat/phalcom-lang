@@ -1,6 +1,6 @@
 # Callable Object Model
 
-[← Core execution](01-core-execution-and-values.md) · [Overview](README.md) · [Calls and rest →](03-calls-rest-and-spread.md)
+[← Core execution](01-core-execution-and-values.md) · [Overview](__unstructured__/drafts/callables/README.md) · [Calls and rest →](03-calls-rest-and-spread.md)
 
 ---
 

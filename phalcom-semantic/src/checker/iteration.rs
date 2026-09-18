@@ -174,70 +174,77 @@ fn requirement_resolution(
     }
 }
 
-/// Resolves one `for` source through the canonical Iterator/Iterable evidence
-/// products and returns both its published lane (when usable) and the normal
-/// call result used by the existing flow/diagnostic machinery.
-pub(crate) fn resolve_for_iteration_lane(
+pub(crate) struct ImplicitIterationResolution {
+    pub source_expression: ExpressionId,
+    pub source_range: SourceRange,
+    pub source_type: TypeId,
+    pub item_type: TypeId,
+    pub iterator_type: TypeId,
+    pub iterator: ForIterationRequirementResolution,
+    pub next: ForIterationRequirementResolution,
+    pub item_knowledge: TypeKnowledge,
+}
+
+fn resolve_implicit_iteration(
     ctx: &mut CheckingContext<'_>,
-    premise: &CallPremise,
     source_expression: Option<ExpressionId>,
     receiver_ty: TypeId,
     source_range: SourceRange,
-) -> (Option<ForIterationLaneResolution>, CallCheckResult) {
+) -> Result<ImplicitIterationResolution, UnresolvedApplicationReason> {
     let Some(source_expression) = source_expression else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let iterator_decl = canonical_iteration_declaration(&["collections", "iterator_laws"], "Iterator");
     let iterable_decl = canonical_iteration_declaration(&["collections", "iterator_laws"], "Iterable");
     let Some(view) = ctx.conformance_semantics else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let Some(iterable_surface) = view.trait_surfaces.get(&iterable_decl) else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let Some(iterator_surface) = view.trait_surfaces.get(&iterator_decl) else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let Some(item_requirement) = iterable_surface.associated_type_by_name("Item").map(|item| item.requirement.clone()) else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let Some(iterator_requirement) = iterable_surface.associated_type_by_name("Iterator").map(|item| item.requirement.clone()) else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let Ok(iterator_selector) = Selector::getter("iterator") else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let Some(iterator_member) = iterable_surface.get_by_selector(&iterator_selector, DispatchSide::Instance) else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let Ok(next_selector) = Selector::getter("next") else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let Some(next_member) = iterator_surface.get_by_selector(&next_selector, DispatchSide::Instance) else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
 
     let iterable_ref = TraitRef::new(iterable_decl.clone(), Vec::<TypeId>::new());
     let iterable_key = GenericConformanceKey::new(TypeTerm::Canonical(receiver_ty), iterable_ref.clone());
     let iterable_proof = prove(ctx, TypeTerm::Canonical(receiver_ty), &iterable_ref);
     let GenericConformanceProof::Proven(iterable_evidence) = iterable_proof.clone() else {
-        return unavailable(ctx, premise, proof_reason(&iterable_proof, source_range));
+        return Err(proof_reason(&iterable_proof, source_range));
     };
 
     let item_projection = ctx.store.associated_projection(receiver_ty, iterable_ref.clone(), item_requirement.clone());
     let iterator_projection = ctx.store.associated_projection(receiver_ty, iterable_ref.clone(), iterator_requirement.clone());
     let Some(item_type) = normalize_projection(ctx, item_projection).type_id() else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
     let Some(iterator_type) = normalize_projection(ctx, iterator_projection).type_id() else {
-        return unavailable(ctx, premise, UnresolvedApplicationReason::DispatchMissing);
+        return Err(UnresolvedApplicationReason::DispatchMissing);
     };
 
     let iterator_ref = TraitRef::new(iterator_decl.clone(), Vec::<TypeId>::new());
     let iterator_key = GenericConformanceKey::new(TypeTerm::Canonical(iterator_type), iterator_ref);
     let iterator_proof = prove(ctx, TypeTerm::Canonical(iterator_type), &iterator_key.trait_ref);
     let GenericConformanceProof::Proven(iterator_evidence) = iterator_proof.clone() else {
-        return unavailable(ctx, premise, proof_reason(&iterator_proof, source_range));
+        return Err(proof_reason(&iterator_proof, source_range));
     };
 
     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(iterable_decl));
@@ -247,7 +254,7 @@ pub(crate) fn resolve_for_iteration_lane(
         EvidenceStatus::Established => TypeKnowledge::established(item_type, EvidenceOrigin::ContextualDerivation),
         EvidenceStatus::Assumed => TypeKnowledge::assumed(item_type, EvidenceOrigin::ContextualDerivation),
     };
-    let resolution = ForIterationLaneResolution {
+    Ok(ImplicitIterationResolution {
         source_expression,
         source_range,
         source_type: receiver_ty,
@@ -267,15 +274,71 @@ pub(crate) fn resolve_for_iteration_lane(
             next_member.requirement.clone(),
             next_member.signature.clone(),
         ),
-    };
-    let result = CallCheckResult {
-        knowledge: item_knowledge,
-        status: super::analysis::AnalysisStatus::Ready,
-        causal_invalidity: super::causal::CausalInvalidity::Clean,
-        explanation_parents: Vec::new(),
-        callable: None,
-        local_type: None,
-        symbolic_result: None,
-    };
-    (Some(resolution), result)
+        item_knowledge,
+    })
+}
+
+/// Resolves one `for` source through the canonical Iterator/Iterable evidence
+/// products and returns both its published lane (when usable) and the normal
+/// call result used by the existing flow/diagnostic machinery.
+pub(crate) fn resolve_for_iteration_lane(
+    ctx: &mut CheckingContext<'_>,
+    premise: &CallPremise,
+    source_expression: Option<ExpressionId>,
+    receiver_ty: TypeId,
+    source_range: SourceRange,
+) -> (Option<ForIterationLaneResolution>, CallCheckResult) {
+    match resolve_implicit_iteration(ctx, source_expression, receiver_ty, source_range) {
+        Ok(resolved) => {
+            let resolution = ForIterationLaneResolution {
+                source_expression: resolved.source_expression,
+                source_range: resolved.source_range,
+                source_type: resolved.source_type,
+                item_type: resolved.item_type,
+                iterator_type: resolved.iterator_type,
+                iterator: resolved.iterator,
+                next: resolved.next,
+            };
+            let result = CallCheckResult {
+                knowledge: resolved.item_knowledge,
+                status: super::analysis::AnalysisStatus::Ready,
+                causal_invalidity: super::causal::CausalInvalidity::Clean,
+                explanation_parents: Vec::new(),
+                callable: None,
+                local_type: None,
+                symbolic_result: None,
+            };
+            (Some(resolution), result)
+        }
+        Err(reason) => unavailable(ctx, premise, reason),
+    }
+}
+
+/// Resolves one positional expansion (`*expr`) source through the canonical
+/// Iterator/Iterable evidence products and returns its published expansion
+/// product when usable.
+pub(crate) fn resolve_positional_expansion(
+    ctx: &mut CheckingContext<'_>,
+    source_expression: Option<ExpressionId>,
+    receiver_ty: TypeId,
+    source_range: SourceRange,
+) -> (
+    Option<crate::checker::analysis::PositionalExpansionIterationResolution>,
+    Option<UnresolvedApplicationReason>,
+) {
+    match resolve_implicit_iteration(ctx, source_expression, receiver_ty, source_range) {
+        Ok(resolved) => {
+            let resolution = crate::checker::analysis::PositionalExpansionIterationResolution {
+                source_expression: resolved.source_expression,
+                source_range: resolved.source_range,
+                source_type: resolved.source_type,
+                item_type: resolved.item_type,
+                iterator_type: resolved.iterator_type,
+                iterator: resolved.iterator,
+                next: resolved.next,
+            };
+            (Some(resolution), None)
+        }
+        Err(reason) => (None, Some(reason)),
+    }
 }

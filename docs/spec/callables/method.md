@@ -1,6 +1,6 @@
 # Method
 
-[Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Execution contexts](execution.md) · [Runtime and activation](runtime.md) · [Reflection](reflection.md) · [Function](function.md) · [Closure](closure.md) · [BoundMethod](bound-method.md)
+[Callables](spec/callables/README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Execution contexts](execution.md) · [Runtime and activation](runtime.md) · [Reflection](reflection.md) · [Function](function.md) · [Closure](closure.md) · [BoundMethod](bound-method.md)
 
 A `Method` is reified, holder-owned exact behavior. It is an object that can be
 inspected, authorized, bound, and invoked exactly. It is not a `Function`,

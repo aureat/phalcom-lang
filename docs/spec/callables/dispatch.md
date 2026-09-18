@@ -1,6 +1,6 @@
 # Dispatch and lowering
 
-[Callables](README.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Method](method.md) · [Function](function.md) · [Family](family.md)
+[Callables](spec/callables/README.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Method](method.md) · [Function](function.md) · [Family](family.md)
 
 This chapter specifies how source call syntax becomes a selector-bearing
 message send, how the receiver's hierarchy is searched, and where a Function

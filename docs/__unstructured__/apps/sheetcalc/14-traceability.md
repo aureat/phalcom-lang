@@ -1,6 +1,6 @@
 # SheetCalc — Traceability Matrix
 
-Part of the [SheetCalc specification](README.md).
+Part of the [SheetCalc specification](__unstructured__/apps/sheetcalc/README.md).
 
 Every requirement maps to the document that defines it and the test that proves
 it. A `REQ` with no test is a spec bug. A test with no `REQ` is either a missing

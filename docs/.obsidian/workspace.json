@@ -13,7 +13,21 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "spec/reflection/Untitled.md",
+                "file": "__unstructured__/backlogging.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "backlogging"
+            }
+          },
+          {
+            "id": "ce0715c6b8d22269",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "__unstructured__/Untitled.md",
                 "mode": "source",
                 "source": false
               },
@@ -21,7 +35,8 @@
               "title": "Untitled"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -185,8 +200,20 @@
       "bases:Create new base": false
     }
   },
-  "active": "5352b906845ff7b4",
+  "active": "ce0715c6b8d22269",
   "lastOpenFiles": [
+    "implementation/STDL002-standard-library-buildout/C2-time-complete/STDL002.C2.P2-plan.md",
+    "implementation/STDL002-standard-library-buildout/STDL002.C2.P2-plan.md",
+    "implementation/LANG006/LANG006.C1/STDL002.C2.P2-plan.md",
+    "__unstructured__/type tests.md",
+    "__unstructured__/Untitled.md",
+    "spec/symbols.md",
+    "spec/selectors.md",
+    "spec/reflection/Untitled.md",
+    "__unstructured__/doc structure.md",
+    "__unstructured__/fs-implementation-spec.md",
+    "__unstructured__/backlogging.md",
+    "__unstructured__/testing-harness.md",
     "implementation/STDL002-standard-library-buildout/C2-time-complete/STDL002.C2.P1-plan-00-shared-header.md",
     "implementation/STDL002-standard-library-buildout/C2-time-complete",
     "implementation/STDL002-standard-library-buildout/C2/STDL002.C2.P1-plan-00-shared-header.md",
@@ -209,18 +236,6 @@
     "decisions/accepted/0080-data-is-a-nominal-transparent-immutable-value-product.md",
     "decisions/accepted/0079-poller-backend-is-mio.md",
     "decisions/accepted/0078-multiline-string-text-blocks.md",
-    "decisions/accepted/0077-immediate-bounded-option.md",
-    "decisions/accepted/0076-transition-1-language-surface-convergence.md",
-    "decisions/accepted/0075-range-slicing-floor-amendment.md",
-    "decisions/accepted/0074-replace-extends-keyword-with-is.md",
-    "decisions/accepted/0073-string-literals-and-interpolation-completion.md",
-    "decisions/accepted/0072-class-and-constructor-decorator-canon.md",
-    "decisions/accepted/0071-float-protocol-and-explicit-narrowing.md",
-    "decisions/accepted/0070-numeric-literals.md",
-    "decisions/accepted/0069-numeric-tower-residue-rulings.md",
-    "decisions/accepted/0068-bitwise-operations-on-int.md",
-    "decisions/accepted/0067-decorator-carry-forward-and-v03-runtime-mandate.md",
-    "decisions/accepted/0066-diagnostics-renderer-is-in-house.md",
     "decisions/retired",
     "decisions/proposed"
   ]

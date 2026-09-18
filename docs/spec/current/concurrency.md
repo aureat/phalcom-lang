@@ -1,6 +1,6 @@
 # Fibers & Futures
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1. The
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Draft 0.1. The
 surface and execution model are ratified by
 [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md).
 

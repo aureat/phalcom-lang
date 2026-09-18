@@ -1,87 +1,60 @@
 ---
 id: LANG005.C6.P5
 kind: implementation-handoff
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
-revision: 715d0b16f3938495bc20c159ce4e1fbbcd699a22
+revision: local-head
 prepared: 2026-09-18
 ---
 
-# LANG005.C6.P5 Handoff: Production Stateful Iteration & T14 Migration
+# LANG005.C6.P5 Handoff: Production Stateful Iteration & Cursor Retirement Complete
 
-## 1. Executive Summary & Current State
+## 1. Executive Summary & Completed State
 
-- **Active Plan**: `LANG005.C6.P5` (Production Stateful Iteration, Evidence-Driven `for`, Iterator Toolbox, and Cursor Retirement).
-- **Incident & Blocker (Fix 1) — RESOLVED & VERIFIED**:
-  - **Issue**: Invoking instance methods on `ListIterator<T>` / `SetIterator<T>` instantiated unparameterized collection frames against an empty parent type environment (`parent []`). The VM's `resolve_call_environment` raised a generic call-entry type recipe instantiation error.
-  - **Root Cause**: `instantiate_type_ref` in `phalcom-core/src/typing/environment.rs` returned `None` when `TypeNode::Parameter(param)` was missing from `env`.
-  - **Fix Applied**: `instantiate_type_ref` now degrades unbound parameters to `Dynamic` (`RuntimeOverlayTypeNode::Special("Dynamic")`), which is the semantically correct erasure fallback for unspecialized runtime frames.
-  - **Verification**: `cargo test -p phalcom-core --test core language::iteration` went from **5 passing / 6 failing** to **11 passing / 0 failing / 2 ignored baseline**.
-- **Active Task**: **Task T14** (Retire legacy runtime `Iterable`/`Iterator` classes and reparent collections to intermediary abstract `Collection` class).
-
----
-
-## 2. In-Flight Work: Task T14 & Intermediary `Collection` Hierarchy
-
-The user approved introducing an intermediary abstract `Collection` class between `Object` and the concrete collections (`List`, `Map`, `Set`, `Tuple`, `Range`, `Bytes`).
-
-### Target Hierarchy
-```text
-Object
- └── Collection   (abstract, UniverseKey::Collection)
-      ├── List
-      ├── Map
-      ├── Set
-      ├── Tuple
-      ├── Range
-      └── Bytes
-```
-*(Note: `Record` remains directly under `Object` as it is an immutable product representation without iteration).*
-
-### Completed in T14 so far:
-1. `phalcom-native-meta/src/universe.rs`:
-   - Replaced `UniverseKey::Iterable` with `UniverseKey::Collection`.
-   - Updated `UNIVERSE_CLASS_RELATIONS` to wire `Collection` under `Object`, and `List`, `Map`, `Set`, `Tuple`, `Range`, `Bytes` under `Collection`.
-   - Updated `UNIVERSE_BINDINGS` to export `Collection` (`prelude = true`).
-   - Updated `name()` for `UniverseKey::Collection`.
-
-### Remaining Steps to Complete T14:
-1. **Finish `phalcom-native-meta/src/universe.rs`**:
-   - Update `source_path()`: map `Self::Collection => &["collections", "list"]` (or `&["collections", "package"]`).
-   - Update `from_name()`: map `"Collection" => Some(Self::Collection)`.
-2. **Update Core Classes & Runtime Invariants**:
-   - `phalcom-core/src/universe/core_classes.rs`:
-     - Rename `iterable_class` -> `collection_class` across `CoreClasses` struct, `make_core_class`, `create_core_classes`, `resolve`, `each_handle`.
-     - Wire `collection_class = make_core_class(heap, "Collection", object_class, metaclass_class)` with `is_abstract = true`.
-     - Wire `list_class`, `map_class`, `set_class`, `tuple_class`, `range_class`, `bytes_class` with superclass `collection_class`.
-   - `phalcom-core/src/universe/invariants.rs`: Replace `("Iterable", c.iterable_class)` with `("Collection", c.collection_class)`.
-   - `phalcom-core/src/universe/primitives.rs`: Replace `classes.iterable_class` with `classes.collection_class`.
-   - `phalcom-core/src/vm/bootstrap.rs`: Replace `add_class!(iterable_class)` with `add_class!(collection_class)`.
-3. **Update Source `.ph` Declarations in `phalcom-core/core/universe/src/collections/`**:
-   - `list.ph`: `class List<T> is Collection`
-   - `map.ph`: `class Map<K, V> is Collection`
-   - `set.ph`: `class Set<T> is Collection`
-   - `tuple.ph`: `class Tuple is Collection`
-   - `range.ph`: `class Range is Collection`
-   - `bytes.ph`: `class Bytes is Collection`
-   - `iterable.ph`: Delete or remove obsolete cursor-era classes (`class Iterable`, `IndexedIterable`, `ZippedIterable`, `class Iterator`, `SourceIterator`, `MapIterator`, `FilterIterator`, `SkipIterator`, `TakeIterator`, `TakeWhileIterator`, `FlatMapIterator`).
-   - `package.ph`: Export `Collection` and ensure `Iterable` / `Iterator` public names resolve directly to `iterator_laws.ph` traits.
-4. **Update Legacy Use Sites**:
-   - `examples/sheetcalc/src/grid/ref-range.ph`: update `is Iterable` to `is Collection` or trait conformance.
-5. **Verification Commands**:
-   - `RUSTFLAGS='' cargo check -p phalcom-native-meta`
-   - `RUSTFLAGS='' cargo check -p phalcom-core`
-   - `RUSTFLAGS='' cargo test -p phalcom-core --test core language::iteration`
-   - `RUSTFLAGS='' cargo test -p phalcom-core --test core language::derived_conformance`
-   - Final audit: `rg -n 'iterable_class|class Iterable|class Iterator|SourceIterator' -g '!target/**'`
+- **Completed Plan**: `LANG005.C6.P5` (Production Stateful Iteration, Evidence-Driven `for`, Iterator Toolbox, Positional Expansion, and Cursor Retirement).
+- **Status**: `COMPLETE` / `IMPLEMENTED` / `FOCUSED_TESTED`.
+- **All checklists satisfied**:
+  - **T1–T5 (Part I)**: Canonical `for` semantic lane publication and compiler lowering; stateful `ListIterator<T>`; loop control (`break`/`continue`).
+  - **T6–T11 (Part II)**: Stateful iterators for `Bytes`, `Set<T>`, `Map<K, V>` (with labeled `(key: K, value: V)` items), Map key/value/entry views, string byte/codepoint views, bounded pipeline checks, and complete `iterator_laws.ph` combinator toolbox.
+  - **T12–T15 (Part III)**:
+    - Positional expansion `*` for non-Tuple/non-Unit targets lowered strictly through canonical `Iterable` evidence.
+    - Inline implicit-Universe semantic support repaired to include actual conformance owners.
+    - Legacy cursor fallback in `compile_for` completely deleted.
+    - `Tuple` canonical stateful iterator (`TupleIterator`, `TupleZipIterator`, `TupleZipView`) and `doesNotUnderstand` labeled field getter access.
+    - Sheetcalc `RefRange` migrated to canonical `RefRangeIterator`.
+    - All legacy cursor methods (`iterate`, `iteratorValue`) deleted across core collection sources.
+    - Intermediary abstract `Collection` class hierarchy verified; legacy `Iterable` class and `UniverseKey::Iterable` fully retired.
+    - LSP hover blurbs, current documentation, and language design overlay synchronized.
+    - Pre-G5 and final source census confirmed 0 legacy cursor consumers.
 
 ---
 
-## 3. Key Invariants & Architectural Rules
+## 2. Established Architecture & Invariants for P6
 
-- **Semantic Authority**: Conformance proofs and associated type projections stay in `phalcom-semantic`.
-- **Runtime Proof Free**: The VM executes pre-resolved recipes; no dynamic trait search or conformance proof occurs in bytecode dispatch.
-- **Dynamic Fallback**: Unbound type parameters at call sites degrade gracefully to `Dynamic` overlay types rather than panicking.
-- **Stateful Iteration**: All iterators own traversal state and adhere to sticky exhaustion on `None`.
+1. **Semantic Authority**: Conformance proofs, associated item projections, and iteration lane evidence are authored and published by `phalcom-semantic`.
+2. **Runtime Execution**: The VM executes pre-resolved `ForIterationLoweringSpec` / `PositionalExpansionLoweringSpec` without searching for conformance or checking selectors at runtime.
+3. **Collection Hierarchy**: `Object -> Collection (abstract) -> { List, Map, Set, Tuple, Range, Bytes }`. `Collection` carries no iteration selectors; only trait conformance to `Iterable` (`universe.collections.iterator_laws`) establishes iterability.
+4. **Positional Expansion**: `Unit` and `Tuple` use direct product-lane fast-paths in `try_append_tuple_positionals`; all other expansion targets evaluate through canonical stateful iterators.
+5. **No Legacy Cursor Residue**: There are no remaining `iterate(_)`, `iteratorValue(_)`, or `compile_for_lanes` fallback paths in production code.
 
+---
+
+## 3. Verified Gates & Evidence
+
+- `cargo test -p phalcom-semantic --test semantic capabilities::iteration` (6 passed)
+- `cargo test -p phalcom-semantic --test semantic capabilities::derived_conformance` (38 passed)
+- `cargo test -p phalcom-core --test core language::iteration` (13 passed)
+- `cargo test -p phalcom-core --test core language::derived_conformance` (11 passed)
+- `cargo test -p phalcom-core --test core core_outgoing_packs` (28 passed)
+- `cargo test -p phalcom-lsp` (84 passed)
+- Crate checks (`phalcom-semantic`, `phalcom-core`, `phalcom-modules`, `phalcom-native-meta`): all clean
+- Census: 0 legacy cursor hits across production sources
+- `git diff --check`: clean
+
+---
+
+## 4. Next Actions for P6
+
+- Take over from `LANG005.C6.P5` into `LANG005.C6.P6` (Final C6 Closure and Certification).
+- Proceed with final C6 integration, full workspace gate validation (when authorized), and checkpoint certification.

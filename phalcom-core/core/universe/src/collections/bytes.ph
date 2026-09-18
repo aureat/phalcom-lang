@@ -88,8 +88,6 @@ class Bytes is Collection {
     return orElse.call(index)
   }
 
-  iteratorValue(_ cursor) { self._$at(cursor) }
-
   iterator -> BytesIterator { BytesIterator.new(self) }
 
   // An octet is an integer Number in 0..255 (bytes.md §2). `and` is lazy,
@@ -418,7 +416,7 @@ class Path {
   }
 
   components {
-    let res = List.new()
+    let res = List<Dynamic>.new()
     let i = 0
     let len = _bytes.size
     while (i < len) {
@@ -448,7 +446,7 @@ class Path {
 
 @native
 class Resource is Object {
-  @class @internal @native _$register(_ resource: Resource) -> Dynamic
+  @class @internal @native _$register(_ kind: String) -> Dynamic
   @internal @native _$close() -> Dynamic
   @internal @native _$isClosed -> Bool
   close {
@@ -495,7 +493,7 @@ class BytesWriter is Resource {
   @constructor
   new() {
     _handle = Resource._$register("BytesWriter")
-    _chunks = List.new()
+    _chunks = List<Dynamic>.new()
   }
 
   write(_ src) {

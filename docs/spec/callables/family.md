@@ -1,6 +1,6 @@
 # Family
 
-[Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Reflection](reflection.md) · [Function](function.md) · [Method](method.md)
+[Callables](spec/callables/README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Reflection](reflection.md) · [Function](function.md) · [Method](method.md)
 
 Family is a sealed Function created by a callable-reference expression. It
 stores one receiver and one selector specification. It is not a Method:

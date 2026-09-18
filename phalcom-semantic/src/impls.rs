@@ -1791,17 +1791,26 @@ pub fn build_conformance_witness_plan(
             let witness_plans_map: BTreeMap<crate::identity::ImplId, std::sync::Arc<ConformanceWitnessPlan>> = all_associated_type_plans
                 .iter()
                 .map(|(impl_id, p)| {
+                    let (target_template, trait_ref_template, generic_signature) = if let Some(contrib) = conformance_index.get(impl_id) {
+                        (contrib.target_head, contrib.trait_ref.clone(), contrib.generic_signature.clone())
+                    } else {
+                        (
+                            store.unit(),
+                            TraitRef::new(
+                                crate::identity::DeclarationId::new(impl_id.module.clone(), "dummy".into()),
+                                Box::<[TypeId]>::default(),
+                            ),
+                            None,
+                        )
+                    };
                     (
                         impl_id.clone(),
                         std::sync::Arc::new(ConformanceWitnessPlan {
                             impl_id: impl_id.clone(),
                             source_module: impl_id.module.clone(),
-                            target_template: store.unit(),
-                            trait_ref_template: TraitRef::new(
-                                crate::identity::DeclarationId::new(impl_id.module.clone(), "dummy".into()),
-                                Box::<[TypeId]>::default(),
-                            ),
-                            generic_signature: None,
+                            target_template,
+                            trait_ref_template,
+                            generic_signature,
                             requirement_views: BTreeMap::new(),
                             requirements: BTreeMap::new(),
                             associated_type_plan: p.clone(),
@@ -1858,24 +1867,39 @@ pub fn build_conformance_witness_plan(
                         }
                     }
                     GenericConstraint::Equivalent { left, right } => {
+                        #[derive(PartialEq, Eq)]
+                        enum NormalizedTerm {
+                            Canonical(TypeId),
+                            Dynamic,
+                            Other(TypeTerm),
+                        }
                         let norm_left = match left {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
-                                other => other.type_id().map(TypeTerm::Canonical).unwrap_or(left),
+                                crate::types::ProjectionNormalizationResult::Normalized(t) => NormalizedTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Dynamic(_) => NormalizedTerm::Dynamic,
+                                other => other.type_id().map(NormalizedTerm::Canonical).unwrap_or_else(|| NormalizedTerm::Other(left)),
                             },
-                            other => other,
+                            other => NormalizedTerm::Other(other),
                         };
                         let norm_right = match right {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
-                                other => other.type_id().map(TypeTerm::Canonical).unwrap_or(right),
+                                crate::types::ProjectionNormalizationResult::Normalized(t) => NormalizedTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Dynamic(_) => NormalizedTerm::Dynamic,
+                                other => other.type_id().map(NormalizedTerm::Canonical).unwrap_or_else(|| NormalizedTerm::Other(right)),
                             },
-                            other => other,
+                            other => NormalizedTerm::Other(other),
                         };
                         if norm_left != norm_right {
                             let (l_str, r_str) = match (&norm_left, &norm_right) {
-                                (TypeTerm::Canonical(l), TypeTerm::Canonical(r)) => (store.format_type(*l), store.format_type(*r)),
-                                _ => (format!("{norm_left:?}"), format!("{norm_right:?}")),
+                                (NormalizedTerm::Canonical(l), NormalizedTerm::Canonical(r)) => (store.format_type(*l), store.format_type(*r)),
+                                (NormalizedTerm::Dynamic, NormalizedTerm::Canonical(r)) => ("Dynamic".to_string(), store.format_type(*r)),
+                                (NormalizedTerm::Canonical(l), NormalizedTerm::Dynamic) => (store.format_type(*l), "Dynamic".to_string()),
+                                (NormalizedTerm::Other(l), NormalizedTerm::Other(r)) => (format!("{l:?}"), format!("{r:?}")),
+                                (NormalizedTerm::Other(l), NormalizedTerm::Canonical(r)) => (format!("{l:?}"), store.format_type(*r)),
+                                (NormalizedTerm::Canonical(l), NormalizedTerm::Other(r)) => (store.format_type(*l), format!("{r:?}")),
+                                (NormalizedTerm::Other(l), NormalizedTerm::Dynamic) => (format!("{l:?}"), "Dynamic".to_string()),
+                                (NormalizedTerm::Dynamic, NormalizedTerm::Other(r)) => ("Dynamic".to_string(), format!("{r:?}")),
+                                (NormalizedTerm::Dynamic, NormalizedTerm::Dynamic) => ("Dynamic".to_string(), "Dynamic".to_string()),
                             };
                             failures.push(ConformanceFailure::AssociatedType(AssociatedTypeBindingFailure {
                                 kind: AssociatedTypeBindingFailureKind::Invalid,

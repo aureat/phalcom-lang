@@ -114,7 +114,6 @@ let result = values.size == 0 and mapping.size == 0
 }
 
 #[test]
-#[ignore = "BASELINE: generic call-entry type recipe cannot instantiate generic SetIterator<T>"]
 fn canonical_set_iterator_is_fresh_sticky_and_ordered() {
     let source = r#"
 let values = Set<Int>.new()
@@ -196,7 +195,6 @@ for value in (1..4) { sum = sum + value }
 }
 
 #[test]
-#[ignore = "BASELINE: generic call-entry type recipe cannot instantiate generic MapIterator<K,V>"]
 fn canonical_map_iterator_and_views_yield_labeled_entries() {
     let source = r#"
 let values: Map<String, Int> = Map.new()

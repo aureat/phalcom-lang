@@ -1,6 +1,6 @@
 # Runtime and activation
 
-[Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Execution contexts](execution.md) · [Function](function.md) · [Method](method.md) · [Closure](closure.md) · [BoundMethod](bound-method.md) · [Family](family.md) · [Reflection](reflection.md)
+[Callables](spec/callables/README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Execution contexts](execution.md) · [Function](function.md) · [Method](method.md) · [Closure](closure.md) · [BoundMethod](bound-method.md) · [Family](family.md) · [Reflection](reflection.md)
 
 This chapter exposes the VM architecture behind the callable specification. It
 is intentionally precise enough for compiler and runtime work while preserving
@@ -239,4 +239,4 @@ return, or allocation-sensitive semantics.
 - [Function](function.md) — public gateway contract
 - [Method](method.md), [Closure](closure.md), [BoundMethod](bound-method.md), and [Family](family.md) — concrete routes
 - [Reflection](reflection.md) — shaped reflective forwarding
-- [Callable conformance requirements](conformance.md) — implementation invariants and test lanes
+- [Callable conformance requirements](spec/callables/conformance.md) — implementation invariants and test lanes

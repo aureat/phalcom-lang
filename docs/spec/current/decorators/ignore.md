@@ -12,7 +12,7 @@
   `decorators_ignore_getter_dropped.ph`; negative:
   `phalcom-core/tests/lang/compile-errors/decorators_ignore_illegal_on_field.ph`,
   `decorators_ignore_body_still_parsed.ph`.
-- Depends on: [README.md](README.md) (the tier model) ·
+- Depends on: [README.md](spec/README.md) (the tier model) ·
   [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism,
   registry, phase pipeline)
 - Related: [native.md](native.md) (borrows this attribute's mechanism,

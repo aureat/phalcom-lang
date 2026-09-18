@@ -24,7 +24,7 @@ silently invented.
 | [Classes](classes.md) | `@constructor`, `@class`, fields, methods, accessors, operators |
 | [Method Lookup](method-lookup.md) | Resolution order, `doesNotUnderstand`, `Message` |
 | [Control Flow](control-flow.md) | `if`/`while`/`for` sugar, `and`/`or`, the inliner |
-| [Iteration](iteration.md) | The cursor protocol (`iterate`/`iteratorValue`), `for` desugar, `break`/`continue` |
+| [Iteration](iteration.md) | Canonical `Iterator`/`Iterable` traits, `for` desugar, `break`/`continue` |
 | [Error Handling](error-handling.md) | `throw`, `try`/`catch`/`on`/`ensure`, unwinding as one primitive |
 | [Result](result.md) | `Result`/`Ok`/`Err` — the value channel for expected failure; bridges to exceptions |
 | [Fibers & Futures](concurrency.md) | Cooperative concurrency: the `Fiber` primitive, `Future`, the scheduler |

@@ -1,6 +1,6 @@
 # Object Model
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
 [TDR-0002](../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) (metaclass tower parallel rule) ·

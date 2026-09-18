@@ -21,7 +21,7 @@ and a `Function`. Then follow the path that matches the question:
 | How does the VM enter a callable without recursive interpreter re-entry? | [Runtime and activation](runtime.md) |
 | What do `self`, `super`, return, closures, and constructors mean? | [Execution contexts](execution.md) |
 | How do `methodFor`, `bind`, `invokeOn`, and `perform` relate? | [Reflection and exact invocation](reflection.md) |
-| What must compiler and VM changes preserve? | [Callable conformance requirements](conformance.md) |
+| What must compiler and VM changes preserve? | [Callable conformance requirements](spec/callables/conformance.md) |
 
 The class chapters are deliberately separate:
 
@@ -208,7 +208,7 @@ The implementation-oriented chapters refer mainly to these locations:
 - [Runtime and activation](runtime.md)
 - [Execution contexts](execution.md)
 - [Reflection and exact invocation](reflection.md)
-- [Callable conformance requirements](conformance.md)
+- [Callable conformance requirements](spec/callables/conformance.md)
 - [Method](method.md)
 - [Function](function.md)
 - [Closure](closure.md)

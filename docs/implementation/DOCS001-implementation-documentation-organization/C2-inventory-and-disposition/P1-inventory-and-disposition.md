@@ -42,5 +42,5 @@ dispositions before moving additional documents.
 
 ## Next action
 
-Review [MANIFEST.md](MANIFEST.md), resolve its explicit review sets, and only
+Review [MANIFEST.md](spec/collections/MANIFEST.md), resolve its explicit review sets, and only
 then begin active-program migration.

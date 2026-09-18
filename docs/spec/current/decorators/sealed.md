@@ -11,7 +11,7 @@
   `tests/lang/compile-errors/annotation_variant_requires_sealed.ph`,
   `tests/lang/errors/annotation_variant_visitor_exhaustive.ph`.
 - Tier: **Compile / generate**, `runtime: false`.
-- Depends on: [README.md](README.md) · [annotations-data.md](../experimental/annotations-data.md)
+- Depends on: [README.md](spec/README.md) · [annotations-data.md](../experimental/annotations-data.md)
 - Related: **[drafts/sealed-classes.md](../drafts/sealed-classes.md) — the full
   mechanism, exhaustiveness story, and design space. Read that first; this file is
   the as-built decorator surface only.** · [data.md](data.md)

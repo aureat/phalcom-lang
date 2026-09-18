@@ -1,6 +1,6 @@
 # SheetCalc — Function Library
 
-Part of the [SheetCalc specification](README.md).
+Part of the [SheetCalc specification](__unstructured__/apps/sheetcalc/README.md).
 Grounded in [00-language-findings.md](00-language-findings.md) §3, §4, §9, and
 [06-ast-and-eval.md](06-ast-and-eval.md) §5.
 

@@ -19,7 +19,7 @@
   (PASS), `tests/lang/runtime-errors/runtime_attribute_store_frozen.ph`.
 - Date: 2026-07-12 (A-1–A-5 resolved 2026-07-13)
 - Depends on:
-  [README.md](README.md) (the five-tier model; this note reifies its descriptor) ·
+  [README.md](spec/README.md) (the five-tier model; this note reifies its descriptor) ·
   [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism, registry, phase pipeline) ·
   [legality-grammar.md](../../../work/pending/ctor/notes/legality-grammar.md) (`Target`, the legality table)
 - Related:
@@ -67,7 +67,7 @@ runtime as `attr.frozen`; and `Behavior#attributes`/`Method#attributes`/
 
 ## Context
 
-[README.md](README.md) models `@` as a five-tier spectrum and gives the
+[README.md](spec/README.md) models `@` as a five-tier spectrum and gives the
 descriptor as a **Rust-side registry row**:
 
 ```rust
@@ -89,14 +89,14 @@ This note reifies the descriptor: an attribute *is* a class extending a core
 This is the .NET model (`class FooAttribute : Attribute` + `[Foo("x")]`) rendered
 in Phalcom's object model, and it subsumes two spec features at once:
 
-- the **five active tiers** of [README.md](README.md) (the hook methods), and
+- the **five active tiers** of [README.md](spec/README.md) (the hook methods), and
 - the **passive-metadata** model of Java/C# annotations (an attribute class with
   *no* hook method is inert, retained, and reflectable) — the case
-  [README.md](README.md) "What this precludes" steers away from as a
+  [README.md](spec/README.md) "What this precludes" steers away from as a
   *blanket* rule, admitted here as a *declared, honest* case.
 
 The design does not widen what user code may do: it lands exactly on the
-user/compiler tier line [README.md](README.md) already draws (users own
+user/compiler tier line [README.md](spec/README.md) already draws (users own
 Install/Dispatch/Runtime; the compiler owns Compile/Layout).
 
 ## Decision
@@ -227,7 +227,7 @@ Engine.attributesOfType(Author).first.name    // => "Ada"
 Because it declares no hook, its `runtime` flag is `false` in the behavioral
 sense: stripping it leaves the class's method bodies bytecode-identical (only the
 retained instance disappears). It satisfies the erasure golden of
-[README.md](README.md) §"two rules" the same way any other
+[README.md](spec/README.md) §"two rules" the same way any other
 `runtime: false` decorator does.
 
 ### `@On` — legality and tier as one class-side declaration (renamed, A-1)
@@ -269,10 +269,10 @@ exist**:
   Instantiating a user attribute there (`Name.new().expand(…)`) requires **staged
   compile-time evaluation** — running user VM code during compilation, the
   CLOS-MOP end-state [annotations-core.md](../experimental/annotations-core.md)
-  and [README.md](README.md) explicitly defer.
+  and [README.md](spec/README.md) explicitly defer.
 
 This boundary is not new policy: it *coincides* with the user/compiler tier line
-[README.md](README.md) already fixed ("user-defined decorators are
+[README.md](spec/README.md) already fixed ("user-defined decorators are
 Install/Runtime only; the static tiers stay compiler-owned"). So the two static
 tiers remain **Rust-owned builtins** with `expand(_)`/`finalizeLayout(_)` hooks the
 compiler calls directly (no instantiation of a user class); the `Attribute`-class
@@ -388,7 +388,7 @@ Consequences for attributes:
 - **Per-instance behavior is out of scope for v0.2 — but not foreclosed.** Giving a
   single `aPoint` its own method needs a *different* mechanism — a per-instance
   method dictionary (prototype model) or `doesNotUnderstand` delegation (the
-  Dispatch tier, [README.md](README.md)). Phalcom's v0.2 floor gives
+  Dispatch tier, [README.md](spec/README.md)). Phalcom's v0.2 floor gives
   instances no dictionary, so `Behavior.defineMethod` deliberately does not span
   instances; an attribute that wants per-receiver *state* (not behavior) takes the
   Layout-slot route instead (see `@lazy` below), which is builtin-owned.
@@ -514,7 +514,7 @@ decorates*, it crosses from user Install into builtin Layout.
 | Core `Attribute` root | the class every attribute extends; usage fixed in Rust at the root. |
 | `@On(target…, tier:, inherited:)` | builtin attribute carrying legality **and** tier (A-1) in one declaration; drives the `Target` table and the tier/inheritance floor. |
 | Annotation store | a `Vec<Value>` (retained instances) on the class object, `Method`, and `ModuleObject` — small next to the existing method dictionaries / `name_to_slot`. **Frozen after class-definition (A-5)** — no post-definition attach/detach; attempting to mutate it is an error. |
-| Reflection surface | `Behavior.attributes`, `Method.attributes` / `Method.attributesOfType(_)`, mirrored on modules — message-sends returning the stored instances. Gated on the [object-model.md §8](../object-model.md) metaobject surface (`Behavior.defineMethod`, `Method.invokeOn`, `Method.bind`), the same gate as [README.md](README.md) D-2. |
+| Reflection surface | `Behavior.attributes`, `Method.attributes` / `Method.attributesOfType(_)`, mirrored on modules — message-sends returning the stored instances. Gated on the [object-model.md §8](../object-model.md) metaobject surface (`Behavior.defineMethod`, `Method.invokeOn`, `Method.bind`), the same gate as [README.md](spec/README.md) D-2. |
 | Tier declaration | explicit only (A-1) — `tier:` on `@On`, no inference from hook shape. Declared tier without the matching hook ⇒ `attr.missing_hook`; a reserved hook selector present without a matching declared tier ⇒ `attr.undeclared_hook`. A class may declare at most one tier in v0.2 (multi-tier deferred to v0.3). |
 | Dedup | two applications of the same attribute class on one member are legal and compose normally (A-4) — same source-order, innermost-last rule as any two distinct attributes; no enforced uniqueness. |
 
@@ -541,12 +541,12 @@ decorates*, it crosses from user Install into builtin Layout.
   un-annotated artifacts) so the common case is a null pointer, not a map.
 - **`runtime` honesty, again.** An attribute that implements `wrap(_)` but returns
   the method *unchanged* while recording state is behaviorally inert yet claims the
-  Install tier. The erasure golden ([README.md](README.md) §"two rules")
+  Install tier. The erasure golden ([README.md](spec/README.md) §"two rules")
   is still the regression guard: stripping every `runtime: false` attribute must
   leave method bodies bytecode-identical. An attribute lies iff that golden breaks.
 - **Instantiation order at one site.** Two attributes on one member instantiate
   and compose in **source order, innermost-last** — the same Python-stacking rule
-  [README.md](README.md) fixes for `install`/`runtime`. `Name.new` side
+  [README.md](spec/README.md) fixes for `install`/`runtime`. `Name.new` side
   effects (a constructor that registers globally) therefore run in written order;
   document it at the call site.
 - **Bootstrap of `Attribute` itself.** The root class and `@On` must
@@ -563,7 +563,7 @@ decorates*, it crosses from user Install into builtin Layout.
 - **A tier with no hook and no metadata role.** An attribute either implements a
   hook selector (active, one of five tiers) or is pure retained metadata. There is
   no third thing — no "runs at some unphased time" escape, preserving the
-  [README.md](README.md) "no sixth tier" guarantee.
+  [README.md](spec/README.md) "no sixth tier" guarantee.
 - **Reflection without the metaobject surface.** `attributesOfType(_)` and friends
   do not ship before [object-model.md §8](../object-model.md) is ratified; until
   then attribute *hooks* can fire (compiler-driven at definition time) but the

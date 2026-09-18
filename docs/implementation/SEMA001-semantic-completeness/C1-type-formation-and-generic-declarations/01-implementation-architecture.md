@@ -3,7 +3,7 @@
 **Status:** Ratified, implementation-ready
 **Authority:** Normative architecture after completed two-axis tower
 **Primary owners:** `phalcom-semantic` and `phalcom-modules`; consumer migrations in `phalcom-core` and `phalcom-lsp`
-**Dependencies:** Completed Task 1–13 two-axis implementation; [program map](README.md)
+**Dependencies:** Completed Task 1–13 two-axis implementation; [program map](spec/README.md)
 **Produces:** bounded semantic relations, compiler-owned query database, stable identity boundary, partial-result diagnostics, immutable incrementally derived snapshots
 
 ## 1. Scope, owners, and non-goals

@@ -64,22 +64,35 @@ fn generic_spread_accepts_range_user_iterable_and_bounded_pipeline() {
     let value = on_large_stack(|| {
         eval_source(
             r#"
+from universe.collections.iterator_laws import TakeIterator
+
 class Receiver {
   collect(*values) { return values.size }
 }
-class Countdown is Iterable {
+
+class CountdownIterator {
+  _n
+  @constructor
+  new(_ n) { _n = n }
+  next {
+    if (_n >= 0) {
+      let current = _n
+      _n = _n - 1
+      return Some(current)
+    }
+    return None
+  }
+  iterator { self }
+}
+class Countdown {
   @constructor
   from(n) { _n = n }
-  iterate(_ cursor) {
-    let next = (cursor == None).ifTrue(|| { _n }, ifFalse: || { cursor - 1 })
-    return (next >= 0).ifTrue(|| { next }, ifFalse: || { None })
-  }
-  iteratorValue(_ cursor) { return cursor }
+  iterator { CountdownIterator.new(_n) }
 }
 let receiver = Receiver.new()
 let fromRange = receiver.collect(*(1..=3))
 let fromUser = receiver.collect(*Countdown.from(n: 2))
-let fromPipeline = receiver.collect(*(0..).iter.take(2))
+let fromPipeline = receiver.collect(*TakeIterator.new((0..).iterator, 2))
 let result = fromRange * 100 + fromUser * 10 + fromPipeline
 "#,
             "result",
@@ -242,8 +255,7 @@ let result = receiver.sum([#left]: 3, [#right]: 4)
         run_source(
             r#"
 class Broken {
-  iterate(_ cursor) { throw Error.new("iterate boom") }
-  iteratorValue(_ cursor) { return 0 }
+  iterator { throw Error.new("iterate boom") }
 }
 class Receiver {
   collect(*values) { return values.size }

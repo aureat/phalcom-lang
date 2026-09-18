@@ -4,7 +4,7 @@
 >
 > **Decision set:** NUM-016 through NUM-018.
 >
-> **Scope:** Source-code literal grammar, lexical boundaries, token/AST classification, oversized integers, and compile-time policy diagnostics. Runtime String constructors are specified in [`text-and-errors.md`](text-and-errors.md).
+> **Scope:** Source-code literal grammar, lexical boundaries, token/AST classification, oversized integers, and compile-time policy diagnostics. Runtime String constructors are specified in [`text-and-errors.md`](__unstructured__/phalcom-numeric-specification/text-and-errors.md).
 
 ## 1. Lexical productions
 

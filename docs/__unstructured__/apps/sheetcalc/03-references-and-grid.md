@@ -1,6 +1,6 @@
 # SheetCalc — References and Grid
 
-Part of the [SheetCalc specification](README.md).
+Part of the [SheetCalc specification](__unstructured__/apps/sheetcalc/README.md).
 Grounded in [00-language-findings.md](00-language-findings.md) §3, §7, §10,
 [01-architecture.md](01-architecture.md), [02-value-model.md](02-value-model.md).
 

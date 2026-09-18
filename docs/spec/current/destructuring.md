@@ -1,6 +1,6 @@
 # Destructuring `let`/`var` Bindings
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Draft 0.1.
 
 **Governing ADR:** [TDR-0039](../../decisions/accepted/0039-destructuring-bindings.md)
 (irrefutable tuple + list destructuring, the `at(_)` accessor protocol).

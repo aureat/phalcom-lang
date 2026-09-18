@@ -1,6 +1,6 @@
 # Closure
 
-[Callables](README.md) · [Arguments and rest](arguments.md) · [Execution contexts](execution.md) · [Runtime and activation](runtime.md) · [Function](function.md) · [Method](method.md) · [Dispatch and lowering](dispatch.md)
+[Callables](spec/callables/README.md) · [Arguments and rest](arguments.md) · [Execution contexts](execution.md) · [Runtime and activation](runtime.md) · [Function](function.md) · [Method](method.md) · [Dispatch and lowering](dispatch.md)
 
 A `Closure` is a sealed/final `Function` value carrying compiled code and
 lexical captures. It is a complete callable: no caller-supplied receiver is

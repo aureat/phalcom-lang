@@ -298,6 +298,19 @@ fn analyze_application_argument(ctx: &mut CheckingContext<'_>, argument: Applica
     } else if let (Some(ty), Some(local_type)) = (typed.knowledge.ty(), typed.local_type.clone()) {
         ctx.record_call_local_type(ty, local_type);
     }
+    if let ApplicationArgument::Expansion { range, .. } = argument {
+        if let TypeKnowledge::Known(evidence) = &typed.knowledge {
+            let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(
+                ctx,
+                typed.expression_id,
+                evidence.ty(),
+                range,
+            );
+            if let Some(resolution) = resolution {
+                ctx.positional_expansions.insert(resolution.source_expression, resolution);
+            }
+        }
+    }
     typed
 }
 

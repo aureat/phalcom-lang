@@ -99,7 +99,7 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
     ),
     (
         "continue",
-        "Loop-control keyword: skips to the next iteration step of the enclosing `for`/`while` loop (re-runs the cursor's `iterate(_)` step).",
+        "Loop-control keyword: skips to the next iteration step of the enclosing `for`/`while` loop (advances the stateful iterator).",
     ),
     (
         "match",
@@ -108,11 +108,11 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
     ("return", "Returns a value from the enclosing method/constructor/block explicitly."),
     (
         "while",
-        "Loops while its condition evaluates truthy; `for` desugars to a `while` loop over the iteration protocol.",
+        "Loops while its condition evaluates truthy; direct-jump loop control with `break`/`continue`.",
     ),
     (
         "for",
-        "Iterates a collection via the cursor protocol: `for (x in coll) { ... }` desugars to a `while` loop calling `iterate(_)`/`iteratorValue(_)`, so `break`/`continue` work as loop-control.",
+        "Iterates an Iterable value via a stateful Iterator: `for x in coll { ... }`, preserving `break`/`continue` as direct-jump loop control.",
     ),
     (
         "let",

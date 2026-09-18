@@ -9,7 +9,7 @@
   `annotation_data_with_shallow_copy.ph`, `annotation_data_unaffected_inferred_class.ph`,
   `tests/lang/compile-errors/annotation_data_eq_hash_collision.ph`.
 - Tier: **Compile / generate**, `runtime: false`.
-- Depends on: [README.md](README.md) · [annotations-data.md](../experimental/annotations-data.md)
+- Depends on: [README.md](spec/README.md) · [annotations-data.md](../experimental/annotations-data.md)
 - Related: [construct.md](construct.md) (reused unchanged) · [sealed.md](sealed.md)
   (every `@variant` arm is generated carrying `@data`) ·
   [equality-and-hash.md](../experimental/equality-and-hash.md)

@@ -14,8 +14,8 @@ for a working demo.
       implementation they guard against.
 - [ ] `docs/forge/UNITS-TRACKER.md`'s U-REPL row updated; the unit's checkbox flipped.
 - [ ] `../plan.md` §D3's `CompileMode::Repl` wording corrected to `UnitKind`
-      ([README delta 2](README.md)), or annotated as superseded by this directory.
-- [ ] `../surface.md`'s stale concurrent-edit note removed ([README delta 4](README.md)).
+      ([README delta 2](implementation/CLIT001-repl/C1-repl/impl/README.md)), or annotated as superseded by this directory.
+- [ ] `../surface.md`'s stale concurrent-edit note removed ([README delta 4](implementation/CLIT001-repl/C1-repl/impl/README.md)).
 
 ### 1.1 The six tests that must be able to fail
 
@@ -109,5 +109,5 @@ Update, in the same pass — not deferred:
 - `docs/forge/UNITS-TRACKER.md` — U-REPL row and checkbox.
 - `CLAUDE.md`'s `phalcom-repl/src` description, if the module set changed (it will have:
   `snapshot.rs` and `oracle.rs` are new, and `common.rs` may be gone).
-- This directory's [README](README.md) status table — mark the remaining stages landed
+- This directory's [README](implementation/CLIT001-repl/C1-repl/impl/README.md) status table — mark the remaining stages landed
   with their commits, so the next reader sees the same shape the first three stages have.

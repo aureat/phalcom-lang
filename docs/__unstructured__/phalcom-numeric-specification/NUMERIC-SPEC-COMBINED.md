@@ -27,13 +27,13 @@ The set intentionally separates permanent language semantics from repository-spe
 
 | File | Status | Purpose |
 |---|---|---|
-| [`numeric-tower.md`](numeric-tower.md) | Normative | Public numeric types, arithmetic, comparison, division, remainder, conversion, keys, and laws. |
-| [`float-protocol.md`](float-protocol.md) | Normative, with named open tables | Binary64 behavior, Float protocol, rounding, power architecture, NaN, signed zero, and total-order requirement. |
+| [`numeric-tower.md`](__unstructured__/phalcom-numeric-specification/numeric-tower.md) | Normative | Public numeric types, arithmetic, comparison, division, remainder, conversion, keys, and laws. |
+| [`float-protocol.md`](__unstructured__/phalcom-numeric-specification/float-protocol.md) | Normative, with named open tables | Binary64 behavior, Float protocol, rounding, power architecture, NaN, signed zero, and total-order requirement. |
 | [TDR-0070](../../decisions/accepted/0070-numeric-literals.md) | Normative | Source literal grammar, candidate boundaries, classification, oversized constants, and compiler diagnostics. |
-| [`text-and-errors.md`](text-and-errors.md) | Normative | Text constructors, canonical rendering, runtime error taxonomy, structured fields, and traceback rules. |
-| [`bitwise.md`](bitwise.md) | Normative | Infinite-two's-complement Int operations, precedence, huge-count behavior, laws, and errors. |
+| [`text-and-errors.md`](__unstructured__/phalcom-numeric-specification/text-and-errors.md) | Normative | Text constructors, canonical rendering, runtime error taxonomy, structured fields, and traceback rules. |
+| [`bitwise.md`](__unstructured__/phalcom-numeric-specification/bitwise.md) | Normative | Infinite-two's-complement Int operations, precedence, huge-count behavior, laws, and errors. |
 | [`implementation.md`](implementation.md) | Implementation contract | Runtime representation, semantic kernel, constant pool, GC, hashing, resource controls, dispatch, primitive floor, and landing order. |
-| [`conformance.md`](conformance.md) | Normative conformance contract | Reference model, test matrices, properties, edge corpus, differential rules, and ship gates. |
+| [`conformance.md`](__unstructured__/phalcom-numeric-specification/conformance.md) | Normative conformance contract | Reference model, test matrices, properties, edge corpus, differential rules, and ship gates. |
 | [`migration.md`](migration.md) | Normative change inventory; release mechanism open | Breaking changes, compatibility consequences, source migration, and release requirements. |
 | [`open-decisions.md`](open-decisions.md) | Open-decision register | The remaining unresolved names, algorithms, tables, defaults, and release choices. |
 | [`amendment-map.md`](amendment-map.md) | Informative | Exact corrections and improvements relative to the original uploaded files. |
@@ -190,12 +190,12 @@ For this specification:
 | `/` | `Float` | `Float` | Always Float-domain division. |
 | `~/` | exact `Int` | exact `Int` | Floors exact represented values; never rounds an Int to Float. |
 | `%` | exact `Int` | `Float` | Floor-remainder semantics in both domains. |
-| `**` | exact `Int` for nonnegative Int exponent; otherwise Float | `Float` | Detailed in §7 and [`float-protocol.md`](float-protocol.md). |
+| `**` | exact `Int` for nonnegative Int exponent; otherwise Float | `Float` | Detailed in §7 and [`float-protocol.md`](__unstructured__/phalcom-numeric-specification/float-protocol.md). |
 | `<`, `<=`, `>`, `>=` | exact order | exact mathematical order or unordered for NaN | No lossy mixed comparison. |
 | `==`, `!=` | exact equality | exact mathematical equality, except NaN follows IEEE public equality | Symmetric across operand order. |
 | `negated` | exact `Int` | IEEE Float negation | `i64::MIN`-like implementation boundaries are not observable. |
 | `hash` | `Int` | `Int` | Must agree with numeric-key equality. |
-| `toString` | `String` | `String` | Canonical rendering is defined in [`text-and-errors.md`](text-and-errors.md). |
+| `toString` | `String` | `String` | Canonical rendering is defined in [`text-and-errors.md`](__unstructured__/phalcom-numeric-specification/text-and-errors.md). |
 
 ## 4. Arithmetic promotion
 
@@ -532,7 +532,7 @@ This specification does not add Decimal, Rational, Complex, fixed-width integers
 >
 > **Decision set:** NUM-004 through NUM-015.
 >
-> **Related:** [`numeric-tower.md`](numeric-tower.md), [`text-and-errors.md`](text-and-errors.md), [`open-decisions.md`](open-decisions.md).
+> **Related:** [`numeric-tower.md`](__unstructured__/phalcom-numeric-specification/numeric-tower.md), [`text-and-errors.md`](__unstructured__/phalcom-numeric-specification/text-and-errors.md), [`open-decisions.md`](open-decisions.md).
 
 ## 1. Representation and exact interpretation
 
@@ -724,7 +724,7 @@ Tests must include:
 >
 > **Decision set:** NUM-016 through NUM-018.
 >
-> **Scope:** Source-code literal grammar, lexical boundaries, token/AST classification, oversized integers, and compile-time policy diagnostics. Runtime String constructors are specified in [`text-and-errors.md`](text-and-errors.md).
+> **Scope:** Source-code literal grammar, lexical boundaries, token/AST classification, oversized integers, and compile-time policy diagnostics. Runtime String constructors are specified in [`text-and-errors.md`](__unstructured__/phalcom-numeric-specification/text-and-errors.md).
 
 ## 1. Lexical productions
 
@@ -1002,7 +1002,7 @@ The conformance suite must cover:
 >
 > **Decision set:** NUM-006, NUM-007, NUM-016, NUM-018, NUM-022.
 >
-> **Related:** [TDR-0070](../../decisions/accepted/0070-numeric-literals.md), [`numeric-tower.md`](numeric-tower.md), [`float-protocol.md`](float-protocol.md).
+> **Related:** [TDR-0070](../../decisions/accepted/0070-numeric-literals.md), [`numeric-tower.md`](__unstructured__/phalcom-numeric-specification/numeric-tower.md), [`float-protocol.md`](__unstructured__/phalcom-numeric-specification/float-protocol.md).
 
 ## 1. Constructor behavior
 
@@ -1418,7 +1418,7 @@ No bitwise compound-assignment tokens are introduced.
 - `trailingZeros` on zero: `#undefinedNumericOperation`.
 - Non-Int ordinary operand: standard type error expecting Int.
 
-Errors use the ordinary language Raise path and the source-span rules in [`text-and-errors.md`](text-and-errors.md).
+Errors use the ordinary language Raise path and the source-span rules in [`text-and-errors.md`](__unstructured__/phalcom-numeric-specification/text-and-errors.md).
 
 ## 7. Laws
 

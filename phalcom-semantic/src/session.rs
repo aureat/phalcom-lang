@@ -2527,7 +2527,7 @@ impl SemanticWorkspaceSession {
                                 } else if let Some(declaration) = canonical_erased_superclass_declaration(&resolver, &module_id, super_ann) {
                                     // Canonical collection classes expose an
                                     // erased superclass spelling in ordinary
-                                    // source (`class X is Iterable`). Form
+                                    // source (`class X is Collection`). Form
                                     // that spelling as the canonical nominal
                                     // instance type; arbitrary generic
                                     // constructors remain rejected below.

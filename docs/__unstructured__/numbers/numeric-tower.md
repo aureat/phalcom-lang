@@ -753,7 +753,7 @@ Semantics per class:
 
 `Float.new(2.7)` is identity. **`Int.new(2.7)` raises**: PDR-0025 rejects every `Float`
 argument, including integral values, so construction is never a value-dependent narrowing door.
-The explicit narrowing selectors are ratified in [Float protocol](float-protocol.md).
+The explicit narrowing selectors are ratified in [Float protocol](__unstructured__/numbers/float-protocol.md).
 
 ---
 

@@ -6,7 +6,7 @@
   (L446-460), registered at L643; the real weave in `expand_class_attributes`
   (L1661-1681) via `weave_invariant_checks`; predicate collection at L1550-1554.
 - Tier: **Compile / weave** — the outermost weave (Eiffel `invariant → post → pre`).
-- Depends on: [README.md](README.md) · [annotations-contracts.md](../experimental/annotations-contracts.md)
+- Depends on: [README.md](spec/README.md) · [annotations-contracts.md](../experimental/annotations-contracts.md)
 - Related: [requires.md](requires.md) (`CompileMode` table) · [ensures.md](ensures.md)
 
 ## What it does

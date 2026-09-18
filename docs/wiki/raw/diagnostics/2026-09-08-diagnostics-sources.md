@@ -138,7 +138,7 @@ the hard ones in v1.
 --- docs/spec/current/traceback/color.md ---
 # Color scheme
 
-How diagnostics use color. Companion to [`README.md`](README.md) §4.1, which covers the
+How diagnostics use color. Companion to [`README.md`](spec/README.md) §4.1, which covers the
 mechanics (`--color`, `NO_COLOR`, TTY detection); this document covers what gets colored.
 
 **Status:** design target. Gated on README §3.1 — the renderer decision (miette vs the incumbent
@@ -272,7 +272,7 @@ default; `fail` in `severity.error`.
 
 Every user-visible rendering surface U-TRACE is responsible for, specified by example.
 
-**Status:** design target, not implemented. See [`README.md`](README.md) for scope, locked
+**Status:** design target, not implemented. See [`README.md`](spec/README.md) for scope, locked
 decisions, and the open decisions that gate several of these renderings.
 
 **These are targets, not fixtures.** Golden tests assert *structure* — frame sequence, event

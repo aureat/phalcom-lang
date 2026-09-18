@@ -73,7 +73,7 @@ Run the same input through an independent implementation and compare.
 - **Strength:** catches deep semantic divergence nothing else will.
 - **Cost:** the model rots, and a model bug reads as a runtime bug.
 - **Verdict for Phalcom: rejected for now.** See
-  [README.md](README.md#lane-inventory) — determinism means the program is its
+  [README.md](work/testing/README.md#lane-inventory) — determinism means the program is its
   own schedule, so a model would restate the interpreter rather than check it.
 
 ## Decision rule
@@ -111,7 +111,7 @@ fixture suite with extra steps.
   assertion is stdout tests the prints, not the schedule. If the schedule is
   what matters, observe the schedule (Lane E).
 - **Pinning unspecified behavior.** A green test over an OPEN question converts
-  an accident into a contract. See [README.md](README.md) doctrine §5 and
+  an accident into a contract. See [README.md](work/testing/README.md) doctrine §5 and
   [14-schedule-trace.md](14-schedule-trace.md) §4.
 - **Metamorphic relations that are not actually licensed.** Every relation in
   the table above cites the ADR that makes it true. A relation without such a

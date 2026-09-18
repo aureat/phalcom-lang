@@ -7,7 +7,7 @@
 --- docs/spec/current/lexical-structure.md ---
 # Lexical Structure
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/README.md). Status: Draft 0.1.
 
 ## 1. Statement termination
 
@@ -201,7 +201,7 @@ A keyword is legal directly after `.`, including keywords that collide with
 --- docs/spec/current/blocks.md ---
 # Blocks
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/README.md). Status: Draft 0.1.
 
 Blocks are the keystone construct. A block, a lambda, a method body, and a getter
 body all **share one closure representation** — the same closure machinery, spelled
@@ -395,7 +395,7 @@ contains one literal backslash followed by one interpolation.
 --- docs/spec/current/control-flow.md ---
 # Control Flow
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/README.md). Status: Draft 0.1.
 
 ## 1. Sugar
 

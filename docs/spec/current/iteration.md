@@ -1,6 +1,6 @@
 # Iteration
 
-Part of the [Phalcom Language Specification](README.md). Status: Normative
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Normative
 (promoted from `experimental/iteration-protocol.md`, ratified by
 [TDR-0029](../../decisions/accepted/0029-iteration-protocol-cursor.md)).
 
@@ -21,7 +21,7 @@ A value is **iterable** iff it answers:
 The cursor is an ordinary value — for `List` it is an integer index; for a tree it
 might be a node. **No iterator object is allocated.** `Option` carries the "is
 there more?" signal, so no surface `nil` ever appears
-([Invariant 4](README.md); [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md)).
+([Invariant 4](spec/current/README.md); [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md)).
 
 These two selectors are the only "magic methods" of iteration — the analogue of
 Python's `__iter__`/`__next__`, but cursor-based rather than object-based. They are

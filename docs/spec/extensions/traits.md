@@ -5,7 +5,7 @@
 
 This is the canonical language rule for first-class traits. It supersedes the
 protocol-shaped behavioral-contract rules in the historical typing documents
-listed in [the extension migration note](README.md#migration-note).
+listed in [the extension migration note](spec/extensions/README.md#migration-note).
 
 ## 1. Declaration
 

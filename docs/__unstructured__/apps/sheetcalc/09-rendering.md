@@ -1,6 +1,6 @@
 # SheetCalc — Rendering
 
-Part of the [SheetCalc specification](README.md).
+Part of the [SheetCalc specification](__unstructured__/apps/sheetcalc/README.md).
 Grounded in [00-language-findings.md](00-language-findings.md) §2, §3, §5, §6, §7;
 [01-architecture.md](01-architecture.md) §2, §4; [02-value-model.md](02-value-model.md) §4-§6.
 

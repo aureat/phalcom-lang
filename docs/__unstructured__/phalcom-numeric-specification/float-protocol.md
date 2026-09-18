@@ -4,7 +4,7 @@
 >
 > **Decision set:** NUM-004 through NUM-015.
 >
-> **Related:** [`numeric-tower.md`](numeric-tower.md), [`text-and-errors.md`](text-and-errors.md), [`open-decisions.md`](open-decisions.md).
+> **Related:** [`numeric-tower.md`](__unstructured__/phalcom-numeric-specification/numeric-tower.md), [`text-and-errors.md`](__unstructured__/phalcom-numeric-specification/text-and-errors.md), [`open-decisions.md`](open-decisions.md).
 
 ## 1. Representation and exact interpretation
 

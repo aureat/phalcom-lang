@@ -1,6 +1,6 @@
 # SheetCalc — Language Findings (Probe Log)
 
-Part of the [SheetCalc specification](README.md).
+Part of the [SheetCalc specification](__unstructured__/apps/sheetcalc/README.md).
 
 **Status:** Verified 2026-07-14 against `main` @ `5516504`, release build.
 

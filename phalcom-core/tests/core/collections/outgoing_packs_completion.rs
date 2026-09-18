@@ -96,18 +96,30 @@ class Probe {
   }
 }
 
-class Source is Iterable {
+class SourceIterator {
+  _probe
+  _current
+  @constructor
+  new(_ probe) { _probe = probe; _current = 0 }
+
+  next {
+    _probe.spreadStep()
+    if (_current < 2) {
+      _current = _current + 1
+      return Some(_current)
+    }
+    return None
+  }
+
+  iterator { self }
+}
+
+class Source {
   _probe
   @constructor
   from(probe) { _probe = probe }
 
-  iterate(_ cursor) {
-    _probe.spreadStep()
-    let next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || { cursor + 1 })
-    return (next < 2).ifTrue(|| { next }, ifFalse: || { None })
-  }
-
-  iteratorValue(_ cursor) { return cursor + 1 }
+  iterator { SourceIterator.new(_probe) }
 }
 
 class Receiver {
@@ -245,8 +257,10 @@ Receiver.new().collect(*source)
     let bounded = on_large_stack(|| {
         eval_source(
             r#"
+from universe.collections.iterator_laws import TakeIterator
+
 class Receiver { collect(*values) { return values.size } }
-let result = Receiver.new().collect(*(0..).iter.take(3))
+let result = Receiver.new().collect(*TakeIterator.new((0..).iterator, 3))
 "#,
             "result",
         )
@@ -266,7 +280,7 @@ Receiver.new().collect(*42)
     })
     .expect_err("non-Iterable positional spread must fail");
     assert!(
-        error.contains("* expansion requires Tuple, Unit, or an iterable value; got int"),
+        error.contains("does not understand 'iterator'"),
         "unexpected error: {error}"
     );
 }

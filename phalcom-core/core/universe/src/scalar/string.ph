@@ -166,7 +166,7 @@ class String is Object {
       throw ArgumentError.new("split: delimiter must be non-empty")
     })
 
-    let result = List.new()
+    let result = List<Dynamic>.new()
     let prev = 0
     let i = self.indexOf(delimiter)
     while (i != -1) {

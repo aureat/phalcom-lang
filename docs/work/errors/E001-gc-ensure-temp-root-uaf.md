@@ -89,4 +89,4 @@ code, re-run repros A/C + the full suite, add A/C as negative-lane fixtures
 (`tests/gc.rs` has **no** native-window-collection test — a standing coverage
 gap), correct the three docs above in the same change, commit narrow on `main`.
 Re-derive rather than trusting this direction — see the method note in
-[README](README.md).
+[README](work/errors/README.md).

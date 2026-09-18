@@ -1,6 +1,6 @@
 # SheetCalc — Dependency Graph and Recalculation
 
-Part of the [SheetCalc specification](README.md).
+Part of the [SheetCalc specification](__unstructured__/apps/sheetcalc/README.md).
 Grounded in [00-language-findings.md](00-language-findings.md) §7, §8 and
 [01-architecture.md](01-architecture.md) §6.
 
@@ -95,7 +95,7 @@ possible at all ([10-testing.md](10-testing.md)).
 > dependency's reverse set (`Set#remove(_)`, unverified — see the collection
 > surface note above), and only then calls `addFormula` again with the new
 > dependency set. That is a real (small) piece of unwritten work, deliberately
-> excluded here because [README.md](README.md) puts interactive editing out
+> excluded here because [README.md](__unstructured__/apps/sheetcalc/README.md) puts interactive editing out
 > of scope for v1.
 
 ---
@@ -579,7 +579,7 @@ now shown concretely on this program's own function library.
 | **(c) fix the runtime** | Let `Fiber.yield(_)` cross a native block-driving frame safely (TDR-0027 §4 already treats this as a guarded diagnostic, not a crash, so the invariant it protects is known); or, per the in-flight "Iterable rehome" direction, implement `List#each`/`#map`/`#reduce` in `.ph` over a cursor/`Iterable` protocol instead of as a native primitive, so the block-calling frame is an ordinary Phalcom frame and yield works through it for free. | A language/runtime change, not something `docs/apps/sheetcalc` can do. | Fixes the conflict for every future Phalcom program that wants fibers and collections together, not just this one. |
 
 **This choice is explicitly deferred.** [01-architecture.md](01-architecture.md)
-§6 and [README.md](README.md) both point here and both say the same thing:
+§6 and [README.md](__unstructured__/apps/sheetcalc/README.md) both point here and both say the same thing:
 whether to hand-roll around GAP-FIB-1 (b) or accept the topological sweep
 (a) — or push for (c) in the runtime — is a decision for the user, not
 something this specification resolves on its own. This document specifies

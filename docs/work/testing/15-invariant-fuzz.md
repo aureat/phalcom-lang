@@ -97,7 +97,7 @@ the standard split and it is the only part of the lane that gates merges.
   generated program that computes the wrong number silently passes. That is
   accepted: correctness of results is Lanes A/D's job, and trying to give Lane F
   a value oracle would require the reference model rejected in
-  [README §Lane inventory](README.md#lane-inventory).
+  [README §Lane inventory](work/testing/README.md#lane-inventory).
 - **The generator encodes what is legal**, so it inherits every open question.
   It cannot generate cancellation or `select`/`race` (both **OPEN**), and when
   those land the grammar needs extending in the same change — or the lane

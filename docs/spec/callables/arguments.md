@@ -1,6 +1,6 @@
 # Arguments, parameters, rest, and spread
 
-[Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Runtime and activation](runtime.md) · [Function](function.md) · [Method](method.md) · [Closure](closure.md) · [BoundMethod](bound-method.md) · [Family](family.md)
+[Callables](spec/callables/README.md) · [Dispatch and lowering](dispatch.md) · [Runtime and activation](runtime.md) · [Function](function.md) · [Method](method.md) · [Closure](closure.md) · [BoundMethod](bound-method.md) · [Family](family.md)
 
 This chapter separates the shape a caller supplies from the shape a callable
 accepts. That separation is what permits one Function gateway,

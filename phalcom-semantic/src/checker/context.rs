@@ -423,6 +423,7 @@ pub struct CheckingContext<'a> {
     pub next_binding_id: u32,
     pub expressions: ExpressionAnalysisIndex,
     pub for_iteration_lanes: crate::checker::analysis::ForIterationLaneResolutionIndex,
+    pub positional_expansions: crate::checker::analysis::PositionalExpansionIterationResolutionIndex,
     pub associated_resolutions: crate::checker::associated::AssociatedResolutionIndex,
     pub callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex,
     pub family_applications: crate::checker::associated::FamilyApplicationResolutionIndex,
@@ -533,6 +534,7 @@ impl<'a> CheckingContext<'a> {
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
             for_iteration_lanes: BTreeMap::new(),
+            positional_expansions: BTreeMap::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
@@ -623,6 +625,7 @@ impl<'a> CheckingContext<'a> {
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
             for_iteration_lanes: BTreeMap::new(),
+            positional_expansions: BTreeMap::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
@@ -692,6 +695,7 @@ impl<'a> CheckingContext<'a> {
             next_binding_id: self.next_binding_id,
             expressions: self.expressions.clone(),
             for_iteration_lanes: self.for_iteration_lanes.clone(),
+            positional_expansions: self.positional_expansions.clone(),
             associated_resolutions: self.associated_resolutions.clone(),
             callable_reference_resolutions: self.callable_reference_resolutions.clone(),
             family_applications: self.family_applications.clone(),
@@ -2809,6 +2813,7 @@ impl<'a> CheckingContext<'a> {
             body_range,
             expressions: self.expressions,
             for_iteration_lanes: std::sync::Arc::new(self.for_iteration_lanes),
+            positional_expansions: std::sync::Arc::new(self.positional_expansions),
             bindings: {
                 let mut bindings = self.binding_history;
                 bindings.extend(self.flow.bindings);

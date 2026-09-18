@@ -6,7 +6,7 @@
 --- docs/spec/current/modules.md ---
 # Modules & Imports
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
 [TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../../decisions/retired/modules-as-files-with-public-by-default-imports.md)

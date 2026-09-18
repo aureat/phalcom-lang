@@ -1,3 +1,5 @@
+from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+
 // Kernel Tuple (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a native fixed
 // arity immutable slice — Object::Tuple, mirroring List's shape but with NO
 // mutation selector (immutability is structural, TupleObject's Box<[Value]>).
@@ -5,13 +7,13 @@
 
 @native
 class Tuple is Collection {
-  @class @internal @native _$fromList(_ value: List) -> Tuple
+  @class @internal @native _$fromList(_ value: List<Dynamic>) -> Tuple
   @internal @native _$size -> Int
   @internal @native _$at(_ index: Int) -> Dynamic
   @internal @native _$positionalSize -> Int
   @internal @native _$labelAt(_ index: Int) -> Symbol
-  @internal @native _$positionals -> List
-  @internal @native _$labeled -> Map
+  @internal @native _$positionals -> List<Dynamic>
+  @internal @native _$labeled -> Map<Symbol, Dynamic>
   @internal @native _$slice(_ start: Int, _ end: Int) -> Tuple
   size { self._$size }
   positionals { self._$positionals }
@@ -139,9 +141,20 @@ class Tuple is Collection {
     return orElse.call(key)
   }
 
-  iteratorValue(_ cursor) { self._$at(cursor) }
+  doesNotUnderstand(_ message) {
+    if (message.args == ()) {
+      let idx = self.findLabel(message.selector)
+      return idx.match(
+        some: |i| { self._$at(i) },
+        none: || { super.doesNotUnderstand(message) }
+      )
+    }
+    return super.doesNotUnderstand(message)
+  }
 
-  zipped { ZippedIterable.new(self) }
+  iterator -> TupleIterator { TupleIterator.new(self) }
+
+  zipped -> TupleZipView { TupleZipView.new(self) }
 
   // Structural equality: same arity, pairwise-==. Guarded by isA(Tuple) so a
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
@@ -189,4 +202,110 @@ class Tuple is Collection {
     }
     return acc
   }
+}
+
+class TupleIterator {
+  _source: Tuple
+  _index: Int
+  _done: Bool
+
+  @constructor
+  new(_ source: Tuple) {
+    _source = source
+    _index = 0
+    _done = false
+  }
+
+  next -> Option<Dynamic> {
+    if (_done) { return None }
+    if (_index >= _source.size) {
+      _done = true
+      return None
+    }
+    let value = _source.at(_index)
+    _index = _index + 1
+    Some(value)
+  }
+
+  iterator { self }
+}
+
+impl CanonicalIterator for TupleIterator {
+  type Item = Dynamic
+}
+
+impl CanonicalIterable for Tuple {
+  type Item = Dynamic
+  type Iterator = TupleIterator
+  iterator -> TupleIterator { TupleIterator.new(self) }
+}
+
+class TupleZipIterator {
+  _iterators: List<Dynamic>
+  _done: Bool
+
+  @constructor
+  new(_ tuple: Tuple) {
+    _iterators = List<Dynamic>.new()
+    let i = 0
+    while (i < tuple.size) {
+      _iterators._$push(tuple.at(i).iterator)
+      i = i + 1
+    }
+    _done = false
+  }
+
+  next -> Option<Dynamic> {
+    if (_done or _iterators.size == 0) {
+      _done = true
+      return None
+    }
+    let firstStep = _iterators.at(0).next
+    if (firstStep.isNone) {
+      let i = 1
+      while (i < _iterators.size) {
+        if (_iterators.at(i).next.isSome) {
+          _done = true
+          throw ZipLengthMismatchError.new("strict zip lanes ended at different times")
+        }
+        i = i + 1
+      }
+      _done = true
+      return None
+    }
+    let items = List<Dynamic>.new()
+    items._$push(firstStep.match(some: |v| { v }, none: || { None }))
+    let i = 1
+    while (i < _iterators.size) {
+      let step = _iterators.at(i).next
+      if (step.isNone) {
+        _done = true
+        throw ZipLengthMismatchError.new("strict zip lanes ended at different times")
+      }
+      items._$push(step.match(some: |v| { v }, none: || { None }))
+      i = i + 1
+    }
+    return Some(Tuple._$fromList(items))
+  }
+
+  iterator { self }
+}
+
+class TupleZipView is Collection {
+  _tuple: Tuple
+
+  @constructor
+  new(_ tuple: Tuple) { _tuple = tuple }
+
+  iterator -> TupleZipIterator { TupleZipIterator.new(_tuple) }
+}
+
+impl CanonicalIterator for TupleZipIterator {
+  type Item = Dynamic
+}
+
+impl CanonicalIterable for TupleZipView {
+  type Item = Dynamic
+  type Iterator = TupleZipIterator
+  iterator -> TupleZipIterator { self.iterator }
 }

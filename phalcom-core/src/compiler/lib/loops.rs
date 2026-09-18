@@ -78,8 +78,7 @@ impl<'vm> Compiler<'vm> {
     }
 
     /// Lowers a `for` statement from preselected canonical semantic lane
-    /// products when available. Sources still awaiting the Part-II migration
-    /// use the retained cursor compatibility lowering below.
+    /// products. Missing canonical lowering specifications are rejected.
     pub(super) fn compile_for(&mut self, for_stmt: ForStatement) -> Result<(), CompilerError> {
         let canonical_specs = for_stmt
             .lanes
@@ -90,29 +89,15 @@ impl<'vm> Compiler<'vm> {
                     .cloned()
             })
             .collect::<Option<Vec<_>>>();
-        if let Some(specs) = canonical_specs {
-            let generalized_single =
-                for_stmt.lanes.len() == 1 && (for_stmt.lanes[0].index.is_some() || !matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. }));
-            if for_stmt.lanes.len() > 1 || generalized_single {
-                return self.compile_canonical_for_lanes(for_stmt, specs);
-            }
+        let Some(specs) = canonical_specs else {
+            return Err(CompilerError::Message("missing required canonical for-iteration lowering spec".into()));
+        };
+        let generalized_single =
+            for_stmt.lanes.len() == 1 && (for_stmt.lanes[0].index.is_some() || !matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. }));
+        if for_stmt.lanes.len() > 1 || generalized_single {
+            return self.compile_canonical_for_lanes(for_stmt, specs);
         }
-        if for_stmt.lanes.len() == 1
-            && for_stmt.lanes[0].index.is_none()
-            && matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. })
-            && self
-                .lowering()
-                .and_then(|lowering| lowering.for_iteration_lanes.get(&for_stmt.lanes[0].iter.range()))
-                .is_some()
-        {
-            let spec = self
-                .lowering()
-                .and_then(|lowering| lowering.for_iteration_lanes.get(&for_stmt.lanes[0].iter.range()))
-                .cloned()
-                .expect("canonical lane was checked above");
-            return self.compile_canonical_for(for_stmt, spec);
-        }
-        self.compile_for_lanes(for_stmt)
+        self.compile_canonical_for(for_stmt, specs[0].clone())
     }
 
     /// Lowers a proven canonical `Iterable` lane to a stateful iterator loop.
@@ -275,8 +260,6 @@ impl<'vm> Compiler<'vm> {
             self.patch_forward_jump_to(jump, error);
         }
         self.emit_strict_zip_error(range);
-        let exit = self.chunk_len();
-        self.patch_forward_jump_to(all_none_skip_error, exit);
         let all_some_label = self.chunk_len();
         self.patch_forward_jump_to(all_some, all_some_label);
         for jump in later_none {
@@ -336,164 +319,11 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Pop, range);
         self.emit_backward_loop(loop_start, range);
 
+        let loop_exit = self.chunk_len();
+        self.patch_forward_jump_to(all_none_skip_error, loop_exit);
         let (breaks, continues) = self.pop_loop_context();
         for jump in breaks {
-            self.patch_forward_jump_to(jump, exit);
-        }
-        for jump in continues {
-            self.patch_forward_jump_to(jump, step);
-        }
-        self.end_scope(range);
-        Ok(())
-    }
-
-    /// Compatibility lowering for built-in sources that have not yet moved to
-    /// the canonical `Iterable`/`Iterator` contracts. Part II/III retire this
-    /// path after those sources publish lane products.
-    fn compile_for_lanes(&mut self, for_stmt: ForStatement) -> Result<(), CompilerError> {
-        let range = for_stmt.range;
-        let lanes = for_stmt.lanes;
-        if lanes.is_empty() {
-            return Err(CompilerError::Message("for requires at least one lane".into()));
-        }
-        self.begin_scope();
-
-        let mut collections = Vec::with_capacity(lanes.len());
-        let mut cursors = Vec::with_capacity(lanes.len());
-        let mut indices = Vec::with_capacity(lanes.len());
-        for (number, lane) in lanes.iter().enumerate() {
-            self.compile_expr(lane.iter.clone())?;
-            let collection = self.declare_loop_local(&format!("$for_coll_{number}"), true)? as u16;
-            self.emit(Bytecode::SetLocal(collection), lane.range);
-            collections.push(collection);
-
-            self.emit(Bytecode::GetLocal(collection), lane.range);
-            self.emit(Bytecode::Nil, lane.range);
-            self.emit_operator_send("iterate", 1, lane.range);
-            let cursor = self.declare_loop_local(&format!("$for_cursor_{number}"), true)? as u16;
-            self.emit(Bytecode::SetLocal(cursor), lane.range);
-            cursors.push(cursor);
-
-            indices.push(if let Some(index) = &lane.index {
-                let slot = self.declare_loop_local(&index.name, true)? as u16;
-                self.emit(Bytecode::Nil, index.range);
-                self.emit(Bytecode::SetLocal(slot), index.range);
-                self.emit(Bytecode::Pop, index.range);
-                Some(slot)
-            } else {
-                None
-            });
-        }
-        let ordinal = self.declare_loop_local("$for_ordinal", true)? as u16;
-        let zero = self.add_constant(Value::int(0));
-        self.emit(Bytecode::Constant(zero), range);
-        self.emit(Bytecode::SetLocal(ordinal), range);
-        self.emit(Bytecode::Pop, range);
-
-        let mut lane_values = Vec::with_capacity(lanes.len());
-        for (number, lane) in lanes.iter().enumerate() {
-            let slot = self.reserve_pack_scratch(&format!("$for_value_{number}"), lane.range)?;
-            lane_values.push(slot);
-        }
-        for lane in &lanes {
-            self.declare_pattern_locals(&lane.pattern, false)?;
-        }
-
-        self.push_loop_context();
-        let loop_start = self.chunk_len();
-        self.emit(Bytecode::GetLocal(cursors[0]), range);
-        let first_none = self.emit_forward_jump(Bytecode::JumpIfNone, range);
-        let mut live_when_none = Vec::new();
-        for cursor in cursors.iter().skip(1) {
-            self.emit(Bytecode::GetLocal(*cursor), range);
-            let none = self.emit_forward_jump(Bytecode::JumpIfNone, range);
-            live_when_none.push(none);
-        }
-
-        let mut pattern_failures = Vec::new();
-        for (number, lane) in lanes.iter().enumerate() {
-            self.emit(Bytecode::GetLocal(collections[number]), lane.range);
-            self.emit(Bytecode::GetLocal(cursors[number]), lane.range);
-            self.emit_operator_send("iteratorValue", 1, lane.range);
-            self.emit(Bytecode::SetLocal(lane_values[number]), lane.range);
-            self.emit(Bytecode::Pop, lane.range);
-            let temporary_base = self.functions.last().unwrap().num_locals;
-            self.emit_pattern_match_tests(&lane.pattern, lane_values[number], &mut pattern_failures)?;
-            self.commit_pattern_bindings(&lane.pattern, lane_values[number])?;
-            let temporary_count = self.functions.last().unwrap().num_locals - temporary_base;
-            self.release_pack_scratch_from(temporary_base as u16, temporary_count, lane.range);
-            if let Some(index) = indices[number] {
-                self.emit(Bytecode::GetLocal(ordinal), lane.range);
-                self.emit(Bytecode::SetLocal(index), lane.range);
-                self.emit(Bytecode::Pop, lane.range);
-            }
-        }
-
-        let after_pattern = self.emit_forward_jump(Bytecode::Jump, range);
-        let pattern_failure = self.chunk_len();
-        for jump in pattern_failures {
-            self.patch_forward_jump_to(jump, pattern_failure);
-        }
-        self.emit_pattern_mismatch_raise("for pattern did not match iterable value".into(), range);
-        self.patch_forward_jump_to(after_pattern, self.chunk_len());
-
-        self.begin_scope();
-        for statement in for_stmt.body {
-            self.compile_statement_with_pop_control(statement, true)?;
-        }
-        self.end_scope(range);
-        let step = self.chunk_len();
-        let mut names = Vec::new();
-        for lane in &lanes {
-            collect_pattern_names(&lane.pattern, &mut names);
-        }
-        names.sort();
-        names.dedup();
-        for name in names {
-            let symbol = self.vm.interner.intern(&name);
-            if let Some(slot) = self.resolve_local(symbol)
-                && self.functions.last().unwrap().locals[slot].is_captured
-            {
-                self.emit(Bytecode::CloseUpvalue(slot as u16), range);
-            }
-        }
-        for (collection, cursor) in collections.iter().zip(&cursors) {
-            self.emit(Bytecode::GetLocal(*collection), range);
-            self.emit(Bytecode::GetLocal(*cursor), range);
-            self.emit_operator_send("iterate", 1, range);
-            self.emit(Bytecode::SetLocal(*cursor), range);
-            self.emit(Bytecode::Pop, range);
-        }
-        self.emit(Bytecode::GetLocal(ordinal), range);
-        let one = self.add_constant(Value::int(1));
-        self.emit(Bytecode::Constant(one), range);
-        self.emit_operator_send("+", 1, range);
-        self.emit(Bytecode::SetLocal(ordinal), range);
-        self.emit(Bytecode::Pop, range);
-        self.emit_backward_loop(loop_start, range);
-
-        let all_none = self.chunk_len();
-        self.patch_forward_jump_to(first_none, all_none);
-        let mut mismatches = Vec::new();
-        for cursor in cursors.iter().skip(1) {
-            self.emit(Bytecode::GetLocal(*cursor), range);
-            let none = self.emit_forward_jump(Bytecode::JumpIfNone, range);
-            let live = self.emit_forward_jump(Bytecode::Jump, range);
-            self.patch_forward_jump_to(none, self.chunk_len());
-            mismatches.push(live);
-        }
-        let all_none_skip_error = self.emit_forward_jump(Bytecode::Jump, range);
-        let error = self.chunk_len();
-        for jump in live_when_none.into_iter().chain(mismatches) {
-            self.patch_forward_jump_to(jump, error);
-        }
-        self.emit_strict_zip_error(range);
-        let exit = self.chunk_len();
-        self.patch_forward_jump_to(all_none_skip_error, exit);
-
-        let (breaks, continues) = self.pop_loop_context();
-        for jump in breaks {
-            self.patch_forward_jump_to(jump, exit);
+            self.patch_forward_jump_to(jump, loop_exit);
         }
         for jump in continues {
             self.patch_forward_jump_to(jump, step);

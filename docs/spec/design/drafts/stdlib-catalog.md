@@ -21,7 +21,7 @@
   [concurrency.md](../concurrency.md) + [system.md](../system.md) (Tier 4's existing surface)
 
 > **How to use this document.** An exploration doc, per
-> [drafts/README.md](README.md). It is a **catalog and a build order**, not a plan and not
+> [drafts/README.md](spec/design/drafts/README.md). It is a **catalog and a build order**, not a plan and not
 > a commitment — no unit owns any entry here. Its purpose is that the next time someone
 > asks "what does Phalcom still need?", the enumeration and its dependency structure are
 > one link away instead of re-derived. Sections are append-friendly; new uncertainties

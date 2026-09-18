@@ -6,7 +6,7 @@
   (L234-321), registered at L642; `rewrite_old_calls` (L323); `rewrite_returns`
   (L386); `as_old_call` (L140); `build_check_stmt` (L1689).
 - Tier: **Compile / weave** — pure AST→AST, `runtime: false`, no VM change.
-- Depends on: [README.md](README.md) (the tier model, phase order) ·
+- Depends on: [README.md](spec/README.md) (the tier model, phase order) ·
   [annotations-contracts.md](../experimental/annotations-contracts.md) (the contract design)
 - Related:
   [requires.md](requires.md) (the precondition sibling; `CompileMode` table) ·

@@ -1,6 +1,6 @@
 # Color scheme
 
-How diagnostics use color. Companion to [`README.md`](README.md) §4.1, which covers the
+How diagnostics use color. Companion to [`README.md`](spec/README.md) §4.1, which covers the
 mechanics (`--color`, `NO_COLOR`, TTY detection); this document covers what gets colored.
 
 **Status:** design target. Gated on README §3.1 — the renderer decision (miette vs the incumbent

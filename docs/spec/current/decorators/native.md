@@ -15,7 +15,7 @@
   The `@native`-anchors ⊆ installed-native-bindings invariant test
   (`phalcom-core/tests/invariants.rs`) is **not yet built** — a deliberate
   follow-up unit; see "The invariant test" below.
-- Depends on: [README.md](README.md) (the tier model) ·
+- Depends on: [README.md](spec/README.md) (the tier model) ·
   [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism,
   registry, phase pipeline)
 - Related: [ignore.md](ignore.md) (the sanctioned drop; `@native` borrows its
@@ -275,7 +275,7 @@ decorator — every built decorator today adds members (`@construct`, `@data`,
 `@get`/`@set`, `@variant`) or wraps bodies (`@requires`/`@ensures`/`@invariant`);
 `@native` and `@ignore` remove one.
 
-This does **not** require a sixth tier (which [README.md](README.md) "What this
+This does **not** require a sixth tier (which [README.md](spec/README.md) "What this
 precludes" forbids): removal is an AST→AST transform in the generate phase, which
 is exactly what the Compile tier is. It does require acknowledging that the
 `AttributeExpander` trait cannot express subtraction — see §2.

@@ -1,6 +1,6 @@
 # SheetCalc — Design Patterns
 
-Part of the [SheetCalc specification](README.md).
+Part of the [SheetCalc specification](__unstructured__/apps/sheetcalc/README.md).
 Grounded in [00-language-findings.md](00-language-findings.md).
 
 Which patterns reduce boilerplate in Phalcom, which are unnecessary because the

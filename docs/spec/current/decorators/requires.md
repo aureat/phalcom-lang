@@ -8,7 +8,7 @@
   (uses the same weave shape), `tests/lang/compile-errors/annotation_unknown_error.ph`
   (registry legality).
 - Tier: **Compile / weave** — pure AST→AST, `runtime: false`, no VM change.
-- Depends on: [README.md](README.md) (the tier model, phase order) ·
+- Depends on: [README.md](spec/README.md) (the tier model, phase order) ·
   [annotations-contracts.md](../experimental/annotations-contracts.md) (the contract design)
 - Related:
   [ensures.md](ensures.md) (the postcondition sibling; `old(...)` lives there) ·

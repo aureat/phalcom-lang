@@ -1,6 +1,6 @@
 # Deferred & Future Work
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](spec/current/README.md). Status: Draft 0.1.
 
 This is the **single map of everything Phalcom has deliberately postponed** — design
 decisions that were decided-to-defer, decisions still genuinely open, implementation

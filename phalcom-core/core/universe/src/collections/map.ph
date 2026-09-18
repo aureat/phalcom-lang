@@ -2,7 +2,7 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 
 @native
 class Map<K, V> is Collection {
-  @class @native new() -> Map
+  @class @native new() -> Map<K, V>
   @internal @native _$size -> Int
   @internal @native _$get(_ key: Dynamic) -> Option<Dynamic>
   @internal @native _$put(_ key: Dynamic, _ value: Dynamic) -> Dynamic
@@ -115,7 +115,7 @@ class Map<K, V> is Collection {
     if ((not record.is(Record)) and (not record.is(Unit))) {
       throw ArgumentError.new("Map.from: argument must be a Record or Unit")
     }
-    let result = Map.new()
+    let result = Map<Dynamic, Dynamic>.new()
     if (record.is(Record)) {
       let i = 0
       while (i < record._$size) {
@@ -125,10 +125,6 @@ class Map<K, V> is Collection {
     }
     return result
   }
-
-  // Legacy cursor traversal remains key-only until the Part III superclass
-  // retirement. Canonical Iterator traversal below yields labeled entries.
-  iteratorValue(_ cursor) { self._$keyAt(cursor) }
 
   // Structural equality: same key set, pairwise-== values (order-independent
   // over keys — `includes`/`get` do the membership + value work, not raw
@@ -210,8 +206,6 @@ class MapKeysView<K, V> is Collection {
   at(_ index) { _map._$keyAt(index) }
 
   iterator -> MapKeysIterator<K, V> { MapKeysIterator<K, V>.new(self) }
-
-  iteratorValue(_ cursor) { _map._$keyAt(cursor) }
 }
 
 class MapValuesView<K, V> is Collection {
@@ -225,8 +219,6 @@ class MapValuesView<K, V> is Collection {
   at(_ index) { _map._$valueAt(index) }
 
   iterator -> MapValuesIterator<K, V> { MapValuesIterator<K, V>.new(self) }
-
-  iteratorValue(_ cursor) { _map._$valueAt(cursor) }
 }
 
 // Immutable-by-surface association value for MapEntriesView. No setters or
@@ -254,8 +246,6 @@ class MapEntriesView<K, V> is Collection {
   at(_ index) { (key: _map._$keyAt(index), value: _map._$valueAt(index)) }
 
   iterator -> MapEntriesIterator<K, V> { MapEntriesIterator<K, V>.new(self) }
-
-  iteratorValue(_ cursor) { (key: _map._$keyAt(cursor), value: _map._$valueAt(cursor)) }
 }
 
 class MapKeysIterator<K, V> {

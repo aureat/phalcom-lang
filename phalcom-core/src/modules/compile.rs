@@ -128,9 +128,12 @@ impl std::fmt::Display for ProgramSemanticDiagnostics {
                 first = false;
                 write!(
                     f,
-                    "{}: {:?} {:?}: {} at {:?}",
+                    "{}: {:?} {:?}: {} at {:?}\n",
                     module, diag.severity, diag.code, diag.message, diag.primary_range
                 )?;
+                for label in &diag.labels {
+                    write!(f, "  --> label: {} at {:?}\n", label.message, label.span.range)?;
+                }
             }
         }
         Ok(())
@@ -384,7 +387,7 @@ impl ProgramAnalyzer {
                 for node in provider
                     .nodes()
                     .iter()
-                    .filter(|node| matches!(node.path, ["collections", "iterator_laws"] | ["collections", "range"]))
+                    .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", "string"]))
                 {
                     let path = ModulePath::from_components(
                         node.path
