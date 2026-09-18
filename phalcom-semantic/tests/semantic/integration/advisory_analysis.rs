@@ -368,7 +368,7 @@ fn advisory_parameter_transfer_converges_through_forwarding_callable() {
 #[test]
 fn compiler_surfaces_publish_source_member_visibility() {
     let module = module_id();
-    let source = "class Base {\n  @constructor new() { }\n  @private hide() { }\n  @protected guarded() { }\n  open() { }\n  _field: Int = 1\n}\n";
+    let source = "class Base {\n  @constructor new() { }\n  private hide() { }\n  protected guarded() { }\n  open() { }\n  _field: Int = 1\n}\n";
     let mut session = SemanticWorkspaceSession::new();
     let update = session.update(input(module.clone(), source, 1));
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);

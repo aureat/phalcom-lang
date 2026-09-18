@@ -9,7 +9,7 @@ use crate::heap::{ObjRef, Object};
 use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, IndexAccessor, MemberBody,
+    AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, IndexAccessor, MemberBody, Visibility,
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::SelectorKind;
@@ -73,7 +73,7 @@ impl<'vm> Compiler<'vm> {
             signature_kind,
             MethodKind::Closure(closure),
         ))));
-        self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&delegation.name), &delegation.attributes);
+        self.vm.heap.method_mut(method_obj).visibility = member_visibility(Visibility::Public);
 
         let strip_metadata = match self.vm.compile_mode {
             CompileMode::Debug => self.vm.strip_contract_metadata,
@@ -204,7 +204,7 @@ impl<'vm> Compiler<'vm> {
                 ))));
                 {
                     let method = self.vm.heap.method_mut(method_obj);
-                    method.visibility = member_visibility(Some(&method_def.name), &method_def.attributes);
+                    method.visibility = member_visibility(method_def.visibility);
                     if let Some(rest) = rest {
                         method.signature = crate::method::Signature::new_with_arity(selector_sym, sig_kind, rest.fixed_positionals(), Some(rest));
                     }
@@ -255,7 +255,7 @@ impl<'vm> Compiler<'vm> {
                     SignatureKind::Getter,
                     MethodKind::Closure(closure),
                 ))));
-                self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&getter_def.name), &getter_def.attributes);
+                self.vm.heap.method_mut(method_obj).visibility = member_visibility(getter_def.visibility);
 
                 if !strip_metadata {
                     let contracts = self.build_contracts_metadata(&getter_def.attributes)?;
@@ -309,7 +309,7 @@ impl<'vm> Compiler<'vm> {
                     SignatureKind::Setter,
                     MethodKind::Closure(closure),
                 ))));
-                self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&setter_def.name), &setter_def.attributes);
+                self.vm.heap.method_mut(method_obj).visibility = member_visibility(setter_def.visibility);
 
                 if !strip_metadata {
                     let contracts = self.build_contracts_metadata(&setter_def.attributes)?;
@@ -366,7 +366,7 @@ impl<'vm> Compiler<'vm> {
                     sig_kind,
                     MethodKind::Closure(closure),
                 ))));
-                self.vm.heap.method_mut(method_obj).visibility = member_visibility(None, &index_def.attributes);
+                self.vm.heap.method_mut(method_obj).visibility = member_visibility(index_def.visibility);
 
                 if !strip_metadata {
                     let contracts = self.build_contracts_metadata(&index_def.attributes)?;

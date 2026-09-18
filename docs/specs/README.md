@@ -83,6 +83,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | --- | --- |
 | Generic `where` constraints and generic evidence | [`generic-constraints.md`](generic-constraints.md) |
 | Associated declarations, bindings, projection identity, normalization | [`associated-types.md`](associated-types.md) |
+| Source declaration modifiers, access domains, implementation origin, and legacy namespace retirement | [`source-declarations.md`](source-declarations.md) |
 | Foundational value/object semantics and exactness | [`objects/values.md`](objects/values.md) |
 | Nominal transparent data objects | [`objects/data-objects.md`](objects/data-objects.md) |
 | Enums, variants, exact cases, and variant construction | [`objects/enums.md`](objects/enums.md) |

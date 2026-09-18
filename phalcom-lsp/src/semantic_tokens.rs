@@ -198,11 +198,16 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Static
         | Token::Construct
         | Token::Throw
-        | Token::Try => Some(Keyword),
+        | Token::Try
+        | Token::Native
+        | Token::Internal
+        | Token::Private
+        | Token::Protected
+        | Token::Module
+        | Token::Package
+        | Token::Foreign => Some(Keyword),
 
-        Token::Identifier(_) | Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_) => Some(Variable),
-
-        Token::ImplementationSelectorIdentifier(_) => Some(Selector),
+        Token::Identifier(_) | Token::FieldIdentifier(_) => Some(Variable),
 
         Token::Int { .. } | Token::Float(_) => Some(Number),
 

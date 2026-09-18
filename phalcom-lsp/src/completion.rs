@@ -203,10 +203,7 @@ fn compiler_class_completions(
             receiver_type: alternative.receiver_type,
         }]),
     };
-    let access = phalcom_semantic::AccessContext {
-        enclosing_declaration: lexical_class.cloned(),
-        enclosing_callable: None,
-    };
+    let access = phalcom_semantic::AccessContext::new(lexical_class.cloned(), None);
     let mut items = Vec::new();
     for member in db.editor().members_for_receiver(&receiver, &access) {
         match member.target {

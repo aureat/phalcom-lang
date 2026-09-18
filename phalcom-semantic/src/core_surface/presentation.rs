@@ -211,9 +211,6 @@ impl ClassPresentation {
         let sup = self.superclass.as_deref().map(|s| format!(" is {s}")).unwrap_or_default();
         out.push_str(&format!("class {}{} {{\n", self.name, sup));
         for m in &self.members {
-            if m.implementation_kind == ImplementationKind::NativePrimitive {
-                out.push_str("  @native\n");
-            }
             if let Some(intrin) = m.intrinsic {
                 out.push_str(&format!("  @intrinsic({:?})\n", intrin));
             }
@@ -221,7 +218,8 @@ impl ClassPresentation {
                 out.push_str(&format!("  @{}\n", eff));
             }
             let static_kw = if m.side == DispatchSide::Class { "static " } else { "" };
-            out.push_str(&format!("  {}{}\n\n", static_kw, m.selector));
+            let native_kw = if m.implementation_kind == ImplementationKind::NativePrimitive { "native " } else { "" };
+            out.push_str(&format!("  {}{}{}\n\n", native_kw, static_kw, m.selector));
         }
         out.push_str("}\n");
         out

@@ -1,6 +1,6 @@
 //! Parsed AST source index for native universe classes and members.
 
-use phalcom_ast::ast::{ClassDef, ClassMember, DependencyDecl, ImportDecl, MemberBody, MethodDef, Program, RestMode, Statement};
+use phalcom_ast::ast::{ClassDef, ClassMember, DependencyDecl, ImplementationKind, ImportDecl, MemberBody, MethodDef, Program, RestMode, Statement, Visibility};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::builtin::UniverseSourceProvider;
 use phalcom_modules::identity::{ModuleId, ModulePath};
@@ -43,7 +43,7 @@ pub struct UniverseMemberRow {
     pub side: NativeDispatch,
     pub selector: String,
     pub native: bool,
-    pub internal: bool,
+    pub visibility: NativeVisibility,
     pub declaration_only: bool,
     pub typed: bool,
     pub documented: bool,
@@ -59,7 +59,7 @@ pub struct UniverseSourceCensus {
     pub members: Vec<UniverseMemberRow>,
 }
 
-/// An AST anchor for a `@native` class declaration.
+/// An AST anchor for a `native` class declaration.
 #[derive(Clone, Debug)]
 pub struct NativeClassAnchor {
     pub name: String,
@@ -68,7 +68,7 @@ pub struct NativeClassAnchor {
     pub range: SourceRange,
 }
 
-/// An AST anchor for a `@native` method, getter, setter, or field.
+/// An AST anchor for a `native` method, getter, setter, or field.
 #[derive(Clone, Debug)]
 pub struct NativeMemberAnchor {
     pub key: NativeMemberKey,
@@ -94,7 +94,7 @@ pub struct NativeMemberKey {
     pub selector: String,
 }
 
-/// Index of all `@native` classes and members in the canonical universe source tree.
+/// Index of all `native` classes and members in the canonical universe source tree.
 #[derive(Clone, Debug, Default)]
 pub struct NativeSourceIndex {
     /// All provider-parsed canonical universe units. Bootstrap compiles these
@@ -374,7 +374,7 @@ impl NativeSourceIndex {
     }
 
     fn index_enum(&mut self, module: &ModuleId, enum_def: &phalcom_ast::ast::EnumDef) -> Result<(), String> {
-        let has_native_attr = enum_def.attributes.iter().any(|a| a.name == "native");
+        let has_native_modifier = enum_def.implementation == ImplementationKind::Native;
         let named_key = UniverseKey::from_name(&enum_def.name);
         let universe_key = named_key.filter(|key| {
             let expected = ModulePath::from_components(
@@ -385,7 +385,7 @@ impl NativeSourceIndex {
             );
             module.path == expected
         });
-        if has_native_attr && named_key.is_some() && universe_key.is_none() {
+        if has_native_modifier && named_key.is_some() && universe_key.is_none() {
             return Err(format!("native enum {} is declared outside canonical source module", enum_def.name));
         }
 
@@ -395,7 +395,7 @@ impl NativeSourceIndex {
                 name: enum_def.name.clone(),
                 range: enum_def.range,
                 universe_key: Some(key),
-                native: has_native_attr,
+                native: has_native_modifier,
                 superclass: Some("Object".to_string()),
                 documented: false,
             };
@@ -410,13 +410,13 @@ impl NativeSourceIndex {
                 name: enum_def.name.clone(),
                 range: enum_def.range,
                 universe_key: None,
-                native: has_native_attr,
+                native: has_native_modifier,
                 superclass: Some("Object".to_string()),
                 documented: false,
             });
         }
 
-        if has_native_attr {
+        if has_native_modifier {
             if let Some(uk) = universe_key {
                 let anchor = NativeClassAnchor {
                     name: enum_def.name.clone(),
@@ -425,7 +425,7 @@ impl NativeSourceIndex {
                     range: enum_def.range,
                 };
                 if self.classes.insert(uk, anchor).is_some() {
-                    return Err(format!("duplicate @native class anchor for {}", uk.name()));
+                    return Err(format!("duplicate native class anchor for {}", uk.name()));
                 }
             }
         }
@@ -450,7 +450,7 @@ impl NativeSourceIndex {
                 name: variant.name.clone(),
                 range: variant.range,
                 universe_key: Some(variant_key),
-                native: has_native_attr,
+                native: has_native_modifier,
                 superclass: Some("Option".to_owned()),
                 documented: false,
             };
@@ -463,7 +463,7 @@ impl NativeSourceIndex {
             // constructor surfaces on its support class. They are
             // generated descriptors, so retain matching source anchors
             // even though constructors are implicit in enum syntax.
-            if !has_native_attr || variant.payload.is_none() {
+            if !has_native_modifier || variant.payload.is_none() {
                 continue;
             }
             for selector in ["call(_)".to_owned(), "new(_)".to_owned()] {
@@ -479,7 +479,7 @@ impl NativeSourceIndex {
                     side: NativeDispatch::Class,
                     selector: selector.clone(),
                     native: true,
-                    internal: false,
+                    visibility: NativeVisibility::Public,
                     declaration_only: false,
                     typed: true,
                     documented: false,
@@ -505,7 +505,7 @@ impl NativeSourceIndex {
     }
 
     fn index_class(&mut self, module: &ModuleId, class_def: &ClassDef) -> Result<(), String> {
-        let has_native_attr = class_def.attributes.iter().any(|a| a.name == "native");
+        let has_native_modifier = class_def.implementation == ImplementationKind::Native;
         let named_key = UniverseKey::from_name(&class_def.name);
         let universe_key = named_key.filter(|key| {
             let expected = ModulePath::from_components(
@@ -516,7 +516,7 @@ impl NativeSourceIndex {
             );
             module.path == expected
         });
-        if has_native_attr && named_key.is_some() && universe_key.is_none() {
+        if has_native_modifier && named_key.is_some() && universe_key.is_none() {
             return Err(format!("native class {} is declared outside canonical source module", class_def.name));
         }
         let superclass = class_def.superclass_ref().map(|reference| reference.leaf_name().to_owned());
@@ -527,7 +527,7 @@ impl NativeSourceIndex {
                 name: class_def.name.clone(),
                 range: class_def.range,
                 universe_key: Some(key),
-                native: has_native_attr,
+                native: has_native_modifier,
                 superclass,
                 documented: false,
             };
@@ -542,13 +542,13 @@ impl NativeSourceIndex {
                 name: class_def.name.clone(),
                 range: class_def.range,
                 universe_key: None,
-                native: has_native_attr,
+                native: has_native_modifier,
                 superclass,
                 documented: false,
             });
         }
 
-        if has_native_attr {
+        if has_native_modifier {
             if let Some(uk) = universe_key {
                 let anchor = NativeClassAnchor {
                     name: class_def.name.clone(),
@@ -557,7 +557,7 @@ impl NativeSourceIndex {
                     range: class_def.range,
                 };
                 if self.classes.insert(uk, anchor).is_some() {
-                    return Err(format!("duplicate @native class anchor for {}", uk.name()));
+                    return Err(format!("duplicate native class anchor for {}", uk.name()));
                 }
             }
         }
@@ -574,11 +574,9 @@ impl NativeSourceIndex {
     }
 
     fn index_member(&mut self, module: &ModuleId, owner_key: UniverseKey, class_name: &str, member: &ClassMember) -> Result<(), String> {
-        let (is_native, has_internal, is_internal, side, selector, is_declaration, typed, range) = match member {
+        let (is_native, side, selector, is_declaration, typed, visibility, range) = match member {
             ClassMember::Method(m) => {
-                let is_native = m.attributes.iter().any(|a| a.name == "native");
-                let has_internal = m.attributes.iter().any(|a| a.name == "internal");
-                let is_internal = has_internal || m.name.starts_with("_$");
+                let is_native = m.implementation == ImplementationKind::Native;
                 let side = if m.is_static || m.attributes.iter().any(|a| a.name == "class") {
                     NativeDispatch::Class
                 } else {
@@ -587,12 +585,10 @@ impl NativeSourceIndex {
                 let selector = source_method_selector(m);
                 let is_declaration = matches!(m.body, MemberBody::Declaration);
                 let typed = m.return_annotation.is_some() && m.params.iter().all(|param| param.annotation.is_some());
-                (is_native, has_internal, is_internal, side, selector, is_declaration, typed, m.range)
+                (is_native, side, selector, is_declaration, typed, m.visibility, m.range)
             }
             ClassMember::Getter(g) => {
-                let is_native = g.attributes.iter().any(|a| a.name == "native");
-                let has_internal = g.attributes.iter().any(|a| a.name == "internal");
-                let is_internal = has_internal || g.name.starts_with("_$");
+                let is_native = g.implementation == ImplementationKind::Native;
                 let side = if g.is_static || g.attributes.iter().any(|a| a.name == "class") {
                     NativeDispatch::Class
                 } else {
@@ -602,19 +598,16 @@ impl NativeSourceIndex {
                 let is_declaration = matches!(g.body, MemberBody::Declaration);
                 (
                     is_native,
-                    has_internal,
-                    is_internal,
                     side,
                     selector,
                     is_declaration,
                     g.return_annotation.is_some(),
+                    g.visibility,
                     g.range,
                 )
             }
             ClassMember::Setter(s) => {
-                let is_native = s.attributes.iter().any(|a| a.name == "native");
-                let has_internal = s.attributes.iter().any(|a| a.name == "internal");
-                let is_internal = has_internal || s.name.starts_with("_$");
+                let is_native = s.implementation == ImplementationKind::Native;
                 let side = if s.is_static || s.attributes.iter().any(|a| a.name == "class") {
                     NativeDispatch::Class
                 } else {
@@ -624,35 +617,30 @@ impl NativeSourceIndex {
                 let is_declaration = matches!(s.body, MemberBody::Declaration);
                 (
                     is_native,
-                    has_internal,
-                    is_internal,
                     side,
                     selector,
                     is_declaration,
                     s.param.annotation.is_some() && s.return_annotation.is_some(),
+                    s.visibility,
                     s.range,
                 )
             }
             ClassMember::Field(f) => {
-                let is_native = f.attributes.iter().any(|a| a.name == "native");
-                let has_internal = f.attributes.iter().any(|a| a.name == "internal");
-                let is_internal = has_internal || f.name.starts_with("__");
+                let is_native = false;
                 let side = if f.is_static || f.attributes.iter().any(|a| a.name == "class") {
                     NativeDispatch::Class
                 } else {
                     NativeDispatch::Instance
                 };
                 let selector = phalcom_ast::selector::selector_from_field(f).encode();
-                (is_native, has_internal, is_internal, side, selector, true, f.annotation.is_some(), f.range)
+                (is_native, side, selector, true, f.annotation.is_some(), f.visibility, f.range)
             }
             ClassMember::Index(ix) => {
-                let is_native = ix.attributes.iter().any(|a| a.name == "native");
-                let has_internal = ix.attributes.iter().any(|a| a.name == "internal");
-                let is_internal = has_internal;
+                let is_native = ix.implementation == ImplementationKind::Native;
                 let side = NativeDispatch::Instance;
                 let selector = phalcom_ast::selector::selector_from_index(ix).encode();
                 let typed = ix.return_annotation.is_some() && ix.params.iter().all(|param| param.annotation.is_some());
-                (is_native, has_internal, is_internal, side, selector, false, typed, ix.range)
+                (is_native, side, selector, false, typed, ix.visibility, ix.range)
             }
             ClassMember::Variant(_) => return Ok(()),
             ClassMember::Delegation(_) => return Ok(()),
@@ -665,7 +653,7 @@ impl NativeSourceIndex {
             side,
             selector: selector.clone(),
             native: is_native,
-            internal: is_internal,
+            visibility: native_visibility(visibility),
             declaration_only: is_declaration,
             typed,
             documented: false,
@@ -674,12 +662,6 @@ impl NativeSourceIndex {
 
         if !is_native {
             return Ok(());
-        }
-
-        let visibility = if is_internal { NativeVisibility::Internal } else { NativeVisibility::Public };
-
-        if selector.starts_with("_$") && !has_internal {
-            return Err(format!("native implementation selector '{selector}' must carry @internal"));
         }
 
         let key = NativeMemberKey {
@@ -700,7 +682,7 @@ impl NativeSourceIndex {
         };
         if self.members.insert(key.clone(), anchor).is_some() {
             return Err(format!(
-                "duplicate @native member anchor for {} {:?} '{}'",
+                "duplicate native member anchor for {} {:?} '{}'",
                 key.owner.name(),
                 key.side,
                 key.selector
@@ -708,6 +690,17 @@ impl NativeSourceIndex {
         }
 
         Ok(())
+    }
+}
+
+fn native_visibility(visibility: Visibility) -> NativeVisibility {
+    match visibility {
+        Visibility::Public => NativeVisibility::Public,
+        Visibility::Private => NativeVisibility::Private,
+        Visibility::Protected => NativeVisibility::Protected,
+        Visibility::Module => NativeVisibility::Module,
+        Visibility::Package => NativeVisibility::Package,
+        Visibility::Internal => NativeVisibility::Internal,
     }
 }
 
@@ -742,7 +735,7 @@ mod tests {
 
     #[test]
     fn source_anchor_uses_owned_selector_key_and_preserves_body_kind() {
-        let program = parse_program("class String {\n  @native\n  @internal\n  _$byteAt(_ index: Int) -> String\n}\n");
+        let program = parse_program("class String {\n  internal native rawByteAt(_ index: Int) -> String\n}\n");
         let module = ModuleId::universe(ModulePath::from_components(
             ["scalar", "string"]
                 .into_iter()
@@ -753,7 +746,7 @@ mod tests {
         let key = NativeMemberKey {
             owner: UniverseKey::String,
             side: NativeDispatch::Instance,
-            selector: "_$byteAt(_)".to_owned(),
+            selector: "rawByteAt(_)".to_owned(),
         };
         let anchor = index.members.get(&key).expect("native anchor indexed");
         assert_eq!(anchor.visibility, NativeVisibility::Internal);
@@ -768,7 +761,7 @@ mod tests {
 
     #[test]
     fn duplicate_source_anchor_is_rejected() {
-        let program = parse_program("class String {\n  @native\n  @internal\n  _$byteCount\n  @native\n  @internal\n  _$byteCount\n}\n");
+        let program = parse_program("class String {\n  internal native rawByteCount\n  internal native rawByteCount\n}\n");
         let module = ModuleId::universe(ModulePath::from_components(
             ["scalar", "string"]
                 .into_iter()
@@ -776,7 +769,7 @@ mod tests {
                 .collect::<Vec<_>>(),
         ));
         let error = NativeSourceIndex::from_program_at(&module, &program).expect_err("duplicate anchor must fail");
-        assert!(error.contains("duplicate @native member anchor"), "{error}");
+        assert!(error.contains("duplicate native member anchor"), "{error}");
     }
 
     #[test]
@@ -786,21 +779,26 @@ mod tests {
 
     #[test]
     fn native_class_with_familiar_name_at_wrong_path_is_not_associated() {
-        let program = parse_program("@native\nclass String { }\n");
+        let program = parse_program("native class String { }\n");
         let error = NativeSourceIndex::from_program(&program).expect_err("wrong-path native class must fail closed");
         assert!(error.contains("outside canonical source module"), "{error}");
     }
 
     #[test]
-    fn implementation_anchor_requires_explicit_internal_attribute() {
-        let program = parse_program("class String {\n  @native\n  _$byteCount\n}\n");
+    fn canonical_native_anchor_defaults_to_public_visibility() {
+        let program = parse_program("class String {\n  native rawByteCount\n}\n");
         let module = ModuleId::universe(ModulePath::from_components(
             ["scalar", "string"]
                 .into_iter()
                 .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
                 .collect::<Vec<_>>(),
         ));
-        let error = NativeSourceIndex::from_program_at(&module, &program).expect_err("implementation anchor must be explicit");
-        assert!(error.contains("must carry @internal"), "{error}");
+        let index = NativeSourceIndex::from_program_at(&module, &program).expect("canonical native anchor indexes");
+        let key = NativeMemberKey {
+            owner: UniverseKey::String,
+            side: NativeDispatch::Instance,
+            selector: "rawByteCount".to_owned(),
+        };
+        assert_eq!(index.members.get(&key).expect("native anchor").visibility, NativeVisibility::Public);
     }
 }

@@ -13,9 +13,9 @@ native class Method is Object {
   native isNative -> Bool
   native isIntrinsic -> Bool
   native implementationKind -> Symbol
-  internal native _$attributes -> Dynamic
-  attributes { self._$attributes }
-  attributesOfType(_ cls) { self._$attributes.filter |a| { a.is(cls) } }
+  internal native rawAttributes -> Dynamic
+  attributes { self.rawAttributes }
+  attributesOfType(_ cls) { self.rawAttributes.filter |a| { a.is(cls) } }
 }
 
 native class BoundMethod is Function {}

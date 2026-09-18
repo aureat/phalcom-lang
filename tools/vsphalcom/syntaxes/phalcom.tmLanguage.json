@@ -689,10 +689,6 @@
 					"match": "@(class|sealed|constructor|construct)\\b"
 				},
 				{
-					"name": "storage.modifier.annotation.visibility.phalcom",
-					"match": "@(private|protected|public)\\b"
-				},
-				{
 					"name": "storage.modifier.annotation.contract.phalcom",
 					"match": "@(total|requires|ensures|invariant)\\b"
 				},
@@ -706,7 +702,7 @@
 				},
 				{
 					"name": "storage.modifier.annotation.implementation.phalcom",
-					"match": "@(native|ignore)\\b"
+					"match": "@(primitive|intrinsic|ignore)\\b"
 				},
 				{
 					"name": "storage.modifier.annotation.event.phalcom",
@@ -755,7 +751,7 @@
 				{
 					"comment": "Declaration keywords. The Phalcom theme should color these the same as keyword.declaration.annotation.phalcom.",
 					"name": "keyword.declaration.phalcom",
-					"match": "\\b(let|const|type|class|enum|case)\\b"
+					"match": "\\b(let|const|type|class|enum|case|native|foreign|private|protected|module|package|internal)\\b"
 				},
 				{
 					"name": "keyword.control.phalcom",

@@ -4,16 +4,16 @@ category: LANG
 program: LANG006
 checkpoint: LANG006.C1
 kind: checkpoint-record
-status: PLANNING
-completion: REQUIREMENTS_LOCKED
-verification: REPOSITORY_ANALYZED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 requires:
   - TDR-0076 transition-1 language surface convergence
   - MODL001 universe/project/module architecture
   - canonical native Universe bootstrap infrastructure
 active_plan: LANG006.C1.P1
-latest_completed_plan: null
-next_plan: LANG006.C1.P1
+latest_completed_plan: LANG006.C1.P1
+next_plan: null
 planning_baseline_revision: e0a77646c56f8b1a7e7692993d378d43bf3fc424
 planning_baseline_commit: "feat(lang005): continue P5 iterator surface"
 prepared: 2026-09-17
@@ -2157,10 +2157,39 @@ That is the checkpoint boundary the P1 header and task body must implement.
 
 ---
 
-## 34. Next artifact
+## 34. Implementation state
 
-The next turn must perform one more requirements-analysis pass against this checkpoint and the preceding analysis, then produce the **shared header file for `LANG006.C1.P1`**.
+`LANG006.C1.P1` is implemented in the shared working tree at base revision
+`bf4e12ba` (the implementation was intentionally not committed or pushed in
+this turn). The canonical source, AST/semantic/runtime access path, native
+metadata, LSP presentation, syntax grammar, current specification pointer, and
+accepted decision record now agree on the C1 model.
 
-That header should not yet contain the concrete task body.
+The plan is classified `IMPLEMENTED` with `FOCUSED_TESTED` verification:
+focused owner checks and workspace compilation pass, while one unrelated
+semantic incremental identity test and one core VM walk test remain failing in
+the current shared checkout. The repository-wide formatter check also
+reports pre-existing formatting drift outside this work unit; no broad
+formatting rewrite was applied.
+
+### Plan ledger
+
+| Plan | Status | Completion | Verification | Durable state |
+| --- | --- | --- | --- | --- |
+| `LANG006.C1.P1` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Canonical modifiers/access domains, native authority, Universe migration, AST retirement, tooling/spec/decision parity |
+
+### Durable residuals
+
+- `phalcom-semantic` incremental caller identity assertion remains a baseline
+  failure outside the changed modifier/native surfaces.
+- `phalcom-core` VM walk ordering test remains a baseline runtime/iterator
+  failure (`fold(initial,using)` does not understand the canonical runtime
+  selector in that test).
+- Full package/workspace test certification and repository-wide formatting are
+  deferred; focused checks and `cargo check --workspace --all-targets` pass.
+
+The next action is checkpoint-level certification or a separately scoped
+follow-up for either baseline failure; no additional C1 implementation plan is
+required for the delivered vertical.
 
 It should freeze all shared execution information Luna will need so the final turn can consist almost entirely of ordered, patch-grade implementation tasks.

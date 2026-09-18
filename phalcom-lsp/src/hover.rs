@@ -714,6 +714,10 @@ pub struct SelectorSite {
     pub receiver: Option<DeclarationId>,
     /// The member's dispatch kind (method/getter/setter/construct/...).
     pub kind: MemberKind,
+    /// Canonical declaration visibility supplied by the semantic surface.
+    pub visibility: phalcom_common::modifier::Visibility,
+    /// Canonical implementation origin used for user-facing metadata.
+    pub implementation: &'static str,
 }
 
 /// Protocol-facing member kind derived from canonical source metadata.
@@ -815,6 +819,8 @@ pub fn render_selector_hover_with_formal_value(
 
         let kind = kind_word(*owners.values().next().unwrap_or(&sites[0].kind));
         sections.push(format!("`{selector}` — {kind} on {}", classes.join(", ")));
+        let site = &sites[0];
+        sections.push(format!("visibility: `{}`\nimplementation: `{}`", site.visibility, site.implementation));
     }
 
     if let Some(doc) = phaldoc {

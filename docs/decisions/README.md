@@ -10,7 +10,7 @@ This is Phalcom's single decision registry. A Telos Decision Record (TDR) record
 - Status, supersession, amendment, and related-decision edges remain in each record's metadata and body. The legacy source identifier is listed below for lookup.
 - `docs/design/` is outside this registry. Proposals and research there cannot override the specification or an accepted TDR.
 
-The consolidation contains 81 accepted TDRs, 9 proposed records, and 9 retired records. Accepted numbering excludes every proposed and retired record, including legacy files that were stored in the wrong status directory.
+The consolidation contains 82 accepted TDRs, 9 proposed records, and 9 retired records. Accepted numbering excludes every proposed and retired record, including legacy files that were stored in the wrong status directory.
 
 A `*` date was inferred because the source lacked an explicit ratification date. A `†` date uses the explicit ratification date because it conflicts with the source's older `Date` field.
 
@@ -99,6 +99,7 @@ A `*` date was inferred because the source lacked an explicit ratification date.
 | [TDR-0079](./accepted/0079-poller-backend-is-mio.md) | 2026-09-12† | The poller backend is `mio`, wrapped once at the reactor seam; syscalls try first and register second | PDR-0016 | Accepted |
 | [TDR-0080](./accepted/0080-data-is-a-nominal-transparent-immutable-value-product.md) | 2026-09-12 | `data` is a nominal transparent immutable value product | PDR-0035 | Accepted |
 | [TDR-0081](./accepted/0081-tuple-and-record-are-transparent-structural-value-products.md) | 2026-09-13 | Tuple and Record Are Transparent Structural Value Products | PDR-0036 | Accepted |
+| [TDR-0082](./accepted/0082-declaration-modifiers-and-identity-based-access-domains.md) | 2026-09-18 | Declaration Modifiers and Identity-Based Access Domains | PDR-0037 | Accepted |
 
 ## Proposed registry
 

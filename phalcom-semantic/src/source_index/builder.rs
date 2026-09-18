@@ -1625,7 +1625,6 @@ impl SourceScopeBuilder<'_> {
             | Expr::Field { .. }
             | Expr::SelfVar { .. }
             | Expr::SuperVar { .. }
-            | Expr::ImplementationSelector { .. }
             | Expr::Symbol { .. }
             | Expr::Ellipsis { .. }
             | Expr::TypeForm(_) => {}

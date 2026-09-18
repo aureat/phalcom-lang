@@ -5,8 +5,7 @@ use phalcom_semantic::identity::ModuleId;
 #[test]
 fn test_native_enum_core_surface_extraction() {
     let source = r#"
-@native
-enum Maybe<T> {
+native enum Maybe<T> {
     @variant None
     @variant Some(_ value: T)
 }

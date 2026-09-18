@@ -314,7 +314,7 @@ fn set_add_and_remove_idempotence() {
 }
 
 /// Builds a `Tuple` through its public product-literal syntax. The internal
-/// `Tuple._$fromList(_)` bridge is intentionally inaccessible to callers.
+/// `Tuple.rawFromList(_)` bridge is intentionally inaccessible to callers.
 fn build_tuple(vm: &mut VM, elems: &[Value]) -> Value {
     let elements = elems
         .iter()

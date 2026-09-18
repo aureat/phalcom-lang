@@ -42,6 +42,11 @@ fn install_one(vm: &mut VM, desc: &PrimitiveDescriptor) -> PhResult<()> {
 
     method.visibility = desc.surface.visibility;
     method.access_owner = desc.internal_access_owner(owner);
+    // Native descriptors are defined by the canonical Universe project. Keep
+    // that origin attached to the installed method so `internal` visibility
+    // is authorized by project identity rather than by a selector prefix or
+    // an ambient boolean privilege.
+    method.origin = crate::method::RuntimeAccessOrigin::universe();
 
     let method_id = vm.heap.alloc(Object::Method(Box::new(method)));
     vm.heap.class_mut(target).add_method(selector, method_id);

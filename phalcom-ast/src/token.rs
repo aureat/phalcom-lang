@@ -134,11 +134,6 @@ pub enum Token {
     /// `_name`: source/object field namespace.
     FieldIdentifier(String),
 
-    /// `__name`: implementation-field namespace.
-    ImplementationFieldIdentifier(String),
-
-    /// `_$name`: implementation-selector namespace.
-    ImplementationSelectorIdentifier(String),
     /// A double-quoted string literal, with the surrounding quotes stripped.
     ///
     /// A string with no `\(…)` interpolation lexes to this variant; one with at

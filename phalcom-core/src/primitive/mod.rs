@@ -122,7 +122,6 @@ impl ObjectName {
 /// binds it under the encoded selector directly on `$class`.
 macro_rules! primitive {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
-        debug_assert!(!$base.starts_with("_$"), "internal primitive selectors require `primitive_internal!`");
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
@@ -137,7 +136,6 @@ macro_rules! primitive {
 /// bytecode frame without recursively driving the interpreter.
 macro_rules! primitive_shape {
     ($vm:expr, $class:expr, $base:expr, $sig_kind:expr, $func:expr) => {
-        debug_assert!(!$base.starts_with("_$"), "internal primitive selectors require `primitive_internal!`");
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let method = MethodObject::new_shape_primitive(symbol, crate::method::Signature::new(symbol, $sig_kind), $func, $class);
@@ -150,7 +148,6 @@ macro_rules! primitive_shape {
 /// Installs a shape-aware native rest primitive under its base-name family.
 macro_rules! primitive_rest {
     ($vm:expr, $class:expr, $base:expr, $selector:expr, $sig_kind:expr, $arity:expr, $layout:expr, $func:expr) => {
-        debug_assert!(!$base.starts_with("_$"), "internal primitive selectors require `primitive_internal!`");
         let symbol = $vm.get_or_intern($selector);
         let signature = crate::method::Signature::new_with_arity(symbol, $sig_kind, $arity, Some($layout));
         let method = MethodObject::new_shape_primitive(symbol, signature, $func, $class);
@@ -162,22 +159,16 @@ macro_rules! primitive_rest {
     };
 }
 
-/// Installs an implementation-only native instance method.
+/// Installs an internal native instance method.
 ///
-/// Internal selectors use the `_$` namespace and share the ordinary method
-/// table with public methods. Their protection is therefore enforced by normal
-/// dispatch visibility checks rather than by a parallel lookup mechanism.
+/// The selector is an ordinary identity. Access is carried by the method's
+/// normalized visibility and declaration origin, never by selector spelling.
 macro_rules! primitive_internal {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
-        debug_assert!($base.starts_with("_$"), "internal primitive selectors must start with `_$`");
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let mut method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
-        method.visibility = if $base == "_$attach" || $base == "_$freezeAttributes" || $base == "_$attributes" {
-            crate::method::MemberVisibility::Public
-        } else {
-            crate::method::MemberVisibility::Internal
-        };
+        method.visibility = crate::method::MemberVisibility::Internal;
         method.access_owner = Some($class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         $vm.heap.class_mut($class).add_method(symbol, method_id);
@@ -191,7 +182,6 @@ macro_rules! primitive_internal {
 /// `class`), where static methods live.
 macro_rules! primitive_static {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
-        debug_assert!(!$base.starts_with("_$"), "internal primitive selectors require `primitive_static_internal!`");
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
@@ -205,7 +195,6 @@ macro_rules! primitive_static {
 /// Static counterpart to [`primitive_internal!`].
 macro_rules! primitive_static_internal {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
-        debug_assert!($base.starts_with("_$"), "internal primitive selectors must start with `_$`");
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let mut method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);

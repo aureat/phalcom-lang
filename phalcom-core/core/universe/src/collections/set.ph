@@ -3,12 +3,12 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 native class Set<T> is Collection {
   @class
   native new() -> Set<T>
-  internal native _$size -> Int
-  internal native _$add(_ value: Dynamic) -> Dynamic
-  internal native _$has(_ value: Dynamic) -> Bool
-  internal native _$remove(_ value: Dynamic) -> Dynamic
-  internal native _$at(_ index: Int) -> Dynamic
-  size { self._$size }
+  internal native rawSize -> Int
+  internal native rawAdd(_ value: Dynamic) -> Dynamic
+  internal native rawHas(_ value: Dynamic) -> Bool
+  internal native rawRemove(_ value: Dynamic) -> Dynamic
+  internal native rawAt(_ index: Int) -> Dynamic
+  size { self.rawSize }
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
   // native `Set` rendering exactly — `Set(a, b)`, `Set()` when empty. Derived
@@ -16,24 +16,24 @@ native class Set<T> is Collection {
   toString {
     let s = "Set("
     let i = 0
-    while (i < self._$size) {
+    while (i < self.rawSize) {
       s = s + (i > 0).ifTrue(|| { ", " }, ifFalse: || { "" })
-      s = s + self._$at(i).toString
+      s = s + self.rawAt(i).toString
       i = i + 1
     }
     return s + ")"
   }
 
   add(_ v) {
-    self._$add(v)
+    self.rawAdd(v)
     return self
   }
 
-  contains(_ v) { self._$has(v) }
+  contains(_ v) { self.rawHas(v) }
   includes(_ v) { self.contains(v) }
 
   remove(_ v) {
-    self._$remove(v)
+    self.rawRemove(v)
     return self
   }
 
@@ -41,7 +41,7 @@ native class Set<T> is Collection {
   // table, but a direct, zero-floor-cost derivation over at_ that the
   // U-CORE-5 conformance harness (collection-protocol.md §2) needs, and a
   // natural extension of the sequence protocol every collection instantiates.
-  at(_ i) { self._$at(i) }
+  at(_ i) { self.rawAt(i) }
 
   iterator -> SetIterator<T> { SetIterator<T>.new(self) }
 
@@ -53,7 +53,7 @@ native class Set<T> is Collection {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {
-        same = other.includes(self._$at(i))
+        same = other.includes(self.rawAt(i))
         i = i + 1
       }
       return same

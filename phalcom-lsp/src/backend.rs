@@ -578,6 +578,15 @@ impl Backend {
         });
         let selector = callable.selector.encode();
         let advisory = compiler.advisory_callable(callable).map(|summary| summary.return_fact.clone());
+        let native = compiler.editor().native_callable_presentation(callable);
+        let visibility = compiler
+            .surfaces
+            .get(&callable.owner.declaration())?
+            .surface(callable.side)
+            .callable_visibility
+            .get(&callable.selector)
+            .copied()
+            .unwrap_or_default();
         if let (Some(parity), Some(module)) = (&self.parity, request.compiler_module()) {
             parity.observe_hover(module, &phalcom_semantic::SemanticTargetId::Callable(callable.clone()), Some(&formal));
         }
@@ -587,11 +596,13 @@ impl Backend {
                 owner: callable.owner.declaration().clone(),
                 receiver: None,
                 kind,
+                visibility,
+                implementation: if native.is_some() { "native" } else { "phalcom" },
             },
             phaldoc,
             formal,
             advisory,
-            compiler.editor().native_callable_presentation(callable),
+            native,
         ))
     }
 
@@ -643,6 +654,8 @@ impl Backend {
                 owner: field.owner.clone(),
                 receiver: None,
                 kind: hover::MemberKind::Field,
+                visibility: surface.field_visibility.get(field.name.as_ref()).copied().unwrap_or_default(),
+                implementation: "phalcom",
             },
             compiler.advisory().field(field).cloned(),
         ))

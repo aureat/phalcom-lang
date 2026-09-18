@@ -48,7 +48,7 @@ pub fn set_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
 /// # Errors
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Set`.
-#[phalcom_native_macros::primitive(Set, "_$size", visibility = internal)]
+#[phalcom_native_macros::primitive(Set, "rawSize", visibility = internal)]
 pub fn set_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_set(vm, receiver)?;
     Ok(Value::int(vm.heap.set(id).len() as i64))
@@ -103,7 +103,7 @@ fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)>
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Set`;
 /// returns a raised catchable `Error` if `key` is a mutable collection;
 /// propagates a `hash`/`==` send failure.
-#[phalcom_native_macros::primitive(Set, "_$add(_)", visibility = internal)]
+#[phalcom_native_macros::primitive(Set, "rawAdd(_)", visibility = internal)]
 pub fn set_raw_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_set(vm, receiver)?;
     let key = args[0];
@@ -144,7 +144,7 @@ pub(crate) fn set_literal_add(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Set`, or
 /// propagates a `hash`/`==` send failure.
-#[phalcom_native_macros::primitive(Set, "_$has(_)", visibility = internal)]
+#[phalcom_native_macros::primitive(Set, "rawHas(_)", visibility = internal)]
 pub fn set_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_set(vm, receiver)?;
     let (_, slot) = locate(vm, id, args[0])?;
@@ -158,7 +158,7 @@ pub fn set_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Set`, or
 /// propagates a `hash`/`==` send failure.
-#[phalcom_native_macros::primitive(Set, "_$remove(_)", visibility = internal)]
+#[phalcom_native_macros::primitive(Set, "rawRemove(_)", visibility = internal)]
 pub fn set_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_set(vm, receiver)?;
     let (_, slot) = locate(vm, id, args[0])?;
@@ -214,7 +214,7 @@ fn expect_index(value: &Value) -> PhResult<usize> {
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Set`, or
 /// if `i` is not a non-negative integer.
-#[phalcom_native_macros::primitive(Set, "_$at(_)", visibility = internal)]
+#[phalcom_native_macros::primitive(Set, "rawAt(_)", visibility = internal)]
 pub fn set_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_set(vm, receiver)?;
     let index = expect_index(&args[0])?;

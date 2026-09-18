@@ -24,7 +24,7 @@
 //! Output is deterministic (sorted class/selector order) so a re-run on an
 //! unchanged tree produces a byte-identical file.
 
-use phalcom_ast::ast::{AttrKind, BuiltinAttr, ClassMember, IndexAccessor, Statement};
+use phalcom_ast::ast::{AttrKind, BuiltinAttr, ClassMember, IndexAccessor, Statement, Visibility};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -208,23 +208,21 @@ fn member_is_class_side(member: &ClassMember) -> bool {
 }
 
 fn member_visibility(member: &ClassMember) -> &'static str {
-    let (name, attrs) = match member {
-        ClassMember::Method(m) => (Some(m.name.as_str()), m.attributes.as_slice()),
-        ClassMember::Getter(g) => (Some(g.name.as_str()), g.attributes.as_slice()),
-        ClassMember::Setter(s) => (Some(s.name.as_str()), s.attributes.as_slice()),
-        ClassMember::Index(ix) => (None, ix.attributes.as_slice()),
-        ClassMember::Field(f) => (Some(f.name.as_str()), f.attributes.as_slice()),
-        ClassMember::Variant(v) => (Some(v.name.as_str()), v.attributes.as_slice()),
-        ClassMember::Delegation(d) => (Some(d.name.as_str()), d.attributes.as_slice()),
+    let visibility = match member {
+        ClassMember::Method(m) => m.visibility,
+        ClassMember::Getter(g) => g.visibility,
+        ClassMember::Setter(s) => s.visibility,
+        ClassMember::Index(ix) => ix.visibility,
+        ClassMember::Field(f) => f.visibility,
+        ClassMember::Variant(_) | ClassMember::Delegation(_) => Visibility::Public,
     };
-    if name.is_some_and(|name| name.starts_with("_$")) {
-        "internal"
-    } else if attrs.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private))) {
-        "private"
-    } else if attrs.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Protected))) {
-        "protected"
-    } else {
-        "public"
+    match visibility {
+        Visibility::Public => "public",
+        Visibility::Private => "private",
+        Visibility::Protected => "protected",
+        Visibility::Module => "module",
+        Visibility::Package => "package",
+        Visibility::Internal => "internal",
     }
 }
 
@@ -473,7 +471,6 @@ fn assert_no_legacy_names(classes: &BTreeMap<String, Vec<SelectorEntry>>) {
                     entry.selector
                 );
             }
-            assert!(!entry.selector.starts_with("__"), "legacy implementation selector: {}", entry.selector);
             if let Some(close) = entry.selector.find(']') {
                 assert!(!entry.selector[..close].contains("put"), "legacy subscript put slot: {}", entry.selector);
             }

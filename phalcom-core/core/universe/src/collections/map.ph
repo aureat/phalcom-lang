@@ -3,14 +3,14 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 native class Map<K, V> is Collection {
   @class
   native new() -> Map<K, V>
-  internal native _$size -> Int
-  internal native _$get(_ key: Dynamic) -> Option<Dynamic>
-  internal native _$put(_ key: Dynamic, _ value: Dynamic) -> Dynamic
-  internal native _$has(_ key: Dynamic) -> Bool
-  internal native _$remove(_ key: Dynamic) -> Dynamic
-  internal native _$keyAt(_ index: Int) -> Dynamic
-  internal native _$valueAt(_ index: Int) -> Dynamic
-  size { self._$size }
+  internal native rawSize -> Int
+  internal native rawGet(_ key: Dynamic) -> Option<Dynamic>
+  internal native rawPut(_ key: Dynamic, _ value: Dynamic) -> Dynamic
+  internal native rawHas(_ key: Dynamic) -> Bool
+  internal native rawRemove(_ key: Dynamic) -> Dynamic
+  internal native rawKeyAt(_ index: Int) -> Dynamic
+  internal native rawValueAt(_ index: Int) -> Dynamic
+  size { self.rawSize }
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
   // native `Map` rendering exactly — `{k: v, k2: v2}`, `{}` when empty — so the
@@ -24,16 +24,16 @@ native class Map<K, V> is Collection {
   toString {
     let s = "{"
     let i = 0
-    while (i < self._$size) {
+    while (i < self.rawSize) {
       s = s + (i > 0).ifTrue(|| { ", " }, ifFalse: || { "" })
-      s = s + self._$keyAt(i).toString + ": " + self._$valueAt(i).toString
+      s = s + self.rawKeyAt(i).toString + ": " + self.rawValueAt(i).toString
       i = i + 1
     }
     return s + "}"
   }
 
   // Safe association lookup: Some(value) on hit, None on absence.
-  get(_ k) { self._$get(k) }
+  get(_ k) { self.rawGet(k) }
 
   // Strict association lookup. Do one lookup so a stored None remains a
   // value rather than being confused with an absent key.
@@ -70,30 +70,30 @@ native class Map<K, V> is Collection {
   }
 
   // Explicit insert returns the previous value when replacing an association.
-  insert(_ value, for key) { self._$put(key, value) }
+  insert(_ value, for key) { self.rawPut(key, value) }
 
   // Legacy mutation spelling retained only while B.3 still lowers association
   // literals into chained sends. `get` and `[]` are the lookup surface.
   at(_ k, put) {
-    self._$put(k, put)
+    self.rawPut(k, put)
     return self
   }
 
   // `m[k] = v` shares insert's key identity and encounter-order semantics.
-  [_ k]=(_ val) { self._$put(k, val) }
+  [_ k]=(_ val) { self.rawPut(k, val) }
 
-  contains(_ k) { self._$has(k) }
+  contains(_ k) { self.rawHas(k) }
   includes(_ k) { self.contains(k) }
 
   // Removes an association. The raw primitive returns its former value, but
   // the public mutable-collection protocol is chainable.
   remove(_ k) {
-    self._$remove(k)
+    self.rawRemove(k)
   }
 
   clear {
     while (self.size > 0) {
-      self._$remove(self._$keyAt(0))
+      self.rawRemove(self.rawKeyAt(0))
     }
     return ()
   }
@@ -118,8 +118,8 @@ native class Map<K, V> is Collection {
     let result = Map<Dynamic, Dynamic>.new()
     if (record.is(Record)) {
       let i = 0
-      while (i < record._$size) {
-        result.insert(record._$valueAt(i), for: record._$labelAt(i))
+      while (i < record.rawSize) {
+        result.insert(record.rawValueAt(i), for: record.rawLabelAt(i))
         i = i + 1
       }
     }
@@ -134,9 +134,9 @@ native class Map<K, V> is Collection {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {
-        let k = self._$keyAt(i)
+        let k = self.rawKeyAt(i)
         same = other.get(k).match(
-          some: |value| { self._$valueAt(i) == value },
+          some: |value| { self.rawValueAt(i) == value },
           none: || { false }
         )
         i = i + 1
@@ -172,8 +172,8 @@ class MapIterator<K, V> {
       _done = true
       return None
     }
-    let key = _source._$keyAt(_index)
-    let value = _source._$valueAt(_index)
+    let key = _source.rawKeyAt(_index)
+    let value = _source.rawValueAt(_index)
     _index = _index + 1
     Some((key: key, value: value))
   }
@@ -203,7 +203,7 @@ class MapKeysView<K, V> is Collection {
 
   size { _map.size }
 
-  at(_ index) { _map._$keyAt(index) }
+  at(_ index) { _map.rawKeyAt(index) }
 
   iterator -> MapKeysIterator<K, V> { MapKeysIterator<K, V>.new(self) }
 }
@@ -216,7 +216,7 @@ class MapValuesView<K, V> is Collection {
 
   size { _map.size }
 
-  at(_ index) { _map._$valueAt(index) }
+  at(_ index) { _map.rawValueAt(index) }
 
   iterator -> MapValuesIterator<K, V> { MapValuesIterator<K, V>.new(self) }
 }
@@ -243,7 +243,7 @@ class MapEntriesView<K, V> is Collection {
 
   size { _map.size }
 
-  at(_ index) { (key: _map._$keyAt(index), value: _map._$valueAt(index)) }
+  at(_ index) { (key: _map.rawKeyAt(index), value: _map.rawValueAt(index)) }
 
   iterator -> MapEntriesIterator<K, V> { MapEntriesIterator<K, V>.new(self) }
 }

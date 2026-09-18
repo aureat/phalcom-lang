@@ -50,7 +50,7 @@ fn test_presentation_ir_and_virtual_source() {
 
     let virt = presentation.render_virtual_source();
     assert!(virt.contains("class Bool {"));
-    assert!(virt.contains("@native"));
+    assert!(virt.contains("native "));
     assert!(virt.contains("@intrinsic(BoolNot)"));
     assert!(virt.contains("@pure"));
 }
@@ -58,13 +58,10 @@ fn test_presentation_ir_and_virtual_source() {
 #[test]
 fn test_native_enum_merge_preserves_declarations() {
     let source = r#"
-@native
-enum Option<T> {
+native enum Option<T> {
     @variant Some(_ value: T)
     @variant None
 
-    @native
-    match(some: Dynamic, none: Dynamic) -> Dynamic
 }
 "#;
     let program = phalcom_ast::parser::parse_source(source, 0).expect("parse option source");

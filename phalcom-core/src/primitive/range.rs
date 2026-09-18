@@ -14,7 +14,7 @@ use crate::vm::VM;
 /// Signature: `Range::lower_` — `None` for omission, otherwise `Some(value)`.
 #[phalcom_native_macros::primitive(
     Range,
-    "_$lower",
+    "rawLower",
     returns = "Option<Number>",
     types = "() -> Option<Number>",
     effects = pure,
@@ -32,7 +32,7 @@ pub fn range_raw_lower(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 /// Signature: `Range::upper_` — `None` for omission, otherwise `Some(value)`.
 #[phalcom_native_macros::primitive(
     Range,
-    "_$upper",
+    "rawUpper",
     returns = "Option<Number>",
     types = "() -> Option<Number>",
     effects = pure,
@@ -50,7 +50,7 @@ pub fn range_raw_upper(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 /// Signature: `Range::upperInclusive_`.
 #[phalcom_native_macros::primitive(
     Range,
-    "_$upperInclusive",
+    "rawUpperInclusive",
     returns = Bool,
     types = "() -> Bool",
     effects = pure,

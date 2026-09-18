@@ -110,13 +110,13 @@ class Instant {
   }
 
   @class
-  internal _$from(_ clock: Clock, _ ticks: Int) -> Instant {
+  internal from(_ clock: Clock, _ ticks: Int) -> Instant {
     Instant.create(clock, ticks)
   }
 
-  internal _$clock -> Clock { _clock }
+  internal clock -> Clock { _clock }
 
-  internal _$ticks -> Int { _ticks }
+  internal ticks -> Int { _ticks }
 
   elapsed -> Duration {
     _clock.since(self)
@@ -125,23 +125,23 @@ class Instant {
   since(_ earlier: Instant) -> Duration {
     if not earlier.is(Instant) { throw ArgumentError.new("Instant.since: earlier must be an Instant") }
     self.requireSameClock(earlier)
-    Duration.nanoseconds(_ticks - earlier._$ticks)
+    Duration.nanoseconds(_ticks - earlier.ticks)
   }
 
   plus(_ duration: Duration) -> Instant {
     if not duration.is(Duration) { throw ArgumentError.new("Instant.plus: duration must be a Duration") }
-    Instant._$from(_clock, _ticks + duration.nanoseconds)
+    Instant.from(_clock, _ticks + duration.nanoseconds)
   }
 
   minus(_ duration: Duration) -> Instant {
     if not duration.is(Duration) { throw ArgumentError.new("Instant.minus: duration must be a Duration") }
-    Instant._$from(_clock, _ticks - duration.nanoseconds)
+    Instant.from(_clock, _ticks - duration.nanoseconds)
   }
 
   compare(_ other: Instant) -> Ordering {
     if not other.is(Instant) { throw ArgumentError.new("Instant.compare: other must be an Instant") }
     self.requireSameClock(other)
-    _ticks.compare(other._$ticks)
+    _ticks.compare(other.ticks)
   }
 
   <(_ other: Instant) -> Bool {
@@ -166,7 +166,7 @@ class Instant {
     if not other.is(Instant) {
       return false
     }
-    (_clock === other._$clock) and (_ticks == other._$ticks)
+    (_clock === other.clock) and (_ticks == other.ticks)
   }
 
   hash -> Int {
@@ -174,7 +174,7 @@ class Instant {
   }
 
   private requireSameClock(_ other: Instant) -> Unit {
-    if (_clock === other._$clock) {
+    if (_clock === other.clock) {
       return ()
     }
     ArgumentError.new("Instant values belong to different clocks").raise()
@@ -185,7 +185,7 @@ class Clock {
   @class _system
 
   @class
-  internal _$system -> Clock {
+  internal system -> Clock {
     if (_system == None) {
       _system = Clock.create()
     }
@@ -196,7 +196,7 @@ class Clock {
   private create() { self }
 
   now -> Instant {
-    self.instant(System._$monotonicNanoseconds)
+    self.instant(System.monotonicNanoseconds)
   }
 
   since(_ instant: Instant) -> Duration {
@@ -204,7 +204,7 @@ class Clock {
   }
 
   protected instant(_ ticks: Int) -> Instant {
-    Instant._$from(self, ticks)
+    Instant.from(self, ticks)
   }
 }
 

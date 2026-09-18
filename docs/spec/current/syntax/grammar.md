@@ -28,10 +28,10 @@ import_decl    := "import" IDENT
                  | "import" IDENT { "," IDENT } "from" IDENT
                  | "import" IDENT "as" IDENT
 
-class_decl     := "class" IDENT [ "is" IDENT ] "{" { member } "}"
+class_decl     := declaration_modifiers "class" IDENT [ "is" IDENT ] "{" { member } "}"
 trait_decl     := "trait" IDENT [ generic_parameters ] [ where_clause ]
                   "{" { behavior_member } "}"
-member         := { attribute } member_body
+member         := { attribute } declaration_modifiers member_body
 attribute      := "@" IDENT [ "(" [ arg { "," arg } ] ")" ]
 member_body    := setter_def | method_def | getter_def | field_init
 
@@ -43,7 +43,10 @@ behavior_member := { attribute } (setter_def | method_def | getter_def | index_d
 setter_def     := IDENT "=" param_list method_body
 method_def     := method_name param_list method_body
 getter_def     := IDENT method_body
-field_init     := FIELD "=" expr
+field_init     := [ "const" ] declaration_modifiers FIELD [ "=" expr ]
+declaration_modifiers := [ visibility_modifier ] [ implementation_modifier ]
+visibility_modifier := "private" | "protected" | "module" | "package" | "internal"
+implementation_modifier := "native" | "foreign"
 index_def      := "[" [ param { "," param } ] "]" [ "->" type ] [ method_body ]
 
 method_name    := IDENT | operator
@@ -200,6 +203,8 @@ keyword        := "let" | "const" | "class" | "trait"
                  | "break" | "continue" | "return" | "and" | "or" | "not" | "is"
                  | "true" | "false" | "import" | "as" | "throw"
                  | "try" | "catch" | "on" | "ensure"
+                 | "native" | "foreign" | "private" | "protected" | "module"
+                 | "package" | "internal"
 
 (* punctuation / operators, used directly as literals above; listed here for
    reference only — not a nonterminal:

@@ -590,11 +590,7 @@ impl<'vm> Compiler<'vm> {
                 {
                     return Ok(());
                 }
-                let internal_call = method_call.method.starts_with("_$");
-                let is_invariant_guard = method_call.method == "_$invariantEnter" || method_call.method == "_$invariantExit";
-                if internal_call && !is_invariant_guard && !self.compiling_privileged_universe() && !self.compiler_internal {
-                    return Err(CompilerError::InternalNamespaceReserved(method_call.method.clone(), method_call.range));
-                }
+                let is_invariant_guard = method_call.method == "invariantEnter" || method_call.method == "invariantExit";
                 if method_call.method == "call"
                     && self.compile_family_application_call(method_call.object.clone(), method_call.args.clone(), method_call.range)?
                 {
@@ -607,7 +603,7 @@ impl<'vm> Compiler<'vm> {
                         method_call.method,
                         method_call.args,
                         PackSendKind::Method,
-                        if internal_call { PackAccess::CompilerInternal } else { PackAccess::Ordinary },
+                        PackAccess::Ordinary,
                         method_call.range,
                     );
                 }
@@ -753,7 +749,7 @@ impl<'vm> Compiler<'vm> {
                                 method_call.range,
                             );
                         } else {
-                            self.emit_invoke(arity, selector_idx, method_call.range, internal_call)?;
+                            self.emit_invoke(arity, selector_idx, method_call.range, false)?;
                         }
                     }
                 }
@@ -1363,19 +1359,7 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
             }
-            Expr::ImplementationSelector { value, range } => {
-                if !self.compiling_privileged_universe() {
-                    return Err(CompilerError::InternalNamespaceReserved(value, range));
-                }
-                self.emit_self(range);
-                let selector_sym = self.vm.interner.intern(&value);
-                let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                self.emit(Bytecode::Invoke(0, selector_idx), range);
-            }
             Expr::Field { value, kind, range } => {
-                if matches!(kind, phalcom_ast::ast::FieldKind::Implementation) && !self.compiling_privileged_universe() {
-                    return Err(CompilerError::InternalNamespaceReserved(value, range));
-                }
                 let name_sym = self.vm.interner.intern(&value);
                 let class_key = self
                     .current_class
@@ -1452,10 +1436,7 @@ impl<'vm> Compiler<'vm> {
                             self.emit(Bytecode::SetGlobal(name_idx), range);
                         }
                     }
-                    Expr::Field { value, kind, range } => {
-                        if matches!(kind, phalcom_ast::ast::FieldKind::Implementation) && !self.compiling_privileged_universe() {
-                            return Err(CompilerError::InternalNamespaceReserved(value, range));
-                        }
+                    Expr::Field { value, kind: _, range } => {
                         let name_sym = self.vm.interner.intern(&value);
                         let class_key = self
                             .current_class

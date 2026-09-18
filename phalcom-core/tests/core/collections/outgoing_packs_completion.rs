@@ -494,7 +494,7 @@ fn ordinary_source_cannot_mint_compiler_internal_pack_authority() {
 class Receiver {}
 let receiver = Receiver.new()
 let args = (1,)
-receiver._$f2InternalProbe(*args)
+receiver.f2InternalProbe(*args)
 "#,
         )
     })

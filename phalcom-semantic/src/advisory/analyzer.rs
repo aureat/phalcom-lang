@@ -411,7 +411,7 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
             }
             unknown_at(context, range)
         }
-        Expr::SuperVar { .. } | Expr::ImplementationSelector { .. } | Expr::Ellipsis { .. } | Expr::TypeForm(_) => unknown_at(context, range),
+        Expr::SuperVar { .. } | Expr::Ellipsis { .. } | Expr::TypeForm(_) => unknown_at(context, range),
     }
 }
 

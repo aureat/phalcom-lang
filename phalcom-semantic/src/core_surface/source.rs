@@ -1,7 +1,7 @@
 //! Source core declaration surface extraction.
 
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
-use phalcom_ast::ast::{ClassMember, Program, Statement};
+use phalcom_ast::ast::{ClassMember, ImplementationKind, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
@@ -105,7 +105,7 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                                     is_setter: false,
                                     range: m.range,
                                     doc_comment: None,
-                                    binding_role: source_native_binding_role(&m.attributes),
+                                    binding_role: source_native_binding_role(&m.attributes, m.implementation),
                                 });
                             }
                         }
@@ -119,7 +119,7 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                                     is_setter: false,
                                     range: g.range,
                                     doc_comment: None,
-                                    binding_role: source_native_binding_role(&g.attributes),
+                                    binding_role: source_native_binding_role(&g.attributes, g.implementation),
                                 });
                             }
                         }
@@ -133,7 +133,7 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                                     is_setter: true,
                                     range: s.range,
                                     doc_comment: None,
-                                    binding_role: source_native_binding_role(&s.attributes),
+                                    binding_role: source_native_binding_role(&s.attributes, s.implementation),
                                 });
                             }
                         }
@@ -152,12 +152,12 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
             }
             Statement::Enum(enum_def) => {
                 let enum_decl = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                let enum_binding_role = source_native_binding_role(&enum_def.attributes);
+                let enum_binding_role = source_native_binding_role(&enum_def.attributes, enum_def.implementation);
                 let mut variants = Vec::new();
 
                 for v in &enum_def.variants {
                     let sel = phalcom_ast::selector::selector_from_variant(v);
-                    let v_binding_role = match source_native_binding_role(&v.attributes) {
+                    let v_binding_role = match source_native_binding_role(&v.attributes, ImplementationKind::Phalcom) {
                         SourceNativeBindingRole::None => enum_binding_role,
                         role => role,
                     };
@@ -185,13 +185,13 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
     declarations
 }
 
-pub fn source_native_binding_role(attributes: &[phalcom_ast::ast::Attribute]) -> SourceNativeBindingRole {
+pub fn source_native_binding_role(attributes: &[phalcom_ast::ast::Attribute], implementation: ImplementationKind) -> SourceNativeBindingRole {
     if attributes
         .iter()
         .any(|attribute| matches!(attribute.name.as_str(), "wrapsNative" | "wrap_native" | "nativeWrapper"))
     {
         SourceNativeBindingRole::WrapperOverNative
-    } else if attributes.iter().any(|attribute| attribute.name == "native") {
+    } else if implementation == ImplementationKind::Native {
         SourceNativeBindingRole::DeclarationImplementation
     } else {
         SourceNativeBindingRole::None

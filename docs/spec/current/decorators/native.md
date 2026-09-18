@@ -1,4 +1,10 @@
-# `@native` — a `.ph` source anchor for a Rust primitive
+# `@native` — retired source-anchor attribute
+
+> This draft attribute specification is retained for migration history. The
+> current contract is [Source Declarations, Access Domains, and Implementation
+> Origin](../../../specs/source-declarations.md) and TDR-0082. Native source
+> declarations now use the `native` declaration modifier; `@native` must not
+> populate implementation metadata, remove members, or grant access.
 
 - Status: **Implemented.** `native` is registered in `AttributeRegistry::new`
   (`NativeExpander`); the drop is provisional (see "The dropping is

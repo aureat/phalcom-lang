@@ -816,11 +816,11 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "===(_)"),
         (c.object_class, false, "matches(_)"),
         (c.object_class, false, "understands(_)"),
-        (c.object_class, false, "_$invariantEnter()"),   // NEW_INVARIANT_GUARD (ADR-0052)
-        (c.object_class, false, "_$invariantExit()"),    // NEW_INVARIANT_GUARD (ADR-0052)
-        (c.object_class, false, "_$attach(_)"),          // NEW_ATTR_ROOT (M-ATTR-ROOT)
-        (c.object_class, false, "_$attributes"),         // NEW_ATTR_ROOT (M-ATTR-ROOT)
-        (c.object_class, false, "_$freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "invariantEnter()"),   // NEW_INVARIANT_GUARD (ADR-0052)
+        (c.object_class, false, "invariantExit()"),    // NEW_INVARIANT_GUARD (ADR-0052)
+        (c.object_class, false, "attachAttribute(_)"),          // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "rawAttributes"),         // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
         (c.behavior_class, false, "superclass=(_)"),
@@ -840,7 +840,7 @@ fn floor_census_matches_installed_bindings() {
         (c.behavior_class, false, "subtypeOf(_)"),
         // §2.3 Class
         (c.class_class, false, "+(_)"),
-        (c.class_class, false, "_$new()"),
+        (c.class_class, false, "allocate()"),
         // §2.4 Number
         (c.number_class, false, "+(_)"),
         (c.number_class, false, "-(_)"),
@@ -866,9 +866,9 @@ fn floor_census_matches_installed_bindings() {
         (c.string_class, true, "new()"),
         (c.string_class, true, "new(_)"),
         // U-STRING raw byte accessors (ADR-0049 amendment)
-        (c.string_class, false, "_$byteCount"),  // NEW (ADR-0049)
-        (c.string_class, false, "_$byteAt(_)"),  // NEW (ADR-0049)
-        (c.string_class, false, "_$slice(_,_)"), // NEW (ADR-0049)
+        (c.string_class, false, "rawByteCount"),  // NEW (ADR-0049)
+        (c.string_class, false, "rawByteAt(_)"),  // NEW (ADR-0049)
+        (c.string_class, false, "rawSlice(_,_)"), // NEW (ADR-0049)
         // §2.6 Bool
         (c.bool_class, true, "new()"),
         (c.bool_class, true, "new(_)"),
@@ -919,7 +919,7 @@ fn floor_census_matches_installed_bindings() {
         (c.method_class, false, "isNative"),           // Spec 03.5 provenance
         (c.method_class, false, "isIntrinsic"),        // Spec 03.5 provenance
         (c.method_class, false, "implementationKind"), // Spec 03.5 provenance
-        (c.method_class, false, "_$attributes"),       // M-ATTR-ROOT source anchor
+        (c.method_class, false, "rawAttributes"),       // M-ATTR-ROOT source anchor
         // §2.9 MethodFamily
         (c.method_family_class, false, "selectors"),
         (c.method_family_class, false, "size"),
@@ -955,9 +955,9 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "schedule(_)"),
         (c.system_class, true, "gc"),
         // U-STRING raw I/O seam (ADR-0049 amendment)
-        (c.system_class, true, "_$write(_)"), // NEW (ADR-0049)
+        (c.system_class, true, "rawWrite(_)"), // NEW (ADR-0049)
         // STDL002.C1.P1: the only native floor operation for monotonic time.
-        (c.system_class, true, "_$monotonicNanoseconds"),
+        (c.system_class, true, "monotonicNanoseconds"),
         // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
         (c.module_class, false, "doesNotUnderstand(_)"),
@@ -983,24 +983,24 @@ fn floor_census_matches_installed_bindings() {
         (c.module_class, false, "toString"),
         // §2.13 List
         (c.list_class, true, "new()"),
-        (c.list_class, false, "_$length"),
-        (c.list_class, false, "_$at(_)"),
-        (c.list_class, false, "_$set(_,_)"),
-        (c.list_class, false, "_$push(_)"),
-        (c.list_class, false, "_$replaceSlice(_,_,_)"),
+        (c.list_class, false, "rawLength"),
+        (c.list_class, false, "rawAt(_)"),
+        (c.list_class, false, "rawSet(_,_)"),
+        (c.list_class, false, "rawPush(_)"),
+        (c.list_class, false, "rawReplaceSlice(_,_,_)"),
         (c.list_class, false, "toString"),
         // §2.x Bytes (PDR-0011 ruling 3 + PDR-0013 ruling 4, U-BYTES)
         (c.bytes_class, true, "new(_)"),
-        (c.bytes_class, true, "_$fromString(_)"),
-        (c.bytes_class, false, "_$size"),
-        (c.bytes_class, false, "_$at(_)"),
-        (c.bytes_class, false, "_$set(_,_)"),
-        (c.bytes_class, false, "_$fill(_)"),
-        (c.bytes_class, false, "_$slice(_,_)"),
-        (c.bytes_class, false, "_$copyInto(_,_)"),
-        (c.bytes_class, false, "_$utf8"),
-        (c.bytes_class, false, "_$utf8Lossy"),
-        (c.bytes_class, false, "_$equalsConstantTime(_)"),
+        (c.bytes_class, true, "rawFromString(_)"),
+        (c.bytes_class, false, "rawSize"),
+        (c.bytes_class, false, "rawAt(_)"),
+        (c.bytes_class, false, "rawSet(_,_)"),
+        (c.bytes_class, false, "rawFill(_)"),
+        (c.bytes_class, false, "rawSlice(_,_)"),
+        (c.bytes_class, false, "rawCopyInto(_,_)"),
+        (c.bytes_class, false, "rawUtf8"),
+        (c.bytes_class, false, "rawUtf8Lossy"),
+        (c.bytes_class, false, "rawEqualsConstantTime(_)"),
         // §2.14 Message
         (c.message_class, false, "selector"),
         (c.message_class, false, "name"),
@@ -1011,37 +1011,37 @@ fn floor_census_matches_installed_bindings() {
         (c.error_class, false, "raise()"),
         // Map/Set (U-COLLTYPES Phase 1, ADR-0039) — NEW_MAP_SET
         (c.map_class, true, "new()"),
-        (c.map_class, false, "_$size"),
-        (c.map_class, false, "_$get(_)"),
-        (c.map_class, false, "_$put(_,_)"),
-        (c.map_class, false, "_$has(_)"),
-        (c.map_class, false, "_$remove(_)"),
-        (c.map_class, false, "_$keyAt(_)"),
-        (c.map_class, false, "_$valueAt(_)"),
+        (c.map_class, false, "rawSize"),
+        (c.map_class, false, "rawGet(_)"),
+        (c.map_class, false, "rawPut(_,_)"),
+        (c.map_class, false, "rawHas(_)"),
+        (c.map_class, false, "rawRemove(_)"),
+        (c.map_class, false, "rawKeyAt(_)"),
+        (c.map_class, false, "rawValueAt(_)"),
         (c.set_class, true, "new()"),
-        (c.set_class, false, "_$size"),
-        (c.set_class, false, "_$add(_)"),
-        (c.set_class, false, "_$has(_)"),
-        (c.set_class, false, "_$remove(_)"),
-        (c.set_class, false, "_$at(_)"),
+        (c.set_class, false, "rawSize"),
+        (c.set_class, false, "rawAdd(_)"),
+        (c.set_class, false, "rawHas(_)"),
+        (c.set_class, false, "rawRemove(_)"),
+        (c.set_class, false, "rawAt(_)"),
         // Tuple (U-COLLTYPES Phase 2, ADR-0039) — NEW_TUPLE
-        (c.tuple_class, true, "_$fromList(_)"),
-        (c.tuple_class, false, "_$size"),
-        (c.tuple_class, false, "_$at(_)"),
-        (c.tuple_class, false, "_$positionalSize"),
-        (c.tuple_class, false, "_$labelAt(_)"),
-        (c.tuple_class, false, "_$positionals"),
-        (c.tuple_class, false, "_$labeled"),
-        (c.tuple_class, false, "_$slice(_,_)"),
+        (c.tuple_class, true, "rawFromList(_)"),
+        (c.tuple_class, false, "rawSize"),
+        (c.tuple_class, false, "rawAt(_)"),
+        (c.tuple_class, false, "rawPositionalSize"),
+        (c.tuple_class, false, "rawLabelAt(_)"),
+        (c.tuple_class, false, "rawPositionals"),
+        (c.tuple_class, false, "rawLabeled"),
+        (c.tuple_class, false, "rawSlice(_,_)"),
         // Record (Spec A product foundations) — NEW_RECORD
-        (c.record_class, false, "_$size"),
-        (c.record_class, false, "_$labelAt(_)"),
-        (c.record_class, false, "_$valueAt(_)"),
+        (c.record_class, false, "rawSize"),
+        (c.record_class, false, "rawLabelAt(_)"),
+        (c.record_class, false, "rawValueAt(_)"),
         // Range construction is direct `BuildRange` bytecode; only these
         // native observers belong to the floor.
-        (c.range_class, false, "_$lower"),
-        (c.range_class, false, "_$upper"),
-        (c.range_class, false, "_$upperInclusive"),
+        (c.range_class, false, "rawLower"),
+        (c.range_class, false, "rawUpper"),
+        (c.range_class, false, "rawUpperInclusive"),
         // Fiber (ADR-0030) — NEW_FIBER. Installed since the fiber work landed;
         // audited only from 2026-07-15 (DEFERRED CB-5). `universe/primitives.rs`
         // L362-374, `primitive/fiber.rs`.
@@ -1057,20 +1057,20 @@ fn floor_census_matches_installed_bindings() {
         (c.fiber_class, false, "isDone"),
         (c.fiber_class, false, "isRoot"),
         (c.fiber_class, false, "error"),
-        (c.fiber_class, false, "_$resumeScheduled()"),
-        (c.fiber_class, false, "_$preparePark()"),
-        (c.fiber_class, false, "_$park(_)"),
-        (c.fiber_class, false, "_$onComplete(_)"),
-        (c.fiber_class, false, "_$terminalValue"),
+        (c.fiber_class, false, "resumeScheduled()"),
+        (c.fiber_class, false, "preparePark()"),
+        (c.fiber_class, false, "park(_)"),
+        (c.fiber_class, false, "onComplete(_)"),
+        (c.fiber_class, false, "terminalValue"),
         // System (Resource tracking primitives)
-        (c.system_class, true, "_$leakReport"),
-        (c.system_class, true, "_$strictResources(_)"),
-        (c.system_class, true, "_$nextScheduled"),
-        (c.system_class, true, "_$schedulerFailureCursor"),
-        (c.system_class, true, "_$takeUnhandledScheduledFailures(_)"),
-        (c.system_class, true, "_$reportUnhandledScheduledFailures"),
-        (c.system_class, true, "_$wake(_,_)"),
-        (c.system_class, true, "_$sleep(_)"),
+        (c.system_class, true, "leakReport"),
+        (c.system_class, true, "strictResources(_)"),
+        (c.system_class, true, "nextScheduled"),
+        (c.system_class, true, "schedulerFailureCursor"),
+        (c.system_class, true, "takeUnhandledScheduledFailures(_)"),
+        (c.system_class, true, "reportUnhandledScheduledFailures"),
+        (c.system_class, true, "wake(_,_)"),
+        (c.system_class, true, "sleepRaw(_)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).

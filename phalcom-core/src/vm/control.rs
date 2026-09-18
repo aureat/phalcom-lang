@@ -618,6 +618,7 @@ impl VM {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::method::RuntimeAccessOrigin;
     use crate::value::Value;
 
     #[test]
@@ -630,7 +631,7 @@ mod tests {
             None,
             0,
             0,
-            (None, false),
+            (None, RuntimeAccessOrigin::none()),
             SourceRange::default(),
             ControlDestination::StackOperand { target_index: 0 },
             ControlPhase::WhileCondition {
@@ -642,7 +643,7 @@ mod tests {
             None,
             1,
             1,
-            (None, false),
+            (None, RuntimeAccessOrigin::none()),
             SourceRange::default(),
             ControlDestination::ControlActivation { id: id1 },
             ControlPhase::EnsureBody { cleanup: Value::nil() },
@@ -669,7 +670,7 @@ mod tests {
             None,
             0,
             0,
-            (None, false),
+            (None, RuntimeAccessOrigin::none()),
             SourceRange::default(),
             ControlDestination::StackOperand { target_index: 0 },
             ControlPhase::OnBody {
@@ -681,7 +682,7 @@ mod tests {
             None,
             0,
             0,
-            (None, false),
+            (None, RuntimeAccessOrigin::none()),
             SourceRange::default(),
             ControlDestination::StackOperand { target_index: 0 },
             ControlPhase::EnsureCleanup {

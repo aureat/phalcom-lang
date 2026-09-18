@@ -309,7 +309,7 @@ pub fn build_enum_semantics(
                 diagnostics.push(SemanticDiagnostic::error_in(
                     module_id.clone(),
                     DiagnosticCode::EnumVariantVisibilityInvalid,
-                    format!("`@protected` is not supported on enum variant `{}`", variant.name),
+                    format!("`protected` is not supported on enum variant `{}`", variant.name),
                     attr.range,
                 ));
             }

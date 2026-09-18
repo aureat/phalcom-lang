@@ -3096,7 +3096,6 @@ impl<'source> Parser<'source> {
                 | Token::False
                 | Token::Identifier(_)
                 | Token::FieldIdentifier(_)
-                | Token::ImplementationFieldIdentifier(_)
                 | Token::Hash
                 | Token::SelfKw
                 | Token::Super
@@ -3624,7 +3623,7 @@ impl<'source> Parser<'source> {
             }
             if matches!(
                 self.peek(),
-                Token::Const | Token::Let | Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_)
+                Token::Const | Token::Let | Token::FieldIdentifier(_)
             ) {
                 let start = self.tokens[self.pos].start;
                 let end = self.tokens[self.pos].end;
@@ -3701,7 +3700,7 @@ impl<'source> Parser<'source> {
             }
             if matches!(
                 self.peek(),
-                Token::Const | Token::Let | Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_)
+                Token::Const | Token::Let | Token::FieldIdentifier(_)
             ) {
                 let start = self.tokens[self.pos].start;
                 let end = self.tokens[self.pos].end;
@@ -4135,7 +4134,7 @@ impl<'source> Parser<'source> {
             return false;
         }
         match self.peek_at(1) {
-            Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_) => {
+            Token::FieldIdentifier(_) => {
                 matches!(self.peek_at(2), Token::Newline | Token::RBrace | Token::Eof | Token::Equal | Token::Colon)
             }
             Token::Identifier(_) => self.at_contextual_word_at(2, "via"),
@@ -4192,7 +4191,7 @@ impl<'source> Parser<'source> {
 
         let target_start = self.cur_start();
         let target_field = match self.peek().clone() {
-            Token::FieldIdentifier(name) | Token::ImplementationFieldIdentifier(name) => {
+            Token::FieldIdentifier(name) => {
                 self.advance();
                 name
             }
@@ -4546,8 +4545,8 @@ impl<'source> Parser<'source> {
     /// to consume at all, so [`Self::parse_class_member`] dispatches here
     /// without advancing past anything first.
     ///
-    /// Field eligibility is structural: lexer emits `FieldIdentifier` or
-    /// `ImplementationFieldIdentifier`. Parser does not repeat prefix tests.
+    /// Field eligibility is structural: lexer emits `FieldIdentifier`.
+    /// Prefixes do not carry semantics.
     ///
     /// # Errors
     ///
@@ -4564,7 +4563,7 @@ impl<'source> Parser<'source> {
         }
         let name_start = self.cur_start();
         let name = match self.peek().clone() {
-            Token::FieldIdentifier(n) | Token::ImplementationFieldIdentifier(n) => {
+            Token::FieldIdentifier(n) => {
                 self.advance();
                 n
             }
@@ -4630,7 +4629,7 @@ impl<'source> Parser<'source> {
                 range,
             });
         }
-        if self.starts_mut_member() && matches!(self.peek_at(1), Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_)) {
+        if self.starts_mut_member() && matches!(self.peek_at(1), Token::FieldIdentifier(_)) {
             self.advance();
             return self.parse_field_decl(start, false, modifiers);
         }
@@ -4641,7 +4640,7 @@ impl<'source> Parser<'source> {
                 range,
             });
         }
-        if matches!(self.peek(), Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_))
+        if matches!(self.peek(), Token::FieldIdentifier(_))
             && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal | Token::Colon)
         {
             return self.parse_field_decl(start, false, modifiers);
@@ -4907,13 +4906,13 @@ impl<'source> Parser<'source> {
     /// operator usable as a selector.
     fn parse_method_name(&mut self) -> ParserResult<String> {
         let name = match self.peek() {
-            Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_) => {
+            Token::FieldIdentifier(_) => {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message("a field identifier cannot be used as a method name".to_string()),
                     range: self.tokens[self.pos].start..self.tokens[self.pos].end,
                 });
             }
-            Token::Identifier(n) | Token::ImplementationSelectorIdentifier(n) => n.clone(),
+            Token::Identifier(n) => n.clone(),
             Token::Plus => "+".to_string(),
             Token::Minus => "-".to_string(),
             Token::Asterisk => "*".to_string(),
@@ -6088,7 +6087,6 @@ impl<'source> Parser<'source> {
                 } else {
                     match self.peek() {
                         Token::FieldIdentifier(_) => Some(FieldKind::Source),
-                        Token::ImplementationFieldIdentifier(_) => Some(FieldKind::Implementation),
                         _ => None,
                     }
                 };
@@ -6134,13 +6132,6 @@ impl<'source> Parser<'source> {
                     Expr::Var { value, range: name_range } => Expr::UnqualifiedCall(Box::new(UnqualifiedCallExpr {
                         name: value,
                         name_range: Some(name_range),
-                        args,
-                        range,
-                    })),
-                    Expr::ImplementationSelector { value, range: method_range } => Expr::MethodCall(Box::new(MethodCallExpr {
-                        object: Expr::SelfVar { range },
-                        method: value,
-                        method_range: Some(method_range),
                         args,
                         range,
                     })),
@@ -6526,13 +6517,6 @@ impl<'source> Parser<'source> {
                         Expr::Var { value, range: name_range } => Expr::UnqualifiedCall(Box::new(UnqualifiedCallExpr {
                             name: value,
                             name_range: Some(name_range),
-                            args,
-                            range,
-                        })),
-                        Expr::ImplementationSelector { value, range: method_range } => Expr::MethodCall(Box::new(MethodCallExpr {
-                            object: Expr::SelfVar { range },
-                            method: value,
-                            method_range: Some(method_range),
                             args,
                             range,
                         })),
@@ -7135,10 +7119,7 @@ impl<'source> Parser<'source> {
     /// Returns an error if the token following `.` is none of the above.
     fn parse_property_name(&mut self) -> ParserResult<String> {
         let name = match self.peek().clone() {
-            Token::Identifier(name)
-            | Token::FieldIdentifier(name)
-            | Token::ImplementationFieldIdentifier(name)
-            | Token::ImplementationSelectorIdentifier(name) => name,
+            Token::Identifier(name) | Token::FieldIdentifier(name) => name,
             Token::Class => "class".to_string(),
             Token::Enum => "enum".to_string(),
             // `try` is a genuine reserved keyword (statement-leading, ADR-0031
@@ -7533,14 +7514,6 @@ impl<'source> Parser<'source> {
                     range,
                 })
             }
-            Token::ImplementationFieldIdentifier(value) => {
-                self.advance();
-                Ok(Expr::Field {
-                    value,
-                    kind: FieldKind::Implementation,
-                    range,
-                })
-            }
             Token::Underscore => {
                 self.advance();
                 Ok(Expr::Var { value: "_".to_string(), range })
@@ -7548,10 +7521,6 @@ impl<'source> Parser<'source> {
             Token::Identifier(value) => {
                 self.advance();
                 Ok(Expr::Var { value, range })
-            }
-            Token::ImplementationSelectorIdentifier(value) => {
-                self.advance();
-                Ok(Expr::ImplementationSelector { value, range })
             }
             Token::SelfKw => {
                 self.advance();
@@ -8118,10 +8087,7 @@ impl<'source> Parser<'source> {
         let mut next = self.pos + 2;
         if matches!(
             &base.token,
-            Token::Identifier(_)
-                | Token::FieldIdentifier(_)
-                | Token::ImplementationFieldIdentifier(_)
-                | Token::ImplementationSelectorIdentifier(_)
+            Token::Identifier(_) | Token::FieldIdentifier(_)
                 | Token::Underscore
         ) {
             if let Some(open) = self.tokens.get(next) {
@@ -8724,7 +8690,7 @@ mod tests {
     #[test]
     fn class_keyword_is_valid_selector_in_class_members() {
         let source =
-            "@native\nclass Object {\n  @native\n  class -> Dynamic\n  @native\n  class=(_ value: Dynamic) -> Dynamic\n  @native\n  try() -> Dynamic\n}\n";
+            "native class Object {\n  native class -> Dynamic\n  native class=(_ value: Dynamic) -> Dynamic\n  native try() -> Dynamic\n}\n";
         let program = parse_source(source, 0).expect("class selectors must parse");
         let Statement::Class(class) = program.statements.into_iter().next().expect("class statement") else {
             panic!("expected class declaration");
@@ -8736,7 +8702,7 @@ mod tests {
 
     #[test]
     fn generic_return_declaration_accepts_next_member_attribute() {
-        let source = "class Holder {\n  value -> Option<Int>\n  @native\n  next -> Int\n}\n";
+        let source = "class Holder {\n  value -> Option<Int>\n  native next -> Int\n}\n";
         let program = parse_source(source, 0).expect("generic declaration must terminate before next attribute");
         let Statement::Class(class) = program.statements.into_iter().next().expect("class statement") else {
             panic!("expected class declaration");

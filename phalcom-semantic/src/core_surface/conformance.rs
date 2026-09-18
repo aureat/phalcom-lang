@@ -4,7 +4,7 @@ use crate::declarations::{DeclarationTypeTable, lower_kind_spec};
 use crate::identity::{DeclarationId, ModuleId};
 use crate::types::native::resolve_native_type_form;
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::Statement;
+use phalcom_ast::ast::{ImplementationKind, Statement};
 use phalcom_modules::{ModuleComponent, ModulePath, UniverseSourceProvider};
 use phalcom_native_meta::TypeExprSpec;
 use phalcom_native_meta::universe::{UNIVERSE_BINDINGS, UNIVERSE_CLASS_RELATIONS, UNIVERSE_TYPE_FORMS, UniverseBindingKind, UniverseKey};
@@ -54,7 +54,7 @@ fn source_nominal(provider: &UniverseSourceProvider, key: UniverseKey) -> Result
                     kind: SourceNominalKind::Class,
                     arity: class_def.generic_parameters.len(),
                     superclass: class_def.superclass_ref().map(|reference| reference.leaf_name().to_owned()),
-                    native: class_def.attributes.iter().any(|attribute| attribute.name == "native"),
+                    native: class_def.implementation == ImplementationKind::Native,
                 }));
             }
             Statement::Enum(enum_def) if enum_def.name == key.name() => {
@@ -62,7 +62,7 @@ fn source_nominal(provider: &UniverseSourceProvider, key: UniverseKey) -> Result
                     kind: SourceNominalKind::Enum,
                     arity: enum_def.generic_parameters.len(),
                     superclass: None,
-                    native: enum_def.attributes.iter().any(|attribute| attribute.name == "native"),
+                    native: enum_def.implementation == ImplementationKind::Native,
                 }));
             }
             _ => {}
@@ -115,7 +115,7 @@ fn validate_source_declaration_conformance(
             ));
         }
         if binding.kind == UniverseBindingKind::Class && !source.native {
-            failures.push(format!("{:?}: canonical source declaration is not marked @native", binding.key));
+            failures.push(format!("{:?}: canonical source declaration is not marked native", binding.key));
         }
         if source.kind == SourceNominalKind::Class {
             let expected_superclass = UNIVERSE_CLASS_RELATIONS

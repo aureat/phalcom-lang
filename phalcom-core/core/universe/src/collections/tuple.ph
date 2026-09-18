@@ -7,18 +7,18 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 
 native class Tuple is Collection {
   @class
-  internal native _$fromList(_ value: List<Dynamic>) -> Tuple
-  internal native _$size -> Int
-  internal native _$at(_ index: Int) -> Dynamic
-  internal native _$positionalSize -> Int
-  internal native _$labelAt(_ index: Int) -> Symbol
-  internal native _$positionals -> List<Dynamic>
-  internal native _$labeled -> Map<Symbol, Dynamic>
-  internal native _$slice(_ start: Int, _ end: Int) -> Tuple
-  size { self._$size }
-  positionals { self._$positionals }
-  labeled { self._$labeled }
-  labelAt(_ index) { self._$labelAt(index) }
+  internal native rawFromList(_ value: List<Dynamic>) -> Tuple
+  internal native rawSize -> Int
+  internal native rawAt(_ index: Int) -> Dynamic
+  internal native rawPositionalSize -> Int
+  internal native rawLabelAt(_ index: Int) -> Symbol
+  internal native rawPositionals -> List<Dynamic>
+  internal native rawLabeled -> Map<Symbol, Dynamic>
+  internal native rawSlice(_ start: Int, _ end: Int) -> Tuple
+  size { self.rawSize }
+  positionals { self.rawPositionals }
+  labeled { self.rawLabeled }
+  labelAt(_ index) { self.rawLabelAt(index) }
 
   first {
     if (self.size == 0) { return None }
@@ -36,38 +36,36 @@ native class Tuple is Collection {
   toString {
     let s = "("
     let i = 0
-    while (i < self._$size) {
+    while (i < self.rawSize) {
       s = s + (i > 0).ifTrue(|| { ", " }, ifFalse: || { "" })
-      s = s + self._$at(i).toString
+      s = s + self.rawAt(i).toString
       i = i + 1
     }
     return s + ")"
   }
 
-  at(_ i) { self._$at(i) }
+  at(_ i) { self.rawAt(i) }
 
-  private
-  findLabel(_ sym) {
-    let num_labeled = self.size - self._$positionalSize
+  private findLabel(_ sym) {
+    let num_labeled = self.size - self.rawPositionalSize
     let i = 0
     while (i < num_labeled) {
-      if (self._$labelAt(i) == sym) {
-        return Some(self._$positionalSize + i)
+      if (self.rawLabelAt(i) == sym) {
+        return Some(self.rawPositionalSize + i)
       }
       i = i + 1
     }
     return None
   }
 
-  private
-  access(_ key) {
+  private access(_ key) {
     if (key.is(Symbol)) {
       return self.findLabel(key).match(
-        some: |idx| { Some(self._$at(idx)) },
+        some: |idx| { Some(self.rawAt(idx)) },
         none: || { None }
       )
     }
-    let raw = self._$at(key)
+    let raw = self.rawAt(key)
     let len = self.size
     let i = key
     if (i < 0) { i = len + i }
@@ -81,23 +79,23 @@ native class Tuple is Collection {
 
   [_ key] {
     if (key.is(Range)) {
-      return key._$sliceBounds(self.size).match(
+      return key.rawSliceBounds(self.size).match(
         ok: |bounds| {
           let start = bounds[0]
           let end = bounds[1]
           if (start > end) { end = start }
-          self._$slice(start, end)
+          self.rawSlice(start, end)
         },
         err: |error| { error.raise() }
       )
     }
     if (key.is(Symbol)) {
       return self.findLabel(key).match(
-        some: |idx| { self._$at(idx) },
+        some: |idx| { self.rawAt(idx) },
         none: || { throw KeyError.new("Tuple label not found") }
       )
     }
-    let raw = self._$at(key)
+    let raw = self.rawAt(key)
     let len = self.size
     let i = key
     if (i < 0) { i = len + i }
@@ -110,11 +108,11 @@ native class Tuple is Collection {
   [_ key, default] {
     if (key.is(Symbol)) {
       return self.findLabel(key).match(
-        some: |idx| { self._$at(idx) },
+        some: |idx| { self.rawAt(idx) },
         none: || { default }
       )
     }
-    let raw = self._$at(key)
+    let raw = self.rawAt(key)
     let len = self.size
     let i = key
     if (i < 0) { i = len + i }
@@ -127,11 +125,11 @@ native class Tuple is Collection {
   get(_ key, orElse) {
     if (key.is(Symbol)) {
       return self.findLabel(key).match(
-        some: |idx| { self._$at(idx) },
+        some: |idx| { self.rawAt(idx) },
         none: || { orElse.call(key) }
       )
     }
-    let raw = self._$at(key)
+    let raw = self.rawAt(key)
     let len = self.size
     let i = key
     if (i < 0) { i = len + i }
@@ -145,7 +143,7 @@ native class Tuple is Collection {
     if (message.args == ()) {
       let idx = self.findLabel(message.selector)
       return idx.match(
-        some: |i| { self._$at(i) },
+        some: |i| { self.rawAt(i) },
         none: || { super.doesNotUnderstand(message) }
       )
     }
@@ -160,10 +158,10 @@ native class Tuple is Collection {
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
   ==(_ other) {
     if (other.is(Tuple)) {
-      let same = (self.size == other.size) and (self._$positionalSize == other._$positionalSize)
+      let same = (self.size == other.size) and (self.rawPositionalSize == other.rawPositionalSize)
       let i = 0
-      while (same and (i < self.size - self._$positionalSize)) {
-        same = (self._$labelAt(i) == other._$labelAt(i))
+      while (same and (i < self.size - self.rawPositionalSize)) {
+        same = (self.rawLabelAt(i) == other.rawLabelAt(i))
         i = i + 1
       }
       i = 0
@@ -189,15 +187,15 @@ native class Tuple is Collection {
   // Bounded by a large prime modulus so the accumulator stays a stable,
   // comparable Number regardless of tuple length.
   hash {
-    let acc = 17 + self._$positionalSize
+    let acc = 17 + self.rawPositionalSize
     let i = 0
     while (i < self.size) {
       acc = (acc * 31 + self.at(i).hash) % 999999937
       i = i + 1
     }
     i = 0
-    while (i < self.size - self._$positionalSize) {
-      acc = (acc * 31 + self._$labelAt(i).hash) % 999999937
+    while (i < self.size - self.rawPositionalSize) {
+      acc = (acc * 31 + self.rawLabelAt(i).hash) % 999999937
       i = i + 1
     }
     return acc
@@ -249,7 +247,7 @@ class TupleZipIterator {
     _iterators = List<Dynamic>.new()
     let i = 0
     while (i < tuple.size) {
-      _iterators._$push(tuple.at(i).iterator)
+      _iterators.rawPush(tuple.at(i).iterator)
       i = i + 1
     }
     _done = false
@@ -274,7 +272,7 @@ class TupleZipIterator {
       return None
     }
     let items = List<Dynamic>.new()
-    items._$push(firstStep.match(some: |v| { v }, none: || { None }))
+    items.rawPush(firstStep.match(some: |v| { v }, none: || { None }))
     let i = 1
     while (i < _iterators.size) {
       let step = _iterators.at(i).next
@@ -282,10 +280,10 @@ class TupleZipIterator {
         _done = true
         throw ZipLengthMismatchError.new("strict zip lanes ended at different times")
       }
-      items._$push(step.match(some: |v| { v }, none: || { None }))
+      items.rawPush(step.match(some: |v| { v }, none: || { None }))
       i = i + 1
     }
-    return Some(Tuple._$fromList(items))
+    return Some(Tuple.rawFromList(items))
   }
 
   iterator { self }

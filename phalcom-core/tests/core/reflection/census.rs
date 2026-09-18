@@ -103,7 +103,7 @@ fn canonical_source_census_matches_descriptors_and_relations() {
             .presentations
             .get(&relation.class)
             .expect("every runtime class needs one source presentation");
-        assert!(presentation.native, "{} source class must be @native", relation.class.name());
+        assert!(presentation.native, "{} source class must be native", relation.class.name());
         let actual = presentation.superclass.as_deref().and_then(phalcom_native_meta::UniverseKey::from_name);
         assert_eq!(actual, relation.superclass, "superclass drift for {}", relation.class.name());
     }

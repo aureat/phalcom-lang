@@ -1599,7 +1599,6 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
         | Expr::SelfVar { .. }
         | Expr::SuperVar { .. }
         | Expr::Ellipsis { .. }
-        | Expr::ImplementationSelector { .. }
         | Expr::Symbol(_)
         | Expr::TypeForm(_)
         | Expr::Membership(_)

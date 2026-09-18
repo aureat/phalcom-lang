@@ -82,9 +82,9 @@ contract and default-checking semantics are defined by [First-Class Traits](../.
 ## 6. Class declarations
 
 ```
-class_decl  := "class" IDENT [ "is" IDENT ] "{" { member } "}"
+class_decl  := declaration_modifiers "class" IDENT [ "is" IDENT ] "{" { member } "}"
 
-member      := { attribute } member_body
+member      := { attribute } declaration_modifiers member_body
 attribute   := "@" IDENT [ "(" [ arg_list_body ] ")" ]
 
 member_body := method_decl | getter_decl | setter_decl
@@ -93,7 +93,11 @@ member_body := method_decl | getter_decl | setter_decl
 method_decl    := method_name param_list method_body
 getter_decl    := IDENT method_body
 setter_decl    := IDENT "=" param_list method_body
-field_decl     := [ "const" ] FIELD [ "=" expr ]
+field_decl     := [ "const" ] declaration_modifiers FIELD [ "=" expr ]
+
+declaration_modifiers := [ visibility_modifier ] [ implementation_modifier ]
+visibility_modifier := "private" | "protected" | "module" | "package" | "internal"
+implementation_modifier := "native" | "foreign"
 
 method_name    := IDENT | operator
 operator       := "+" | "-" | "*" | "/" | "%" | "~/" | "**"
@@ -135,7 +139,8 @@ for the semantics.
   compilation ([TDR-0072](../../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)).
 - `@class` puts the member on the metaclass rather than the instance side (methods) or on the class object (fields).
 - **Constructor**: `@constructor` on a `method_decl` allocates a fresh instance via
-  internal `_$new`, runs the body with `self` bound to it, and returns the instance implicitly.
+  declaration-owned internal `allocate`, runs the body with `self` bound to it,
+  and returns the instance implicitly.
   Multiple constructors on one class are distinguished by **selector**, not arity, and
   the name need not be `new` ([Classes §1](../classes.md#1-constructors)).
 - **Method**: `method_name` may be an ordinary identifier or one of the

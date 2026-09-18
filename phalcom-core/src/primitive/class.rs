@@ -172,10 +172,10 @@ pub fn class_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
     Ok(vm.alloc_string_value(name))
 }
 
-/// Signature: `Class::_$new()` — allocates a bare instance of the receiver class.
+/// Signature: `Class::allocate()` — allocates a bare instance of the receiver class.
 #[phalcom_native_macros::primitive(
     Class,
-    "_$new()",
+    "allocate()",
     params = [],
     returns = Object,
     types = "() -> Object",

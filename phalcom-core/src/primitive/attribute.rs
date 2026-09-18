@@ -14,7 +14,7 @@ use crate::vm::VM;
 /// Signature: `Object#__attach(_)` — appends `args[0]` (an `Attribute`
 #[phalcom_native_macros::primitive(
     Object,
-    "_$attach(_)",
+    "attachAttribute(_)",
     params = [Object],
     returns = Unit,
     types = "(Object) -> Unit",
@@ -49,7 +49,7 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 /// Signature: `Object#__attributes` — reads the receiver's attribute-
 #[phalcom_native_macros::primitive(
     Object,
-    "_$attributes",
+    "rawAttributes",
     params = [],
     returns = "List<Attribute>",
     types = "() -> List<Attribute>",
@@ -79,7 +79,7 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     Ok(Value::obj(vm.heap.alloc(Object::List(crate::heap::ListObject::new(attrs)))))
 }
 
-#[phalcom_native_macros::primitive(Method, "_$attributes", visibility = internal)]
+#[phalcom_native_macros::primitive(Method, "rawAttributes", visibility = internal)]
 pub fn method_attribute_attributes(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     attribute_attributes(vm, receiver, args)
 }
@@ -87,7 +87,7 @@ pub fn method_attribute_attributes(vm: &mut VM, receiver: &Value, args: &[Value]
 /// Signature: `Object#__freezeAttributes` — marks the receiver's attribute
 #[phalcom_native_macros::primitive(
     Object,
-    "_$freezeAttributes()",
+    "freezeAttributes()",
     params = [],
     returns = Unit,
     types = "() -> Unit",

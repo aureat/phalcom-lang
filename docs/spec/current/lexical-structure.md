@@ -28,12 +28,14 @@ closer role and remains an unconditional suppressor.
 
 - **Regular:** `[a-zA-Z][a-zA-Z0-9_]*`
 - **Source field:** `_[a-zA-Z][a-zA-Z0-9_]*`
-- **Implementation field:** `__[a-zA-Z][a-zA-Z0-9_]*`
-- **Implementation selector:** `_$[a-zA-Z][a-zA-Z0-9_]*`
+- **Ordinary field:** `_[a-zA-Z][a-zA-Z0-9_]*`
+- **Standardized dunder:** `__[a-zA-Z][a-zA-Z0-9_]*__` where a protocol
+  explicitly defines that spelling
 - **Positional declaration marker:** standalone `_`
 
-These are distinct token classes. Fields are receiver-local state; implementation
-names are privileged. Trailing `_` has no privacy or native meaning.
+Fields are receiver-local state. No identifier spelling grants privacy, native
+status, or privileged access; see the authoritative
+[source declaration specification](../../specs/source-declarations.md).
 
 ## 4. Literals
 

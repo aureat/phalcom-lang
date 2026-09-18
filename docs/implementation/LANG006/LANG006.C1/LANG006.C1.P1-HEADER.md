@@ -4,9 +4,9 @@ category: LANG
 program: LANG006
 checkpoint: LANG006.C1
 kind: implementation-plan-header
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on:
   - LANG006.C1-CHECKPOINT.md
 follows: null
@@ -16,6 +16,7 @@ repository: aureat/phalcom-lang
 planning_branch: main
 planning_revision: e0a77646c56f8b1a7e7692993d378d43bf3fc424
 planning_commit: "feat(lang005): continue P5 iterator surface"
+implementation_base_revision: bf4e12ba
 body_artifact: LANG006.C1.P1-BODY.md
 ---
 

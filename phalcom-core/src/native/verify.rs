@@ -8,7 +8,7 @@ use thiserror::Error;
 /// Migration mode for source/native contract verification.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeContractMode {
-    /// Require every source `@native` anchor to resolve, but tolerate native
+    /// Require every source `native` anchor to resolve, but tolerate native
     /// descriptors whose source anchors have not migrated yet.
     AnchorsMustResolve,
     /// Require a complete source/native bijection, except for hidden native
@@ -26,7 +26,7 @@ pub enum NativeContractError {
         source_line: u32,
     },
 
-    #[error("source member marked @native has no registered native descriptor for owner {:?}, side {:?}, selector '{selector}' in class '{class}'", key.owner, key.side)]
+    #[error("source member marked native has no registered native descriptor for owner {:?}, side {:?}, selector '{selector}' in class '{class}'", key.owner, key.side)]
     MissingNativeDescriptor { key: NativeMemberKey, class: String, selector: String },
 
     #[error("visibility mismatch for owner {:?}, side {:?}, selector '{selector}': descriptor is {desc_vis:?}, source anchor is {source_vis:?}", key.owner, key.side)]
@@ -40,7 +40,7 @@ pub enum NativeContractError {
     #[error("universe class {key:?} has no canonical source presentation")]
     MissingClassPresentation { key: UniverseKey },
 
-    #[error("universe class {key:?} source presentation must be marked @native")]
+    #[error("universe class {key:?} source presentation must be marked native")]
     NativeClassAnchorRequired { key: UniverseKey },
 
     #[error("universe class {key:?} superclass mismatch: expected {expected:?}, source declares {actual:?}")]
@@ -216,7 +216,7 @@ mod tests {
         key: PrimitiveKey {
             owner: phalcom_native_meta::UniverseKey::String,
             side: phalcom_native_meta::NativeDispatch::Instance,
-            selector: "_$byteCount",
+            selector: "rawByteCount",
         },
         visibility: phalcom_native_meta::NativeVisibility::Internal,
         stability: NativeStability::Stable,
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn migration_mode_rejects_source_anchor_without_descriptor() {
-        let parsed = parser::parse("class String {\n  @native\n  @internal\n  _$byteCount\n}\n", 0);
+        let parsed = parser::parse("class String {\n  internal native rawByteCount\n}\n", 0);
         assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
         let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(
             ["scalar", "string"]

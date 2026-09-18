@@ -495,16 +495,7 @@ impl<'input> Lexer<'input> {
                 if slice.len() >= 4 && slice.ends_with("__") {
                     return Ok(Token::Identifier(slice.to_string()));
                 }
-                return Ok(Token::ImplementationFieldIdentifier(slice.to_string()));
-            }
-        } else if self.peek_at(1) == Some(b'$') {
-            if matches!(self.peek_at(2), Some(b'a'..=b'z' | b'A'..=b'Z')) {
-                self.pos += 2;
-                while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
-                    self.pos += 1;
-                }
-                let slice = &self.input[start..self.pos];
-                return Ok(Token::ImplementationSelectorIdentifier(slice.to_string()));
+                return Ok(Token::FieldIdentifier(slice.to_string()));
             }
         } else if matches!(self.peek_at(1), Some(b'a'..=b'z' | b'A'..=b'Z')) {
             self.pos += 1;

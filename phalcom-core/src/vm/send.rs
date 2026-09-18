@@ -146,20 +146,6 @@ impl VM {
         (self.current_access_class(), self.current_access_origin())
     }
 
-    /// True only while executing code compiled from the bootstrap core module.
-    /// Module-handle identity, rather than a mutable source name, is the
-    /// authority boundary. Nested blocks retain their defining module.
-    pub(crate) fn current_has_internal_privilege(&self) -> bool {
-        if self.compiler_internal_dispatch_depth != 0 {
-            return true;
-        }
-        let Some(frame) = self.frames.last() else {
-            return false;
-        };
-        let closure_module = self.heap.closure(frame.closure).module;
-        self.is_privileged_universe_module(closure_module)
-    }
-
     fn is_subclass_of(&self, mut class: ClassId, ancestor: ClassId) -> bool {
         loop {
             if class == ancestor {
@@ -1680,7 +1666,7 @@ mod tests {
     fn invoke_method_object_rejects_inaccessible_method_without_stack_mutation() {
         let mut vm = VM::new();
         let module = vm.create_module("main", "invoke_method_object_access_check");
-        vm.interpret_source(module, "class Vault {\n  @private\n  secret { 42 }\n}\nlet vault = Vault.new()\n")
+        vm.interpret_source(module, "class Vault {\n  private secret { 42 }\n}\nlet vault = Vault.new()\n")
             .expect("class and instance should compile and run");
 
         let vault_symbol = vm.interner.intern("vault");
@@ -1707,8 +1693,8 @@ mod tests {
 
         let vault_symbol = vm.interner.intern("vault");
         let vault = vm.heap.module(module).get(vault_symbol).expect("`vault` global should exist");
-        let guard_selector = vm.get_or_intern("_$invariantEnter()");
-        let guard = vault.lookup_method(&vm, guard_selector).expect("Object should define _$invariantEnter()");
+        let guard_selector = vm.get_or_intern("invariantEnter()");
+        let guard = vault.lookup_method(&vm, guard_selector).expect("Object should define invariantEnter()");
 
         let result = vm.invoke_method_object(guard, vault, &[]);
         assert!(

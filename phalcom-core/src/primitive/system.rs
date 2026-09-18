@@ -42,11 +42,11 @@ pub fn system_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
     Err(RuntimeError::NotAllowed("System instances cannot be created".to_string()).into())
 }
 
-/// Signature: `System.class::_$monotonicNanoseconds` — exact monotonic
+/// Signature: `System.class::monotonicNanoseconds` — exact monotonic
 /// nanoseconds elapsed since this VM was created.
 #[phalcom_native_macros::primitive(
     System,
-    "_$monotonicNanoseconds",
+    "monotonicNanoseconds",
     params = [],
     returns = Int,
     types = "() -> Int",
@@ -84,7 +84,7 @@ pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
 
 /// Internal implementation for `System.sleep(Duration)`. The Phalcom wrapper
 /// passes the signed nanosecond payload after validating the public type.
-#[phalcom_native_macros::primitive(System, "_$sleep(_)", side = class, visibility = internal)]
+#[phalcom_native_macros::primitive(System, "sleepRaw(_)", side = class, visibility = internal)]
 pub fn system_sleep(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let nanos = expect_int_big(
         args.first().ok_or(RuntimeError::Type {
@@ -113,7 +113,7 @@ pub fn system_sleep(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<
 
 /// Internal scheduler dequeue. The `Queued` reservation remains owned by the
 /// scheduler until the scheduler resume primitive consumes it.
-#[phalcom_native_macros::primitive(System, "_$nextScheduled", side = class, visibility = internal)]
+#[phalcom_native_macros::primitive(System, "nextScheduled", side = class, visibility = internal)]
 pub fn system_next_scheduled_internal(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     vm.drain_and_deliver_reactor_completions()?;
     if vm.ready_queue.is_empty() && vm.reactor.has_pending_progress() {
@@ -130,7 +130,7 @@ pub fn system_next_scheduled_internal(vm: &mut VM, _receiver: &Value, _args: &[V
 /// exactly once by the matching safe-boundary primitive.
 #[phalcom_native_macros::primitive(
     System,
-    "_$schedulerFailureCursor",
+    "schedulerFailureCursor",
     returns = Int,
     types = "() -> Int",
     side = class,
@@ -147,7 +147,7 @@ pub fn system_scheduler_failure_cursor(vm: &mut VM, _receiver: &Value, _args: &[
 /// reported normally but are not attributed to the current await.
 #[phalcom_native_macros::primitive(
     System,
-    "_$takeUnhandledScheduledFailures(_)",
+    "takeUnhandledScheduledFailures(_)",
     params = [Int],
     returns = Option,
     types = "(Int) -> Option",
@@ -177,7 +177,7 @@ pub fn system_take_unhandled_scheduled_failures(vm: &mut VM, _receiver: &Value, 
 /// scheduler caller.
 #[phalcom_native_macros::primitive(
     System,
-    "_$reportUnhandledScheduledFailures",
+    "reportUnhandledScheduledFailures",
     returns = Unit,
     types = "() -> Unit",
     side = class,
@@ -190,7 +190,7 @@ pub fn system_report_unhandled_scheduled_failures(vm: &mut VM, _receiver: &Value
 
 /// Internal Future wake. Only an exact `Parked(generation)` state can be
 /// admitted, so stale and duplicate waiter entries are harmless no-ops.
-#[phalcom_native_macros::primitive(System, "_$wake(_,_)", side = class, visibility = internal)]
+#[phalcom_native_macros::primitive(System, "wake(_,_)", side = class, visibility = internal)]
 pub fn system_wake(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let fiber_ref = args
         .first()
@@ -221,10 +221,10 @@ pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Va
     Ok(vm.unit_value())
 }
 
-/// Signature: `System._$write(_)` — raw stdout write of an already-formed `String`.
+/// Signature: `System.rawWrite(_)` — raw stdout write of an already-formed `String`.
 #[phalcom_native_macros::primitive(
     System,
-    "_$write(_)",
+    "rawWrite(_)",
     params = [String],
     returns = Unit,
     types = "(String) -> Unit",

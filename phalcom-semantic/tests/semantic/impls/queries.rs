@@ -689,7 +689,7 @@ impl Tagged for User { tag -> Int { 1 } }
             "visibility mismatch",
             "trait Tagged { tag -> String }
 class User {}
-impl Tagged for User { @private tag -> String { \"user\" } }
+impl Tagged for User { private tag -> String { \"user\" } }
 ",
             DiagnosticCode::ImplConformanceIncomplete,
         ),
@@ -1366,7 +1366,7 @@ fn conformance_evidence_fingerprint_tracks_target_trait_and_visibility_contract_
         ),
         (
             "visibility",
-            "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { @private tag -> String { \"user\" } }\n",
+            "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { private tag -> String { \"user\" } }\n",
             false,
         ),
     ];

@@ -9,8 +9,8 @@ use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
 use phalcom_ast::ast::{
-    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, DelegatedAccessorKind, Expr, IndexAccessor, ListLiteralElement,
-    MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, RestMode, SetLiteralEntry, Statement,
+    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, DelegatedAccessorKind, Expr, ImplementationKind, IndexAccessor,
+    ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, RestMode, Statement, Visibility, SetLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
 
@@ -49,41 +49,8 @@ const COMPILER_ONLY_ATTRS: &[&str] = &[
     "ignore",
 ];
 
-pub(crate) fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisibility {
-    if name.is_some_and(|name| name.starts_with("_$")) {
-        MemberVisibility::Internal
-    } else if attributes.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private))) {
-        MemberVisibility::Private
-    } else if attributes.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Protected))) {
-        MemberVisibility::Protected
-    } else {
-        MemberVisibility::Public
-    }
-}
-
-fn member_has_attr(member: &ClassMember, name: &str) -> bool {
-    let attrs = match member {
-        ClassMember::Method(m) => &m.attributes,
-        ClassMember::Getter(g) => &g.attributes,
-        ClassMember::Setter(s) => &s.attributes,
-        ClassMember::Field(f) => &f.attributes,
-        ClassMember::Variant(v) => &v.attributes,
-        ClassMember::Index(ix) => &ix.attributes,
-        ClassMember::Delegation(delegation) => &delegation.attributes,
-    };
-    attrs.iter().any(|a| a.name == name)
-}
-
-fn member_range(member: &ClassMember) -> SourceRange {
-    match member {
-        ClassMember::Method(m) => m.range,
-        ClassMember::Getter(g) => g.range,
-        ClassMember::Setter(s) => s.range,
-        ClassMember::Field(f) => f.range,
-        ClassMember::Variant(v) => v.range,
-        ClassMember::Index(ix) => ix.range,
-        ClassMember::Delegation(delegation) => delegation.range,
-    }
+pub(crate) fn member_visibility(visibility: Visibility) -> MemberVisibility {
+    visibility
 }
 
 /// Validates F.3 method rest declarations after attribute expansion.
@@ -231,89 +198,13 @@ impl<'vm> Compiler<'vm> {
         self.compile_class_impl(class_def, false)
     }
 
-    fn compile_class_impl(&mut self, class_def: ClassDef, allow_synthetic_internal: bool) -> Result<(), CompilerError> {
+    fn compile_class_impl(&mut self, class_def: ClassDef, _allow_synthetic_internal: bool) -> Result<(), CompilerError> {
         let strip_metadata = match self.vm.compile_mode {
             CompileMode::Debug => false,
             CompileMode::Release => self.vm.strip_contract_metadata,
             CompileMode::Unchecked => true,
         };
         let is_privileged = self.compiling_privileged_universe();
-        if !allow_synthetic_internal {
-            if !is_privileged {
-                if class_def.attributes.iter().any(|a| a.name == "native") {
-                    return Err(CompilerError::NativeAttributeRequiresPrivilegedCore(class_def.range));
-                }
-                if class_def.attributes.iter().any(|a| a.name == "internal") {
-                    return Err(CompilerError::InternalNamespaceReserved("@internal".to_string(), class_def.range));
-                }
-                for member in &class_def.members {
-                    let reserved = match member {
-                        ClassMember::Method(m) if m.name.starts_with("_$") => Some((&m.name, m.name_range)),
-                        ClassMember::Getter(g) if g.name.starts_with("_$") => Some((&g.name, g.name_range)),
-                        ClassMember::Setter(s) if s.name.starts_with("_$") => Some((&s.name, s.name_range)),
-                        ClassMember::Field(f) if f.name.starts_with("__") => Some((&f.name, f.range)),
-                        _ => None,
-                    };
-                    if let Some((name, range)) = reserved {
-                        return Err(CompilerError::InternalNamespaceReserved(name.clone(), range));
-                    }
-                    if member_has_attr(member, "native") {
-                        return Err(CompilerError::NativeAttributeRequiresPrivilegedCore(member_range(member)));
-                    }
-                    if member_has_attr(member, "internal") {
-                        return Err(CompilerError::InternalNamespaceReserved("@internal".to_string(), member_range(member)));
-                    }
-                }
-            } else {
-                for member in &class_def.members {
-                    let has_internal = member_has_attr(member, "internal");
-                    let has_private = member_has_attr(member, "private");
-                    let has_protected = member_has_attr(member, "protected");
-                    if has_internal && (has_private || has_protected) {
-                        return Err(CompilerError::VisibilityConflict(member_range(member)));
-                    }
-                    match member {
-                        ClassMember::Method(m) => {
-                            let is_impl = m.name.starts_with("_$");
-                            if is_impl && !has_internal {
-                                return Err(CompilerError::InternalAttributeRequired(m.name.clone(), m.name_range));
-                            }
-                            if has_internal && !is_impl {
-                                return Err(CompilerError::InternalAttributeNamespaceMismatch(m.name.clone(), m.name_range));
-                            }
-                        }
-                        ClassMember::Getter(g) => {
-                            let is_impl = g.name.starts_with("_$");
-                            if is_impl && !has_internal {
-                                return Err(CompilerError::InternalAttributeRequired(g.name.clone(), g.name_range));
-                            }
-                            if has_internal && !is_impl {
-                                return Err(CompilerError::InternalAttributeNamespaceMismatch(g.name.clone(), g.name_range));
-                            }
-                        }
-                        ClassMember::Setter(s) => {
-                            let is_impl = s.name.starts_with("_$");
-                            if is_impl && !has_internal {
-                                return Err(CompilerError::InternalAttributeRequired(s.name.clone(), s.name_range));
-                            }
-                            if has_internal && !is_impl {
-                                return Err(CompilerError::InternalAttributeNamespaceMismatch(s.name.clone(), s.name_range));
-                            }
-                        }
-                        ClassMember::Field(f) => {
-                            let is_impl = f.name.starts_with("__");
-                            if is_impl && !has_internal {
-                                return Err(CompilerError::InternalAttributeRequired(f.name.clone(), f.range));
-                            }
-                            if has_internal && !is_impl {
-                                return Err(CompilerError::InternalAttributeNamespaceMismatch(f.name.clone(), f.range));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
         // Reject source constructor rest before attribute expansion. The
         // constructor expander lowers the marker into paired factory/init
         // methods, where erasing it would otherwise occur before the
@@ -352,6 +243,17 @@ impl<'vm> Compiler<'vm> {
         // resolves that name via `GetGlobal`, which requires this class's
         // `DefineGlobal` to have already run).
         let (mut class_def, sibling_classes) = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
+        // Native source members are declaration anchors for the descriptor
+        // installer, not bytecode bodies. Their implementation kind is the
+        // canonical authority; do not require a legacy native attribute
+        // before removing them from this source compilation unit.
+        class_def.members.retain(|member| match member {
+            ClassMember::Method(method) => method.implementation != ImplementationKind::Native,
+            ClassMember::Getter(getter) => getter.implementation != ImplementationKind::Native,
+            ClassMember::Setter(setter) => setter.implementation != ImplementationKind::Native,
+            ClassMember::Index(index) => index.implementation != ImplementationKind::Native,
+            ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => true,
+        });
         // Rest-scope validation must precede duplicate-selector
         // canonicalization: otherwise constructor/index rest could be erased
         // into an ordinary key.
@@ -949,7 +851,7 @@ impl<'vm> Compiler<'vm> {
                     ))));
                     {
                         let method = self.vm.heap.method_mut(method_obj);
-                        method.visibility = member_visibility(Some(&method_def.name), &method_def.attributes);
+                        method.visibility = member_visibility(method_def.visibility);
                         if let Some(rest) = rest {
                             method.signature = crate::method::Signature::new_with_arity(selector_sym, sig_kind, rest.fixed_positionals(), Some(rest));
                         }
@@ -992,7 +894,7 @@ impl<'vm> Compiler<'vm> {
                         SignatureKind::Getter,
                         MethodKind::Closure(closure),
                     ))));
-                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&getter_def.name), &getter_def.attributes);
+                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(getter_def.visibility);
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&getter_def.attributes)?;
@@ -1038,7 +940,7 @@ impl<'vm> Compiler<'vm> {
                         SignatureKind::Setter,
                         MethodKind::Closure(closure),
                     ))));
-                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&setter_def.name), &setter_def.attributes);
+                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(setter_def.visibility);
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&setter_def.attributes)?;
@@ -1090,7 +992,7 @@ impl<'vm> Compiler<'vm> {
                         SignatureKind::Method(arity),
                         MethodKind::Closure(closure),
                     ))));
-                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&construct_def.name), &construct_def.attributes);
+                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(construct_def.visibility);
 
                     let method_obj_idx = self.add_constant(Value::obj(method_obj));
                     self.emit(Bytecode::Constant(method_obj_idx), range);
@@ -1177,7 +1079,7 @@ impl<'vm> Compiler<'vm> {
                         sig_kind,
                         MethodKind::Closure(closure),
                     ))));
-                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(None, &index_def.attributes);
+                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(index_def.visibility);
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&index_def.attributes)?;
@@ -1339,7 +1241,7 @@ impl<'vm> Compiler<'vm> {
         }));
         self.compile_expr(ctor_call)?;
 
-        let attach_selector = make_signature("_$attach", SignatureKind::Method(1));
+        let attach_selector = make_signature("attachAttribute", SignatureKind::Method(1));
         let attach_sym = self.vm.interner.intern(&attach_selector);
         let attach_idx = self.add_constant(Value::symbol(attach_sym));
         self.emit(Bytecode::InvokeCompilerInternal(1, attach_idx), range);
@@ -1352,7 +1254,7 @@ impl<'vm> Compiler<'vm> {
     /// [`Self::emit_attribute_attach`] for the receiver-already-pushed
     /// convention.
     fn emit_freeze_attributes(&mut self, range: SourceRange) {
-        let freeze_selector = make_signature("_$freezeAttributes", SignatureKind::Method(0));
+        let freeze_selector = make_signature("freezeAttributes", SignatureKind::Method(0));
         let freeze_sym = self.vm.interner.intern(&freeze_selector);
         let freeze_idx = self.add_constant(Value::symbol(freeze_sym));
         self.emit(Bytecode::InvokeCompilerInternal(0, freeze_idx), range);

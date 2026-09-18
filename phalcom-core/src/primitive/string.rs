@@ -86,10 +86,10 @@ pub fn string_class_new_default(vm: &mut VM, receiver: &Value, _args: &[Value]) 
     string_class_new(vm, receiver, &[])
 }
 
-/// Signature: `String::_$byteCount` — the byte length of the underlying UTF-8 buffer.
+/// Signature: `String::rawByteCount` — the byte length of the underlying UTF-8 buffer.
 #[phalcom_native_macros::primitive(
     String,
-    "_$byteCount",
+    "rawByteCount",
     params = [],
     returns = Int,
     types = "() -> Int",
@@ -117,10 +117,10 @@ pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
     Ok(Value::int(s.len() as i64))
 }
 
-/// Signature: `String::_$byteAt(_)` — read a single raw byte from the buffer.
+/// Signature: `String::rawByteAt(_)` — read a single raw byte from the buffer.
 #[phalcom_native_macros::primitive(
     String,
-    "_$byteAt(_)",
+    "rawByteAt(_)",
     params = [Int],
     returns = "Option<Int>",
     types = "(Int) -> Option<Int>",
@@ -167,10 +167,10 @@ pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     }
 }
 
-/// Signature: `String::_$slice(_,_)` — extract a substring by byte range `[start, end)`.
+/// Signature: `String::rawSlice(_,_)` — extract a substring by byte range `[start, end)`.
 #[phalcom_native_macros::primitive(
     String,
-    "_$slice(_,_)",
+    "rawSlice(_,_)",
     params = [Int, Int],
     returns = String,
     types = "(Int, Int) -> String",

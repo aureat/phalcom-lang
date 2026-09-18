@@ -844,7 +844,7 @@ impl VM {
 
     /// Makes the source-authored `Error` constructors available on native
     /// error subclasses as well. These classes are presented by empty
-    /// `@native` declarations, so their metaclass rows do not receive the
+    /// native declarations, so their metaclass rows do not receive the
     /// source constructor methods during class-body compilation even though
     /// their instance-side superclass is `Error`.
     fn bind_native_error_constructors(&mut self) {

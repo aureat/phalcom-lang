@@ -11,46 +11,46 @@ native class System is Object {
 
   @class
   sleep(_ duration: Duration) -> Future<Unit> {
-    System._$sleep(duration.nanoseconds)
+    System.sleepRaw(duration.nanoseconds)
   }
 
   @class
-  internal native _$sleep(_ nanoseconds: Int) -> Future<Unit>
+  internal native sleepRaw(_ nanoseconds: Int) -> Future<Unit>
 
   @class
   clock -> Clock {
-    Clock._$system
+    Clock.system
   }
 
   @class
-  internal native _$monotonicNanoseconds -> Int
+  internal native monotonicNanoseconds -> Int
 
   @class
-  internal native _$nextScheduled -> Option<Fiber>
+  internal native nextScheduled -> Option<Fiber>
 
   @class
-  internal native _$schedulerFailureCursor -> Int
+  internal native schedulerFailureCursor -> Int
 
   @class
-  internal native _$takeUnhandledScheduledFailures(_ cursor: Int) -> Option<String>
+  internal native takeUnhandledScheduledFailures(_ cursor: Int) -> Option<String>
 
   @class
-  internal native _$reportUnhandledScheduledFailures -> Unit
+  internal native reportUnhandledScheduledFailures -> Unit
 
   @class
-  internal native _$wake(_ fiber: Fiber, _ generation: Int) -> Bool
+  internal native wake(_ fiber: Fiber, _ generation: Int) -> Bool
 
   @class
   native gc -> Unit
 
   @class
-  internal native _$write(_ value: String) -> Unit
+  internal native rawWrite(_ value: String) -> Unit
 
   @class
-  internal native _$leakReport -> List<String>
+  internal native leakReport -> List<String>
 
   @class
-  internal native _$strictResources(_ enabled: Bool) -> Unit
+  internal native strictResources(_ enabled: Bool) -> Unit
 
   // U-STRING write funnel (ADR-0049 amendment): pure `.ph` control flow over
   // native `write_(_)` and the `toString` message. Additive-only: does not
@@ -66,36 +66,36 @@ native class System is Object {
   private writeObject(_ obj: Object) -> Object {
     const s = obj.toString
     if s is String {
-      System._$write(s)
+      System.rawWrite(s)
     } else {
-      System._$write("invalid toString")
+      System.rawWrite("invalid toString")
     }
     obj
   }
 
   // U-SCHED: the `.ph`-callable counterpart to `VM::run`'s native
   // root-drive belt-and-suspenders pump (`vm/dispatch.rs`) — pumps
-  // `System._$nextScheduled` to exhaustion, scheduler-resuming each queued
+  // `System.nextScheduled` to exhaustion, scheduler-resuming each queued
   // fiber (capture-not-propagate, so one scheduled task's uncaught raise
   // cannot abort another) — including any fiber a running scheduled fiber
-  // itself schedules mid-drain, since `_$nextScheduled` is re-read every
+  // itself schedules mid-drain, since `nextScheduled` is re-read every
   // iteration. Deliberately does **not** unwrap via `.match(some:none:)`
   // (which runs its arm through `Closure#call`'s native re-entrant
   // `run_until`, forbidding a fiber switch underneath, ADR-0030 §4):
-  // `f._$resumeScheduled()`
+  // `f.resumeScheduled()`
   // must run at this method's own top level, not nested inside a block a
   // native primitive is driving, so the receiver is unwrapped via
-  // `unwrapOr(_)` into a plain local first, and `_$resumeScheduled()` sent as its own
+  // `unwrapOr(_)` into a plain local first, and `resumeScheduled()` sent as its own
   // statement.
   @class
   runScheduled() -> Unit {
-    let next = System._$nextScheduled
+    let next = System.nextScheduled
     while (next.isSome) {
       let f = next.unwrapOr(None)
-      f._$resumeScheduled()
-      next = System._$nextScheduled
+      f.resumeScheduled()
+      next = System.nextScheduled
     }
-    System._$reportUnhandledScheduledFailures
+    System.reportUnhandledScheduledFailures
     ()
   }
 }
@@ -112,15 +112,15 @@ native class Fiber is Object {
 
   native try(_ value: Dynamic) -> Dynamic
 
-  internal native _$resumeScheduled() -> Dynamic
+  internal native resumeScheduled() -> Dynamic
 
-  internal native _$preparePark() -> Int
+  internal native preparePark() -> Int
 
-  internal native _$park(_ generation: Int) -> Dynamic
+  internal native park(_ generation: Int) -> Dynamic
 
-  internal native _$onComplete(_ observer: () -> Unit) -> Fiber
+  internal native onComplete(_ observer: () -> Unit) -> Fiber
 
-  internal native _$terminalValue -> Dynamic
+  internal native terminalValue -> Dynamic
 
   @class
   native yield() -> Dynamic
@@ -195,7 +195,7 @@ class FutureSubscription {
         const gen = _generation
         _fiber = None
         _onDetach = None
-        System._$wake(f, gen)
+        System.wake(f, gen)
       } else {
         const cb = _callback
         _callback = None
@@ -258,7 +258,7 @@ class Future<T> {
 
   // Internal single settlement transition. Returns `true` if this call settled the future,
   // or `false` if the future was already settled (settle-once).
-  internal _$trySettle(_ outcome: Result<T, Error>) -> Bool {
+  internal trySettle(_ outcome: Result<T, Error>) -> Bool {
     if self.isReady {
       return false
     }
@@ -281,7 +281,7 @@ class Future<T> {
   // first result. Returns `self` either way so callers can chain.
   settleValue(_ v: T) -> Future<T> {
     const res: Result<T, Error> = Result::Ok(v)
-    self._$trySettle(res)
+    self.trySettle(res)
     self
   }
 
@@ -290,7 +290,7 @@ class Future<T> {
   // the settle-once contract (C-FUT-3).
   settleError(_ e: Error) -> Future<T> {
     const res: Result<T, Error> = Result::Error(e)
-    self._$trySettle(res)
+    self.trySettle(res)
     self
   }
 
@@ -322,7 +322,7 @@ class Future<T> {
     while (i < n) {
       const r = _registrations.at(i)
       if r.isActive {
-        compacted._$push(r)
+        compacted.rawPush(r)
       }
       i = i + 1
     }
@@ -347,7 +347,7 @@ class Future<T> {
     if self.isReady {
       reg.deliver()
     } else {
-      _registrations._$push(reg)
+      _registrations.rawPush(reg)
     }
     reg
   }
@@ -368,14 +368,14 @@ class Future<T> {
         // still pending, nothing can settle us and looping again would spin
         // forever in silence (E004(b)) — report it instead. Scheduler resume
         // isolates one scheduled task's uncaught raise from the others.
-        const failure_cursor = System._$schedulerFailureCursor
+        const failure_cursor = System.schedulerFailureCursor
         while (not self.isReady) {
-          const next = System._$nextScheduled
+          const next = System.nextScheduled
           if (next.isNone) {
             if (self.isReady) {
               break
             }
-            const failures = System._$takeUnhandledScheduledFailures(failure_cursor)
+            const failures = System.takeUnhandledScheduledFailures(failure_cursor)
             if failures.isSome {
               const details = failures.unwrapOr("")
               return Error.new("await: the future is still pending and the scheduler is empty; nothing can currently settle it.\n" + details).raise()
@@ -383,11 +383,11 @@ class Future<T> {
             return Error.new("await: the future is still pending and the scheduler is empty; nothing can settle it").raise()
           }
           const f = next.unwrapOr(None)
-          f._$resumeScheduled()
+          f.resumeScheduled()
         }
       } else {
         const current = Fiber.current
-        const generation = current._$preparePark()
+        const generation = current.preparePark()
         _nextRegId = _nextRegId + 1
         const reg = FutureSubscription.fiber(
           _nextRegId,
@@ -401,9 +401,9 @@ class Future<T> {
             }
           }
         )
-        _registrations._$push(reg)
+        _registrations.rawPush(reg)
         try {
-          current._$park(generation)
+          current.park(generation)
         } catch e {
           reg.detach()
           e.raise()
@@ -428,11 +428,11 @@ class Future<T> {
   @class
   private runToTerminal<U>(_ action: () -> U, _ onSuccess: (U) -> Unit, _ onError: (Error) -> Unit) -> Fiber {
     const fiber = Fiber.new(action)
-    fiber._$onComplete(|| {
+    fiber.onComplete(|| {
       if fiber.error.isSome {
         onError.call(fiber.error.unwrapOr(None))
       } else {
-        onSuccess.call(fiber._$terminalValue)
+        onSuccess.call(fiber.terminalValue)
       }
     })
     System.schedule(fiber)
@@ -580,7 +580,7 @@ class Future<T> {
     const values = List.new()
     let idx = 0
     while (idx < n) {
-      values._$push(None)
+      values.rawPush(None)
       idx = idx + 1
     }
     let settled = false
@@ -630,7 +630,7 @@ class Future<T> {
         )
         ()
       })
-      subs._$push(sub)
+      subs.rawPush(sub)
       if settled {
         sub.detach()
       }
@@ -652,7 +652,7 @@ class Future<T> {
     const outcomes = List.new()
     let idx = 0
     while (idx < n) {
-      outcomes._$push(None)
+      outcomes.rawPush(None)
       idx = idx + 1
     }
     const subs = List.new()
@@ -675,7 +675,7 @@ class Future<T> {
         )
         ()
       })
-      subs._$push(sub)
+      subs.rawPush(sub)
       i = i + 1
     }
 
@@ -728,7 +728,7 @@ class Future<T> {
         )
         ()
       })
-      subs._$push(sub)
+      subs.rawPush(sub)
       if settled {
         sub.detach()
       }
@@ -814,12 +814,12 @@ class CompletionSource<T> {
 
   tryResolve(_ value: T) -> Bool {
     const res: Result<T, Error> = Result::Ok(value)
-    _future._$trySettle(res)
+    _future.trySettle(res)
   }
 
   tryReject(_ error: Error) -> Bool {
     const res: Result<T, Error> = Result::Error(error)
-    _future._$trySettle(res)
+    _future.trySettle(res)
   }
 }
 

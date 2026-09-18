@@ -109,15 +109,15 @@ impl Universe {
         // `@invariant` re-entrancy guard (U-ANNOT-CONTRACTS, ADR-0052 Fix 1):
         // a receiver-scoped native pair the woven prologue/epilogue call —
         // never `.ph`-authored, never part of any public protocol.
-        primitive_internal!(vm, object_cls, "_$invariantEnter", SignatureKind::Method(0), object_invariant_enter);
-        primitive_internal!(vm, object_cls, "_$invariantExit", SignatureKind::Method(0), object_invariant_exit);
+        primitive_internal!(vm, object_cls, "invariantEnter", SignatureKind::Method(0), object_invariant_enter);
+        primitive_internal!(vm, object_cls, "invariantExit", SignatureKind::Method(0), object_invariant_exit);
         // Attribute-retention store (M-ATTR-ROOT, `attribute-classes.md`):
         // registered once here since `Object` sits under every class/method/
         // module row in the metaclass tower (ADR-0002 parallel rule) — one
         // site covers all three receiver kinds.
-        primitive_internal!(vm, object_cls, "_$attributes", SignatureKind::Getter, attribute_attributes);
-        primitive_internal!(vm, object_cls, "_$attach", SignatureKind::Method(1), attribute_attach);
-        primitive_internal!(vm, object_cls, "_$freezeAttributes", SignatureKind::Method(0), attribute_freeze);
+        primitive_internal!(vm, object_cls, "rawAttributes", SignatureKind::Getter, attribute_attributes);
+        primitive_internal!(vm, object_cls, "attachAttribute", SignatureKind::Method(1), attribute_attach);
+        primitive_internal!(vm, object_cls, "freezeAttributes", SignatureKind::Method(0), attribute_freeze);
 
         // `Message` accessors (U8): native getters reading the reified-send
         // slots directly (`VM::new_message`); `Message` has no `.ph` surface.
@@ -143,7 +143,7 @@ impl Universe {
 
         let class_cls = vm.universe.classes.class_class;
         primitive!(vm, class_cls, "+", SignatureKind::Method(1), class_add);
-        primitive_internal!(vm, class_cls, "_$new", SignatureKind::Method(0), class_new_);
+        primitive_internal!(vm, class_cls, "allocate", SignatureKind::Method(0), class_new_);
 
         let number_cls = vm.universe.classes.number_class;
         // U5 (control-flow.md §1): every arithmetic/comparison operator is an
@@ -219,9 +219,9 @@ impl Universe {
         // native floor for string slicing/indexing — byte length, raw byte read,
         // and UTF-8-aware substring extraction. Not derivable in `.ph` (buffer
         // not observable, allocation not expressible).
-        primitive_internal!(vm, string_cls, "_$byteCount", SignatureKind::Getter, string_raw_byte_count);
-        primitive_internal!(vm, string_cls, "_$byteAt", SignatureKind::Method(1), string_raw_byte_at);
-        primitive_internal!(vm, string_cls, "_$slice", SignatureKind::Method(2), string_raw_slice);
+        primitive_internal!(vm, string_cls, "rawByteCount", SignatureKind::Getter, string_raw_byte_count);
+        primitive_internal!(vm, string_cls, "rawByteAt", SignatureKind::Method(1), string_raw_byte_at);
+        primitive_internal!(vm, string_cls, "rawSlice", SignatureKind::Method(2), string_raw_slice);
 
         let bool_cls = vm.universe.classes.bool_class;
         primitive_static!(vm, bool_cls, "new", SignatureKind::Method(0), bool_class_new);
@@ -398,35 +398,35 @@ impl Universe {
         // and scheduler resume remain internal so queued work cannot be stolen
         // by public `Fiber#call`/`#try`.
         primitive_static!(vm, system_cls, "schedule", SignatureKind::Method(1), system_schedule);
-        primitive_static_internal!(vm, system_cls, "_$monotonicNanoseconds", SignatureKind::Getter, system_monotonic_nanoseconds);
-        primitive_static_internal!(vm, system_cls, "_$nextScheduled", SignatureKind::Getter, system_next_scheduled_internal);
+        primitive_static_internal!(vm, system_cls, "monotonicNanoseconds", SignatureKind::Getter, system_monotonic_nanoseconds);
+        primitive_static_internal!(vm, system_cls, "nextScheduled", SignatureKind::Getter, system_next_scheduled_internal);
         primitive_static_internal!(
             vm,
             system_cls,
-            "_$schedulerFailureCursor",
+            "schedulerFailureCursor",
             SignatureKind::Getter,
             system_scheduler_failure_cursor
         );
         primitive_static_internal!(
             vm,
             system_cls,
-            "_$takeUnhandledScheduledFailures",
+            "takeUnhandledScheduledFailures",
             SignatureKind::Method(1),
             system_take_unhandled_scheduled_failures
         );
         primitive_static_internal!(
             vm,
             system_cls,
-            "_$reportUnhandledScheduledFailures",
+            "reportUnhandledScheduledFailures",
             SignatureKind::Getter,
             system_report_unhandled_scheduled_failures
         );
-        primitive_static_internal!(vm, system_cls, "_$wake", SignatureKind::Method(2), system_wake);
+        primitive_static_internal!(vm, system_cls, "wake", SignatureKind::Method(2), system_wake);
         primitive_static!(vm, system_cls, "gc", SignatureKind::Getter, system_gc);
         // U-STRING raw I/O seam (ADR-0019 amendment, ADR-0049): raw stdout write of
         // an already-formed `String`, no newline, no formatting — the irreducible
         // literal I/O act that `System.write`/`writeObject_` funnel over.
-        primitive_static_internal!(vm, system_cls, "_$write", SignatureKind::Method(1), system_raw_write);
+        primitive_static_internal!(vm, system_cls, "rawWrite", SignatureKind::Method(1), system_raw_write);
 
         let module_cls = vm.universe.classes.module_class;
         primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);
@@ -606,47 +606,48 @@ impl Universe {
         let project_identity_cls = vm.universe.classes.project_identity_class;
         primitive!(vm, project_identity_cls, "toString", SignatureKind::Getter, project_identity_to_string);
 
-        // Kernel `List` (ADR-0019/0020): internal floor primitives use `_$`.
-        // `_$length`/`_$at`/`_$set`/`_$push` are wrapped by `.ph`'s
-        // `size`/`at(_:)`/`add(_:)` (`_$set` is
+        // Kernel `List` (ADR-0019/0020): internal floor primitives use
+        // ordinary selectors with explicit internal visibility.
+        // `rawLength`/`rawAt`/`rawSet`/`rawPush` are wrapped by `.ph`'s
+        // `size`/`at(_:)`/`add(_:)` (`rawSet` is
         // implemented but not yet surfaced, see DEFERRED.md); amortized growth
-        // folds into `_$push` (`Vec::push`'s own doubling), so there is no
+        // folds into `rawPush` (`Vec::push`'s own doubling), so there is no
         // separate "grow" primitive. `new()` and `toString` are public
         // primitives directly, mirroring `String`'s `+(_)` (see the U-LIST
         // return contract for why `toString` is native this unit).
         let list_cls = vm.universe.classes.list_class;
         primitive_static!(vm, list_cls, "new", SignatureKind::Method(0), list_class_new);
-        primitive_internal!(vm, list_cls, "_$length", SignatureKind::Getter, list_raw_length);
-        primitive_internal!(vm, list_cls, "_$at", SignatureKind::Method(1), list_raw_at);
-        primitive_internal!(vm, list_cls, "_$set", SignatureKind::Method(2), list_raw_set);
-        primitive_internal!(vm, list_cls, "_$push", SignatureKind::Method(1), list_raw_push);
-        primitive_internal!(vm, list_cls, "_$replaceSlice", SignatureKind::Method(3), list_replace_slice);
+        primitive_internal!(vm, list_cls, "rawLength", SignatureKind::Getter, list_raw_length);
+        primitive_internal!(vm, list_cls, "rawAt", SignatureKind::Method(1), list_raw_at);
+        primitive_internal!(vm, list_cls, "rawSet", SignatureKind::Method(2), list_raw_set);
+        primitive_internal!(vm, list_cls, "rawPush", SignatureKind::Method(1), list_raw_push);
+        primitive_internal!(vm, list_cls, "rawReplaceSlice", SignatureKind::Method(3), list_replace_slice);
         primitive!(vm, list_cls, "toString", SignatureKind::Getter, list_to_string);
 
         // Kernel `Bytes` (PDR-0011 ruling 3, U-BYTES): implementation
-        // selectors use `_$`. Bulk no-user-code operations are native
+        // ordinary selectors. Bulk no-user-code operations are native
         // under the container bulk-op posture; every block-taking selector
         // (`each`/`map`/`filter`/`reduce`) stays `.ph`-inherited from
         // `Iterable` so `Fiber#yield` works mid-iteration (bytes.md §3.1) —
         // do NOT add native combinators here.
         let bytes_cls = vm.universe.classes.bytes_class;
         primitive_static!(vm, bytes_cls, "new", SignatureKind::Method(1), bytes_class_new);
-        primitive_static_internal!(vm, bytes_cls, "_$fromString", SignatureKind::Method(1), bytes_class_from_string);
-        primitive_internal!(vm, bytes_cls, "_$size", SignatureKind::Getter, bytes_raw_size);
-        primitive_internal!(vm, bytes_cls, "_$at", SignatureKind::Method(1), bytes_raw_at);
-        primitive_internal!(vm, bytes_cls, "_$set", SignatureKind::Method(2), bytes_raw_set);
-        primitive_internal!(vm, bytes_cls, "_$fill", SignatureKind::Method(1), bytes_raw_fill);
-        primitive_internal!(vm, bytes_cls, "_$slice", SignatureKind::Method(2), bytes_raw_slice);
-        primitive_internal!(vm, bytes_cls, "_$copyInto", SignatureKind::Method(2), bytes_raw_copy_into);
-        primitive_internal!(vm, bytes_cls, "_$utf8", SignatureKind::Getter, bytes_raw_utf8);
-        primitive_internal!(vm, bytes_cls, "_$utf8Lossy", SignatureKind::Getter, bytes_raw_utf8_lossy);
-        primitive_internal!(vm, bytes_cls, "_$equalsConstantTime", SignatureKind::Method(1), bytes_raw_equals_constant_time);
+        primitive_static_internal!(vm, bytes_cls, "rawFromString", SignatureKind::Method(1), bytes_class_from_string);
+        primitive_internal!(vm, bytes_cls, "rawSize", SignatureKind::Getter, bytes_raw_size);
+        primitive_internal!(vm, bytes_cls, "rawAt", SignatureKind::Method(1), bytes_raw_at);
+        primitive_internal!(vm, bytes_cls, "rawSet", SignatureKind::Method(2), bytes_raw_set);
+        primitive_internal!(vm, bytes_cls, "rawFill", SignatureKind::Method(1), bytes_raw_fill);
+        primitive_internal!(vm, bytes_cls, "rawSlice", SignatureKind::Method(2), bytes_raw_slice);
+        primitive_internal!(vm, bytes_cls, "rawCopyInto", SignatureKind::Method(2), bytes_raw_copy_into);
+        primitive_internal!(vm, bytes_cls, "rawUtf8", SignatureKind::Getter, bytes_raw_utf8);
+        primitive_internal!(vm, bytes_cls, "rawUtf8Lossy", SignatureKind::Getter, bytes_raw_utf8_lossy);
+        primitive_internal!(vm, bytes_cls, "rawEqualsConstantTime", SignatureKind::Method(1), bytes_raw_equals_constant_time);
 
         // Kernel `Map`/`Set` (ADR-0039, U-COLLTYPES Phase 1): the native
         // hash-collection floor. `Map` gets 8 bindings (`new` + 7 native
         // instance ops); `Set` gets 6 (`new` + 5 native instance ops) — a keys-only
         // sibling reusing `Map`'s backing struct (DEC-CT-B) but with its own
-        // distinct bindings. `_$keyAt`/`_$valueAt`/`_$at` back
+        // distinct bindings. `rawKeyAt`/`rawValueAt`/`rawAt` back
         // `keys`/`values`/`each(_)`; `put_`/`add_` re-enter the VM to send
         // `hash`/`==` on keys (see `primitive::map`'s module doc) and reject a
         // mutable-collection key (DEC-CT-C). `.ph`'s public protocol
@@ -654,46 +655,46 @@ impl Universe {
         // `values`/`each(_)`/`add(_)`) wraps these in `core.ph`.
         let map_cls = vm.universe.classes.map_class;
         primitive_static!(vm, map_cls, "new", SignatureKind::Method(0), map_class_new);
-        primitive_internal!(vm, map_cls, "_$size", SignatureKind::Getter, map_raw_size);
-        primitive_internal!(vm, map_cls, "_$get", SignatureKind::Method(1), map_raw_get);
-        primitive_internal!(vm, map_cls, "_$put", SignatureKind::Method(2), map_raw_put);
-        primitive_internal!(vm, map_cls, "_$has", SignatureKind::Method(1), map_raw_has);
-        primitive_internal!(vm, map_cls, "_$remove", SignatureKind::Method(1), map_raw_remove);
-        primitive_internal!(vm, map_cls, "_$keyAt", SignatureKind::Method(1), map_raw_key_at);
-        primitive_internal!(vm, map_cls, "_$valueAt", SignatureKind::Method(1), map_raw_value_at);
+        primitive_internal!(vm, map_cls, "rawSize", SignatureKind::Getter, map_raw_size);
+        primitive_internal!(vm, map_cls, "rawGet", SignatureKind::Method(1), map_raw_get);
+        primitive_internal!(vm, map_cls, "rawPut", SignatureKind::Method(2), map_raw_put);
+        primitive_internal!(vm, map_cls, "rawHas", SignatureKind::Method(1), map_raw_has);
+        primitive_internal!(vm, map_cls, "rawRemove", SignatureKind::Method(1), map_raw_remove);
+        primitive_internal!(vm, map_cls, "rawKeyAt", SignatureKind::Method(1), map_raw_key_at);
+        primitive_internal!(vm, map_cls, "rawValueAt", SignatureKind::Method(1), map_raw_value_at);
 
         let set_cls = vm.universe.classes.set_class;
         primitive_static!(vm, set_cls, "new", SignatureKind::Method(0), set_class_new);
-        primitive_internal!(vm, set_cls, "_$size", SignatureKind::Getter, set_raw_size);
-        primitive_internal!(vm, set_cls, "_$add", SignatureKind::Method(1), set_raw_add);
-        primitive_internal!(vm, set_cls, "_$has", SignatureKind::Method(1), set_raw_has);
-        primitive_internal!(vm, set_cls, "_$remove", SignatureKind::Method(1), set_raw_remove);
-        primitive_internal!(vm, set_cls, "_$at", SignatureKind::Method(1), set_raw_at);
+        primitive_internal!(vm, set_cls, "rawSize", SignatureKind::Getter, set_raw_size);
+        primitive_internal!(vm, set_cls, "rawAdd", SignatureKind::Method(1), set_raw_add);
+        primitive_internal!(vm, set_cls, "rawHas", SignatureKind::Method(1), set_raw_has);
+        primitive_internal!(vm, set_cls, "rawRemove", SignatureKind::Method(1), set_raw_remove);
+        primitive_internal!(vm, set_cls, "rawAt", SignatureKind::Method(1), set_raw_at);
 
         // Kernel `Tuple`: raw immutable lane observations only — no mutation.
         // immutability is structural (TupleObject's Box<[Value]>). `.ph`'s
         // `at(_)`/`size`/`each(_)`/`==`/`!=`/`hash` wrap these in `core.ph`.
         let tuple_cls = vm.universe.classes.tuple_class;
-        primitive_static_internal!(vm, tuple_cls, "_$fromList", SignatureKind::Method(1), tuple_from_list_internal);
-        primitive_internal!(vm, tuple_cls, "_$size", SignatureKind::Getter, tuple_raw_size);
-        primitive_internal!(vm, tuple_cls, "_$at", SignatureKind::Method(1), tuple_raw_at);
-        primitive_internal!(vm, tuple_cls, "_$positionalSize", SignatureKind::Getter, tuple_raw_positional_size);
-        primitive_internal!(vm, tuple_cls, "_$labelAt", SignatureKind::Method(1), tuple_raw_label_at);
-        primitive_internal!(vm, tuple_cls, "_$positionals", SignatureKind::Getter, tuple_raw_positionals);
-        primitive_internal!(vm, tuple_cls, "_$labeled", SignatureKind::Getter, tuple_raw_labeled);
-        primitive_internal!(vm, tuple_cls, "_$slice", SignatureKind::Method(2), tuple_raw_slice);
+        primitive_static_internal!(vm, tuple_cls, "rawFromList", SignatureKind::Method(1), tuple_from_list_internal);
+        primitive_internal!(vm, tuple_cls, "rawSize", SignatureKind::Getter, tuple_raw_size);
+        primitive_internal!(vm, tuple_cls, "rawAt", SignatureKind::Method(1), tuple_raw_at);
+        primitive_internal!(vm, tuple_cls, "rawPositionalSize", SignatureKind::Getter, tuple_raw_positional_size);
+        primitive_internal!(vm, tuple_cls, "rawLabelAt", SignatureKind::Method(1), tuple_raw_label_at);
+        primitive_internal!(vm, tuple_cls, "rawPositionals", SignatureKind::Getter, tuple_raw_positionals);
+        primitive_internal!(vm, tuple_cls, "rawLabeled", SignatureKind::Getter, tuple_raw_labeled);
+        primitive_internal!(vm, tuple_cls, "rawSlice", SignatureKind::Method(2), tuple_raw_slice);
 
         let record_cls = vm.universe.classes.record_class;
-        primitive_internal!(vm, record_cls, "_$size", SignatureKind::Getter, record_raw_size);
-        primitive_internal!(vm, record_cls, "_$labelAt", SignatureKind::Method(1), record_raw_label_at);
-        primitive_internal!(vm, record_cls, "_$valueAt", SignatureKind::Method(1), record_raw_value_at);
+        primitive_internal!(vm, record_cls, "rawSize", SignatureKind::Getter, record_raw_size);
+        primitive_internal!(vm, record_cls, "rawLabelAt", SignatureKind::Method(1), record_raw_label_at);
+        primitive_internal!(vm, record_cls, "rawValueAt", SignatureKind::Method(1), record_raw_value_at);
 
         // Range syntax uses BuildRange directly. The floor only observes its
         // optional bounds and inclusion bit.
         let range_cls = vm.universe.classes.range_class;
-        primitive_internal!(vm, range_cls, "_$lower", SignatureKind::Getter, range_raw_lower);
-        primitive_internal!(vm, range_cls, "_$upper", SignatureKind::Getter, range_raw_upper);
-        primitive_internal!(vm, range_cls, "_$upperInclusive", SignatureKind::Getter, range_raw_upper_inclusive);
+        primitive_internal!(vm, range_cls, "rawLower", SignatureKind::Getter, range_raw_lower);
+        primitive_internal!(vm, range_cls, "rawUpper", SignatureKind::Getter, range_raw_upper);
+        primitive_internal!(vm, range_cls, "rawUpperInclusive", SignatureKind::Getter, range_raw_upper_inclusive);
 
         // `Error` root (U-CORE-6, ADR-0008): `message` is a native slot-0
         // accessor (mirrors `Message`'s accessors — a `.ph` getter over this
@@ -714,11 +715,11 @@ impl Universe {
         primitive!(vm, fiber_cls, "call", SignatureKind::Method(1), fiber_call);
         primitive!(vm, fiber_cls, "try", SignatureKind::Method(0), fiber_try);
         primitive!(vm, fiber_cls, "try", SignatureKind::Method(1), fiber_try);
-        primitive_internal!(vm, fiber_cls, "_$resumeScheduled", SignatureKind::Method(0), fiber_resume_scheduled);
-        primitive_internal!(vm, fiber_cls, "_$preparePark", SignatureKind::Method(0), fiber_prepare_park);
-        primitive_internal!(vm, fiber_cls, "_$park", SignatureKind::Method(1), fiber_park);
-        primitive_internal!(vm, fiber_cls, "_$onComplete", SignatureKind::Method(1), fiber_on_complete);
-        primitive_internal!(vm, fiber_cls, "_$terminalValue", SignatureKind::Getter, fiber_terminal_value);
+        primitive_internal!(vm, fiber_cls, "resumeScheduled", SignatureKind::Method(0), fiber_resume_scheduled);
+        primitive_internal!(vm, fiber_cls, "preparePark", SignatureKind::Method(0), fiber_prepare_park);
+        primitive_internal!(vm, fiber_cls, "park", SignatureKind::Method(1), fiber_park);
+        primitive_internal!(vm, fiber_cls, "onComplete", SignatureKind::Method(1), fiber_on_complete);
+        primitive_internal!(vm, fiber_cls, "terminalValue", SignatureKind::Getter, fiber_terminal_value);
         primitive_static!(vm, fiber_cls, "yield", SignatureKind::Method(0), fiber_yield);
         primitive_static!(vm, fiber_cls, "yield", SignatureKind::Method(1), fiber_yield);
         primitive_static!(vm, fiber_cls, "current", SignatureKind::Getter, fiber_current);
@@ -737,21 +738,21 @@ impl Universe {
         primitive_static_internal!(
             vm,
             resource_cls,
-            "_$register",
+            "register",
             SignatureKind::Method(1),
             crate::primitive::resource::resource_register
         );
         primitive_internal!(
             vm,
             resource_cls,
-            "_$close",
+            "rawClose",
             SignatureKind::Method(0),
             crate::primitive::resource::resource_raw_close
         );
         primitive_internal!(
             vm,
             resource_cls,
-            "_$isClosed",
+            "rawIsClosed",
             SignatureKind::Getter,
             crate::primitive::resource::resource_raw_is_closed
         );
@@ -760,14 +761,14 @@ impl Universe {
         primitive_static_internal!(
             vm,
             system_cls,
-            "_$leakReport",
+            "leakReport",
             SignatureKind::Getter,
             crate::primitive::resource::system_leak_report
         );
         primitive_static_internal!(
             vm,
             system_cls,
-            "_$strictResources",
+            "strictResources",
             SignatureKind::Method(1),
             crate::primitive::resource::system_strict_resources
         );

@@ -1629,9 +1629,9 @@ fn trait_surface_reports_duplicate_selector_and_preserves_source_visibility() {
         .module(
             "main",
             r#"trait Surface {
-  @private hidden() -> Int
-  @protected semi() -> Int
-  _$internal() -> Int
+  private hidden() -> Int
+  protected semi() -> Int
+  internal hiddenInternal() -> Int
   run() -> Int
   run() -> String
 }
@@ -1658,7 +1658,7 @@ fn trait_surface_reports_duplicate_selector_and_preserves_source_visibility() {
     );
     assert_eq!(
         surface
-            .get_by_selector(&Selector::method("_$internal", []).unwrap(), DispatchSide::Instance)
+            .get_by_selector(&Selector::method("hiddenInternal", []).unwrap(), DispatchSide::Instance)
             .expect("internal member")
             .visibility,
         phalcom_semantic::MemberVisibility::Internal

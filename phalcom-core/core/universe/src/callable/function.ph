@@ -19,7 +19,7 @@ native class Function is Object {
 
 // Kernel List (ADR-0020): a native array-backed heap object (ListObject),
 // not an InstanceObject — bootstrapped in Rust (universe.rs) with five floor
-// implementation primitives (`_$length`/`_$at`/`_$set`/`_$push`, plus native `new()`). This
+// implementation primitives (`rawLength`/`rawAt`/`rawSet`/`rawPush`, plus native `new()`). This
 // skeleton reopens that bootstrapped row to define the public protocol over
 // those primitives (ADR-0019's "hybrid: native primitives, self-defined
 // control"). `toString` is ALSO a native primitive this unit, not defined
@@ -27,6 +27,6 @@ native class Function is Object {
 // is blocked on U-CORE-4; DEFERRED.md #19). U-STD (catalog-delta §2.4;
 // DEFERRED.md #18/#20/#25) discharges the deferral for the combinator layer:
 // `map`/`reduce`/`filter`/`includes`/`isEmpty` and the `at(_:put:)` wrapper
-// over `_$set` now live below, all pure `.ph` over the floor. Only
+// over `rawSet` now live below, all pure `.ph` over the floor. Only
 // **list-literal syntax** `[a, b, c]` remains deferred (it needs a new ADR +
 // parser work; DEFERRED.md #6) — do not add that here.

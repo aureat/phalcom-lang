@@ -3,13 +3,13 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 native class List<T> is Collection {
   @class
   native new() -> List<T>
-  internal native _$length -> Int
-  internal native _$at(_ index: Int) -> Dynamic
-  internal native _$set(_ index: Int, _ value: Dynamic) -> Dynamic
-  internal native _$push(_ value: Dynamic) -> Dynamic
-  internal native _$replaceSlice(_ start: Int, _ end: Int, _ replacement: List<T>) -> Dynamic
+  internal native rawLength -> Int
+  internal native rawAt(_ index: Int) -> Dynamic
+  internal native rawSet(_ index: Int, _ value: Dynamic) -> Dynamic
+  internal native rawPush(_ value: Dynamic) -> Dynamic
+  internal native rawReplaceSlice(_ start: Int, _ end: Int, _ replacement: List<T>) -> Dynamic
   native toString -> String
-  size { self._$length }
+  size { self.rawLength }
 
   first {
     if (self.size == 0) { return None }
@@ -27,11 +27,11 @@ native class List<T> is Collection {
   iterator -> ListIterator<T> { ListIterator.new(self) }
 
   at(_ i) {
-    return self._$at(i)
+    return self.rawAt(i)
   }
 
   get(_ index) {
-    let raw = self._$at(index)
+    let raw = self.rawAt(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -41,9 +41,8 @@ native class List<T> is Collection {
     return None
   }
 
-  private
-  sliceByRange(_ range) {
-    return range._$sliceBounds(self.size).match(
+  private sliceByRange(_ range) {
+    return range.rawSliceBounds(self.size).match(
       ok: |bounds| {
         let start = bounds[0]
         let end = bounds[1]
@@ -53,7 +52,7 @@ native class List<T> is Collection {
         let result = List<T>.new()
         let i = start
         while (i < end) {
-          result._$push(self._$at(i))
+          result.rawPush(self.rawAt(i))
           i = i + 1
         }
         result
@@ -64,7 +63,7 @@ native class List<T> is Collection {
 
   [_ index] {
     if (index.is(Range)) { return self.sliceByRange(index) }
-    let raw = self._$at(index)
+    let raw = self.rawAt(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -75,7 +74,7 @@ native class List<T> is Collection {
   }
 
   [_ index, default] {
-    let raw = self._$at(index)
+    let raw = self.rawAt(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -86,7 +85,7 @@ native class List<T> is Collection {
   }
 
   get(_ index, orElse) {
-    let raw = self._$at(index)
+    let raw = self.rawAt(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -97,20 +96,20 @@ native class List<T> is Collection {
   }
 
   append(_ value) {
-    self._$push(value)
+    self.rawPush(value)
     return ()
   }
 
   prepend(_ value) {
     let oneElementList = List<T>.new()
-    oneElementList._$push(value)
-    self._$replaceSlice(0, 0, oneElementList)
+    oneElementList.rawPush(value)
+    self.rawReplaceSlice(0, 0, oneElementList)
     return ()
   }
 
   clear {
     let emptyList = List<T>.new()
-    self._$replaceSlice(0, self.size, emptyList)
+    self.rawReplaceSlice(0, self.size, emptyList)
     return ()
   }
 
@@ -122,8 +121,8 @@ native class List<T> is Collection {
       return Result::Error(IndexError.new("List#insert: index out of bounds"))
     }
     let oneElementList = List<T>.new()
-    oneElementList._$push(value)
-    self._$replaceSlice(p, p, oneElementList)
+    oneElementList.rawPush(value)
+    self.rawReplaceSlice(p, p, oneElementList)
     let ok: Result<Unit, Error> = Result::Ok(())
     return ok
   }
@@ -135,9 +134,9 @@ native class List<T> is Collection {
     if (p < 0 or p >= n) {
       return Result::Error(IndexError.new("List#remove: index out of bounds"))
     }
-    let captured = self._$at(p)
+    let captured = self.rawAt(p)
     let emptyList = List<T>.new()
-    self._$replaceSlice(p, p + 1, emptyList)
+    self.rawReplaceSlice(p, p + 1, emptyList)
     let ok: Result<Dynamic, Error> = Result::Ok(captured)
     return ok
   }
@@ -145,18 +144,18 @@ native class List<T> is Collection {
   popFirst {
     let n = self.size
     if (n == 0) { return None }
-    let captured = self._$at(0)
+    let captured = self.rawAt(0)
     let emptyList = List<T>.new()
-    self._$replaceSlice(0, 1, emptyList)
+    self.rawReplaceSlice(0, 1, emptyList)
     return Some(captured)
   }
 
   popLast {
     let n = self.size
     if (n == 0) { return None }
-    let captured = self._$at(n - 1)
+    let captured = self.rawAt(n - 1)
     let emptyList = List<T>.new()
-    self._$replaceSlice(n - 1, n, emptyList)
+    self.rawReplaceSlice(n - 1, n, emptyList)
     return Some(captured)
   }
 
@@ -166,15 +165,15 @@ native class List<T> is Collection {
     let i = 0
     let n = self.size
     while (i < n) {
-      let x = self._$at(i)
+      let x = self.rawAt(i)
       if (predicate.call(x)) {
         count = count + 1
       } else {
-        retained._$push(x)
+        retained.rawPush(x)
       }
       i = i + 1
     }
-    self._$replaceSlice(0, self.size, retained)
+    self.rawReplaceSlice(0, self.size, retained)
     return count
   }
 
@@ -194,17 +193,17 @@ native class List<T> is Collection {
       let ok: Result<Unit, Error> = Result::Ok(())
       return ok
     }
-    let valA = self._$at(idxA)
-    let valB = self._$at(idxB)
-    self._$set(idxA, valB)
-    self._$set(idxB, valA)
+    let valA = self.rawAt(idxA)
+    let valB = self.rawAt(idxB)
+    self.rawSet(idxA, valB)
+    self.rawSet(idxB, valA)
     let ok: Result<Unit, Error> = Result::Ok(())
     return ok
   }
 
-  // U-STD (DEFERRED.md #18): the public `.ph` wrapper over `_$set(_,_)`
+  // U-STD (DEFERRED.md #18): the public `.ph` wrapper over `rawSet(_,_)`
   // floor primitive — writes `put` at index `i` and returns `self` so writes
-  // chain (mirrors `add`). Selector `at(_,put)` matches `_$set`'s 2 args;
+  // chain (mirrors `add`). Selector `at(_,put)` matches `rawSet`'s 2 args;
   // the labeled parameter is named `put` (label == name, parser convention).
   at(_ i, put) {
     let len = self.size
@@ -213,7 +212,7 @@ native class List<T> is Collection {
     if (norm < 0 or norm >= len) {
       throw IndexError.new("Expected an in-range index, got an out-of-range Number")
     }
-    self._$set(i, put)
+    self.rawSet(i, put)
     return self
   }
 
@@ -226,12 +225,12 @@ native class List<T> is Collection {
     if (not replacements.is(List)) {
       return Result::Error(SliceError.new("List#replace: replacement must be a List"))
     }
-    return range._$sliceBounds(self.size).match(
+    return range.rawSliceBounds(self.size).match(
       ok: |bounds| {
         let start = bounds[0]
         let end = bounds[1]
         if (start > end) { end = start }
-        self._$replaceSlice(start, end, replacements)
+        self.rawReplaceSlice(start, end, replacements)
         let ok: Result<Unit, Error> = Result::Ok(())
         ok
       },

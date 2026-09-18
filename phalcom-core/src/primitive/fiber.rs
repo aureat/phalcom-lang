@@ -322,7 +322,7 @@ pub fn fiber_error(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 /// Internal durable completion binding. The observer is retained by the
 /// Fiber until terminal handoff, so it remains connected across scheduler
 /// parks and resumer changes.
-#[phalcom_native_macros::primitive(Fiber, "_$onComplete(_)", visibility = internal)]
+#[phalcom_native_macros::primitive(Fiber, "onComplete(_)", visibility = internal)]
 pub fn fiber_on_complete(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
     let observer = args.first().copied().ok_or(RuntimeError::Type {
@@ -348,7 +348,7 @@ pub fn fiber_on_complete(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
 }
 
 /// Internal terminal-result access for a durable completion observer.
-#[phalcom_native_macros::primitive(Fiber, "_$terminalValue", visibility = internal)]
+#[phalcom_native_macros::primitive(Fiber, "terminalValue", visibility = internal)]
 pub fn fiber_terminal_value(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
     let fiber = vm.heap.fiber(fiber_ref);
@@ -410,7 +410,7 @@ pub fn fiber_try_with_value(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
 
 /// Internal scheduler-owned resume. Unlike public `call`/`try`, the receiver
 /// must already be reserved in `FiberStatus::Queued` by VM queue admission.
-#[phalcom_native_macros::primitive(Fiber, "_$resumeScheduled()", visibility = internal)]
+#[phalcom_native_macros::primitive(Fiber, "resumeScheduled()", visibility = internal)]
 pub fn fiber_resume_scheduled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if vm.native_reentry_depth != 0 {
         return Err(cannot_resume_across_native_frame(vm));
@@ -434,7 +434,7 @@ pub fn fiber_resume_scheduled(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
 /// could reject a switch before the Future records a waiter, then advances the
 /// fiber-local wake generation. The generation is intentionally returned to
 /// Phalcom so the matching Future owns the eventual wake authority.
-#[phalcom_native_macros::primitive(Fiber, "_$preparePark()", visibility = internal)]
+#[phalcom_native_macros::primitive(Fiber, "preparePark()", visibility = internal)]
 pub fn fiber_prepare_park(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
     if fiber_ref != vm.current {
@@ -461,7 +461,7 @@ pub fn fiber_prepare_park(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
 /// Internal Future park commit. A valid call changes the current fiber to
 /// `Parked(generation)` and transfers execution to the next queued work or executor driver.
 /// The active coroutine consumer (if any) is preserved.
-#[phalcom_native_macros::primitive(Fiber, "_$park(_)", visibility = internal)]
+#[phalcom_native_macros::primitive(Fiber, "park(_)", visibility = internal)]
 pub fn fiber_park(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
     let generation = args.first().and_then(|value| value.as_int()).ok_or_else(|| RuntimeError::Type {

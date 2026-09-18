@@ -43,7 +43,7 @@ pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 }
 
 /// Constructs a native error subclass while preserving the concrete receiver
-/// class. Native error presentations are empty `@native` reopens, so they do
+/// class. Native error presentations are empty `native` reopens, so they do
 /// not acquire the source `Error.new(_)` factory through class-body lowering.
 pub(crate) fn native_error_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let class = expect_class(vm, receiver)?;

@@ -7,27 +7,27 @@ native class String is Object {
   native new() -> String
   @class
   native new(_ value: Dynamic) -> String
-  internal native _$byteCount -> Int
-  internal native _$byteAt(_ index: Int) -> Option<Int>
-  internal native _$slice(_ start: Int, _ end: Int) -> String
+  internal native rawByteCount -> Int
+  internal native rawByteAt(_ index: Int) -> Option<Int>
+  internal native rawSlice(_ start: Int, _ end: Int) -> String
   // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
   // representation read, so this is `.ph`-derivable rather than a floor
   // primitive (ADR-0019's derivability test).
   toString { self }
 
   // Byte count. UTF-8 buffer length in bytes (not codepoints).
-  size { self._$byteCount }
-  isEmpty { self._$byteCount == 0 }
+  size { self.rawByteCount }
+  isEmpty { self.rawByteCount == 0 }
 
   // Byte-range slice. Native storage operation stays internal; public wrapper
   // preserves existing bounds/UTF-8-boundary diagnostics.
-  slice(_ start, _ end) { self._$slice(start, end) }
+  slice(_ start, _ end) { self.rawSlice(start, end) }
 
   // Number of leading bytes in the UTF-8 sequence starting at byte offset `i`.
   // Read purely from the lead byte's numeric range: 1/2/3/4-byte sequences are
   // encoded by the lead byte's numeric value (no bitmask needed).
   leadByteLen(_ i) {
-    const b = self._$byteAt(i)
+    const b = self.rawByteAt(i)
     return (b == None).ifTrue(|| { None }, ifFalse: || {
       (b < 128).ifTrue(|| { 1 }, ifFalse: || {
         (b < 224).ifTrue(|| { 2 }, ifFalse: || {
@@ -38,7 +38,7 @@ native class String is Object {
   // The Unicode scalar value at byte offset `i`, or `None` if out-of-range
   // or mid-sequence. UTF-8 decode via division/modulo (no bitwise ops).
   codePointAt(_ i) {
-    const b0 = self._$byteAt(i)
+    const b0 = self.rawByteAt(i)
     return (b0 == None).ifTrue(|| { None }, ifFalse: || {
       (b0 < 128).ifTrue(|| {
         // ASCII single byte (0xxxxxxx)
@@ -50,7 +50,7 @@ native class String is Object {
         }, ifFalse: || {
           (b0 < 224).ifTrue(|| {
             // 2-byte sequence (110xxxxx 10xxxxxx)
-            const b1 = self._$byteAt(i + 1)
+            const b1 = self.rawByteAt(i + 1)
             (b1 == None).ifTrue(|| { None }, ifFalse: || {
               (b1 < 128).ifTrue(|| { None }, ifFalse: || {
                 (b1 >= 192).ifTrue(|| { None }, ifFalse: || {
@@ -61,8 +61,8 @@ native class String is Object {
           }, ifFalse: || {
             (b0 < 240).ifTrue(|| {
               // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
-              const b1 = self._$byteAt(i + 1)
-              const b2 = self._$byteAt(i + 2)
+              const b1 = self.rawByteAt(i + 1)
+              const b2 = self.rawByteAt(i + 2)
               (b1 == None).ifTrue(|| { None }, ifFalse: || {
                 (b2 == None).ifTrue(|| { None }, ifFalse: || {
                   (b1 < 128).ifTrue(|| { None }, ifFalse: || {
@@ -79,9 +79,9 @@ native class String is Object {
             }, ifFalse: || {
               (b0 < 248).ifTrue(|| {
                 // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
-                const b1 = self._$byteAt(i + 1)
-                const b2 = self._$byteAt(i + 2)
-                const b3 = self._$byteAt(i + 3)
+                const b1 = self.rawByteAt(i + 1)
+                const b2 = self.rawByteAt(i + 2)
+                const b3 = self.rawByteAt(i + 3)
                 (b1 == None).ifTrue(|| { None }, ifFalse: || {
                   (b2 == None).ifTrue(|| { None }, ifFalse: || {
                     (b3 == None).ifTrue(|| { None }, ifFalse: || {
@@ -123,14 +123,14 @@ native class String is Object {
     })
 
     let i = 0
-    while (i <= self._$byteCount - needle._$byteCount) {
+    while (i <= self.rawByteCount - needle.rawByteCount) {
       let is_match = true
       let j = 0
-      while (j < needle._$byteCount) {
-        (self._$byteAt(i + j) == needle._$byteAt(j)).ifTrue(|| {}, ifFalse: || {
+      while (j < needle.rawByteCount) {
+        (self.rawByteAt(i + j) == needle.rawByteAt(j)).ifTrue(|| {}, ifFalse: || {
           is_match = false
         })
-        (is_match).ifTrue(|| { j = j + 1 }, ifFalse: || { j = needle._$byteCount })
+        (is_match).ifTrue(|| { j = j + 1 }, ifFalse: || { j = needle.rawByteCount })
       }
       (is_match).ifTrue(|| { return i })
       i = i + 1
@@ -161,14 +161,14 @@ native class String is Object {
     let prev = 0
     let i = self.indexOf(delimiter)
     while (i != -1) {
-      result._$push(self._$slice(prev, i))
-      prev = i + delimiter._$byteCount
+      result.rawPush(self.rawSlice(prev, i))
+      prev = i + delimiter.rawByteCount
       // Search for next occurrence after this delimiter
-      let rest = self._$slice(prev, self._$byteCount)
+      let rest = self.rawSlice(prev, self.rawByteCount)
       let nextIdx = rest.indexOf(delimiter)
       (nextIdx == -1).ifTrue(|| { i = -1 }, ifFalse: || { i = prev + nextIdx })
     }
-    result._$push(self._$slice(prev, self._$byteCount))
+    result.rawPush(self.rawSlice(prev, self.rawByteCount))
     return result
   }
 
@@ -188,13 +188,13 @@ native class String is Object {
     let prev = 0
     let i = self.indexOf(needle)
     while (i != -1) {
-      result = result + self._$slice(prev, i) + to
-      prev = i + needle._$byteCount
-      let rest = self._$slice(prev, self._$byteCount)
+      result = result + self.rawSlice(prev, i) + to
+      prev = i + needle.rawByteCount
+      let rest = self.rawSlice(prev, self.rawByteCount)
       let nextIdx = rest.indexOf(needle)
       (nextIdx == -1).ifTrue(|| { i = -1 }, ifFalse: || { i = prev + nextIdx })
     }
-    result = result + self._$slice(prev, self._$byteCount)
+    result = result + self.rawSlice(prev, self.rawByteCount)
     return result
   }
 
@@ -219,11 +219,11 @@ native class String is Object {
 
     let i = 0
     let stop = false
-    while ((i < self._$byteCount).and(|| { not stop })) {
+    while ((i < self.rawByteCount).and(|| { not stop })) {
       const cp = self.codePointAt(i)
       let found = false
       let j = 0
-      while (j < chars._$byteCount) {
+      while (j < chars.rawByteCount) {
         (chars.codePointAt(j) == cp).ifTrue(|| { found = true })
         const len = chars.leadByteLen(j)
         (len == None).ifTrue(|| { j = j + 1 }, ifFalse: || { j = j + len })
@@ -234,7 +234,7 @@ native class String is Object {
         stop = true  // exit loop, keeping i at the first non-trimmed byte
       })
     }
-    return self._$slice(i, self._$byteCount)
+    return self.rawSlice(i, self.rawByteCount)
   }
 
   // Trim from the end using the given charset.
@@ -243,7 +243,7 @@ native class String is Object {
       throw ArgumentError.new("trimEnd: chars must be a String")
     })
 
-    let i = self._$byteCount
+    let i = self.rawByteCount
     let stop = false
     while ((i > 0).and(|| { not stop })) {
       // Scan backward one byte at a time to find the previous lead byte
@@ -255,7 +255,7 @@ native class String is Object {
         // Found a lead byte; check if it's in the trim set
         let found = false
         let j = 0
-        while (j < chars._$byteCount) {
+        while (j < chars.rawByteCount) {
           (chars.codePointAt(j) == cp).ifTrue(|| { found = true })
           const len = chars.leadByteLen(j)
           (len == None).ifTrue(|| { j = j + 1 }, ifFalse: || { j = j + len })
@@ -267,7 +267,7 @@ native class String is Object {
         })
       })
     }
-    return self._$slice(0, i)
+    return self.rawSlice(0, i)
   }
 
   // Repeat the string `count` times.
@@ -308,11 +308,11 @@ class StringByteSequence {
 
   iterator -> StringByteIterator { StringByteIterator.new(self) }
 
-  size { _string._$byteCount }
+  size { _string.rawByteCount }
 
-  at(_ i) { _string._$byteAt(i) }
+  at(_ i) { _string.rawByteAt(i) }
 
-  internal _$rawByteAt(_ i) { _string._$byteAt(i) }
+  internal rawByteAt(_ i) { _string.rawByteAt(i) }
 
   each(_ f) {
     let i = 0
@@ -327,7 +327,7 @@ class StringByteSequence {
     const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || {
       cursor + 1
     })
-    return (next < _string._$byteCount).ifTrue(|| { next }, ifFalse: || { None })
+    return (next < _string.rawByteCount).ifTrue(|| { next }, ifFalse: || { None })
   }
 }
 
@@ -349,7 +349,7 @@ class StringByteIterator {
       _done = true
       return None
     }
-    let value = _source._$rawByteAt(_offset)
+    let value = _source.rawByteAt(_offset)
     _offset = _offset + 1
     Some(value)
   }
@@ -387,11 +387,11 @@ class StringCodePointSequence {
 
   at(_ byteOffset) { _string.codePointAt(byteOffset) }
 
-  internal _$byteCountView { _string._$byteCount }
+  internal byteCountView { _string.rawByteCount }
 
-  internal _$rawCodePointAt(_ byteOffset) { _string.codePointAt(byteOffset) }
+  internal rawCodePointAt(_ byteOffset) { _string.codePointAt(byteOffset) }
 
-  internal _$rawLeadByteLen(_ byteOffset) { _string.leadByteLen(byteOffset) }
+  internal rawLeadByteLen(_ byteOffset) { _string.leadByteLen(byteOffset) }
 
   each(_ f) {
     let i = self.nextCursor(None)
@@ -406,7 +406,7 @@ class StringCodePointSequence {
     const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || {
       cursor + _string.leadByteLen(cursor)
     })
-    return (next < _string._$byteCount).ifTrue(|| { next }, ifFalse: || { None })
+    return (next < _string.rawByteCount).ifTrue(|| { next }, ifFalse: || { None })
   }
 }
 
@@ -424,15 +424,15 @@ class StringCodePointIterator {
 
   next -> Option<Int> {
     if (_done) { return None }
-    if (_offset >= _source._$byteCountView) {
+    if (_offset >= _source.byteCountView) {
       _done = true
       return None
     }
-    let value = _source._$rawCodePointAt(_offset)
+    let value = _source.rawCodePointAt(_offset)
     if (value == None) {
       throw Error.new("String code-point iterator encountered an invalid sequence")
     }
-    let length = _source._$rawLeadByteLen(_offset)
+    let length = _source.rawLeadByteLen(_offset)
     if (length == None) {
       throw Error.new("String code-point iterator encountered an invalid lead byte")
     }

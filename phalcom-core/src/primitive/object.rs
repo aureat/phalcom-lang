@@ -485,7 +485,7 @@ pub fn message_args(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 /// Signature: `Object::__invariantEnter()` — the entry half of the
 #[phalcom_native_macros::primitive(
     Object,
-    "_$invariantEnter()",
+    "invariantEnter()",
     params = [],
     returns = Bool,
     types = "() -> Bool",
@@ -502,7 +502,7 @@ pub fn object_invariant_enter(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
 /// Signature: `Object::__invariantExit()` — the exit half of the `@invariant`
 #[phalcom_native_macros::primitive(
     Object,
-    "_$invariantExit()",
+    "invariantExit()",
     params = [],
     returns = Option,
     types = "() -> Option",

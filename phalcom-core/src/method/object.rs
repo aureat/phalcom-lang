@@ -277,16 +277,6 @@ impl ArgumentView {
         (self.caller_access, self.caller_origin)
     }
 
-    /// Returns the caller access class if known.
-    pub(crate) fn caller_access(&self) -> Option<ClassId> {
-        self.caller_access
-    }
-
-    /// Returns the caller runtime access origin.
-    pub(crate) fn caller_origin(&self) -> RuntimeAccessOrigin {
-        self.caller_origin
-    }
-
     /// Returns a view with a newly resolved selector and invocation layout.
     pub(crate) fn with_layout(self, layout: InvocationLayout) -> Self {
         Self {
@@ -354,7 +344,7 @@ pub struct MethodObject {
     pub holder: Option<ClassId>,
     /// Member visibility.
     pub visibility: super::MemberVisibility,
-    /// Lexical source class controlling @private/@protected access.
+    /// Lexical source class controlling private/protected access.
     pub access_owner: Option<ClassId>,
     /// Runtime access origin for module/package/internal visibility.
     pub origin: RuntimeAccessOrigin,

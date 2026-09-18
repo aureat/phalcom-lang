@@ -1,5 +1,5 @@
 class Foo {
-    _$internalMethod() {
+    internal internalMethod() {
         42
     }
 }

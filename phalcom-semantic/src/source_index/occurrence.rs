@@ -733,7 +733,6 @@ impl OccurrenceBuilder<'_> {
             | Expr::String { .. }
             | Expr::Boolean { .. }
             | Expr::Ellipsis { .. }
-            | Expr::ImplementationSelector { .. }
             | Expr::Symbol { .. }
             | Expr::TypeForm(_) => {}
         }

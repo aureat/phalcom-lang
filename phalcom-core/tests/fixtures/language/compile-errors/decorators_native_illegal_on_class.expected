@@ -1,1 +1,1 @@
-native.requires_privileged_core: `@native` is permitted only in the bootstrap core module.
+attr.unknown: unknown attribute `@native`

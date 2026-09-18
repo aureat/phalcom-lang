@@ -930,7 +930,6 @@ impl<'a> ProductPlanner<'a> {
             | Expr::String { .. }
             | Expr::Boolean { .. }
             | Expr::Symbol(_)
-            | Expr::ImplementationSelector { .. }
             | Expr::Field { .. } => {}
         }
     }

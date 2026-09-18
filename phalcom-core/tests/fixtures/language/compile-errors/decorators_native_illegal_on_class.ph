@@ -1,8 +1,7 @@
 // area: compile-errors
-// spec: docs/spec/v0.2/decorators/native.md §"Legality"
+// spec: docs/specs/source-declarations.md §6
 // status: NEGATIVE
-// `@native` is legal only on `Method`/`Getter`/`Setter`/`Construct` — a
-// class-level `@native` is `attr.illegal_target`.
+// Retired `@native` is not a declaration modifier or semantic authority.
 
 @native
 class Foo { bar { 1 }

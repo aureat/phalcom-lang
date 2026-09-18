@@ -137,7 +137,6 @@ fn is_pure_expr(expr: &Expr) -> bool {
         | Expr::Boolean { .. }
         | Expr::Var { .. }
         | Expr::Field { .. }
-        | Expr::ImplementationSelector { .. }
         | Expr::SelfVar { .. }
         | Expr::SuperVar { .. } => true,
         Expr::Assignment(_) | Expr::SetProperty(_) | Expr::SetIndex(_) => false,
@@ -787,55 +786,15 @@ impl AttributeExpander for OnExpander {
     }
 }
 
-/// Registry entry for `@native` (`docs/spec/v0.2/decorators/native.md`). Its
-/// [`AttributeExpander::expand`] is a deliberate no-op — the member this
-/// attribute marks is removed wholesale by [`expand_class_attributes`]'s
-/// native/ignore drop pass, the only code that owns the [`ClassDef`] and can
-/// therefore remove from it (`AttributeExpander::expand` takes `&mut
-/// ClassMember`, which cannot shrink `ClassDef::members`). This row exists so
-/// `@native` is a legal name and its target is checked — `attr.unknown`
-/// otherwise fires for every `@native` member, and an illegal target (e.g. a
-/// `Field`) would go unchecked without a `legal_targets()` to consult.
-///
-/// `Getter` is load-bearing, not incidental: `toString` is a
-/// `SignatureKind::Getter` (ADR-0022's CB-1 amendment), so the motivating case
-/// — anchoring `List#toString` to `list_to_string` (`universe/primitives.rs`)
-/// — targets `Target::Getter`, not `Target::Method`.
-pub struct NativeExpander;
-impl AttributeExpander for NativeExpander {
-    fn legal_targets(&self) -> &'static [Target] {
-        &[Target::Class, Target::Method, Target::Getter, Target::Setter]
-    }
-
-    fn expand(&self, ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
-        if !ctx.privileged_universe {
-            return Err(CompilerError::NativeAttributeRequiresPrivilegedCore((0..0).into()));
-        }
-        Ok(())
-    }
-}
-
-pub struct InternalExpander;
-impl AttributeExpander for InternalExpander {
-    fn legal_targets(&self) -> &'static [Target] {
-        &[Target::Method, Target::Getter, Target::Setter, Target::Field]
-    }
-
-    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
-        Ok(())
-    }
-}
-
 /// Registry entry for `@ignore` (`docs/spec/v0.2/decorators/ignore.md`) — the
-/// sanctioned drop. Same deliberate-no-op shape as [`NativeExpander`]: the
-/// marked member is removed wholesale by [`expand_class_attributes`]'s
-/// native/ignore drop pass, not through this trait method. This row exists so
+/// sanctioned drop. Its deliberate no-op expander is paired with a marked
+/// member that is removed wholesale by [`expand_class_attributes`]'s ignore
+/// drop pass, not through this trait method. This row exists so
 /// `@ignore` is a legal name and its target is checked.
 ///
-/// Unlike `@native`, `@ignore` asserts nothing about a Rust binding — it is
+/// `@ignore` asserts nothing about a Rust binding — it is
 /// the one attribute whose entire meaning is "the compiler does not compile
-/// this member". `@native`'s drop is a provisional borrow of this mechanism
-/// (native.md §"Relationship to `@ignore`", N-2).
+/// this member".
 pub struct IgnoreExpander;
 impl AttributeExpander for IgnoreExpander {
     fn legal_targets(&self) -> &'static [Target] {
@@ -876,35 +835,40 @@ impl AttributeExpander for ClassExpander {
     }
 }
 
-pub struct PrivateExpander;
-impl AttributeExpander for PrivateExpander {
-    fn legal_targets(&self) -> &'static [Target] {
-        &[Target::Method, Target::Getter, Target::Setter, Target::Index]
-    }
-
-    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
-        Ok(())
-    }
+/// Validates the two Universe-only metadata attributes. These attributes are
+/// deliberately no-ops: their source attributes remain attached for semantic,
+/// native-surface, and presentation consumers, but they never synthesize
+/// visibility, implementation kind, lowering, or runtime privilege.
+pub struct MetadataExpander {
+    name: &'static str,
 }
 
-pub struct ProtectedExpander;
-impl AttributeExpander for ProtectedExpander {
+impl AttributeExpander for MetadataExpander {
     fn legal_targets(&self) -> &'static [Target] {
         &[Target::Method, Target::Getter, Target::Setter, Target::Index]
     }
 
-    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
+    fn expand(&self, ctx: &mut ExpandCtx, _member: &mut ClassMember, args: &[Expr]) -> Result<(), CompilerError> {
+        if !ctx.privileged_universe {
+            return Err(CompilerError::Message(format!(
+                "attr.universe_only: `@{}` is permitted only in the canonical Universe project",
+                self.name
+            )));
+        }
+        if !args.is_empty() {
+            return Err(CompilerError::Message(format!("attr.arguments_not_allowed: `@{}` does not accept arguments", self.name)));
+        }
         Ok(())
     }
 }
 
 pub struct AttributeRegistry {
-    expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 18],
+    expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 16],
 }
 
 impl Default for AttributeRegistry {
     fn default() -> Self {
-        let mut expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 18] = Default::default();
+        let mut expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 16] = Default::default();
         expanders[BuiltinAttr::Requires as usize] = Some(Box::new(RequiresExpander));
         expanders[BuiltinAttr::Ensures as usize] = Some(Box::new(EnsuresExpander));
         expanders[BuiltinAttr::Invariant as usize] = Some(Box::new(InvariantExpander));
@@ -917,11 +881,9 @@ impl Default for AttributeRegistry {
         expanders[BuiltinAttr::Sealed as usize] = Some(Box::new(SealedExpander));
         expanders[BuiltinAttr::Variant as usize] = Some(Box::new(VariantExpander));
         expanders[BuiltinAttr::On as usize] = Some(Box::new(OnExpander));
-        expanders[BuiltinAttr::Native as usize] = Some(Box::new(NativeExpander));
         expanders[BuiltinAttr::Ignore as usize] = Some(Box::new(IgnoreExpander));
-        expanders[BuiltinAttr::Private as usize] = Some(Box::new(PrivateExpander));
-        expanders[BuiltinAttr::Protected as usize] = Some(Box::new(ProtectedExpander));
-        expanders[BuiltinAttr::Internal as usize] = Some(Box::new(InternalExpander));
+        expanders[BuiltinAttr::Primitive as usize] = Some(Box::new(MetadataExpander { name: "primitive" }));
+        expanders[BuiltinAttr::Intrinsic as usize] = Some(Box::new(MetadataExpander { name: "intrinsic" }));
         Self { expanders }
     }
 }
@@ -955,11 +917,7 @@ fn field_assign_stmt(field_name: &str, value: Expr, range: SourceRange) -> State
         expr: Expr::Assignment(Box::new(AssignmentExpr {
             name: Box::new(Expr::Field {
                 value: field_name.to_string(),
-                kind: if field_name.starts_with("__") {
-                    FieldKind::Implementation
-                } else {
-                    FieldKind::Source
-                },
+                kind: FieldKind::Source,
                 range,
             }),
             value,
@@ -1201,11 +1159,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     body: MemberBody::Block(vec![Statement::Expr {
                         expr: Expr::Field {
                             value: field.name.clone(),
-                            kind: if field.name.starts_with("__") {
-                                FieldKind::Implementation
-                            } else {
-                                FieldKind::Source
-                            },
+                            kind: FieldKind::Source,
                             range: attr.range,
                         },
                         range: attr.range,
@@ -1277,11 +1231,7 @@ fn build_data_eq(fields: &[FieldDef], range: SourceRange) -> Expr {
         let base_name = strip_leading_underscore(&f.name);
         let field_read = Expr::Field {
             value: f.name.clone(),
-            kind: if f.name.starts_with("__") {
-                FieldKind::Implementation
-            } else {
-                FieldKind::Source
-            },
+            kind: FieldKind::Source,
             range,
         };
         let other_read = Expr::GetProperty(Box::new(GetPropertyExpr {
@@ -1332,11 +1282,7 @@ fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
         let hash_read = Expr::GetProperty(Box::new(GetPropertyExpr {
             object: Expr::Field {
                 value: f.name.clone(),
-                kind: if f.name.starts_with("__") {
-                    FieldKind::Implementation
-                } else {
-                    FieldKind::Source
-                },
+                kind: FieldKind::Source,
                 range,
             },
             property: "hash".to_string(),
@@ -1410,11 +1356,7 @@ fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRang
             args: vec![PackItem::Positional {
                 expr: Expr::Field {
                     value: f.name.clone(),
-                    kind: if f.name.starts_with("__") {
-                        FieldKind::Implementation
-                    } else {
-                        FieldKind::Source
-                    },
+                    kind: FieldKind::Source,
                     range,
                 },
                 range,
@@ -1486,11 +1428,7 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
                 body: vec![Statement::Expr {
                     expr: Expr::Field {
                         value: f.name.clone(),
-                        kind: if f.name.starts_with("__") {
-                            FieldKind::Implementation
-                        } else {
-                            FieldKind::Source
-                        },
+                        kind: FieldKind::Source,
                         range,
                     },
                     range,
@@ -1637,11 +1575,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                     body: MemberBody::Block(vec![Statement::Expr {
                         expr: Expr::Field {
                             value: f.name.clone(),
-                            kind: if f.name.starts_with("__") {
-                                FieldKind::Implementation
-                            } else {
-                                FieldKind::Source
-                            },
+                            kind: FieldKind::Source,
                             range: attr_range,
                         },
                         range: attr_range,
@@ -1870,7 +1804,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             }));
         }
 
-        // `_$matchArm(k1, k2, ...) { return <ownKeyword>.call(self) }` — every
+        // `matchArm(k1, k2, ...) { return <ownKeyword>.call(self) }` — every
         // variant implements the identical selector (same keyword-name list,
         // positional, in `@variant` declaration order across the *whole*
         // sealed family), overriding only which positional block it calls —
@@ -1900,7 +1834,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             range: v.range,
         }));
         members.push(ClassMember::Method(MethodDef {
-            name: "_$matchArm".to_string(),
+            name: "matchArm".to_string(),
             generic_parameters: Vec::new(),
             params,
             return_annotation: None,
@@ -1948,7 +1882,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         }));
     }
 
-    // `match(k1, k2, ...) { return self._$matchArm(k1, k2, ...) }` on the
+    // `match(k1, k2, ...) { return self.matchArm(k1, k2, ...) }` on the
     // enclosing sealed class — the keyword-argument list is exactly the
     // declared `@variant` names, in declaration order (`annotations-data.md`:
     // "exhaustiveness for free" — a call site omitting or misnaming an arm
@@ -1979,7 +1913,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         .collect();
     let arm_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: Expr::SelfVar { range: match_range },
-        method: "_$matchArm".to_string(),
+        method: "matchArm".to_string(),
         method_range: None,
         args: arm_args,
         range: match_range,
@@ -2160,7 +2094,7 @@ fn validate_attribute_class(class: &ClassDef, class_attrs: &[phalcom_ast::ast::A
 /// Maps `member` to the [`Target`] variant that attribute legality checks
 /// consult (`AttributeExpander::legal_targets`).
 ///
-/// Called both by [`expand_class_attributes`]'s `@native`/`@ignore`
+/// Called by [`expand_class_attributes`]'s `@ignore`
 /// legality-check-then-drop pass (which runs *before* `expand_variants`, so a
 /// [`ClassMember::Variant`] arm is genuinely reachable there) and by its
 /// member-attribute loop (which runs *after* `expand_variants` has already
@@ -2187,7 +2121,7 @@ fn member_target(member: &ClassMember) -> Target {
 /// Every attribute-bearing [`ClassMember`] variant stores an `attributes`
 /// field (see `Parser::attach_attrs`'s doc), so there is no uniform accessor —
 /// this is the small match that stands in for one. Used by
-/// the `@native`/`@ignore` legality-check-then-drop pass in
+/// the `@ignore` legality-check-then-drop pass in
 /// [`expand_class_attributes`].
 fn member_has_attr(member: &ClassMember, name: &str) -> bool {
     let attrs: &[Attribute] = match member {
@@ -2311,11 +2245,7 @@ pub fn expand_class_attributes(
                     | BuiltinAttr::Requires
                     | BuiltinAttr::Ensures
                     | BuiltinAttr::On
-                    | BuiltinAttr::Native
                     | BuiltinAttr::Ignore
-                    | BuiltinAttr::Private
-                    | BuiltinAttr::Protected
-                    | BuiltinAttr::Internal
                     | BuiltinAttr::Primitive
                     | BuiltinAttr::Intrinsic
                     | BuiltinAttr::Total => {}
@@ -2347,12 +2277,10 @@ pub fn expand_class_attributes(
         }
     }
 
-    // 1.4. `@native`/`@ignore`: legality-check-then-drop, before any
-    // member-attribute expansion or derive (native.md §"Ordering is
-    // load-bearing", ignore.md §"Implementation"). Both are registered
-    // no-ops (`NativeExpander`/`IgnoreExpander`) whose real effect — removing
-    // the marked member wholesale — can only happen here, the only code that
-    // owns `ClassDef` by value.
+    // 1.4. `@ignore`: legality-check-then-drop, before any member-attribute
+    // expansion or derive. The no-op expander's real effect — removing the
+    // marked member wholesale — can only happen here, the only code that owns
+    // `ClassDef` by value.
     //
     // Legality is checked *before* removal, not folded into a single
     // `retain`: a `retain` closure cannot return `Result`, so an illegal
@@ -2361,13 +2289,13 @@ pub fn expand_class_attributes(
     // checked against the attribute's own `legal_targets()` first; only once
     // every marked member has passed does the drop run.
     for member in &class.members {
-        for attr_name in ["native", "ignore"] {
+        for attr_name in ["ignore"] {
             if !member_has_attr(member, attr_name) {
                 continue;
             }
-            // Both names are always registered (`AttributeRegistry::new`),
-            // so this `get` cannot miss.
-            let expander = registry.get(attr_name).expect("native/ignore always registered");
+            // The name is always registered (`AttributeRegistry::new`), so
+            // this `get` cannot miss.
+            let expander = registry.get(attr_name).expect("ignore is always registered");
             let target = member_target(member);
             if !expander.legal_targets().contains(&target) {
                 return Err(CompilerError::Message(format!(
@@ -2381,7 +2309,7 @@ pub fn expand_class_attributes(
     // Runs before `derive_accessors`/`expand_variants`/the member-attribute
     // loop/the `@invariant` weave, so no derive or contract weave ever sees a
     // member that is about to vanish.
-    class.members.retain(|m| !member_has_attr(m, "native") && !member_has_attr(m, "ignore"));
+    class.members.retain(|m| !member_has_attr(m, "ignore"));
 
     // 1.5. Derive @get/@set accessors from declared fields, before the
     // member-level loop below consumes each Field's attributes.
@@ -2420,37 +2348,6 @@ pub fn expand_class_attributes(
                 // Retained silently — see the class-level branch above.
             } else {
                 return Err(CompilerError::Message(format!("attr.unknown: unknown attribute `@{}`", attr.name)));
-            }
-        }
-
-        let visibility_count = attrs
-            .iter()
-            .filter(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private | BuiltinAttr::Protected)))
-            .count();
-        if visibility_count > 1 {
-            return Err(CompilerError::Message(
-                "member.visibility_conflict: `@private` and `@protected` cannot be combined".to_string(),
-            ));
-        }
-        if attrs
-            .iter()
-            .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private | BuiltinAttr::Protected)))
-        {
-            let implementation_selector = match member {
-                ClassMember::Method(method) => method.name.starts_with("_$"),
-                ClassMember::Getter(getter) => getter.name.starts_with("_$"),
-                ClassMember::Setter(setter) => setter.name.starts_with("_$"),
-                _ => false,
-            };
-            if implementation_selector {
-                return Err(CompilerError::Message(
-                    "member.invalid_visibility_target: implementation selectors use internal visibility".to_string(),
-                ));
-            }
-            if matches!(member, ClassMember::Method(method) if method.is_constructor) {
-                return Err(CompilerError::Message(
-                    "member.invalid_visibility_target: `@private` and `@protected` are not supported on `@constructor`".to_string(),
-                ));
             }
         }
 
@@ -2580,7 +2477,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
                 annotation: None,
                 value: Some(Expr::MethodCall(Box::new(MethodCallExpr {
                     object: Expr::SelfVar { range },
-                    method: "_$new".to_string(),
+                    method: "allocate".to_string(),
                     method_range: None,
                     args: Vec::new(),
                     range,
@@ -2610,7 +2507,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
             is_static: true,
             is_constructor: false,
             // This marker is consumed only by `class_decl` while compiling
-            // the generated `_$new` send. It never becomes runtime metadata.
+            // the generated `allocate` send. It never becomes runtime metadata.
             attributes: vec![Attribute {
                 kind: AttrKind::Builtin(BuiltinAttr::Constructor),
                 name: "constructor".to_string(),
@@ -2688,7 +2585,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
 }
 
 /// Builds `self.<method>()` — a zero-arg send on the implicit receiver, used
-/// for the `_$invariantEnter`/`_$invariantExit` re-entrancy-guard primitives.
+/// for the `invariantEnter`/`invariantExit` re-entrancy-guard primitives.
 fn self_send0(method: &str, range: SourceRange) -> Expr {
     Expr::MethodCall(Box::new(MethodCallExpr {
         object: Expr::SelfVar { range },
@@ -2728,12 +2625,12 @@ fn statement_range(stmt: &Statement) -> SourceRange {
 /// Fix 1) around `body`, replacing it in place:
 ///
 /// ```text
-/// let __invariant_owner = self._$invariantEnter()
+/// let __invariant_owner = self.invariantEnter()
 /// __invariant_owner.ifTrue { <entry checks> }   // skipped for constructors
 /// return Block.new { <original body> }.ensure {
 ///     __invariant_owner.ifTrue {
 ///         <exit checks>
-///         self._$invariantExit()
+///         self.invariantExit()
 ///     }
 /// }
 /// ```
@@ -2763,7 +2660,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
             range,
         },
         annotation: None,
-        value: Some(self_send0("_$invariantEnter", range)),
+        value: Some(self_send0("invariantEnter", range)),
         range,
     });
 
@@ -2809,7 +2706,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
 
     let mut cleanup_body = check_stmts(false);
     cleanup_body.push(Statement::Expr {
-        expr: self_send0("_$invariantExit", range),
+        expr: self_send0("invariantExit", range),
         range,
     });
     let cleanup_guard = Statement::Expr {

@@ -28,15 +28,15 @@ native class Object {
 
   native methodFor(_ selector: Dynamic) -> Dynamic
 
-  internal native _$invariantEnter() -> Dynamic
+  internal native invariantEnter() -> Dynamic
 
-  internal native _$invariantExit() -> Dynamic
+  internal native invariantExit() -> Dynamic
 
-  internal native _$attributes -> Dynamic
+  internal native rawAttributes -> Dynamic
 
-  internal native _$attach(_ attribute: Dynamic) -> Dynamic
+  internal native attachAttribute(_ attribute: Dynamic) -> Dynamic
 
-  internal native _$freezeAttributes() -> Dynamic
+  internal native freezeAttributes() -> Dynamic
 
   // Is-kind-of test: true iff `cls` is the receiver's class or an ancestor of
   // it (object-model.md §8, is-tests.md — U-IS). Derived purely over the floor

@@ -304,41 +304,50 @@ let r = s[100]
 #[test]
 fn private_member_allows_defining_class_and_rejects_external_call() {
     let ok = eval_source(
-        "class Vault {\n  @private\n  secret { 42 }\n  reveal { secret }\n}\nlet result = Vault.new().reveal\n",
+        "class Vault {\n  private secret { 42 }\n  reveal { secret }\n}\nlet result = Vault.new().reveal\n",
         "result",
     );
     assert_eq!(ok.unwrap(), Value::int(42));
 
-    let err = run_source("class Vault {\n  @private\n  secret { 42 }\n}\nVault.new().secret\n").unwrap_err();
+    let err = run_source("class Vault {\n  private secret { 42 }\n}\nVault.new().secret\n").unwrap_err();
     assert!(err.contains("member.private_access"), "unexpected error: {err}");
 }
 
 #[test]
 fn protected_member_allows_subclass_and_rejects_external_call() {
     let ok = eval_source(
-        "class Base {\n  @protected\n  secret { 42 }\n}\nclass Child is Base {\n  reveal { secret }\n}\nlet result = Child.new().reveal\n",
+        "class Base {\n  protected secret { 42 }\n}\nclass Child is Base {\n  reveal { secret }\n}\nlet result = Child.new().reveal\n",
         "result",
     );
     assert_eq!(ok.unwrap(), Value::int(42));
 
-    let err = run_source("class Base {\n  @protected\n  secret { 42 }\n}\nBase.new().secret\n").unwrap_err();
+    let err = run_source("class Base {\n  protected secret { 42 }\n}\nBase.new().secret\n").unwrap_err();
     assert!(err.contains("member.protected_access"), "unexpected error: {err}");
 }
 
 #[test]
 fn private_subscript_enforces_visibility() {
-    let err = run_source("class SecretList {\n  @private\n  [_ index] { return index }\n}\nSecretList.new()[0]\n").unwrap_err();
+    let err = run_source("class SecretList {\n  private [_ index] { return index }\n}\nSecretList.new()[0]\n").unwrap_err();
     assert!(err.contains("member.private_access"), "unexpected error: {err}");
 }
 
 #[test]
 fn reflection_cannot_bypass_private_visibility() {
-    let err = run_source("class Vault {\n  @private\n  secret { 42 }\n}\nVault.new().perform(#secret)\n").unwrap_err();
+    let err = run_source("class Vault {\n  private secret { 42 }\n}\nVault.new().perform(#secret)\n").unwrap_err();
     assert!(err.contains("member.private_access"), "unexpected error: {err}");
 }
 
 #[test]
-fn ordinary_source_cannot_spell_internal_selector() {
+fn primitive_and_intrinsic_metadata_are_universe_only() {
+    for attribute in ["primitive", "intrinsic"] {
+        let source = format!("class C {{ @{attribute} foo() {{ 1 }} }}\n");
+        let err = run_source(&source).expect_err("metadata attributes must be rejected outside Universe");
+        assert!(err.contains("attr.universe_only"), "unexpected error for @{attribute}: {err}");
+    }
+}
+
+#[test]
+fn ordinary_source_rejects_retired_selector_namespace() {
     let err = run_source("List.new()._$at(0)\n").unwrap_err();
-    assert!(err.contains("internal.namespace_reserved"), "unexpected error: {err}");
+    assert!(err.contains("Invalid token"), "unexpected error: {err}");
 }

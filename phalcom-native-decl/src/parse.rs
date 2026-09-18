@@ -195,11 +195,11 @@ mod tests {
     use super::parse_primitive_attribute;
 
     #[test]
-    fn internal_selector_requires_internal_visibility() {
+    fn ordinary_selector_accepts_structured_visibility_metadata() {
         let attribute: syn::Attribute = syn::parse_quote!(
             #[primitive(
                 Object,
-                "_$attach(_)",
+                "attach(_)",
                 params = [Object],
                 returns = Option,
                 types = "(Object) -> Option",
@@ -209,16 +209,16 @@ mod tests {
 
         assert!(parse_primitive_attribute(&attribute).is_ok());
 
-        let invalid: syn::Attribute = syn::parse_quote!(
+        let public: syn::Attribute = syn::parse_quote!(
             #[primitive(
                 Object,
-                "_$attach(_)",
+                "attach(_)",
                 params = [Object],
                 returns = Option,
                 types = "(Object) -> Option",
                 visibility = public
             )]
         );
-        assert!(parse_primitive_attribute(&invalid).is_err());
+        assert!(parse_primitive_attribute(&public).is_ok());
     }
 }

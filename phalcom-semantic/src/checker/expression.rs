@@ -876,7 +876,6 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         }
         // Reserved implementation selectors are compiler-internal sends. They
         // remain explicitly unavailable to ordinary source semantics.
-        Expr::ImplementationSelector { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
         Expr::RecordConstruction(record) => synthesize_record_construction(ctx, record, expected),
     }
 }

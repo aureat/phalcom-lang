@@ -654,12 +654,8 @@ pub enum BuiltinAttr {
     Requires,
     Ensures,
     On,
-    Native,
     Ignore,
-    Private,
-    Protected,
     Total,
-    Internal,
     Primitive,
     Intrinsic,
 }
@@ -678,12 +674,8 @@ impl BuiltinAttr {
         BuiltinAttr::Requires,
         BuiltinAttr::Ensures,
         BuiltinAttr::On,
-        BuiltinAttr::Native,
         BuiltinAttr::Ignore,
-        BuiltinAttr::Private,
-        BuiltinAttr::Protected,
         BuiltinAttr::Total,
-        BuiltinAttr::Internal,
         BuiltinAttr::Primitive,
         BuiltinAttr::Intrinsic,
     ];
@@ -702,12 +694,8 @@ impl BuiltinAttr {
             BuiltinAttr::Requires => "requires",
             BuiltinAttr::Ensures => "ensures",
             BuiltinAttr::On => "On",
-            BuiltinAttr::Native => "native",
             BuiltinAttr::Ignore => "ignore",
-            BuiltinAttr::Private => "private",
-            BuiltinAttr::Protected => "protected",
             BuiltinAttr::Total => "total",
-            BuiltinAttr::Internal => "internal",
             BuiltinAttr::Primitive => "primitive",
             BuiltinAttr::Intrinsic => "intrinsic",
         }
@@ -727,12 +715,8 @@ impl BuiltinAttr {
             "requires" => Some(BuiltinAttr::Requires),
             "ensures" => Some(BuiltinAttr::Ensures),
             "On" => Some(BuiltinAttr::On),
-            "native" => Some(BuiltinAttr::Native),
             "ignore" => Some(BuiltinAttr::Ignore),
-            "private" => Some(BuiltinAttr::Private),
-            "protected" => Some(BuiltinAttr::Protected),
             "total" => Some(BuiltinAttr::Total),
-            "internal" => Some(BuiltinAttr::Internal),
             "primitive" => Some(BuiltinAttr::Primitive),
             "intrinsic" => Some(BuiltinAttr::Intrinsic),
             _ => None,
@@ -1719,7 +1703,6 @@ pub struct ForIndexBinding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldKind {
     Source,
-    Implementation,
 }
 
 #[derive(Debug, Clone)]
@@ -1779,12 +1762,6 @@ pub enum Expr {
     /// receiver send.
     UnqualifiedCall(Box<UnqualifiedCallExpr>),
     MethodCall(Box<MethodCallExpr>),
-    /// An implementation selector written without an explicit receiver,
-    /// e.g. `_$rawAt`.
-    ImplementationSelector {
-        value: String,
-        range: SourceRange,
-    },
     GetProperty(Box<GetPropertyExpr>),
     SetProperty(Box<SetPropertyExpr>),
     /// A postfix subscript read `object[index]` (U-INDEX). See [`IndexExpr`].
@@ -1848,7 +1825,6 @@ impl Expr {
             Expr::Ellipsis { range } => *range,
             Expr::UnqualifiedCall(e) => e.range,
             Expr::MethodCall(e) => e.range,
-            Expr::ImplementationSelector { range, .. } => *range,
             Expr::GetProperty(e) => e.range,
             Expr::SetProperty(e) => e.range,
             Expr::Index(e) => e.range,

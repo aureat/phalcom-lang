@@ -10,17 +10,17 @@ native class Bytes is Collection {
   @class
   native new(_ value: Dynamic) -> Bytes
   @class
-  internal native _$fromString(_ value: String) -> Bytes
-  internal native _$size -> Int
-  internal native _$at(_ index: Int) -> Int
-  internal native _$set(_ index: Int, _ value: Int) -> Dynamic
-  internal native _$fill(_ value: Int) -> Dynamic
-  internal native _$slice(_ start: Int, _ end: Int) -> Bytes
-  internal native _$copyInto(_ target: Dynamic, _ offset: Int) -> Dynamic
-  internal native _$utf8 -> Bytes
-  internal native _$utf8Lossy -> String
-  internal native _$equalsConstantTime(_ other: Bytes) -> Bool
-  size { self._$size }
+  internal native rawFromString(_ value: String) -> Bytes
+  internal native rawSize -> Int
+  internal native rawAt(_ index: Int) -> Int
+  internal native rawSet(_ index: Int, _ value: Int) -> Dynamic
+  internal native rawFill(_ value: Int) -> Dynamic
+  internal native rawSlice(_ start: Int, _ end: Int) -> Bytes
+  internal native rawCopyInto(_ target: Dynamic, _ offset: Int) -> Dynamic
+  internal native rawUtf8 -> Bytes
+  internal native rawUtf8Lossy -> String
+  internal native rawEqualsConstantTime(_ other: Bytes) -> Bool
+  size { self.rawSize }
 
   first {
     if (self.size == 0) { return None }
@@ -32,10 +32,10 @@ native class Bytes is Collection {
     return Some(self.at(self.size - 1))
   }
 
-  at(_ i) { self._$at(i) }
+  at(_ i) { self.rawAt(i) }
 
   get(_ index) {
-    let raw = self._$at(index)
+    let raw = self.rawAt(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -47,17 +47,17 @@ native class Bytes is Collection {
 
   [_ index] {
     if (index.is(Range)) {
-      return index._$sliceBounds(self.size).match(
+      return index.rawSliceBounds(self.size).match(
         ok: |bounds| {
           let start = bounds[0]
           let end = bounds[1]
           if (start > end) { end = start }
-          self._$slice(start, end)
+          self.rawSlice(start, end)
         },
         err: |error| { error.raise() }
       )
     }
-    let raw = self._$at(index)
+    let raw = self.rawAt(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -68,7 +68,7 @@ native class Bytes is Collection {
   }
 
   [_ index, default] {
-    let raw = self._$at(index)
+    let raw = self.rawAt(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -79,7 +79,7 @@ native class Bytes is Collection {
   }
 
   get(_ index, orElse) {
-    let raw = self._$at(index)
+    let raw = self.rawAt(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -111,7 +111,7 @@ native class Bytes is Collection {
     if ((norm < 0) or (norm >= len)) {
       throw IndexError.new("Bytes index out of range")
     }
-    self._$set(i, v)
+    self.rawSet(i, v)
     return self
   }
 
@@ -123,7 +123,7 @@ native class Bytes is Collection {
     if (not self.isOctet(v)) {
       throw ArgumentError.new("Bytes#fill: value must be an integer in 0..255")
     }
-    self._$fill(v)
+    self.rawFill(v)
     return self
   }
 
@@ -132,21 +132,21 @@ native class Bytes is Collection {
   // with `ensure`. A getter so the call reads `key.zeroize` (ADR-0012:
   // `zeroize` and `zeroize()` are different selectors).
   zeroize {
-    self._$fill(0)
+    self.rawFill(0)
     return self
   }
 
-  utf8 { self._$utf8 }
+  utf8 { self.rawUtf8 }
 
   // Display decode: total, lossy (invalid sequences become U+FFFD). Never
   // round-trip the result into data (PDR-0013 ruling 4).
-  utf8Lossy { self._$utf8Lossy }
+  utf8Lossy { self.rawUtf8Lossy }
 
   slice(_ start, _ end) {
     if ((start < 0) or (end < start) or (end > self.size)) {
       throw ArgumentError.new("Bytes#slice: range must satisfy 0 <= start <= end <= size")
     }
-    return self._$slice(start, end)
+    return self.rawSlice(start, end)
   }
 
   copyInto(_ dst, _ offset) {
@@ -156,7 +156,7 @@ native class Bytes is Collection {
     if ((offset < 0) or ((offset + self.size) > dst.size)) {
       throw ArgumentError.new("Bytes#copyInto: offset + size must fit the destination")
     }
-    self._$copyInto(dst, offset)
+    self.rawCopyInto(dst, offset)
     return self
   }
 
@@ -167,12 +167,12 @@ native class Bytes is Collection {
       throw ArgumentError.new("Bytes#concat: argument must be a Bytes")
     }
     const out = Bytes.new(self.size + other.size)
-    self._$copyInto(out, 0)
-    other._$copyInto(out, self.size)
+    self.rawCopyInto(out, 0)
+    other.rawCopyInto(out, self.size)
     return out
   }
 
-  equalsConstantTime(_ other) { self._$equalsConstantTime(other) }
+  equalsConstantTime(_ other) { self.rawEqualsConstantTime(other) }
 
   // Structural equality, List#=='s exact shape (collection-protocol §4).
   // Short-circuits — correct here, and exactly why it must never be the
@@ -212,14 +212,14 @@ native class Bytes is Collection {
   // The immutable, value-hashable snapshot — the Map-key escape hatch
   // (PDR-0011 ruling 4; Bytes itself is mutable => identity hash, never a
   // valid Map/Set key).
-  toTuple { Tuple._$fromList(self.toList) }
+  toTuple { Tuple.rawFromList(self.toList) }
 
   @class
   fromString(_ s) {
     if (not s.is(String)) {
       throw ArgumentError.new("Bytes.fromString: argument must be a String")
     }
-    return Bytes._$fromString(s)
+    return Bytes.rawFromString(s)
   }
 
   // The builder story (bytes.md law 3 forecloses growth): build in a List,
@@ -278,8 +278,7 @@ impl CanonicalIterable for Bytes {
 
 class OpenMode {
   @constructor
-  private
-  named(_ n) { _name = n }
+  private named(_ n) { _name = n }
   @class
   read { OpenMode.named("read") }
   @class
@@ -447,14 +446,14 @@ class Path {
 
 native class Resource is Object {
   @class
-  internal native _$register(_ kind: String) -> Dynamic
-  internal native _$close() -> Dynamic
-  internal native _$isClosed -> Bool
+  internal native register(_ kind: String) -> Dynamic
+  internal native rawClose() -> Dynamic
+  internal native rawIsClosed -> Bool
   close {
-    self._$close()
+    self.rawClose()
     return Result::Ok(None)
   }
-  isClosed { self._$isClosed }
+  isClosed { self.rawIsClosed }
 }
 
 class UnflushedError is Error {}
@@ -465,7 +464,7 @@ class BytesReader is Resource {
     source.is(Bytes).ifFalse || {
       throw ArgumentError.new("BytesReader source must be a Bytes")
     }
-    _handle = Resource._$register("BytesReader")
+    _handle = Resource.register("BytesReader")
     // snapshot: source is a Bytes, copied — the reader's contents never change under it
     _data = source.slice(0, source.size)
     _pos = 0
@@ -493,7 +492,7 @@ class BytesReader is Resource {
 class BytesWriter is Resource {
   @constructor
   new() {
-    _handle = Resource._$register("BytesWriter")
+    _handle = Resource.register("BytesWriter")
     _chunks = List<Dynamic>.new()
   }
 
@@ -504,7 +503,7 @@ class BytesWriter is Resource {
     self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot write to closed BytesWriter")
     }
-    _chunks._$push(src.slice(0, src.size))
+    _chunks.rawPush(src.slice(0, src.size))
     return Future.value(src.size)
   }
 
@@ -528,7 +527,7 @@ class BytesWriter is Resource {
 class BufferedWriter is Resource {
   @constructor
   new(_ inner) {
-    _handle = Resource._$register("BufferedWriter")
+    _handle = Resource.register("BufferedWriter")
     _inner = inner
     _buf = Bytes.new(8192)
     _len = 0
@@ -593,7 +592,7 @@ class BufferedWriter is Resource {
 class BufferedReader is Resource {
   @constructor
   new(_ inner) {
-    _handle = Resource._$register("BufferedReader")
+    _handle = Resource.register("BufferedReader")
     _inner = inner
     _buf = Bytes.new(8192)
     _pos = 0

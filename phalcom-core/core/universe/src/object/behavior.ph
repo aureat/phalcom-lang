@@ -14,7 +14,7 @@ native class Behavior is Object {
 
   native >>(_ selector: Dynamic) -> Dynamic
 
-  attributes { _$attributes }
+  attributes { rawAttributes }
 
-  attributesOfType(_ cls) { _$attributes.filter(|a| a is cls) }
+  attributesOfType(_ cls) { rawAttributes.filter(|a| a is cls) }
 }

@@ -3,11 +3,19 @@
 **Status:** Draft 0.1 — design baseline for implementation.
 
 Phalcom is a class-based, object-first language with JavaScript's surface
-ergonomics and Smalltalk's semantics. This directory is the living specification,
+ergonomics and Smalltalk's semantics. This directory is the living specification
+mirror,
 split into parts. The [Open Questions](open-questions.md) (15) are now all resolved;
 anything deliberately postponed — deferred decisions, still-open decisions, unbuilt
 units — is tracked in [Deferred & Future Work](deferred-work.md) rather than being
 silently invented.
+
+> The authoritative specification corpus is [`docs/specs/`](../../specs/README.md).
+> Declaration modifiers, access domains, implementation origin, and the retired
+> implementation namespaces are owned by
+> [`docs/specs/source-declarations.md`](../../specs/source-declarations.md).
+> Older draft examples in this mirror are historical context until reconciled
+> with that owner.
 
 ## Reading order
 

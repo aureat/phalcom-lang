@@ -44,7 +44,7 @@ What the decorator buys over a hand-written class-side method is sugar. It expan
 two ordinary methods: a class-side one that allocates and returns, and an instance-side
 initializer holding the body.
 
-1. Allocates a fresh instance via internal `_$new` (§1.2).
+1. Allocates a fresh instance via the declaration-owned internal `allocate()` seam (§1.2).
 2. Runs the body with `self` bound to it.
 3. Returns the instance implicitly.
 
@@ -63,10 +63,10 @@ root, so `Ref.at(1, 2)` either finds the constructor or raises `doesNotUnderstan
 `Class >> new()` occupies it as a default (§1.2) — and even that is ordinary
 inheritance, not constructor-specific dispatch (TDR-0073).
 
-### 1.2 The allocator: `_$new`
+### 1.2 The allocator: `allocate`
 
-`Class >> _$new()` is the sole primitive allocator — arity 0, uninitialized
-instance, and internal to privileged core/runtime source. Ordinary modules cannot
+`Class >> allocate()` is the sole primitive allocator — arity 0, uninitialized
+instance, and explicitly `internal native`. Ordinary modules cannot
 declare, call, or reflectively invoke it. Every class object reaches it through the
 tower for compiler-generated constructor factories.
 
@@ -74,7 +74,7 @@ tower for compiler-generated constructor factories.
 
 ```phalcom
 class Class {
-  new() => self._$new()
+  new() => self.allocate()
 }
 ```
 
@@ -83,13 +83,13 @@ declaring its own `new` does. A class with no constructor inherits it, which is 
 `Point.new()` works on a constructor-less class.
 
 The long-form pair below is implementation-equivalent to `@constructor`, but only
-privileged core source may write it because allocation uses `_$new`:
+privileged core source may write it because allocation uses `allocate`:
 
 ```phalcom
 class Point {
   @class
   new(_ x, _ y) {
-    let instance = self._$new()
+    let instance = self.allocate()
     instance.init(x, y)
     return instance
   }
@@ -124,25 +124,22 @@ layout at class-definition time.
   (`_naem = name`) that a dynamic field model lets through silently.
 - A field *declared* (assigned somewhere) but not yet assigned on a given instance
   reads as **`None`** ([Values & Absence](values-and-absence.md)).
-- **Fields are private to the declaring class and not inherited-visible.** A
-  subclass that writes `_name` gets its own new slot; it does not touch the
-  superclass's. Cross-hierarchy access goes through accessors. This keeps slot
-  offsets static and eliminates the fragile-base-class problem.
-
-  This is the same privacy rule as [Selectors, Symbols & References §5](selectors.md#5-field-visibility):
-  fields are always private, with no visibility syntax; every external access
-  is a message send through a derived or hand-written accessor.
+- **Fields use the declaration visibility model.** A field without an explicit
+  modifier is `Public`; `private`, `protected`, `module`, `package`, and
+  `internal` select the corresponding access domain. A subclass that writes
+  `_name` still gets its own slot; it does not touch the superclass's slot.
+  Cross-hierarchy access should use an accessor when the field is restricted.
 
 **Mutability** ([TDR-0052](../../decisions/accepted/0052-let-const-bindings-and-field-mutability.md)):
 
 | Form | Meaning |
 |---|---|
-| `_x` / `_x = e` | mutable — **no keyword**; `= e` supplies a declaration default |
-| `const _x = e` | immutable, defined at the declaration |
-| `const _id` | immutable, assignable **only inside a `@constructor`** |
+| `[visibility] _x` / `[visibility] _x = e` | mutable; omitted visibility is `Public` |
+| `[visibility] const _x = e` | immutable, defined at the declaration |
+| `[visibility] const _id` | immutable, assignable **only inside a `@constructor`** |
 
-Mutable is the unkeyworded case because a field is already `_`-prefixed, already
-private, and already declarable by assignment — a keyword would add nothing. `let _x`
+Mutable is the unkeyworded case because a field is already declarable by assignment;
+visibility is independent and explicit when needed. `let _x`
 at field position is rejected.
 
 `const` enforcement is **syntactic**: a write from any member other than a constructor
