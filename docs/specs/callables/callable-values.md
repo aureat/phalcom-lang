@@ -1,10 +1,12 @@
-# Functions
+# Callable Values and Function
 
 > **Status:** Draft normative specification  
 > **Semantic ownership:** value application, the open `call` protocol, the abstract `Function` runtime hierarchy, the complete Function call gateway, concrete Function categories, `callWith`, and the distinction between complete callable values and reified behavior that still requires a receiver.  
 > **Related specifications:** [Arguments and Parameters](arguments.md), [Dispatch](dispatch.md), [Methods](methods.md), [References](references.md), [Families](families.md).
 
 Phalcom distinguishes **callability** from the runtime class `Function`.
+
+Phalcom has **no source-level free-function declaration form**. `Function` names a callable value/runtime category; it does not name a source declaration category.
 
 Any value may participate in application syntax by responding to the appropriate `call` operation. This callable protocol is open.
 
