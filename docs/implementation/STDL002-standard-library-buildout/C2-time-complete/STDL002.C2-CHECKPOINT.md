@@ -1655,6 +1655,22 @@ not been runtime-verified. `UtcOffset` remains intentionally unimplemented
 until its required P2-compatible numeric bound is selected; the plan marks
 that decision VERIFY-FIRST and forbids guessing.
 
+### Independent direct-calendar regression closure
+
+While root package linking remains with the architect, the direct child-module
+lane was strengthened with invalid-number fixtures for `Month.fromNumber(13)`
+and `Weekday.fromNumber(0)`. The Gregorian month-movement helper was also
+adjusted from a record-returning shape to typed year/month integer projections;
+this avoids a canonical semantic return-mismatch diagnostic while preserving
+one source-level arithmetic authority.
+
+Focused evidence:
+
+```text
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time -- --exact
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time_negative -- --exact
+```
+
 ## 26. Current next action
 
 P1 remains active across the T5/T6 transition. T1's validated-data and abstract-member

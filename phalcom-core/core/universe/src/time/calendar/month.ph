@@ -64,14 +64,22 @@ class Gregorian {
   }
 
   @class
-  addMonths(_ year: Int, _ month: Int, _ months: Int) -> Record {
+  addMonthsYear(_ year: Int, _ month: Int, _ months: Int) -> Int {
     if month < 1 or month > 12 {
-      ArgumentError.new("Gregorian.addMonths: month must be between 1 and 12").raise()
+      ArgumentError.new("Gregorian.addMonthsYear: month must be between 1 and 12").raise()
+    }
+    const totalMonths = (year * 12) + (month - 1) + months
+    Gregorian.floorDiv(totalMonths, 12)
+  }
+
+  @class
+  addMonthsNumber(_ year: Int, _ month: Int, _ months: Int) -> Int {
+    if month < 1 or month > 12 {
+      ArgumentError.new("Gregorian.addMonthsNumber: month must be between 1 and 12").raise()
     }
     const totalMonths = (year * 12) + (month - 1) + months
     const targetYear = Gregorian.floorDiv(totalMonths, 12)
-    const targetMonth = totalMonths - (targetYear * 12) + 1
-    #{ year: targetYear, month: targetMonth }
+    totalMonths - (targetYear * 12) + 1
   }
 
   @class

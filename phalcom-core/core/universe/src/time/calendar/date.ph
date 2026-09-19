@@ -70,10 +70,10 @@ impl Date {
     if not (period is Period) { ArgumentError.new("Date.advance: period must be a Period").raise() }
     if not (overflow is DateOverflow) { ArgumentError.new("Date.advance: overflow must be a DateOverflow").raise() }
 
-    const target = Gregorian.addMonths(self.year, self.month.number, period.months)
-    const targetYear = target.year
-    const targetMonth = Month.fromNumber(target.month)
-    const targetLastDay = Gregorian.daysInMonth(targetYear, target.month)
+    const targetYear = Gregorian.addMonthsYear(self.year, self.month.number, period.months)
+    const targetMonthNumber = Gregorian.addMonthsNumber(self.year, self.month.number, period.months)
+    const targetMonth = Month.fromNumber(targetMonthNumber)
+    const targetLastDay = Gregorian.daysInMonth(targetYear, targetMonthNumber)
     let targetDay = self.day
     if targetDay > targetLastDay {
       match overflow {

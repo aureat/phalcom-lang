@@ -17,8 +17,9 @@ impl YearMonth {
 
   plusMonths(_ amount: Int) -> YearMonth {
     if not (amount is Int) { ArgumentError.new("YearMonth.plusMonths: amount must be an Int").raise() }
-    const result = Gregorian.addMonths(self.year, self.month.number, amount)
-    YearMonth.new(result.year, Month.fromNumber(result.month))
+    const resultYear = Gregorian.addMonthsYear(self.year, self.month.number, amount)
+    const resultMonth = Gregorian.addMonthsNumber(self.year, self.month.number, amount)
+    YearMonth.new(resultYear, Month.fromNumber(resultMonth))
   }
 
   minusMonths(_ amount: Int) -> YearMonth { self.plusMonths(-amount) }
