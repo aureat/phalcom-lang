@@ -2,7 +2,7 @@
 
 use crate::data::RuntimeDataDescriptorId;
 use crate::error::RuntimeError;
-use crate::heap::{ClassId, ClassObject, Object};
+use crate::heap::{ClassId, Object};
 use crate::modules::semantic_lowering::DataDeclarationLoweringSpec;
 use crate::product::ProductStorage;
 use crate::value::Value;
@@ -17,59 +17,61 @@ impl VM {
             }
         }
 
-        let mut class_obj = ClassObject::bare(&spec.owner.name);
-        class_obj.native_repr = true;
-        class_obj.class = self.universe.classes.class_class;
-        class_obj.superclass = Some(self.universe.classes.object_class);
-        let class_id = self.heap.alloc_class(class_obj);
+        let module = self
+            .module_registry
+            .get(&spec.owner.module)
+            .map(|record| record.object)
+            .or_else(|| self.entry_module())
+            .or_else(|| self.universe_module())
+            .ok_or_else(|| RuntimeError::Internal(format!("data declaration module {} is not materialized", spec.owner.module)))?;
+        let class_id = self.create_class(module, &spec.owner.name, Some(self.universe.classes.object_class));
+        self.heap.class_mut(class_id).native_repr = true;
 
         let layout_spec = spec.layout.build_layout().map_err(|e| RuntimeError::Internal(e.to_string()))?;
         let layout_id = self.heap.product_layouts.register(layout_spec);
         let _desc_id = self.data_registry.register(spec.owner.clone(), class_id, None, layout_id);
 
-        if let Some(module) = self.entry_module().or_else(|| self.universe_module()) {
-            for comp in spec.components.iter() {
-                let logical_index = comp.logical_index;
-                let getter_name = &comp.local_name;
-                let sig_str = crate::method::make_signature(getter_name, crate::method::SignatureKind::Getter);
-                let selector_sym = self.interner.intern(&sig_str);
+        for comp in spec.components.iter() {
+            let logical_index = comp.logical_index;
+            let getter_name = &comp.local_name;
+            let sig_str = crate::method::make_signature(getter_name, crate::method::SignatureKind::Getter);
+            let selector_sym = self.interner.intern(&sig_str);
 
-                let mut chunk = crate::chunk::Chunk::new();
-                chunk.add_instruction(crate::bytecode::Bytecode::GetLocal(0), phalcom_common::range::EmptySourceRange);
-                chunk.add_instruction(
-                    crate::bytecode::Bytecode::GetDataComponent(logical_index as u16),
-                    phalcom_common::range::EmptySourceRange,
-                );
-                chunk.add_instruction(crate::bytecode::Bytecode::Return, phalcom_common::range::EmptySourceRange);
+            let mut chunk = crate::chunk::Chunk::new();
+            chunk.add_instruction(crate::bytecode::Bytecode::GetLocal(0), phalcom_common::range::EmptySourceRange);
+            chunk.add_instruction(
+                crate::bytecode::Bytecode::GetDataComponent(logical_index as u16),
+                phalcom_common::range::EmptySourceRange,
+            );
+            chunk.add_instruction(crate::bytecode::Bytecode::Return, phalcom_common::range::EmptySourceRange);
 
-                let callable = std::rc::Rc::new(crate::callable::Callable {
-                    chunk,
-                    max_slots: 1,
-                    num_upvalues: 0,
-                    upvalues: Vec::new(),
-                    arity: 0,
-                    parameter_shape: crate::parameters::ParameterShape::closure(0, false),
-                    name_sym: selector_sym,
-                    local_names: vec![self.interner.intern("self")],
-                });
+            let callable = std::rc::Rc::new(crate::callable::Callable {
+                chunk,
+                max_slots: 1,
+                num_upvalues: 0,
+                upvalues: Vec::new(),
+                arity: 0,
+                parameter_shape: crate::parameters::ParameterShape::closure(0, false),
+                name_sym: selector_sym,
+                local_names: vec![self.interner.intern("self")],
+            });
 
-                let closure_ref = self.heap.alloc(Object::Closure(Box::new(crate::heap::ClosureObject {
-                    callable,
-                    module,
-                    upvalues: Vec::new(),
-                    lexical_class: Some(class_id),
-                    foreign_receiver_guard: None,
-                })));
+            let closure_ref = self.heap.alloc(Object::Closure(Box::new(crate::heap::ClosureObject {
+                callable,
+                module,
+                upvalues: Vec::new(),
+                lexical_class: Some(class_id),
+                foreign_receiver_guard: None,
+            })));
 
-                let method = crate::method::MethodObject::new(
-                    selector_sym,
-                    crate::method::SignatureKind::Getter,
-                    crate::method::MethodKind::Closure(closure_ref),
-                    Some(class_id),
-                );
-                let method_ref = self.heap.alloc(Object::Method(Box::new(method)));
-                self.heap.class_mut(class_id).methods.insert(selector_sym, method_ref);
-            }
+            let method = crate::method::MethodObject::new(
+                selector_sym,
+                crate::method::SignatureKind::Getter,
+                crate::method::MethodKind::Closure(closure_ref),
+                Some(class_id),
+            );
+            let method_ref = self.heap.alloc(Object::Method(Box::new(method)));
+            self.heap.class_mut(class_id).methods.insert(selector_sym, method_ref);
         }
 
         Ok(class_id)
@@ -108,13 +110,30 @@ impl VM {
             .first()
             .ok_or_else(|| RuntimeError::Internal("missing exact data type".into()))?
             .form;
-        let exact_type = RuntimeTypeRef::Base { pool, node };
+        let base_type = RuntimeTypeRef::Base { pool, node };
+        let type_recipe = match spec.type_recipe {
+            crate::typing::RuntimeTypeRecipe::Closed(_) => crate::typing::RuntimeTypeRecipe::Closed(base_type),
+            crate::typing::RuntimeTypeRecipe::Template(_) => crate::typing::RuntimeTypeRecipe::Template(base_type),
+        };
+        let env_id = self
+            .frames
+            .last()
+            .map(|frame| frame.type_environment)
+            .unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
+        let env = self
+            .runtime_type_environments
+            .get(env_id)
+            .cloned()
+            .ok_or_else(|| RuntimeError::Internal("missing active runtime type environment".into()))?;
+        let exact_type = crate::typing::instantiate_type_recipe(type_recipe, &env, &mut self.runtime_typing_context, &self.typing_registry)
+            .ok_or_else(|| RuntimeError::Internal("generic data type could not be instantiated".into()))?;
         let layout = spec.layout.build_layout().map_err(|e| RuntimeError::Internal(e.into()))?;
         let layout_id = self.heap.product_layouts.register(layout);
         let descriptor = if matches!(
             spec.exact_type.types[node.0 as usize].form,
             phalcom_type_meta::type_node::TypeNode::Nominal { .. }
-        ) {
+        ) && matches!(exact_type, RuntimeTypeRef::Base { .. })
+        {
             self.data_registry.bind_nominal_type(base.runtime_id, exact_type);
             base.runtime_id
         } else {

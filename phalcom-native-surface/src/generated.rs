@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 334usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 335usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -11157,53 +11157,6 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::System,
                 side: NativeDispatch::Class,
-                selector: "monotonicNanoseconds",
-            },
-            visibility: NativeVisibility::Internal,
-            stability: NativeStability::Unspecified,
-            anchor: NativeAnchorPolicy::Required,
-            params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[],
-                labeled: &[],
-                rest: None,
-            },
-            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
-            callable: &::phalcom_native_meta::CallableTypeSpec {
-                type_params: &[],
-                params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[],
-                    labeled: &[],
-                    rest: None,
-                },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
-                constraints: &[],
-            },
-            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
-            effects: ::phalcom_native_meta::EffectSpec::Pure,
-            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
-            termination: TerminationSpec::Unknown,
-            since: None,
-            deprecated_since: None,
-            replacement: None,
-            lifecycle: NativeLifecycleSpec {
-                since: None,
-                deprecated_since: None,
-                replacement: None,
-            },
-            intrinsic: None,
-            trust: NativeTrust::Ordinary,
-            docs: Some(" Signature: `System.class::monotonicNanoseconds` — exact monotonic\n nanoseconds elapsed since this VM was created."),
-            conceptual: None,
-        },
-        kind: NativeMemberKind::Getter,
-        abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Instance("Int"),
-    },
-    NativeSurfaceRecord {
-        surface: PrimitiveSurfaceSpec {
-            key: PrimitiveKey {
-                owner: UniverseKey::System,
-                side: NativeDispatch::Class,
                 selector: "new()",
             },
             visibility: NativeVisibility::Public,
@@ -11727,6 +11680,100 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         kind: NativeMemberKind::Method,
         abi: PrimitiveAbi::Value,
         return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::SystemClock,
+                side: NativeDispatch::Class,
+                selector: "monotonicNanoseconds",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `SystemClock.class::monotonicNanoseconds` — exact monotonic\n nanoseconds elapsed since this VM was created."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Int"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::SystemWallClock,
+                side: NativeDispatch::Class,
+                selector: "unixNanoseconds",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `SystemWallClock.class::unixNanoseconds` — exact signed Unix/POSIX\n nanoseconds observed from the host wall clock."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Int"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {

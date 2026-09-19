@@ -11,7 +11,7 @@ depends_on:
 follows: STDL002.C1
 supersedes: null
 prepared: 2026-09-17
-updated: 2026-09-18
+updated: 2026-09-19
 repository: aureat/phalcom-lang
 planning_baseline_revision: e0a77646c56f8b1a7e7692993d378d43bf3fc424
 latest_planning_baseline_observed: 206e0ab91129e189782c4028de5a40379bcc033c
@@ -1217,7 +1217,7 @@ Workspace-wide release certification is separate. Broad workspace test failures 
 
 | Plan | Objective | Plan artifact state | Implementation status | Completion | Verification |
 |---|---|---|---|---|---|
-| `STDL002.C2.P1` | modern temporal foundation, absolute time, civil calendar, fixed offset, package/prelude migration | shared header + installed body authored | BLOCKED | PARTIAL | UNVERIFIED |
+| `STDL002.C2.P1` | modern temporal foundation, absolute time, civil calendar, fixed offset, package/prelude migration | shared header + installed body authored | IN_PROGRESS | PARTIAL | UNVERIFIED |
 | `STDL002.C2.P2` | timezone/zoned/textual/testing layers and C2 integration closure | full patch-grade plan authored | PROPOSED | NOT_STARTED | REQUIREMENTS_ANALYZED |
 
 Installed plan artifacts:
@@ -1248,6 +1248,68 @@ D — clearly unrelated/baseline
 ```
 
 Record meaningful C/D failures here rather than consuming C2 scope repairing unrelated work.
+
+### `STDL002.C2.P1-T2` — Duration and Measurement foundation
+
+The T2 slice is implemented and focused-tested at the current execution head.
+`Duration` now lives in the canonical `universe.time.duration` module as
+restricted transparent data with exact signed `Int` nanoseconds; ordinary
+class-side factories remain the validation/construction boundary.
+`Measurement<T>` is generic transparent data in the same module. Runtime
+prelude publication now uses the existing data registry descriptors, so
+source-owned data behavior classes retain their defining-module identity on the
+normal unqualified path. The time corpus exercises arithmetic/equality plus
+`Measurement(7, Duration.seconds(1))` construction and component reads.
+
+Focused evidence:
+
+```text
+PASS  cargo test -p phalcom-core --test language-corpus corpus::time -- --exact
+PASS  cargo test -p phalcom-core --test language-corpus time_negative
+PASS  cargo test -p phalcom-semantic --test semantic capabilities::time
+PASS  cargo test -p phalcom-core --test core language::data_e2e::data_generic_applications_keep_exact_identity -- --exact
+PASS  cargo test -p phalcom-core --test core compiler_product_optimization::private_data_factory_has_representation_independent_optimization -- --exact
+PASS  cargo test -p phalcom-ast --test integration data_syntax::data_constructor_visibility
+```
+
+The direct child-module import used by the corpus is executable. A separate
+package-root import still exposes a package-linking seam and is deferred to
+T7/package integration rather than hidden by a new special case.
+
+### `STDL002.C2.P1-T3` — monotonic capability migration
+
+The T3 monotonic slice is implemented and focused-tested. `Clock` now carries
+the declaration-only `now` contract plus ordinary source `since` and generic
+`measure` behavior. `SystemClock` is a concrete source-owned subclass with a
+stable class-side singleton, and the time package binds `clock` to that exact
+singleton. `System.clock` and the legacy System monotonic bridge are removed.
+
+Native ownership now supports canonical source-declared Universe classes through
+the existing descriptor/catalog, source-anchor verification, and provenance
+path: primordial descriptors install before source bootstrap; source-owned
+descriptors install after their declaring module materializes. The host read is
+therefore owned by `SystemClock`, without a second time-specific registry.
+
+The data lowering path also carries generic construction templates through the
+active runtime type environment and avoids caching one open-generic descriptor
+across different applications. The time fixture exercises this through
+`Clock.measure<T>` and `Measurement<T>`.
+
+Focused evidence:
+
+```text
+PASS  cargo check -p phalcom-core
+PASS  cargo test -p phalcom-core --test language-corpus corpus::time -- --exact
+PASS  cargo test -p phalcom-core --test language-corpus corpus::time_negative
+PASS  cargo test -p phalcom-semantic --test semantic capabilities::time
+PASS  cargo test -p phalcom-core --test core native_surface_contracts::time_monotonic_ -- --nocapture
+PASS  cargo fmt --all -- --check
+PASS  git diff --check
+```
+
+The package-root `from universe.time import clock` probe remains a known T7
+module-linking seam and was reverted after reproducing it; direct child-module
+imports remain the current executable evidence.
 
 ---
 
@@ -1373,18 +1435,244 @@ Requested decision:
   owning layer/observable error semantics, or amend P1 to use an already
   accepted alternative. After that decision, resume T1 and record the exact
   focused owning-layer tests before temporal source migration.
+
+Resolution: superseded by the current LANG006 implementation at `7a9ba64987890821fba0e79d96d7457dce5e3adf` and the user's explicit continuation authority. Data declarations now normalize primary-constructor visibility, semantic signatures carry that visibility, and access is checked before construction lowering. Validated data therefore remains transparent immutable data: an ordinary class-side factory performs validation and then calls the restricted primary constructor, as in `Date.new(...) -> Date`. No compiler temporal hook, hidden class wrapper, or second construction authority is introduced. Invalid values remain rejected at the public factory boundary, while same-owner construction retains the normal lexical access rule. The consultation is closed for P1 execution; remaining abstract-member completeness is verified as part of T1/G1.
+
+### `C2-AMEND-06` — validated transparent data construction is now an available general-language prerequisite
+
+The current execution head supplies the previously missing general mechanism. P1 consumes the following fixed model:
+
+```text
+data primary constructors may be restricted by ordinary visibility
+private/module/package/internal follow the canonical lexical-identity rules
+protected is rejected for non-inheritable data declarations
+ordinary impl/class-side factories validate inputs in Phalcom source
+the factory constructs the transparent data value through the restricted
+primary constructor after validation
+construction access is authorized before normal lowering on every lane
 ```
 
-## 24. Current next action
+The model is general and is not time-specific. P1 may use it for `Duration`,
+`Timestamp`, `Date`, `Time`, `DateTime`, `YearMonth`, `MonthDay`, and
+`UtcOffset` without adding compiler-recognized temporal validation or changing
+data representation. The implementation authority is the existing AST,
+semantic constructor signature/access product, and normal source-level `impl`
+factory path; the runtime remains unaware of temporal validity rules.
+```
 
-P1 is paused at T1 pending the validated-transparent-data construction decision. Once resolved, resume from T1/G1; do not begin temporal production edits before that prerequisite is durable:
+### `C2-AMEND-07` — enum cases remain bare source cases
+
+Explicit user direction for the remaining civil-value work: new enum
+declarations must use the current bare-case syntax and must not put `@variant`
+on enum cases. This applies to `Month`, `Weekday`, `DateOverflow`, and any
+other enums added by P1; it does not authorize changing unrelated legacy enum
+fixtures in this slice.
+
+### `C2-CONSULT-02` — T3 needs general abstract-class and source-native ownership support
+
+T2 is complete, but P1 T3 cannot be implemented faithfully from the current
+live language/runtime contracts without an architectural decision.
+
+```text
+Observed:
+  phalcom-ast class members always call parse_member_body(); bodyless
+  declaration members are admitted only through parse_behavior_member(...,
+  allow_index_declaration = true) for trait contexts. ClassDef has no abstract
+  marker or abstract-obligation surface.
+
+  The runtime ClassObject has is_abstract, but current abstract roots are
+  manually marked in core_classes.rs. There is no source-class path that turns
+  an ordinary class with declaration-only members into an abstract class and
+  no semantic completeness product for that obligation.
+
+  The existing monotonic host read is registered as the generated/native
+  Universe System class member System.class::monotonicNanoseconds. NativeSource
+  indexing and the native metadata catalog anchor source native classes through
+  UniverseKey; there is no SystemClock UniverseKey or general source-owned
+  native-class attachment path. The current primitive installer hardcodes the
+  System class owner.
+
+Required P1 invariant:
+  Clock is an abstract source capability with declaration-only now, source
+  implementations remain ordinary Phalcom, SystemClock owns the host primitive,
+  and System no longer owns temporal discovery or the monotonic read.
+
+Why local authority is insufficient:
+  Writing a throwing Clock body, treating Clock as a trait, retaining System as
+  the canonical primitive owner, or inventing a one-off compiler/runtime hook
+  would violate the fixed P1 ownership/abstractness contract and create a
+  second language model.
+
+Requested decision:
+  Ratify the general abstract-class syntax/obligation model and the general
+  source-class native/primitive anchoring mechanism needed by SystemClock, or
+  amend P1 to an explicitly transitional concrete Clock/System owner. T3/T4
+  production edits remain paused until that decision is recorded.
+
+Resolution: user clarified that classes may be abstract and may contain
+bodyless abstract members. The live AST already preserves declaration-only
+class members, so the earlier abstractness blocker was overstated: T3 may
+complete the existing general compiler/runtime path rather than redesign the
+language around traits or a throwing body. The remaining independent question
+is only how the existing native/primitive linkage attaches the host read to
+source-owned `SystemClock` identity; do not conflate that linkage audit with
+abstract-class support.
+```
+
+### `C2-PREREQ-01` — source abstract-member closure is implemented
+
+The general compiler/runtime path now treats declaration-only Phalcom class
+members as abstract obligations. Class layouts retain side-qualified pending
+selectors, inherit obligations from the superclass, remove them when a concrete
+member overrides the same dispatch identity, and mark the runtime class
+abstract while any obligation remains. Declaration-only members do not lower to
+throwing bodies or executable method objects.
+
+Focused evidence:
+
+```text
+PASS cargo test -p phalcom-core --test core language::abstract_classes::declaration_only_member_makes_class_abstract_and_concrete_override_executes -- --exact
+PASS cargo test -p phalcom-core --test core language::abstract_classes::abstract_class_construction_is_rejected -- --exact
+PASS cargo test -p phalcom-core --test core language::abstract_classes::subclass_with_unresolved_abstract_member_remains_abstract -- --exact
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core
+PASS cargo fmt --all -- --check
+PASS git diff --check
+```
+
+This closes the abstractness portion of the former consultation. It does not
+resolve the separate source-owned Native descriptor/linkage gap for
+`SystemClock`; T3 remains the active plan task for that seam.
+
+## 24. `STDL002.C2.P1-T4` — absolute wall-time vertical focused closure
+
+T4 is implemented and focused-tested. `Timestamp` is transparent signed Unix /
+POSIX nanosecond data; `WallClock` is an abstract source capability with a
+bodyless `now -> Timestamp`; `SystemWallClock` is the public singleton
+implementation; and `Timestamp.now` delegates through the canonical source
+`wallClock` binding to `SystemWallClock.now`.
+
+The host observation is the only wall-time primitive and is owned by
+`SystemWallClock`. It constructs the signed result with arbitrary-precision
+integers on both sides of the epoch and does not narrow through `i64` or
+`Float`. `Timestamp` arithmetic, comparison, equality, hashing, and factories
+remain ordinary Phalcom behavior. During the focused run, the shared data
+runtime also exposed that every transparent data declaration had been sharing
+the primordial `Class` metaclass; T4 corrected that owning-layer defect by
+giving each data behavior its own metaclass, preserving independent class-side
+factory tables for `Duration`, `Measurement`, and `Timestamp`.
+
+Focused evidence:
+
+```text
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic capabilities::time
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time -- --exact
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time_negative
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core native_surface_contracts::time_wall_ -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo run -p phalcom-native-surface-gen -- --root . --check
+PASS cargo fmt --all
+PASS git diff --check
+```
+
+The corpus covers epoch and signed scalar state, duration arithmetic and
+`since`, ordering/equality/hash, stable `SystemWallClock` identity, and the
+`Timestamp.now` capability path. The native contract covers exact owner,
+return type, runtime `Int`, and absence of a second `now` primitive.
+
+The direct explicit-import probe for `wallClock` still reaches the known
+canonical Universe module-linking seam (the same family as the deferred T7
+package-root import issue); no time-specific alias or second singleton was
+introduced to mask it. Repeated singleton identity is covered through the
+canonical source binding and runtime fixture; explicit-import closure remains
+deferred to T7's module-linking work.
+
+### `C2-G3` — T4 acceptance state
+
+```text
+P1-CV-14  PASS  Timestamp epoch and signed scalar factories
+P1-CV-15  PASS  Timestamp plus/minus/since Duration laws
+P1-CV-16  PARTIAL  signed state is covered; exposed Euclidean split remains T6
+P1-CV-17  PARTIAL  singleton identity passes; explicit-import identity awaits T7 linking
+P1-CV-18  PASS  Timestamp.now uses source wallClock path; no second native now
+P1-CV-19  PASS  wall primitive provenance/owner is SystemWallClock
+```
+
+T4 is therefore `IMPLEMENTED` + `FOCUSED_TESTED`, with the explicit-import
+portion of the acceptance surface deferred as a known integration seam.
+
+## 25. `STDL002.C2.P1-T5` — Gregorian/calendar foundation in progress
+
+The T5 source slice is now present. `Month` and `Weekday` use bare enum cases
+with no `@variant` annotations, ISO numbering, invalid-number rejection, and
+source-level enum behavior. `Period` is transparent months-plus-days data with
+year/month/week/day factories, arithmetic, negation, and zero detection; it
+does not define ordering. The single Gregorian helper authority is colocated
+with `Month` so the public month module does not require the currently-broken
+nested sibling-module import path. It contains leap-year, month-length,
+constant-time civil/epoch-day conversion, and explicit floor-division logic
+for negative years.
+
+Focused evidence so far:
+
+```text
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time -- --exact
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time_negative
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic capabilities::time
+PASS cargo fmt --all -- --check
+PASS git diff --check
+```
+
+The time corpus now observes leap/non-leap February, Month and Weekday
+numbering, alongside the already-covered T2-T4 behavior. A direct synthetic
+import of `Period` still reaches the known non-prelude data/module identity
+seam with a return-type diagnostic; the canonical Universe source loads and
+the Period implementation remains source-owned. Period-specific runtime and
+negative ordering coverage is still required before T5/G4 can be closed.
+
+### T5/T6 module-import limitation observed
+
+A focused probe adding `from universe.time import Period` to the existing time
+corpus fails during package linking before the imported name is typechecked:
+
+```text
+program compile failure: unresolved import 'universe.time.clock' from module universe:time
+```
+
+The failure is distinct from the direct child-module path: imports such as
+`from universe.time.calendar.month import Month` and
+`from universe.time.calendar.weekday import Weekday` remain the currently
+working path. The live builtin graph and source provider register the `time`
+package and its child modules, but root-package publication does not currently
+make the package's own absolute child imports link successfully. The same
+limitation explains the previously recorded explicit `wallClock` import and
+the direct synthetic `Period` identity seam; it must be repaired in the
+general module/package linker or publication path, not by adding time-specific
+aliases or duplicate declarations.
+
+The T6 civil source scaffold has begun (`Date`, `DateOverflow`, `Time`,
+`DateTime`, `YearMonth`, and `MonthDay`, plus shared Gregorian month movement),
+but those new modules are not yet added to the builtin graph/provider and have
+not been runtime-verified. `UtcOffset` remains intentionally unimplemented
+until its required P2-compatible numeric bound is selected; the plan marks
+that decision VERIFY-FIRST and forbids guessing.
+
+## 26. Current next action
+
+P1 remains active across the T5/T6 transition. T1's validated-data and abstract-member
+prerequisites, T2 Duration/Measurement, T3 monotonic time, and T4 absolute
+wall-time are implemented and focused-tested. Finish T5's Period-specific
+verification and ordering-negative lane, then proceed to T6, carrying the
+known T7 package/module-linking and non-prelude data identity seams and the
+source-coordinate semantic baseline update as deferred integration work. Do
+not replace either with a time-specific workaround:
 
 ```text
 STDL002.C2.P1-plan-00-shared-header.md
 STDL002.C2.P1-01-body.md
 ```
 
-P1 takeover verified the required general language surface and recorded the remaining T1 closure points, especially:
+P1 takeover verified the required general language surface and T2 now records
+the first focused gate. Remaining work is the T3/T4 architecture decision and
+the later ordered implementation gates:
 
 ```text
 lexical identity-based visibility
@@ -1392,7 +1680,7 @@ grouped imports/exports
 LANG006 Phalcom/Native/Foreign implementation kinds
 non-operative @intrinsic/@primitive metadata
 bodyless abstract-member obligations
-validated transparent data construction
+validated transparent data construction (landed and focused-tested in T2)
 generic data identity
 class-side singleton/package-value identity
 ```

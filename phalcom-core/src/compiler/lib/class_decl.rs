@@ -150,6 +150,43 @@ pub(crate) fn rest_selector(name: &str, params: &[phalcom_ast::ast::ParameterDef
     format!("{name}({slots})")
 }
 
+/// Returns the runtime dispatch identity for a class member that may carry an
+/// abstract obligation. The boolean distinguishes instance and class-side
+/// contracts; the selector alone is not sufficient because both sides may
+/// legally use the same spelling.
+fn abstract_member_key(member: &ClassMember, interner: &mut crate::interner::Interner) -> Result<Option<(bool, Symbol)>, CompilerError> {
+    let (is_static, selector) = match member {
+        ClassMember::Method(method) if !method.is_constructor => {
+            let arity = checked_send_arity("method declaration", method.params.len(), method.range)?;
+            let sig_kind = SignatureKind::Method(arity);
+            let rest = rest_layout(&method.params, interner);
+            let selector = if rest.is_some() {
+                rest_selector(&method.name, &method.params)
+            } else {
+                let labels: Vec<Option<String>> = method.params.iter().map(|param| param.label.clone()).collect();
+                encode_selector(&method.name, &labels, sig_kind)
+            };
+            (method.is_static, selector)
+        }
+        ClassMember::Getter(getter) => (getter.is_static, make_signature(&getter.name, SignatureKind::Getter)),
+        ClassMember::Setter(setter) => (setter.is_static, make_signature(&setter.name, SignatureKind::Setter)),
+        ClassMember::Index(index) => {
+            let arity = checked_send_arity("subscript declaration", index.params.len(), index.range)?;
+            let labels: Vec<Option<String>> = index.params.iter().map(|param| param.label.clone()).collect();
+            let sig_kind = match &index.accessor {
+                IndexAccessor::Get => SignatureKind::SubscriptGet(arity),
+                IndexAccessor::Set { .. } => {
+                    checked_send_arity("subscript declaration", index.params.len() + 1, index.range)?;
+                    SignatureKind::SubscriptSet(arity)
+                }
+            };
+            (false, encode_selector("", &labels, sig_kind))
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some((is_static, interner.intern(&selector))))
+}
+
 /// Source parsing catches this first; compiler passes can synthesize members,
 /// so preserve the declaration-side selector invariant after expansion too.
 fn validate_declaration_labels(params: &[phalcom_ast::ast::ParameterDef]) -> Result<(), CompilerError> {
@@ -763,6 +800,38 @@ impl<'vm> Compiler<'vm> {
                 static_field_slots.insert(*f, (sc_meta_field_count as usize + i) as u16);
             }
             let static_field_count = sc_meta_field_count + own_static_fields.len() as u16;
+            let mut abstract_members = class_def
+                .superclass_ref()
+                .and_then(|superclass| self.resolve_superclass_ref(superclass))
+                .and_then(|key| self.vm.field_layouts.get(&key))
+                .map(|layout| layout.abstract_members.clone())
+                .unwrap_or_default();
+            for member in &class_def.members {
+                let Some(key) = abstract_member_key(member, &mut self.vm.interner)? else {
+                    continue;
+                };
+                let is_abstract_member = match member {
+                    ClassMember::Method(method) => {
+                        method.implementation == ImplementationKind::Phalcom && matches!(method.body, phalcom_ast::ast::MemberBody::Declaration)
+                    }
+                    ClassMember::Getter(getter) => {
+                        getter.implementation == ImplementationKind::Phalcom && matches!(getter.body, phalcom_ast::ast::MemberBody::Declaration)
+                    }
+                    ClassMember::Setter(setter) => {
+                        setter.implementation == ImplementationKind::Phalcom && matches!(setter.body, phalcom_ast::ast::MemberBody::Declaration)
+                    }
+                    ClassMember::Index(index) => {
+                        index.implementation == ImplementationKind::Phalcom && matches!(index.body, phalcom_ast::ast::MemberBody::Declaration)
+                    }
+                    _ => false,
+                };
+                if is_abstract_member {
+                    abstract_members.insert(key);
+                } else {
+                    abstract_members.remove(&key);
+                }
+            }
+            let is_abstract = !abstract_members.is_empty();
 
             crate::vm::ClassLayout {
                 name: name_sym,
@@ -771,6 +840,8 @@ impl<'vm> Compiler<'vm> {
                 static_field_slots,
                 static_field_count,
                 const_fields: const_field_names,
+                abstract_members,
+                is_abstract,
                 declared_at: class_def.range,
             }
         };
@@ -829,6 +900,9 @@ impl<'vm> Compiler<'vm> {
                     let body_stmts = match method_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
+                            if method_def.implementation == ImplementationKind::Phalcom {
+                                continue;
+                            }
                             if method_def.implementation == ImplementationKind::Foreign {
                                 return Err(CompilerError::ForeignBindingUnimplemented(method_def.name, method_def.range));
                             }
@@ -874,6 +948,9 @@ impl<'vm> Compiler<'vm> {
                     let body_stmts = match getter_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
+                            if getter_def.implementation == ImplementationKind::Phalcom {
+                                continue;
+                            }
                             if getter_def.implementation == ImplementationKind::Foreign {
                                 return Err(CompilerError::ForeignBindingUnimplemented(getter_def.name, getter_def.range));
                             }
@@ -912,6 +989,9 @@ impl<'vm> Compiler<'vm> {
                     let body_stmts = match setter_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
+                            if setter_def.implementation == ImplementationKind::Phalcom {
+                                continue;
+                            }
                             if setter_def.implementation == ImplementationKind::Foreign {
                                 return Err(CompilerError::ForeignBindingUnimplemented(setter_def.name, setter_def.range));
                             }
@@ -1060,6 +1140,9 @@ impl<'vm> Compiler<'vm> {
                     let body = match index_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
+                            if index_def.implementation == ImplementationKind::Phalcom {
+                                continue;
+                            }
                             if index_def.implementation == ImplementationKind::Foreign {
                                 return Err(CompilerError::ForeignBindingUnimplemented("subscript".into(), range));
                             }

@@ -2,4 +2,4 @@
 // spec: stdlib/time.md
 // status: NEGATIVE
 
-System.clock.now.plus(42)
+SystemClock.instance.now.plus(42)

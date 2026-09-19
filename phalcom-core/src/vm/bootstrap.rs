@@ -182,6 +182,7 @@ impl VM {
         // `install_primitives` so a reopen can call the primitives it wraps
         // (e.g. `List.at(_:)` calling `at_(_:)`).
         vm.run_universe_modules(canonical).map_err(crate::error::VmBootstrapError::Runtime)?;
+        crate::native::install::install_source_owned_primitives(&mut vm, canonical.source_index()).map_err(crate::error::VmBootstrapError::Runtime)?;
         vm.bind_native_error_constructors();
         vm.bind_canonical_variant_aliases()?;
         vm.sync_universe_class_aliases()?;
@@ -762,6 +763,33 @@ impl VM {
             source_bindings.push((key.name, crate::modules::BindingRef { module: key.module, slot }));
         }
         for (name, binding) in source_bindings {
+            self.prelude_bindings.insert(name, binding);
+        }
+
+        // Transparent data declarations publish a behavior-class value from
+        // their defining module just like source classes do, but they are
+        // tracked by the data registry rather than the VM class map. Publish
+        // their canonical prelude bindings here so source-owned data values
+        // (for example `Duration.seconds(_)`) remain available through the
+        // ordinary unqualified prelude path.
+        let mut data_bindings = Vec::new();
+        for descriptor in self.data_registry.descriptors() {
+            let owner = &descriptor.semantic_owner;
+            if !owner.module.project.is_universe() {
+                continue;
+            }
+            let Some(module) = self.module_registry.get(&owner.module).map(|record| record.object) else {
+                continue;
+            };
+            let name = self.interner.intern(&owner.name);
+            let Some(slot) = self.heap.module(module).slot_of(name) else {
+                continue;
+            };
+            let slot = u16::try_from(slot)
+                .map_err(|_| crate::error::VmBootstrapError::Invariant(format!("canonical data binding `{}` slot does not fit u16", owner.name)))?;
+            data_bindings.push((name, crate::modules::BindingRef { module, slot }));
+        }
+        for (name, binding) in data_bindings {
             self.prelude_bindings.insert(name, binding);
         }
 

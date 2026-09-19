@@ -199,6 +199,10 @@ pub struct DataDeclarationLoweringSpec {
 pub struct DataConstructionLoweringSpec {
     pub constructor: DataConstructorId,
     pub exact_type: Arc<phalcom_type_meta::SemanticMetadataBundle>,
+    /// Closed constructions can cache their descriptor. Generic source
+    /// methods carry a template which is instantiated against the active
+    /// runtime type environment at each construction site.
+    pub type_recipe: RuntimeTypeRecipe,
     pub layout: crate::product::ProductLayoutSpec,
     pub argument_to_component: Box<[u32]>,
 }
@@ -630,7 +634,7 @@ fn build_data_construction_spec(
     arity: u8,
     argument_mapping: Option<Box<[u32]>>,
 ) -> Result<Arc<DataConstructionLoweringSpec>, ProjectionError> {
-    if phalcom_semantic::checker::associated::contains_any_type_parameter(&snapshot.store, result_type) || contains_exact_case(&snapshot.store, result_type) {
+    if contains_exact_case(&snapshot.store, result_type) {
         return Err(ProjectionError::OpenDataConstructionType {
             constructor: constructor.clone(),
             result_type,
@@ -648,9 +652,24 @@ fn build_data_construction_spec(
         .build_bundle(&[(&constructor.owner.module, "data", result_type)])
         .map_err(|error| ProjectionError::DataTypeMetadata(error.to_string()))?;
     let argument_to_component = argument_mapping.unwrap_or_else(|| (0..u32::from(arity)).collect());
+    let runtime_root = metadata
+        .runtime_roots
+        .first()
+        .ok_or_else(|| ProjectionError::DataTypeMetadata("missing runtime data type root".to_string()))?;
+    let runtime_type = RuntimeTypeRef::Base {
+        pool: crate::typing::MetadataPoolId(0),
+        node: runtime_root.form,
+    };
+    let type_recipe = if phalcom_semantic::checker::associated::contains_any_type_parameter(&snapshot.store, result_type) {
+        RuntimeTypeRecipe::Template(runtime_type)
+    } else {
+        RuntimeTypeRecipe::Closed(runtime_type)
+    };
+
     Ok(Arc::new(DataConstructionLoweringSpec {
         constructor: constructor.clone(),
         exact_type: Arc::new(metadata),
+        type_recipe,
         layout: crate::product::ProductLayoutSpec::new(
             info.components
                 .iter()

@@ -1,106 +1,7 @@
-// Monotonic clock values and signed nanosecond durations.
+from universe.time.duration import Duration, Measurement
 
-class Duration {
-  @constructor
-  private create(_ nanoseconds: Int) {
-    _nanoseconds = nanoseconds
-  }
-
-  @class
-  nanoseconds(_ value: Int) -> Duration {
-    if not value.is(Int) { throw ArgumentError.new("Duration.nanoseconds: value must be an Int") }
-    Duration.create(value)
-  }
-
-  @class
-  microseconds(_ value: Int) -> Duration {
-    if not value.is(Int) { throw ArgumentError.new("Duration.microseconds: value must be an Int") }
-    Duration.create(value * 1_000)
-  }
-
-  @class
-  milliseconds(_ value: Int) -> Duration {
-    if not value.is(Int) { throw ArgumentError.new("Duration.milliseconds: value must be an Int") }
-    Duration.create(value * 1_000_000)
-  }
-
-  @class
-  seconds(_ value: Int) -> Duration {
-    if not value.is(Int) { throw ArgumentError.new("Duration.seconds: value must be an Int") }
-    Duration.create(value * 1_000_000_000)
-  }
-
-  @class
-  minutes(_ value: Int) -> Duration {
-    if not value.is(Int) { throw ArgumentError.new("Duration.minutes: value must be an Int") }
-    Duration.seconds(value * 60)
-  }
-
-  @class
-  hours(_ value: Int) -> Duration {
-    if not value.is(Int) { throw ArgumentError.new("Duration.hours: value must be an Int") }
-    Duration.minutes(value * 60)
-  }
-
-  nanoseconds -> Int { _nanoseconds }
-
-  microseconds -> Number { _nanoseconds / 1_000 }
-
-  milliseconds -> Number { _nanoseconds / 1_000_000 }
-
-  seconds -> Number { _nanoseconds / 1_000_000_000 }
-
-  +(_ other: Duration) -> Duration {
-    Duration.nanoseconds(_nanoseconds + other.nanoseconds)
-  }
-
-  -(_ other: Duration) -> Duration {
-    Duration.nanoseconds(_nanoseconds - other.nanoseconds)
-  }
-
-  *(_ factor: Int) -> Duration {
-    Duration.nanoseconds(_nanoseconds * factor)
-  }
-
-  compare(_ other: Duration) -> Ordering {
-    _nanoseconds.compare(other.nanoseconds)
-  }
-
-  <(_ other: Duration) -> Bool {
-    self.compare(other) === Ordering::Less
-  }
-
-  <=(_ other: Duration) -> Bool {
-    const order = self.compare(other)
-    (order === Ordering::Less) or (order === Ordering::Equal)
-  }
-
-  >(_ other: Duration) -> Bool {
-    self.compare(other) === Ordering::Greater
-  }
-
-  >=(_ other: Duration) -> Bool {
-    const order = self.compare(other)
-    (order === Ordering::Greater) or (order === Ordering::Equal)
-  }
-
-  ==(_ other: Dynamic) -> Bool {
-    if not other.is(Duration) {
-      return false
-    }
-    _nanoseconds == other.nanoseconds
-  }
-
-  hash -> Int { _nanoseconds.hash }
-
-  isZero -> Bool { _nanoseconds == 0 }
-
-  isNegative -> Bool { _nanoseconds < 0 }
-
-  toString -> String {
-    "\(_nanoseconds)ns"
-  }
-}
+// Monotonic clock values. Duration is defined in duration.ph as transparent
+// validated data and is imported by the package surface.
 
 class Instant {
   @constructor
@@ -123,23 +24,23 @@ class Instant {
   }
 
   since(_ earlier: Instant) -> Duration {
-    if not earlier.is(Instant) { throw ArgumentError.new("Instant.since: earlier must be an Instant") }
+    if not (earlier is Instant) { ArgumentError.new("Instant.since: earlier must be an Instant").raise() }
     self.requireSameClock(earlier)
     Duration.nanoseconds(_ticks - earlier.ticks)
   }
 
   plus(_ duration: Duration) -> Instant {
-    if not duration.is(Duration) { throw ArgumentError.new("Instant.plus: duration must be a Duration") }
+    if not (duration is Duration) { ArgumentError.new("Instant.plus: duration must be a Duration").raise() }
     Instant.from(_clock, _ticks + duration.nanoseconds)
   }
 
   minus(_ duration: Duration) -> Instant {
-    if not duration.is(Duration) { throw ArgumentError.new("Instant.minus: duration must be a Duration") }
+    if not (duration is Duration) { ArgumentError.new("Instant.minus: duration must be a Duration").raise() }
     Instant.from(_clock, _ticks - duration.nanoseconds)
   }
 
   compare(_ other: Instant) -> Ordering {
-    if not other.is(Instant) { throw ArgumentError.new("Instant.compare: other must be an Instant") }
+    if not (other is Instant) { ArgumentError.new("Instant.compare: other must be an Instant").raise() }
     self.requireSameClock(other)
     _ticks.compare(other.ticks)
   }
@@ -182,25 +83,17 @@ class Instant {
 }
 
 class Clock {
-  @class _system
-
-  @class
-  internal system -> Clock {
-    if (_system == None) {
-      _system = Clock.create()
-    }
-    _system
-  }
-
-  @constructor
-  private create() { self }
-
-  now -> Instant {
-    self.instant(System.monotonicNanoseconds)
-  }
+  now -> Instant
 
   since(_ instant: Instant) -> Duration {
     self.now.since(instant)
+  }
+
+  measure<T>(_ action: () -> T) -> Measurement<T> {
+    const started = self.now
+    const value = action.call()
+    const elapsed = self.now.since(started)
+    Measurement(value, elapsed)
   }
 
   protected instant(_ ticks: Int) -> Instant {
@@ -208,4 +101,26 @@ class Clock {
   }
 }
 
-export Clock, Instant, Duration
+class SystemClock is Clock {
+  @class _instance
+
+  @class
+  instance -> SystemClock {
+    if (_instance == None) {
+      _instance = SystemClock.create()
+    }
+    _instance
+  }
+
+  @constructor
+  private create() { self }
+
+  @class
+  internal native monotonicNanoseconds -> Int
+
+  now -> Instant {
+    self.instant(SystemClock.monotonicNanoseconds)
+  }
+}
+
+export Clock, Instant, SystemClock

@@ -91,10 +91,14 @@ impl VM {
     }
 
     fn allocate_general_enum_classes(&mut self, spec: &EnumLoweringSpec) -> Result<RuntimeEnumClassBinding, RuntimeError> {
-        let mut root_class = ClassObject::bare(&spec.owner.name);
-        root_class.class = self.universe.classes.class_class;
-        root_class.superclass = Some(self.universe.classes.object_class);
-        let root_class_id = self.heap.alloc_class(root_class);
+        let module = self
+            .module_registry
+            .get(&spec.owner.module)
+            .map(|record| record.object)
+            .or_else(|| self.entry_module())
+            .or_else(|| self.universe_module())
+            .ok_or_else(|| RuntimeError::Internal(format!("enum declaration module {} is not materialized", spec.owner.module)))?;
+        let root_class_id = self.create_class(module, &spec.owner.name, Some(self.universe.classes.object_class));
         let variants = self.allocate_general_variant_classes(spec, root_class_id)?;
 
         Ok(RuntimeEnumClassBinding { root: root_class_id, variants })

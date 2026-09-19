@@ -28,7 +28,7 @@ import .errors
 import .callable
 import .option
 import .time
-from .time.clock import Clock, Instant, Duration
+from .time import Clock, Instant, SystemClock, Duration, Measurement, Timestamp, WallClock, SystemWallClock, Month, Weekday, Period, clock, wallClock
 import .concurrency
 import .collections
 import .reflection
@@ -50,7 +50,7 @@ export scalar
 export errors
 export callable
 export option
-export Clock, Instant, Duration
+export Clock, Instant, SystemClock, Duration, Measurement, Timestamp, WallClock, SystemWallClock, Month, Weekday, Period, clock, wallClock
 export time
 export concurrency
 export collections

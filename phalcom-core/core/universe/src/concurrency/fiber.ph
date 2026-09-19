@@ -18,14 +18,6 @@ native class System is Object {
   internal native sleepRaw(_ nanoseconds: Int) -> Future<Unit>
 
   @class
-  clock -> Clock {
-    Clock.system
-  }
-
-  @class
-  internal native monotonicNanoseconds -> Int
-
-  @class
   internal native nextScheduled -> Option<Fiber>
 
   @class

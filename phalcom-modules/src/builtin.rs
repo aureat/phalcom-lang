@@ -84,10 +84,40 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["time"],
         kind: ModuleKind::Package,
-        children: &["clock"],
+        children: &["clock", "duration", "timestamp", "calendar"],
     },
     UniverseNodeSpec {
         path: &["time", "clock"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "duration"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "timestamp"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "calendar"],
+        kind: ModuleKind::Package,
+        children: &["month", "weekday", "period"],
+    },
+    UniverseNodeSpec {
+        path: &["time", "calendar", "month"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "calendar", "weekday"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "calendar", "period"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -575,6 +605,24 @@ impl UniverseSourceProvider {
             [c] if c.as_str() == "time" => include_str!("../../phalcom-core/core/universe/src/time/package.ph"),
             [c, m] if c.as_str() == "time" && m.as_str() == "clock" => {
                 include_str!("../../phalcom-core/core/universe/src/time/clock.ph")
+            }
+            [c, m] if c.as_str() == "time" && m.as_str() == "duration" => {
+                include_str!("../../phalcom-core/core/universe/src/time/duration.ph")
+            }
+            [c, m] if c.as_str() == "time" && m.as_str() == "timestamp" => {
+                include_str!("../../phalcom-core/core/universe/src/time/timestamp.ph")
+            }
+            [c, p] if c.as_str() == "time" && p.as_str() == "calendar" => {
+                include_str!("../../phalcom-core/core/universe/src/time/calendar/package.ph")
+            }
+            [c, p, m] if c.as_str() == "time" && p.as_str() == "calendar" && m.as_str() == "month" => {
+                include_str!("../../phalcom-core/core/universe/src/time/calendar/month.ph")
+            }
+            [c, p, m] if c.as_str() == "time" && p.as_str() == "calendar" && m.as_str() == "weekday" => {
+                include_str!("../../phalcom-core/core/universe/src/time/calendar/weekday.ph")
+            }
+            [c, p, m] if c.as_str() == "time" && p.as_str() == "calendar" && m.as_str() == "period" => {
+                include_str!("../../phalcom-core/core/universe/src/time/calendar/period.ph")
             }
             [c] if c.as_str() == "process" => include_str!("../../phalcom-core/core/universe/src/process/package.ph"),
             [c] if c.as_str() == "net" => include_str!("../../phalcom-core/core/universe/src/net/package.ph"),

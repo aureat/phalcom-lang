@@ -1910,6 +1910,13 @@ impl VM {
                             if self.heap.as_class(sc_id).is_some() {
                                 let closure_module = self.heap.closure(closure_id).module;
                                 let new_class = self.create_class(closure_module, &name, Some(sc_id));
+                                let key = crate::vm::ClassKey {
+                                    module: closure_module,
+                                    name: name_sym,
+                                };
+                                if self.field_layouts.get(&key).is_some_and(|layout| layout.is_abstract) {
+                                    self.heap.class_mut(new_class).is_abstract = true;
+                                }
                                 self.stack.push(Value::obj(new_class));
                             } else {
                                 return Err(RuntimeError::InvalidSuperClass(format!("{superclass}")).into());
@@ -2512,16 +2519,22 @@ impl VM {
                 }
                 Bytecode::ConstructData { constructor, arity } => {
                     let cache = callable.chunk.executable_semantics.data_construction_cache(constructor);
-                    let desc_id = match cache.get() {
-                        Some(id) => id,
-                        None => {
-                            let spec = callable.chunk.executable_semantics.data_construction(constructor);
-                            let id = self.get_or_bind_data_descriptor(spec)?;
-                            cache.set(Some(id));
-                            id
+                    let spec = callable.chunk.executable_semantics.data_construction(constructor);
+                    let desc_id = if matches!(spec.type_recipe, crate::typing::RuntimeTypeRecipe::Template(_)) {
+                        // A generic method may construct the same data
+                        // declaration at several applied type identities. Do
+                        // not cache one specialization across invocations.
+                        self.get_or_bind_data_descriptor(spec)?
+                    } else {
+                        match cache.get() {
+                            Some(id) => id,
+                            None => {
+                                let id = self.get_or_bind_data_descriptor(spec)?;
+                                cache.set(Some(id));
+                                id
+                            }
                         }
                     };
-                    let spec = callable.chunk.executable_semantics.data_construction(constructor);
                     let argc = arity as usize;
                     let components: Vec<Value> = self.stack.drain(self.stack.len() - argc..).collect();
                     let val = self.construct_data_value_with_mapping(desc_id, &spec.argument_to_component, components)?;

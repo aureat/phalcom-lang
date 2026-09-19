@@ -58,6 +58,12 @@ pub enum UniverseKey {
     Package,
     Project,
     System,
+    /// A canonical source-owned class whose native members are attached after
+    /// its Universe source declaration is materialized.
+    SystemClock,
+    /// A canonical source-owned class whose native members are attached after
+    /// its Universe source declaration is materialized.
+    SystemWallClock,
     Message,
     Attribute,
 
@@ -373,6 +379,8 @@ impl UniverseKey {
             Self::Package => &["reflection", "package_object"],
             Self::Project => &["reflection", "project"],
             Self::System | Self::Fiber => &["concurrency", "fiber"],
+            Self::SystemClock => &["time", "clock"],
+            Self::SystemWallClock => &["time", "timestamp"],
             Self::Message => &["reflection", "message"],
             Self::Attribute => &["reflection", "attribute"],
             Self::Error | Self::MessageNotUnderstood | Self::CannotYieldAcrossNativeFrame | Self::UseAfterCloseError => &["errors", "error"],
@@ -435,6 +443,8 @@ impl UniverseKey {
             Self::Package => "Package",
             Self::Project => "Project",
             Self::System => "System",
+            Self::SystemClock => "SystemClock",
+            Self::SystemWallClock => "SystemWallClock",
             Self::Message => "Message",
             Self::Attribute => "Attribute",
             Self::Error => "Error",
@@ -502,6 +512,8 @@ impl UniverseKey {
             "Package" => Some(Self::Package),
             "Project" => Some(Self::Project),
             "System" => Some(Self::System),
+            "SystemClock" => Some(Self::SystemClock),
+            "SystemWallClock" => Some(Self::SystemWallClock),
             "Message" => Some(Self::Message),
             "Attribute" => Some(Self::Attribute),
             "Error" => Some(Self::Error),

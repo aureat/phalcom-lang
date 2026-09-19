@@ -27,6 +27,7 @@ pub mod set;
 pub mod string;
 pub mod symbol;
 pub mod system;
+pub mod time;
 pub mod tuple;
 pub mod typing;
 

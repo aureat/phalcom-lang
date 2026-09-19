@@ -45,13 +45,23 @@ impl PreludeTypeMap {
         // Keep this list explicit so internal Universe implementation classes
         // do not become implicitly reachable merely because they are source
         // declarations.
-        for name in ["Clock", "Instant", "Duration"] {
+        for name in ["Clock", "Instant"] {
             let module = ModuleId::universe(ModulePath::from_components(vec![
                 ModuleComponent::from_identifier("time").expect("canonical Universe component"),
                 ModuleComponent::from_identifier("clock").expect("canonical Universe component"),
             ]));
             entries.insert(name.into(), DeclarationId::new(module, name.into()));
         }
+        let duration_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("time").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("duration").expect("canonical Universe component"),
+        ]));
+        entries.insert("Duration".into(), DeclarationId::new(duration_module, "Duration".into()));
+        let timestamp_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("time").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("timestamp").expect("canonical Universe component"),
+        ]));
+        entries.insert("Timestamp".into(), DeclarationId::new(timestamp_module, "Timestamp".into()));
 
         Self { entries }
     }

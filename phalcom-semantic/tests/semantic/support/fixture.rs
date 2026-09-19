@@ -732,11 +732,29 @@ impl Fixture {
 }
 
 fn canonical_universe_declaration(name: &str) -> Option<DeclarationId> {
-    if matches!(name, "Clock" | "Instant" | "Duration") {
+    if matches!(name, "Clock" | "Instant") {
         return Some(DeclarationId::new(
             ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
                 phalcom_modules::ModuleComponent::from_identifier("time").expect("canonical Universe component"),
                 phalcom_modules::ModuleComponent::from_identifier("clock").expect("canonical Universe component"),
+            ])),
+            name.into(),
+        ));
+    }
+    if name == "Duration" {
+        return Some(DeclarationId::new(
+            ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+                phalcom_modules::ModuleComponent::from_identifier("time").expect("canonical Universe component"),
+                phalcom_modules::ModuleComponent::from_identifier("duration").expect("canonical Universe component"),
+            ])),
+            name.into(),
+        ));
+    }
+    if name == "Timestamp" {
+        return Some(DeclarationId::new(
+            ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+                phalcom_modules::ModuleComponent::from_identifier("time").expect("canonical Universe component"),
+                phalcom_modules::ModuleComponent::from_identifier("timestamp").expect("canonical Universe component"),
             ])),
             name.into(),
         ));

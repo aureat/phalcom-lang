@@ -10,7 +10,7 @@ fn monotonic_time_surface_publishes_expected_types() {
 class Probe {
   @class
   run() {
-    let clock: Clock = System.clock
+    let clock: Clock = SystemClock.instance
     let instant: Instant = clock.now
     let elapsed: Duration = instant.elapsed
   }
@@ -26,12 +26,12 @@ class Probe {
 #[test]
 fn monotonic_time_types_are_source_owned_prelude_declarations() {
     let fixture = Fixture::new("class Probe {}\n");
-    for name in ["Clock", "Instant", "Duration"] {
+    for (name, module_name) in [("Clock", "clock"), ("Instant", "clock"), ("Duration", "duration"), ("Timestamp", "timestamp")] {
         assert_eq!(
             fixture.decl(name).module,
             phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
                 phalcom_modules::ModuleComponent::from_identifier("time").unwrap(),
-                phalcom_modules::ModuleComponent::from_identifier("clock").unwrap(),
+                phalcom_modules::ModuleComponent::from_identifier(module_name).unwrap(),
             ]))
         );
     }

@@ -126,6 +126,13 @@ pub struct ClassLayout {
     /// (ADR-0011), so this set holds only this class's own declarations —
     /// no superclass merge.
     pub const_fields: std::collections::HashSet<Symbol>,
+    /// Dispatch identities still requiring an implementation in this class.
+    /// The boolean is `true` for class-side members and `false` for instance
+    /// members.
+    pub abstract_members: std::collections::HashSet<(bool, Symbol)>,
+    /// Whether the source class carries declaration-only Phalcom members.
+    /// Such a class is an abstract contract and cannot be allocated directly.
+    pub is_abstract: bool,
     /// Source range of the `class` declaration that produced this layout.
     ///
     /// Stored by U-CLASSNS, consumed by

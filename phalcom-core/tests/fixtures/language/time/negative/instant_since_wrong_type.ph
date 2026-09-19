@@ -2,4 +2,4 @@
 // spec: stdlib/time.md
 // status: NEGATIVE
 
-System.clock.now.since(Duration.seconds(1))
+SystemClock.instance.now.since(Duration.seconds(1))

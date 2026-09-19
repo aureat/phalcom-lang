@@ -280,6 +280,10 @@ fn test_decision_engine_pure_cases() {
                 construction: Arc::new(phalcom_core::modules::semantic_lowering::DataConstructionLoweringSpec {
                     constructor: ctor_id,
                     exact_type: bundle,
+                    type_recipe: phalcom_core::typing::RuntimeTypeRecipe::Closed(phalcom_core::typing::RuntimeTypeRef::Base {
+                        pool: phalcom_core::typing::MetadataPoolId(0),
+                        node: phalcom_type_meta::type_node::TypeNodeId(0),
+                    }),
                     layout: phalcom_core::product::ProductLayoutSpec::empty(),
                     argument_to_component: Box::new([0, 1]),
                 }),

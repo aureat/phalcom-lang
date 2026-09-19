@@ -35,6 +35,8 @@ mod compiler_lowering;
 #[path = "compiler/lowering_scenarios.rs"]
 mod compiler_lowering_scenarios;
 
+#[path = "abstract_classes.rs"]
+mod abstract_classes;
 #[path = "associated_traits.rs"]
 mod associated_traits;
 #[path = "conditional_conformance.rs"]

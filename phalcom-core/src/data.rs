@@ -84,6 +84,12 @@ impl RuntimeDataRegistry {
         self.descriptors.iter().find(|d| &d.semantic_owner == owner).map(|d| d.runtime_id)
     }
 
+    /// Enumerates the canonical behavior descriptors, including their
+    /// semantic owners, for runtime publication of source-owned data values.
+    pub fn descriptors(&self) -> impl Iterator<Item = &RuntimeDataDescriptor> {
+        self.descriptors.iter()
+    }
+
     /// Enumerates all behavior classes rooted by this registry for GC root marking.
     pub fn all_behavior_classes(&self) -> impl Iterator<Item = ClassId> + '_ {
         self.descriptors.iter().map(|d| d.behavior_class)
