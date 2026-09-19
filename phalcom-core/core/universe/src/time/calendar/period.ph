@@ -45,7 +45,9 @@ impl Period {
 
   negated -> Period { Period(-self.months, -self.days) }
 
-  isZero -> Bool { (self.months == 0) and (self.days == 0) }
+  isZero -> Bool {
+    if self.months == 0 { self.days == 0 } else { false }
+  }
 }
 
 export Period

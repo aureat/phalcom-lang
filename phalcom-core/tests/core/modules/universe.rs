@@ -232,6 +232,29 @@ fn standalone_universe_time_package_import_closure() {
 }
 
 #[test]
+fn standalone_period_identity_is_canonical() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("period.ph");
+    fs::write(&source, "from universe.time.calendar.period import Period\nconst p = Period.months(1)\nSystem.print(p.months)\n").unwrap();
+
+    let program = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Module(source)).expect("standalone Period analysis");
+    assert!(!program.semantic.has_errors(), "direct Period import must have no semantic errors: {:?}", program.semantic.diagnostics);
+
+    let period_module = ModuleId::universe(ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("time").unwrap(),
+        phalcom_modules::ModuleComponent::from_identifier("calendar").unwrap(),
+        phalcom_modules::ModuleComponent::from_identifier("period").unwrap(),
+    ]));
+    let period = phalcom_semantic::DeclarationId::new(period_module, "Period".into());
+    let info = program.semantic.data_semantics.get(&period).expect("canonical Period data semantics");
+    let declaration_form = program.semantic.declarations().form(&period).expect("canonical Period declaration form");
+
+    assert_eq!(info.owner, period);
+    assert_eq!(info.root_form, declaration_form);
+    assert_eq!(info.constructor.result_type_template, declaration_form);
+}
+
+#[test]
 fn legacy_core_import_is_rejected() {
     let mut universe = ProjectUniverse::new();
     let tmp = TempDir::new().unwrap();

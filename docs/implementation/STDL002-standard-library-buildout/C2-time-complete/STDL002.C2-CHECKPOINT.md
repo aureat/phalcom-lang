@@ -1622,11 +1622,13 @@ PASS git diff --check
 ```
 
 The time corpus now observes leap/non-leap February, Month and Weekday
-numbering, alongside the already-covered T2-T4 behavior. A direct synthetic
-import of `Period` still reaches the known non-prelude data/module identity
-seam with a return-type diagnostic; the canonical Universe source loads and
-the Period implementation remains source-owned. Period-specific runtime and
-negative ordering coverage is still required before T5/G4 can be closed.
+numbering, alongside the already-covered T2-T4 behavior. The direct
+`Period` owner import now passes through the standalone compiler path. Its
+initial diagnostic was an authored `Period.isZero` Boolean-body mismatch, not
+a duplicate declaration/type identity: the canonical data owner, declaration
+form, constructor result, and factory returns agree. The body now uses an
+equivalent typed conditional. Period-specific runtime and negative ordering
+coverage remains required before T5/G4 can be closed.
 
 ### T5/T6 module-import limitation observed
 
