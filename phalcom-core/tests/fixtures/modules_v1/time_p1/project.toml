@@ -1,0 +1,5 @@
+[project]
+name = "time_p1"
+namespace = "time_p1"
+version = "0.1.0"
+entry = "time_p1.main"

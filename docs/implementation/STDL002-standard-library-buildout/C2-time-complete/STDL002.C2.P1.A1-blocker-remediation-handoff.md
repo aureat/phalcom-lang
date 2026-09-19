@@ -48,6 +48,12 @@ corpus filters, semantic time capability suite, package publication regression,
 reflection census checks, and crate checks are green. Formatting and diff
 checks are green.
 
+The T7 continuation is also complete: grouped `time`/`calendar` publication,
+the exact `Duration`/`Timestamp` temporal prelude, ordinary-project runtime
+ownership, canonical prelude identity, and explicit negative visibility
+coverage are recorded in checkpoint §27. The ordinary `time_p1` fixture passes
+through the normal project linker and full VM.
+
 ## Deferred issue
 
 `phalcom-modules --test builtin_catalog` still has one unrelated D-class
@@ -75,6 +81,6 @@ canonical ordering/equality/hash behavior, and fixed-offset-only meaning.
 
 ## Next action
 
-Continue `STDL002.C2.P1` at the remaining ordinary-package and T7 closure.
-P2 must wait for the completed P1
+Continue `STDL002.C2.P1` at T8 stabilization and final P1
+walkthrough/handoff preparation. P2 must wait for the completed P1
 walkthrough/handoff and P1 completion conditions.

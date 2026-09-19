@@ -1,6 +1,7 @@
 use phalcom_core::error::PhError;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
 use phalcom_core::vm::{BufferedOutput, VM};
+use phalcom_semantic::DiagnosticCode;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -16,6 +17,68 @@ fn test_logical_imports_execute_without_physical_paths() {
     vm.run_compiled(&program).expect("logical imports should execute");
 
     assert_eq!(handle.bytes(), b"42\n3\n4\n3\n<True>\n42\n1\n99\n3\n");
+}
+
+#[test]
+fn time_p1_ordinary_package_uses_grouped_public_surface_and_temporal_prelude() {
+    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/modules_v1/time_p1");
+    let selection = EntrySelection::Project(fixture_dir);
+    let program = ProgramCompiler::compile_entry_selection(selection).expect("time_p1 should compile through the ordinary project linker");
+    assert!(
+        program.modules.keys().all(|id| !id.project.is_universe()),
+        "ordinary package must not own canonical Universe runtime modules"
+    );
+
+    let sink = BufferedOutput::new();
+    let handle = sink.handle();
+    let mut vm = VM::new_with_output(Box::new(sink));
+    vm.run_compiled(&program).expect("time_p1 should execute");
+
+    assert_eq!(handle.bytes(), b"time_p1 ok\n");
+}
+
+#[test]
+fn time_p1_ordinary_package_keeps_non_prelude_temporal_names_explicit() {
+    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/modules_v1/time_p1");
+    let selection = EntrySelection::Project(fixture_dir);
+    let program = ProgramCompiler::compile_entry_selection(selection).expect("time_p1 should compile through the ordinary project linker");
+
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("time_p1 should initialize");
+    for name in [
+        "Clock",
+        "SystemClock",
+        "Instant",
+        "clock",
+        "WallClock",
+        "SystemWallClock",
+        "wallClock",
+        "Date",
+        "Time",
+        "DateTime",
+        "Period",
+        "UtcOffset",
+    ] {
+        assert!(
+            !vm.prelude_bindings.contains_key(&vm.interner.intern(name)),
+            "{name} must not be an implicit prelude binding"
+        );
+    }
+}
+
+#[test]
+fn time_p1_ordinary_package_cannot_cross_instant_or_clock_visibility_boundaries() {
+    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/modules_v1/time_p1_access");
+    let selection = EntrySelection::Project(fixture_dir);
+    let error = ProgramCompiler::compile_entry_selection(selection).expect_err("ordinary package must not access internal/protected time members");
+    let ProgramCompileError::Semantic(diagnostics) = error else {
+        panic!("expected semantic visibility diagnostics, got {error:?}");
+    };
+    let codes = diagnostics.by_module.values().flatten().map(|diagnostic| diagnostic.code).collect::<Vec<_>>();
+    assert!(
+        codes.iter().filter(|code| **code == DiagnosticCode::MemberInaccessible).count() >= 2,
+        "expected both visibility violations: {codes:?}"
+    );
 }
 
 #[test]

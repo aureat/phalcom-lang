@@ -605,7 +605,11 @@ impl ProgramAnalyzer {
 
         Ok(AnalyzedProgram {
             project_universe: universe,
-            runtime_modules: linked.modules.keys().cloned().collect(),
+            // Universe support modules are already canonical, bootstrapped
+            // runtime state. Keep them in the linked/semantic closure, but do
+            // not rematerialize their project-specific artifacts over that
+            // state when an ordinary package is run in a full VM.
+            runtime_modules: linked.modules.keys().filter(|id| !id.project.is_universe()).cloned().collect(),
             linked,
             semantic: analysis.snapshot,
             sources: discovered.sources,

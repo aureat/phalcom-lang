@@ -40,18 +40,6 @@ impl PreludeTypeMap {
             entries.insert(binding.name.into(), DeclarationId::new(module, name.into()));
         }
 
-        // Public standard-library classes are source-owned rather than native
-        // bindings, but they are still part of the source-visible prelude.
-        // Keep this list explicit so internal Universe implementation classes
-        // do not become implicitly reachable merely because they are source
-        // declarations.
-        for name in ["Clock", "Instant"] {
-            let module = ModuleId::universe(ModulePath::from_components(vec![
-                ModuleComponent::from_identifier("time").expect("canonical Universe component"),
-                ModuleComponent::from_identifier("clock").expect("canonical Universe component"),
-            ]));
-            entries.insert(name.into(), DeclarationId::new(module, name.into()));
-        }
         let duration_module = ModuleId::universe(ModulePath::from_components(vec![
             ModuleComponent::from_identifier("time").expect("canonical Universe component"),
             ModuleComponent::from_identifier("duration").expect("canonical Universe component"),

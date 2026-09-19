@@ -10,21 +10,19 @@ fn monotonic_time_surface_publishes_expected_types() {
 class Probe {
   @class
   run() {
-    let clock: Clock = SystemClock.instance
-    let instant: Instant = clock.now
-    let elapsed: Duration = instant.elapsed
+    let elapsed: Duration = Duration.seconds(1)
+    let timestamp: Timestamp = Timestamp.epoch
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    assert_source_contract(fixture.binding(run, "clock"), fixture.ty("Clock"));
-    assert_source_contract(fixture.binding(run, "instant"), fixture.ty("Instant"));
     assert_source_contract(fixture.binding(run, "elapsed"), fixture.ty("Duration"));
+    assert_source_contract(fixture.binding(run, "timestamp"), fixture.ty("Timestamp"));
 }
 
 #[test]
-fn monotonic_time_types_are_source_owned_prelude_declarations() {
+fn monotonic_time_types_are_source_owned_declarations() {
     let fixture = Fixture::new("class Probe {}\n");
     for (name, module_name) in [("Clock", "clock"), ("Instant", "clock"), ("Duration", "duration"), ("Timestamp", "timestamp")] {
         assert_eq!(

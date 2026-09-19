@@ -3,6 +3,10 @@
 // status: PASS
 
 from universe.time.duration import Measurement
+from universe.time import (
+  SystemClock,
+  SystemWallClock
+)
 from universe.time.calendar.month import Month
 from universe.time.calendar.weekday import Weekday
 
@@ -41,26 +45,3 @@ System.print(finish >= start)
 System.print(start.plus(Duration.seconds(1)).minus(Duration.seconds(1)) == start)
 const measured = systemClock.measure { 7 }
 System.print(measured.value)
-
-class ManualClock is Clock {
-  @constructor
-  new() {
-    _ticks = 0
-  }
-
-  now -> Instant {
-    self.instant(_ticks)
-  }
-
-  advance(_ duration: Duration) -> ManualClock {
-    _ticks = _ticks + duration.nanoseconds
-    self
-  }
-}
-
-const manual = ManualClock.new()
-const manualStart = manual.now
-manual.advance(Duration.seconds(2))
-const manualFinish = manual.now
-System.print(manualFinish.since(manualStart).nanoseconds)
-System.print(manualStart.elapsed.nanoseconds)

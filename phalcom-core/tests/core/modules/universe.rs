@@ -377,6 +377,28 @@ fn curated_prelude_exposes_public_names_and_hides_internal_classes() {
         assert!(!vm.prelude_bindings.contains_key(&sym), "prelude must NOT contain {name}");
     }
 
+    for name in ["Duration", "Timestamp"] {
+        let sym = vm.interner.intern(name);
+        assert!(vm.prelude_bindings.contains_key(&sym), "temporal prelude must contain {name}");
+    }
+    for name in [
+        "Clock",
+        "SystemClock",
+        "Instant",
+        "clock",
+        "WallClock",
+        "SystemWallClock",
+        "wallClock",
+        "Date",
+        "Time",
+        "DateTime",
+        "Period",
+        "UtcOffset",
+    ] {
+        let sym = vm.interner.intern(name);
+        assert!(!vm.prelude_bindings.contains_key(&sym), "temporal prelude must NOT contain {name}");
+    }
+
     // NONE-01: `None` remains a prelude convenience for Option::None's value.
     let none_sym = vm.interner.intern("None");
     let none_binding = vm

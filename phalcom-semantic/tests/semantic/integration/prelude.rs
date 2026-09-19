@@ -27,9 +27,19 @@ fn prelude_map_contains_only_explicit_source_backed_type_names() {
     let prelude = PreludeTypeMap::canonical_universe();
 
     for name in [
-        "Object", "Int", "Bool", "String", "Option", "Result", "List", "Map", "Unit", "Clock", "Instant", "Duration",
+        "Object",
+        "Int",
+        "Bool",
+        "String",
+        "Option",
+        "Result",
+        "List",
+        "Map",
+        "Unit",
+        "Duration",
+        "Timestamp",
     ] {
-        if matches!(name, "Clock" | "Instant" | "Duration") {
+        if matches!(name, "Duration" | "Timestamp") {
             assert!(prelude.contains_name(name), "{name} must be in the canonical prelude");
             continue;
         }
@@ -42,7 +52,27 @@ fn prelude_map_contains_only_explicit_source_backed_type_names() {
         );
     }
 
-    for name in ["Nil", "Some", "None", "Behavior", "Metaclass", "Method", "Family"] {
+    for name in [
+        "Nil",
+        "Some",
+        "None",
+        "Behavior",
+        "Metaclass",
+        "Method",
+        "Family",
+        "Clock",
+        "SystemClock",
+        "Instant",
+        "clock",
+        "WallClock",
+        "SystemWallClock",
+        "wallClock",
+        "Date",
+        "Time",
+        "DateTime",
+        "Period",
+        "UtcOffset",
+    ] {
         assert!(!prelude.contains_name(name), "{name} must not leak into the bare type prelude");
     }
 }

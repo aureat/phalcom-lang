@@ -1859,3 +1859,49 @@ STDL002.C2.P1-handoff.md
 Then begin `STDL002.C2.P2` by consuming those as-built records in P2 T0. Do not treat the already-authored P2 plan as permission to skip P1 reconciliation.
 
 P2 closes C2 only after its final certification gate, walkthrough/handoff, and checkpoint update. Authoritative time-specification work remains `USER-DEFERRED`.
+
+## 27. `STDL002.C2.P1-T7` — package/prelude and ordinary-package closure
+
+T7 is implemented and focused-tested. The canonical `time` and nested
+`calendar` package sources now use grouped imports/exports. The Universe root
+publishes only `Duration` and `Timestamp` as temporal prelude names; the other
+temporal classes and values remain explicit `universe.time` exports.
+
+The VM bootstrap temporal publication filter preserves that same policy, and
+ordinary project compilation keeps canonical Universe support modules in the
+semantic/linking closure without rematerializing them as project-owned runtime
+modules. This preserves canonical linked-read state for source methods when a
+normal package executes.
+
+The ordinary `modules_v1/time_p1` fixture proves grouped public imports,
+civil construction/observation, Period arithmetic, UtcOffset construction,
+`clock.now`, unqualified Duration/Timestamp access, and explicit-import
+identity. Its access fixture proves that an ordinary package cannot call
+`Instant.from`, protected `Clock.instant`, or the retired `System.clock`
+facade.
+
+Focused evidence:
+
+```text
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic capabilities::time -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time_negative -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_runtime::time_p1_ -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_universe::standalone_universe_time_package_import_closure -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_universe::standalone_universe_time_package_exports_utc_offset -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_universe::standalone_universe_calendar_package_exports_civil_types -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_universe::standalone_period_identity_is_canonical -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-modules
+PASS cargo fmt --all -- --check
+PASS git diff --check
+```
+
+The `corpus::runtime_errors` lane remains a D-class baseline failure: its
+frozen-attribute diagnostic reports the owner as `<unbound>` instead of the
+pre-existing expected `Object` owner. It is outside T7's temporal/package
+surface and is deferred without weakening that assertion.
+
+T7 is complete; P1 remains active for its later T8 stabilization and final
+walkthrough/handoff. Do not mark P1 or C2 complete from this task alone.

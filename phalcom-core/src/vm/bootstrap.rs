@@ -750,6 +750,24 @@ impl VM {
             if name_text.ends_with(".class") {
                 continue;
             }
+            if matches!(
+                name_text,
+                "Clock"
+                    | "SystemClock"
+                    | "Instant"
+                    | "WallClock"
+                    | "SystemWallClock"
+                    | "Measurement"
+                    | "Date"
+                    | "Time"
+                    | "DateTime"
+                    | "YearMonth"
+                    | "MonthDay"
+                    | "Period"
+                    | "UtcOffset"
+            ) {
+                continue;
+            }
             if let Some(&is_prelude) = native_names.get(name_text) {
                 if !is_prelude && !matches!(name_text, "Some" | "None") {
                     continue;
@@ -776,6 +794,14 @@ impl VM {
         for descriptor in self.data_registry.descriptors() {
             let owner = &descriptor.semantic_owner;
             if !owner.module.project.is_universe() {
+                continue;
+            }
+            if !matches!(owner.name.as_ref(), "Duration" | "Timestamp")
+                && matches!(
+                    owner.name.as_ref(),
+                    "Measurement" | "Date" | "Time" | "DateTime" | "YearMonth" | "MonthDay" | "Period" | "UtcOffset"
+                )
+            {
                 continue;
             }
             let Some(module) = self.module_registry.get(&owner.module).map(|record| record.object) else {
