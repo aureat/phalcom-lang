@@ -1,5 +1,6 @@
 from universe.time.calendar.month import Month, Gregorian
 from universe.time.calendar.period import Period
+from universe.time.calendar.weekday import Weekday
 
 enum DateOverflow {
   Constrain
@@ -84,7 +85,11 @@ impl Date {
 
     const monthAdjusted = Gregorian.daysFromCivil(targetYear, targetMonth.number, targetDay)
     const result = Gregorian.civilFromDays(monthAdjusted + period.days)
-    Date.new(result.year, Month.fromNumber(result.month), result.day)
+    Date.new(
+      result.get(#year).unwrapOr(-1),
+      Month.fromNumber(result.get(#month).unwrapOr(-1)),
+      result.get(#day).unwrapOr(-1)
+    )
   }
 
   toString -> String {

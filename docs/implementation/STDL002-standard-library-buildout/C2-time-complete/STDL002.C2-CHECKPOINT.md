@@ -1676,6 +1676,19 @@ algorithm defect: `civilFromDays` now restores the `+719468` offset that
 `daysFromCivil` removes. Coverage includes 1970-01-01, 1969-12-31, year zero,
 leap-year anchors, and negative month movement.
 
+The direct calendar negative lane now also covers Gregorian month-range
+rejection and non-leap-year day rejection. The unregistered T6 `Date` source
+was mechanically prepared for later canonical publication: it imports the
+`Weekday` dependency it uses and reads `Gregorian.civilFromDays`'s record
+through `Record.get(...).unwrapOr(...)`, matching the live record API rather
+than unsupported field syntax. No module/linker behavior was changed.
+
+Additional focused evidence:
+
+```text
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time_negative -- --exact
+```
+
 ## 26. Current next action
 
 P1 remains active across the T5/T6 transition. T1's validated-data and abstract-member
