@@ -368,10 +368,10 @@ class Counter {
     f.assert_no_error_diagnostics();
 }
 
-/// LAW: an opaque call cannot preserve a refined instance-field current fact,
-/// while the field contract remains available for later checking.
+/// LAW: an opaque call drops a refined instance-field current fact, while the
+/// validated field contract remains available for later checking.
 #[test]
-fn opaque_call_drops_refined_field_current_without_rewriting_contract() {
+fn opaque_call_drops_narrow_field_refinement_to_validated_contract() {
     let f = Fixture::new(
         r#"
 class Probe {
@@ -387,11 +387,16 @@ class Probe {
     );
     let run = f.callable("Probe", "run", DispatchSide::Instance);
     let observed = f.binding(run, "observed");
+    assert_eq!(observed.current.ty(), Some(f.ty("Object")));
     assert_eq!(
-        observed.current,
-        phalcom_semantic::types::evidence::TypeKnowledge::Unknown(phalcom_semantic::types::evidence::UnknownReason::NoTypeEvidence)
+        observed.current.status(),
+        Some(phalcom_semantic::types::evidence::EvidenceStatus::Established)
+    );
+    assert_eq!(
+        observed.current.origin(),
+        Some(phalcom_semantic::types::evidence::EvidenceOrigin::FieldLifecycle)
     );
     let field = run.entry_flow.fields.values().next().expect("field flow");
     assert_eq!(field.contract.ty(), Some(f.ty("Object")));
-    assert_eq!(field.current.ty(), None);
+    assert_eq!(field.current.ty(), Some(f.ty("Object")));
 }

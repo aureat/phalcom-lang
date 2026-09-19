@@ -50,7 +50,7 @@ fn test_list_spread_traceback_includes_spread_site() {
     let file_path = std::env::temp_dir().join(format!("traceback_list_spread_{}.ph", std::process::id()));
     fs::write(
         &file_path,
-        "class Broken {\n  iterate(_ cursor) { return 0 }\n  iteratorValue(_ cursor) { throw Error.new(\"iterator value boom\") }\n}\n[*Broken.new()]\n",
+        "from universe.collections.iterator_laws import Iterator, Iterable\n\nclass BrokenIterator {\n  @constructor\n  new() {}\n  next -> Option<Int> { throw Error.new(\"iterator value boom\") }\n}\nimpl Iterator for BrokenIterator { type Item = Int }\n\nclass Broken {\n  @constructor\n  new() {}\n  iterator -> BrokenIterator { BrokenIterator.new() }\n}\nimpl Iterable for Broken {\n  type Item = Int\n  type Iterator = BrokenIterator\n}\n\n[*Broken.new()]\n",
     )
     .unwrap();
 
@@ -59,8 +59,8 @@ fn test_list_spread_traceback_includes_spread_site() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("iterator value boom"), "Must contain iterator error: {stderr}");
-    assert!(stderr.contains(r#""name":"iteratorValue(_)""#), "Must contain iteratorValue frame: {stderr}");
-    assert!(stderr.contains(r#""line":5"#), "Must contain List spread caller line: {stderr}");
+    assert!(stderr.contains(r#""name":"next""#), "Must contain canonical next frame: {stderr}");
+    assert!(stderr.contains(r#""line":20"#), "Must contain List spread caller line: {stderr}");
 }
 
 #[test]

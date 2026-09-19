@@ -7,6 +7,7 @@
 | [DOCS001](docs/DOCS001-implementation-documentation-organization/PROGRAM.md) | DOCS | Implementation documentation organization | IN_PROGRESS |
 | [DOCS003](docs/DOCS003-phaldoc/PROGRAM.md) | DOCS | Phaldoc analysis and generation | PROPOSED |
 | [TEST001](test/TEST001-language-corpus/PROGRAM.md) | TEST | Restore and maintain the language corpus baseline | PROPOSED |
+| [TEST002](test/TEST002-baseline-stabilization/PROGRAM.md) | TEST | Eliminate post-visibility semantic/core baseline failures | IN_PROGRESS |
 | [LANG001](lang/LANG001-language-surface/PROGRAM.md) | LANG | Language surface and historical language records | IN_PROGRESS |
 | [LANG002](lang/LANG002-language-transition/PROGRAM.md) | LANG | Language surface transition | PROPOSED |
 | [LANG003](lang/LANG003-language-semantics/PROGRAM.md) | LANG | Repository-grounded language semantics | PROPOSED |
