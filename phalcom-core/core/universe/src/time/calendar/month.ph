@@ -49,8 +49,9 @@ class Gregorian {
 
   @class
   civilFromDays(_ days: Int) -> Record {
-    const era = Gregorian.floorDiv(days, 146097)
-    const dayOfEra = days - (era * 146097)
+    const adjustedDays = days + 719468
+    const era = Gregorian.floorDiv(adjustedDays, 146097)
+    const dayOfEra = adjustedDays - (era * 146097)
     const yearOfEra = (dayOfEra - (dayOfEra ~/ 1460) + (dayOfEra ~/ 36524) - (dayOfEra ~/ 146096)) ~/ 365
     const yearBase = yearOfEra + (era * 400)
     const dayOfYear = dayOfEra - ((365 * yearOfEra) + (yearOfEra ~/ 4) - (yearOfEra ~/ 100))

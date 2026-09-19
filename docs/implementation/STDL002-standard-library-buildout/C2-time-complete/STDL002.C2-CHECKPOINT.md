@@ -1671,6 +1671,11 @@ PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-co
 PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time_negative -- --exact
 ```
 
+The direct Gregorian round-trip fixture also caught and corrected an inverse
+algorithm defect: `civilFromDays` now restores the `+719468` offset that
+`daysFromCivil` removes. Coverage includes 1970-01-01, 1969-12-31, year zero,
+leap-year anchors, and negative month movement.
+
 ## 26. Current next action
 
 P1 remains active across the T5/T6 transition. T1's validated-data and abstract-member
