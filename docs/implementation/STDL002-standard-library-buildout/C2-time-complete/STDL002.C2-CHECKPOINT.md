@@ -1648,6 +1648,16 @@ the direct synthetic `Period` identity seam; it must be repaired in the
 general module/package linker or publication path, not by adding time-specific
 aliases or duplicate declarations.
 
+The live blocker was reproduced at execution HEAD: a standalone import of
+`universe.time.timestamp` failed on the target-owned `universe.time.duration`
+edge, and a standalone import of `universe.time` failed on
+`universe.time.clock`. The standalone sibling-import rejection remained green.
+The compiler repair now discovers those transitive modules through the same
+resolver-backed worklist used by project/package analysis; the exact graph
+regressions pass. Loading the newly reachable temporal sources also exposes
+existing semantic diagnostics in their bodies, which remains separate from the
+module-closure gate and is carried into the Period/T6 verification gates.
+
 The T6 civil source scaffold has begun (`Date`, `DateOverflow`, `Time`,
 `DateTime`, `YearMonth`, and `MonthDay`, plus shared Gregorian month movement),
 but those new modules are not yet added to the builtin graph/provider and have

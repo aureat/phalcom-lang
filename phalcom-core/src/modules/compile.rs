@@ -6,7 +6,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_modules::{
     EntryOwnership, FilesystemSourceProvider, ImportSurface, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent,
     ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId,
-    SourceLocation, UniverseSourceProvider, classify_entry_ownership,
+    SourceLocation, SourceProvider, UniverseSourceProvider, classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -250,6 +250,84 @@ pub struct AnalyzedProgram {
 /// Analyzer that coordinates discovery, linking, and whole-workspace semantic analysis.
 pub struct ProgramAnalyzer;
 
+struct DiscoveredProgramClosure {
+    interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
+    sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    resolved: BTreeMap<(ModuleId, String), ModuleId>,
+}
+
+fn discover_reachable_dependencies<P: SourceProvider>(
+    resolver: &mut ModuleResolver<'_, P>,
+    universe: &ProjectUniverse,
+    mut interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
+    mut sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    mut resolved: BTreeMap<(ModuleId, String), ModuleId>,
+    pending: impl IntoIterator<Item = ModuleId>,
+    standalone_entry: Option<&ModuleId>,
+) -> Result<DiscoveredProgramClosure, ProgramCompileError> {
+    let mut visited = interfaces.keys().cloned().collect::<HashSet<_>>();
+    let mut pending = pending.into_iter().collect::<Vec<_>>();
+    for module in &pending {
+        visited.insert(module.clone());
+    }
+
+    while let Some(current_id) = pending.pop() {
+        let interface = if let Some(interface) = interfaces.get(&current_id) {
+            interface.clone()
+        } else {
+            let parsed = resolver.load_parsed(&current_id)?;
+            let interface = resolver.load_interface(&current_id)?;
+            sources.insert(current_id.clone(), parsed);
+            interfaces.insert(current_id.clone(), interface.clone());
+            interface
+        };
+
+        if let Some(project_id) = current_id.project.as_resolved() {
+            if universe.get_project(project_id).is_some() {
+                let mut curr_parent = current_id.path.parent();
+                while let Some(parent) = curr_parent {
+                    let pkg_id = ModuleId::resolved(project_id, parent.clone());
+                    if visited.insert(pkg_id.clone()) {
+                        pending.push(pkg_id);
+                    }
+                    curr_parent = parent.parent();
+                }
+            }
+        }
+
+        for import_surface in &interface.imports {
+            let import_path = match import_surface {
+                phalcom_modules::ImportSurface::Module(m) => &m.path,
+                phalcom_modules::ImportSurface::Selective(s) => &s.path,
+                phalcom_modules::ImportSurface::ReExport(r) => &r.path,
+            };
+
+            if standalone_entry.is_some_and(|entry| entry == &current_id) {
+                match &import_path.root {
+                    phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe" => {}
+                    _ => {
+                        return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
+                            import_name: import_path.to_string().into(),
+                        });
+                    }
+                }
+            }
+
+            let target_unit = resolver.resolve_import(&current_id, import_path)?;
+            resolved.insert((current_id.clone(), import_path.to_string()), target_unit.id.clone());
+            if visited.insert(target_unit.id.clone()) {
+                pending.push(target_unit.id);
+            }
+        }
+    }
+
+    Ok(DiscoveredProgramClosure {
+        interfaces,
+        sources,
+        resolved,
+    })
+}
+
 impl ProgramAnalyzer {
     /// Analyzes an entry selection into an [`AnalyzedProgram`].
     pub fn analyze_entry_selection(entry: EntrySelection) -> Result<AnalyzedProgram, ProgramCompileError> {
@@ -447,8 +525,7 @@ impl ProgramAnalyzer {
         let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
         let universe = Arc::new(ProjectUniverse::new());
         let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
-        let mut interfaces = BTreeMap::from([(entry_id.clone(), interface)]);
-        let mut resolved = BTreeMap::new();
+        let interfaces = BTreeMap::from([(entry_id.clone(), interface)]);
 
         let mut sources = BTreeMap::new();
         let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
@@ -475,39 +552,35 @@ impl ProgramAnalyzer {
                 }
             };
 
-            match &path.root {
-                phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe" => {}
-                _ => {
-                    return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
-                        import_name: path.to_string().into(),
-                    });
-                }
-            };
-            let target_path = ModulePath::from_components(
-                path.segments
-                    .iter()
-                    .map(|segment| ModuleComponent::from_identifier(&segment.name))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| ProgramCompileError::Io(e.to_string()))?,
-            );
-            let target_id = ModuleId::universe(target_path);
-            let provider = UniverseSourceProvider::new();
-            let target_interface = provider.load_interface(&target_id)?;
-            let target_parsed = provider.load_parsed(&target_id)?;
-            interfaces.entry(target_id.clone()).or_insert(target_interface);
-            sources.entry(target_id.clone()).or_insert(target_parsed);
-            resolved.insert((entry_id.clone(), path.to_string()), target_id);
+            if !matches!(&path.root, phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe") {
+                return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
+                    import_name: path.to_string().into(),
+                });
+            }
         }
 
-        let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link(entry_id.clone(), &resolved)?);
+        let provider = FilesystemSourceProvider::new();
+        let mut resolver = ModuleResolver::new(&universe, &provider);
+        let discovered = discover_reachable_dependencies(
+            &mut resolver,
+            &universe,
+            interfaces,
+            sources,
+            BTreeMap::new(),
+            [entry_id.clone()],
+            Some(&entry_id),
+        )?;
 
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0));
+        let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).link(entry_id.clone(), &discovered.resolved)?);
+
+        let analysis =
+            phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0));
 
         Ok(AnalyzedProgram {
             project_universe: universe,
             linked,
             semantic: analysis.snapshot,
-            sources,
+            sources: discovered.sources,
             runtime_modules: BTreeSet::from([entry_id.clone()]),
             entry: entry_id,
         })
@@ -519,65 +592,29 @@ impl ProgramAnalyzer {
         entry: ModuleId,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let mut resolver = ModuleResolver::new(&universe, &source_provider);
-        let mut interfaces = BTreeMap::new();
-        let mut sources = BTreeMap::new();
-        let mut resolved = BTreeMap::new();
-        let mut visited = HashSet::new();
+        let interfaces = BTreeMap::new();
+        let sources = BTreeMap::new();
+        let resolved = BTreeMap::new();
         let mut pending = vec![entry.clone()];
-        visited.insert(entry.clone());
-
         if let Some(project_id) = entry.project.as_resolved() {
             let root_id = ModuleId::resolved(project_id, ModulePath::root());
-            if visited.insert(root_id.clone()) {
-                pending.push(root_id);
-            }
+            pending.push(root_id);
         }
 
-        while let Some(current_id) = pending.pop() {
-            let parsed = resolver.load_parsed(&current_id)?;
-            let interface = resolver.load_interface(&current_id)?;
-            interfaces.insert(current_id.clone(), interface.clone());
-            sources.insert(current_id.clone(), parsed);
+        let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, pending, None)?;
 
-            if let Some(project_id) = current_id.project.as_resolved() {
-                if let Some(_proj) = universe.get_project(project_id) {
-                    let mut curr_parent = current_id.path.parent();
-                    while let Some(parent) = curr_parent {
-                        let pkg_id = ModuleId::resolved(project_id, parent.clone());
-                        if visited.insert(pkg_id.clone()) {
-                            pending.push(pkg_id);
-                        }
-                        curr_parent = parent.parent();
-                    }
-                }
-            }
+        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces);
+        let linked = Arc::new(linker.link(entry.clone(), &discovered.resolved)?);
 
-            for import_surface in &interface.imports {
-                let import_path = match import_surface {
-                    phalcom_modules::ImportSurface::Module(m) => &m.path,
-                    phalcom_modules::ImportSurface::Selective(s) => &s.path,
-                    phalcom_modules::ImportSurface::ReExport(r) => &r.path,
-                };
-                let target_unit = resolver.resolve_import(&current_id, import_path)?;
-                resolved.insert((current_id.clone(), import_path.to_string()), target_unit.id.clone());
-
-                if visited.insert(target_unit.id.clone()) {
-                    pending.push(target_unit.id);
-                }
-            }
-        }
-
-        let linker = ModuleLinker::new(universe.clone(), interfaces);
-        let linked = Arc::new(linker.link(entry.clone(), &resolved)?);
-
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0));
+        let analysis =
+            phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0));
 
         Ok(AnalyzedProgram {
             project_universe: universe,
             runtime_modules: linked.modules.keys().cloned().collect(),
             linked,
             semantic: analysis.snapshot,
-            sources,
+            sources: discovered.sources,
             entry,
         })
     }

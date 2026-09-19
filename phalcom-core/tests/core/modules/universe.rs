@@ -4,7 +4,7 @@
 //! META-01..03, SEL-01..03, SHADOW-01..03, STD-01, SCC-01..03.
 
 use phalcom_core::modules::RuntimeLinkedRead;
-use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
+use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler};
 use phalcom_core::native::NativeSourceIndex;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
@@ -197,6 +197,38 @@ fn standalone_context_rejects_user_project_dependencies() {
         }
         other => panic!("expected StandaloneImportRequiresPackageContext, got {other:?}"),
     }
+}
+
+#[test]
+fn standalone_universe_transitive_import_closure() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("timestamp.ph");
+    fs::write(&source, "from universe.time.timestamp import Timestamp\nconst epoch = Timestamp.epoch\n").unwrap();
+
+    let program = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Module(source)).expect("standalone Timestamp analysis");
+    let duration = ModuleId::universe(ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("time").unwrap(),
+        phalcom_modules::ModuleComponent::from_identifier("duration").unwrap(),
+    ]));
+    assert!(program.sources.contains_key(&duration), "Timestamp's transitive Duration module must be discovered");
+    assert_eq!(program.runtime_modules.len(), 1, "Universe support modules must not become standalone runtime-owned modules");
+    assert!(program.runtime_modules.contains(&program.entry));
+}
+
+#[test]
+fn standalone_universe_time_package_import_closure() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("time.ph");
+    fs::write(&source, "from universe.time import Clock\nconst imported = Clock\n").unwrap();
+
+    let program = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Module(source)).expect("standalone time package analysis");
+    let clock = ModuleId::universe(ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("time").unwrap(),
+        phalcom_modules::ModuleComponent::from_identifier("clock").unwrap(),
+    ]));
+    assert!(program.sources.contains_key(&clock), "time package must discover its Clock child module");
+    assert_eq!(program.runtime_modules.len(), 1, "Universe support modules must not become standalone runtime-owned modules");
+    assert!(program.runtime_modules.contains(&program.entry));
 }
 
 #[test]
