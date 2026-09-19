@@ -84,7 +84,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["time"],
         kind: ModuleKind::Package,
-        children: &["clock", "duration", "timestamp", "calendar"],
+        children: &["clock", "duration", "timestamp", "offset", "calendar"],
     },
     UniverseNodeSpec {
         path: &["time", "clock"],
@@ -98,6 +98,11 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["time", "timestamp"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "offset"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -631,6 +636,9 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "time" && m.as_str() == "timestamp" => {
                 include_str!("../../phalcom-core/core/universe/src/time/timestamp.ph")
+            }
+            [c, m] if c.as_str() == "time" && m.as_str() == "offset" => {
+                include_str!("../../phalcom-core/core/universe/src/time/offset.ph")
             }
             [c, p] if c.as_str() == "time" && p.as_str() == "calendar" => {
                 include_str!("../../phalcom-core/core/universe/src/time/calendar/package.ph")

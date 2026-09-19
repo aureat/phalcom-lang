@@ -213,3 +213,20 @@ Until that decision is recorded, keep P1 paused at T6's UtcOffset
 VERIFY-FIRST step. After approval, implement the ordinary validated data
 surface, add bound/precision/ordering coverage, record the evidence in the P1
 walkthrough and handoff, and resume G4.
+
+## Resolution
+
+The advisor approved and resolved this incident with the following authority:
+
+```text
+Authority: approved P1/P2 backend-interoperability constraint
+Public semantic range: -93_599..=93_599 seconds, inclusive
+Equivalent range: -25:59:59..=+25:59:59
+Historical-data claim: none
+P2 obligation: represent the entire P1 domain exactly, with second precision
+```
+
+The symmetric Jiff-compatible envelope makes negation total at both extrema
+while retaining the approved POSIX/TZif-oriented interoperability coverage.
+It is not a claim about the maximum historically observed civil offset. The
+incident is resolved by architectural decision; implementation resumes at T6.

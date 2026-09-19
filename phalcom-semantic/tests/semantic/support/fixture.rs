@@ -759,6 +759,15 @@ fn canonical_universe_declaration(name: &str) -> Option<DeclarationId> {
             name.into(),
         ));
     }
+    if name == "UtcOffset" {
+        return Some(DeclarationId::new(
+            ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+                phalcom_modules::ModuleComponent::from_identifier("time").expect("canonical Universe component"),
+                phalcom_modules::ModuleComponent::from_identifier("offset").expect("canonical Universe component"),
+            ])),
+            name.into(),
+        ));
+    }
     let key = match name {
         "Object" => UniverseKey::Object,
         "Class" => UniverseKey::Class,

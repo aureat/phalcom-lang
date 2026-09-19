@@ -92,3 +92,45 @@ Resume the existing `STDL002.C2.P1` body at the remaining T6 contract:
 perform the approved `UtcOffset` bound decision when available, then continue
 P1's ordinary-package/T7 closure. Do not add a time-specific resolver or
 duplicate temporal declaration path.
+
+## 6. Subsequent T6 continuation — approved UtcOffset bound
+
+The follow-on consultation recorded in
+`STDL002.C2.P1-T6-utc-offset-bound-incident.md` resolved the separate T6
+VERIFY-FIRST item. The approved authority is an inclusive public range of
+`-93_599..=93_599` signed seconds, equivalent to `-25:59:59..=+25:59:59`.
+This is an approved P1/P2 backend-interoperability envelope, not a claim about
+the maximum historically observed civil offset. Its symmetric endpoints make
+negation total while preserving whole-second precision.
+
+The implementation adds ordinary validated `data UtcOffset private(_ seconds:
+Int)` in `time/offset.ph`, with `utc`, `seconds(_)`, `hours(_)`, `negated`,
+comparison, equality, and hash behavior. The module is registered in the
+canonical Universe graph/provider and exported by `universe.time`. No
+compiler, VM, native, or timezone-specific behavior was added.
+
+Expanding the package import closure also surfaced four existing semantic
+return-contract diagnostics in `Instant` and `Timestamp` `<=`/`>=` methods.
+They were repaired with equivalent typed conditionals in their owning source
+files so the full `universe.time` package remains semantic-clean.
+
+Focused continuation evidence:
+
+```text
+PASS cargo test -p phalcom-core --test language-corpus corpus::time -- --exact --nocapture
+PASS cargo test -p phalcom-core --test language-corpus corpus::time_negative -- --exact --nocapture
+PASS cargo test -p phalcom-semantic --test semantic capabilities::time -- --nocapture
+PASS cargo test -p phalcom-core --test core modules_universe -- --nocapture (21/21)
+PASS cargo test -p phalcom-core --test core reflection_census::physical_universe_corpus_matches_catalog -- --exact --nocapture
+PASS cargo test -p phalcom-core --test core reflection_census::package_exposures_match_catalog_children -- --exact --nocapture
+PASS cargo check -p phalcom-core
+PASS cargo check -p phalcom-semantic
+PASS cargo check -p phalcom-modules
+PASS cargo fmt --all -- --check
+PASS git diff --check
+```
+
+The positive corpus covers zero, signed one-second values, both extrema, a
+historical-style second-resolution value, `hours(25)`, total negation,
+ordering, equality, and hash identity. The negative corpus covers both
+out-of-range seconds and `hours(26)`.

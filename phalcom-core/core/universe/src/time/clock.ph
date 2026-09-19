@@ -51,7 +51,7 @@ class Instant {
 
   <=(_ other: Instant) -> Bool {
     const order = self.compare(other)
-    (order === Ordering::Less) or (order === Ordering::Equal)
+    if order === Ordering::Less { true } else { order === Ordering::Equal }
   }
 
   >(_ other: Instant) -> Bool {
@@ -60,7 +60,7 @@ class Instant {
 
   >=(_ other: Instant) -> Bool {
     const order = self.compare(other)
-    (order === Ordering::Greater) or (order === Ordering::Equal)
+    if order === Ordering::Greater { true } else { order === Ordering::Equal }
   }
 
   ==(_ other: Dynamic) -> Bool {

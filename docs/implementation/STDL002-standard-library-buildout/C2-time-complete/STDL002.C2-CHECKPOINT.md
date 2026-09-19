@@ -1427,8 +1427,8 @@ resolution branch or duplicate temporal identity authority is permitted.
 
 The amendment also authorizes publication and focused verification of the
 already-authored non-`UtcOffset` T6 civil modules, then hands execution back to
-the existing P1 body. `UtcOffset` remains a separate VERIFY-FIRST decision;
-the amendment does not select a bound.
+the existing P1 body. The separate UtcOffset VERIFY-FIRST decision was later
+resolved by `C2-CONSULT-03` below.
 
 ### `C2-CONSULT-01` — T1 validated-data construction contract is not defined in the live tree
 
@@ -1491,6 +1491,40 @@ declarations must use the current bare-case syntax and must not put `@variant`
 on enum cases. This applies to `Month`, `Weekday`, `DateOverflow`, and any
 other enums added by P1; it does not authorize changing unrelated legacy enum
 fixtures in this slice.
+
+### `C2-CONSULT-03` — UtcOffset bound approved and incident resolved
+
+The UtcOffset range incident is recorded in
+`STDL002.C2.P1-T6-utc-offset-bound-incident.md`. The advisor approved the
+following decision:
+
+```text
+Authority:
+  approved P1/P2 backend-interoperability constraint
+
+Canonical public domain:
+  min_seconds = -93_599
+  max_seconds =  93_599
+  inclusive
+
+Equivalent:
+  -25:59:59 ..= +25:59:59
+
+Rationale:
+  signed whole-second state;
+  historical second precision remains representable;
+  the approved Jiff-compatible POSIX/TZif-oriented envelope is exact;
+  symmetry makes negation total at both extrema.
+
+Non-claims and downstream obligation:
+  this is not a maximum-historically-observed-offset claim;
+  P2 may not narrow the P1 domain and must preserve exact second precision.
+```
+
+This decision resolves shared-header STOP/CONSULT trigger 16 for T6. The
+implementation remains ordinary validated transparent data: no temporal
+compiler hook, VM primitive, native representation, or timezone semantics is
+introduced.
 
 ### `C2-CONSULT-02` — T3 needs general abstract-class and source-native ownership support
 
@@ -1708,9 +1742,18 @@ source in favor of equivalent live-language forms. These changes retain
 ordinary Phalcom ownership and do not add a second temporal construction or
 identity authority.
 
-`UtcOffset` remains intentionally unimplemented until its required
-P2-compatible numeric bound is selected; the plan marks that decision
-VERIFY-FIRST and forbids guessing.
+When the new `UtcOffset` export caused the complete `universe.time` package
+to be semantically checked, the existing `Instant` and `Timestamp` `<=`/`>=`
+tails exposed the same conjunction return-contract diagnostic. Those four
+tails were changed to equivalent typed conditionals at their owning source
+definitions so package publication is semantic-clean; no temporal runtime or
+compiler behavior changed.
+
+`UtcOffset` is now implemented against the approved P1/P2
+backend-interoperability decision recorded in `C2-CONSULT-03`: the public
+validated domain is inclusive `-93_599..=93_599` signed seconds. The range is
+an interoperability envelope, not a historical-maximum claim; P2 may not
+narrow it and must preserve exact second precision.
 
 ### Independent direct-calendar regression closure
 
@@ -1772,11 +1815,10 @@ T6 civil layer are implemented and focused-tested. The standalone transitive
 Universe closure and canonical package-publication blocker is removed; no
 time-specific workaround remains.
 
-The next action returns to the existing P1 body: finish any remaining T6
-contract, including the separately gated `UtcOffset` bound VERIFY-FIRST
-decision, then continue P1's later package/ordinary-package closure and T7
-publication work. Do not replace that remaining work with a time-specific
-workaround:
+The approved UtcOffset decision has been consumed and the T6 civil contract
+is focused-tested. The next action returns to the existing P1 body: continue
+the remaining package/ordinary-package closure and T7 publication work. Do
+not replace that remaining work with a time-specific workaround:
 
 ```text
 STDL002.C2.P1-plan-00-shared-header.md
@@ -1784,8 +1826,8 @@ STDL002.C2.P1-01-body.md
 ```
 
 P1 takeover verified the required general language surface and the preceding
-focused gates. Remaining work is the later ordered implementation gates,
-including the unresolved `UtcOffset` decision and ordinary-package closure:
+focused gates. Remaining work is the later ordered implementation gates and
+ordinary-package closure:
 
 ```text
 lexical identity-based visibility
@@ -1797,6 +1839,13 @@ validated transparent data construction (landed and focused-tested in T2)
 generic data identity
 class-side singleton/package-value identity
 ```
+
+The T6 UtcOffset continuation is recorded by
+`STDL002.C2.P1-T6-utc-offset-bound-incident.md` and the updated A1
+walkthrough/handoff. Its focused evidence includes the inclusive extrema,
+second-resolution historical-style value, total negation at both extrema,
+ordering/equality/hash behavior, invalid boundary rejection, canonical
+package publication, and source ownership in `time.offset`.
 
 Do not implement a time-specific substitute for missing general-language architecture.
 

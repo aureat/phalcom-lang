@@ -30,7 +30,9 @@ is green.
   test syntax (`value is not Type`) where the live parser/evaluator supports it.
 - Do not implement literal `match` patterns in this lane; that is a separate
   language enhancement.
-- Do not choose or guess the `UtcOffset` numeric bound.
+- Preserve the approved `UtcOffset` numeric domain: inclusive
+  `-93_599..=93_599` signed seconds. P2 may not narrow it or lose second
+  precision.
 
 ## Evidence already available
 
@@ -41,7 +43,7 @@ STDL002.C2-CHECKPOINT.md
 STDL002.C2.P1.A1-blocker-remediation-walkthrough.md
 ```
 
-The focused module aggregate is 20/20 green. The positive and negative time
+The focused module aggregate is 21/21 green. The positive and negative time
 corpus filters, semantic time capability suite, package publication regression,
 reflection census checks, and crate checks are green. Formatting and diff
 checks are green.
@@ -52,9 +54,27 @@ checks are green.
 failure for the collections `iterator_laws` import. Do not repair it as part
 of temporal work.
 
+## Approved UtcOffset continuation
+
+The advisor resolved the incident recorded in
+`STDL002.C2.P1-T6-utc-offset-bound-incident.md`:
+
+```text
+authority = approved P1/P2 backend-interoperability constraint
+min_seconds = -93_599
+max_seconds =  93_599
+inclusive = true
+historical-maximum claim = false
+```
+
+`UtcOffset` is now a transparent validated data value in
+`phalcom-core/core/universe/src/time/offset.ph`, published through the
+canonical `time.offset` module and `universe.time` package. Its factory and
+boundary tests preserve exact signed-second semantics, total negation,
+canonical ordering/equality/hash behavior, and fixed-offset-only meaning.
+
 ## Next action
 
-Continue `STDL002.C2.P1` at the remaining T6 contract: obtain/verify the
-`UtcOffset` bound decision, implement it only after approval, then proceed to
-P1's ordinary-package and T7 closure. P2 must wait for the completed P1
+Continue `STDL002.C2.P1` at the remaining ordinary-package and T7 closure.
+P2 must wait for the completed P1
 walkthrough/handoff and P1 completion conditions.

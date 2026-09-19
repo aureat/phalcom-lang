@@ -243,6 +243,31 @@ fn standalone_universe_time_package_import_closure() {
 }
 
 #[test]
+fn standalone_universe_time_package_exports_utc_offset() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("offset.ph");
+    fs::write(&source, "from universe.time import UtcOffset\nconst imported = UtcOffset.utc\n").unwrap();
+
+    let program = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Module(source)).expect("standalone UtcOffset analysis");
+    assert!(
+        !program.semantic.has_errors(),
+        "time package UtcOffset export must remain semantic-clean: {:?}",
+        program.semantic.diagnostics
+    );
+    let offset = ModuleId::universe(ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("time").unwrap(),
+        phalcom_modules::ModuleComponent::from_identifier("offset").unwrap(),
+    ]));
+    assert!(program.sources.contains_key(&offset), "time package must discover its UtcOffset child module");
+    assert_eq!(
+        program.runtime_modules.len(),
+        1,
+        "Universe support modules must not become standalone runtime-owned modules"
+    );
+    assert!(program.runtime_modules.contains(&program.entry));
+}
+
+#[test]
 fn standalone_universe_calendar_package_exports_civil_types() {
     let tmp = TempDir::new().unwrap();
     let source = tmp.path().join("calendar.ph");

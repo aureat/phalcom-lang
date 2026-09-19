@@ -36,3 +36,15 @@ fn monotonic_time_types_are_source_owned_prelude_declarations() {
         );
     }
 }
+
+#[test]
+fn utc_offset_is_source_owned_by_the_canonical_offset_module() {
+    let fixture = Fixture::new("class Probe {}\n");
+    assert_eq!(
+        fixture.decl("UtcOffset").module,
+        phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+            phalcom_modules::ModuleComponent::from_identifier("time").unwrap(),
+            phalcom_modules::ModuleComponent::from_identifier("offset").unwrap(),
+        ]))
+    );
+}
