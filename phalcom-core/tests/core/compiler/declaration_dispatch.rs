@@ -8,8 +8,10 @@ use phalcom_core::error::PhResult;
 use phalcom_core::heap::Object;
 use phalcom_core::interpret::Interpreter;
 use phalcom_core::method::{MethodKind, RestLayout, RestMode};
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+use std::sync::Arc;
 
 fn native_stub(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(Value::unit())
@@ -140,6 +142,41 @@ receiver.target(*1)
         .expect("spawn isolated stack")
         .join()
         .expect("non-Iterable regression thread");
+}
+
+#[test]
+fn canonical_lowering_rejects_non_iterable_spread_without_selector_fallback() {
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(
+        r#"
+class Receiver {
+  target(_ value) { return value }
+}
+let receiver = Receiver.new()
+receiver.target(*1)
+"#,
+    )))
+    .expect("known invalid spread remains a runtime boundary");
+    let mut vm = VM::new();
+    let error = vm.run_compiled(&program).expect_err("canonical lowering must fail closed");
+    assert!(
+        error.to_string().contains("* expansion requires Tuple, Unit, or an iterable value; got int"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn canonical_lowering_executes_selected_iterable_requirements() {
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(
+        r#"
+class Receiver {
+  collect(*values) { return values.size }
+}
+let result = Receiver.new().collect(*(1..=3))
+"#,
+    )))
+    .expect("canonical Iterable spread should compile");
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("canonical Iterable spread should execute");
 }
 
 // --- Duplicate Selector Checks ---

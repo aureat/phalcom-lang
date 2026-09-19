@@ -311,6 +311,8 @@ fn analyze_application_argument(ctx: &mut CheckingContext<'_>, argument: Applica
             let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), range);
             if let Some(resolution) = resolution {
                 ctx.positional_expansions.insert(resolution.source_expression, resolution);
+            } else {
+                crate::checker::iteration::record_known_invalid_positional_expansion(ctx, typed.expression_id, evidence.ty(), range);
             }
         }
     }

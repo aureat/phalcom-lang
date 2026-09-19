@@ -1746,6 +1746,7 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
                         ctx.positional_expansions.insert(resolution.source_expression, resolution.clone());
                         TypeKnowledge::established(resolution.item_type, EvidenceOrigin::ContextualDerivation)
                     } else {
+                        crate::checker::iteration::record_known_invalid_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
                         list_form
                             .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
                             .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))
@@ -1984,6 +1985,8 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
                         let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
                         if let Some(resolution) = resolution {
                             ctx.positional_expansions.insert(resolution.source_expression, resolution);
+                        } else {
+                            crate::checker::iteration::record_known_invalid_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
                         }
                     }
                 }

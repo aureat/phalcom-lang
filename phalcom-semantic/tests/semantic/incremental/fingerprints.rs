@@ -115,6 +115,7 @@ fn callable_analysis() -> CallableAnalysis {
         bindings: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
+        known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
         associated_resolutions: Arc::new(BTreeMap::new()),
         callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),

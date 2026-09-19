@@ -94,10 +94,20 @@ impl<'vm> Compiler<'vm> {
     fn compile_positional_expansion(&mut self, target: PositionalExpansionTarget, expr: Expr, range: SourceRange) -> Result<(), CompilerError> {
         self.check_bounded_expansion(&expr, range)?;
         let source_slot = self.reserve_pack_scratch("$pack_source", range)?;
-        let expr_range = expr.range();
         self.compile_expr(expr)?;
         self.emit(Bytecode::SetLocal(source_slot), range);
         self.emit(Bytecode::Pop, range);
+
+        if self
+            .lowering()
+            .is_some_and(|lowering| lowering.known_invalid_positional_expansions.contains_key(&range))
+        {
+            self.emit(Bytecode::GetLocal(source_slot), range);
+            self.emit(Bytecode::RaiseNonIterableStarOperand, range);
+            self.release_pack_scratch_from(source_slot, 1, range);
+            return Ok(());
+        }
+
         let iterator_slot = self.reserve_pack_scratch("$pack_iterator", range)?;
         let item_slot = self.reserve_pack_scratch("$pack_item", range)?;
 
@@ -114,12 +124,18 @@ impl<'vm> Compiler<'vm> {
         let done = self.emit_forward_jump(Bytecode::Jump, range);
 
         self.patch_forward_jump(generic);
-        let spec = self.lowering().and_then(|l| l.positional_expansions.get(&expr_range)).cloned();
+        let spec = self.lowering().and_then(|l| l.positional_expansions.get(&range)).cloned();
+        if self.lowering().is_some() && spec.is_none() {
+            return Err(CompilerError::MissingPositionalExpansionLowering(range));
+        }
 
         self.emit(Bytecode::GetLocal(source_slot), range);
         if let Some(spec) = &spec {
             self.emit_for_iteration_requirement(&spec.iterator, range)?;
         } else {
+            // Context-free interpreter compilation has no semantic snapshot.
+            // It remains an explicitly untyped compatibility boundary; the
+            // canonical program path above never reaches this branch.
             self.emit_getter_send("iterator", range);
         }
         self.emit(Bytecode::SetLocal(iterator_slot), range);

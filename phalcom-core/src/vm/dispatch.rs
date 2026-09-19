@@ -69,6 +69,15 @@ impl VM {
 
     fn try_append_tuple_positionals(&mut self, source: Value, target: Value) -> Result<bool, RuntimeError> {
         let Some(values) = self.positional_lane(source) else {
+            // Context-free interpreter compilation has no semantic lowering
+            // product. Preserve its dynamic compatibility path, but surface
+            // the established boundary when the source cannot even expose
+            // the iteration entry point; canonical compiled programs fail
+            // closed before reaching this probe.
+            let iterator = self.interner.intern("iterator");
+            if lookup_method_with_definer(&self.heap, source.class(self), iterator).is_none() {
+                return Err(RuntimeError::NonIterableStarOperand { found: source.type_name() });
+            }
             return Ok(false);
         };
         self.append_positional_values(target, values)?;
@@ -2424,6 +2433,10 @@ impl VM {
                         reflected: symbol_text(reflected)?,
                     }))
                     .into());
+                }
+                Bytecode::RaiseNonIterableStarOperand => {
+                    let source = self.pop()?;
+                    return Err(RuntimeError::NonIterableStarOperand { found: source.type_name() }.into());
                 }
                 Bytecode::Enum(spec_idx) => {
                     let spec = callable.chunk.executable_semantics.enum_spec(spec_idx).clone();

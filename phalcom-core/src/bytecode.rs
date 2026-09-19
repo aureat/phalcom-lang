@@ -82,6 +82,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "ValidateOrdering",
     "Same",
     "RaiseUnsupported",
+    "RaiseNonIterableStarOperand",
     "Enum",
     "VariantMethod",
     "FinalizeEnum",
@@ -589,6 +590,8 @@ pub enum Bytecode {
         direct: u16,
         reflected: u16,
     },
+    /// Raises the structured error for a known invalid positional expansion.
+    RaiseNonIterableStarOperand,
 
     /// Declares an enum root and hidden case behavior classes.
     /// 0: index of ExecutableEnumSpec in chunk's executable_semantics pool.
@@ -720,7 +723,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 105;
+    pub const VARIANTS: usize = 106;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -811,6 +814,7 @@ impl Bytecode {
             Bytecode::ValidateOrdering { .. } => 75,
             Bytecode::Same => 76,
             Bytecode::RaiseUnsupported { .. } => 77,
+            Bytecode::RaiseNonIterableStarOperand => 105,
             Bytecode::Enum(..) => 78,
             Bytecode::VariantMethod { .. } => 79,
             Bytecode::FinalizeEnum(..) => 80,

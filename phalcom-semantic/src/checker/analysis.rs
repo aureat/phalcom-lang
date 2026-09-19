@@ -207,6 +207,18 @@ pub struct PositionalExpansionIterationResolution {
 /// Deterministic index of canonical semantic positional expansion resolutions.
 pub type PositionalExpansionIterationResolutionIndex = BTreeMap<ExpressionId, PositionalExpansionIterationResolution>;
 
+/// A statically known positional expansion source for which canonical
+/// Iterable/Iterator evidence was not available. Lowering consumes this
+/// product to fail closed without re-solving the semantic question.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KnownInvalidPositionalExpansion {
+    pub source_expression: ExpressionId,
+    pub source_range: SourceRange,
+    pub source_type: TypeId,
+}
+
+pub type KnownInvalidPositionalExpansionIndex = BTreeMap<ExpressionId, KnownInvalidPositionalExpansion>;
+
 /// Binding flow state tracking persistent declared constraint vs. current path knowledge.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BindingState {
@@ -415,6 +427,8 @@ pub struct CallableAnalysis {
     pub for_iteration_lanes: Arc<ForIterationLaneResolutionIndex>,
     /// Canonical evidence-backed positional expansion facts consumed by core lowering.
     pub positional_expansions: Arc<PositionalExpansionIterationResolutionIndex>,
+    /// Known invalid positional expansion facts consumed by core lowering.
+    pub known_invalid_positional_expansions: Arc<KnownInvalidPositionalExpansionIndex>,
     pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
     pub callable_reference_resolutions: Arc<crate::checker::associated::CallableReferenceResolutionIndex>,
     pub family_applications: Arc<crate::checker::associated::FamilyApplicationResolutionIndex>,

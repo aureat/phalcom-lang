@@ -195,6 +195,11 @@ pub enum CompilerError {
     #[error("product literal lowering is not implemented yet.")]
     ProductLiteralNotLoweredYet(SourceRange),
 
+    /// Positional expansion lowering was not authorized by the semantic
+    /// evidence product and cannot use selector-based iteration.
+    #[error("missing semantic positional expansion lowering at {0:?}")]
+    MissingPositionalExpansionLowering(SourceRange),
+
     /// A second `class X` declaration in the same module, or a `class`
     /// whose name collides with an `import … as Name` already bound in this
     /// unit (PDR-0001 ruling 2, PDR-0002, U-CLASSCLOSE §2.1/§8).

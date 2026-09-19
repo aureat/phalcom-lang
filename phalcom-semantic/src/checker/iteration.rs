@@ -16,6 +16,7 @@ use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
 use crate::types::id::TypeId;
 use crate::types::parameter::TypeTerm;
 use crate::types::projection::{ProjectionNormalizationMode, ProjectionNormalizationResult, normalize_type};
+use crate::types::store::TypeData;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath};
@@ -341,4 +342,27 @@ pub(crate) fn resolve_positional_expansion(
         }
         Err(reason) => (None, Some(reason)),
     }
+}
+
+/// Publishes a known non-product positional source when canonical iteration
+/// evidence was unavailable. Unknown and Dynamic operands never enter this
+/// helper, and Tuple/Unit remain owned by the product fast lane.
+pub(crate) fn record_known_invalid_positional_expansion(
+    ctx: &mut CheckingContext<'_>,
+    source_expression: Option<ExpressionId>,
+    source_type: TypeId,
+    source_range: SourceRange,
+) {
+    let Some(source_expression) = source_expression else { return };
+    if matches!(ctx.store.get(source_type), TypeData::Unit | TypeData::Tuple(_)) {
+        return;
+    }
+    ctx.known_invalid_positional_expansions.insert(
+        source_expression,
+        crate::checker::analysis::KnownInvalidPositionalExpansion {
+            source_expression,
+            source_range,
+            source_type,
+        },
+    );
 }

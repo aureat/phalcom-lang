@@ -28,7 +28,7 @@ workspace/release certification.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| TEST002.C1.P1 | Post-visibility semantic/core baseline failure elimination | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0 baseline established; T1–T5 semantic corrections complete |
+| TEST002.C1.P1 | Post-visibility semantic/core baseline failure elimination | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0 baseline established; T1–T6 semantic/compiler corrections complete |
 
 ## Starting state
 
@@ -79,6 +79,10 @@ workspace/release certification.
   linked-interface changes; import-preamble changes reopen only the exact
   affected declaration headers, and non-source-owned Universe products remain
   published while their dependencies validate.
+- Positional expansion lowering consumes either the semantic Iterable/Iterator
+  requirement product or a semantic known-invalid boundary. The Tuple/Unit
+  product lane remains independent, and canonical lowering has no ordinary
+  `iterator`/`next` eligibility fallback.
 
 ## Verification ledger
 
@@ -89,15 +93,20 @@ workspace/release certification.
 | G2 | expression composition and canonical call application | PASS: 21 composition tests and 35 canonical call tests |
 | T4 | canonical/legacy-looking Universe dependency ownership | PASS: both exact dependency tests |
 | T5/G3 | incremental ownership, reuse, exact invalidation, and cold equivalence | PASS: checker dependencies 10, callable dependencies 12, product stability 16, recomputation metrics 13, impl queries 55 |
+| T6/G4-prep | positional expansion boundary and canonical iteration lowering | PASS: semantic iteration 6, canonical call 35, canonical invalid spread 1, canonical Iterable spread 1, outgoing-pack group 28, traceback spread 1 |
 
 ## Deferred / baseline issues
 
-BL-01 and BL-16 are resolved by test-authority migration; no production
-behavior workaround was added. BL-02..BL-14 and BL-17..BL-19 remain active
-TEST002 work. BL-15 is the next compiler/runtime iteration task. Any newly
-discovered unrelated failure will be classified under the repository baseline
-policy before being recorded here.
+BL-01 and BL-16 are resolved by test-authority migration. BL-15 is resolved
+through the semantic known-invalid lowering product, the structured runtime
+boundary, and direct compatibility coverage. BL-02..BL-14 and BL-17..BL-19
+remain active TEST002 work. The context-free interpreter path remains an
+explicit untyped compatibility boundary because it has no semantic snapshot;
+canonical analyzed modules do not use that fallback. Any newly discovered
+unrelated failure will be classified under the repository baseline policy
+before being recorded here.
 
 ## Active next action
 
-Execute T6: make positional expansion evidence-driven and fail closed.
+Execute T7: build callee-compatible conformance environments for selected
+defaults.

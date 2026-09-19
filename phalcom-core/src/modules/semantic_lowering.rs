@@ -504,6 +504,7 @@ pub struct ModuleLoweringSemantics {
     pub trait_requirement_invocations: BTreeMap<LoweringSite, TraitRequirementInvocationSpec>,
     pub for_iteration_lanes: BTreeMap<SourceRange, ForIterationLoweringSpec>,
     pub positional_expansions: BTreeMap<SourceRange, PositionalExpansionLoweringSpec>,
+    pub known_invalid_positional_expansions: BTreeMap<SourceRange, TypeId>,
     pub detached_methods: BTreeMap<CallableId, DetachedMethodSpec>,
 }
 
@@ -558,6 +559,7 @@ impl ModuleLoweringSemantics {
             trait_requirement_invocations: BTreeMap::new(),
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
+            known_invalid_positional_expansions: BTreeMap::new(),
             detached_methods: BTreeMap::new(),
         }
     }
@@ -946,6 +948,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
     let mut trait_requirement_invocations = BTreeMap::new();
     let mut for_iteration_lanes = BTreeMap::new();
     let mut positional_expansions = BTreeMap::new();
+    let mut known_invalid_positional_expansions = BTreeMap::new();
     let mut detached_methods = BTreeMap::new();
 
     for definition in snapshot
@@ -1152,6 +1155,9 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                 )));
             }
         }
+        for expansion in analysis.known_invalid_positional_expansions.values() {
+            known_invalid_positional_expansions.insert(expansion.source_range, expansion.source_type);
+        }
         // Family-valued expressions
         for expression in analysis.expressions.values() {
             let is_associated_family = matches!(
@@ -1292,6 +1298,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         trait_requirement_invocations,
         for_iteration_lanes,
         positional_expansions,
+        known_invalid_positional_expansions,
         detached_methods,
     })
 }

@@ -954,6 +954,16 @@ fn hash_positional_expansions(expansions: &crate::checker::analysis::PositionalE
     }
 }
 
+fn hash_known_invalid_positional_expansions(expansions: &crate::checker::analysis::KnownInvalidPositionalExpansionIndex, hasher: &mut impl Hasher) {
+    expansions.len().hash(hasher);
+    for (expression, expansion) in expansions {
+        expression.hash(hasher);
+        expansion.source_expression.hash(hasher);
+        expansion.source_range.hash(hasher);
+        expansion.source_type.hash(hasher);
+    }
+}
+
 fn hash_causal_invalidity_shape(causal: &CausalInvalidity, hasher: &mut impl Hasher) {
     match causal {
         CausalInvalidity::Clean => 0u8.hash(hasher),
@@ -1636,6 +1646,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     hash_match_resolutions(&analysis.match_resolutions, &mut hasher);
     hash_iteration_lanes(&analysis.for_iteration_lanes, &mut hasher);
     hash_positional_expansions(&analysis.positional_expansions, &mut hasher);
+    hash_known_invalid_positional_expansions(&analysis.known_invalid_positional_expansions, &mut hasher);
     hash_flow_graph_semantics(&analysis.flow_graph, &mut hasher);
     hash_flow_summary(&analysis.entry_flow, &mut hasher);
     hash_exit_facts(&analysis.exits, &mut hasher);
