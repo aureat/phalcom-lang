@@ -1559,13 +1559,17 @@ impl SemanticWorkspaceSession {
         // constraints, or superclass template mention that provider.
         let mut generic_header_work = contribution_delta.declarations.clone();
         let mut changed_header_dependencies = contribution_delta.declarations.clone();
-        // A structural edit can rebind names used by a superclass template
-        // without changing the template text itself.  Rebuild the exact
-        // declaration headers owned by those changed shards so retained
-        // nominal metadata cannot preserve the previous resolved target.
         for module in contribution_delta.structural_modules.clone() {
-            if let Some(shard) = self.semantic_structure_shards.get(&module) {
-                generic_header_work.extend(shard.declaration_header_fingerprints.keys().cloned());
+            let imports_changed = match (self.semantic_structure_shards.get(&module), previous_structure_shards.get(&module)) {
+                (Some(current), Some(previous)) => current.source.program.preamble.dependencies != previous.source.program.preamble.dependencies,
+                (Some(_), None) => true,
+                (None, Some(_)) => true,
+                (None, None) => false,
+            };
+            if imports_changed {
+                if let Some(shard) = self.semantic_structure_shards.get(&module) {
+                    generic_header_work.extend(shard.declaration_header_fingerprints.keys().cloned());
+                }
             }
         }
         changed_header_dependencies.extend(generic_header_work.iter().cloned());
@@ -1698,13 +1702,6 @@ impl SemanticWorkspaceSession {
                 }
                 if modules_with_changed_module_diagnostics.contains(module) {
                     roots.insert(QueryKey::ModuleDiagnostics(module.clone()));
-                }
-            }
-            if let Some(previous) = previous_snapshot.as_ref() {
-                for (module, linked) in &input.linked.modules {
-                    if previous.module_products.linked.get(module) != Some(&linked.interface) {
-                        roots.insert(QueryKey::LinkedInterface(module.clone()));
-                    }
                 }
             }
             callable_body_work.extend(roots.iter().filter(|root| !matches!(root, QueryKey::CallableBody(_))).flat_map(|root| {
@@ -3109,20 +3106,20 @@ impl SemanticWorkspaceSession {
             .iter()
             .filter_map(|callable| callable_signatures.get(callable).cloned().map(|signature| (callable.clone(), signature)))
             .collect::<BTreeMap<_, _>>();
-        for declaration in &declaration_surface_work {
+        for declaration in declaration_surface_work.iter().filter(|declaration| current_modules.contains(&declaration.module)) {
             dispatch.remove_surface(declaration);
         }
         for declaration in &contribution_delta.declarations_removed {
             dispatch.remove_surface(declaration);
         }
-        for callable in &callable_signature_work {
+        for callable in callable_signature_work.iter().filter(|callable| current_modules.contains(callable.module())) {
             callable_signatures.remove(callable);
         }
         for callable in &contribution_delta.callable_signatures_removed {
             callable_signatures.remove(callable);
             callable_definitions.remove(callable);
         }
-        for field in &field_signature_work {
+        for field in field_signature_work.iter().filter(|field| current_modules.contains(&field.owner.module)) {
             field_signatures.remove(field);
         }
         for field in &contribution_delta.field_signatures_removed {

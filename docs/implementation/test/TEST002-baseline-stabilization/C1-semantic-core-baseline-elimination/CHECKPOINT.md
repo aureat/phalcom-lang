@@ -28,7 +28,7 @@ workspace/release certification.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| TEST002.C1.P1 | Post-visibility semantic/core baseline failure elimination | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0 baseline established; T1–T4 semantic corrections complete |
+| TEST002.C1.P1 | Post-visibility semantic/core baseline failure elimination | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0 baseline established; T1–T5 semantic corrections complete |
 
 ## Starting state
 
@@ -75,6 +75,10 @@ workspace/release certification.
   incremental product reuse each retain their existing canonical owner.
 - Only the aggregate Universe root is bootstrap dependency input; concrete
   Universe source modules remain fine-grained semantic dependencies.
+- Incremental scheduling does not seed reverse invalidation from aggregate
+  linked-interface changes; import-preamble changes reopen only the exact
+  affected declaration headers, and non-source-owned Universe products remain
+  published while their dependencies validate.
 
 ## Verification ledger
 
@@ -84,15 +88,16 @@ workspace/release certification.
 | T1/G1 | stale field-flow oracle and cursor-era traceback fixture | PASS: both tests now express current lifecycle/Iterator semantics |
 | G2 | expression composition and canonical call application | PASS: 21 composition tests and 35 canonical call tests |
 | T4 | canonical/legacy-looking Universe dependency ownership | PASS: both exact dependency tests |
+| T5/G3 | incremental ownership, reuse, exact invalidation, and cold equivalence | PASS: checker dependencies 10, callable dependencies 12, product stability 16, recomputation metrics 13, impl queries 55 |
 
 ## Deferred / baseline issues
 
 BL-01 and BL-16 are resolved by test-authority migration; no production
-behavior workaround was added. The remaining BL-02..BL-15 and BL-17..BL-19
-entries remain active TEST002 work. Any newly discovered unrelated
-failure will be classified under the repository baseline policy before being
-recorded here.
+behavior workaround was added. BL-02..BL-14 and BL-17..BL-19 remain active
+TEST002 work. BL-15 is the next compiler/runtime iteration task. Any newly
+discovered unrelated failure will be classified under the repository baseline
+policy before being recorded here.
 
 ## Active next action
 
-Execute T5: restore exact incremental product reuse and propagation stopping.
+Execute T6: make positional expansion evidence-driven and fail closed.
