@@ -210,7 +210,7 @@ impl GenericEvidenceLayout {
         trait_surfaces: &TraitSurfaceTable,
     ) -> Result<Self, GenericEvidenceLayoutError> {
         let mut slot_keys = BTreeSet::new();
-        for (key, _) in conformances {
+        for key in conformances.keys() {
             if let Some(surface) = trait_surfaces.get(&key.trait_ref.declaration) {
                 for req_id in surface.members.keys() {
                     slot_keys.insert(GenericEvidenceSlotKey::new(key.clone(), req_id.clone()));
@@ -612,7 +612,7 @@ pub fn prove_constraint(constraint: &GenericConstraint, substitution: &TypeSubst
                     return GenericObligationProof::Equivalent(proof);
                 }
                 if let (Some(surfaces), Some(store)) = (context.trait_surfaces, context.store.as_deref_mut()) {
-                    for (assumed_key, _) in env.conformances() {
+                    for assumed_key in env.conformances().keys() {
                         if let Some(surface) = surfaces.get(&assumed_key.trait_ref.declaration) {
                             if let Some(signature) = &surface.generic_signature {
                                 let contract_constraints =
@@ -768,10 +768,8 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
                             crate::traits::instantiate_trait_generic_contract_for_term(store, signature, &assumed_key.subject, &assumed_key.trait_ref);
                         for constraint in contract_constraints {
                             if let GenericConstraint::Conforms { subject, trait_ref } = constraint {
-                                if trait_ref == key.trait_ref {
-                                    if subject == key.subject || env.are_equivalent(&subject, &key.subject).is_proven() {
-                                        return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed_evidence.clone()));
-                                    }
+                                if trait_ref == key.trait_ref && (subject == key.subject || env.are_equivalent(&subject, &key.subject).is_proven()) {
+                                    return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed_evidence.clone()));
                                 }
                             }
                         }

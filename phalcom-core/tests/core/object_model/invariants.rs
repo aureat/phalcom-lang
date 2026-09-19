@@ -818,8 +818,8 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "understands(_)"),
         (c.object_class, false, "invariantEnter()"),   // NEW_INVARIANT_GUARD (ADR-0052)
         (c.object_class, false, "invariantExit()"),    // NEW_INVARIANT_GUARD (ADR-0052)
-        (c.object_class, false, "attachAttribute(_)"),          // NEW_ATTR_ROOT (M-ATTR-ROOT)
-        (c.object_class, false, "rawAttributes"),         // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "attachAttribute(_)"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "rawAttributes"),      // NEW_ATTR_ROOT (M-ATTR-ROOT)
         (c.object_class, false, "freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
@@ -919,7 +919,7 @@ fn floor_census_matches_installed_bindings() {
         (c.method_class, false, "isNative"),           // Spec 03.5 provenance
         (c.method_class, false, "isIntrinsic"),        // Spec 03.5 provenance
         (c.method_class, false, "implementationKind"), // Spec 03.5 provenance
-        (c.method_class, false, "rawAttributes"),       // M-ATTR-ROOT source anchor
+        (c.method_class, false, "rawAttributes"),      // M-ATTR-ROOT source anchor
         // §2.9 MethodFamily
         (c.method_family_class, false, "selectors"),
         (c.method_family_class, false, "size"),

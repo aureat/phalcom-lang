@@ -4,8 +4,8 @@ use crate::method::{SignatureKind, encode_selector};
 use crate::vm::ClassKey;
 use phalcom_ast::ast::{
     AssignmentExpr, AttrKind, Attribute, BinaryExpr, BinaryOp, BuiltinAttr, ClassDef, ClassMember, Expr, FieldDef, FieldKind, GetPropertyExpr, GetterDef,
-    IndexAccessor, MemberBody, MethodDef, ParameterDef, ReturnStatement, SetterDef, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr, VariantDef,
-    ImplementationKind, Visibility,
+    ImplementationKind, IndexAccessor, MemberBody, MethodDef, ParameterDef, ReturnStatement, SetterDef, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr,
+    VariantDef, Visibility,
 };
 use std::collections::HashMap;
 
@@ -856,7 +856,10 @@ impl AttributeExpander for MetadataExpander {
             )));
         }
         if !args.is_empty() {
-            return Err(CompilerError::Message(format!("attr.arguments_not_allowed: `@{}` does not accept arguments", self.name)));
+            return Err(CompilerError::Message(format!(
+                "attr.arguments_not_allowed: `@{}` does not accept arguments",
+                self.name
+            )));
         }
         Ok(())
     }
@@ -2692,17 +2695,17 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
                 object: owner_var.clone(),
                 method: "ifTrue".to_string(),
                 method_range: None,
-                    args: vec![PackItem::Positional {
+                args: vec![PackItem::Positional {
                     expr: Expr::Block(Box::new(BlockExpr {
                         params: phalcom_ast::ast::ClosureParameters::default(),
                         body: check_stmts(true),
                         expr_body: false,
                         range,
                     })),
-                        range,
-                    }],
-                    invocation_authority: Default::default(),
                     range,
+                }],
+                invocation_authority: Default::default(),
+                range,
             })),
             range,
         });

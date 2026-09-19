@@ -68,19 +68,23 @@ pub fn is_member_accessible(
             .enclosing_declaration
             .as_ref()
             .is_some_and(|context| hierarchy.is_subclass(context, owner)),
-        Visibility::Module => access
-            .caller_module
-            .as_ref()
-            .or_else(|| access.enclosing_declaration.as_ref().map(|declaration| &declaration.module))
-            == Some(&owner.module),
+        Visibility::Module => {
+            access
+                .caller_module
+                .as_ref()
+                .or_else(|| access.enclosing_declaration.as_ref().map(|declaration| &declaration.module))
+                == Some(&owner.module)
+        }
         Visibility::Package => matches!(
             (access.caller_package.as_ref(), declaration_package),
             (Some(caller), Some(declaration)) if caller == declaration
         ),
-        Visibility::Internal => access
-            .caller_project
-            .or_else(|| access.caller_module.as_ref().map(|module| module.project))
-            .or_else(|| access.enclosing_declaration.as_ref().map(|declaration| declaration.module.project))
-            == Some(owner.module.project),
+        Visibility::Internal => {
+            access
+                .caller_project
+                .or_else(|| access.caller_module.as_ref().map(|module| module.project))
+                .or_else(|| access.enclosing_declaration.as_ref().map(|declaration| declaration.module.project))
+                == Some(owner.module.project)
+        }
     }
 }

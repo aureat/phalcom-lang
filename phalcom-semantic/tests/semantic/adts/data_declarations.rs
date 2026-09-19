@@ -46,6 +46,7 @@ data User {
     name: String,
     age: Int,
 }
+
 "#,
     );
     let parsed = phalcom_ast::parse(&source, 0);
@@ -60,6 +61,178 @@ data User {
     assert_eq!(info.components[0].local_name.as_ref(), "name");
     assert_eq!(info.components[1].local_name.as_ref(), "age");
     assert!(matches!(info.shape, DataShape::Record));
+}
+
+#[test]
+fn data_constructor_visibility_is_published_in_the_canonical_product() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data PublicPoint(x: Int)
+data PrivatePoint private(x: Int)
+data ModulePoint module(x: Int)
+data PackagePoint package(x: Int)
+data InternalPoint internal(x: Int)
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+
+    for (name, visibility) in [
+        ("PublicPoint", "Public"),
+        ("PrivatePoint", "Private"),
+        ("ModulePoint", "Module"),
+        ("PackagePoint", "Package"),
+        ("InternalPoint", "Internal"),
+    ] {
+        let declaration = DeclarationId::new(module.clone(), name.into());
+        let info = analysis.snapshot.data_semantics.data_info(&declaration).expect("data product");
+        let debug = format!("{:?}", info.constructor);
+        assert!(
+            debug.contains(&format!("visibility: {visibility}")),
+            "constructor product omitted {visibility}: {debug}"
+        );
+    }
+}
+
+#[test]
+fn inaccessible_private_data_constructor_is_rejected_at_direct_construction() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Secret private(_ value: Int)
+
+class Caller {
+    @class make() -> Secret {
+        Secret(42)
+    }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let diagnostics = analysis.snapshot.diagnostics_for(&module).expect("diagnostics for inaccessible construction");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible),
+        "private data construction should be rejected, got: {diagnostics:#?}"
+    );
+    assert!(
+        !diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnresolved),
+        "existing inaccessible constructor must not look unresolved"
+    );
+    assert!(
+        !diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberMissing),
+        "direct constructor must not look like a missing associated member"
+    );
+}
+
+#[test]
+fn private_data_constructor_is_available_to_its_owner() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Secret private(_ value: Int)
+
+impl Secret {
+    make(_ value: Int) -> Secret {
+        Secret(value)
+    }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let diagnostics = analysis.snapshot.diagnostics_for(&module);
+    assert!(
+        diagnostics.is_none_or(|items| !items.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible)),
+        "constructor owner should be allowed to construct Secret, got: {diagnostics:#?}"
+    );
+}
+
+#[test]
+fn generic_private_data_constructor_stays_restricted_after_specialization() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Box<T> private(_ value: T)
+
+class Caller {
+    @class make() -> Box<Int> {
+        Box(42)
+    }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible),
+        "generic private construction should remain restricted: {:?}",
+        analysis.snapshot.diagnostics
+    );
+}
+
+#[test]
+fn nullary_private_data_constructor_is_rejected_before_singleton_lowering() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Marker private()
+
+class Caller {
+    @class make() -> Marker {
+        Marker()
+    }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible),
+        "nullary private construction should be rejected: {:?}",
+        analysis.snapshot.diagnostics
+    );
+}
+
+#[test]
+fn inaccessible_private_record_constructor_is_rejected_at_direct_construction() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Secret private {
+    value: Int,
+}
+
+class Caller {
+    @class make() -> Secret {
+        Secret { value: 42 }
+    }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let diagnostics = analysis
+        .snapshot
+        .diagnostics_for(&module)
+        .expect("diagnostics for inaccessible record construction");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible),
+        "private record construction should be rejected, got: {diagnostics:#?}"
+    );
 }
 
 #[test]

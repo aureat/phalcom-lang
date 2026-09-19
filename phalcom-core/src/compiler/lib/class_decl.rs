@@ -9,7 +9,7 @@ use crate::vm::ClassKey;
 use indexmap::IndexMap;
 use phalcom_ast::ast::{
     AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, DelegatedAccessorKind, Expr, ImplementationKind, IndexAccessor,
-    ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, RestMode, Statement, Visibility, SetLiteralEntry,
+    ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, RestMode, SetLiteralEntry, Statement, Visibility,
 };
 use phalcom_common::range::SourceRange;
 
@@ -840,11 +840,7 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
-                    let method_obj = self.alloc_source_method(MethodObject::new_single(
-                        selector_sym,
-                        sig_kind,
-                        MethodKind::Closure(closure),
-                    ));
+                    let method_obj = self.alloc_source_method(MethodObject::new_single(selector_sym, sig_kind, MethodKind::Closure(closure)));
                     {
                         let method = self.vm.heap.method_mut(method_obj);
                         method.visibility = member_visibility(method_def.visibility);
@@ -888,11 +884,7 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
-                    let method_obj = self.alloc_source_method(MethodObject::new_single(
-                        selector_sym,
-                        SignatureKind::Getter,
-                        MethodKind::Closure(closure),
-                    ));
+                    let method_obj = self.alloc_source_method(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure)));
                     self.vm.heap.method_mut(method_obj).visibility = member_visibility(getter_def.visibility);
 
                     if !strip_metadata {
@@ -937,11 +929,7 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
-                    let method_obj = self.alloc_source_method(MethodObject::new_single(
-                        selector_sym,
-                        SignatureKind::Setter,
-                        MethodKind::Closure(closure),
-                    ));
+                    let method_obj = self.alloc_source_method(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure)));
                     self.vm.heap.method_mut(method_obj).visibility = member_visibility(setter_def.visibility);
 
                     if !strip_metadata {
@@ -1082,11 +1070,7 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling subscript method: {}", selector);
 
-                    let method_obj = self.alloc_source_method(MethodObject::new_single(
-                        selector_sym,
-                        sig_kind,
-                        MethodKind::Closure(closure),
-                    ));
+                    let method_obj = self.alloc_source_method(MethodObject::new_single(selector_sym, sig_kind, MethodKind::Closure(closure)));
                     self.vm.heap.method_mut(method_obj).visibility = member_visibility(index_def.visibility);
 
                     if !strip_metadata {

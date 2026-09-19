@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use phalcom_common::modifier::ImplementationKind;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorSlot};
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
-use phalcom_common::modifier::ImplementationKind;
 use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::associated::build_associated_surface;

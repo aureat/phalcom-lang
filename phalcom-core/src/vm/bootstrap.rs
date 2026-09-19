@@ -169,8 +169,7 @@ impl VM {
         // their real module slots before compiling any initializer so those
         // references can use linked reads just like native Universe bindings.
         vm.prepare_universe_source_bindings(canonical)?;
-        crate::native::install::refresh_registered_primitive_origins(&mut vm, canonical.source_index())
-            .map_err(crate::error::VmBootstrapError::Runtime)?;
+        crate::native::install::refresh_registered_primitive_origins(&mut vm, canonical.source_index()).map_err(crate::error::VmBootstrapError::Runtime)?;
         if let Some(metadata_bundle) = canonical.program().semantic_metadata.clone() {
             vm.install_semantic_metadata_bundle(metadata_bundle)
                 .map_err(crate::error::VmBootstrapError::Runtime)?;

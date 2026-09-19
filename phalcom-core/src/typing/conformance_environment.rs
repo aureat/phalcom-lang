@@ -100,6 +100,10 @@ impl RuntimeConformanceEnvironmentRegistry {
     pub fn len(&self) -> usize {
         self.environments.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.environments.is_empty()
+    }
 }
 
 #[allow(dead_code)]

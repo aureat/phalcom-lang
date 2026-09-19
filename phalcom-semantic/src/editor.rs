@@ -1,7 +1,7 @@
 //! Compiler-owned, protocol-neutral semantic queries for editor features.
 
+pub use crate::access::{AccessContext, DeclarationAccessOrigin, is_member_accessible};
 use crate::advisory::{AdvisoryFact, ValueShape, advisory_shape_from_formal};
-pub use crate::access::{is_member_accessible, AccessContext, DeclarationAccessOrigin};
 use crate::identity::{CallableId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
 use crate::impls::receiver_effective_conditional_members;
 use crate::prelude::PreludeTypeMap;
@@ -42,7 +42,6 @@ pub struct ReceiverAlternative {
 pub struct ResolvedReceiver {
     pub alternatives: Arc<[ReceiverAlternative]>,
 }
-
 
 /// Canonical member target returned to protocol adapters.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -433,13 +432,7 @@ impl<'a> EditorSemanticQuery<'a> {
                 Some(caller_package),
                 Some(module.project),
             ),
-            _ => AccessContext::with_provenance(
-                None,
-                None,
-                Some(module.clone()),
-                Some(caller_package),
-                Some(module.project),
-            ),
+            _ => AccessContext::with_provenance(None, None, Some(module.clone()), Some(caller_package), Some(module.project)),
         }
     }
 
@@ -582,7 +575,7 @@ impl<'a> EditorSemanticQuery<'a> {
 
     fn receiver_for_source_range(&self, module: &ModuleId, range: SourceRange) -> Option<ResolvedReceiver> {
         let source = self.snapshot.source_index.module(module)?;
-        for (site, _kind) in &source.structure.receiver_kinds {
+        for site in source.structure.receiver_kinds.keys() {
             let receiver_site = source.structure.site(site)?;
             if receiver_site.range.start < range.start || receiver_site.range.end > range.end {
                 continue;

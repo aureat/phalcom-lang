@@ -24,10 +24,7 @@ fn editor_facade_returns_canonical_members_and_targets() {
         }]),
     };
 
-    let members = snapshot.editor().members_for_receiver(
-        &receiver,
-        &AccessContext::new(None, None),
-    );
+    let members = snapshot.editor().members_for_receiver(&receiver, &AccessContext::new(None, None));
     let value = CallableId::new(owner.clone(), Selector::method("value", []).unwrap(), DispatchSide::Instance);
     assert!(members.iter().any(|member| member.target == EditorMemberTarget::Callable(value.clone())));
 
@@ -52,15 +49,7 @@ fn editor_facade_fails_closed_for_unknown_receiver() {
     let analysis = analyze_single_module(ModuleId::universe_root(), Arc::from(source), Arc::new(parsed.program));
     let snapshot = analysis.snapshot;
     let receiver = ResolvedReceiver { alternatives: Arc::from([]) };
-    assert!(
-        snapshot
-            .editor()
-            .members_for_receiver(
-                &receiver,
-                &AccessContext::new(None, None),
-            )
-            .is_empty()
-    );
+    assert!(snapshot.editor().members_for_receiver(&receiver, &AccessContext::new(None, None),).is_empty());
 }
 
 #[test]

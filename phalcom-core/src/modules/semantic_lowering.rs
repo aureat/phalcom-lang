@@ -257,6 +257,7 @@ pub struct AnonymousProductConstructionLoweringSpec {
 }
 
 /// Lowering specification for a prefix-`&` callable reference.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CallableReferenceLoweringSpec {
     /// Ordinary receiver-bound family capture. Runtime retains the captured
@@ -429,6 +430,7 @@ pub struct TraitRequirementInvocationSpec {
 /// One executable requirement used by the canonical `for` lowering.
 /// Exact/derived evidence is lowered through the selected-trait path; an
 /// assumed generic obligation is lowered through the active conformance slot.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ForIterationRequirementSpec {
     Selected(TraitInvocationSpec),
@@ -897,11 +899,11 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                 InherentImplLoweringTarget::Declaration(decl) => snapshot
                     .dispatch
                     .get_conditional_members(&phalcom_semantic::impls::InherentImplTarget::Declaration(decl.clone()))
-                    .map_or(false, |set| set.members.iter().any(|m| m.impl_id == id && m.is_conditionally_applicable)),
+                    .is_some_and(|set| set.members.iter().any(|m| m.impl_id == id && m.is_conditionally_applicable)),
                 InherentImplLoweringTarget::ExactEnumCase(var) => snapshot
                     .dispatch
                     .get_conditional_members(&phalcom_semantic::impls::InherentImplTarget::ExactEnumCase(var.clone()))
-                    .map_or(false, |set| set.members.iter().any(|m| m.impl_id == id && m.is_conditionally_applicable)),
+                    .is_some_and(|set| set.members.iter().any(|m| m.impl_id == id && m.is_conditionally_applicable)),
             };
             InherentImplLoweringSpec {
                 id,
@@ -2351,7 +2353,7 @@ fn project_trait_invocation_spec(
     let Some(&requirement_slot) = requirement_slots.get(&selection.requirement) else {
         return Err(ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()));
     };
-    let requirement_slots = requirement_slots.into_iter().map(|(requirement, slot)| (requirement, slot)).collect();
+    let requirement_slots = requirement_slots.into_iter().collect();
     Ok(TraitInvocationSpec {
         selection: selection.clone(),
         requirement_slot,

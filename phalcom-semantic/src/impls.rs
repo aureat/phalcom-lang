@@ -1110,15 +1110,18 @@ fn witness_relation_result(outcome: RelationOutcome) -> Result<(), WitnessCompat
 }
 
 fn witness_visibility_covers(required: MemberVisibility, candidate: MemberVisibility) -> bool {
-    match (required, candidate) {
+    matches!(
+        (required, candidate),
         (MemberVisibility::Public, MemberVisibility::Public)
-        | (MemberVisibility::Protected, MemberVisibility::Public | MemberVisibility::Protected)
-        | (MemberVisibility::Private, MemberVisibility::Public | MemberVisibility::Protected | MemberVisibility::Private)
-        | (MemberVisibility::Internal, MemberVisibility::Internal)
-        | (MemberVisibility::Module, MemberVisibility::Public | MemberVisibility::Module)
-        | (MemberVisibility::Package, MemberVisibility::Public | MemberVisibility::Package) => true,
-        _ => false,
-    }
+            | (MemberVisibility::Protected, MemberVisibility::Public | MemberVisibility::Protected)
+            | (
+                MemberVisibility::Private,
+                MemberVisibility::Public | MemberVisibility::Protected | MemberVisibility::Private
+            )
+            | (MemberVisibility::Internal, MemberVisibility::Internal)
+            | (MemberVisibility::Module, MemberVisibility::Public | MemberVisibility::Module)
+            | (MemberVisibility::Package, MemberVisibility::Public | MemberVisibility::Package)
+    )
 }
 
 fn witness_generic_term(store: &mut TypeStore, substitution: &TypeSubstitution, term: &TypeTerm) -> Option<TypeTerm> {
@@ -1254,14 +1257,12 @@ fn witness_generic_contract(
             for (&required_parameter, &candidate_parameter) in required.parameters.iter().zip(candidate.parameters.iter()) {
                 let required_kind = required
                     .parameter_kinds
-                    .iter()
-                    .nth(required_parameter.index() as usize)
+                    .get(required_parameter.index())
                     .copied()
                     .unwrap_or_else(|| store.type_parameter(required_parameter).kind);
                 let candidate_kind = candidate
                     .parameter_kinds
-                    .iter()
-                    .nth(candidate_parameter.index() as usize)
+                    .get(candidate_parameter.index())
                     .copied()
                     .unwrap_or_else(|| store.type_parameter(candidate_parameter).kind);
                 if required_kind != candidate_kind {
@@ -1618,7 +1619,6 @@ pub fn build_conformance_witness_plan(
     trait_surfaces: &TraitSurfaceTable,
     all_associated_type_plans: &BTreeMap<ImplId, ConformanceAssociatedTypePlan>,
 ) -> ConformanceWitnessPlan {
-    let associated_type_plan = associated_type_plan;
     let mut requirement_views = instantiate_conformance_requirements(
         store,
         Some(declarations),
@@ -2125,7 +2125,7 @@ pub fn resolve_conformance_evidence_with_surfaces(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    for (requirement, _binding) in &plan.associated_type_plan.bindings {
+    for requirement in plan.associated_type_plan.bindings.keys() {
         let value = associated_types
             .get(requirement)
             .expect("associated binding was staged before exact normalization")
@@ -3820,16 +3820,14 @@ pub fn check_impl_domain_constraints(
                 let mut proven = false;
                 for amb in ambient_constraints {
                     if let GenericConstraint::Conforms {
-                        subject: amb_subj,
+                        subject: TypeTerm::Canonical(s),
                         trait_ref: amb_trait,
                     } = amb
+                        && *s == subject_ty
+                        && amb_trait == trait_ref
                     {
-                        if let TypeTerm::Canonical(s) = amb_subj {
-                            if *s == subject_ty && amb_trait == trait_ref {
-                                proven = true;
-                                break;
-                            }
-                        }
+                        proven = true;
+                        break;
                     }
                 }
                 if !proven {

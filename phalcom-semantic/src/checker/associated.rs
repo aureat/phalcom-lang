@@ -546,6 +546,15 @@ pub fn specialize_associated_member(
                 ));
                 return Err(AssociatedResolutionError);
             };
+            if !ctx.data_constructor_is_accessible(&dinfo) {
+                ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::AssociatedMemberInaccessible,
+                    format!("primary constructor of `{}` is not accessible from this declaration", dc.owner.name),
+                    range,
+                ));
+                return Err(AssociatedResolutionError);
+            }
             let env =
                 crate::types::specialization::specialize_receiver_to_owner(ctx.store, &ctx.hierarchy, owner.owner_form, &owner.lookup_owner, &ctx.control)
                     .map_err(|failure| {

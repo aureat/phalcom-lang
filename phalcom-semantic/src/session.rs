@@ -40,7 +40,7 @@ use crate::signature::{CallableSemanticSignature, CallableSignatureTable, FieldS
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
-use crate::traits::{TraitHeader, TraitHeaderTable, TraitRef, TraitSurfaceTable, build_trait_surface};
+use crate::traits::{TraitHeader, TraitRef, TraitSurfaceTable, build_trait_surface};
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::annotation::{
     GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, lower_scoped_type_alias_form, resolve_generic_signature, resolve_kind_syntax,
@@ -822,12 +822,19 @@ impl SemanticWorkspaceSession {
                             Some(native) => signature.native_contract_mismatch_with_store(native, Some(&store)),
                         };
                         if let Some(reason) = mismatch {
-                            canonical_native_diagnostics.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
-                                module_id.clone(),
-                                DiagnosticCode::NativeSignatureMismatch,
-                                format!("native.signature_mismatch: {}::{} ({reason})", signature.owner.name, signature.selector.encode()),
-                                range,
-                            ));
+                            canonical_native_diagnostics
+                                .entry(module_id.clone())
+                                .or_default()
+                                .push(SemanticDiagnostic::error_in(
+                                    module_id.clone(),
+                                    DiagnosticCode::NativeSignatureMismatch,
+                                    format!(
+                                        "native.signature_mismatch: {}::{} ({reason})",
+                                        signature.owner.name,
+                                        signature.selector.encode()
+                                    ),
+                                    range,
+                                ));
                         }
                     }
                     if base_callable_signatures.get(&signature.callable).is_none() {
@@ -1609,7 +1616,7 @@ impl SemanticWorkspaceSession {
         // body text is unchanged. Seed only bodyful members owned by traits;
         // ordinary class/impl body scheduling remains unchanged.
         for callable in &contribution_delta.callable_signatures {
-            let Some(shard) = self.semantic_structure_shards.get(&callable.module()) else {
+            let Some(shard) = self.semantic_structure_shards.get(callable.module()) else {
                 continue;
             };
             let is_trait = shard.source.program.statements.iter().any(|statement| {
@@ -2763,10 +2770,7 @@ impl SemanticWorkspaceSession {
         // Resolve their stable declaration-owned generic binders through the
         // same canonical generic-signature path, but publish them separately
         // from `DeclarationTypeTable` so no fake form or class object exists.
-        let mut trait_headers = previous_snapshot
-            .as_ref()
-            .map(|snapshot| (*snapshot.trait_headers).clone())
-            .unwrap_or_else(TraitHeaderTable::new);
+        let mut trait_headers = previous_snapshot.as_ref().map(|snapshot| (*snapshot.trait_headers).clone()).unwrap_or_default();
         for (module_id, shard) in &self.semantic_structure_shards {
             for stmt in &shard.source.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };
@@ -2827,7 +2831,7 @@ impl SemanticWorkspaceSession {
         let mut trait_surfaces = previous_snapshot
             .as_ref()
             .map(|snapshot| (*snapshot.trait_surfaces).clone())
-            .unwrap_or_else(TraitSurfaceTable::new);
+            .unwrap_or_default();
         for (module_id, shard) in &self.semantic_structure_shards {
             for stmt in &shard.source.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };
@@ -4581,10 +4585,10 @@ impl SemanticWorkspaceSession {
                                 let formal_inputs = FormalQueryInputs {
                                     sources: &retained_sources,
                                     source_resolution_input,
-                                linked_component_product,
-                                linked: &input.linked,
-                                topology: semantic_topology.as_ref(),
-                                import_products: &input.import_products,
+                                    linked_component_product,
+                                    linked: &input.linked,
+                                    topology: semantic_topology.as_ref(),
+                                    import_products: &input.import_products,
                                     hierarchy: &hierarchy,
                                     base_resolver: &resolver,
                                     declarations: &declarations,
@@ -4960,7 +4964,7 @@ impl SemanticWorkspaceSession {
         // interface publication iterate until return contracts stabilize.
         // During each iteration, we only run inference and update dispatch; we
         // do not run full checking or re-emit diagnostics.
-        if let Err(error) = refresh_inferred_callable_results(InferredCallableRefreshInputs {
+        refresh_inferred_callable_results(InferredCallableRefreshInputs {
             db: &mut self.db,
             sources: &retained_sources,
             store: Arc::make_mut(&mut self.store),
@@ -4983,9 +4987,7 @@ impl SemanticWorkspaceSession {
             previous_callable_signatures: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_signatures.as_ref()),
             budget,
             cancel,
-        }) {
-            return Err(error);
-        }
+        })?;
 
         for (module_id, shard) in &self.semantic_structure_shards {
             if !semantic_work_modules.contains(module_id) {
@@ -6212,7 +6214,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
                         crate::identity::DispatchSide::Instance => crate::identity::DispatchSide::Class,
                         crate::identity::DispatchSide::Class => crate::identity::DispatchSide::Instance,
                     };
-                    let Some(owner) = callable.try_declaration_owner() else { return None };
+                    let owner = callable.try_declaration_owner()?;
                     let alternate = crate::identity::CallableId::new(owner.clone(), callable.selector.clone(), alternate_side);
                     callable_analyses.get(&alternate)
                 })
@@ -6917,9 +6919,7 @@ fn member_selector(member: &ClassMember) -> Option<Selector> {
 }
 
 fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUnit) -> Option<(&'a [Statement], SourceRange)> {
-    if callable.try_declaration_owner().is_none() {
-        return None;
-    }
+    callable.try_declaration_owner()?;
     let owner = callable.declaration_owner();
     for statement in &unit.program.statements {
         match statement {
@@ -7380,7 +7380,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             trait_surface: None,
                             conformance_semantics: None,
                             module: module_id.clone(),
-                            caller_package: Some(topology.owning_package(&module_id)),
+                            caller_package: Some(topology.owning_package(module_id)),
                             access_topology: Some(topology),
                         },
                         crate::checker::body::CallableBodyRequest {

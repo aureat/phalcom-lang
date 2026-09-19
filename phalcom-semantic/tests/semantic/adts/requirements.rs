@@ -1,6 +1,6 @@
+use phalcom_common::modifier::ImplementationKind;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
-use phalcom_common::modifier::ImplementationKind;
 use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use phalcom_semantic::enum_requirements::{CaseRequirementStatus, EnumRequirement, EnumRequirementId, check_enum_requirements};

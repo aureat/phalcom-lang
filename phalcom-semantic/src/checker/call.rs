@@ -308,12 +308,7 @@ fn analyze_application_argument(ctx: &mut CheckingContext<'_>, argument: Applica
     }
     if let ApplicationArgument::Expansion { range, .. } = argument {
         if let TypeKnowledge::Known(evidence) = &typed.knowledge {
-            let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(
-                ctx,
-                typed.expression_id,
-                evidence.ty(),
-                range,
-            );
+            let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), range);
             if let Some(resolution) = resolution {
                 ctx.positional_expansions.insert(resolution.source_expression, resolution);
             }
@@ -2323,9 +2318,7 @@ fn discharge_generic_conformance_obligations(
                     let left_term = TypeTerm::Canonical(instantiated_left);
                     let right_term = TypeTerm::Canonical(instantiated_right);
 
-                    let satisfied = if instantiated_left == instantiated_right {
-                        true
-                    } else if ctx.generic_evidence.are_equivalent(&left_term, &right_term).is_proven() {
+                    let satisfied = if instantiated_left == instantiated_right || ctx.generic_evidence.are_equivalent(&left_term, &right_term).is_proven() {
                         true
                     } else {
                         let empty_surfaces = crate::traits::TraitSurfaceTable::new();
@@ -3260,9 +3253,7 @@ pub(crate) fn analyze_unresolved_application(
         UnresolvedApplicationReason::PremiseDynamic(reason) | UnresolvedApplicationReason::DynamicShape(reason) => TypeKnowledge::Dynamic(reason.clone()),
         UnresolvedApplicationReason::DispatchMissing
         | UnresolvedApplicationReason::DispatchInaccessible
-        | UnresolvedApplicationReason::DispatchAmbiguous(_) => {
-            TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
-        }
+        | UnresolvedApplicationReason::DispatchAmbiguous(_) => TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend),
         UnresolvedApplicationReason::TraitTerminal(terminal) => match terminal {
             crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
             crate::trait_dispatch::TraitDispatchTerminal::Dynamic(_) => TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection),
@@ -3329,9 +3320,7 @@ pub(crate) fn analyze_unresolved_application(
 }
 
 fn emit_trait_dispatch_ambiguity(ctx: &mut CheckingContext<'_>, range: SourceRange) -> Option<crate::identity::DiagnosticCauseId> {
-    let Some(candidates) = ctx.trait_dispatch_candidates_for_current_expression() else {
-        return None;
-    };
+    let candidates = ctx.trait_dispatch_candidates_for_current_expression()?;
     if candidates.is_empty() {
         return None;
     }

@@ -131,14 +131,13 @@ let intResult = caller.intEcho(intBox)
     assert_eq!(named(&vm, module, "stringResult").expect("string result").to_string(&vm), "text");
     assert_eq!(named(&vm, module, "intResult").expect("int result").to_string(&vm), "42");
 
-    for selector_name in ["echo"] {
-        let class = named(&vm, module, "CellBox").expect("CellBox binding").as_obj().expect("CellBox class");
-        if let Some(selector) = vm.interner.find(selector_name) {
-            assert!(
-                vm.heap.class(class).get_method(selector).is_none(),
-                "trait-only selector {selector_name} must remain detached from CellBox"
-            );
-        }
+    let selector_name = "echo";
+    let class = named(&vm, module, "CellBox").expect("CellBox binding").as_obj().expect("CellBox class");
+    if let Some(selector) = vm.interner.find(selector_name) {
+        assert!(
+            vm.heap.class(class).get_method(selector).is_none(),
+            "trait-only selector {selector_name} must remain detached from CellBox"
+        );
     }
 }
 

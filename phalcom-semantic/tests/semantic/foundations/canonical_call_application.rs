@@ -562,7 +562,10 @@ class Probe {
     let run = fixture.callable("Probe", "run", DispatchSide::Instance);
     let item = fixture.binding(run, "item");
     assert_eq!(item.current, TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend));
-    assert!(run.for_iteration_lanes.is_empty(), "missing Iterable evidence must not publish a canonical lane");
+    assert!(
+        run.for_iteration_lanes.is_empty(),
+        "missing Iterable evidence must not publish a canonical lane"
+    );
 }
 
 #[test]

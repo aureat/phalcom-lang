@@ -338,11 +338,7 @@ fn owning_package_derivation_rules() {
     let mod_in_root = ModuleId::universe(path("utils"));
     let mod_in_sub = ModuleId::universe(ModulePath::from_components(vec![component("sub"), component("helper")]));
     let nested_sub_pkg = ModuleId::universe(ModulePath::from_components(vec![component("sub"), component("nested")]));
-    let mod_in_nested = ModuleId::universe(ModulePath::from_components(vec![
-        component("sub"),
-        component("nested"),
-        component("deep"),
-    ]));
+    let mod_in_nested = ModuleId::universe(ModulePath::from_components(vec![component("sub"), component("nested"), component("deep")]));
 
     let mut unlinked = BTreeMap::new();
     unlinked.insert(

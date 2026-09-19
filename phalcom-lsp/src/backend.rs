@@ -581,7 +581,7 @@ impl Backend {
         let native = compiler.editor().native_callable_presentation(callable);
         let visibility = compiler
             .surfaces
-            .get(&callable.owner.declaration())?
+            .get(callable.owner.declaration())?
             .surface(callable.side)
             .callable_visibility
             .get(&callable.selector)

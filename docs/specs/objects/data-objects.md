@@ -352,6 +352,60 @@ uses its labeled shape.
 
 The constructor's calling convention derives from semantic component structure, not from physical storage.
 
+## Primary-constructor visibility
+
+A data declaration may restrict the visibility of its compiler-generated primary
+constructor with a post-name constructor modifier:
+
+```phalcom
+data Point(x: Int, y: Int)
+data Date private(year: Int, month: Month, day: Int)
+data Token module(kind: TokenKind, span: Span)
+data PackageKey package(value: String)
+data RuntimeId internal(raw: Int)
+```
+
+The modifier applies to raw primary construction only. It does not change the
+visibility of the data declaration, the visibility of its components, or the
+ability to observe an already-created value. Declaration export/import and
+constructor access are orthogonal.
+
+Omitting the modifier means `Public`. There is no `public` source keyword.
+The supported restrictive modifiers are `private`, `module`, `package`, and
+`internal`. `protected` is invalid because data declarations are
+non-inheritable.
+
+The visibility relation is the shared declaration access relation defined by
+the source-declaration specification:
+
+```text
+private   exact declaring data owner
+module    exact defining ModuleId
+package   exact canonical Package identity
+internal  exact canonical Project identity
+```
+
+Tuple-shaped and record-shaped construction use the same rule. A data
+declaration may place its generic constraint in either currently accepted
+position, but the canonical spelling is the trailing form:
+
+```phalcom
+data Box<T> private(_ value: T) where T <: Object
+data Box<T> private() where T <: Object
+```
+
+The visibility fact belongs to the primary constructor's semantic product. It
+does not become part of `DataConstructorId`, applied type identity, component
+state, runtime data values, equality, hashing, or physical representation.
+Authorization occurs before lowering and optimization, so nullary singleton
+loads and optimized/scalar-replaced construction cannot bypass it.
+
+A factory implemented by the declaring data owner may use the restricted raw
+constructor. A callable reference or family capture must likewise be
+authorized when the capability is acquired. Once an authorized context has
+captured and intentionally passed such a constructor capability, later use of
+that capability does not repeat lexical visibility lookup.
+
 Braced data declarations use the corresponding record-shaped construction form:
 
 ```phalcom
@@ -942,12 +996,6 @@ Diagnostics and recovery behavior are specified separately from semantic validit
 # Reserved and Separately Specified Questions
 
 The following policies are intentionally not settled by this chapter.
-
-## Primary-constructor visibility
-
-The access-control and visibility model of primary data constructors is specified separately.
-
-This includes whether a data type may expose components while restricting direct raw construction.
 
 ## Automatically derived behavior
 

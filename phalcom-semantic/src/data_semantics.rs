@@ -4,6 +4,7 @@ use crate::declaration_type::DeclaredTypeFact;
 use crate::identity::{DataComponentId, DataConstructorId, DeclarationId, SemanticSourceSpan};
 use crate::types::id::TypeId;
 use crate::types::parameter::GenericSignature;
+use phalcom_common::modifier::Visibility;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -37,6 +38,7 @@ pub struct DataConstructorParameter {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DataConstructorSignature {
     pub constructor: DataConstructorId,
+    pub visibility: Visibility,
     pub parameters: Box<[DataConstructorParameter]>,
     pub result_type_template: TypeId,
     pub source: Option<SemanticSourceSpan>,

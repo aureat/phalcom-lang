@@ -92,8 +92,7 @@ impl<'vm> Compiler<'vm> {
         let Some(specs) = canonical_specs else {
             return Err(CompilerError::Message("missing required canonical for-iteration lowering spec".into()));
         };
-        let generalized_single =
-            for_stmt.lanes.len() == 1 && (for_stmt.lanes[0].index.is_some() || !matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. }));
+        let generalized_single = for_stmt.lanes.len() == 1 && (for_stmt.lanes[0].index.is_some() || !matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. }));
         if for_stmt.lanes.len() > 1 || generalized_single {
             return self.compile_canonical_for_lanes(for_stmt, specs);
         }
@@ -110,7 +109,7 @@ impl<'vm> Compiler<'vm> {
         spec: crate::modules::semantic_lowering::ForIterationLoweringSpec,
     ) -> Result<(), CompilerError> {
         let range = for_stmt.range;
-        let phalcom_ast::ast::ForStatement { lanes, body, range: _, .. } = for_stmt;
+        let phalcom_ast::ast::ForStatement { lanes, body, range: _ } = for_stmt;
         let lane = lanes
             .into_iter()
             .next()

@@ -287,7 +287,7 @@ impl Iterable for Box {
     let source_b = source_a.replace("Item", "Element");
     let declaration = DeclarationId::new(module.clone(), "Iterable".into());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), &source_a, 1));
+    let first = session.update(single_module_input(module.clone(), source_a, 1));
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     let old_requirement = first
         .snapshot

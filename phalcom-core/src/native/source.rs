@@ -1,6 +1,8 @@
 //! Parsed AST source index for native universe classes and members.
 
-use phalcom_ast::ast::{ClassDef, ClassMember, DependencyDecl, ImplementationKind, ImportDecl, MemberBody, MethodDef, Program, RestMode, Statement, Visibility};
+use phalcom_ast::ast::{
+    ClassDef, ClassMember, DependencyDecl, ImplementationKind, ImportDecl, MemberBody, MethodDef, Program, RestMode, Statement, Visibility,
+};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::builtin::UniverseSourceProvider;
 use phalcom_modules::identity::{ModuleId, ModulePath};
@@ -598,15 +600,7 @@ impl NativeSourceIndex {
                 };
                 let selector = phalcom_ast::selector::selector_from_getter(g).encode();
                 let is_declaration = matches!(g.body, MemberBody::Declaration);
-                (
-                    is_native,
-                    side,
-                    selector,
-                    is_declaration,
-                    g.return_annotation.is_some(),
-                    g.visibility,
-                    g.range,
-                )
+                (is_native, side, selector, is_declaration, g.return_annotation.is_some(), g.visibility, g.range)
             }
             ClassMember::Setter(s) => {
                 let is_native = s.implementation == ImplementationKind::Native;

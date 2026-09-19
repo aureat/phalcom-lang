@@ -458,15 +458,13 @@ fn normalize_projection(
             if has_assumed {
                 // 2. Check if there is a unique lexical refinement for this projection
                 let proj_term = TypeTerm::Canonical(rewritten);
-                if let Some(refinement_term) = evidence.unique_refinement(&proj_term) {
-                    if let TypeTerm::Canonical(refinement_ty) = refinement_term {
-                        if !context.active.insert(projection.clone()) {
-                            return ProjectionNormalizationResult::Recursive;
-                        }
-                        let result = normalize_type(store, *refinement_ty, context);
-                        context.active.remove(&projection);
-                        return result;
+                if let Some(TypeTerm::Canonical(refinement_ty)) = evidence.unique_refinement(&proj_term) {
+                    if !context.active.insert(projection.clone()) {
+                        return ProjectionNormalizationResult::Recursive;
                     }
+                    let result = normalize_type(store, *refinement_ty, context);
+                    context.active.remove(&projection);
+                    return result;
                 }
                 // Assumed conformance without refinement remains symbolic
                 return ProjectionNormalizationResult::Symbolic(rewritten);

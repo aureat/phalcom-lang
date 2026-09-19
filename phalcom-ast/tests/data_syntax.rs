@@ -1,5 +1,6 @@
 use phalcom_ast::{
-    ast::{DataShapeSyntax, Expr, Statement},
+    ast::{DataShapeSyntax, Expr, Statement, Visibility},
+    error::SyntaxErrorKind,
     parse_source,
 };
 
@@ -11,6 +12,8 @@ fn data_positional_tuple_syntax() {
         panic!("expected data");
     };
     assert_eq!(data_def.name, "Pair");
+    assert_eq!(data_def.constructor_visibility, Visibility::Public);
+    assert!(data_def.constructor_visibility_range.is_none());
     assert_eq!(data_def.generic_parameters.len(), 2);
     let DataShapeSyntax::Tuple { components, .. } = &data_def.shape else {
         panic!("expected tuple shape");
@@ -40,6 +43,50 @@ fn data_labeled_tuple_with_where_clause() {
     assert_eq!(components[0].external_label.as_deref(), Some("x"));
     assert_eq!(components[1].local_name, "y");
     assert_eq!(components[1].external_label.as_deref(), Some("y"));
+}
+
+#[test]
+fn data_constructor_visibility_forms_parse() {
+    for (source, expected) in [
+        ("data Date private(year: Int, month: Int, day: Int)\n", Visibility::Private),
+        ("data Token module(kind: Int, span: Int)\n", Visibility::Module),
+        ("data PackageKey package { value: String }\n", Visibility::Package),
+        ("data Box<T> private(_ value: T) where T <: Object\n", Visibility::Private),
+        ("data Box<T> private where T <: Object (_ value: T)\n", Visibility::Private),
+        ("data RuntimeId internal(raw: Int)\n", Visibility::Internal),
+    ] {
+        let program = parse_source(source, 0).unwrap_or_else(|error| panic!("data constructor visibility form must parse: {source:?}: {error:?}"));
+        let Statement::Data(data_def) = &program.statements[0] else {
+            panic!("expected data statement for {source:?}");
+        };
+        assert_eq!(data_def.constructor_visibility, expected);
+        assert!(data_def.constructor_visibility_range.is_some());
+    }
+}
+
+#[test]
+fn data_constructor_visibility_rejects_protected_and_duplicate_modifiers() {
+    for (source, expected) in [
+        ("data Date protected(year: Int)\n", "data.constructor_visibility.protected"),
+        ("data Date private module(year: Int)\n", "data.constructor_visibility.duplicate"),
+    ] {
+        let error = parse_source(source, 0).expect_err("invalid data visibility must fail");
+        let SyntaxErrorKind::Message(message) = error.kind else {
+            panic!("expected targeted data visibility diagnostic, got {error:?}");
+        };
+        assert!(message.contains(expected), "expected {expected:?}, got {message:?}");
+    }
+}
+
+#[test]
+fn data_constructor_visibility_does_not_accept_public_or_top_level_visibility() {
+    let _public = parse_source("data Date public(year: Int)\n", 0).expect_err("public is not a keyword");
+
+    let top_level = parse_source("private data Date(year: Int)\n", 0).expect_err("top-level visibility remains illegal");
+    let SyntaxErrorKind::Message(message) = top_level.kind else {
+        panic!("expected top-level visibility diagnostic, got {top_level:?}");
+    };
+    assert!(message.contains("modifier.illegal_target"), "got {message:?}");
 }
 
 #[test]

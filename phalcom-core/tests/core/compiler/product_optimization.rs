@@ -202,6 +202,35 @@ fn product_optimizer_rematerialization_preserves_exact_runtime_type() {
 }
 
 #[test]
+fn private_data_factory_has_representation_independent_optimization() {
+    let source = r#"
+data Pair private(_ left: Int, _ right: Int)
+
+impl Pair {
+    @class
+    sum(_ left: Int, _ right: Int) -> Int {
+        let pair = Pair(left, right)
+        pair.left + pair.right
+    }
+}
+
+const result = Pair.sum(20, 22)
+"#;
+    let (optimized, optimized_module) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("optimized private factory executes");
+    let (canonical, canonical_module) = run_inline_with_mode(source, ProductOptimizationMode::Disabled).expect("canonical private factory executes");
+    let optimized_result = optimized
+        .heap
+        .module(optimized_module)
+        .get(optimized.interner.find("result").expect("optimized result symbol"));
+    let canonical_result = canonical
+        .heap
+        .module(canonical_module)
+        .get(canonical.interner.find("result").expect("canonical result symbol"));
+    assert_eq!(optimized_result, canonical_result);
+    assert_eq!(optimized_result, Some(Value::int(42)));
+}
+
+#[test]
 fn unprovable_anonymous_product_uses_dynamic_pack_route() {
     let source = "const values = (1, 2)\nconst tuple = (0, *values)\n";
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("inline program compiles");

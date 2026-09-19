@@ -3,6 +3,7 @@ mod adt_associated;
 mod advisory;
 mod applied_class_side;
 mod compiler_capabilities;
+mod data_constructor_visibility;
 mod data_source_index;
 mod declaration_knowledge;
 mod denotation;

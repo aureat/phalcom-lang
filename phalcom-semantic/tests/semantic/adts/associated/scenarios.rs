@@ -212,6 +212,61 @@ fn data_associated_whole_family_capture_publishes_data_constructor() {
 }
 
 #[test]
+fn inaccessible_data_constructor_is_not_acquirable_by_exact_reference() {
+    let case = analyze_adt("data Secret private(_ value: Int)\nclass Test { run() { &Secret::Secret(_) } }\n");
+    assert!(
+        case.analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberInaccessible),
+        "expected inaccessible associated constructor diagnostic, got: {:?}",
+        case.analysis.snapshot.diagnostics
+    );
+}
+
+#[test]
+fn inaccessible_data_constructor_is_not_captured_by_family_reference() {
+    let case = analyze_adt("data Secret private(_ value: Int)\nclass Test { run() { &Secret::Secret... } }\n");
+    assert!(
+        case.analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberInaccessible),
+        "expected inaccessible associated family diagnostic, got: {:?}",
+        case.analysis.snapshot.diagnostics
+    );
+}
+
+#[test]
+fn inaccessible_data_constructor_is_rejected_by_associated_invocation() {
+    let case = analyze_adt("data Secret private(_ value: Int)\nclass Test { run() { Secret::Secret(42) } }\n");
+    assert!(
+        case.analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible),
+        "expected inaccessible associated invocation diagnostic, got: {:?}",
+        case.analysis.snapshot.diagnostics
+    );
+}
+
+#[test]
+fn authorized_data_constructor_capability_can_escape_its_owner() {
+    let case = analyze_adt(
+        "data Secret private(_ value: Int)\nimpl Secret { @class factory() -> (Int) -> Secret { &Secret::Secret(_) } }\nclass Caller { @class use() -> Secret { let f = Secret.factory(); f(42) } }\n",
+    );
+    assert!(
+        !case
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberInaccessible),
+        "authorized constructor capability must remain usable after escape: {:?}",
+        case.analysis.snapshot.diagnostics
+    );
+}
+
+#[test]
 fn data_associated_surface_kind_is_data_constructor() {
     let case = analyze_adt("data Point(_ x: Int, _ y: Int)\n");
     let family = case.associated_family("Point", "Point");

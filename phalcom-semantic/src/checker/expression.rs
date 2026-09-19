@@ -1021,6 +1021,7 @@ fn synthesize_record_construction(
         .collect();
 
     let mut target = callable_target_for_data_info(&data_info);
+    target.access_denied = !ctx.data_constructor_is_accessible(&data_info);
     if !record.type_arguments.is_empty() {
         let formation_site = crate::types::annotation::TypeFormationSite::module(ctx.current_module.clone());
         let mut fixed_generics = Vec::new();
@@ -1662,6 +1663,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 TypeKnowledge::established(constructor_result_type, EvidenceOrigin::ConstructorSemantics),
             );
             let mut target = CallableApplicationTarget::data_constructor(dc.clone(), signature);
+            target.access_denied = !ctx.data_constructor_is_accessible(&data_info);
             if let Some(decl_signature) = data_info.generic_signature.clone() {
                 target = target.with_declaration_generics(decl_signature);
             }
@@ -1740,12 +1742,7 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
                 let mut projected = TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause);
                 if let TypeKnowledge::Known(evidence) = &typed.knowledge {
-                    let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(
-                        ctx,
-                        typed.expression_id,
-                        evidence.ty(),
-                        *range,
-                    );
+                    let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
                     if let Some(resolution) = resolution {
                         projected = TypeKnowledge::established(resolution.item_type, EvidenceOrigin::ContextualDerivation);
                         ctx.positional_expansions.insert(resolution.source_expression, resolution);
@@ -1979,12 +1976,7 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
                 if matches!(mode, phalcom_ast::ast::ExpansionMode::Positional) {
                     if let TypeKnowledge::Known(evidence) = &typed.knowledge {
-                        let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(
-                            ctx,
-                            typed.expression_id,
-                            evidence.ty(),
-                            *range,
-                        );
+                        let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
                         if let Some(resolution) = resolution {
                             ctx.positional_expansions.insert(resolution.source_expression, resolution);
                         }
@@ -2520,8 +2512,6 @@ fn associated_constructor_application_target(
         AssociatedMemberId::DataConstructor(dc) => {
             let data_info = ctx.data_info(&dc.owner).cloned()?;
             let constructor = &data_info.constructor;
-
-            specialize_associated_member(ctx, owner, member_id, range).ok()?;
 
             let environment =
                 crate::types::specialization::specialize_receiver_to_owner(ctx.store, &ctx.hierarchy, owner.owner_form, &owner.lookup_owner, &ctx.control)
@@ -3093,7 +3083,8 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
         if let Some(data_info) = ctx.data_info(&decl).cloned() {
             let premise = CallPremise::established(TypeKnowledge::established(data_info.root_form, EvidenceOrigin::DeclarationSemantics));
             let arguments = application_arguments(&call.args);
-            let target = callable_target_for_data_info(&data_info);
+            let mut target = callable_target_for_data_info(&data_info);
+            target.access_denied = !ctx.data_constructor_is_accessible(&data_info);
             let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range);
             let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty());
             let argument_mapping = compute_data_argument_mapping_from_pack(&data_info, &call.args);

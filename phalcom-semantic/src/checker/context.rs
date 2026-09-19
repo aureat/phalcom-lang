@@ -1,5 +1,5 @@
+use crate::access::{AccessContext, is_member_accessible};
 use crate::checker::analysis::{AnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency};
-use crate::access::{is_member_accessible, AccessContext};
 use crate::checker::binding::{BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingSeed, BindingWriteResult, reconcile_binding_relation};
 use crate::checker::flow::FlowState;
 use crate::checker::incident::{
@@ -26,6 +26,7 @@ use crate::types::rigid::{LocalConstraint, LocalType, RigidArena};
 use crate::types::specialization::SpecializationControl;
 use crate::types::specialization::{ReceiverSpecialization, ReceiverSpecializationFailure, specialize_receiver_to_owner};
 use crate::types::store::{TypeData, TypeStore};
+use phalcom_common::modifier::Visibility;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_native_surface::NATIVE_SURFACES;
@@ -769,6 +770,15 @@ impl<'a> CheckingContext<'a> {
         )
     }
 
+    pub(crate) fn declaration_member_is_accessible(&self, owner: &DeclarationId, visibility: Visibility) -> bool {
+        let declaration_package = self.access_topology.map(|topology| topology.owning_package(&owner.module));
+        is_member_accessible(visibility, owner, declaration_package.as_ref(), &self.access_context(), &self.hierarchy)
+    }
+
+    pub(crate) fn data_constructor_is_accessible(&self, data_info: &crate::data_semantics::DataInfo) -> bool {
+        self.declaration_member_is_accessible(&data_info.owner, data_info.constructor.visibility)
+    }
+
     fn dispatch_is_accessible(&self, resolved: &ResolvedDispatch) -> bool {
         let Some(owner) = resolved
             .trait_dispatch
@@ -778,14 +788,7 @@ impl<'a> CheckingContext<'a> {
         else {
             return true;
         };
-        let declaration_package = self.access_topology.map(|topology| topology.owning_package(&owner.module));
-        is_member_accessible(
-            resolved.visibility,
-            &owner,
-            declaration_package.as_ref(),
-            &self.access_context(),
-            &self.hierarchy,
-        )
+        self.declaration_member_is_accessible(&owner, resolved.visibility)
     }
 
     fn authorize_dispatch(&self, mut resolved: ResolvedDispatch) -> ResolvedDispatch {
@@ -2313,7 +2316,7 @@ impl<'a> CheckingContext<'a> {
 
     fn resolve_assumed_trait_target(&mut self, receiver: TypeId, selector: &Selector, side: DispatchSide) -> Option<ResolvedDispatchResult> {
         let mut assumed_candidates = Vec::new();
-        for (key, _assumed) in self.generic_evidence.conformances() {
+        for key in self.generic_evidence.conformances().keys() {
             let subject_matches = match &key.subject {
                 crate::types::parameter::TypeTerm::Canonical(ty) => *ty == receiver,
                 crate::types::parameter::TypeTerm::SelfType(st) => {
@@ -2609,22 +2612,24 @@ impl<'a> CheckingContext<'a> {
                                 self.resolved_trait_dispatches
                                     .insert(expression, crate::trait_dispatch::TraitDispatchSite::Evidenced(selection.clone()));
                             }
-                            return ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(ResolvedDispatch {
-                                callable,
-                                signature,
-                                visibility: view
-                                    .trait_surfaces
-                                    .get(&selection.requirement.owner)
-                                    .and_then(|surface| surface.get(&selection.requirement))
-                                    .map(|member| member.visibility)
-                                    .unwrap_or(crate::surface::MemberVisibility::Public),
-                                access_denied: false,
-                                specialization: None,
-                                conditional: None,
-                                trait_dispatch: Some(selection),
-                                abstract_contract: false,
-                                visited_owners: vec![].into_boxed_slice(),
-                            })));
+                            return ResolvedDispatchResult::Found(Box::new(
+                                self.authorize_dispatch(ResolvedDispatch {
+                                    callable,
+                                    signature,
+                                    visibility: view
+                                        .trait_surfaces
+                                        .get(&selection.requirement.owner)
+                                        .and_then(|surface| surface.get(&selection.requirement))
+                                        .map(|member| member.visibility)
+                                        .unwrap_or(crate::surface::MemberVisibility::Public),
+                                    access_denied: false,
+                                    specialization: None,
+                                    conditional: None,
+                                    trait_dispatch: Some(selection),
+                                    abstract_contract: false,
+                                    visited_owners: vec![].into_boxed_slice(),
+                                }),
+                            ));
                         }
                         crate::trait_dispatch::TraitDispatchResolution::Ambiguous(candidates) => {
                             if let Some(expression) = self.current_expression_id() {

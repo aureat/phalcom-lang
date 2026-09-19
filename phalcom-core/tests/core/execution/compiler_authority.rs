@@ -4,11 +4,11 @@
 //! This pins the VM half: compiler-internal privilege is a transient dispatch
 //! depth, not ambient authority that remains after the operation finishes.
 
-use phalcom_core::error::PhResult;
 use phalcom_core::bytecode::Bytecode;
+use phalcom_core::error::PhResult;
 use phalcom_core::heap::Object;
-use phalcom_core::method::{MemberVisibility, MethodObject, SignatureKind};
 use phalcom_core::method::MethodKind;
+use phalcom_core::method::{MemberVisibility, MethodObject, SignatureKind};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 
@@ -75,12 +75,17 @@ fn generated_constructor_marks_only_allocator_as_compiler_internal() {
     let factory_code = factory_code.expect("generated constructor factory should be compiled");
     let initializer_code = initializer_code.expect("generated constructor initializer should be compiled");
     assert_eq!(
-        factory_code.iter().filter(|instruction| matches!(instruction, Bytecode::InvokeCompilerInternal(..))).count(),
+        factory_code
+            .iter()
+            .filter(|instruction| matches!(instruction, Bytecode::InvokeCompilerInternal(..)))
+            .count(),
         1,
         "only the generated allocator send may carry compiler-internal authority: {factory_code:?}"
     );
     assert!(
-        initializer_code.iter().all(|instruction| !matches!(instruction, Bytecode::InvokeCompilerInternal(..))),
+        initializer_code
+            .iter()
+            .all(|instruction| !matches!(instruction, Bytecode::InvokeCompilerInternal(..))),
         "the hidden initializer must retain ordinary call authority: {initializer_code:?}"
     );
 }

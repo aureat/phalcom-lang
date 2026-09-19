@@ -2,8 +2,7 @@ use crate::error::{PhResult, RuntimeError};
 use crate::heap::{ClassId, ObjRef, Object, is_strict_subclass, lookup_method_with_definer};
 use crate::interner::Symbol;
 use crate::method::{
-    ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodKind, PrimitiveFn, RuntimeAccessOrigin,
-    SignatureKind, decode_selector,
+    ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodKind, PrimitiveFn, RuntimeAccessOrigin, SignatureKind, decode_selector,
 };
 use crate::value::Value;
 use indexmap::IndexMap;
@@ -207,12 +206,7 @@ impl VM {
     /// lexical authority: `bound.call(...)` is authorized by the code that
     /// called `bound`, while sends made *inside* a primitive use its native
     /// method context.
-    pub(crate) fn authorize_method_access_as(
-        &self,
-        method: ObjRef,
-        caller: Option<ClassId>,
-        caller_origin: RuntimeAccessOrigin,
-    ) -> PhResult<()> {
+    pub(crate) fn authorize_method_access_as(&self, method: ObjRef, caller: Option<ClassId>, caller_origin: RuntimeAccessOrigin) -> PhResult<()> {
         let (visibility, owner, origin, selector) = {
             let method = self.heap.method(method);
             (method.visibility, method.access_owner, method.origin, method.signature.selector)
@@ -220,9 +214,7 @@ impl VM {
         let allowed = match visibility {
             MemberVisibility::Public => true,
             MemberVisibility::Private => caller == owner,
-            MemberVisibility::Protected => {
-                owner.is_some_and(|owner| caller.is_some_and(|caller| self.is_subclass_of(caller, owner)))
-            }
+            MemberVisibility::Protected => owner.is_some_and(|owner| caller.is_some_and(|caller| self.is_subclass_of(caller, owner))),
             MemberVisibility::Module => caller_origin.module.is_some() && caller_origin.module == origin.module,
             MemberVisibility::Package => caller_origin.package.is_some() && caller_origin.package == origin.package,
             MemberVisibility::Internal => {
@@ -1440,13 +1432,7 @@ impl VM {
 
         let base_frames = self.frames.len();
         let layout = self.invocation_layout_for_selector(selector, args.len())?;
-        self.dispatch_selector_window_as(
-            receiver_idx,
-            selector,
-            layout,
-            SourceRange::default(),
-            self.current_caller_authority(),
-        )?;
+        self.dispatch_selector_window_as(receiver_idx, selector, layout, SourceRange::default(), self.current_caller_authority())?;
         self.check_native_reentry()?;
         self.native_reentry_depth += 1;
         let result = self.run_until(base_frames);

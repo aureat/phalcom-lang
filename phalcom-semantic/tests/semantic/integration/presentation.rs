@@ -1,6 +1,6 @@
+use phalcom_common::modifier::ImplementationKind;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
-use phalcom_common::modifier::ImplementationKind;
 use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::BlockReason;
 use phalcom_semantic::checker::analysis::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary};

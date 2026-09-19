@@ -198,12 +198,7 @@ impl ArgumentView {
     }
 
     /// Builds a view from an explicit invocation layout.
-    pub(crate) fn from_layout(
-        receiver_index: usize,
-        layout: InvocationLayout,
-        caller_access: Option<ClassId>,
-        caller_origin: RuntimeAccessOrigin,
-    ) -> Self {
+    pub(crate) fn from_layout(receiver_index: usize, layout: InvocationLayout, caller_access: Option<ClassId>, caller_origin: RuntimeAccessOrigin) -> Self {
         Self {
             receiver_index,
             layout,

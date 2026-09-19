@@ -299,6 +299,7 @@ pub struct EnumDef {
 }
 
 /// A behavior-only member definition (methods, getters, setters, index operators) (PDR-0035).
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum BehaviorMember {
     Method(MethodDef),
@@ -309,6 +310,7 @@ pub enum BehaviorMember {
 
 /// A trait member, including behavior and the declaration-only contract
 /// categories introduced by LANG005.C5.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum TraitMember {
     /// A method, getter, setter, or index requirement/default.
@@ -402,6 +404,7 @@ pub struct DelegatedAccessorDef {
 }
 
 /// An implementation member, including behavior and C5 declaration forms.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ImplMember {
     /// A method, getter, setter, or index implementation.
@@ -575,6 +578,10 @@ pub struct DataDef {
     pub name: String,
     pub name_range: SourceRange,
     pub generic_parameters: Vec<GenericParameterSyntax>,
+    /// Visibility of the compiler-generated primary data constructor.
+    pub constructor_visibility: Visibility,
+    /// Source span of the primary-constructor visibility modifier, if present.
+    pub constructor_visibility_range: Option<SourceRange>,
     pub where_clause: Option<WhereClauseSyntax>,
     pub shape: DataShapeSyntax,
     pub attributes: Vec<Attribute>,
@@ -1037,6 +1044,7 @@ pub struct TypeAliasDef {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum ClassMember {
     Method(MethodDef),
     Getter(GetterDef),

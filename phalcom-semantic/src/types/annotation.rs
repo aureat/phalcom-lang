@@ -985,7 +985,7 @@ fn resolve_associated_type_projection(
         let subject_term = TypeTerm::Canonical(subject_ty);
         let mut matching_traits = Vec::new();
 
-        for (conformance_key, _) in evidence.conformances() {
+        for conformance_key in evidence.conformances().keys() {
             if conformance_key.subject == subject_term
                 || evidence.are_equivalent(&conformance_key.subject, &subject_term) == crate::generic_evidence::GenericEquivalenceProof::Proven
             {

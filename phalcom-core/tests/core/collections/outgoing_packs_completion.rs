@@ -279,10 +279,7 @@ Receiver.new().collect(*42)
         )
     })
     .expect_err("non-Iterable positional spread must fail");
-    assert!(
-        error.contains("does not understand 'iterator'"),
-        "unexpected error: {error}"
-    );
+    assert!(error.contains("does not understand 'iterator'"), "unexpected error: {error}");
 }
 
 #[test]

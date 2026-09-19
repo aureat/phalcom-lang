@@ -131,14 +131,8 @@ impl VM {
 
     fn invoke_dynamic_selector(&mut self, receiver_idx: usize, selector: Symbol, arity: usize, source_range: SourceRange) -> PhResult<()> {
         let layout = self.invocation_layout_for_selector(selector, arity)?;
-        self.dispatch_selector_window_as(
-            receiver_idx,
-            selector,
-            layout,
-            source_range,
-            self.current_caller_authority(),
-        )
-        .map(|_| ())
+        self.dispatch_selector_window_as(receiver_idx, selector, layout, source_range, self.current_caller_authority())
+            .map(|_| ())
     }
 
     /// Finds an accepting rest method after an already-complete exact walk has

@@ -2096,6 +2096,7 @@ pub fn data_declaration_input_fingerprint(product: &crate::db::product::DataDecl
         c.declared_type.hash(&mut hasher);
     }
     product.info.constructor.constructor.hash(&mut hasher);
+    product.info.constructor.visibility.hash(&mut hasher);
     product.info.constructor.result_type_template.hash(&mut hasher);
     finish_input(hasher)
 }
@@ -2118,6 +2119,7 @@ pub fn data_declaration_product_fingerprint(product: &crate::db::product::DataDe
         c.declared_type.hash(&mut hasher);
     }
     product.info.constructor.constructor.hash(&mut hasher);
+    product.info.constructor.visibility.hash(&mut hasher);
     product.info.constructor.result_type_template.hash(&mut hasher);
     finish_product(hasher)
 }

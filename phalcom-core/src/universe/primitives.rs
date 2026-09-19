@@ -400,13 +400,7 @@ impl Universe {
         primitive_static!(vm, system_cls, "schedule", SignatureKind::Method(1), system_schedule);
         primitive_static_internal!(vm, system_cls, "monotonicNanoseconds", SignatureKind::Getter, system_monotonic_nanoseconds);
         primitive_static_internal!(vm, system_cls, "nextScheduled", SignatureKind::Getter, system_next_scheduled_internal);
-        primitive_static_internal!(
-            vm,
-            system_cls,
-            "schedulerFailureCursor",
-            SignatureKind::Getter,
-            system_scheduler_failure_cursor
-        );
+        primitive_static_internal!(vm, system_cls, "schedulerFailureCursor", SignatureKind::Getter, system_scheduler_failure_cursor);
         primitive_static_internal!(
             vm,
             system_cls,

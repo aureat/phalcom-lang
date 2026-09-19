@@ -2672,19 +2672,20 @@ impl InferenceSession {
         // Once both terms are canonical, use the single bounded relation
         // semantics. This keeps solver-local inference from inventing a second
         // subtype algebra for nominal, union, and structural types.
-        if !self.term_has_unresolved_variables(sub) && !self.term_has_unresolved_variables(sup) {
-            if !self.term_has_projection(sub, store) && !self.term_has_projection(sup, store) {
-                if let (Ok(sub_ty), Ok(sup_ty)) = (self.materialize(sub, store), self.materialize(sup, store)) {
-                    return if is_subtype(store, hier, sub_ty, sup_ty) {
-                        Ok(SolveEffect::Unchanged)
-                    } else {
-                        Err(InferenceFailureReason::StructuralMismatch {
-                            left: Box::new(sub.clone()),
-                            right: Box::new(sup.clone()),
-                        })
-                    };
-                }
-            }
+        if !self.term_has_unresolved_variables(sub)
+            && !self.term_has_unresolved_variables(sup)
+            && !self.term_has_projection(sub, store)
+            && !self.term_has_projection(sup, store)
+            && let (Ok(sub_ty), Ok(sup_ty)) = (self.materialize(sub, store), self.materialize(sup, store))
+        {
+            return if is_subtype(store, hier, sub_ty, sup_ty) {
+                Ok(SolveEffect::Unchanged)
+            } else {
+                Err(InferenceFailureReason::StructuralMismatch {
+                    left: Box::new(sub.clone()),
+                    right: Box::new(sup.clone()),
+                })
+            };
         }
 
         match (sub, sup) {

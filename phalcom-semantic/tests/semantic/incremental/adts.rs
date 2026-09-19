@@ -356,3 +356,55 @@ fn data_incr_03_unrelated_module_edit_reuses_data_product() {
         "unrelated module edit must not recompute the data declaration"
     );
 }
+
+#[test]
+fn data_incr_04_visibility_edit_changes_access_without_changing_identity() {
+    let module = module();
+    let source_public = "data Token(_ value: Int)\nclass Caller { run() -> Token { Token(1) } }\n";
+    let source_private = "data Token private(_ value: Int)\nclass Caller { run() -> Token { Token(1) } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(single_module_input(module.clone(), source_public, 1));
+    assert!(!first.snapshot.has_errors(), "public baseline diagnostics: {:?}", first.snapshot.diagnostics);
+    let owner = DeclarationId::new(module.clone(), "Token".into());
+    let data_key = QueryKey::DataDeclaration(owner.clone());
+    let caller = CallableId::new(
+        DeclarationId::new(module.clone(), "Caller".into()),
+        Selector::method("run", []).expect("run selector"),
+        DispatchSide::Instance,
+    );
+    let first_data_fp = session.db().ready_product_fingerprint(&data_key).expect("public data fingerprint");
+    let first_info = first.snapshot.data_semantics.data_info(&owner).expect("public data info").clone();
+    let first_caller = first.snapshot.callable_analyses.get(&caller).expect("public caller analysis").clone();
+
+    let second = session.update(single_module_input(module.clone(), source_private, 2));
+    let second_data_fp = session.db().ready_product_fingerprint(&data_key).expect("private data fingerprint");
+    let second_info = second.snapshot.data_semantics.data_info(&owner).expect("private data info").clone();
+    let second_caller = second.snapshot.callable_analyses.get(&caller).expect("private caller analysis");
+    assert_ne!(first_data_fp, second_data_fp, "visibility edit must change data product fingerprint");
+    assert_eq!(
+        first_info.constructor.constructor, second_info.constructor.constructor,
+        "visibility must not change constructor identity"
+    );
+    assert_eq!(first_info.root_form, second_info.root_form, "visibility must not change nominal identity");
+    assert!(!std::sync::Arc::ptr_eq(&first_caller, second_caller), "dependent caller must be recomputed");
+    assert!(
+        second
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible),
+        "private revision must reject the caller: {:?}",
+        second.snapshot.diagnostics
+    );
+
+    let cold = phalcom_semantic::analyze_single_module(
+        module.clone(),
+        Arc::from(source_private),
+        Arc::new(phalcom_ast::parse(source_private, 0).program),
+    );
+    assert_eq!(
+        second.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(),
+        cold.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(),
+        "incremental and cold visibility diagnostics must agree"
+    );
+    assert_eq!(second_info, *cold.snapshot.data_semantics.data_info(&owner).expect("cold data info"));
+}

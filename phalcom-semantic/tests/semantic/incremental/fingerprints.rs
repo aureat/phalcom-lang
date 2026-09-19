@@ -1,10 +1,10 @@
 use phalcom_ast::parse;
+use phalcom_common::modifier::ImplementationKind;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::{
     InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId, UnlinkedModuleInterface,
 };
-use phalcom_common::modifier::ImplementationKind;
 use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::checker::analysis::{

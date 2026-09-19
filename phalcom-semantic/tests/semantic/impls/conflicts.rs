@@ -1,3 +1,4 @@
+use phalcom_common::modifier::Visibility;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::CheckingContext;
@@ -213,6 +214,7 @@ fn test_data_component_collision_rejected() {
         components: vec![data_comp].into_boxed_slice(),
         constructor: DataConstructorSignature {
             constructor: DataConstructorId::new(point_decl.clone()),
+            visibility: Visibility::Public,
             parameters: Box::new([]),
             result_type_template: store.nominal(point_decl.clone()),
             source: None,

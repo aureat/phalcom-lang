@@ -126,13 +126,13 @@ impl std::fmt::Display for ProgramSemanticDiagnostics {
                     writeln!(f)?;
                 }
                 first = false;
-                write!(
+                writeln!(
                     f,
-                    "{}: {:?} {:?}: {} at {:?}\n",
+                    "{}: {:?} {:?}: {} at {:?}",
                     module, diag.severity, diag.code, diag.message, diag.primary_range
                 )?;
                 for label in &diag.labels {
-                    write!(f, "  --> label: {} at {:?}\n", label.message, label.span.range)?;
+                    writeln!(f, "  --> label: {} at {:?}", label.message, label.span.range)?;
                 }
             }
         }
@@ -617,7 +617,7 @@ impl ProgramCompiler {
         )>::new();
         let mut runtime_trait_root_specs = Vec::<RuntimeTraitEnvironmentRootSpec>::new();
         let mut runtime_trait_root_seen = BTreeSet::new();
-        for (id, _) in &analyzed.linked.modules {
+        for id in analyzed.linked.modules.keys() {
             if !analyzed.runtime_modules.contains(id) {
                 continue;
             }
@@ -1100,97 +1100,94 @@ impl ProgramCompiler {
                                         let mut nested_slots = Vec::new();
                                         if !is_trait_default {
                                             for nested_item in evidence.nested.iter() {
-                                                match nested_item {
-                                                    phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(nested_conformance) => {
-                                                        match nested_conformance {
-                                                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(exact_ev) => {
-                                                                if let Some((req, nested_selection)) = exact_ev.requirements.iter().next() {
-                                                                    let nested_callable = match nested_selection {
-                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable {
-                                                                            callable,
-                                                                        }
-                                                                        | phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable }
-                                                                        | phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable {
-                                                                            callable,
-                                                                            ..
-                                                                        } => Some(callable.clone()),
-                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::ConditionalInherent {
-                                                                            candidate,
-                                                                            ..
-                                                                        } => Some(candidate.callable.clone()),
-                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => None,
-                                                                    };
-                                                                    if let Some(nested_callable) = nested_callable {
-                                                                        let nested_selector = analyzed
-                                                                            .semantic
-                                                                            .trait_surfaces
-                                                                            .get(&exact_ev.exact_trait_ref.declaration)
-                                                                            .and_then(|s| s.get(req))
-                                                                            .map(|m| m.requirement.selector.clone())
-                                                                            .unwrap_or_else(|| nested_callable.selector.clone());
-                                                                        nested_slots.push(crate::typing::RuntimeConformanceSlotRecipe::Selection {
-                                                                            callable: nested_callable,
-                                                                            selector: nested_selector,
-                                                                        });
-                                                                    }
+                                                if let phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(nested_conformance) = nested_item
+                                                {
+                                                    match nested_conformance {
+                                                        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(exact_ev) => {
+                                                            if let Some((req, nested_selection)) = exact_ev.requirements.iter().next() {
+                                                                let nested_callable = match nested_selection {
+                                                                    phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { callable }
+                                                                    | phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable }
+                                                                    | phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable {
+                                                                        callable,
+                                                                        ..
+                                                                    } => Some(callable.clone()),
+                                                                    phalcom_semantic::impls::RequirementSelectionTemplate::ConditionalInherent {
+                                                                        candidate,
+                                                                        ..
+                                                                    } => Some(candidate.callable.clone()),
+                                                                    phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => None,
+                                                                };
+                                                                if let Some(nested_callable) = nested_callable {
+                                                                    let nested_selector = analyzed
+                                                                        .semantic
+                                                                        .trait_surfaces
+                                                                        .get(&exact_ev.exact_trait_ref.declaration)
+                                                                        .and_then(|s| s.get(req))
+                                                                        .map(|m| m.requirement.selector.clone())
+                                                                        .unwrap_or_else(|| nested_callable.selector.clone());
+                                                                    nested_slots.push(crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                        callable: nested_callable,
+                                                                        selector: nested_selector,
+                                                                    });
                                                                 }
                                                             }
-                                                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(assumed) => {
-                                                                let trait_decl = &assumed.key.trait_ref.declaration;
-                                                                let req = analyzed
-                                                                    .semantic
-                                                                    .trait_surfaces
-                                                                    .get(trait_decl)
-                                                                    .and_then(|s| s.iter().next().map(|(r, _)| r.clone()));
-                                                                if let Some(req) = req {
-                                                                    let caller_slot_key = phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(
-                                                                        assumed.key.clone(),
-                                                                        req,
-                                                                    );
-                                                                    if let Some(caller_slot) = caller_evidence.slot_for(&caller_slot_key) {
-                                                                        nested_slots.push(crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot));
-                                                                    }
+                                                        }
+                                                        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(assumed) => {
+                                                            let trait_decl = &assumed.key.trait_ref.declaration;
+                                                            let req = analyzed
+                                                                .semantic
+                                                                .trait_surfaces
+                                                                .get(trait_decl)
+                                                                .and_then(|s| s.iter().next().map(|(r, _)| r.clone()));
+                                                            if let Some(req) = req {
+                                                                let caller_slot_key =
+                                                                    phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(assumed.key.clone(), req);
+                                                                if let Some(caller_slot) = caller_evidence.slot_for(&caller_slot_key) {
+                                                                    nested_slots.push(crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot));
                                                                 }
                                                             }
-                                                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(nested_derived) => {
-                                                                if let Some((req, nested_selection)) = nested_derived.requirements().iter().next() {
-                                                                    let nested_callable = match nested_selection {
-                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable {
-                                                                            callable,
-                                                                        }
-                                                                        | phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable }
-                                                                        | phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable {
-                                                                            callable,
+                                                        }
+                                                        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(nested_derived) => {
+                                                            if let Some((req, nested_selection)) = nested_derived.requirements().iter().next() {
+                                                                let nested_callable = match nested_selection {
+                                                                    phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { callable }
+                                                                    | phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable }
+                                                                    | phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable {
+                                                                        callable,
+                                                                        ..
+                                                                    } => Some(callable.clone()),
+                                                                    phalcom_semantic::impls::RequirementSelectionTemplate::ConditionalInherent {
+                                                                        candidate,
+                                                                        ..
+                                                                    } => Some(candidate.callable.clone()),
+                                                                    phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => None,
+                                                                };
+                                                                if let Some(nested_callable) = nested_callable {
+                                                                    let trait_decl = match &nested_derived.origin {
+                                                                        phalcom_semantic::generic_evidence::DerivedConformanceOrigin::ConditionalSource {
+                                                                            exact_source,
+                                                                        } => &exact_source.exact_trait_ref.declaration,
+                                                                        phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule {
+                                                                            exact_trait_ref,
                                                                             ..
-                                                                        } => Some(callable.clone()),
-                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::ConditionalInherent {
-                                                                            candidate,
-                                                                            ..
-                                                                        } => Some(candidate.callable.clone()),
-                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => None,
+                                                                        } => &exact_trait_ref.declaration,
                                                                     };
-                                                                    if let Some(nested_callable) = nested_callable {
-                                                                        let trait_decl = match &nested_derived.origin {
-                                                                            phalcom_semantic::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => &exact_source.exact_trait_ref.declaration,
-                                                                            phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule { exact_trait_ref, .. } => &exact_trait_ref.declaration,
-                                                                        };
-                                                                        let nested_selector = analyzed
-                                                                            .semantic
-                                                                            .trait_surfaces
-                                                                            .get(trait_decl)
-                                                                            .and_then(|s| s.get(req))
-                                                                            .map(|m| m.requirement.selector.clone())
-                                                                            .unwrap_or_else(|| nested_callable.selector.clone());
-                                                                        nested_slots.push(crate::typing::RuntimeConformanceSlotRecipe::Selection {
-                                                                            callable: nested_callable,
-                                                                            selector: nested_selector,
-                                                                        });
-                                                                    }
+                                                                    let nested_selector = analyzed
+                                                                        .semantic
+                                                                        .trait_surfaces
+                                                                        .get(trait_decl)
+                                                                        .and_then(|s| s.get(req))
+                                                                        .map(|m| m.requirement.selector.clone())
+                                                                        .unwrap_or_else(|| nested_callable.selector.clone());
+                                                                    nested_slots.push(crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                        callable: nested_callable,
+                                                                        selector: nested_selector,
+                                                                    });
                                                                 }
                                                             }
                                                         }
                                                     }
-                                                    _ => {}
                                                 }
                                             }
                                         }

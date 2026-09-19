@@ -1,9 +1,14 @@
 //! `phalcom-semantic` — Canonical static semantic analysis, type store, subtyping relations,
 //! and verification engine for Phalcom.
 
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::result_large_err)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+
+pub mod access;
 pub mod advisory;
 pub mod associated;
-pub mod access;
 pub mod checker;
 pub mod contracts;
 pub mod control_summary;
@@ -53,6 +58,7 @@ pub mod types;
 pub mod workspace;
 pub mod workspace_inputs;
 
+pub use access::{AccessContext, DeclarationAccessOrigin, is_member_accessible};
 pub use advisory::{
     AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryContributionSource, AdvisoryExpressionContext, AdvisoryFact, AdvisoryFlowContext,
     AdvisoryFlowProduct, AdvisoryLiteral, AdvisoryModuleProduct, AdvisoryOrigin, AdvisoryParameterContributions, AdvisoryParameterFactDelta,
@@ -60,7 +66,6 @@ pub use advisory::{
     MAX_SHAPE_UNION, ValueShape, analyze_expr, analyze_statements,
 };
 pub use associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
-pub use access::{is_member_accessible, AccessContext, DeclarationAccessOrigin};
 pub use checker::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
     CallableReferenceResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationResolutionIndex,

@@ -70,7 +70,7 @@ impl WorkspaceFixture {
         }
 
         let mut resolved = BTreeMap::new();
-        for (importer_name, _) in &self.modules {
+        for importer_name in self.modules.keys() {
             let importer_id = module_ids.get(importer_name).unwrap().clone();
             for (target_name, target_id) in &module_ids {
                 resolved.insert((importer_id.clone(), target_name.clone()), target_id.clone());

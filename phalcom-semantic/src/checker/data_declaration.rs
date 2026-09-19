@@ -125,6 +125,7 @@ pub fn build_data_semantics(
 
     let constructor = DataConstructorSignature {
         constructor: DataConstructorId::new(owner.clone()),
+        visibility: data_def.constructor_visibility,
         parameters: constructor_params.into_boxed_slice(),
         result_type_template,
         source: Some(SemanticSourceSpan::new(module_id.clone(), data_def.name_range)),

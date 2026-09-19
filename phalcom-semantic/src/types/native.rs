@@ -378,7 +378,13 @@ pub fn register_native_surfaces_from_records(
                 SelectorBase::Named(name) if descriptor_selector.kind == phalcom_common::selector::SelectorKind::Method => {
                     let mut fixed_slots = Vec::with_capacity(callable_spec.params.positional.len() + callable_spec.params.labeled.len());
                     fixed_slots.extend(std::iter::repeat_n(SelectorSlot::Positional, callable_spec.params.positional.len()));
-                    fixed_slots.extend(callable_spec.params.labeled.iter().map(|parameter| SelectorSlot::Label(parameter.label.to_string())));
+                    fixed_slots.extend(
+                        callable_spec
+                            .params
+                            .labeled
+                            .iter()
+                            .map(|parameter| SelectorSlot::Label(parameter.label.to_string())),
+                    );
                     Selector::method(name.clone(), fixed_slots).map_err(|error| NativeSurfaceImportError::InvalidSelector {
                         key: record.surface.key,
                         details: error.to_string(),

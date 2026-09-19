@@ -1694,7 +1694,7 @@ fn parses_direct_trait_conformance_constraint() {
         GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
             assert_eq!(bounds.len(), 1);
             let subject_expr = format!("{:?}", subject.expr);
-            assert!(subject_expr.contains("Printable") == false);
+            assert!(!subject_expr.contains("Printable"));
         }
         other => panic!("expected Conforms constraint, got {other:?}"),
     }

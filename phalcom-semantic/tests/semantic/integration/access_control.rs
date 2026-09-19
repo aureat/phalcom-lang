@@ -1,10 +1,10 @@
 use phalcom_ast::parse;
 use phalcom_common::modifier::Visibility;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId};
+use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::editor::{AccessContext, is_member_accessible};
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
-use phalcom_semantic::analyze_single_module;
 use std::sync::Arc;
 
 fn comp(name: &str) -> ModuleComponent {
@@ -93,9 +93,27 @@ fn is_member_accessible_package() {
     // Sibling package module (different package)
     let sibling_pkg_access = AccessContext::with_provenance(None, None, Some(sibling_pkg.clone()), Some(sibling_pkg.clone()), Some(sibling_pkg.project));
 
-    assert!(is_member_accessible(Visibility::Package, &decl_target, Some(&pkg_root), &same_pkg_access, &hierarchy));
-    assert!(!is_member_accessible(Visibility::Package, &decl_target, Some(&pkg_root), &nested_pkg_access, &hierarchy));
-    assert!(!is_member_accessible(Visibility::Package, &decl_target, Some(&pkg_root), &sibling_pkg_access, &hierarchy));
+    assert!(is_member_accessible(
+        Visibility::Package,
+        &decl_target,
+        Some(&pkg_root),
+        &same_pkg_access,
+        &hierarchy
+    ));
+    assert!(!is_member_accessible(
+        Visibility::Package,
+        &decl_target,
+        Some(&pkg_root),
+        &nested_pkg_access,
+        &hierarchy
+    ));
+    assert!(!is_member_accessible(
+        Visibility::Package,
+        &decl_target,
+        Some(&pkg_root),
+        &sibling_pkg_access,
+        &hierarchy
+    ));
 }
 
 #[test]
@@ -120,9 +138,18 @@ fn is_member_accessible_internal() {
     let proj_1 = ProjectIdentity::Resolved(ResolvedProjectId::from_raw(1));
     let proj_2 = ProjectIdentity::Resolved(ResolvedProjectId::from_raw(2));
 
-    let mod_p1_a = ModuleId { project: proj_1, path: ModulePath::root() };
-    let mod_p1_b = ModuleId { project: proj_1, path: ModulePath::from_components(vec![comp("sub")]) };
-    let mod_p2 = ModuleId { project: proj_2, path: ModulePath::root() };
+    let mod_p1_a = ModuleId {
+        project: proj_1,
+        path: ModulePath::root(),
+    };
+    let mod_p1_b = ModuleId {
+        project: proj_1,
+        path: ModulePath::from_components(vec![comp("sub")]),
+    };
+    let mod_p2 = ModuleId {
+        project: proj_2,
+        path: ModulePath::root(),
+    };
 
     let decl_target = DeclarationId::new(mod_p1_a.clone(), "Target".into());
 

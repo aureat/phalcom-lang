@@ -6,8 +6,8 @@ use super::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSi
 use super::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
 use super::types::parameter::{GenericSignature, TypeTerm};
 use phalcom_ast::ast::RestMode;
-use phalcom_common::selector::Selector;
 use phalcom_common::modifier::ImplementationKind;
+use phalcom_common::selector::Selector;
 use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_native_surface::NativeSurfaceId;
 use std::collections::{BTreeSet, HashMap};
@@ -180,7 +180,11 @@ impl CallableSemanticSignature {
             return Some("generic parameter contract differs".into());
         }
         if self.parameters.len() != expected.parameters.len() {
-            return Some(format!("parameter count differs (source {}, native {})", self.parameters.len(), expected.parameters.len()));
+            return Some(format!(
+                "parameter count differs (source {}, native {})",
+                self.parameters.len(),
+                expected.parameters.len()
+            ));
         }
         for (index, (source, native)) in self.parameters.iter().zip(expected.parameters.iter()).enumerate() {
             if source.external_label != native.external_label {
@@ -213,9 +217,7 @@ impl CallableSemanticSignature {
             // Its parameter contract remains exact; the backend termination
             // fact is carried separately by the native flow metadata.
             true
-        } else if let (Some(source), Some(native), Some(store)) =
-            (self.declared_return.canonical_type(), expected.declared_return.canonical_type(), store)
-        {
+        } else if let (Some(source), Some(native), Some(store)) = (self.declared_return.canonical_type(), expected.declared_return.canonical_type(), store) {
             if matches!(store.get(source), crate::types::store::TypeData::SelfType(_))
                 && matches!(store.get(native), crate::types::store::TypeData::SelfType(_))
             {
@@ -261,10 +263,7 @@ fn canonical_native_type_matches(source: crate::types::id::TypeId, native: crate
     if source == native {
         return true;
     }
-    if let (
-        crate::types::store::TypeData::SelfType(source_self),
-        crate::types::store::TypeData::SelfType(native_self),
-    ) = (store.get(source), store.get(native))
+    if let (crate::types::store::TypeData::SelfType(source_self), crate::types::store::TypeData::SelfType(native_self)) = (store.get(source), store.get(native))
     {
         return source_self.owner == native_self.owner && source_self.side == native_self.side;
     }
@@ -542,7 +541,10 @@ mod tests {
         assert_eq!(source.native_contract_mismatch(&matching), None);
 
         let parameter_mismatch = native_contract_test_signature(TypeId(3), TypeId(2));
-        assert_eq!(source.native_contract_mismatch(&parameter_mismatch).as_deref(), Some("parameter 0 type differs"));
+        assert_eq!(
+            source.native_contract_mismatch(&parameter_mismatch).as_deref(),
+            Some("parameter 0 type differs")
+        );
 
         let return_mismatch = native_contract_test_signature(TypeId(1), TypeId(4));
         assert_eq!(source.native_contract_mismatch(&return_mismatch).as_deref(), Some("return type differs"));
