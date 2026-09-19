@@ -28,7 +28,7 @@ workspace/release certification.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| TEST002.C1.P1 | Post-visibility semantic/core baseline failure elimination | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 baseline established; T1 stale-authority migrations complete |
+| TEST002.C1.P1 | Post-visibility semantic/core baseline failure elimination | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0 baseline established; T1–T4 semantic corrections complete |
 
 ## Starting state
 
@@ -82,6 +82,8 @@ workspace/release certification.
 | --- | --- | --- |
 | T0 | nineteen exact/narrow regression filters | COMPLETE: all nineteen reproduced; no production edits |
 | T1/G1 | stale field-flow oracle and cursor-era traceback fixture | PASS: both tests now express current lifecycle/Iterator semantics |
+| G2 | expression composition and canonical call application | PASS: 21 composition tests and 35 canonical call tests |
+| T4 | canonical/legacy-looking Universe dependency ownership | PASS: both exact dependency tests |
 
 ## Deferred / baseline issues
 
@@ -93,5 +95,4 @@ recorded here.
 
 ## Active next action
 
-Execute T2: preserve precise unknown/dynamic provenance through collection and
-product expansion.
+Execute T5: restore exact incremental product reuse and propagation stopping.

@@ -157,7 +157,7 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
 /// remain ordinary semantic identities and must retain their fine-grained
 /// dependency edges. Only the aggregate root is bootstrap-owned here.
 fn is_bootstrap_declaration(declaration: &DeclarationId) -> bool {
-    declaration.module.project == phalcom_modules::ProjectIdentity::Universe
+    declaration.module == ModuleId::universe_root()
 }
 
 /// Built-in type-test callables are represented by the standalone bootstrap

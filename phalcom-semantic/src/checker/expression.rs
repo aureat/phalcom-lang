@@ -1740,16 +1740,21 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
             }
             ListLiteralElement::Expansion { expr, range } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
-                let mut projected = TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause);
-                if let TypeKnowledge::Known(evidence) = &typed.knowledge {
+                let projected = if let TypeKnowledge::Known(evidence) = &typed.knowledge {
                     let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
                     if let Some(resolution) = resolution {
-                        projected = TypeKnowledge::established(resolution.item_type, EvidenceOrigin::ContextualDerivation);
-                        ctx.positional_expansions.insert(resolution.source_expression, resolution);
-                    } else if let Some(form) = list_form {
-                        projected = crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0);
+                        ctx.positional_expansions.insert(resolution.source_expression, resolution.clone());
+                        TypeKnowledge::established(resolution.item_type, EvidenceOrigin::ContextualDerivation)
+                    } else {
+                        list_form
+                            .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
+                            .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))
                     }
-                }
+                } else {
+                    list_form
+                        .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
+                        .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))
+                };
                 contributions.push(projected);
                 operands.push(typed);
             }
@@ -3845,6 +3850,9 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr, expecte
     let Ok(selector) = Selector::subscript_get(slots) else {
         return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into();
     };
+    if let Some(target) = super::call::structural_list_index_get_target(ctx, recv_ty).or_else(|| super::call::structural_map_index_get_target(ctx, recv_ty)) {
+        return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, idx.range).into();
+    }
     match ctx.resolve_dispatch_target(recv_ty, &selector, recv_typed.dispatch_lookup.clone()) {
         ResolvedDispatchResult::Found(resolved) => {
             let target = CallableApplicationTarget::from_dispatch(resolved);
@@ -3866,9 +3874,6 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr, expecte
             )
             .into();
         }
-    }
-    if let Some(target) = super::call::structural_list_index_get_target(ctx, recv_ty).or_else(|| super::call::structural_map_index_get_target(ctx, recv_ty)) {
-        return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, idx.range).into();
     }
     analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
 }
@@ -3924,6 +3929,10 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
         let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DispatchMissing);
         return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
     };
+    if let Some(target) = super::call::structural_list_index_set_target(ctx, recv_ty) {
+        let operation = apply_resolved_callable(ctx, &target, &premise, &all_arguments, &ExpectedType::None, set_idx.range);
+        return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
+    }
     match ctx.resolve_dispatch_target(recv_ty, &selector, recv_typed.dispatch_lookup.clone()) {
         ResolvedDispatchResult::Found(resolved) => {
             let target = CallableApplicationTarget::from_dispatch(resolved);
@@ -3948,10 +3957,6 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
             );
             return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
         }
-    }
-    if let Some(target) = super::call::structural_list_index_set_target(ctx, recv_ty) {
-        let operation = apply_resolved_callable(ctx, &target, &premise, &all_arguments, &ExpectedType::None, set_idx.range);
-        return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
     }
     let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DispatchMissing);
     super::call::assignment_result_from_call(ctx, operation, set_idx.range)
