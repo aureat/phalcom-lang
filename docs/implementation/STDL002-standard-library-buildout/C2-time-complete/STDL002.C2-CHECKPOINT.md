@@ -1249,6 +1249,16 @@ D — clearly unrelated/baseline
 
 Record meaningful C/D failures here rather than consuming C2 scope repairing unrelated work.
 
+### `STDL002.C2.P1.A1-G3-BASELINE` — builtin catalog unrelated failure
+
+The focused `phalcom-modules --test builtin_catalog` run selected 9 tests and
+passed 8. `bcat_08_root_alias_does_not_create_synthetic_declaration` failed
+because the catalog fixture could not resolve the unrelated
+`universe.collections.iterator_laws` import. This is classification D: the
+failure is outside the time graph/publication changes and does not block the
+A1 civil or standalone-closure acceptance evidence. It remains deferred to
+the owning collections/catalog work.
+
 ### `STDL002.C2.P1-T2` — Duration and Measurement foundation
 
 The T2 slice is implemented and focused-tested at the current execution head.
@@ -1272,9 +1282,9 @@ PASS  cargo test -p phalcom-core --test core compiler_product_optimization::priv
 PASS  cargo test -p phalcom-ast --test integration data_syntax::data_constructor_visibility
 ```
 
-The direct child-module import used by the corpus is executable. A separate
-package-root import still exposes a package-linking seam and is deferred to
-T7/package integration rather than hidden by a new special case.
+The direct child-module import used by the corpus is executable. The former
+package-root import seam was closed by the generic standalone dependency
+closure repair and is covered by the A1 package-root regression evidence.
 
 ### `STDL002.C2.P1-T3` — monotonic capability migration
 
@@ -1307,9 +1317,9 @@ PASS  cargo fmt --all -- --check
 PASS  git diff --check
 ```
 
-The package-root `from universe.time import clock` probe remains a known T7
-module-linking seam and was reverted after reproducing it; direct child-module
-imports remain the current executable evidence.
+The package-root `from universe.time import clock` probe was the historical
+module-linking reproducer for A1 and now passes through the generic closure
+path; no time-specific alias or linker exception was retained.
 
 ---
 
@@ -1405,6 +1415,20 @@ must be recorded here after approval.
 ### `C2-AMEND-05` — P1 takeover and documentation deferral recorded
 
 P1 became active at execution revision `f7e2ca1585c755e16f7046e5c24d0858dc2c9574` after the required narrow baseline. The body-level amendment `P1-BODY-DEV-01` is reaffirmed: existing `time.md` documents are excluded as stale, and authoritative time-specification work remains `USER-DEFERRED`. The live prerequisite matrix is mechanically landed for grouped imports/exports, lexical visibility, LANG006 implementation kinds, non-operative metadata, abstract-member syntax, generic data identity, and singleton/package identity; validated transparent data construction and concrete abstract-member completeness remain T1 verification/closure points before temporal source migration.
+
+### `C2-AMEND-06` — standalone Universe closure and T6 resume
+
+Architect guidance is recorded by
+`STDL002.C2.P1.A1-standalone-universe-period-t6-blocker-remediation-plan.md`.
+The standalone compiler now reuses the canonical resolver-backed reachable
+dependency worklist while retaining standalone entry admission and entry-only
+runtime ownership. Strict linking remains strict, and no time-specific
+resolution branch or duplicate temporal identity authority is permitted.
+
+The amendment also authorizes publication and focused verification of the
+already-authored non-`UtcOffset` T6 civil modules, then hands execution back to
+the existing P1 body. `UtcOffset` remains a separate VERIFY-FIRST decision;
+the amendment does not select a bound.
 
 ### `C2-CONSULT-01` — T1 validated-data construction contract is not defined in the live tree
 
@@ -1599,7 +1623,7 @@ P1-CV-19  PASS  wall primitive provenance/owner is SystemWallClock
 T4 is therefore `IMPLEMENTED` + `FOCUSED_TESTED`, with the explicit-import
 portion of the acceptance surface deferred as a known integration seam.
 
-## 25. `STDL002.C2.P1-T5` — Gregorian/calendar foundation in progress
+## 25. `STDL002.C2.P1-T5/T6` — Gregorian/calendar foundation and blocker remediation
 
 The T5 source slice is now present. `Month` and `Weekday` use bare enum cases
 with no `@variant` annotations, ISO numbering, invalid-number rejection, and
@@ -1627,10 +1651,10 @@ numbering, alongside the already-covered T2-T4 behavior. The direct
 initial diagnostic was an authored `Period.isZero` Boolean-body mismatch, not
 a duplicate declaration/type identity: the canonical data owner, declaration
 form, constructor result, and factory returns agree. The body now uses an
-equivalent typed conditional. Period-specific runtime and negative ordering
-coverage remains required before T5/G4 can be closed.
+equivalent typed conditional. The Period runtime and ordering-negative lanes
+are now covered below.
 
-### T5/T6 module-import limitation observed
+### T5/T6 module-import limitation and remediation
 
 A focused probe adding `from universe.time import Period` to the existing time
 corpus fails during package linking before the imported name is typechecked:
@@ -1656,21 +1680,41 @@ edge, and a standalone import of `universe.time` failed on
 `universe.time.clock`. The standalone sibling-import rejection remained green.
 The compiler repair now discovers those transitive modules through the same
 resolver-backed worklist used by project/package analysis; the exact graph
-regressions pass. Loading the newly reachable temporal sources also exposes
+regressions pass. Loading the newly reachable temporal sources exposed
 existing semantic diagnostics in their bodies, which remains separate from the
-module-closure gate and is carried into the Period/T6 verification gates.
+module-closure gate; the source-level diagnostics were repaired at their
+owning Phalcom definitions.
 
-The T6 civil source scaffold has begun (`Date`, `DateOverflow`, `Time`,
-`DateTime`, `YearMonth`, and `MonthDay`, plus shared Gregorian month movement),
-but those new modules are not yet added to the builtin graph/provider and have
-not been runtime-verified. `UtcOffset` remains intentionally unimplemented
-until its required P2-compatible numeric bound is selected; the plan marks
-that decision VERIFY-FIRST and forbids guessing.
+The module-layer limitation is closed. Direct standalone `Period`, `Date`,
+`Time`, `DateTime`, `YearMonth`, and `MonthDay` imports now compile and execute
+through the normal language-corpus path. The standalone `universe.time` and
+`universe.time.calendar` package regressions prove child discovery and
+canonical package exports.
+
+The T6 civil source is now published through the canonical builtin graph and
+source provider: `Date`, `DateOverflow`, `Time`,
+`DateTime`, `YearMonth`, and `MonthDay` are registered as normal Universe
+modules, and both `universe.time.calendar` and `universe.time` expose the
+existing civil declarations. No time-specific compiler/module-resolution
+branch was added.
+
+The source graph was completed mechanically where live source required it:
+`Date` now imports `Weekday`; the existing `Date`/`Time`/`DateTime` comparison
+tails use typed conditionals where the checker does not infer Boolean results
+through overloaded conjunction; `DateTime.==` uses a typed conditional; and
+the live `Date.advance` overflow label/variable is internally consistent.
+Unsupported source spellings (`|>` and `!==`) were removed from the published
+source in favor of equivalent live-language forms. These changes retain
+ordinary Phalcom ownership and do not add a second temporal construction or
+identity authority.
+
+`UtcOffset` remains intentionally unimplemented until its required
+P2-compatible numeric bound is selected; the plan marks that decision
+VERIFY-FIRST and forbids guessing.
 
 ### Independent direct-calendar regression closure
 
-While root package linking remains with the architect, the direct child-module
-lane was strengthened with invalid-number fixtures for `Month.fromNumber(13)`
+The direct child-module lane was strengthened with invalid-number fixtures for `Month.fromNumber(13)`
 and `Weekday.fromNumber(0)`. The Gregorian month-movement helper was also
 adjusted from a record-returning shape to typed year/month integer projections;
 this avoids a canonical semantic return-mismatch diagnostic while preserving
@@ -1701,24 +1745,47 @@ Additional focused evidence:
 PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time_negative -- --exact
 ```
 
+The amendment's G3 evidence is now complete:
+
+```text
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time -- --exact --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::time_negative -- --exact --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic capabilities::time -- --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_universe::standalone_universe_time_package_import_closure -- --exact --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_universe::standalone_universe_calendar_package_exports_civil_types -- --exact --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core reflection_census::physical_universe_corpus_matches_catalog -- --exact --nocapture
+PASS RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core reflection_census::package_exposures_match_catalog_children -- --exact --nocapture
+```
+
+The positive corpus now covers civil boundaries, epoch anchors, leap-year
+round trips, `DateTime` projections, Period month/day application, overflow
+constrain/reject, `YearMonth` movement, `MonthDay`, and `Time` boundaries. The
+negative corpus covers invalid civil constructors and the intentionally
+unavailable `Period` ordering operation.
+
 ## 26. Current next action
 
-P1 remains active across the T5/T6 transition. T1's validated-data and abstract-member
-prerequisites, T2 Duration/Measurement, T3 monotonic time, and T4 absolute
-wall-time are implemented and focused-tested. Finish T5's Period-specific
-verification and ordering-negative lane, then proceed to T6, carrying the
-known T7 package/module-linking and non-prelude data identity seams and the
-source-coordinate semantic baseline update as deferred integration work. Do
-not replace either with a time-specific workaround:
+P1 remains active after the A1 blocker-remediation amendment. T1's
+validated-data and abstract-member prerequisites, T2 Duration/Measurement, T3
+monotonic time, T4 absolute wall-time, T5 Period identity, and the non-offset
+T6 civil layer are implemented and focused-tested. The standalone transitive
+Universe closure and canonical package-publication blocker is removed; no
+time-specific workaround remains.
+
+The next action returns to the existing P1 body: finish any remaining T6
+contract, including the separately gated `UtcOffset` bound VERIFY-FIRST
+decision, then continue P1's later package/ordinary-package closure and T7
+publication work. Do not replace that remaining work with a time-specific
+workaround:
 
 ```text
 STDL002.C2.P1-plan-00-shared-header.md
 STDL002.C2.P1-01-body.md
 ```
 
-P1 takeover verified the required general language surface and T2 now records
-the first focused gate. Remaining work is the T3/T4 architecture decision and
-the later ordered implementation gates:
+P1 takeover verified the required general language surface and the preceding
+focused gates. Remaining work is the later ordered implementation gates,
+including the unresolved `UtcOffset` decision and ordinary-package closure:
 
 ```text
 lexical identity-based visibility

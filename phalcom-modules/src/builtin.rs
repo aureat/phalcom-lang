@@ -104,7 +104,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["time", "calendar"],
         kind: ModuleKind::Package,
-        children: &["month", "weekday", "period"],
+        children: &["month", "weekday", "period", "date", "time", "datetime", "partial"],
     },
     UniverseNodeSpec {
         path: &["time", "calendar", "month"],
@@ -118,6 +118,26 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["time", "calendar", "period"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "calendar", "date"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "calendar", "time"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "calendar", "datetime"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "calendar", "partial"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -623,6 +643,18 @@ impl UniverseSourceProvider {
             }
             [c, p, m] if c.as_str() == "time" && p.as_str() == "calendar" && m.as_str() == "period" => {
                 include_str!("../../phalcom-core/core/universe/src/time/calendar/period.ph")
+            }
+            [c, p, m] if c.as_str() == "time" && p.as_str() == "calendar" && m.as_str() == "date" => {
+                include_str!("../../phalcom-core/core/universe/src/time/calendar/date.ph")
+            }
+            [c, p, m] if c.as_str() == "time" && p.as_str() == "calendar" && m.as_str() == "time" => {
+                include_str!("../../phalcom-core/core/universe/src/time/calendar/time.ph")
+            }
+            [c, p, m] if c.as_str() == "time" && p.as_str() == "calendar" && m.as_str() == "datetime" => {
+                include_str!("../../phalcom-core/core/universe/src/time/calendar/datetime.ph")
+            }
+            [c, p, m] if c.as_str() == "time" && p.as_str() == "calendar" && m.as_str() == "partial" => {
+                include_str!("../../phalcom-core/core/universe/src/time/calendar/partial.ph")
             }
             [c] if c.as_str() == "process" => include_str!("../../phalcom-core/core/universe/src/process/package.ph"),
             [c] if c.as_str() == "net" => include_str!("../../phalcom-core/core/universe/src/net/package.ph"),

@@ -4,9 +4,9 @@ category: STDL
 program: STDL002
 checkpoint: STDL002.C2
 kind: implementation-plan-amendment
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 amends:
   - STDL002.C2.P1
 depends_on:

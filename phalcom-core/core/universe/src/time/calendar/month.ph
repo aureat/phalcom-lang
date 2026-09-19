@@ -109,7 +109,7 @@ enum Month {
 impl Month {
   @class
   fromNumber(_ number: Int) -> Month {
-    if not (number is Int) { ArgumentError.new("Month.fromNumber: number must be an Int").raise() }
+    if number is not Int { ArgumentError.new("Month.fromNumber: number must be an Int").raise() }
     if number == 1 { return Month::January }
     if number == 2 { return Month::February }
     if number == 3 { return Month::March }

@@ -210,8 +210,15 @@ fn standalone_universe_transitive_import_closure() {
         phalcom_modules::ModuleComponent::from_identifier("time").unwrap(),
         phalcom_modules::ModuleComponent::from_identifier("duration").unwrap(),
     ]));
-    assert!(program.sources.contains_key(&duration), "Timestamp's transitive Duration module must be discovered");
-    assert_eq!(program.runtime_modules.len(), 1, "Universe support modules must not become standalone runtime-owned modules");
+    assert!(
+        program.sources.contains_key(&duration),
+        "Timestamp's transitive Duration module must be discovered"
+    );
+    assert_eq!(
+        program.runtime_modules.len(),
+        1,
+        "Universe support modules must not become standalone runtime-owned modules"
+    );
     assert!(program.runtime_modules.contains(&program.entry));
 }
 
@@ -227,18 +234,57 @@ fn standalone_universe_time_package_import_closure() {
         phalcom_modules::ModuleComponent::from_identifier("clock").unwrap(),
     ]));
     assert!(program.sources.contains_key(&clock), "time package must discover its Clock child module");
-    assert_eq!(program.runtime_modules.len(), 1, "Universe support modules must not become standalone runtime-owned modules");
+    assert_eq!(
+        program.runtime_modules.len(),
+        1,
+        "Universe support modules must not become standalone runtime-owned modules"
+    );
     assert!(program.runtime_modules.contains(&program.entry));
+}
+
+#[test]
+fn standalone_universe_calendar_package_exports_civil_types() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("calendar.ph");
+    fs::write(&source, "from universe.time.calendar import Date, Time, YearMonth\nconst imported = Date\n").unwrap();
+
+    let program = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Module(source)).expect("standalone calendar package analysis");
+    assert!(
+        !program.semantic.has_errors(),
+        "calendar package exports must remain semantic-clean: {:?}",
+        program.semantic.diagnostics
+    );
+    for path in [
+        vec!["time", "calendar"],
+        vec!["time", "calendar", "date"],
+        vec!["time", "calendar", "time"],
+        vec!["time", "calendar", "partial"],
+    ] {
+        let module = ModuleId::universe(ModulePath::from_components(
+            path.into_iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).unwrap())
+                .collect::<Vec<_>>(),
+        ));
+        assert!(program.sources.contains_key(&module), "calendar package must discover {module}");
+    }
 }
 
 #[test]
 fn standalone_period_identity_is_canonical() {
     let tmp = TempDir::new().unwrap();
     let source = tmp.path().join("period.ph");
-    fs::write(&source, "from universe.time.calendar.period import Period\nconst p = Period.months(1)\nSystem.print(p.months)\n").unwrap();
+    fs::write(
+        &source,
+        "from universe.time.calendar.period import Period\nconst p = Period.months(1)\nSystem.print(p.months)\n",
+    )
+    .unwrap();
 
     let program = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Module(source)).expect("standalone Period analysis");
-    assert!(!program.semantic.has_errors(), "direct Period import must have no semantic errors: {:?}", program.semantic.diagnostics);
+    assert!(
+        !program.semantic.has_errors(),
+        "direct Period import must have no semantic errors: {:?}",
+        program.semantic.diagnostics
+    );
 
     let period_module = ModuleId::universe(ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("time").unwrap(),

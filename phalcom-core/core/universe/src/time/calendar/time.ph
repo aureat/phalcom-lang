@@ -34,14 +34,14 @@ impl Time {
 
   <=(_ other: Time) -> Bool {
     const order = self.compare(other)
-    (order === Ordering::Less) or (order === Ordering::Equal)
+    if order === Ordering::Less { true } else { order === Ordering::Equal }
   }
 
   >(_ other: Time) -> Bool { self.compare(other) === Ordering::Greater }
 
   >=(_ other: Time) -> Bool {
     const order = self.compare(other)
-    (order === Ordering::Greater) or (order === Ordering::Equal)
+    if order === Ordering::Greater { true } else { order === Ordering::Equal }
   }
 
   ==(_ other: Dynamic) -> Bool {

@@ -321,11 +321,7 @@ fn discover_reachable_dependencies<P: SourceProvider>(
         }
     }
 
-    Ok(DiscoveredProgramClosure {
-        interfaces,
-        sources,
-        resolved,
-    })
+    Ok(DiscoveredProgramClosure { interfaces, sources, resolved })
 }
 
 impl ProgramAnalyzer {
@@ -573,8 +569,7 @@ impl ProgramAnalyzer {
 
         let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).link(entry_id.clone(), &discovered.resolved)?);
 
-        let analysis =
-            phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0));
+        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0));
 
         Ok(AnalyzedProgram {
             project_universe: universe,
@@ -606,8 +601,7 @@ impl ProgramAnalyzer {
         let linker = ModuleLinker::new(universe.clone(), discovered.interfaces);
         let linked = Arc::new(linker.link(entry.clone(), &discovered.resolved)?);
 
-        let analysis =
-            phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0));
+        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0));
 
         Ok(AnalyzedProgram {
             project_universe: universe,

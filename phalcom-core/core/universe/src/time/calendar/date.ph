@@ -27,9 +27,8 @@ impl Date {
   isLeapYear -> Bool { Gregorian.isLeapYear(self.year) }
 
   dayOfYear -> Int {
-    Gregorian.daysFromCivil(self.year, 1, 1) |> (_ start) {
-      Gregorian.daysFromCivil(self.year, self.month.number, self.day) - start + 1
-    }
+    const start = Gregorian.daysFromCivil(self.year, 1, 1)
+    Gregorian.daysFromCivil(self.year, self.month.number, self.day) - start + 1
   }
 
   weekday -> Weekday {
@@ -50,14 +49,14 @@ impl Date {
 
   <=(_ other: Date) -> Bool {
     const order = self.compare(other)
-    (order === Ordering::Less) or (order === Ordering::Equal)
+    if order === Ordering::Less { true } else { order === Ordering::Equal }
   }
 
   >(_ other: Date) -> Bool { self.compare(other) === Ordering::Greater }
 
   >=(_ other: Date) -> Bool {
     const order = self.compare(other)
-    (order === Ordering::Greater) or (order === Ordering::Equal)
+    if order === Ordering::Greater { true } else { order === Ordering::Equal }
   }
 
   ==(_ other: Dynamic) -> Bool {
@@ -67,19 +66,26 @@ impl Date {
 
   hash -> Int { (self.year * 1_000_000) + (self.month.number * 10_000) + self.day }
 
-  advance(_ period: Period, overflow: DateOverflow) -> Date {
-    if not (period is Period) { ArgumentError.new("Date.advance: period must be a Period").raise() }
-    if not (overflow is DateOverflow) { ArgumentError.new("Date.advance: overflow must be a DateOverflow").raise() }
+  advance(_ period: Period, onOverflow overflowStrategy: DateOverflow) -> Date {
+    if period is not Period {
+        ArgumentError.new("Date.advance: period must be a Period").raise()
+    }
+
+    if overflowStrategy is not DateOverflow {
+        ArgumentError.new("Date.advance: overflow must be a DateOverflow").raise()
+    }
 
     const targetYear = Gregorian.addMonthsYear(self.year, self.month.number, period.months)
     const targetMonthNumber = Gregorian.addMonthsNumber(self.year, self.month.number, period.months)
     const targetMonth = Month.fromNumber(targetMonthNumber)
     const targetLastDay = Gregorian.daysInMonth(targetYear, targetMonthNumber)
+
     let targetDay = self.day
     if targetDay > targetLastDay {
-      match overflow {
-        Constrain => { targetDay = targetLastDay }
-        Reject => { ArgumentError.new("Date.advance: target month cannot contain the original day").raise() }
+      if overflowStrategy === DateOverflow::Constrain {
+        targetDay = targetLastDay
+      } else {
+        ArgumentError.new("Date.advance: target month cannot contain the original day").raise()
       }
     }
 

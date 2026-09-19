@@ -15,7 +15,7 @@ impl DateTime {
   compare(_ other: DateTime) -> Ordering {
     if not (other is DateTime) { ArgumentError.new("DateTime.compare: other must be a DateTime").raise() }
     const dateOrder = self.date.compare(other.date)
-    if dateOrder !== Ordering::Equal { return dateOrder }
+    if dateOrder != Ordering::Equal { return dateOrder }
     self.time.compare(other.time)
   }
 
@@ -23,19 +23,19 @@ impl DateTime {
 
   <=(_ other: DateTime) -> Bool {
     const order = self.compare(other)
-    (order === Ordering::Less) or (order === Ordering::Equal)
+    if order === Ordering::Less { true } else { order === Ordering::Equal }
   }
 
   >(_ other: DateTime) -> Bool { self.compare(other) === Ordering::Greater }
 
   >=(_ other: DateTime) -> Bool {
     const order = self.compare(other)
-    (order === Ordering::Greater) or (order === Ordering::Equal)
+    if order === Ordering::Greater { true } else { order === Ordering::Equal }
   }
 
   ==(_ other: Dynamic) -> Bool {
     if not other.is(DateTime) { return false }
-    (self.date == other.date) and (self.time == other.time)
+    if self.date == other.date { self.time == other.time } else { false }
   }
 
   hash -> Int { (self.date.hash * 1_000_000_000) + self.time.hash }
