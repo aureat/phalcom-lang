@@ -3,8 +3,8 @@ id: STDL002.C2
 category: STDL
 program: STDL002
 kind: implementation-checkpoint
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 depends_on:
   - STDL002.C1
@@ -1217,7 +1217,7 @@ Workspace-wide release certification is separate. Broad workspace test failures 
 
 | Plan | Objective | Plan artifact state | Implementation status | Completion | Verification |
 |---|---|---|---|---|---|
-| `STDL002.C2.P1` | modern temporal foundation, absolute time, civil calendar, fixed offset, package/prelude migration | shared header + installed body authored | PROPOSED | NOT_STARTED | UNVERIFIED |
+| `STDL002.C2.P1` | modern temporal foundation, absolute time, civil calendar, fixed offset, package/prelude migration | shared header + installed body authored | BLOCKED | PARTIAL | UNVERIFIED |
 | `STDL002.C2.P2` | timezone/zoned/textual/testing layers and C2 integration closure | full patch-grade plan authored | PROPOSED | NOT_STARTED | REQUIREMENTS_ANALYZED |
 
 Installed plan artifacts:
@@ -1232,7 +1232,11 @@ The P2 plan was authored before P1 implementation only because the user explicit
 
 ## 22. Deferred/baseline failures
 
-None recorded at checkpoint creation.
+### `STDL002.C2.P1-T0-BASELINE` — predecessor focused baseline
+
+Execution takeover on `main` at `f7e2ca1585c755e16f7046e5c24d0858dc2c9574` was clean. The semantic capability filter passed 2/2 tests. The core `language-corpus time` filter selected three tests and failed in pre-existing C/D surfaces: the positive time fixture reaches the current identity-based `internal` access rule through `ManualClock.new()`/`allocate()`, the negative fractional-duration fixture reports the generic argument-mismatch diagnostic rather than its stale `Duration.seconds` substring, and the filter also includes two unrelated `runtime_errors` cases that fail at the same access boundary. The narrower `time_negative` filter selected one test and reproduced the same stale diagnostic expectation.
+
+These failures occurred before P1 production edits and are migration/baseline evidence, not P1 implementation failures. They remain nonblocking until the migrated P1 fixtures replace the stale C1 expectations; no unrelated runtime-error repair is authorized here.
 
 When implementation finds a failure, classify it:
 
@@ -1336,16 +1340,51 @@ specification deferral status
 
 must be recorded here after approval.
 
+### `C2-AMEND-05` — P1 takeover and documentation deferral recorded
+
+P1 became active at execution revision `f7e2ca1585c755e16f7046e5c24d0858dc2c9574` after the required narrow baseline. The body-level amendment `P1-BODY-DEV-01` is reaffirmed: existing `time.md` documents are excluded as stale, and authoritative time-specification work remains `USER-DEFERRED`. The live prerequisite matrix is mechanically landed for grouped imports/exports, lexical visibility, LANG006 implementation kinds, non-operative metadata, abstract-member syntax, generic data identity, and singleton/package identity; validated transparent data construction and concrete abstract-member completeness remain T1 verification/closure points before temporal source migration.
+
+### `C2-CONSULT-01` — T1 validated-data construction contract is not defined in the live tree
+
+P1 is paused before production time edits under the shared consultation trigger for a false/missing core plan premise and an ownership/semantic-authority boundary that cannot be chosen mechanically.
+
+```text
+Observed:
+  DataDef has transparent immutable components and a canonical DataConstructorId;
+  compiler/lib/data_decl.rs emits direct data construction metadata and
+  ConstructData lowering has no validation hook; DataDef attributes are not
+  consumed by the data compiler path. Existing @invariant weaving is limited
+  to ClassDef members, and the current accepted data decision does not define
+  validated-data construction.
+
+Required P1 invariant:
+  Date, Time, MonthDay, and UtcOffset remain transparent data while every
+  ordinary public construction lane rejects invalid state; no bypass lane may
+  manufacture invalid values.
+
+Why local authority is insufficient:
+  Adding a constructor hook, data-level invariant attribute, hidden validated
+  class wrapper, or compiler-recognized temporal constructor would select a new
+  general data representation/validation contract and create a second source
+  of construction authority without an accepted language decision.
+
+Requested decision:
+  Ratify the general validated-transparent-data construction model and its
+  owning layer/observable error semantics, or amend P1 to use an already
+  accepted alternative. After that decision, resume T1 and record the exact
+  focused owning-layer tests before temporal source migration.
+```
+
 ## 24. Current next action
 
-Execute `STDL002.C2.P1` from the authored P1 plan set:
+P1 is paused at T1 pending the validated-transparent-data construction decision. Once resolved, resume from T1/G1; do not begin temporal production edits before that prerequisite is durable:
 
 ```text
 STDL002.C2.P1-plan-00-shared-header.md
 STDL002.C2.P1-01-body.md
 ```
 
-P1 takeover must first verify that the required general language surface has actually landed, especially:
+P1 takeover verified the required general language surface and recorded the remaining T1 closure points, especially:
 
 ```text
 lexical identity-based visibility

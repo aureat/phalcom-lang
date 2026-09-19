@@ -414,7 +414,7 @@ fn test_metadata_rejects_stale_alias_form_before_publication() {
 }
 
 #[test]
-fn metadata_branch_a_rejects_raw_associated_projection() {
+fn metadata_exports_associated_projection_with_stable_identity() {
     let mut store = TypeStore::new();
     let subject = store.nominal(dummy_decl("Box"));
     let trait_declaration = dummy_decl("Cell");
@@ -424,11 +424,32 @@ fn metadata_branch_a_rejects_raw_associated_projection() {
         AssociatedTypeRequirementId::new(trait_declaration, 0),
     );
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
-
+    let node = exporter.export_type_form(projection).expect("associated projection is exportable");
+    let bundle = exporter.build_bundle(&[]).expect("associated projection metadata bundle");
+    let entry = &bundle.types[node.0 as usize];
+    let phalcom_type_meta::type_node::TypeNode::AssociatedProjection {
+        subject,
+        trait_application,
+        requirement,
+    } = &entry.form
+    else {
+        panic!("expected associated projection metadata node, got {:?}", entry.form);
+    };
     assert!(matches!(
-        exporter.export_type_form(projection),
-        Err(MetadataExportError::NonExportableForm(form)) if form == projection
+        &bundle.types[subject.0 as usize].form,
+        phalcom_type_meta::type_node::TypeNode::Nominal { declaration } if declaration.path.last().map(|value| value.as_ref()) == Some("Box")
     ));
+    assert_eq!(trait_application.declaration.path.last().map(|value| value.as_ref()), Some("Cell"));
+    assert!(trait_application.arguments.is_empty());
+    assert_eq!(requirement.owner, trait_application.declaration);
+    assert_eq!(requirement.index, 0);
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("associated projection bundle validates");
+
+    let first_fingerprint = entry.structural_fingerprint;
+    let mut second_exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let second_node = second_exporter.export_type_form(projection).expect("associated projection remains exportable");
+    let second_bundle = second_exporter.build_bundle(&[]).expect("second associated projection metadata bundle");
+    assert_eq!(first_fingerprint, second_bundle.types[second_node.0 as usize].structural_fingerprint);
 }
 
 #[test]

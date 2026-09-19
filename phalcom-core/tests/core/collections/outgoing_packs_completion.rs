@@ -498,8 +498,11 @@ receiver.f2InternalProbe(*args)
 "#,
         )
     })
-    .expect_err("ordinary source must not spell an internal dynamic selector");
-    assert!(error.contains("internal.namespace_reserved"), "unexpected internal-namespace error: {error}");
+    .expect_err("ordinary source must not mint compiler-internal dispatch authority");
+    assert!(
+        error.contains("does not understand 'f2InternalProbe(_)'"),
+        "ordinary source must receive ordinary missing-message behavior: {error}"
+    );
 }
 
 static DISASM_COUNTER: AtomicU64 = AtomicU64::new(0);

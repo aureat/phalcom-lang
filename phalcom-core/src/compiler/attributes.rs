@@ -1361,6 +1361,7 @@ fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRang
                 },
                 range,
             }],
+            invocation_authority: Default::default(),
             range,
         }));
         acc = Expr::Binary(Box::new(BinaryExpr {
@@ -1460,6 +1461,7 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
                         range,
                     },
                 ],
+                invocation_authority: Default::default(),
                 range,
             }));
             PackItem::Labeled {
@@ -1477,6 +1479,7 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
         method: "new".to_string(),
         method_range: None,
         args,
+        invocation_authority: Default::default(),
         range,
     }))
 }
@@ -1831,6 +1834,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
                 expr: Expr::SelfVar { range: v.range },
                 range: v.range,
             }],
+            invocation_authority: Default::default(),
             range: v.range,
         }));
         members.push(ClassMember::Method(MethodDef {
@@ -1916,6 +1920,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         method: "matchArm".to_string(),
         method_range: None,
         args: arm_args,
+        invocation_authority: Default::default(),
         range: match_range,
     }));
     let synthetic_attr = Attribute {
@@ -2480,6 +2485,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
                     method: "allocate".to_string(),
                     method_range: None,
                     args: Vec::new(),
+                    invocation_authority: phalcom_ast::ast::InvocationAuthority::CompilerInternal,
                     range,
                 }))),
                 range,
@@ -2490,6 +2496,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
                     method: init_name,
                     method_range: None,
                     args,
+                    invocation_authority: Default::default(),
                     range,
                 })),
                 range,
@@ -2559,6 +2566,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
             expr: Expr::String { value: err_msg, range },
             range,
         }],
+        invocation_authority: Default::default(),
         range,
     }));
     let error_expr = Expr::MethodCall(Box::new(MethodCallExpr {
@@ -2566,6 +2574,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
         method: "raise".to_string(),
         method_range: None,
         args: Vec::new(),
+        invocation_authority: Default::default(),
         range,
     }));
     let block_expr = Expr::Block(Box::new(BlockExpr {
@@ -2579,6 +2588,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
         method: "ifFalse".to_string(),
         method_range: None,
         args: vec![PackItem::Positional { expr: block_expr, range }],
+        invocation_authority: Default::default(),
         range,
     }));
     Statement::Expr { expr: check_call, range }
@@ -2592,6 +2602,7 @@ fn self_send0(method: &str, range: SourceRange) -> Expr {
         method: method.to_string(),
         method_range: None,
         args: Vec::new(),
+        invocation_authority: Default::default(),
         range,
     }))
 }
@@ -2681,16 +2692,17 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
                 object: owner_var.clone(),
                 method: "ifTrue".to_string(),
                 method_range: None,
-                args: vec![PackItem::Positional {
+                    args: vec![PackItem::Positional {
                     expr: Expr::Block(Box::new(BlockExpr {
                         params: phalcom_ast::ast::ClosureParameters::default(),
                         body: check_stmts(true),
                         expr_body: false,
                         range,
                     })),
+                        range,
+                    }],
+                    invocation_authority: Default::default(),
                     range,
-                }],
-                range,
             })),
             range,
         });
@@ -2723,6 +2735,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
                 })),
                 range,
             }],
+            invocation_authority: Default::default(),
             range,
         })),
         range,
@@ -2739,6 +2752,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
         method: "ensure".to_string(),
         method_range: None,
         args: vec![PackItem::Positional { expr: cleanup_block, range }],
+        invocation_authority: Default::default(),
         range,
     }));
 

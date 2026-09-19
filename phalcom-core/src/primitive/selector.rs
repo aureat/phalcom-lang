@@ -214,8 +214,8 @@ pub fn selector_kind(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
     Selector,
     "slots",
     params = [],
-    returns = List,
-    types = "() -> List",
+    returns = "List<Symbol>",
+    types = "() -> List<Symbol>",
     effects = pure
 )]
 pub fn selector_slots(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {

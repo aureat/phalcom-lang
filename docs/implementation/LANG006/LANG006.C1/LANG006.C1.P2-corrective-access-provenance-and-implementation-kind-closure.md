@@ -4,8 +4,8 @@ category: LANG
 program: LANG006
 checkpoint: LANG006.C1
 kind: implementation-plan
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: BASELINE_BLOCKED
 depends_on:
   - LANG006.C1.P1

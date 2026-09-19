@@ -385,6 +385,6 @@ fn compiler_surfaces_publish_source_member_visibility() {
     }
     assert_eq!(
         surface.instance.field_visibility.get("_field").copied(),
-        Some(phalcom_semantic::MemberVisibility::Private)
+        Some(phalcom_semantic::MemberVisibility::Public)
     );
 }

@@ -9,7 +9,7 @@ use crate::heap::ObjRef;
 use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, ImplementationKind, IndexAccessor,
+    Attribute, BehaviorMember, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, ImplementationKind, IndexAccessor,
     MemberBody, Visibility,
 };
 use phalcom_common::range::SourceRange;
@@ -183,11 +183,6 @@ impl<'vm> Compiler<'vm> {
 
                 let param_names: Vec<String> = method_def.params.iter().map(|p| p.name.clone()).collect();
                 self.is_static_context = is_class_side;
-                let prior_compiler_internal = self.compiler_internal;
-                self.compiler_internal = method_def
-                    .attributes
-                    .iter()
-                    .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor)) || attr.name == "__synthetic");
                 let body_stmts = match &method_def.body {
                     MemberBody::Block(stmts) => stmts.clone(),
                     MemberBody::Declaration => {
@@ -198,7 +193,6 @@ impl<'vm> Compiler<'vm> {
                     }
                 };
                 let closure_result = self.compile_block(body_stmts, selector_sym, ClosureParameters::fixed(param_names), true, false, None);
-                self.compiler_internal = prior_compiler_internal;
                 let closure = closure_result?;
 
                 let method_obj = self.alloc_source_method(MethodObject::new_single(

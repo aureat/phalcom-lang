@@ -3,7 +3,7 @@ use crate::callable::UpvalueDescriptor;
 use crate::interner::Symbol;
 use crate::method::{SignatureKind, encode_selector};
 use crate::value::Value;
-use phalcom_ast::ast::PackItem;
+use phalcom_ast::ast::{InvocationAuthority, PackItem};
 use phalcom_common::range::SourceRange;
 
 use super::error::CompilerError;
@@ -35,8 +35,14 @@ impl<'vm> Compiler<'vm> {
     /// Emits an ordinary or semantically specialized invocation. The
     /// specialized form is selected only when semantic lowering attached a
     /// canonical call-entry recipe at this source range.
-    pub(crate) fn emit_invoke(&mut self, arity: u8, selector_idx: u16, range: SourceRange, internal: bool) -> Result<(), CompilerError> {
-        if internal {
+    pub(crate) fn emit_invoke(
+        &mut self,
+        arity: u8,
+        selector_idx: u16,
+        range: SourceRange,
+        authority: InvocationAuthority,
+    ) -> Result<(), CompilerError> {
+        if authority == InvocationAuthority::CompilerInternal {
             self.emit(Bytecode::InvokeCompilerInternal(arity, selector_idx), range);
         } else if let Some(recipe) = self.lowering().and_then(|lowering| lowering.call_environment_recipes.get(&range)).cloned() {
             let recipe_idx = self

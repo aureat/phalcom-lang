@@ -163,9 +163,6 @@ pub(crate) struct Compiler<'vm> {
     /// a constructor's own nested blocks still counts (no attempt is made to
     /// track "inside a block passed to something else").
     in_constructor: bool,
-    /// True only while lowering a compiler-generated method that must send an
-    /// internal runtime selector. This marker is never sourced from user AST.
-    compiler_internal: bool,
     /// Monotonic counter minting unique names for compiler-synthesized
     /// destructuring scratch locals (`$destructure…`, ruling L-9).
     ///
@@ -239,7 +236,6 @@ impl<'vm> Compiler<'vm> {
             loop_contexts: Vec::new(),
             deopt_fallback_depth: 0,
             in_constructor: false,
-            compiler_internal: false,
             scratch_counter: 0,
             source_id,
             unit_kind,
@@ -928,6 +924,7 @@ impl<'vm> Compiler<'vm> {
                     method: "raise".to_string(),
                     method_range: None,
                     args: Vec::new(),
+                    invocation_authority: Default::default(),
                     range,
                 }));
                 self.compile_expr_want(call, !emit_pop)?;

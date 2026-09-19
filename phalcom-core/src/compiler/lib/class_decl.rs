@@ -826,11 +826,6 @@ impl<'vm> Compiler<'vm> {
 
                     let param_names: Vec<String> = method_def.params.iter().map(|p| p.name.clone()).collect();
                     self.is_static_context = method_def.is_static;
-                    let prior_compiler_internal = self.compiler_internal;
-                    self.compiler_internal = method_def
-                        .attributes
-                        .iter()
-                        .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor)) || attr.name == "__synthetic");
                     let body_stmts = match method_def.body {
                         phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
                         phalcom_ast::ast::MemberBody::Declaration => {
@@ -841,7 +836,6 @@ impl<'vm> Compiler<'vm> {
                         }
                     };
                     let closure_result = self.compile_block(body_stmts, selector_sym, ClosureParameters::fixed(param_names), true, false, None);
-                    self.compiler_internal = prior_compiler_internal;
                     let closure = closure_result?;
 
                     tracing::debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
@@ -1251,6 +1245,7 @@ impl<'vm> Compiler<'vm> {
             method: "new".to_string(),
             method_range: None,
             args: attr.args.iter().map(|expr| PackItem::Positional { expr: expr.clone(), range }).collect(),
+            invocation_authority: Default::default(),
             range,
         }));
         self.compile_expr(ctor_call)?;

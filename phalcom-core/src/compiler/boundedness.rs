@@ -237,6 +237,7 @@ mod tests {
                 })),
                 range: EmptySourceRange,
             }],
+            invocation_authority: Default::default(),
             range: EmptySourceRange,
         }))
     }

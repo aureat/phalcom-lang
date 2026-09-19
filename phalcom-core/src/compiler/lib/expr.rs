@@ -4,7 +4,7 @@ use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::modules::semantic_lowering::{AssociatedLoweringSpec, LoweringSiteKind};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    BinaryOp, BlockExpr, ClosureParameters, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, NormalizedSelectorSpec, PackItem,
+    BinaryOp, BlockExpr, ClosureParameters, Expr, InvocationAuthority, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, NormalizedSelectorSpec, PackItem,
     PackLabel, ProductLabel, RecordLiteralEntry, SelectorSpecSyntax, SetLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
 use phalcom_common::range::SourceRange;
@@ -493,7 +493,7 @@ impl<'vm> Compiler<'vm> {
                                 call.range,
                             );
                         } else {
-                            self.emit_invoke(arity, selector_idx, call.range, false)?;
+                            self.emit_invoke(arity, selector_idx, call.range, InvocationAuthority::Ordinary)?;
                         }
                         return Ok(());
                     }
@@ -506,7 +506,7 @@ impl<'vm> Compiler<'vm> {
                 let selector = encode_selector("call", &labels, SignatureKind::Method(arity));
                 let selector_sym = self.vm.interner.intern(&selector);
                 let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                self.emit_invoke(arity, selector_idx, call.range, false)?;
+                self.emit_invoke(arity, selector_idx, call.range, InvocationAuthority::Ordinary)?;
             }
             Expr::MethodCall(method_call) => {
                 self.check_bounded_method_call(&method_call)?;
@@ -749,7 +749,7 @@ impl<'vm> Compiler<'vm> {
                                 method_call.range,
                             );
                         } else {
-                            self.emit_invoke(arity, selector_idx, method_call.range, false)?;
+                            self.emit_invoke(arity, selector_idx, method_call.range, method_call.invocation_authority)?;
                         }
                     }
                 }
@@ -836,7 +836,7 @@ impl<'vm> Compiler<'vm> {
                 let selector_sym = self.vm.interner.intern(&get_prop.property);
                 let selector_idx = self.add_constant(Value::symbol(selector_sym));
                 if !self.emit_trait_requirement_if_present(0, get_prop.range)? && !self.emit_trait_invoke_if_present(0, get_prop.range)? {
-                    self.emit_invoke(0, selector_idx, get_prop.range, false)?;
+                    self.emit_invoke(0, selector_idx, get_prop.range, InvocationAuthority::Ordinary)?;
                 }
             }
             Expr::SetProperty(set_prop) => {
@@ -845,7 +845,7 @@ impl<'vm> Compiler<'vm> {
                 let selector = make_signature(&set_prop.property, SignatureKind::Setter);
                 let selector_sym = self.vm.interner.intern(&selector);
                 let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                self.emit_invoke(1, selector_idx, set_prop.range, false)?;
+                self.emit_invoke(1, selector_idx, set_prop.range, InvocationAuthority::Ordinary)?;
             }
             Expr::Index(ix) => {
                 // U-INDEX (ADR-0060): `xs[a, b, ...]` sends directly to the
@@ -868,7 +868,7 @@ impl<'vm> Compiler<'vm> {
                 let selector = encode_selector("", &labels, SignatureKind::SubscriptGet(argc));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::symbol(sym));
-                self.emit_invoke(argc, idx, ix.range, false)?;
+                self.emit_invoke(argc, idx, ix.range, InvocationAuthority::Ordinary)?;
             }
             Expr::SetIndex(six) => {
                 let six = *six;
@@ -931,7 +931,7 @@ impl<'vm> Compiler<'vm> {
                 let selector = encode_selector("", &labels, SignatureKind::SubscriptSet(index_argc));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::symbol(sym));
-                self.emit_invoke(invoke_argc, idx, six.range, false)?;
+                self.emit_invoke(invoke_argc, idx, six.range, InvocationAuthority::Ordinary)?;
 
                 // 7. Pop setter result
                 self.emit(Bytecode::Pop, six.range);
@@ -1614,6 +1614,7 @@ impl<'vm> Compiler<'vm> {
                         },
                         range,
                     }],
+                    invocation_authority: Default::default(),
                     range,
                 }));
 

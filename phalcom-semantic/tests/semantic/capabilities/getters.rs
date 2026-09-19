@@ -151,6 +151,10 @@ fn enum_generic_getter_uses_canonical_application_path() {
     let fixture = Fixture::new(
         r#"
 enum Box {
+  @variant Empty
+}
+
+impl Box {
   @class
   value<T> -> T { 0 }
 }

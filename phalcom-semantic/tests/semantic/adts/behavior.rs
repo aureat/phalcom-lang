@@ -10,14 +10,18 @@ fn adt_beh_01_enum_wide_method_is_published_as_root_default_and_requirement() {
     let case = analyze_adt(
         r#"
 enum Shape {
+    @variant Circle
+    @variant Square
+}
+impl Shape {
     describe() -> String { "shape" }
     area() -> Float
-    @variant Circle {
-        area() -> Float { 3.14 }
-    }
-    @variant Square {
-        area() -> Float { 1.0 }
-    }
+}
+impl Shape::Circle {
+    area() -> Float { 3.14 }
+}
+impl Shape::Square {
+    area() -> Float { 1.0 }
 }
 "#,
     );
@@ -49,12 +53,11 @@ fn adt_beh_02_variant_override_has_exact_case_dispatch_target() {
     let case = analyze_adt(
         r#"
 enum Shape {
-    describe() -> String { "shape" }
-    @variant Circle {
-        describe() -> String { "circle" }
-    }
+    @variant Circle
     @variant Square
 }
+impl Shape { describe() -> String { "shape" } }
+impl Shape::Circle { describe() -> String { "circle" } }
 "#,
     );
     let owner = DeclarationId::new(ModuleId::universe_root(), "Shape".into());
@@ -74,11 +77,10 @@ fn adt_beh_03_case_only_method_is_not_promised_by_root_type() {
     let case = analyze_adt(
         r#"
 enum Shape {
-    @variant Circle {
-        draw() -> String { "circle" }
-    }
+    @variant Circle
     @variant Square
 }
+impl Shape::Circle { draw() -> String { "circle" } }
 "#,
     );
     let owner = DeclarationId::new(ModuleId::universe_root(), "Shape".into());

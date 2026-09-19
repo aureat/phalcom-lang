@@ -4,15 +4,15 @@ category: LANG
 program: LANG006
 checkpoint: LANG006.C1
 kind: checkpoint-record
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: BASELINE_BLOCKED
 requires:
   - TDR-0076 transition-1 language surface convergence
   - MODL001 universe/project/module architecture
   - canonical native Universe bootstrap infrastructure
-active_plan: LANG006.C1.P2
-latest_completed_plan: LANG006.C1.P1
+active_plan: null
+latest_completed_plan: LANG006.C1.P3
 next_plan: null
 planning_baseline_revision: e0a77646c56f8b1a7e7692993d378d43bf3fc424
 planning_baseline_commit: "feat(lang005): continue P5 iterator surface"
@@ -26,8 +26,9 @@ repository: aureat/phalcom-lang
 
 `LANG006.C1` is the first checkpoint of the new `LANG006` language-change package. It standardizes declaration modifiers and access control so Phalcom no longer encodes ordinary visibility or implementation origin through Universe-specific identifier spellings and compiler privilege conventions.
 
-This checkpoint is the planning authority for the active corrective plan
-`LANG006.C1.P2`; the P1 record remains the historical predecessor.
+This checkpoint is the planning authority for the completed corrective plans
+`LANG006.C1.P2` and `LANG006.C1.P3`; the P1 record remains the historical
+predecessor.
 
 The original planning sequence was intentionally split into three artifacts:
 
@@ -2160,41 +2161,65 @@ That is the checkpoint boundary the P1 header and task body must implement.
 
 ## 34. Implementation state
 
-`LANG006.C1.P1` is implemented in the shared working tree at base revision
-`bf4e12ba` (the implementation was intentionally not committed or pushed in
-this turn). The canonical source, AST/semantic/runtime access path, native
-metadata, LSP presentation, syntax grammar, current specification pointer, and
-accepted decision record now agree on the C1 model.
+LANG006.C1 is implemented through P3 in the shared worktree. P3 restored
+call-site-local compiler authority for generated constructor allocation,
+verified normalized source-visibility publication, migrated stale semantic
+fixtures to the accepted enum/iteration/projection/subscript models, and
+corrected the bounded `Selector.slots -> List<Symbol>` Universe contract.
 
-The plan is classified `IMPLEMENTED` with `FOCUSED_TESTED` verification:
-focused owner checks and workspace compilation pass, while one unrelated
-semantic incremental identity test and one core VM walk test remain failing in
-the current shared checkout. The repository-wide formatter check also
-reports pre-existing formatting drift outside this work unit; no broad
-formatting rewrite was applied.
+The checkpoint is `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`: all P3-focused
+and P2-predecessor gates pass, while the one required broad semantic/core pass
+still contains independent SEMA, iteration/argument-expansion, typing, and
+conformance failures. No release or workspace certification claim is made.
 
 ### Plan ledger
 
 | Plan | Status | Completion | Verification | Durable state |
 | --- | --- | --- | --- | --- |
 | `LANG006.C1.P1` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Canonical modifiers/access domains, native authority, Universe migration, AST retirement, tooling/spec/decision parity |
-| `LANG006.C1.P2` | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Exact access provenance transport, selected-call authorization, source/native runtime origins, canonical native conformance, kind/provenance split, Foreign boundary, and focused parity evidence |
+| `LANG006.C1.P2` | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | Exact access provenance transport, selected-call authorization, source/native runtime origins, canonical native conformance, kind/provenance split, Foreign boundary, and focused parity evidence; broad suites remain baseline-blocked |
+| `LANG006.C1.P3` | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | Compiler-synthetic constructor authority, visibility publication continuity, stale-oracle migration, Selector.slots generic contract, and one broad certification-baseline reclassification pass |
 
-### Durable residuals
+### Durable synthetic-authority invariant
 
-- `phalcom-semantic` incremental caller identity assertion remains a baseline
-  failure outside the changed modifier/native surfaces.
-- `phalcom-core` VM walk ordering test remains a baseline runtime/iterator
-  failure (`fold(initial,using)` does not understand the canonical runtime
-  selector in that test).
-- Full package/workspace test certification and repository-wide formatting are
-  deferred; focused checks and `cargo check --workspace --all-targets` pass.
+Compiler privilege is attached to the generated `self.allocate()` call site
+through `InvocationAuthority::CompilerInternal`, lowered only to
+`Bytecode::InvokeCompilerInternal`. The VM consumes that authority for the
+single dispatch and removes it before initializer/user code runs. Ordinary
+source-created calls remain `InvocationAuthority::Ordinary` and cannot mint or
+inherit compiler authority.
 
-The next action is checkpoint-level certification or a separately scoped
-follow-up for either baseline failure; no additional C1 implementation plan is
-required for the delivered vertical.
+### Durable visibility and migration state
 
-It should freeze all shared execution information Luna will need so the final turn can consist almost entirely of ordered, patch-grade implementation tasks.
+Source member visibility is published from normalized AST member metadata:
+`ClassMember::visibility()` -> `build_declared_class_surface()` -> canonical
+declaration surface/query products. The P3 investigation found no second
+semantic owner to repair; the failing `_field` assertion was a stale prefix
+oracle and now reflects the ratified default-public field rule. A narrow parser
+lookahead correction was required so explicit private subscripts normalize
+through the same modifier path.
+
+### Broad certification residuals
+
+The original broad baselines were semantic `1,420 passed / 22 failed / 50
+ignored` and core `537 passed / 74 failed / 28 ignored`. The post-P3 runs were
+semantic `1,428 passed / 14 failed / 50 ignored` and core `607 passed / 5
+failed / 28 ignored`. The constructor-dependent `Class.allocate()` cascade is
+absent; all remaining failures are classified as independent baseline work:
+
+| Owner | Remaining failures |
+| --- | --- |
+| SEMA flow/evidence | `opaque_call_drops_refined_field_current_without_rewriting_contract`; `unknown_expansions_do_not_disappear` |
+| SEMA canonical subscript application | `assumed_list_receiver_caps_structural_index_result`; `list_subscript_checks_index_contract`; `list_subscript_set_checks_index_and_value_and_returns_unit`; `map_subscript_checks_key_contract` |
+| SEMA incremental/product stability | `adding_impl_member_does_not_invalidate_another_target_or_its_caller`; `dependency_edit_remove_readd_recomputes_affected_summary_deterministically`; `canonical_universe_reads_track_canonical_query_dependencies`; `legacy_universe_core_path_is_not_a_dependency_sentinel`; `signature_edit_recomputes_exact_callers_and_reuses_unrelated_bodies`; `superclass_edit_recomputes_hierarchy_consumers_without_touching_unrelated_bodies`; `a6_high_fanout_unrelated_declaration_and_hierarchy_retain_existing_products`; `unused_public_export_does_not_recompute_unrelated_consumer_body` |
+| Argument expansion / canonical iteration | `compiler_declaration_dispatch::positional_spread_of_non_iterable_has_structured_boundary`; `observability_traceback::test_list_spread_traceback_includes_spread_site` |
+| LANG005 conformance runtime | `conditional_conformance::cv46_runtime_conditional_default_executes`; `generic_conformance::bounded_generic_function_dispatches_exact_witness_and_default` |
+| Typing integration | `typing_integration::monads::bodies::traverse_body_resolves_symbolic_inherited_capabilities` |
+
+Workspace, formatter, clippy, and release certification remain deferred by the
+P3 plan. No additional LANG006.C1 implementation plan is required for the
+delivered vertical; the residuals should be taken by their owning stabilization
+plans.
 
 ## 35. Corrective closure state — LANG006.C1.P2
 
@@ -2233,7 +2258,7 @@ and the exact Universe bootstrap measurement test. The source declaration
 specification and keyword hover/token surfaces were updated with the accepted
 visibility-before-implementation rule.
 
-P2 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`: focused P2 evidence
+P2 is now `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`: its focused evidence
 passes, but the full semantic suite ended `1420 passed, 22 failed, 50 ignored`
 and the full core suite ended `537 passed, 74 failed, 28 ignored`. The exact
 compiler declaration-dispatch failures for iterator syntax, retired private
@@ -2244,3 +2269,11 @@ incremental, conformance, module, and runtime-baseline failures; no P2-specific
 access/native conformance regression was observed. No checkpoint completion
 claim is made until the remaining P2 coverage is certified against those
 baselines.
+
+P3 completed at the current revision. Its T0 baseline reproduced the source
+visibility publication failure and the constructor `Class.allocate()` authority
+failure. The bounded corrective paths, stale-oracle migration, localized
+`Selector.slots` contract correction, focused predecessor parity, and one final
+broad reclassification pass are complete. The independent semantic,
+incremental, iteration, typing, and conformance failures remain deferred under
+their owner ledger above.

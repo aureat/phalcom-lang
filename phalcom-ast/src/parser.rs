@@ -1671,6 +1671,7 @@ impl<'source> Parser<'source> {
                     expr: cleanup,
                     range: cleanup_range,
                 }],
+                invocation_authority: Default::default(),
                 range,
             }));
             has_ensure = true;
@@ -1704,6 +1705,7 @@ impl<'source> Parser<'source> {
                     range: handler_range,
                 },
             ],
+            invocation_authority: Default::default(),
             range,
         }))
     }
@@ -3199,14 +3201,11 @@ impl<'source> Parser<'source> {
     fn is_member_name_lookahead(&self) -> bool {
         matches!(
             self.peek_next(),
-            Token::Arrow | Token::LParen | Token::Colon | Token::Equal | Token::LBrace | Token::LBracket
+            Token::Arrow | Token::LParen | Token::Colon | Token::Equal | Token::LBrace
         )
     }
 
     fn is_modifier_start(&self) -> bool {
-        if self.is_member_name_lookahead() {
-            return false;
-        }
         matches!(
             self.peek(),
             Token::Native
@@ -4594,7 +4593,7 @@ impl<'source> Parser<'source> {
         }))
     }
 
-    /// Parses a single class member: a method, getter, or setter.
+    /// Parses a single class member: a method, getter, setter, or subscript.
     ///
     /// A trailing `=` after the name marks a setter with one distinguished
     /// positional value lane; an explicit parameter list marks a method; neither marks
@@ -5544,6 +5543,7 @@ impl<'source> Parser<'source> {
                 method: "orElse".to_string(),
                 method_range: None,
                 args: vec![PackItem::Positional { expr: block, range }],
+                invocation_authority: Default::default(),
                 range,
             })));
         }
@@ -5879,6 +5879,7 @@ impl<'source> Parser<'source> {
             method,
             method_range: None,
             args: vec![PackItem::Positional { expr: rhs, range }],
+            invocation_authority: Default::default(),
             range,
         }));
         let result = if negate {
@@ -6112,6 +6113,7 @@ impl<'source> Parser<'source> {
                         method: property,
                         method_range: property_range,
                         args,
+                        invocation_authority: Default::default(),
                         range,
                     }));
                 } else {
@@ -6140,6 +6142,7 @@ impl<'source> Parser<'source> {
                         method: "call".to_string(),
                         method_range: None,
                         args,
+                        invocation_authority: Default::default(),
                         range,
                     })),
                 };
@@ -6413,6 +6416,7 @@ impl<'source> Parser<'source> {
                             method: name,
                             method_range: Some(name_range),
                             args,
+                            invocation_authority: Default::default(),
                             range,
                         }));
                     } else {
@@ -6525,6 +6529,7 @@ impl<'source> Parser<'source> {
                             method: "call".to_string(),
                             method_range: None,
                             args,
+                            invocation_authority: Default::default(),
                             range,
                         })),
                     };
@@ -7036,6 +7041,7 @@ impl<'source> Parser<'source> {
                 method: get.property,
                 method_range: get.property_range,
                 args,
+                invocation_authority: Default::default(),
                 range: (get.range.start..end).into(),
             }))),
             Expr::MethodCall(mut call) => {
@@ -7080,6 +7086,7 @@ impl<'source> Parser<'source> {
                 method: property,
                 method_range: None,
                 args,
+                invocation_authority: Default::default(),
                 range,
             }))
         } else {
@@ -7101,6 +7108,7 @@ impl<'source> Parser<'source> {
             method: "map".to_string(),
             method_range: None,
             args: vec![PackItem::Positional { expr: mapper, range }],
+            invocation_authority: Default::default(),
             range,
         })))
     }
@@ -7311,6 +7319,7 @@ impl<'source> Parser<'source> {
             method: "ifTrue".to_string(),
             method_range: None,
             args,
+            invocation_authority: Default::default(),
             range,
         })))
     }
@@ -7347,6 +7356,7 @@ impl<'source> Parser<'source> {
             method: "whileTrue".to_string(),
             method_range: None,
             args: vec![PackItem::Positional { expr: body, range: body_range }],
+            invocation_authority: Default::default(),
             range,
         })))
     }
@@ -9454,6 +9464,21 @@ native enum NativeEnum {
         };
         assert_eq!(enm.implementation, ImplementationKind::Native);
         assert!(enm.implementation_range.is_some());
+    }
+
+    #[test]
+    fn lang006_visibility_modifier_is_stored_on_subscript_members() {
+        let program = parse_source(
+            "class SecretList {\n  private [_ index] { return index }\n}\n",
+            0,
+        )
+        .expect("explicit subscript visibility must parse");
+        let Statement::Class(class) = &program.statements[0] else {
+            panic!("expected class statement");
+        };
+        assert_eq!(class.members.len(), 1);
+        assert_eq!(class.members[0].visibility(), Visibility::Private);
+        assert!(matches!(class.members[0], ClassMember::Index(_)));
     }
 
     #[test]

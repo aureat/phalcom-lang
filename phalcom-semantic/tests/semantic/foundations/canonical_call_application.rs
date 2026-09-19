@@ -6,7 +6,7 @@ use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DispatchSide};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 
-use crate::semantic::support::Fixture;
+use crate::semantic::support::{Fixture, applied, nominal};
 
 #[test]
 fn canonical_call_diagnostic_codes_are_stable() {
@@ -507,32 +507,48 @@ class Probe {
 }
 
 #[test]
-fn zero_argument_iteration_getter_uses_callable_application() {
+fn canonical_iterator_getter_and_next_use_associated_item_contract() {
     let fixture = Fixture::new(
         r#"
+trait Iterator {
+  type Item
+  next -> Option<Self::Item>
+}
+trait Iterable {
+  type Item
+  type Iterator
+  iterator -> Self::Iterator
+}
+class StreamIterator {
+  next -> Option<String> { None }
+}
+impl Iterator for StreamIterator { type Item = String }
 class Stream {
-  iteratorValue -> String { "item" }
+  iterator -> StreamIterator { StreamIterator.new() }
+}
+impl Iterable for Stream {
+  type Item = String
+  type Iterator = StreamIterator
 }
 class Probe {
   run(stream: Stream) {
-    for item in stream {
-      const copy: String = item
-    }
+    let item = stream.iterator.next
+    const copy: Option<String> = item
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Instance);
     let item = fixture.binding(run, "item");
-    assert_eq!(item.current.ty(), Some(fixture.ty("String")));
+    fixture.assert_type(item.current.ty().expect("iterator next result"), applied("Option", [nominal("String")]));
 }
 
 #[test]
-fn parameterized_iteration_protocol_fails_closed_without_cursor() {
+fn missing_iterable_conformance_fails_closed_without_cursor_protocol() {
     let fixture = Fixture::new(
         r#"
 class Stream {
-  iteratorValue(_ cursor: Int) -> String { "item" }
+  iterator -> String { "item" }
 }
 class Probe {
   run(stream: Stream) {
@@ -545,7 +561,8 @@ class Probe {
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Instance);
     let item = fixture.binding(run, "item");
-    assert_eq!(item.current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
+    assert_eq!(item.current, TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend));
+    assert!(run.for_iteration_lanes.is_empty(), "missing Iterable evidence must not publish a canonical lane");
 }
 
 #[test]

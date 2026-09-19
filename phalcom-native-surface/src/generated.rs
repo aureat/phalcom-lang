@@ -4488,7 +4488,10 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 labeled: &[],
                 rest: None,
             },
-            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::List),
+            returns: &::phalcom_native_meta::TypeExprSpec::Applied {
+                origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::List),
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
+            },
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
@@ -4496,7 +4499,10 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                     labeled: &[],
                     rest: None,
                 },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::List),
+                return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
+                    origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::List),
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
+                },
                 constraints: &[],
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
@@ -11767,7 +11773,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         },
         kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Instance("List"),
+        return_shape: NativeReturnShape::Instance("Tuple"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {

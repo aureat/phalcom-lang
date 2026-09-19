@@ -8,7 +8,7 @@ native class Selector is Object {
   native new(_ value: Dynamic) -> Selector
   native base -> Symbol
   native kind -> Symbol
-  native slots -> List
+  native slots -> List<Symbol>
   native toString -> String
   native ==(_ other: Dynamic) -> Bool
   native hash -> Int

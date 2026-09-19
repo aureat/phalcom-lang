@@ -121,7 +121,6 @@ universe:reflection.resolved_project_dependency	type.annotation.unresolved	177	1
 universe:reflection.resolved_project_dependency	type.annotation.unresolved	220	231
 universe:reflection.resolved_project_dependency	type.annotation.unresolved	256	263
 universe:reflection.resolved_project_dependency	type.annotation.unresolved	283	286
-universe:reflection.selector	type.annotation.unsaturated_constructor	323	327
 universe:scalar.string	type.call.argument_mismatch	8056	8071
 universe:scalar.string	type.call.argument_mismatch	8056	8071
 universe:scalar.string	type.call.argument_mismatch	8876	8891

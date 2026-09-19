@@ -2023,6 +2023,20 @@ pub enum PackLabel {
     Computed { expr: Box<Expr>, range: SourceRange },
 }
 
+/// Authority attached to a compiler-lowered method call.
+///
+/// Parsed source calls always use [`InvocationAuthority::Ordinary`]. Compiler
+/// synthesis may mark one exact call site as [`InvocationAuthority::CompilerInternal`]
+/// when the VM must authorize a compiler-owned runtime helper for that dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InvocationAuthority {
+    /// A source-authored or ordinary compiler-generated dispatch.
+    #[default]
+    Ordinary,
+    /// A trusted compiler-generated dispatch with transient VM authority.
+    CompilerInternal,
+}
+
 #[derive(Debug, Clone)]
 pub struct MethodCallExpr {
     pub object: Expr,
@@ -2030,6 +2044,9 @@ pub struct MethodCallExpr {
     /// The written selector/property token, if this call came from source syntax.
     pub method_range: Option<SourceRange>,
     pub args: Vec<PackItem>,
+    /// Exact call-site authority; never inferred from selector spelling or the
+    /// containing method.
+    pub invocation_authority: InvocationAuthority,
     pub range: SourceRange,
 }
 
