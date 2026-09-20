@@ -15,7 +15,6 @@ fn decl(name: &str) -> DeclarationId {
 }
 
 #[test]
-#[ignore = "AUD-SEM-004: union cycle state defect (repeated union obligation treated as recursion)"]
 fn repeated_union_obligation_is_not_recursion() {
     let mut s = TypeStore::new();
     let mut h = MapTypeHierarchy::new();
@@ -31,7 +30,6 @@ fn repeated_union_obligation_is_not_recursion() {
 }
 
 #[test]
-#[ignore = "AUD-SEM-005: applied nominal supertype defect (applied subclass does not retain nongeneric superclass)"]
 fn applied_subclass_retains_nongeneric_superclass() {
     let mut s = TypeStore::new();
     let mut h = MapTypeHierarchy::new();
@@ -42,6 +40,87 @@ fn applied_subclass_retains_nongeneric_superclass() {
     let applied = s.apply_type_form(child, &[i]).unwrap();
     let base = s.nominal(decl("Base"));
     assert!(is_subtype(&mut s, &h, applied, base));
+}
+
+#[test]
+fn applied_subclass_projects_transitive_and_generic_ancestors() {
+    let mut s = TypeStore::new();
+    let mut h = MapTypeHierarchy::new();
+    let base = decl("Base");
+    let middle = decl("Middle");
+    let child = decl("Child");
+    h.insert(child.clone(), middle.clone());
+    h.insert(middle.clone(), base.clone());
+
+    let kind = s.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
+    let child_form = s.nominal_form(child, kind);
+    let int = s.nominal(decl("Int"));
+    let string = s.nominal(decl("String"));
+    let applied_child = s.apply_type_form(child_form, &[int]).unwrap();
+    let base_nominal = s.nominal(base);
+    let unrelated = s.nominal(decl("Unrelated"));
+
+    assert!(
+        is_subtype(&mut s, &h, applied_child, base_nominal),
+        "multi-hop nongeneric ancestor must be retained"
+    );
+    assert!(
+        !is_subtype(&mut s, &h, applied_child, unrelated),
+        "ancestry must not prove unrelated nominal targets"
+    );
+
+    let generic_base = decl("GenericBase");
+    let generic_middle = decl("GenericMiddle");
+    let generic_child = decl("GenericChild");
+    let generic_kind = s.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
+    let base_form = s.nominal_form(generic_base.clone(), generic_kind);
+    let middle_form = s.nominal_form(generic_middle.clone(), generic_kind);
+    let child_form = s.nominal_form(generic_child.clone(), generic_kind);
+    let base_parameter = s.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(generic_base.clone()),
+        0,
+        "T",
+        KindId::TYPE,
+    ));
+    let middle_parameter = s.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(generic_middle.clone()),
+        0,
+        "U",
+        KindId::TYPE,
+    ));
+    let child_parameter = s.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(generic_child.clone()),
+        0,
+        "V",
+        KindId::TYPE,
+    ));
+    let middle_parameter_form = s.parameter_form(middle_parameter);
+    let child_parameter_form = s.parameter_form(child_parameter);
+    let base_of_middle = s.apply_type_form(base_form, &[middle_parameter_form]).unwrap();
+    let middle_of_child = s.apply_type_form(middle_form, &[child_parameter_form]).unwrap();
+    h.insert_template(phalcom_semantic::declarations::GenericSupertypeTemplate {
+        declaration: generic_middle.clone(),
+        supertype: base_of_middle,
+        structural_form: None,
+    });
+    h.insert_template(phalcom_semantic::declarations::GenericSupertypeTemplate {
+        declaration: generic_child.clone(),
+        supertype: middle_of_child,
+        structural_form: None,
+    });
+
+    let applied_generic_child = s.apply_type_form(child_form, &[int]).unwrap();
+    let base_int = s.apply_type_form(base_form, &[int]).unwrap();
+    let base_string = s.apply_type_form(base_form, &[string]).unwrap();
+    assert!(
+        is_subtype(&mut s, &h, applied_generic_child, base_int),
+        "generic ancestry must preserve owner-aware substitution"
+    );
+    assert!(
+        !is_subtype(&mut s, &h, applied_generic_child, base_string),
+        "invariant generic ancestor arguments must remain distinct"
+    );
+    let _ = base_parameter;
 }
 
 #[test]
@@ -63,7 +142,6 @@ fn recursive_relation_charges_pair_budget() {
 }
 
 #[test]
-#[ignore = "AUD-SEM-003: union candidate allocation order defect (subtyping decision state leak across union branches)"]
 fn union_candidate_allocation_order_is_irrelevant() {
     fn probe(good_first: bool) -> bool {
         let mut s = TypeStore::new();

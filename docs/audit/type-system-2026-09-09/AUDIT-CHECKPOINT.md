@@ -2,11 +2,11 @@
 
 ## Active repair
 
-**Generic override compatibility and captured-write flow soundness**
+**Generic override, captured-write, and canonical subtype-relation soundness**
 
 - **Status:** IMPLEMENTED
 - **Verification:** FOCUSED_TESTED
-- **Scope:** `AUD-SEM-001` override-certification boundary and its shared generic-specialization invariant with `AUD-SEM-005`; `AUD-SEM-002` captured mutable-local invalidation.
+- **Scope:** `AUD-SEM-001` override certification, `AUD-SEM-002` captured mutable-local invalidation, and `AUD-SEM-004`/`AUD-SEM-005` canonical relation repairs.
 
 ## Root cause
 
@@ -95,3 +95,63 @@ cargo test -p phalcom-semantic --test semantic capabilities::deep_regressions --
 cargo test -p phalcom-semantic --test semantic \
   capabilities::flow_loops::captured_block_write_is_not_applied_until_execution_is_proven -- --nocapture
 ```
+
+## AUD-SEM-004 — active union-relation lifetime
+
+### Root cause and rule
+
+`check_subtype_impl` used one active-pair set for recursion detection, but early
+terminal returns from union and structural branches bypassed its final removal.
+A completed relation could therefore remain active and make an independent
+sibling obligation appear recursive. The active pair is now owned by the
+invocation that inserted it: the full relation body runs in a result-producing
+scope, then removes the pair unconditionally before returning that result.
+Pairs detected as already active do not own removal.
+
+This remains active-recursion tracking only. It does not add result memoization,
+change terminal-outcome precedence, or change AUD-SEM-007 budget accounting.
+
+### Evidence
+
+The repeated union obligation and allocation-order regressions now pass. The
+AUD-SEM-007 retained budget probe remains red when explicitly enabled: its
+observed `pairs_checked = 1` for two nested obligations remains separately
+classified and was not changed by this work.
+
+## AUD-SEM-005 — applied receiver to nominal ancestor
+
+### Root cause and rule
+
+An applied receiver had a generic-template projection path only when the target
+was also applied. `Applied -> Nominal` therefore rejected a valid nongeneric
+ancestor, even though member specialization could traverse the same hierarchy.
+
+`types::specialization::project_direct_supertype` now owns direct ancestor
+materialization for both member specialization and subtype relation checking.
+It preserves declaration-owner substitutions and kinded type forms. The subtype
+relation projects exactly one direct ancestor and recursively invokes the
+canonical relation against the original target; it does not erase arguments or
+declare ancestry success directly.
+
+### Evidence
+
+Passed:
+
+```text
+cargo test -p phalcom-semantic --test semantic audit_probes::subtyping_bounds -- --nocapture
+cargo test -p phalcom-semantic --test semantic audit_probes::override_certification -- --nocapture
+cargo test -p phalcom-semantic --lib types::relation::tests -- --nocapture
+cargo test -p phalcom-core --test core typing_integration::monads::inheritance -- --nocapture
+```
+
+The enabled source control now accepts `Child<Int>` where `Base` is required.
+Additional probes cover transitive nongeneric ancestry, generic multi-hop
+substitution, invariant argument mismatch, and unrelated nominal rejection.
+
+## AUD-SEM-003 status
+
+AUD-SEM-003 remains historically confirmed but currently **BASELINE_BLOCKED**.
+The current production runtime discriminator fails before source lowering because
+the canonical-Universe semantic baseline differs (`universe:scalar.string`
+diagnostics are absent from the current product). No baseline expectation,
+compiler lowering, VM, or runtime type-value representation was changed here.

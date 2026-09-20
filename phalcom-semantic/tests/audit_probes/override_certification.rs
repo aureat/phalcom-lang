@@ -128,7 +128,6 @@ class Probe { @class run() { let result = Box<Int>.new() } }
 }
 
 #[test]
-#[ignore = "AUD-SEM-005: generic inheritance parameter acceptance (generic child applied form subtyping)"]
 fn generic_inheritance_source_accepts_base_parameter() {
     let f = Fixture::new(
         r#"

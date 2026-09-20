@@ -71,6 +71,25 @@ fn bind_owner_parameters(store: &TypeStore, owner: &DeclarationId, args: &[TypeI
     true
 }
 
+/// Projects one proper nominal receiver to its immediately declared ancestor.
+///
+/// This is the shared generic-supertype-template materialization contract for
+/// subtype relation checking and member specialization. `None` means the
+/// receiver has no declared ancestor or its owner arguments cannot form a
+/// valid template environment.
+pub fn project_direct_supertype(store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, receiver: TypeId) -> Option<TypeId> {
+    let (owner, arguments) = receiver_parts(store, receiver)?;
+    if let Some(template) = hierarchy.supertype_template(&owner) {
+        let mut environment = TypeEnvironment::new();
+        if !bind_owner_parameters(store, &owner, &arguments, &mut environment) {
+            return None;
+        }
+        Some(TypeView::new(template.supertype, environment).materialize(store))
+    } else {
+        hierarchy.superclass(&owner).cloned().map(|superclass| store.nominal_type(superclass))
+    }
+}
+
 /// Projects `receiver` to `target_owner` and returns its declaration bindings.
 ///
 /// Every generic superclass template is materialized only as an intermediate
@@ -130,10 +149,8 @@ pub fn specialize_receiver_to_owner<C: SpecializationControl>(
             });
         }
 
-        let next_form = if let Some(template) = hierarchy.supertype_template(&current_owner) {
-            TypeView::new(template.supertype, owner_environment).materialize(store)
-        } else if let Some(superclass) = hierarchy.superclass(&current_owner) {
-            store.nominal_type(superclass.clone())
+        let next_form = if let Some(supertype) = project_direct_supertype(store, hierarchy, current_form) {
+            supertype
         } else if matches!(store.get(receiver), TypeData::ClassObject { .. }) && target_owner == &crate::core_surface::universe_declaration(UniverseKey::Class)
         {
             store.nominal_type(target_owner.clone())

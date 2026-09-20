@@ -1,8 +1,8 @@
-use super::environment::TypeView;
 use super::evidence::TypeKnowledge;
 use super::id::{RecordRowId, TypeId};
 use super::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationFailure, RelationOutcome};
 use super::row::RecordRowTail;
+use super::specialization::project_direct_supertype;
 use super::store::{TypeData, TypeStore};
 use super::variance::Variance;
 use crate::core_surface::CoreDeclarationIds;
@@ -250,109 +250,168 @@ fn check_subtype_impl(
         return RelationOutcome::Refuted(RelationFailure::CycleDetected { sub, sup });
     }
 
-    let sub_data = store.get(sub).clone();
-    let sup_data = store.get(sup).clone();
+    let res = (|| {
+        let sub_data = store.get(sub).clone();
+        let sup_data = store.get(sup).clone();
 
-    let res = match (sub_data, sup_data) {
-        (TypeData::Union(members), _) => {
-            for &m in members.iter() {
-                let outcome = check_subtype_impl(store, hierarchy, m, sup, budget, cancellation, visited);
-                match outcome {
-                    RelationOutcome::Proven { .. } => {}
-                    RelationOutcome::Refuted(_) => {
-                        return RelationOutcome::Refuted(RelationFailure::UnionMemberMismatch { actual: sub, expected: sup });
+        match (sub_data, sup_data) {
+            (TypeData::Union(members), _) => {
+                for &m in members.iter() {
+                    let outcome = check_subtype_impl(store, hierarchy, m, sup, budget, cancellation, visited);
+                    match outcome {
+                        RelationOutcome::Proven { .. } => {}
+                        RelationOutcome::Refuted(_) => {
+                            return RelationOutcome::Refuted(RelationFailure::UnionMemberMismatch { actual: sub, expected: sup });
+                        }
+                        terminal => return terminal,
                     }
-                    terminal => return terminal,
                 }
+                RelationOutcome::proven(())
             }
-            RelationOutcome::proven(())
-        }
-        (_, TypeData::Union(members)) => {
-            for &m in members.iter() {
-                let outcome = check_subtype_impl(store, hierarchy, sub, m, budget, cancellation, visited);
-                match outcome {
-                    RelationOutcome::Proven { .. } => return RelationOutcome::proven(()),
-                    RelationOutcome::Refuted(_) => {}
-                    terminal => return terminal,
+            (_, TypeData::Union(members)) => {
+                for &m in members.iter() {
+                    let outcome = check_subtype_impl(store, hierarchy, sub, m, budget, cancellation, visited);
+                    match outcome {
+                        RelationOutcome::Proven { .. } => return RelationOutcome::proven(()),
+                        RelationOutcome::Refuted(_) => {}
+                        terminal => return terminal,
+                    }
                 }
-            }
-            RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
-        }
-        (TypeData::ClassObject { declaration: sub_decl }, TypeData::ClassObject { declaration: sup_decl }) => {
-            if hierarchy.is_subclass(&sub_decl, &sup_decl) {
-                RelationOutcome::proven(())
-            } else {
-                RelationOutcome::Refuted(RelationFailure::IncompatibleNominal {
-                    actual: sub_decl,
-                    expected: sup_decl,
-                })
-            }
-        }
-        (TypeData::Nominal { declaration: sub_decl }, TypeData::Nominal { declaration: sup_decl }) => {
-            if hierarchy.is_subclass(&sub_decl, &sup_decl) || CoreDeclarationIds::default().is_object(&sup_decl) {
-                RelationOutcome::proven(())
-            } else {
-                RelationOutcome::Refuted(RelationFailure::IncompatibleNominal {
-                    actual: sub_decl,
-                    expected: sup_decl,
-                })
-            }
-        }
-        (TypeData::Nominal { declaration: sub_decl }, TypeData::Applied { .. }) => {
-            if let Some(template) = hierarchy.supertype_template(&sub_decl) {
-                check_subtype_impl(store, hierarchy, template.supertype, sup, budget, cancellation, visited)
-            } else {
                 RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
             }
-        }
-
-        (
-            TypeData::Applied {
-                origin: sub_orig,
-                arguments: sub_args,
+            (TypeData::ClassObject { declaration: sub_decl }, TypeData::ClassObject { declaration: sup_decl }) => {
+                if hierarchy.is_subclass(&sub_decl, &sup_decl) {
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Refuted(RelationFailure::IncompatibleNominal {
+                        actual: sub_decl,
+                        expected: sup_decl,
+                    })
+                }
+            }
+            (TypeData::Nominal { declaration: sub_decl }, TypeData::Nominal { declaration: sup_decl }) => {
+                if hierarchy.is_subclass(&sub_decl, &sup_decl) || CoreDeclarationIds::default().is_object(&sup_decl) {
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Refuted(RelationFailure::IncompatibleNominal {
+                        actual: sub_decl,
+                        expected: sup_decl,
+                    })
+                }
+            }
+            (TypeData::Nominal { declaration: sub_decl }, TypeData::Applied { .. }) => {
+                if let Some(template) = hierarchy.supertype_template(&sub_decl) {
+                    check_subtype_impl(store, hierarchy, template.supertype, sup, budget, cancellation, visited)
+                } else {
+                    RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+                }
+            }
+            (TypeData::Applied { .. }, TypeData::Nominal { .. }) => match project_direct_supertype(store, hierarchy, sub) {
+                Some(supertype) => check_subtype_impl(store, hierarchy, supertype, sup, budget, cancellation, visited),
+                None => RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup }),
             },
-            TypeData::Applied {
-                origin: sup_orig,
-                arguments: sup_args,
-            },
-        ) => {
-            if sub_orig == sup_orig {
-                // If origins match, check arguments against declaration variance
-                if sub_args.len() == sup_args.len() {
-                    let origin_decl = match store.get(sub_orig) {
-                        TypeData::Nominal { declaration } => Some(declaration.clone()),
-                        _ => None,
-                    };
 
-                    for (idx, (&a_sub, &a_sup)) in sub_args.iter().zip(sup_args.iter()).enumerate() {
-                        let variance = origin_decl
-                            .as_ref()
-                            .and_then(|decl| store.get_parameter_variance(decl, idx as u32))
-                            .unwrap_or(Variance::Invariant);
-
-                        let arg_outcome = match variance {
-                            Variance::Covariant => {
-                                // Covariant: a_sub <: a_sup
-                                check_subtype_impl(store, hierarchy, a_sub, a_sup, budget, cancellation, visited)
-                            }
-                            Variance::Contravariant => {
-                                // Contravariant: a_sup <: a_sub
-                                check_subtype_impl(store, hierarchy, a_sup, a_sub, budget, cancellation, visited)
-                            }
-                            Variance::Invariant => {
-                                // Invariant: a_sub == a_sup
-                                if a_sub == a_sup {
-                                    RelationOutcome::proven(())
-                                } else {
-                                    RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                                        actual: a_sub,
-                                        expected: a_sup,
-                                    })
-                                }
-                            }
+            (
+                TypeData::Applied {
+                    origin: sub_orig,
+                    arguments: sub_args,
+                },
+                TypeData::Applied {
+                    origin: sup_orig,
+                    arguments: sup_args,
+                },
+            ) => {
+                if sub_orig == sup_orig {
+                    // If origins match, check arguments against declaration variance
+                    if sub_args.len() == sup_args.len() {
+                        let origin_decl = match store.get(sub_orig) {
+                            TypeData::Nominal { declaration } => Some(declaration.clone()),
+                            _ => None,
                         };
 
-                        match arg_outcome {
+                        for (idx, (&a_sub, &a_sup)) in sub_args.iter().zip(sup_args.iter()).enumerate() {
+                            let variance = origin_decl
+                                .as_ref()
+                                .and_then(|decl| store.get_parameter_variance(decl, idx as u32))
+                                .unwrap_or(Variance::Invariant);
+
+                            let arg_outcome = match variance {
+                                Variance::Covariant => {
+                                    // Covariant: a_sub <: a_sup
+                                    check_subtype_impl(store, hierarchy, a_sub, a_sup, budget, cancellation, visited)
+                                }
+                                Variance::Contravariant => {
+                                    // Contravariant: a_sup <: a_sub
+                                    check_subtype_impl(store, hierarchy, a_sup, a_sub, budget, cancellation, visited)
+                                }
+                                Variance::Invariant => {
+                                    // Invariant: a_sub == a_sup
+                                    if a_sub == a_sup {
+                                        RelationOutcome::proven(())
+                                    } else {
+                                        RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                                            actual: a_sub,
+                                            expected: a_sup,
+                                        })
+                                    }
+                                }
+                            };
+
+                            match arg_outcome {
+                                RelationOutcome::Proven { .. } => {}
+                                RelationOutcome::Refuted(_) => {
+                                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                                }
+                                terminal => return terminal,
+                            }
+                        }
+                        RelationOutcome::proven(())
+                    } else {
+                        RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+                    }
+                } else {
+                    match project_direct_supertype(store, hierarchy, sub) {
+                        Some(supertype) => check_subtype_impl(store, hierarchy, supertype, sup, budget, cancellation, visited),
+                        None => RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup }),
+                    }
+                }
+            }
+
+            (
+                TypeData::ExactCase {
+                    variant: sub_var,
+                    enum_type: sub_enum,
+                },
+                TypeData::ExactCase {
+                    variant: sup_var,
+                    enum_type: sup_enum,
+                },
+            ) => {
+                if sub_var == sup_var {
+                    check_subtype_impl(store, hierarchy, sub_enum, sup_enum, budget, cancellation, visited)
+                } else {
+                    RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+                }
+            }
+            (TypeData::ExactCase { enum_type, .. }, _) => check_subtype_impl(store, hierarchy, enum_type, sup, budget, cancellation, visited),
+
+            (TypeData::AssociatedProjection(sub_projection), TypeData::AssociatedProjection(sup_projection)) => {
+                if sub_projection == sup_projection {
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
+                }
+            }
+            (TypeData::AssociatedProjection(_), _) | (_, TypeData::AssociatedProjection(_)) => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
+
+            (TypeData::Tuple(sub_elems), TypeData::Tuple(sup_elems)) => {
+                if sub_elems.len() == sup_elems.len() {
+                    for (a, b) in sub_elems.iter().zip(sup_elems.iter()) {
+                        if a.label != b.label {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                        }
+                        let out = check_subtype_impl(store, hierarchy, a.ty, b.ty, budget, cancellation, visited);
+                        match out {
                             RelationOutcome::Proven { .. } => {}
                             RelationOutcome::Refuted(_) => {
                                 return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
@@ -364,64 +423,53 @@ fn check_subtype_impl(
                 } else {
                     RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
                 }
-            } else {
-                // Check generic supertype template if sub origin has one
-                if let TypeData::Nominal { declaration: sub_decl } = store.get(sub_orig).clone() {
-                    if let Some(template) = hierarchy.supertype_template(&sub_decl) {
-                        let mut env = super::environment::TypeEnvironment::new();
-                        // Search existing TypeParameterIds in store for this declaration
-                        for (idx, &arg) in sub_args.iter().enumerate() {
-                            if let Some(param_id) =
-                                store.find_type_parameter_id(&super::parameter::TypeParameterOwner::Declaration(sub_decl.clone()), idx as u32)
-                            {
-                                env.bind_param(param_id, arg);
-                            }
+            }
+            (TypeData::Record(sub_row_id), TypeData::Record(sup_row_id)) => {
+                check_record_row_subtype(store, hierarchy, sub_row_id, sup_row_id, sub, sup, budget, cancellation, visited)
+            }
+            (TypeData::Callable(sub_call), TypeData::Callable(sup_call)) => {
+                if sub_call.parameters.len() == sup_call.parameters.len() {
+                    for (sub_p, sup_p) in sub_call.parameters.iter().zip(sup_call.parameters.iter()) {
+                        if sub_p.label != sup_p.label || sub_p.rest != sup_p.rest {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
                         }
-                        let specialized_super = TypeView::new(template.supertype, env).materialize(store);
-                        check_subtype_impl(store, hierarchy, specialized_super, sup, budget, cancellation, visited)
-                    } else {
-                        RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+                        // Contravariant parameters: sup_p.ty <: sub_p.ty
+                        let out = check_subtype_impl(store, hierarchy, sup_p.ty, sub_p.ty, budget, cancellation, visited);
+                        match out {
+                            RelationOutcome::Proven { .. } => {}
+                            RelationOutcome::Refuted(_) => {
+                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                            }
+                            terminal => return terminal,
+                        }
                     }
+                    // Covariant return type: sub_call.return_type <: sup_call.return_type
+                    check_subtype_impl(store, hierarchy, sub_call.return_type, sup_call.return_type, budget, cancellation, visited)
                 } else {
                     RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
                 }
             }
-        }
-
-        (
-            TypeData::ExactCase {
-                variant: sub_var,
-                enum_type: sub_enum,
-            },
-            TypeData::ExactCase {
-                variant: sup_var,
-                enum_type: sup_enum,
-            },
-        ) => {
-            if sub_var == sup_var {
-                check_subtype_impl(store, hierarchy, sub_enum, sup_enum, budget, cancellation, visited)
-            } else {
-                RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+            (TypeData::Callable(_), TypeData::Nominal { declaration: sup_decl }) => {
+                let core_ids = CoreDeclarationIds::default();
+                if core_ids.is_callable_supertype(&sup_decl) {
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+                }
             }
-        }
-        (TypeData::ExactCase { enum_type, .. }, _) => check_subtype_impl(store, hierarchy, enum_type, sup, budget, cancellation, visited),
-
-        (TypeData::AssociatedProjection(sub_projection), TypeData::AssociatedProjection(sup_projection)) => {
-            if sub_projection == sup_projection {
-                RelationOutcome::proven(())
-            } else {
-                RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
-            }
-        }
-        (TypeData::AssociatedProjection(_), _) | (_, TypeData::AssociatedProjection(_)) => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
-
-        (TypeData::Tuple(sub_elems), TypeData::Tuple(sup_elems)) => {
-            if sub_elems.len() == sup_elems.len() {
-                for (a, b) in sub_elems.iter().zip(sup_elems.iter()) {
-                    if a.label != b.label {
+            (TypeData::Family(sub_fid), TypeData::Family(sup_fid)) => {
+                let sub_family = store.get_family(sub_fid).clone();
+                let sup_family = store.get_family(sup_fid).clone();
+                // Width subtyping: every required member in sup_family must be present in sub_family
+                for sup_m in sup_family.members.iter() {
+                    let Some(sub_m) = sub_family.find_operation(&sup_m.operation) else {
+                        return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                    };
+                    if sub_m.member_kind != sup_m.member_kind {
                         return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
                     }
-                    let out = check_subtype_impl(store, hierarchy, a.ty, b.ty, budget, cancellation, visited);
+                    // Member subtyping: sub_m.ty <: sup_m.ty
+                    let out = check_subtype_impl(store, hierarchy, sub_m.ty, sup_m.ty, budget, cancellation, visited);
                     match out {
                         RelationOutcome::Proven { .. } => {}
                         RelationOutcome::Refuted(_) => {
@@ -431,70 +479,12 @@ fn check_subtype_impl(
                     }
                 }
                 RelationOutcome::proven(())
-            } else {
-                RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
             }
+            (_, TypeData::Nominal { declaration: sup_decl }) if CoreDeclarationIds::default().is_object(&sup_decl) => RelationOutcome::proven(()),
+            (TypeData::Unit, TypeData::Unit) => RelationOutcome::proven(()),
+            _ => RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup }),
         }
-        (TypeData::Record(sub_row_id), TypeData::Record(sup_row_id)) => {
-            check_record_row_subtype(store, hierarchy, sub_row_id, sup_row_id, sub, sup, budget, cancellation, visited)
-        }
-        (TypeData::Callable(sub_call), TypeData::Callable(sup_call)) => {
-            if sub_call.parameters.len() == sup_call.parameters.len() {
-                for (sub_p, sup_p) in sub_call.parameters.iter().zip(sup_call.parameters.iter()) {
-                    if sub_p.label != sup_p.label || sub_p.rest != sup_p.rest {
-                        return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
-                    }
-                    // Contravariant parameters: sup_p.ty <: sub_p.ty
-                    let out = check_subtype_impl(store, hierarchy, sup_p.ty, sub_p.ty, budget, cancellation, visited);
-                    match out {
-                        RelationOutcome::Proven { .. } => {}
-                        RelationOutcome::Refuted(_) => {
-                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
-                        }
-                        terminal => return terminal,
-                    }
-                }
-                // Covariant return type: sub_call.return_type <: sup_call.return_type
-                check_subtype_impl(store, hierarchy, sub_call.return_type, sup_call.return_type, budget, cancellation, visited)
-            } else {
-                RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
-            }
-        }
-        (TypeData::Callable(_), TypeData::Nominal { declaration: sup_decl }) => {
-            let core_ids = CoreDeclarationIds::default();
-            if core_ids.is_callable_supertype(&sup_decl) {
-                RelationOutcome::proven(())
-            } else {
-                RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
-            }
-        }
-        (TypeData::Family(sub_fid), TypeData::Family(sup_fid)) => {
-            let sub_family = store.get_family(sub_fid).clone();
-            let sup_family = store.get_family(sup_fid).clone();
-            // Width subtyping: every required member in sup_family must be present in sub_family
-            for sup_m in sup_family.members.iter() {
-                let Some(sub_m) = sub_family.find_operation(&sup_m.operation) else {
-                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
-                };
-                if sub_m.member_kind != sup_m.member_kind {
-                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
-                }
-                // Member subtyping: sub_m.ty <: sup_m.ty
-                let out = check_subtype_impl(store, hierarchy, sub_m.ty, sup_m.ty, budget, cancellation, visited);
-                match out {
-                    RelationOutcome::Proven { .. } => {}
-                    RelationOutcome::Refuted(_) => {
-                        return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
-                    }
-                    terminal => return terminal,
-                }
-            }
-            RelationOutcome::proven(())
-        }
-        (_, TypeData::Nominal { declaration: sup_decl }) if CoreDeclarationIds::default().is_object(&sup_decl) => RelationOutcome::proven(()),
-        (TypeData::Unit, TypeData::Unit) => RelationOutcome::proven(()),
-        _ => RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup }),
-    };
+    })();
 
     visited.remove(&(sub, sup));
     res
@@ -858,5 +848,25 @@ mod tests {
 
         assert_eq!(hierarchy.superclass(&child), None);
         assert_eq!(hierarchy.supertype_template(&child), Some(&template));
+    }
+
+    #[test]
+    fn active_pair_is_removed_after_terminal_nested_relation() {
+        let mut store = TypeStore::new();
+        let mut hierarchy = MapTypeHierarchy::new();
+        let int = store.nominal(test_decl("Int"));
+        let number = store.nominal(test_decl("Number"));
+        let string = store.nominal(test_decl("String"));
+        hierarchy.insert(test_decl("Int"), test_decl("Number"));
+        let expected = store.union(&[number, string]);
+        let actual = store.tuple(Box::new([TupleTypeElement { label: None, ty: int }, TupleTypeElement { label: None, ty: int }]));
+        let required = store.tuple(Box::new([
+            TupleTypeElement { label: None, ty: expected },
+            TupleTypeElement { label: None, ty: expected },
+        ]));
+
+        let mut budget = QueryBudget::default();
+        let token = CancellationToken::new();
+        assert!(check_subtype_bounded(&mut store, &hierarchy, actual, required, &mut budget, &token).is_proven());
     }
 }
