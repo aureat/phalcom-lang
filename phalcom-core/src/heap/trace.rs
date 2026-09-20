@@ -36,6 +36,9 @@ use crate::value::Value;
 /// index plus a generation counter, not a handle.
 pub fn trace_frame(frame: &CallFrame, push: &mut impl FnMut(ObjRef)) {
     push(frame.closure);
+    if let Some(guard) = frame.foreign_receiver_guard {
+        push(guard.layout_owner);
+    }
     match frame.context {
         CallContext::Instance { instance } => push(instance),
         CallContext::Class { class } => push(class),
@@ -107,6 +110,9 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
             if let Some(holder) = method.holder {
                 push(holder);
             }
+            if let Some(access_owner) = method.access_owner {
+                push(access_owner);
+            }
             // `@requires`/`@ensures`/`@invariant` metadata (U-ANNOT-CONTRACTS):
             // the `.0` is a `Symbol`, the `.1` is the predicate `Value`.
             if let Some(contracts) = &method.contracts {
@@ -146,6 +152,12 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
         }
         Object::Closure(closure) => {
             push(closure.module);
+            if let Some(lexical_class) = closure.lexical_class {
+                push(lexical_class);
+            }
+            if let Some(guard) = closure.foreign_receiver_guard {
+                push(guard.layout_owner);
+            }
             for upvalue in &closure.upvalues {
                 push(*upvalue);
             }

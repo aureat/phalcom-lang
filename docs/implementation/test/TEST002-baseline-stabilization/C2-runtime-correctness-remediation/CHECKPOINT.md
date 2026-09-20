@@ -62,6 +62,7 @@ unmeasured runtime/cache optimization.
 | --- | --- | --- |
 | T0 | AUD-RUNTIME-006 retained native probe before repair | FAIL reproduced: mixed `~/` rounded `9007199254740993` to `9007199254740992`; Float `%` used host remainder signs |
 | T8/G4 | Exact `~/` and Float `%` numeric slice | PASS: retained and expanded numeric audit regressions, dyadic rounding unit, `numeric_values`, and `numeric_diagnostics` all pass |
+| T4/G2 partial | AUD-RUNTIME-003 authority tracing | PASS: retained lexical-owner probe fails before trace repair and passes after closure, method, frame authority edges are traced |
 
 ## AUD-RUNTIME-006 root-cause record
 
@@ -92,9 +93,38 @@ private dyadic helper covers ties and subnormal boundaries.
 - `dyadic_to_float` is the private canonical exact dyadic-to-binary64 helper;
   `float_to_rational` remains the canonical binary64 decoder.
 
+## AUD-RUNTIME-003 root-cause record
+
+Observed: a rooted closure carrying `lexical_class` lost its class owner after
+forced GC; the retained probe failed at `heap.try_get(owner).is_some()`.
+
+Causal hypothesis: `heap::trace` enumerated Object variants but omitted newly
+added authority fields inside existing `ClosureObject`, `MethodObject`, and
+`CallFrame` payloads.
+
+Evidence: the closure probe failed with production tracing unchanged. The
+collector's `Object::Closure` arm traced module, upvalues, and constants only;
+the Method arm traced holder but not `access_owner`; `trace_frame` traced the
+closure and receiver context but not `foreign_receiver_guard.layout_owner`.
+
+Predicted effect: tracing every strong authority/layout edge keeps the owner
+alive through the actual runtime object or frame without globally rooting old
+classes.
+
+Discriminating test: `audit_probes::runtime_invariants::gc_lexical_owner_survives_collection`
+fails with the trace edges removed and passes with the canonical edges restored.
+
+## Durable GC interface
+
+- `heap::trace::trace_object` traces `ClosureObject.lexical_class` and
+  `foreign_receiver_guard.layout_owner`.
+- `heap::trace::trace_object` traces `MethodObject.access_owner` separately
+  from `holder`.
+- `heap::trace::trace_frame` traces a frame's foreign layout owner.
+
 ## Deferred / baseline issue ledger
 
-- AUD-RUNTIME-001, -002, -003, -004, -005, -007, and -008 remain active C2
+- AUD-RUNTIME-001, -002, -004, -005, -007, and -008 remain active C2
   clusters and are not represented as fixed by this numeric slice.
 - AUD-RUNTIME-005.1 full executable-chunk verification, .2 rest/native
   metadata optimization, and .3 sparse per-instruction metadata remain

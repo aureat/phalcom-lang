@@ -31,7 +31,6 @@ fn chunk_constant_pool_capacity() {
 }
 
 #[test]
-#[ignore = "AUD-RUNTIME-003: GC misses lexical class authority edge on closures"]
 fn gc_lexical_owner_survives_collection() {
     let mut vm = VM::new_kernel();
     let module = vm.create_module("audit", "");
