@@ -178,3 +178,17 @@ became green with AUD-SEM-004's active-relation-pair lifetime repair: repeated
 component obligations no longer inherit stale cycle state. Homogeneous and
 heterogeneous tuple components are now enabled regressions under the relation
 audit surface.
+
+## AUD-SEM-007 — relation budgets
+
+Relation accounting now occurs at every `check_subtype_impl` invocation rather
+than only in the public root wrapper. Each relation obligation charges one step
+and one pair; recursive calls carry an explicit depth and report a distinct
+`BudgetExceeded(TypeDepth)` when exceeding `max_type_depth`. The root wrapper
+only initializes active-cycle state.
+
+This preserves cancellation precedence, active-pair cycle semantics, and
+terminal relation outcomes. It does not add memoization or separately charge
+generic template materialization/substitution. Enabled probes cover pair limits
+below and at the exact required obligation count, plus depth below and at the
+deepest nested comparison.

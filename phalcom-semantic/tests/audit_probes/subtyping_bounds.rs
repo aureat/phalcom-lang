@@ -124,7 +124,6 @@ fn applied_subclass_projects_transitive_and_generic_ancestors() {
 }
 
 #[test]
-#[ignore = "AUD-SEM-007: relation budgets defect (recursive relation charges pair budget)"]
 fn recursive_relation_charges_pair_budget() {
     let mut s = TypeStore::new();
     let mut h = MapTypeHierarchy::new();
@@ -139,6 +138,66 @@ fn recursive_relation_charges_pair_budget() {
     };
     let outcome = check_subtype_bounded(&mut s, &h, a, b, &mut budget, &CancellationToken::new());
     assert!(outcome.is_budget_exceeded(), "two distinct pairs exceed limit one: {outcome:?}, {budget:?}");
+}
+
+#[test]
+fn recursive_relation_charges_pair_budget_at_exact_limit() {
+    let mut s = TypeStore::new();
+    let mut h = MapTypeHierarchy::new();
+    h.insert(decl("Int"), decl("Number"));
+    let i = s.nominal(decl("Int"));
+    let n = s.nominal(decl("Number"));
+    let a = s.tuple(Box::new([TupleTypeElement { label: None, ty: i }]));
+    let b = s.tuple(Box::new([TupleTypeElement { label: None, ty: n }]));
+    let mut budget = QueryBudget {
+        max_relation_pairs: 1,
+        ..QueryBudget::default()
+    };
+    let outcome = check_subtype_bounded(&mut s, &h, a, b, &mut budget, &CancellationToken::new());
+    assert!(
+        outcome.is_budget_exceeded(),
+        "the tuple and nested nominal relation require two obligations: {outcome:?}, {budget:?}"
+    );
+
+    let mut budget = QueryBudget {
+        max_relation_pairs: 2,
+        ..QueryBudget::default()
+    };
+    let outcome = check_subtype_bounded(&mut s, &h, a, b, &mut budget, &CancellationToken::new());
+    assert!(outcome.is_proven(), "exact relation-pair budget must be accepted: {outcome:?}, {budget:?}");
+}
+
+#[test]
+fn recursive_relation_enforces_type_depth_budget() {
+    let mut s = TypeStore::new();
+    let mut h = MapTypeHierarchy::new();
+    h.insert(decl("Int"), decl("Number"));
+    let i = s.nominal(decl("Int"));
+    let n = s.nominal(decl("Number"));
+    let inner_actual = s.tuple(Box::new([TupleTypeElement { label: None, ty: i }]));
+    let inner_expected = s.tuple(Box::new([TupleTypeElement { label: None, ty: n }]));
+    let actual = s.tuple(Box::new([TupleTypeElement { label: None, ty: inner_actual }]));
+    let expected = s.tuple(Box::new([TupleTypeElement {
+        label: None,
+        ty: inner_expected,
+    }]));
+
+    let mut shallow = QueryBudget {
+        max_type_depth: 1,
+        ..QueryBudget::default()
+    };
+    let exhausted = check_subtype_bounded(&mut s, &h, actual, expected, &mut shallow, &CancellationToken::new());
+    assert!(
+        matches!(exhausted, phalcom_semantic::types::outcome::RelationOutcome::BudgetExceeded(ref report) if report.kind == phalcom_semantic::types::outcome::BudgetKind::TypeDepth),
+        "nested relation must report type-depth exhaustion: {exhausted:?}"
+    );
+
+    let mut sufficient = QueryBudget {
+        max_type_depth: 2,
+        ..QueryBudget::default()
+    };
+    let proven = check_subtype_bounded(&mut s, &h, actual, expected, &mut sufficient, &CancellationToken::new());
+    assert!(proven.is_proven(), "depth at the deepest nested relation must be accepted: {proven:?}");
 }
 
 #[test]
