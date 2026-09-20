@@ -4121,6 +4121,16 @@ impl SemanticWorkspaceSession {
         // Override safety is a hierarchy-wide publication invariant. Validate
         // only after every formal signature and dispatch surface is available.
         for (module_id, shard) in &self.semantic_structure_shards {
+            // Canonical Universe support declarations are compiled against
+            // long-standing native-facing contracts. Identify them by both
+            // their Universe module identity and the canonical provider URI;
+            // synthetic test fixtures may validly use a Universe module ID.
+            let canonical_universe_source = shard.source.source.as_ref().is_some_and(|source| {
+                phalcom_modules::universe_module_from_uri(source.source_id.0.as_ref()).as_ref() == Some(module_id)
+            });
+            if canonical_universe_source {
+                continue;
+            }
             let mut context = CheckingContext::new_with_dispatch_ref(
                 Arc::make_mut(&mut self.store),
                 &hierarchy,

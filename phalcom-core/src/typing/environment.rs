@@ -18,13 +18,14 @@ pub enum RuntimeConformanceSlotRecipe {
     Selection {
         callable: phalcom_semantic::identity::CallableId,
         selector: phalcom_common::selector::Selector,
+        nested_slots: Box<[(u16, RuntimeConformanceSlotRecipe)]>,
     },
     Forwarded(u16),
     DerivedConditional {
         callable: phalcom_semantic::identity::CallableId,
         selector: phalcom_common::selector::Selector,
         type_bindings: Box<[(StableTypeParameterRef, RuntimeTypeRecipe)]>,
-        nested_slots: Box<[RuntimeConformanceSlotRecipe]>,
+        nested_slots: Box<[(u16, RuntimeConformanceSlotRecipe)]>,
     },
 }
 

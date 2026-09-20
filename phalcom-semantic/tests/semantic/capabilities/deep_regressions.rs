@@ -152,3 +152,169 @@ class Probe {
     assert!(f.binding(run, "action").current.ty().is_some(), "closure value must still be analyzed");
     f.assert_no_error_diagnostics();
 }
+
+/// AUD-SEM-002: opaque invocation invalidates mutable current knowledge while
+/// retaining the source contract as conservative assumed evidence.
+#[test]
+fn opaque_call_drops_mutable_current_to_its_persistent_contract() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value: Int | String = 1
+    let action = || { value = "changed" }
+    action()
+    let observed = value
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let string_ty = f.ty("String");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let contract = union([int_ty.into(), string_ty.into()]);
+    let expected = known(contract.clone()).assumed().origin(EvidenceOrigin::DeveloperAnnotation);
+
+    f.assert_binding_expectation(run, "value", binding().declared(contract).current(expected.clone()).assumed().mutable(true));
+    f.assert_binding_expectation(run, "observed", binding().current(expected));
+    assert_eq!(f.binding(run, "value").version, 1, "opaque invalidation must replace the stale flow version");
+    f.assert_no_error_diagnostics();
+}
+
+/// Closure aliases remain opaque invocation boundaries and must not retain a
+/// captured mutable local's pre-call narrow fact.
+#[test]
+fn closure_alias_invocation_drops_captured_mutable_current_knowledge() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value: Int | String = 1
+    let action = || { value = "changed" }
+    let alias = action
+    alias()
+    let observed = value
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let string_ty = f.ty("String");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let contract = union([int_ty.into(), string_ty.into()]);
+    let expected = known(contract.clone()).assumed().origin(EvidenceOrigin::DeveloperAnnotation);
+
+    f.assert_binding_expectation(run, "value", binding().declared(contract).current(expected.clone()).assumed().mutable(true));
+    f.assert_binding_expectation(run, "observed", binding().current(expected));
+    f.assert_no_error_diagnostics();
+}
+
+/// Nested closure invocation reaches the same opaque-call barrier. Exact
+/// captured-write summaries may later recover precision without weakening this
+/// sound baseline.
+#[test]
+fn nested_closure_invocation_drops_captured_mutable_current_knowledge() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value: Int | String = 1
+    let action = || { value = "changed" }
+    let helper = || { action() }
+    helper()
+    let observed = value
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let string_ty = f.ty("String");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let contract = union([int_ty.into(), string_ty.into()]);
+    let expected = known(contract.clone()).assumed().origin(EvidenceOrigin::DeveloperAnnotation);
+
+    f.assert_binding_expectation(run, "value", binding().declared(contract).current(expected.clone()).assumed().mutable(true));
+    f.assert_binding_expectation(run, "observed", binding().current(expected));
+    f.assert_no_error_diagnostics();
+}
+
+/// Even a same-type captured write crosses the opaque barrier, so a later
+/// effect summary is required before restoring exact established evidence.
+#[test]
+fn same_type_captured_write_still_drops_stale_current_knowledge() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value: Int | String = 1
+    let action = || { value = 2 }
+    action()
+    let observed = value
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let string_ty = f.ty("String");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let contract = union([int_ty.into(), string_ty.into()]);
+    let expected = known(contract.clone()).assumed().origin(EvidenceOrigin::DeveloperAnnotation);
+
+    f.assert_binding_expectation(run, "value", binding().declared(contract).current(expected.clone()).assumed().mutable(true));
+    f.assert_binding_expectation(run, "observed", binding().current(expected));
+    f.assert_no_error_diagnostics();
+}
+
+/// Opaque-call invalidation intentionally keeps immutable local facts precise.
+#[test]
+fn opaque_call_preserves_immutable_local_current_knowledge() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    const stable = 1
+    let action = || { 0 }
+    action()
+    let observed = stable
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let expected = known(int_ty).established().origin(EvidenceOrigin::Syntax);
+
+    f.assert_binding_expectation(run, "stable", binding().current(expected.clone()).mutable(false));
+    f.assert_binding_expectation(run, "observed", binding().current(expected));
+    f.assert_no_error_diagnostics();
+}
+
+/// The conservative opaque-call policy also invalidates uncaptured mutable
+/// locals; a later capture/effect summary may refine this precision boundary.
+#[test]
+fn opaque_call_drops_uncaptured_mutable_current_knowledge() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value = 1
+    let action = || { 0 }
+    action()
+    let observed = value
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let expected = unknown(UnknownReason::NoTypeEvidence);
+
+    f.assert_binding_expectation(run, "value", binding().current(expected.clone()).mutable(true));
+    f.assert_binding_expectation(run, "observed", binding().current(expected));
+    f.assert_no_error_diagnostics();
+}

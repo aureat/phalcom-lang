@@ -47,6 +47,49 @@ class Child is Base { accept(_ value: Object) -> Int { return 1 } }
 }
 
 #[test]
+fn alpha_equivalent_generic_hkt_override_is_accepted() {
+    let f = Fixture::new(
+        r#"
+class Functor<F: Type -> Type> {
+  map<A, B>(_ value: F<A>, _ transform: (A) -> B) -> F<B> {
+    throw Error.new("contract stub")
+  }
+}
+class Either<E, A> {}
+class EitherFunctor<E> is Functor<<X> =>> Either<E, X>> {
+  map<X, Y>(_ value: Either<E, X>, _ transform: (X) -> Y) -> Either<E, Y> {
+    throw Error.new("implementation stub")
+  }
+}
+"#,
+    );
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn generic_hkt_override_with_incompatible_result_is_rejected() {
+    let f = Fixture::new(
+        r#"
+class Functor<F: Type -> Type> {
+  map<A, B>(_ value: F<A>, _ transform: (A) -> B) -> F<B> {
+    throw Error.new("contract stub")
+  }
+}
+class Either<E, A> {}
+class IncompatibleEitherFunctor<E> is Functor<<X> =>> Either<E, X>> {
+  map<X, Y>(_ value: Either<E, X>, _ transform: (X) -> Y) -> String {
+    throw Error.new("implementation stub")
+  }
+}
+"#,
+    );
+    assert!(
+        f.analysis.snapshot.has_errors(),
+        "a generic override must not widen the inherited result contract"
+    );
+}
+
+#[test]
 fn captured_write_must_invalidate_previous_int_fact() {
     let f = Fixture::new(
         r#"

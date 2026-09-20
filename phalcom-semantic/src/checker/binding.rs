@@ -171,6 +171,40 @@ pub fn reconcile_binding_contract(
     }
 }
 
+/// Invalidates transient current knowledge at an opaque call while preserving a
+/// binding's persistent contract.
+///
+/// A source annotation may provide conservative assumed knowledge after the
+/// call because it remains an explicit caller-visible promise. Other contract
+/// origins and unconstrained bindings retain no post-call value proof.
+pub fn invalidate_binding_current_for_opaque_call(contract: Option<&BindingContract>) -> BindingReconciliation {
+    let unknown = TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence);
+    reconcile_binding_contract_for_opaque_current(contract, &unknown)
+}
+
+fn reconcile_binding_contract_for_opaque_current(contract: Option<&BindingContract>, unknown: &TypeKnowledge) -> BindingReconciliation {
+    let Some(contract) = contract else {
+        return BindingReconciliation {
+            current: unknown.clone(),
+            consistency: BindingConsistency::Unconstrained,
+        };
+    };
+
+    if matches!(contract.origin, BindingContractOrigin::SourceAnnotation) {
+        return BindingReconciliation {
+            current: TypeKnowledge::assumed(contract.ty, EvidenceOrigin::DeveloperAnnotation),
+            consistency: BindingConsistency::Assumed {
+                basis: AssumptionBasis::MissingValueEvidence(UnknownReason::NoTypeEvidence),
+            },
+        };
+    }
+
+    BindingReconciliation {
+        current: unknown.clone(),
+        consistency: BindingConsistency::Blocked(BlockReason::UnknownType(UnknownReason::NoTypeEvidence)),
+    }
+}
+
 /// Projects a fully structured relation result into binding consistency without
 /// relabeling operational terminal outcomes as ordinary blockage.
 pub fn reconcile_binding_relation(contract: Option<&BindingContract>, actual: &TypeKnowledge, relation: RelationOutcome) -> BindingReconciliation {

@@ -21,7 +21,7 @@ runtime conformance transport.
 
 | Checkpoint | Scope | Status |
 | --- | --- | --- |
-| [TEST002.C1](C1-semantic-core-baseline-elimination/CHECKPOINT.md) | Post-visibility semantic/core baseline elimination | IN_PROGRESS |
+| [TEST002.C1](C1-semantic-core-baseline-elimination/CHECKPOINT.md) | Post-visibility semantic/core baseline elimination; BL-19 closes through P2 generic override compatibility, pending remaining certification gates | IN_PROGRESS |
 
 ## Ownership boundary
 

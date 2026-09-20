@@ -892,6 +892,18 @@ impl ProgramCompiler {
         }
         let mut call_conformance_slots =
             BTreeMap::<(ModuleId, SourceRange, phalcom_semantic::identity::CallableId), Vec<crate::typing::RuntimeConformanceSlotRecipe>>::new();
+        let mut default_requirement_slots = BTreeMap::new();
+        for (_, surface) in analyzed.semantic.trait_surfaces.iter() {
+            for (requirement, _) in surface.iter() {
+                default_requirement_slots.entry(requirement.clone()).or_insert(0u16);
+            }
+        }
+        for (slot, requirement) in default_requirement_slots.keys().cloned().collect::<Vec<_>>().into_iter().enumerate() {
+            default_requirement_slots.insert(
+                requirement,
+                u16::try_from(slot).map_err(|_| ProgramCompileError::GenericEvidenceLayout("trait requirement slot capacity exceeded".into()))?,
+            );
+        }
 
         for (callable, analysis) in analyzed.semantic.callable_analyses.iter() {
             if !analyzed.runtime_modules.contains(callable.owner.module()) {
@@ -1085,7 +1097,39 @@ impl ProgramCompiler {
                                     };
                                     if let Some(callable) = callable {
                                         if idx < slots.len() {
-                                            slots[idx] = Some(crate::typing::RuntimeConformanceSlotRecipe::Selection { callable, selector });
+                                            let nested_slots = if matches!(selection, phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }) {
+                                                evidence
+                                                    .requirements
+                                                    .iter()
+                                                    .filter_map(|(requirement, selected)| {
+                                                        let callable = phalcom_semantic::trait_dispatch::selected_callable(selected)?;
+                                                        let selector = analyzed
+                                                            .semantic
+                                                            .trait_surfaces
+                                                            .get(&slot_key.conformance.trait_ref.declaration)
+                                                            .and_then(|surface| surface.get(requirement))
+                                                            .map(|member| member.requirement.selector.clone())
+                                                            .unwrap_or_else(|| callable.selector.clone());
+                                                        default_requirement_slots.get(requirement).copied().map(|slot| {
+                                                            (
+                                                                slot,
+                                                                crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                    callable,
+                                                                    selector,
+                                                                    nested_slots: Box::new([]),
+                                                                },
+                                                            )
+                                                        })
+                                                    })
+                                                    .collect::<Box<[(u16, crate::typing::RuntimeConformanceSlotRecipe)]>>()
+                                            } else {
+                                                Box::new([])
+                                            };
+                                            slots[idx] = Some(crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                callable,
+                                                selector,
+                                                nested_slots,
+                                            });
                                         }
                                     }
                                 }
@@ -1133,7 +1177,48 @@ impl ProgramCompiler {
                                         type_bindings.sort_by(|(left, _), (right, _)| left.cmp(right));
 
                                         let mut nested_slots = Vec::new();
-                                        if !is_trait_default {
+                                        if is_trait_default {
+                                            // A selected default executes its own compiled
+                                            // requirement slots. Populate that callee layout
+                                            // from the already-proven sibling selections of
+                                            // this derived conformance; antecedent evidence is
+                                            // a separate relation handled below for witnesses.
+                                            for (requirement, default_selection) in evidence.requirements().iter() {
+                                                let default_slot = default_requirement_slots.get(requirement).copied().ok_or_else(|| {
+                                                    ProgramCompileError::GenericEvidenceLayout(format!(
+                                                        "missing default requirement slot for {requirement:?}"
+                                                    ))
+                                                })?;
+                                                let default_callable = match default_selection {
+                                                    phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { callable }
+                                                    | phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable }
+                                                    | phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable { callable, .. } => {
+                                                        Some(callable.clone())
+                                                    }
+                                                    phalcom_semantic::impls::RequirementSelectionTemplate::ConditionalInherent { candidate, .. } => {
+                                                        Some(candidate.callable.clone())
+                                                    }
+                                                    phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => None,
+                                                };
+                                                if let Some(default_callable) = default_callable {
+                                                    let default_selector = analyzed
+                                                        .semantic
+                                                        .trait_surfaces
+                                                        .get(&slot_key.conformance.trait_ref.declaration)
+                                                        .and_then(|surface| surface.get(requirement))
+                                                        .map(|member| member.requirement.selector.clone())
+                                                        .unwrap_or_else(|| default_callable.selector.clone());
+                                                    nested_slots.push((
+                                                        default_slot,
+                                                        crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                            callable: default_callable,
+                                                            selector: default_selector,
+                                                            nested_slots: Box::new([]),
+                                                        },
+                                                    ));
+                                                }
+                                            }
+                                        } else {
                                             for nested_item in evidence.nested.iter() {
                                                 if let phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(nested_conformance) = nested_item
                                                 {
@@ -1161,10 +1246,11 @@ impl ProgramCompiler {
                                                                         .and_then(|s| s.get(req))
                                                                         .map(|m| m.requirement.selector.clone())
                                                                         .unwrap_or_else(|| nested_callable.selector.clone());
-                                                                    nested_slots.push(crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                    nested_slots.push((0, crate::typing::RuntimeConformanceSlotRecipe::Selection {
                                                                         callable: nested_callable,
                                                                         selector: nested_selector,
-                                                                    });
+                                                                        nested_slots: Box::new([]),
+                                                                    }));
                                                                 }
                                                             }
                                                         }
@@ -1179,7 +1265,7 @@ impl ProgramCompiler {
                                                                 let caller_slot_key =
                                                                     phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(assumed.key.clone(), req);
                                                                 if let Some(caller_slot) = caller_evidence.slot_for(&caller_slot_key) {
-                                                                    nested_slots.push(crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot));
+                                                                    nested_slots.push((0, crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot)));
                                                                 }
                                                             }
                                                         }
@@ -1215,10 +1301,11 @@ impl ProgramCompiler {
                                                                         .and_then(|s| s.get(req))
                                                                         .map(|m| m.requirement.selector.clone())
                                                                         .unwrap_or_else(|| nested_callable.selector.clone());
-                                                                    nested_slots.push(crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                    nested_slots.push((0, crate::typing::RuntimeConformanceSlotRecipe::Selection {
                                                                         callable: nested_callable,
                                                                         selector: nested_selector,
-                                                                    });
+                                                                        nested_slots: Box::new([]),
+                                                                    }));
                                                                 }
                                                             }
                                                         }

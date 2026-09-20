@@ -1499,12 +1499,49 @@ impl VM {
         let mut slots = Vec::with_capacity(recipe.conformance_slots.len());
         for slot_recipe in recipe.conformance_slots.iter() {
             match slot_recipe {
-                crate::typing::RuntimeConformanceSlotRecipe::Selection { callable, selector } => {
+                crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                    callable,
+                    selector,
+                    nested_slots,
+                } => {
                     let method = self.resolve_conformance_method(callable, selector, receiver)?;
+                    let nested_environment = if nested_slots.is_empty() {
+                        crate::typing::RuntimeConformanceEnvironmentId::EMPTY
+                    } else {
+                        let mut nested = vec![None; nested_slots.iter().map(|(slot, _)| *slot as usize + 1).max().unwrap_or(0)];
+                        for (slot, nested_recipe) in nested_slots.iter() {
+                            let nested_slot = match nested_recipe {
+                                crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                    callable,
+                                    selector,
+                                    nested_slots,
+                                } => {
+                                    let method = self.resolve_conformance_method(callable, selector, receiver)?;
+                                    let conformance_environment = if nested_slots.is_empty() {
+                                        crate::typing::RuntimeConformanceEnvironmentId::EMPTY
+                                    } else {
+                                        return Err(RuntimeError::Internal("nested selected conformance recipes cannot nest recursively".into()).into());
+                                    };
+                                    Some(crate::typing::RuntimeConformanceSlot {
+                                        method,
+                                        type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,
+                                        conformance_environment,
+                                    })
+                                }
+                                crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot) => {
+                                    self.runtime_conformance_environments.slot(caller_conformance_env_id, *caller_slot)
+                                }
+                                crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional { .. } => None,
+                            };
+                            nested[*slot as usize] = nested_slot;
+                        }
+                        self.runtime_conformance_environments
+                            .intern(crate::typing::RuntimeConformanceEnvironment::new(nested))
+                    };
                     slots.push(Some(crate::typing::RuntimeConformanceSlot {
                         method,
                         type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,
-                        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+                        conformance_environment: nested_environment,
                     }));
                 }
                 crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot) => {
@@ -1540,10 +1577,14 @@ impl VM {
                     let nested_conformance_env_id = if nested_slots.is_empty() {
                         caller_conformance_env_id
                     } else {
-                        let mut nested_conformance_slots = Vec::with_capacity(nested_slots.len());
-                        for nested_slot_recipe in nested_slots.iter() {
+                        let mut nested_conformance_slots =
+                            vec![None; nested_slots.iter().map(|(slot, _)| *slot as usize + 1).max().unwrap_or(0)];
+                        for (slot, nested_slot_recipe) in nested_slots.iter() {
                             let nested_slot_val = match nested_slot_recipe {
-                                crate::typing::RuntimeConformanceSlotRecipe::Selection { callable, selector } => {
+                                crate::typing::RuntimeConformanceSlotRecipe::Selection { callable, selector, nested_slots } => {
+                                    if !nested_slots.is_empty() {
+                                        return Err(RuntimeError::Internal("derived nested selected conformance recipe cannot require a further nested environment".into()).into());
+                                    }
                                     let method = self.resolve_conformance_method(callable, selector, receiver)?;
                                     Some(crate::typing::RuntimeConformanceSlot {
                                         method,
@@ -1556,7 +1597,7 @@ impl VM {
                                 }
                                 crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional { .. } => None,
                             };
-                            nested_conformance_slots.push(nested_slot_val);
+                            nested_conformance_slots[*slot as usize] = nested_slot_val;
                         }
                         self.runtime_conformance_environments
                             .intern(crate::typing::RuntimeConformanceEnvironment::new(nested_conformance_slots))

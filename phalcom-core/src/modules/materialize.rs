@@ -36,13 +36,31 @@ fn remap_runtime_bindings(
 
 fn remap_runtime_conformance_slots(slots: &mut Box<[crate::typing::RuntimeConformanceSlotRecipe]>, pool_id: crate::typing::MetadataPoolId) {
     for slot in slots.iter_mut() {
-        if let crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional {
-            type_bindings, nested_slots, ..
-        } = slot
-        {
-            remap_runtime_bindings(type_bindings, pool_id);
-            remap_runtime_conformance_slots(nested_slots, pool_id);
+        remap_runtime_conformance_slot(slot, pool_id);
+    }
+}
+
+fn remap_runtime_conformance_slot(slot: &mut crate::typing::RuntimeConformanceSlotRecipe, pool_id: crate::typing::MetadataPoolId) {
+    match slot {
+        crate::typing::RuntimeConformanceSlotRecipe::Selection { nested_slots, .. } => {
+            remap_runtime_indexed_conformance_slots(nested_slots, pool_id);
         }
+        crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional {
+            type_bindings, nested_slots, ..
+        } => {
+            remap_runtime_bindings(type_bindings, pool_id);
+            remap_runtime_indexed_conformance_slots(nested_slots, pool_id);
+        }
+        crate::typing::RuntimeConformanceSlotRecipe::Forwarded(_) => {}
+    }
+}
+
+fn remap_runtime_indexed_conformance_slots(
+    slots: &mut Box<[(u16, crate::typing::RuntimeConformanceSlotRecipe)]>,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    for (_, slot) in slots.iter_mut() {
+        remap_runtime_conformance_slot(slot, pool_id);
     }
 }
 

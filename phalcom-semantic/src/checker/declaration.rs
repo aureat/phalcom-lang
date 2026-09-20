@@ -8,6 +8,7 @@ use crate::identity::DeclarationId;
 use crate::signature::CallableSemanticSignature;
 use crate::surface::{DeclarationSurface, MemberVisibility};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
+use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
 use std::collections::HashMap;
 
@@ -46,16 +47,17 @@ pub(crate) fn validate_class_overrides(ctx: &mut CheckingContext<'_>, class_def:
             continue;
         };
         let candidate = super::declaration_signature::project_semantic_signature(candidate_semantic);
-        let Ok((candidate, _)) = ctx.specialize_dispatch_signature(receiver, &owner, candidate) else {
+        let Ok((mut candidate, _)) = ctx.specialize_dispatch_signature(receiver, &owner, candidate) else {
             continue;
         };
         let Ok((inherited, _)) = ctx.specialize_dispatch_signature(receiver, &ancestor, inherited) else {
             continue;
         };
 
-        let shape_matches = candidate.kind == inherited.kind
+        let generic_contract_matches = align_callable_generic_binders(ctx, &mut candidate, &inherited);
+        let shape_matches = generic_contract_matches
+            && candidate.kind == inherited.kind
             && candidate.parameters.len() == inherited.parameters.len()
-            && candidate.generics.as_ref().map(|g| g.parameter_count()) == inherited.generics.as_ref().map(|g| g.parameter_count())
             && candidate
                 .parameters
                 .iter()
@@ -88,6 +90,95 @@ pub(crate) fn validate_class_overrides(ctx: &mut CheckingContext<'_>, class_def:
                 range,
             ));
         }
+    }
+}
+
+/// Alpha-aligns corresponding method-generic binders for one override relation.
+///
+/// Receiver specialization has already substituted declaration-owned parameters
+/// before this runs. Callable-owned binders remain rigid identities, so a direct
+/// relation check would incorrectly reject equivalent declarations such as
+/// `map<A, B>` overriding `map<X, Y>`. This operation substitutes only the
+/// candidate callable's binders into the inherited callable's binders. It keeps
+/// declaration-owner identities, `Self`, and all other free parameters intact.
+///
+/// Constraints are compared after the same alpha-renaming. Requiring the same
+/// normalized constraints is conservative: it prevents an override from
+/// strengthening obligations imposed on callers while avoiding a second
+/// constraint-implication engine at this soundness boundary.
+fn align_callable_generic_binders(
+    ctx: &mut CheckingContext<'_>,
+    candidate: &mut crate::dispatch::CallableSignature,
+    inherited: &crate::dispatch::CallableSignature,
+) -> bool {
+    let (Some(candidate_generics), Some(inherited_generics)) = (candidate.generics.as_mut(), inherited.generics.as_ref()) else {
+        return candidate.generics.is_none() && inherited.generics.is_none();
+    };
+    if candidate_generics.parameter_count() != inherited_generics.parameter_count() {
+        return false;
+    }
+
+    let mut substitution = TypeSubstitution::new();
+    for (&candidate_parameter, &inherited_parameter) in candidate_generics.parameters.iter().zip(&inherited_generics.parameters) {
+        let candidate_data = ctx.store.type_parameter(candidate_parameter);
+        let inherited_data = ctx.store.type_parameter(inherited_parameter);
+        if candidate_data.kind != inherited_data.kind || candidate_data.variance != inherited_data.variance {
+            return false;
+        }
+        substitution.bind(candidate_parameter, ctx.store.parameter_form(inherited_parameter));
+    }
+
+    for parameter in &mut candidate.parameters {
+        parameter.ty = parameter.ty.map_type(|ty| substitution.apply(ctx.store, ty));
+    }
+    candidate.return_type = candidate.return_type.map_type(|ty| substitution.apply(ctx.store, ty));
+    candidate_generics.constraints = candidate_generics
+        .constraints
+        .iter()
+        .map(|constraint| substitute_generic_constraint(ctx, &substitution, constraint))
+        .collect();
+
+    let mut candidate_constraints = candidate_generics.constraints.to_vec();
+    let mut inherited_constraints = inherited_generics.constraints.to_vec();
+    candidate_constraints.sort();
+    inherited_constraints.sort();
+    candidate_constraints == inherited_constraints
+}
+
+fn substitute_generic_constraint(
+    ctx: &mut CheckingContext<'_>,
+    substitution: &TypeSubstitution,
+    constraint: &crate::types::parameter::GenericConstraint,
+) -> crate::types::parameter::GenericConstraint {
+    use crate::types::parameter::{GenericConstraint, TypeTerm};
+
+    let mut substitute_term = |term: &TypeTerm| match term {
+        TypeTerm::Canonical(ty) => TypeTerm::Canonical(substitution.apply(ctx.store, *ty)),
+        TypeTerm::SelfType(term) => TypeTerm::SelfType(term.clone()),
+        TypeTerm::Infer(variable) => TypeTerm::Infer(*variable),
+    };
+
+    match constraint {
+        GenericConstraint::Subtype { lower, upper } => GenericConstraint::Subtype {
+            lower: substitute_term(lower),
+            upper: substitute_term(upper),
+        },
+        GenericConstraint::Equivalent { left, right } => GenericConstraint::Equivalent {
+            left: substitute_term(left),
+            right: substitute_term(right),
+        },
+        GenericConstraint::Conforms { subject, trait_ref } => GenericConstraint::Conforms {
+            subject: substitute_term(subject),
+            trait_ref: crate::traits::TraitRef::new(
+                trait_ref.declaration.clone(),
+                trait_ref
+                    .arguments
+                    .iter()
+                    .map(|&argument| substitution.apply(ctx.store, argument))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+        },
     }
 }
 

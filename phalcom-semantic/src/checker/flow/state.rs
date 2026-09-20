@@ -1,7 +1,9 @@
 //! Path-sensitive flow state and binding tracking (Spec 04.5).
 
 use crate::checker::analysis::BindingState;
-use crate::checker::binding::{BindingConsistency, BindingContract, BindingContractOrigin, BindingSeed, BindingWriteResult};
+use crate::checker::binding::{
+    BindingConsistency, BindingContract, BindingContractOrigin, BindingSeed, BindingWriteResult, invalidate_binding_current_for_opaque_call,
+};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::predicate::FlowPredicate;
 use crate::identity::FieldId;
@@ -816,11 +818,11 @@ impl FlowState {
     ///
     /// Binding contracts remain persistent declarations. Immutable local facts
     /// remain valid because this flow model has no path for an opaque call to
-    /// rewrite them. Mutable local predicates are removed because an aliased
-    /// or captured write cannot be ruled out. Instance fields lose any
-    /// narrower write-derived fact, but a definitely initialized field whose
-    /// contract has already been validated remains readable through that
-    /// lifecycle contract.
+    /// rewrite them. Mutable local predicates and transient current knowledge
+    /// are invalidated because an aliased or captured write cannot be ruled
+    /// out. Instance fields lose any narrower write-derived fact, but a
+    /// definitely initialized field whose contract has already been validated
+    /// remains readable through that lifecycle contract.
     pub fn invalidate_opaque_calls(&mut self) {
         self.facts.facts.retain(|predicate, _| {
             predicate
@@ -828,6 +830,17 @@ impl FlowState {
                 .and_then(|binding| self.bindings.get(&binding))
                 .is_some_and(|state| !state.mutable)
         });
+
+        for binding in self.bindings.values_mut().filter(|binding| binding.mutable) {
+            let reconciliation = invalidate_binding_current_for_opaque_call(binding.contract.as_ref());
+            if binding.current != reconciliation.current || binding.denotation.is_some() || binding.consistency != reconciliation.consistency {
+                binding.current = reconciliation.current;
+                binding.denotation = None;
+                binding.consistency = reconciliation.consistency;
+                binding.version += 1;
+                binding.explanation = None;
+            }
+        }
 
         for field in self.fields.values_mut() {
             if matches!(field.current, TypeKnowledge::Known(_)) {

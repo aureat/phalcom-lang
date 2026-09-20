@@ -6,7 +6,7 @@ checkpoint: TEST002.C1
 kind: checkpoint-record
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 requires:
   - LANG006.C1
 ---
@@ -28,7 +28,8 @@ workspace/release certification.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| TEST002.C1.P1 | Post-visibility semantic/core baseline failure elimination | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0 baseline established; T1–T6 semantic/compiler corrections complete |
+| TEST002.C1.P1 | Post-visibility baseline remediation through runtime conformance defaults | COMPLETE | PARTIAL | FOCUSED_TESTED | BL-01..BL-18 resolved/migrated; BL-19 blocked before its planned trace by generic override compatibility |
+| TEST002.C1.P2 | Generic override compatibility and symbolic inheritance closure | PROPOSED | NOT_STARTED | UNVERIFIED | owns the prerequisite decision/repair required before BL-19 and final certification |
 
 ## Starting state
 
@@ -94,19 +95,60 @@ workspace/release certification.
 | T4 | canonical/legacy-looking Universe dependency ownership | PASS: both exact dependency tests |
 | T5/G3 | incremental ownership, reuse, exact invalidation, and cold equivalence | PASS: checker dependencies 10, callable dependencies 12, product stability 16, recomputation metrics 13, impl queries 55 |
 | T6/G4-prep | positional expansion boundary and canonical iteration lowering | PASS: semantic iteration 6, canonical call 35, canonical invalid spread 1, canonical Iterable spread 1, outgoing-pack group 28, traceback spread 1 |
+| T7 | exact/derived default activation environments | PASS: BL-18, BL-17, cv47, and cv48; selected defaults receive environments indexed by their compiled requirement slots |
+| Override-validator boundary | user override probes and canonical bootstrap | PASS: incompatible and widening user probes pass; canonical provider-provenance support declarations no longer block bootstrap |
+| P2 / generic override compatibility | callable-binder alpha equivalence, HKT specialization, constraints, variance, and monad integration | PASS: callable-local binders normalize after canonical ancestor specialization; 35 monad integration tests, 10 HKT tests, 3 constraint tests, and 4 variance tests pass |
 
 ## Deferred / baseline issues
 
 BL-01 and BL-16 are resolved by test-authority migration. BL-15 is resolved
 through the semantic known-invalid lowering product, the structured runtime
-boundary, and direct compatibility coverage. BL-02..BL-14 and BL-17..BL-19
-remain active TEST002 work. The context-free interpreter path remains an
+boundary, and direct compatibility coverage. BL-02..BL-19 are resolved.
+
+**BL-19 — resolved by TEST002.C1.P2.** Generic override validation now
+alpha-aligns corresponding callable-owned binders only after canonical
+receiver-to-ancestor specialization. It preserves owner-relative declaration
+parameters, `Self`, selector shape, kind/variance metadata, normalized generic
+constraints, parameter contravariance, and result covariance. The authoritative
+`traverse_body_resolves_symbolic_inherited_capabilities` discriminator and the
+complete 35-test monad integration package pass.
+
+The context-free interpreter path remains an
 explicit untyped compatibility boundary because it has no semantic snapshot;
 canonical analyzed modules do not use that fallback. Any newly discovered
 unrelated failure will be classified under the repository baseline policy
 before being recorded here.
 
+## Consultation / amendment ledger
+
+| Incident | Plan/task | Trigger | Evidence | Decision needed |
+| --- | --- | --- | --- | --- |
+| T7 derived default environment | TEST002.C1.P1 / T7 | F6 remained after its one serious correction | BL-18 now passes with a nested environment indexed by the trait default body’s global requirement slot. BL-17 initially entered `Printable.label` without its required `print` slot because `DerivedConditional` omitted nested slots for selected trait defaults. | **Adopted:** build the derived default’s slot-indexed nested environment from `DerivedConformanceEvidence::requirements()`, while preserving antecedent nested-evidence handling for non-default derived witnesses. BL-17/18 and cv47/cv48 pass. |
+| T8 generic override blocker | TEST002.C1.P1 / T8 | Plan premise disproved; generic override compatibility is an unexpected semantic-authority boundary | The canonical-provider provenance exclusion preserves the override validator for synthetic fixtures. The requested migration of the monad fixture from `Universe` to `Synthetic` still emits the same four `IncompatibleOverride` diagnostics before BL-19 runs. | **Adopted:** split to P2. Preserve the BL-19 oracle and validator coverage; P2 must specify/repair generic override compatibility before resuming the symbolic evidence trace. |
+| P2 generic override repair | TEST002.C1.P2 / T1–T3 | Callable-owned generic binder identity caused alpha-equivalent signatures to fail canonical subtype checks | `EitherMonad<E>` and inherited `Monad<<X> =>> Either<E, X>>` signatures had equivalent declaration-specialized forms but distinct callable parameter owners. | **Implemented:** substitute candidate callable binders with corresponding inherited binders after canonical specialization, require equal kind/variance metadata and normalized constraints, then retain existing relation checks. BL-19 and all targeted monad/HKT/constraint/variance coverage pass. |
+
+The unrelated override-certification change initially blocked all core tests: the
+new validator emitted false-positive diagnostics for canonical Universe support
+sources. By user decision, its eligibility is now restricted to canonical
+provider provenance rather than merely a Universe-looking module identity;
+synthetic fixtures retain validator coverage. The wider question of aligning
+existing Universe/native contracts with ordinary override compatibility is
+deferred outside TEST002.
+
+That provenance boundary leaves a second, distinct scope conflict: the existing
+T8 monad typing fixture intentionally analyzes a synthetic-source program under
+the legacy `ModuleId::universe_root()` test identity. The new validator now
+rejects its pre-existing generic `Monad`/`Functor` overrides before BL-19 can
+reach the planned symbolic-evidence discriminator. By user direction, TEST002
+tried migrating that fixture to a real synthetic module identity; the same four
+override diagnostics remained. The migration was reverted. The evidence now
+shows generic override compatibility—not source provenance—is the blocker.
+Repairing it is a separate language-design task, and broadening the exclusion
+would suppress ordinary synthetic-fixture coverage.
+
 ## Active next action
 
-Execute T7: build callee-compatible conformance environments for selected
-defaults.
+Run the checkpoint's remaining G4/G5 certification targets and update the
+checkpoint/program records from their completed evidence. P2 is complete as
+`IMPLEMENTED` + `FOCUSED_TESTED`; its broad certification remains deferred to
+the checkpoint gate.
