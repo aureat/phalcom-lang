@@ -1,11 +1,11 @@
 //! Native primitives on `Number`.
 
 use crate::error::{PhResult, RuntimeError};
+use crate::primitive::float::float_to_rational;
 use crate::value::{Value, normalize_bigint};
 use crate::vm::VM;
 use num_bigint::BigInt;
 use num_integer::Integer;
-use num_traits::FromPrimitive;
 use num_traits::cast::ToPrimitive;
 use num_traits::identities::Zero;
 use num_traits::sign::Signed;
@@ -87,15 +87,71 @@ fn check_limit_bigint(n: &BigInt, vm: &mut VM) -> PhResult<()> {
     Ok(())
 }
 
-fn floor_div_i64(a: i64, b: i64) -> i64 {
-    let res = a / b;
-    let rem = a % b;
-    if (rem > 0 && b < 0) || (rem < 0 && b > 0) { res - 1 } else { res }
+fn checked_int_to_float(value: &BigInt, operation: &'static str, vm: &mut VM) -> PhResult<f64> {
+    let Some(float) = value.to_f64() else {
+        return Err(vm.raise_numeric_error(RuntimeError::NumericOverflow {
+            operation,
+            target_type: "Float",
+        }));
+    };
+    if !float.is_finite() {
+        return Err(vm.raise_numeric_error(RuntimeError::NumericOverflow {
+            operation,
+            target_type: "Float",
+        }));
+    }
+    Ok(float)
 }
 
-fn floor_mod_i64(a: i64, b: i64) -> i64 {
-    let rem = a % b;
-    if (rem > 0 && b < 0) || (rem < 0 && b > 0) { rem + b } else { rem }
+fn floor_div_rational(an: BigInt, ad_power: usize, bn: BigInt, bd_power: usize) -> BigInt {
+    (an << bd_power).div_floor(&(bn << ad_power))
+}
+
+fn dyadic_to_float(numerator: &BigInt, denominator_power: usize) -> f64 {
+    if numerator.is_zero() {
+        return 0.0;
+    }
+
+    let negative = numerator.is_negative();
+    let magnitude = numerator.abs();
+    let exponent = magnitude.bits() as i32 - 1 - denominator_power as i32;
+    let magnitude_bits = if exponent >= -1022 {
+        let scale = denominator_power as i32 + exponent - 52;
+        let (mut significand, remainder, halfway) = if scale > 0 {
+            let scale = scale as usize;
+            let quotient = &magnitude >> scale;
+            let remainder = &magnitude - (&quotient << scale);
+            (quotient, remainder, BigInt::from(1u8) << (scale - 1))
+        } else {
+            (&magnitude << (-scale as usize), BigInt::zero(), BigInt::zero())
+        };
+        if !halfway.is_zero() && (remainder > halfway || (remainder == halfway && significand.bit(0))) {
+            significand += 1;
+        }
+        let mut exponent = exponent;
+        if significand.bits() > 53 {
+            significand >>= 1;
+            exponent += 1;
+        }
+        let encoded = significand.to_u64().expect("normal dyadic significand fits in u64");
+        ((exponent + 1023) as u64) << 52 | (encoded - (1u64 << 52))
+    } else {
+        let scale = denominator_power as i32 - 1074;
+        let (mut significand, remainder, halfway) = if scale > 0 {
+            let scale = scale as usize;
+            let quotient = &magnitude >> scale;
+            let remainder = &magnitude - (&quotient << scale);
+            (quotient, remainder, BigInt::from(1u8) << (scale - 1))
+        } else {
+            (&magnitude << (-scale as usize), BigInt::zero(), BigInt::zero())
+        };
+        if !halfway.is_zero() && (remainder > halfway || (remainder == halfway && significand.bit(0))) {
+            significand += 1;
+        }
+        significand.to_u64().expect("subnormal dyadic significand fits in u64")
+    };
+    let bits = if negative { magnitude_bits | (1u64 << 63) } else { magnitude_bits };
+    f64::from_bits(bits)
 }
 
 fn pow_bigint(base: &BigInt, exp: &BigInt, limit: usize, vm: &mut VM) -> PhResult<BigInt> {
@@ -386,17 +442,10 @@ pub fn number_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     effects = pure
 )]
 pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
-        return Ok(vm.require_semantic_roots()?.unsupported);
-    };
-    match pair {
-        PromotedPair::Int(a, b) => {
-            if b == 0 {
-                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
-            }
-            Ok(Value::int(floor_div_i64(a, b)))
-        }
-        PromotedPair::Big(a, b) => {
+    let left = expect_number_big_or_float(receiver, vm)?;
+    let right = expect_number_big_or_float(&args[0], vm)?;
+    match (left, right) {
+        (EitherIntOrFloat::Int(a), EitherIntOrFloat::Int(b)) => {
             if b.is_zero() {
                 return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
             }
@@ -404,23 +453,33 @@ pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
             check_limit_bigint(&res, vm)?;
             Ok(normalize_bigint(res, &mut vm.heap))
         }
-        PromotedPair::Float(a, b) => {
-            if b == 0.0 {
+        (left, right) => {
+            let (an, ad_power) = match left {
+                EitherIntOrFloat::Int(value) => (value, 0),
+                EitherIntOrFloat::Float(value) if value.is_finite() => {
+                    let (numerator, denominator) = float_to_rational(value);
+                    (numerator, denominator.bits() as usize - 1)
+                }
+                EitherIntOrFloat::Float(_) => {
+                    return Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite operand".to_string())));
+                }
+            };
+            let (bn, bd_power) = match right {
+                EitherIntOrFloat::Int(value) => (value, 0),
+                EitherIntOrFloat::Float(value) if value.is_finite() => {
+                    let (numerator, denominator) = float_to_rational(value);
+                    (numerator, denominator.bits() as usize - 1)
+                }
+                EitherIntOrFloat::Float(_) => {
+                    return Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite operand".to_string())));
+                }
+            };
+            if bn.is_zero() {
                 return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
             }
-            if !a.is_finite() || !b.is_finite() {
-                return Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite operand".to_string())));
-            }
-            let q = a / b;
-            if !q.is_finite() {
-                return Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite quotient".to_string())));
-            }
-            if let Some(big) = BigInt::from_f64(q.floor()) {
-                check_limit_bigint(&big, vm)?;
-                Ok(normalize_bigint(big, &mut vm.heap))
-            } else {
-                Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite quotient".to_string())))
-            }
+            let result = floor_div_rational(an, ad_power, bn, bd_power);
+            check_limit_bigint(&result, vm)?;
+            Ok(normalize_bigint(result, &mut vm.heap))
         }
     }
 }
@@ -436,17 +495,10 @@ pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     effects = pure
 )]
 pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
-        return Ok(vm.require_semantic_roots()?.unsupported);
-    };
-    match pair {
-        PromotedPair::Int(a, b) => {
-            if b == 0 {
-                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
-            }
-            Ok(Value::int(floor_mod_i64(a, b)))
-        }
-        PromotedPair::Big(a, b) => {
+    let left = expect_number_big_or_float(receiver, vm)?;
+    let right = expect_number_big_or_float(&args[0], vm)?;
+    match (left, right) {
+        (EitherIntOrFloat::Int(a), EitherIntOrFloat::Int(b)) => {
             if b.is_zero() {
                 return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
             }
@@ -454,7 +506,31 @@ pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
             check_limit_bigint(&res, vm)?;
             Ok(normalize_bigint(res, &mut vm.heap))
         }
-        PromotedPair::Float(a, b) => Ok(Value::float(a % b)),
+        (left, right) => {
+            let a = match left {
+                EitherIntOrFloat::Int(value) => checked_int_to_float(&value, "remainder", vm)?,
+                EitherIntOrFloat::Float(value) => value,
+            };
+            let b = match right {
+                EitherIntOrFloat::Int(value) => checked_int_to_float(&value, "remainder", vm)?,
+                EitherIntOrFloat::Float(value) => value,
+            };
+            if !a.is_finite() || !b.is_finite() || b == 0.0 {
+                return Ok(Value::float(f64::NAN));
+            }
+            if a == 0.0 {
+                return Ok(Value::float(0.0f64.copysign(b)));
+            }
+            let (an, ad) = float_to_rational(a);
+            let (bn, bd) = float_to_rational(b);
+            let ad_power = ad.bits() as usize - 1;
+            let bd_power = bd.bits() as usize - 1;
+            let quotient = floor_div_rational(an.clone(), ad_power, bn.clone(), bd_power);
+            let common_power = ad_power.max(bd_power);
+            let numerator = (an << (common_power - ad_power)) - quotient * (bn << (common_power - bd_power));
+            let result = dyadic_to_float(&numerator, common_power);
+            Ok(Value::float(if result == 0.0 { 0.0f64.copysign(b) } else { result }))
+        }
     }
 }
 
@@ -602,6 +678,25 @@ pub fn number_ge(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
         PromotedPair::Int(a, b) => Ok(Value::bool(a >= b)),
         PromotedPair::Big(a, b) => Ok(Value::bool(a >= b)),
         PromotedPair::Float(a, b) => Ok(Value::bool(a >= b)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dyadic_to_float;
+    use num_bigint::BigInt;
+
+    #[test]
+    fn dyadic_rounding_handles_ties_and_subnormal_boundary() {
+        let tie_even = (BigInt::from(1u64) << 53) + 1;
+        assert_eq!(dyadic_to_float(&tie_even, 53).to_bits(), 1.0f64.to_bits());
+
+        let tie_odd = (BigInt::from(1u64) << 53) + 3;
+        assert_eq!(dyadic_to_float(&tie_odd, 53).to_bits(), 1.0000000000000004f64.to_bits());
+
+        let smallest_normal = BigInt::from(1u8);
+        assert_eq!(dyadic_to_float(&smallest_normal, 1022).to_bits(), (2f64).powi(-1022).to_bits());
+        assert_eq!(dyadic_to_float(&smallest_normal, 1074).to_bits(), 1);
     }
 }
 
