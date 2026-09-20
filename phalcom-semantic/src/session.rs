@@ -3106,7 +3106,10 @@ impl SemanticWorkspaceSession {
             .iter()
             .filter_map(|callable| callable_signatures.get(callable).cloned().map(|signature| (callable.clone(), signature)))
             .collect::<BTreeMap<_, _>>();
-        for declaration in declaration_surface_work.iter().filter(|declaration| current_modules.contains(&declaration.module)) {
+        for declaration in declaration_surface_work
+            .iter()
+            .filter(|declaration| current_modules.contains(&declaration.module))
+        {
             dispatch.remove_surface(declaration);
         }
         for declaration in &contribution_delta.declarations_removed {
@@ -4113,6 +4116,25 @@ impl SemanticWorkspaceSession {
                     let _ = query_associated_surface(&mut self.db, assoc_surface);
                 }
             }
+        }
+
+        // Override safety is a hierarchy-wide publication invariant. Validate
+        // only after every formal signature and dispatch surface is available.
+        for (module_id, shard) in &self.semantic_structure_shards {
+            let mut context = CheckingContext::new_with_dispatch_ref(
+                Arc::make_mut(&mut self.store),
+                &hierarchy,
+                &resolver,
+                &declarations,
+                &dispatch,
+                module_id.clone(),
+            );
+            for statement in &shard.source.program.statements {
+                if let Statement::Class(class_def) = statement {
+                    crate::checker::declaration::validate_class_overrides(&mut context, class_def, &callable_signatures);
+                }
+            }
+            diags_by_module.entry(module_id.clone()).or_default().extend(context.diagnostics);
         }
 
         // 7. Check field defaults, constructors, then ordinary callable bodies.

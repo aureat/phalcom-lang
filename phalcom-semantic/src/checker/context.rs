@@ -2114,7 +2114,7 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
-    fn specialize_dispatch_signature(
+    pub(crate) fn specialize_dispatch_signature(
         &mut self,
         receiver: TypeId,
         declaring_owner: &DeclarationId,

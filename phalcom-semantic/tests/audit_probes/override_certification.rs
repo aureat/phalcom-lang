@@ -3,7 +3,6 @@
 use crate::semantic::support::Fixture;
 
 #[test]
-#[ignore = "AUD-SEM-001: incompatible override defect (analysis must reject incompatible override)"]
 fn incompatible_override_must_not_certify_int() {
     let f = Fixture::new(
         r#"
@@ -26,7 +25,28 @@ class Probe {
 }
 
 #[test]
-#[ignore = "AUD-SEM-002: captured write stale fact defect (captured mutation must invalidate flow fact)"]
+fn narrowing_override_parameter_is_rejected() {
+    let f = Fixture::new(
+        r#"
+class Base { accept(_ value: Object) -> Int { return 1 } }
+class Child is Base { accept(_ value: Int) -> Int { return value } }
+"#,
+    );
+    assert!(f.analysis.snapshot.has_errors(), "an override must not narrow an inherited parameter");
+}
+
+#[test]
+fn widening_override_parameter_is_accepted() {
+    let f = Fixture::new(
+        r#"
+class Base { accept(_ value: Int) -> Object { return value } }
+class Child is Base { accept(_ value: Object) -> Int { return 1 } }
+"#,
+    );
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
 fn captured_write_must_invalidate_previous_int_fact() {
     let f = Fixture::new(
         r#"

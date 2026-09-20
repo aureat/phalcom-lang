@@ -11,6 +11,86 @@ use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
 use std::collections::HashMap;
 
+/// Validates declaration-owned methods against the dynamically reachable
+/// ancestor contract selected for the same selector.
+pub(crate) fn validate_class_overrides(ctx: &mut CheckingContext<'_>, class_def: &ClassDef, signatures: &crate::signature::CallableSignatureTable) {
+    let owner = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
+    let instance_receiver = ctx.instance_type_of(&owner);
+    let class_receiver = ctx.store.class_object_type(owner.clone());
+
+    for member in &class_def.members {
+        let Some(callable) = super::declaration_signature::callable_id_for_member(&owner, member) else {
+            continue;
+        };
+        let Some(candidate_semantic) = signatures.get(&callable) else {
+            continue;
+        };
+        let receiver = match callable.side {
+            crate::identity::DispatchSide::Instance => {
+                let Some(receiver) = instance_receiver else { continue };
+                receiver
+            }
+            crate::identity::DispatchSide::Class => class_receiver,
+        };
+        let inherited = ctx
+            .dispatch_ref()
+            .dispatch_owners(ctx.hierarchy.inner(), &owner, callable.side)
+            .into_iter()
+            .skip(1)
+            .find_map(|ancestor| {
+                let surface = ctx.dispatch_ref().surface(&ancestor.declaration)?;
+                let signature = surface.get_callable(ancestor.side, &callable.selector)?.clone();
+                Some((ancestor.declaration, signature))
+            });
+        let Some((ancestor, inherited)) = inherited else {
+            continue;
+        };
+        let candidate = super::declaration_signature::project_semantic_signature(candidate_semantic);
+        let Ok((candidate, _)) = ctx.specialize_dispatch_signature(receiver, &owner, candidate) else {
+            continue;
+        };
+        let Ok((inherited, _)) = ctx.specialize_dispatch_signature(receiver, &ancestor, inherited) else {
+            continue;
+        };
+
+        let shape_matches = candidate.kind == inherited.kind
+            && candidate.parameters.len() == inherited.parameters.len()
+            && candidate.generics.as_ref().map(|g| g.parameter_count()) == inherited.generics.as_ref().map(|g| g.parameter_count())
+            && candidate
+                .parameters
+                .iter()
+                .zip(&inherited.parameters)
+                .all(|(candidate, inherited)| candidate.external_label == inherited.external_label && candidate.rest == inherited.rest);
+        let parameters_match = shape_matches
+            && candidate.parameters.iter().zip(&inherited.parameters).all(|(candidate, inherited)| {
+                let (Some(candidate), Some(inherited)) = (candidate.ty.ty(), inherited.ty.ty()) else {
+                    return true;
+                };
+                ctx.check_knowledge_against_type(&TypeKnowledge::established(inherited, EvidenceOrigin::CallableSignature), candidate)
+                    .is_proven()
+            });
+        let returns_match = match (candidate.return_type.ty(), inherited.return_type.ty()) {
+            (Some(candidate), Some(inherited)) => ctx
+                .check_knowledge_against_type(&TypeKnowledge::established(candidate, EvidenceOrigin::CallableSignature), inherited)
+                .is_proven(),
+            _ => true,
+        };
+        if !parameters_match || !returns_match {
+            let range = candidate_semantic.source.as_ref().map(|source| source.range).unwrap_or(class_def.range);
+            ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::IncompatibleOverride,
+                format!(
+                    "override `{}` is incompatible with the inherited contract from `{}`",
+                    callable.selector.encode(),
+                    ancestor.name
+                ),
+                range,
+            ));
+        }
+    }
+}
+
 pub(crate) fn member_side(member: &ClassMember) -> crate::identity::DispatchSide {
     if member.is_static() || member.attributes().iter().any(|attribute| attribute.name == "class") {
         crate::identity::DispatchSide::Class
