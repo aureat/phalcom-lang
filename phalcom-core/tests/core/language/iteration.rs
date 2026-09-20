@@ -114,6 +114,24 @@ let result = values.size == 0 and mapping.size == 0
 }
 
 #[test]
+fn applied_box_constructor_executes_as_its_nominal_class_object() {
+    let source = r#"
+class Box<T> {
+  @constructor
+  new() {}
+}
+let value = Box<Int>.new()
+let result = value.is(Box)
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("applied Box construction compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("applied Box construction executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}
+
+#[test]
 fn canonical_set_iterator_is_fresh_sticky_and_ordered() {
     let source = r#"
 let values = Set<Int>.new()

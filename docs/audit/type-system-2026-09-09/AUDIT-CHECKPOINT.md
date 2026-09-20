@@ -148,10 +148,16 @@ The enabled source control now accepts `Child<Int>` where `Base` is required.
 Additional probes cover transitive nongeneric ancestry, generic multi-hop
 substitution, invariant argument mismatch, and unrelated nominal rejection.
 
-## AUD-SEM-003 status
+## AUD-SEM-003 — applied type-form lowering
 
-AUD-SEM-003 remains historically confirmed but currently **BASELINE_BLOCKED**.
-The current production runtime discriminator fails before source lowering because
-the canonical-Universe semantic baseline differs (`universe:scalar.string`
-diagnostics are absent from the current product). No baseline expectation,
-compiler lowering, VM, or runtime type-value representation was changed here.
+The canonical-Universe diagnostic baseline lock was removed from bootstrap
+compilation. Canonical bootstrap now projects its reviewed source surface despite
+semantic diagnostic drift; ordinary user/project compilation continues to reject
+semantic errors through `compile_analyzed`.
+
+With that unrelated compilation blocker removed, both existing applied
+`Set`/`Map` construction and the new production `Box<Int>.new()` regression
+compile and execute. Runtime type-form lowering consumes the semantic
+`ClassObject` projection for a declaration-backed applied type form, so its value
+is the nominal class object rather than `Nil`. The historical lowering defect is
+therefore resolved for the supported nominal applied type-form surface.

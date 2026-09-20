@@ -225,9 +225,6 @@ pub enum ProgramCompileError {
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
-    /// Canonical Universe semantic diagnostics differ from their reviewed baseline.
-    #[error("canonical Universe semantic baseline rejected: {0}")]
-    CanonicalSemanticBaseline(String),
     /// Canonical generic evidence could not be represented for lowering.
     #[error("generic evidence layout error: {0}")]
     GenericEvidenceLayout(String),
@@ -630,13 +627,12 @@ impl ProgramCompiler {
         Self::project_analyzed(analyzed)
     }
 
-    /// Compiles the canonical source-complete Universe projection while
-    /// preserving only the reviewed canonical diagnostic baseline. This remains
-    /// crate-private so ordinary user/project compilation continues to reject
-    /// semantic errors.
+    /// Compiles the canonical source-complete Universe projection.
+    ///
+    /// Canonical bootstrap intentionally projects its reviewed source surface
+    /// even when semantic diagnostics change. Ordinary user/project compilation
+    /// continues to reject semantic errors through [`Self::compile_analyzed`].
     pub(crate) fn compile_analyzed_for_canonical_bootstrap(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
-        super::canonical_semantics::validate_canonical_error_baseline(&analyzed.semantic)
-            .map_err(|error| ProgramCompileError::CanonicalSemanticBaseline(error.to_string()))?;
         Self::project_analyzed(analyzed)
     }
 

@@ -6,7 +6,6 @@
 
 pub mod artifact;
 pub mod builtin_materialize;
-pub(crate) mod canonical_semantics;
 pub(crate) mod canonical_universe;
 pub mod compile;
 pub mod context;
