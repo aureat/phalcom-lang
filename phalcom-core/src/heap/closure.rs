@@ -37,6 +37,9 @@ pub struct ClosureObject {
     /// Source class whose lexical privileges this code carries. Blocks copy
     /// this from their template closure when materialized.
     pub lexical_class: Option<ClassId>,
+    /// Class identity whose current superclass is the lexical `super` lookup
+    /// starting point. This is independent from access-control authority.
+    pub super_anchor: Option<ClassId>,
     /// Representation guard inherited by a nested block created in a
     /// transplanted Method activation.
     pub(crate) foreign_receiver_guard: Option<ForeignReceiverGuard>,

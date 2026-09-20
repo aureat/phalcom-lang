@@ -63,6 +63,7 @@ impl VM {
             root_fiber: current,
             switch_pending: false,
             native_reentry_depth: 0,
+            native_activation_depth: 0,
             compiler_internal_dispatch_depth: 0,
             native_method_contexts: Vec::new(),
             interner,
@@ -106,8 +107,6 @@ impl VM {
             trace_core: false,
             trace_format_json: false,
             trace_fibers: false,
-            native_selector: None,
-            native_class: None,
             resources: crate::resource::ResourceTable::new(),
             strict_resources: false,
             reactor: crate::reactor::Reactor::default(),
@@ -344,8 +343,6 @@ impl VM {
         // Resource base class field stamp (U-RESOURCE): slot 0 is packed handle.
         {
             let res_class = vm.universe.classes.resource_class;
-            let handle_sym = vm.interner.intern("_handle");
-            vm.heap.class_mut(res_class).field_slots.insert(handle_sym, 0);
             vm.heap.class_mut(res_class).field_count = 1;
         }
 

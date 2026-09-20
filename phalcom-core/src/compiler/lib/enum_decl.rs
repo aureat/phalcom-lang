@@ -109,7 +109,7 @@ impl<'vm> Compiler<'vm> {
 
         // 6. Define global slot for the enum root class
         self.declare_global(name_sym, false)?;
-        let name_idx = self.add_constant(Value::symbol(name_sym));
+        let name_idx = self.add_constant(Value::symbol(name_sym), enum_def.range)?;
         self.emit(Bytecode::DefineGlobal(name_idx), enum_def.range);
 
         Ok(())

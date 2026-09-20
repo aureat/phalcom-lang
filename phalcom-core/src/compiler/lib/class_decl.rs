@@ -309,7 +309,7 @@ impl<'vm> Compiler<'vm> {
         let range = class_def.range;
         let name_sym = self.vm.interner.intern(&class_def.name);
         let target_decl = phalcom_modules::DeclarationId::new(self.vm.heap.module(self.module).id.clone(), class_def.name.clone().into_boxed_str());
-        let name_idx = self.add_constant(Value::symbol(name_sym));
+        let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
 
         // Pass -1: duplicate-member scan (U-CTOR §3.2).
         // - Duplicate field declarations -> `class.duplicate_field`
@@ -857,7 +857,7 @@ impl<'vm> Compiler<'vm> {
             // and the runtime's `Bytecode::Class` arm never needs to probe
             // `vm.classes` by name at all (§5.2 deletes that probe).
             let existing_class = self.vm.classes[&name_key];
-            let class_idx = self.add_constant(Value::obj(existing_class));
+            let class_idx = self.add_constant(Value::obj(existing_class), range)?;
             self.emit(Bytecode::Constant(class_idx), range);
         } else {
             // Push the superclass onto the stack for the `Class` handler
@@ -868,10 +868,10 @@ impl<'vm> Compiler<'vm> {
             // implicitly inherits from `Object`.
             if let Some(sc_ref) = class_def.superclass_ref() {
                 let sc_sym = self.vm.interner.intern(sc_ref.leaf_name());
-                self.emit_global_reference(sc_sym, sc_ref.range);
+                self.emit_global_reference(sc_sym, sc_ref.range)?;
             } else {
                 let object_class = self.vm.universe.classes.object_class;
-                let superclass_idx = self.add_constant(Value::obj(object_class));
+                let superclass_idx = self.add_constant(Value::obj(object_class), range)?;
                 self.emit(Bytecode::Constant(superclass_idx), range);
             }
             self.emit(Bytecode::Class(name_idx), range);
@@ -930,10 +930,10 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
 
-                    let method_obj_idx = self.add_constant(Value::obj(method_obj));
+                    let method_obj_idx = self.add_constant(Value::obj(method_obj), range)?;
                     self.emit(Bytecode::Constant(method_obj_idx), range);
 
-                    let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                    let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
                     self.emit(Bytecode::Method(selector_idx, method_def.is_static), range);
 
                     self.emit_member_attribute_attaches(&method_def.attributes, method_obj_idx, range)?;
@@ -971,10 +971,10 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
 
-                    let method_obj_idx = self.add_constant(Value::obj(method_obj));
+                    let method_obj_idx = self.add_constant(Value::obj(method_obj), range)?;
                     self.emit(Bytecode::Constant(method_obj_idx), range);
 
-                    let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                    let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
                     self.emit(Bytecode::Method(selector_idx, getter_def.is_static), range);
 
                     self.emit_member_attribute_attaches(&getter_def.attributes, method_obj_idx, range)?;
@@ -1019,10 +1019,10 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
 
-                    let method_obj_idx = self.add_constant(Value::obj(method_obj));
+                    let method_obj_idx = self.add_constant(Value::obj(method_obj), range)?;
                     self.emit(Bytecode::Constant(method_obj_idx), range);
 
-                    let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                    let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
                     self.emit(Bytecode::Method(selector_idx, setter_def.is_static), range);
 
                     self.emit_member_attribute_attaches(&setter_def.attributes, method_obj_idx, range)?;
@@ -1067,10 +1067,10 @@ impl<'vm> Compiler<'vm> {
                     ));
                     self.vm.heap.method_mut(method_obj).visibility = member_visibility(construct_def.visibility);
 
-                    let method_obj_idx = self.add_constant(Value::obj(method_obj));
+                    let method_obj_idx = self.add_constant(Value::obj(method_obj), range)?;
                     self.emit(Bytecode::Constant(method_obj_idx), range);
 
-                    let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                    let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
                     self.emit(Bytecode::Method(selector_idx, false), range);
                 }
                 // A declared field is layout-only (U-ANNOT-LAYOUT §3.1): it
@@ -1163,10 +1163,10 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
 
-                    let method_obj_idx = self.add_constant(Value::obj(method_obj));
+                    let method_obj_idx = self.add_constant(Value::obj(method_obj), range)?;
                     self.emit(Bytecode::Constant(method_obj_idx), range);
 
-                    let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                    let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
                     self.emit(Bytecode::Method(selector_idx, false), range);
 
                     self.emit_member_attribute_attaches(&index_def.attributes, method_obj_idx, range)?;
@@ -1229,7 +1229,7 @@ impl<'vm> Compiler<'vm> {
             // even for a class with no attributes at all, so the invariant
             // holds uniformly.
             self.emit(Bytecode::GetGlobal(name_idx), range);
-            self.emit_freeze_attributes(range);
+            self.emit_freeze_attributes(range)?;
         }
 
         // U-ANNOT-LAYOUT §3.4: record `@sealed`'s compile-unit-scoped
@@ -1284,7 +1284,7 @@ impl<'vm> Compiler<'vm> {
         }
         if any {
             self.emit(Bytecode::Constant(method_obj_idx), range);
-            self.emit_freeze_attributes(range);
+            self.emit_freeze_attributes(range)?;
         }
         Ok(())
     }
@@ -1319,7 +1319,7 @@ impl<'vm> Compiler<'vm> {
 
         let attach_selector = make_signature("attachAttribute", SignatureKind::Method(1));
         let attach_sym = self.vm.interner.intern(&attach_selector);
-        let attach_idx = self.add_constant(Value::symbol(attach_sym));
+        let attach_idx = self.add_constant(Value::symbol(attach_sym), range)?;
         self.emit(Bytecode::InvokeCompilerInternal(1, attach_idx), range);
         self.emit(Bytecode::Pop, range);
         Ok(())
@@ -1329,12 +1329,13 @@ impl<'vm> Compiler<'vm> {
     /// top of the stack, then pops its `None` result — see
     /// [`Self::emit_attribute_attach`] for the receiver-already-pushed
     /// convention.
-    fn emit_freeze_attributes(&mut self, range: SourceRange) {
+    fn emit_freeze_attributes(&mut self, range: SourceRange) -> Result<(), CompilerError> {
         let freeze_selector = make_signature("freezeAttributes", SignatureKind::Method(0));
         let freeze_sym = self.vm.interner.intern(&freeze_selector);
-        let freeze_idx = self.add_constant(Value::symbol(freeze_sym));
+        let freeze_idx = self.add_constant(Value::symbol(freeze_sym), range)?;
         self.emit(Bytecode::InvokeCompilerInternal(0, freeze_idx), range);
         self.emit(Bytecode::Pop, range);
+        Ok(())
     }
 
     /// Builds `MethodObject::contracts` (U-ANNOT-CONTRACTS plan §3.5,

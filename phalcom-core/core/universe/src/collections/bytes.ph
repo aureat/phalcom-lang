@@ -17,7 +17,7 @@ native class Bytes is Collection {
   internal native rawFill(_ value: Int) -> Dynamic
   internal native rawSlice(_ start: Int, _ end: Int) -> Bytes
   internal native rawCopyInto(_ target: Dynamic, _ offset: Int) -> Dynamic
-  internal native rawUtf8 -> Bytes
+  internal native rawUtf8 -> Option<String>
   internal native rawUtf8Lossy -> String
   internal native rawEqualsConstantTime(_ other: Bytes) -> Bool
   size { self.rawSize }
@@ -445,10 +445,10 @@ class Path {
 // ============================================================================
 
 native class Resource is Object {
-  @class
-  internal native register(_ kind: String) -> Dynamic
+  internal native attach(_ kind: String) -> Unit
   internal native rawClose() -> Dynamic
   internal native rawIsClosed -> Bool
+  internal native ensureOpen -> Unit
   close {
     self.rawClose()
     return Result::Ok(None)
@@ -457,6 +457,9 @@ native class Resource is Object {
 }
 
 class UnflushedError is Error {}
+class ConcurrentOperationError is Error {}
+class StreamProtocolError is Error {}
+class WriteZeroError is Error {}
 
 class BytesReader is Resource {
   @constructor
@@ -464,7 +467,7 @@ class BytesReader is Resource {
     source.is(Bytes).ifFalse || {
       throw ArgumentError.new("BytesReader source must be a Bytes")
     }
-    _handle = Resource.register("BytesReader")
+    self.attach("BytesReader")
     // snapshot: source is a Bytes, copied — the reader's contents never change under it
     _data = source.slice(0, source.size)
     _pos = 0
@@ -474,6 +477,7 @@ class BytesReader is Resource {
     dst.is(Bytes).ifFalse || {
       throw ArgumentError.new("dst must be a Bytes")
     }
+    self.ensureOpen
     self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot read from closed BytesReader")
     }
@@ -492,7 +496,7 @@ class BytesReader is Resource {
 class BytesWriter is Resource {
   @constructor
   new() {
-    _handle = Resource.register("BytesWriter")
+    self.attach("BytesWriter")
     _chunks = List<Dynamic>.new()
   }
 
@@ -500,6 +504,7 @@ class BytesWriter is Resource {
     src.is(Bytes).ifFalse || {
       throw ArgumentError.new("src must be a Bytes")
     }
+    self.ensureOpen
     self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot write to closed BytesWriter")
     }
@@ -513,12 +518,22 @@ class BytesWriter is Resource {
 
   toBytes {
     let total = 0
-    _chunks.each |c| { total = total + c.size }
+    let it = _chunks.iterator
+    let step = it.next
+    while (step.isSome) {
+      let c = step.match(some: |value| { value }, none: || { None })
+      total = total + c.size
+      step = it.next
+    }
     let res = Bytes.new(total)
     let offset = 0
-    _chunks.each |c| {
+    let copyIt = _chunks.iterator
+    let copyStep = copyIt.next
+    while (copyStep.isSome) {
+      let c = copyStep.match(some: |value| { value }, none: || { None })
       c.copyInto(res, offset)
       offset = offset + c.size
+      copyStep = copyIt.next
     }
     return res
   }
@@ -527,64 +542,205 @@ class BytesWriter is Resource {
 class BufferedWriter is Resource {
   @constructor
   new(_ inner) {
-    _handle = Resource.register("BufferedWriter")
+    self.attach("BufferedWriter")
     _inner = inner
     _buf = Bytes.new(8192)
     _len = 0
+    _busy = false
   }
 
   pending { _len }
+
+  restorePending(_ chunk, _ offset) {
+    const remaining = chunk.size - offset
+    if (remaining == 0) {
+      _len = 0
+      return ()
+    }
+    chunk.slice(offset, chunk.size).copyInto(_buf, 0)
+    _len = remaining
+    ()
+  }
+
+  drainFrom(_ chunk, _ offset) {
+    const remaining = chunk.size - offset
+    if (remaining == 0) {
+      _len = 0
+      return Future.value(None)
+    }
+
+    let submitted
+    try {
+      submitted = _inner.write(chunk.slice(offset, chunk.size))
+    } catch e {
+      self.restorePending(chunk, offset)
+      throw e
+    }
+
+    return submitted.catch |error| {
+      self.restorePending(chunk, offset)
+      throw error
+    }.then |count| {
+      if ((not count.is(Number)) or (count < 0) or (count > remaining) or ((count % 1) != 0)) {
+        self.restorePending(chunk, offset)
+        throw StreamProtocolError.new("writer returned an invalid byte count")
+      }
+      if (count == 0) {
+        self.restorePending(chunk, offset)
+        throw WriteZeroError.new("writer made no progress while draining")
+      }
+      self.drainFrom(chunk, offset + count)
+    }
+  }
+
+  drainBuffer {
+    if (_len == 0) {
+      return Future.value(None)
+    }
+    const chunk = _buf.slice(0, _len)
+    self.drainFrom(chunk, 0)
+  }
+
+  closeClean {
+    const result = _inner.close
+    super.close()
+    result
+  }
 
   write(_ src) {
     src.is(Bytes).ifFalse || {
       throw ArgumentError.new("src must be a Bytes")
     }
+    self.ensureOpen
     self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot write to closed BufferedWriter")
     }
+    if (_busy) {
+      throw ConcurrentOperationError.new("BufferedWriter operation is already in progress")
+    }
+    if (src.size == 0) {
+      return Future.value(0)
+    }
 
-    if (src.size >= _buf.size) {
-      return self.flush.then |_| {
-        _inner.write(src)
+    const owned = src.slice(0, src.size)
+
+    if (owned.size >= _buf.size) {
+      _busy = true
+      let operation
+      try {
+        operation = self.drainBuffer.then |_| {
+          _inner.write(owned)
+        }.then |count| {
+          if ((not count.is(Number)) or (count < 0) or (count > owned.size) or ((count % 1) != 0)) {
+            throw StreamProtocolError.new("writer returned an invalid byte count")
+          }
+          count
+        }
+      } catch e {
+        _busy = false
+        throw e
+      }
+      return operation.then |count| {
+        _busy = false
+        count
+      }.catch |error| {
+        _busy = false
+        throw error
       }
     }
 
-    if ((_len + src.size) > _buf.size) {
-      return self.flush.then |_| {
-        src.copyInto(_buf, _len)
-        _len = _len + src.size
-        Future.value(src.size)
+    if ((_len + owned.size) > _buf.size) {
+      _busy = true
+      let operation
+      try {
+        operation = self.drainBuffer.then |_| {
+          owned.copyInto(_buf, 0)
+          _len = owned.size
+          owned.size
+        }
+      } catch e {
+        _busy = false
+        throw e
       }
-    } else {
-      src.copyInto(_buf, _len)
-      _len = _len + src.size
-      return Future.value(src.size)
+      return operation.then |count| {
+        _busy = false
+        count
+      }.catch |error| {
+        _busy = false
+        throw error
+      }
     }
+
+    owned.copyInto(_buf, _len)
+    _len = _len + owned.size
+    Future.value(owned.size)
   }
 
   flush {
-    if (_len == 0) {
-      return Future.value(None)
+    self.ensureOpen
+    self.isClosed.ifTrue || {
+      throw UseAfterCloseError.new("cannot flush closed BufferedWriter")
     }
-    let chunk = _buf.slice(0, _len)
-    let submitted = _inner.write(chunk)
-    _len = 0
-    return submitted.then |bytesWritten| {
-      Future.value(None)
+    if (_busy) {
+      throw ConcurrentOperationError.new("BufferedWriter operation is already in progress")
+    }
+    _busy = true
+    let operation
+    try {
+      operation = self.drainBuffer.then |_| {
+        _inner.flush
+      }.then |_| {
+        _busy = false
+        None
+      }
+    } catch e {
+      _busy = false
+      throw e
+    }
+    operation.catch |error| {
+      _busy = false
+      throw error
     }
   }
 
   close {
+    if self.isClosed {
+      return Result::Ok(None)
+    }
+    if (_busy) {
+      throw ConcurrentOperationError.new("BufferedWriter operation is already in progress")
+    }
     if (_len > 0) {
       throw UnflushedError.new("BufferedWriter closed with " + _len.toString + " pending bytes")
     }
-    super.close
-    return _inner.close
+    self.closeClean
   }
 
   finish {
-    return self.flush.then |_| {
-      Future.value(self.close)
+    self.isClosed.ifTrue || {
+      throw UseAfterCloseError.new("cannot finish closed BufferedWriter")
+    }
+    if (_busy) {
+      throw ConcurrentOperationError.new("BufferedWriter operation is already in progress")
+    }
+    _busy = true
+    let operation
+    try {
+      operation = self.drainBuffer.then |_| {
+        _inner.flush
+      }.then |_| {
+        self.closeClean
+      }.then |result| {
+        _busy = false
+        result
+      }
+    } catch e {
+      _busy = false
+      throw e
+    }
+    operation.catch |error| {
+      _busy = false
+      throw error
     }
   }
 }
@@ -592,7 +748,7 @@ class BufferedWriter is Resource {
 class BufferedReader is Resource {
   @constructor
   new(_ inner) {
-    _handle = Resource.register("BufferedReader")
+    self.attach("BufferedReader")
     _inner = inner
     _buf = Bytes.new(8192)
     _pos = 0
@@ -603,6 +759,7 @@ class BufferedReader is Resource {
     dst.is(Bytes).ifFalse || {
       throw ArgumentError.new("dst must be a Bytes")
     }
+    self.ensureOpen
     self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot read from closed BufferedReader")
     }
@@ -629,5 +786,14 @@ class BufferedReader is Resource {
       _pos = _pos + n
       Future.value(n)
     }
+  }
+
+  close {
+    if self.isClosed {
+      return Result::Ok(None)
+    }
+    let result = _inner.close
+    super.close()
+    return result
   }
 }

@@ -63,6 +63,18 @@ unmeasured runtime/cache optimization.
 | T0 | AUD-RUNTIME-006 retained native probe before repair | FAIL reproduced: mixed `~/` rounded `9007199254740993` to `9007199254740992`; Float `%` used host remainder signs |
 | T8/G4 | Exact `~/` and Float `%` numeric slice | PASS: retained and expanded numeric audit regressions, dyadic rounding unit, `numeric_values`, and `numeric_diagnostics` all pass |
 | T4/G2 partial | AUD-RUNTIME-003 authority tracing | PASS: retained lexical-owner probe fails before trace repair and passes after closure, method, frame authority edges are traced |
+| T2 | AUD-RUNTIME-001 constant-pool producer | In progress: retained probe reproduces index `65536 -> 0`; fallible producer migration is being completed across compiler call sites |
+| T5 | AUD-RUNTIME-004 native admission/activation | Implemented and focused-tested: public admission is pre-mutation and Legacy/Shape native bodies use separate activation budget |
+| T7 | AUD-RUNTIME-005 §6 native provenance | In progress: retained probe confirms nested native identity is lost/misattributed; canonical error-associated origin repair pending |
+| T9/T10 | AUD-RUNTIME-008 Resource-v2 handles/attachment | In progress: retained handle/attachment contract requires exact bounded representation and hidden transactional object attachment |
+| T11 | AUD-RUNTIME-007 BufferedWriter contract | In progress: short-write, zero-progress, layered flush, suffix preservation, and overlap contract repair pending |
+| T12 | AUD-RUNTIME-009 Bytes UTF-8 declaration | Implemented and focused-tested: source declaration now publishes normative `Option<String>`; runtime decoder unchanged |
+| T13 | AUD-RUNTIME-010 String raw byte result | Implemented and focused-tested: source/native/generated publication now matches bare `Int`/`None` behavior |
+| T14 | AUD-RUNTIME-011 BufferedReader close | Confirmed and reproduced: wrapper closes while inner remains open; repair pending |
+| T15 | AUD-RUNTIME-012 Resource stale close after reuse | Confirmed and reproduced: stale A close raises while B remains open; stale isolation preserved, no unsafe cross-generation idempotence repair |
+| T16 | AUD-RUNTIME-013 raw-run capture reuse | Implemented and focused-tested: raw entry now unwinds before reuse; regression passes |
+| T17 | AUD-RUNTIME-014 mixed relational rounding | Implemented and focused-tested: exact dyadic comparisons pass precision-boundary regression |
+| T18 | AUD-RUNTIME-015 BufferedWriter Bytes iteration | Confirmed executed stream-corpus failure: buffered flush sends missing `Bytes.each(_)`; repair pending |
 
 ## AUD-RUNTIME-006 root-cause record
 
@@ -126,6 +138,15 @@ fails with the trace edges removed and passes with the canonical edges restored.
 
 - AUD-RUNTIME-001, -002, -004, -005, -007, and -008 remain active C2
   clusters and are not represented as fixed by this numeric slice.
+- AUD-RUNTIME-009 is implemented and focused-tested: source declaration now
+  publishes normative `Option<String>` and does not alter the correct decoder.
+- AUD-RUNTIME-010 is implemented and focused-tested: bare `Int`/`None` is now
+  published consistently by source, native metadata, generated surface, and
+  runtime regressions.
+- AUD-RUNTIME-011 requires a `.ph` wrapper lifecycle repair; AUD-RUNTIME-012
+  is classified as intentional stale-generation rejection under Resource-v2,
+  with public evidence preserved and no source fix required unless the accepted
+  stream contract is amended.
 - AUD-RUNTIME-005.1 full executable-chunk verification, .2 rest/native
   metadata optimization, and .3 sparse per-instruction metadata remain
   deferred hardening/performance work as specified by P1.
@@ -136,7 +157,8 @@ fails with the trace edges removed and passes with the canonical edges restored.
 
 | Incident | Plan/task | Trigger | Decision |
 | --- | --- | --- | --- |
-| None | None | No architectural escalation at start | None |
+| Constant-pool fallibility fanout | TEST002.C2.P1 / T2 | Shared `Compiler::add_constant` change reaches approximately 100 compiler producers | Proceed with coordinated mechanical `Result` migration; preserve compact operands and reject before publication |
+| Native boundary drift | TEST002.C2.P1 / T5 | Retained audit expected primitive panic, but live `invocation_layout_for_selector` now rejects before primitive entry while still mutating the public stack; native recursion has no activation counter | Repair the current admission ordering and add the separate activation budget without weakening existing re-entry/fiber semantics |
 
 ## Active plan and next action
 

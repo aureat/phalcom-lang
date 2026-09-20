@@ -122,8 +122,8 @@ pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
     String,
     "rawByteAt(_)",
     params = [Int],
-    returns = "Option<Int>",
-    types = "(Int) -> Option<Int>",
+    returns = Int,
+    types = "(Int) -> Int",
     effects = pure,
     visibility = internal
 )]

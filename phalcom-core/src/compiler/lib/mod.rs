@@ -274,9 +274,9 @@ impl<'vm> Compiler<'vm> {
 
     /// Emits a read for a bare class/global name using its canonical linked
     /// prelude slot when one was materialized for this compilation unit.
-    pub(crate) fn emit_global_reference(&mut self, name: Symbol, range: SourceRange) {
+    pub(crate) fn emit_global_reference(&mut self, name: Symbol, range: SourceRange) -> Result<(), CompilerError> {
         if self.resolves_local_global(name) {
-            let name_idx = self.add_constant(crate::value::Value::symbol(name));
+            let name_idx = self.add_constant(crate::value::Value::symbol(name), range)?;
             self.emit(Bytecode::GetGlobal(name_idx), range);
         } else if let Some(binding) = self.linked_binding(name) {
             self.emit(Bytecode::GetLinked(binding.0 as u16), range);
@@ -289,9 +289,10 @@ impl<'vm> Compiler<'vm> {
                 .push(crate::modules::RuntimeLinkedRead::Binding(binding));
             self.emit(Bytecode::GetLinked(u16::try_from(index).unwrap_or(u16::MAX)), range);
         } else {
-            let name_idx = self.add_constant(crate::value::Value::symbol(name));
+            let name_idx = self.add_constant(crate::value::Value::symbol(name), range)?;
             self.emit(Bytecode::GetGlobal(name_idx), range);
         }
+        Ok(())
     }
 
     /// The source text of the unit currently being compiled.
@@ -449,7 +450,7 @@ impl<'vm> Compiler<'vm> {
             }
             self.compile_statement_with_pop_control(statement, !is_last)?;
             if tail_let && !is_constructor {
-                let unit_idx = self.add_constant(Value::unit());
+                let unit_idx = self.add_constant(Value::unit(), EmptySourceRange)?;
                 self.emit(Bytecode::Constant(unit_idx), EmptySourceRange);
             }
         }
@@ -485,6 +486,7 @@ impl<'vm> Compiler<'vm> {
             module: self.module,
             upvalues: Vec::new(),
             lexical_class: None,
+            super_anchor: None,
             foreign_receiver_guard: None,
         })));
         Ok(closure)
@@ -539,6 +541,7 @@ impl<'vm> Compiler<'vm> {
             module: self.module,
             upvalues: Vec::new(),
             lexical_class: None,
+            super_anchor: None,
             foreign_receiver_guard: None,
         }))))
     }
@@ -595,6 +598,7 @@ impl<'vm> Compiler<'vm> {
             module: self.module,
             upvalues: Vec::new(),
             lexical_class: None,
+            super_anchor: None,
             foreign_receiver_guard: None,
         })));
 

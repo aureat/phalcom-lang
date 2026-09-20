@@ -73,6 +73,9 @@ pub const MAX_CALL_DEPTH: usize = 10_000;
 /// [`MAX_CALL_DEPTH`] instead.
 pub const MAX_NATIVE_REENTRY: usize = 32;
 
+/// Maximum nesting of actual Rust native primitive activations.
+pub const MAX_NATIVE_ACTIVATION_DEPTH: usize = 32;
+
 /// Native installation path retained for API compatibility while descriptors
 /// are the sole runtime primitive authority.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,6 +96,7 @@ pub enum NativeInstallMode {
 pub(crate) struct NativeMethodContext {
     pub(crate) access_owner: Option<ClassId>,
     pub(crate) origin: crate::method::RuntimeAccessOrigin,
+    pub(crate) diagnostic: crate::error::NativeFrameIdentity,
 }
 
 /// Identity of a class: the module that declares it, plus its name.
@@ -253,6 +257,10 @@ pub struct VM {
     /// `Fiber#yield`'s restricted-yield guard and `Fiber#call`/`#try`'s
     /// resume gate both check this against 0.
     pub(crate) native_reentry_depth: usize,
+    /// Nesting depth of active Rust native primitive bodies. This is separate
+    /// from `native_reentry_depth`, which protects recursive interpreter entry
+    /// and fiber switching.
+    pub(crate) native_activation_depth: usize,
     /// Nesting depth of a compiler-emitted internal helper send currently
     /// being authorized. This is nonzero for the single dispatch operation
     /// only; called code never inherits it as ambient authority.
@@ -437,10 +445,6 @@ pub struct VM {
     pub trace_format_json: bool,
     /// Whether to trace fiber switch events.
     pub trace_fibers: bool,
-    /// In-flight native selector for error context.
-    pub native_selector: Option<Symbol>,
-    /// In-flight native receiver class symbol for error context.
-    pub native_class: Option<Symbol>,
     /// Generation-tagged resource table.
     pub resources: crate::resource::ResourceTable,
     /// Whether unclosed resources at VM teardown produce an exit failure.

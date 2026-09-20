@@ -28,8 +28,8 @@ impl<'vm> Compiler<'vm> {
     }
 
     /// Adds `value` to the current function's constant pool, returning its index.
-    pub(crate) fn add_constant(&mut self, value: Value) -> u16 {
-        self.functions.last_mut().unwrap().chunk.add_constant(value)
+    pub(crate) fn add_constant(&mut self, value: Value, range: SourceRange) -> Result<u16, CompilerError> {
+        self.functions.last_mut().unwrap().chunk.add_constant(value, range)
     }
 
     /// Emits an ordinary or semantically specialized invocation. The
@@ -156,34 +156,18 @@ impl<'vm> Compiler<'vm> {
     /// method-lookup.md §1.14).
     ///
     /// Emits the original receiver (`self`), then the arguments, then a
-    /// `SuperSend` carrying `selector_sym`, `argc`, and the **defining class
-    /// name** ([`Self::current_class`]) so the VM starts the walk above that
-    /// class at dispatch time (DEC-INH-B). A `super` with no enclosing class —
+    /// `SuperSend` carrying only `selector_sym` and `argc`; the VM obtains the
+    /// lexical lookup anchor from the executing closure. A `super` with no enclosing class —
     /// at top level or in a free function — has no defining class to anchor the
     /// walk and is rejected with [`CompilerError::SuperOutsideMethod`].
     pub(super) fn compile_super_send(&mut self, selector_sym: Symbol, args: Vec<PackItem>, argc: u8, range: SourceRange) -> Result<(), CompilerError> {
-        let class_key = self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
-        // Class-side `super` (U-ERR-FIX SUPER-STATIC): inside a `static`
-        // member, `self` is the class object, whose own class is the
-        // *metaclass* — so the walk must start above the metaclass's
-        // superclass, not the instance side's. Re-anchor `defining` to the
-        // metaclass's own name (`"<Name>.class"`, the ADR-0002 parallel-rule
-        // naming `VM::create_class` registers in `self.classes`) so the VM's
-        // `Bytecode::SuperSend` handler resolves the metaclass instead of
-        // the instance class.
-        let defining = if self.is_static_context {
-            let name = self.vm.resolve_symbol(class_key.name).to_string();
-            self.vm.interner.intern(&format!("{name}.class"))
-        } else {
-            class_key.name
-        };
+        self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
         self.emit_self(range);
         for arg in args {
             self.compile_pack_item(arg)?;
         }
-        let selector_idx = self.add_constant(Value::symbol(selector_sym));
-        let defining_idx = self.add_constant(Value::symbol(defining));
-        self.emit(Bytecode::SuperSend(argc, selector_idx, defining_idx), range);
+        let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
+        self.emit(Bytecode::SuperSend(argc, selector_idx), range);
         Ok(())
     }
 
@@ -473,18 +457,20 @@ impl<'vm> Compiler<'vm> {
     /// selector through [`encode_selector`] — never a hand-rolled string —
     /// so the compiler and the primitive registrations in `universe.rs`
     /// stay in lockstep (ADR-0012).
-    pub(super) fn emit_operator_send(&mut self, name: &str, arity: u8, range: SourceRange) {
+    pub(super) fn emit_operator_send(&mut self, name: &str, arity: u8, range: SourceRange) -> Result<(), CompilerError> {
         let labels = vec![None; arity as usize];
         let selector = encode_selector(name, &labels, SignatureKind::Method(arity));
         let selector_sym = self.vm.interner.intern(&selector);
-        let selector_idx = self.add_constant(Value::symbol(selector_sym));
+        let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
         self.emit(Bytecode::Invoke(arity, selector_idx), range);
+        Ok(())
     }
 
     /// Emits a 0-arity getter send for `name` using its raw-name selector.
-    pub(super) fn emit_getter_send(&mut self, name: &str, range: SourceRange) {
+    pub(super) fn emit_getter_send(&mut self, name: &str, range: SourceRange) -> Result<(), CompilerError> {
         let selector_sym = self.vm.interner.intern(name);
-        let selector_idx = self.add_constant(Value::symbol(selector_sym));
+        let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
         self.emit(Bytecode::Invoke(0, selector_idx), range);
+        Ok(())
     }
 }

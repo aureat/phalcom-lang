@@ -145,8 +145,10 @@ impl VM {
 
     /// Runs a top-level `closure` within `module` on a fresh frame.
     pub fn run_in_module(&mut self, module: ObjRef, closure: ObjRef) -> PhResult<()> {
-        self.frames.clear();
-        self.stack.clear();
+        // Close captures while their absolute stack indices still refer to live
+        // storage. A raw frame/stack clear would let a later run reuse those
+        // indices and corrupt escaped closures.
+        self.unwind_to(0, 0);
 
         let mut frame = CallFrame::new(closure, CallContext::Module { module }, 0, 0, None);
         frame.generation = self.next_frame_generation;

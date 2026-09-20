@@ -781,16 +781,17 @@ A local access beyond the valid active stack window is an internal bytecode/runt
 
 The direct `run_in_module(module, closure)` path:
 
-1. clears the current live frame stack;
-2. clears the current live value stack;
-3. creates a `CallFrame` with:
+1. closes any open upvalues at the current root boundary, then clears the
+   current live frame and value stacks. Closing must happen before truncation so
+   escaped captures cannot retain stale absolute stack indices across raw runs;
+2. creates a `CallFrame` with:
    - `CallContext::Module`;
    - `ip = 0`;
    - `stack_offset = 0`;
    - no caller source;
    - a fresh generation;
-4. pushes the frame;
-5. calls `run()`.
+3. pushes the frame;
+4. calls `run()`.
 
 This path is the direct execution entry used by `interpret_source`.
 

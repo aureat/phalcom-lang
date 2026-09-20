@@ -228,26 +228,21 @@ pub enum Bytecode {
     ///
     /// 0: number of arguments.
     /// 1: constant-pool index of the selector [`Symbol`](crate::interner::Symbol).
-    /// 2: constant-pool index of the **defining class name**
-    ///    [`Symbol`](crate::interner::Symbol) — the class whose body is being
-    ///    compiled. The class object does not exist at compile time, so its
-    ///    *name* is baked and resolved to a class handle at dispatch (the same
-    ///    global lookup as [`Bytecode::GetGlobal`]).
-    ///
-    /// The **defining class** is baked in (not its superclass, DEC-INH-B) so the
-    /// VM computes `defining.superclass` at dispatch time; this stays correct
-    /// under a future `superclass=` mutation (U13). The walk begins at
-    /// `defining.superclass` on the instance side. Constructor super-sends are
-    /// lowered to their hidden initializer selector before this opcode is
-    /// emitted, so they follow this same ordinary instance-side path. The
+    /// The executing closure carries the lexical class anchor. The VM computes
+    /// that anchor's current superclass at dispatch time, so a retained method
+    /// follows its original behavior identity across class redefinition while
+    /// still observing superclass mutation on that class.
+    /// Constructor super-sends are lowered to their hidden initializer selector
+    /// before this opcode is emitted, so they follow this same ordinary
+    /// instance-side path. The
     /// receiver stays the original `self`, so an overridden method runs its
     /// super definition against the same instance. A walk
     /// that exhausts the chain routes to the same `doesNotUnderstand(_:)` →
     /// surface `MessageNotUnderstood` path as an ordinary [`Bytecode::Invoke`]
     /// miss — never a panic. Unlike `Invoke`, the start class is a static
-    /// per-call-site constant, so a `SuperSend` cache key differs from a
+    /// per-call-site anchor, so a `SuperSend` cache key differs from a
     /// receiver-polymorphic one; this first cut is uncached (DEC-INH-F).
-    SuperSend(u8, u16, u16),
+    SuperSend(u8, u16),
 
     /// Creates a new class. This is the *whole* truth (U-CLASSCLOSE §5.3,
     /// PDR-0001 ruling 4) — classes are closed, so there is no second
@@ -517,7 +512,6 @@ pub enum Bytecode {
     },
     SuperSendPack {
         base_name: u16,
-        defining_class: u16,
     },
     FinishTuplePack,
     /// Inserts one compiler-only local slot into the current frame's local window.

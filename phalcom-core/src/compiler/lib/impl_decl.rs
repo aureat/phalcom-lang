@@ -83,8 +83,8 @@ impl<'vm> Compiler<'vm> {
             }
         }
 
-        let method_obj_idx = self.add_constant(Value::obj(method_obj));
-        let selector_const = self.add_constant(Value::symbol(selector_sym));
+        let method_obj_idx = self.add_constant(Value::obj(method_obj), delegation.range)?;
+        let selector_const = self.add_constant(Value::symbol(selector_sym), delegation.range)?;
         Ok(CompiledBehaviorMember {
             method_obj,
             method_obj_idx,
@@ -206,8 +206,8 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
 
-                let method_obj_idx = self.add_constant(Value::obj(method_obj));
-                let selector_const = self.add_constant(Value::symbol(selector_sym));
+                let method_obj_idx = self.add_constant(Value::obj(method_obj), range)?;
+                let selector_const = self.add_constant(Value::symbol(selector_sym), range)?;
 
                 Ok(CompiledBehaviorMember {
                     method_obj,
@@ -252,8 +252,8 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
 
-                let method_obj_idx = self.add_constant(Value::obj(method_obj));
-                let selector_const = self.add_constant(Value::symbol(selector_sym));
+                let method_obj_idx = self.add_constant(Value::obj(method_obj), range)?;
+                let selector_const = self.add_constant(Value::symbol(selector_sym), range)?;
 
                 Ok(CompiledBehaviorMember {
                     method_obj,
@@ -305,8 +305,8 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
 
-                let method_obj_idx = self.add_constant(Value::obj(method_obj));
-                let selector_const = self.add_constant(Value::symbol(selector_sym));
+                let method_obj_idx = self.add_constant(Value::obj(method_obj), range)?;
+                let selector_const = self.add_constant(Value::symbol(selector_sym), range)?;
 
                 Ok(CompiledBehaviorMember {
                     method_obj,
@@ -361,8 +361,8 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
 
-                let method_obj_idx = self.add_constant(Value::obj(method_obj));
-                let selector_const = self.add_constant(Value::symbol(selector_sym));
+                let method_obj_idx = self.add_constant(Value::obj(method_obj), range)?;
+                let selector_const = self.add_constant(Value::symbol(selector_sym), range)?;
 
                 Ok(CompiledBehaviorMember {
                     method_obj,

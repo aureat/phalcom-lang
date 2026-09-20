@@ -272,13 +272,25 @@ impl VM {
         Ok(())
     }
 
+    /// Checks the native primitive activation ceiling before invoking another
+    /// Rust native body.
+    pub(crate) fn check_native_activation(&self) -> PhResult<()> {
+        if self.native_activation_depth >= crate::vm::MAX_NATIVE_ACTIVATION_DEPTH {
+            return Err(RuntimeError::DepthExceeded {
+                what: "native activation depth",
+                limit: crate::vm::MAX_NATIVE_ACTIVATION_DEPTH,
+            }
+            .into());
+        }
+        Ok(())
+    }
+
     /// Discards all execution state at a REPL cell boundary, closing any open
     /// upvalues first (U-REPL §D10).
     ///
-    /// `run_in_module`'s raw `frames.clear(); stack.clear()` is **not** equivalent:
-    /// `open_upvalues` is keyed by absolute value-stack index, so clearing the stack
-    /// beneath it aliases the previous cell's captured slots onto the next cell's
-    /// values — silent corruption, not a crash.
+    /// Raw module entry performs the same close-before-truncate cleanup through
+    /// `unwind_to`; callers that need traceback capture before teardown should
+    /// use this cell boundary, which reports first and unwinds second.
     pub fn unwind_cell(&mut self) {
         self.unwind_to(0, 0);
     }

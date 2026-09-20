@@ -342,10 +342,16 @@ impl Chunk {
         self.gcaches.push(Cell::new(None));
     }
 
-    /// Appends a constant and returns its index.
-    pub fn add_constant(&mut self, value: Value) -> u16 {
+    /// Appends a constant after proving its bytecode index is representable.
+    pub fn add_constant(&mut self, value: Value, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.constants.len()).map_err(|_| CompilerError::ExecutableOperandOverflow {
+            kind: "constant index",
+            found: self.constants.len(),
+            limit: u16::MAX as usize,
+            span,
+        })?;
         self.constants.push(value);
-        (self.constants.len() - 1) as u16
+        Ok(index)
     }
 
     /// Rewrites statically-adjacent `(GetLocal | Constant) -> Invoke` pairs into the

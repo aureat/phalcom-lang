@@ -921,20 +921,44 @@ impl VM {
                         let resumer = consumer.fiber;
                         let mode = consumer.mode;
 
+                        let (native_error, unwrapped_error) = e.into_underlying();
+                        e = native_error;
                         if !matches!(e, PhError::Runtime(RuntimeError::Raise { .. })) {
                             let error = error_value;
                             let rendered = e.to_string();
-                            let tb = if failed == self.current {
+                            let mut tb = if failed == self.current {
                                 self.capture_frames(0)
                             } else {
                                 self.capture_parked_frames(failed)
                             };
+                            if let Some(origin) = unwrapped_error {
+                                tb.push(crate::error::FrameRecord::Native {
+                                    class: origin.class,
+                                    selector: origin.selector,
+                                });
+                            }
                             e = PhError::Runtime(RuntimeError::Raise {
                                 error,
                                 rendered,
                                 traceback: Some(tb),
                                 help: None,
                             });
+                        } else if let Some(origin) = unwrapped_error {
+                            if let PhError::Runtime(RuntimeError::Raise { traceback, .. }) = &mut e {
+                                let records = traceback.get_or_insert_with(Vec::new);
+                                if !records.iter().any(|record| {
+                                    matches!(
+                                        record,
+                                        crate::error::FrameRecord::Native { class, selector }
+                                            if *class == origin.class && *selector == origin.selector
+                                    )
+                                }) {
+                                    records.push(crate::error::FrameRecord::Native {
+                                        class: origin.class,
+                                        selector: origin.selector,
+                                    });
+                                }
+                            }
                         }
 
                         if let PhError::Runtime(RuntimeError::Raise { traceback: Some(tb), .. }) = &mut e {
@@ -1577,13 +1601,19 @@ impl VM {
                     let nested_conformance_env_id = if nested_slots.is_empty() {
                         caller_conformance_env_id
                     } else {
-                        let mut nested_conformance_slots =
-                            vec![None; nested_slots.iter().map(|(slot, _)| *slot as usize + 1).max().unwrap_or(0)];
+                        let mut nested_conformance_slots = vec![None; nested_slots.iter().map(|(slot, _)| *slot as usize + 1).max().unwrap_or(0)];
                         for (slot, nested_slot_recipe) in nested_slots.iter() {
                             let nested_slot_val = match nested_slot_recipe {
-                                crate::typing::RuntimeConformanceSlotRecipe::Selection { callable, selector, nested_slots } => {
+                                crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                    callable,
+                                    selector,
+                                    nested_slots,
+                                } => {
                                     if !nested_slots.is_empty() {
-                                        return Err(RuntimeError::Internal("derived nested selected conformance recipe cannot require a further nested environment".into()).into());
+                                        return Err(RuntimeError::Internal(
+                                            "derived nested selected conformance recipe cannot require a further nested environment".into(),
+                                        )
+                                        .into());
                                     }
                                     let method = self.resolve_conformance_method(callable, selector, receiver)?;
                                     Some(crate::typing::RuntimeConformanceSlot {
@@ -1757,6 +1787,7 @@ impl VM {
                     // already-bound source class when the template itself
                     // has none.
                     let lexical_class = self.heap.closure(template_id).lexical_class.or(self.heap.closure(closure_id).lexical_class);
+                    let super_anchor = self.heap.closure(template_id).super_anchor.or(self.heap.closure(closure_id).super_anchor);
                     let foreign_receiver_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
 
                     let mut upvalues = Vec::with_capacity(descriptors.len());
@@ -1774,6 +1805,7 @@ impl VM {
                         module,
                         upvalues,
                         lexical_class,
+                        super_anchor,
                         foreign_receiver_guard,
                     })));
                     let token = self.current_frame_token().expect("closure created inside a frame");
@@ -2082,38 +2114,26 @@ impl VM {
                         self.finalize_class_base_names(meta_id);
                     }
                 }
-                Bytecode::SuperSend(argc, selector_idx, defining_idx) => {
+                Bytecode::SuperSend(argc, selector_idx) => {
                     let selector_val = callable.chunk.constants[selector_idx as usize];
-                    let defining_val = callable.chunk.constants[defining_idx as usize];
                     // Read here rather than in the loop head (S2) — this arm and
                     // `Invoke` are the only consumers.
                     let source_range = callable.chunk.span_at(ip);
                     let argc = argc as usize;
                     let selector_sym = selector_val.as_symbol().unwrap();
-                    let defining_sym = defining_val.as_symbol().unwrap();
 
                     // The receiver stays the original `self` pushed by the
-                    // compiler; only the lookup *start* moves above the defining
-                    // class (method-lookup.md §1.14, U-INH §3.4).
+                    // compiler; only the lookup start moves above the closure's
+                    // lexical anchor (method-lookup.md §1.14, U-INH §3.4).
                     let receiver_idx = self.stack.len() - 1 - argc;
                     let receiver = self.stack[receiver_idx];
 
-                    // Start the walk at `defining.superclass` (DEC-INH-B: the
-                    // defining class is resolved by name and its superclass read
-                    // at dispatch, so a future `superclass=` mutation stays
-                    // correct). The defining class was created before any of its
-                    // methods could run, so it is present in `self.classes`.
-                    // No superclass ⇒ the walk is empty ⇒ `doesNotUnderstand`.
-                    let closure_module = self.heap.closure(closure_id).module;
-                    let defining_key = crate::vm::ClassKey {
-                        module: closure_module,
-                        name: defining_sym,
-                    };
-                    let parent = if let Some(&c) = self.classes.get(&defining_key) {
-                        self.heap.class(c).superclass
-                    } else {
-                        None
-                    };
+                    let anchor = self
+                        .heap
+                        .closure(closure_id)
+                        .super_anchor
+                        .ok_or_else(|| RuntimeError::Internal("super send missing closure anchor".into()))?;
+                    let parent = self.heap.class(anchor).superclass;
 
                     let method = parent.and_then(|p| crate::heap::lookup_method_in_hierarchy(&self.heap, p, selector_sym));
 
@@ -2167,6 +2187,7 @@ impl VM {
                             };
                             if let Some(closure) = closure {
                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
+                                self.heap.closure_mut(closure).super_anchor = Some(meta);
                             }
                             self.install_method_binding(target_class, selector, method_id)?;
                         } else {
@@ -2181,6 +2202,7 @@ impl VM {
                             };
                             if let Some(closure) = closure {
                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
+                                self.heap.closure_mut(closure).super_anchor = Some(class_id);
                             }
                             self.install_method_binding(target_class, selector, method_id)?;
                             // Sacred-selector override-epoch tracking (ADR-0018):
@@ -3166,7 +3188,12 @@ impl VM {
                     }
                     result?;
                 }
-                Bytecode::SuperSendPack { base_name, defining_class } => {
+                Bytecode::SuperSendPack { base_name } => {
+                    let anchor = self
+                        .heap
+                        .closure(closure_id)
+                        .super_anchor
+                        .ok_or_else(|| RuntimeError::Internal("dynamic super send missing closure anchor".into()))?;
                     let builder = self.pop()?;
                     let receiver_idx = self
                         .stack
@@ -3191,12 +3218,9 @@ impl VM {
                     }
                     let base = callable.chunk.constants[base_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
                     let selector = self.dynamic_pack_selector(base, PackSendKind::Method, positionals.len(), &labels)?;
-                    let defining = callable.chunk.constants[defining_class as usize].as_symbol().map_err(RuntimeError::Internal)?;
                     self.stack.extend(positionals);
                     self.stack.extend(values);
-                    let module = self.heap.closure(closure_id).module;
-                    let key = crate::vm::ClassKey { module, name: defining };
-                    let parent = self.classes.get(&key).and_then(|class| self.heap.class(*class).superclass);
+                    let parent = self.heap.class(anchor).superclass;
                     let range = callable.chunk.span_at(ip);
                     let exact = parent.and_then(|class| crate::heap::lookup_method_in_hierarchy(&self.heap, class, selector));
                     if let Some(method) = exact {

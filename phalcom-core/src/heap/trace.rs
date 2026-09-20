@@ -155,6 +155,9 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
             if let Some(lexical_class) = closure.lexical_class {
                 push(lexical_class);
             }
+            if let Some(super_anchor) = closure.super_anchor {
+                push(super_anchor);
+            }
             if let Some(guard) = closure.foreign_receiver_guard {
                 push(guard.layout_owner);
             }

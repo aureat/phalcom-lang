@@ -32,6 +32,14 @@ pub enum PhError {
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
 
+    /// A native primitive origin carried with an escaping error.
+    #[error("{source}")]
+    NativeOrigin {
+        source: Box<PhError>,
+        class: crate::interner::Symbol,
+        selector: crate::interner::Symbol,
+    },
+
     #[error(transparent)]
     Io(#[from] IoError),
 
@@ -52,6 +60,49 @@ pub enum PhError {
 
     #[error("{0}")]
     StrError(&'static str),
+}
+
+/// Symbol-only identity for a native frame. Symbols are VM-stable and do not
+/// retain heap objects while an error crosses native or fiber boundaries.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct NativeFrameIdentity {
+    pub class: crate::interner::Symbol,
+    pub selector: crate::interner::Symbol,
+}
+
+impl PhError {
+    /// Associates the first native producer with an escaping error.
+    pub fn with_native_origin(self, identity: NativeFrameIdentity) -> Self {
+        if self.native_origin().is_some() {
+            self
+        } else {
+            Self::NativeOrigin {
+                source: Box::new(self),
+                class: identity.class,
+                selector: identity.selector,
+            }
+        }
+    }
+
+    /// Returns the native producer retained by this error, if any.
+    pub fn native_origin(&self) -> Option<NativeFrameIdentity> {
+        match self {
+            Self::NativeOrigin { source, class, selector } => Some(NativeFrameIdentity {
+                class: *class,
+                selector: *selector,
+            })
+            .or_else(|| source.native_origin()),
+            _ => None,
+        }
+    }
+
+    /// Removes one native transport wrapper, returning its producer identity.
+    pub fn into_underlying(self) -> (Self, Option<NativeFrameIdentity>) {
+        match self {
+            Self::NativeOrigin { source, class, selector } => (*source, Some(NativeFrameIdentity { class, selector })),
+            other => (other, None),
+        }
+    }
 }
 
 impl From<ModuleInitializationError> for PhError {
@@ -205,6 +256,10 @@ pub enum FrameRecord {
         spawn_file: Option<crate::interner::Symbol>,
         spawn_line: u32,
     },
+    Native {
+        class: crate::interner::Symbol,
+        selector: crate::interner::Symbol,
+    },
 }
 
 #[derive(Error, Debug, Clone)]
@@ -232,6 +287,9 @@ pub enum RuntimeError {
 
     #[error("Expected {expected}, got {found}")]
     Type { expected: &'static str, found: &'static str },
+
+    #[error("resource handle table capacity exceeded")]
+    ResourceLimit,
 
     /// A recursion ceiling was exceeded
     /// ([PDR-0007](../../docs/decisions/0007-bounded-call-depth-and-native-reentrancy.md)).

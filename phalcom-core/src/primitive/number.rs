@@ -55,6 +55,41 @@ enum PromotedPair {
     Float(f64, f64),
 }
 
+fn compare_integer_to_float(integer: &BigInt, float: f64) -> Option<std::cmp::Ordering> {
+    if float.is_nan() {
+        return None;
+    }
+    if float.is_infinite() {
+        return Some(if float.is_sign_positive() {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        });
+    }
+
+    let (numerator, denominator) = float_to_rational(float);
+    Some((integer * denominator).cmp(&numerator))
+}
+
+/// Compare numeric values without converting an integer through `f64`.
+///
+/// Mixed comparisons treat every finite float as its exact dyadic value. The
+/// `None` result represents the unordered result required for NaN operands.
+fn exact_compare(a: &Value, b: &Value, vm: &VM) -> PhResult<Option<std::cmp::Ordering>> {
+    let a = expect_number_big_or_float(a, vm)?;
+    let b = expect_number_big_or_float(b, vm)?;
+    Ok(match (a, b) {
+        (EitherIntOrFloat::Int(a), EitherIntOrFloat::Int(b)) => Some(a.cmp(&b)),
+        (EitherIntOrFloat::Float(a), EitherIntOrFloat::Float(b)) => a.partial_cmp(&b),
+        (EitherIntOrFloat::Int(a), EitherIntOrFloat::Float(b)) => compare_integer_to_float(&a, b),
+        (EitherIntOrFloat::Float(a), EitherIntOrFloat::Int(b)) => compare_integer_to_float(&b, a).map(std::cmp::Ordering::reverse),
+    })
+}
+
+fn is_number(value: &Value, vm: &VM) -> bool {
+    extract_int(value, vm).is_some() || value.as_float().is_some()
+}
+
 fn promote_pair(a: &Value, b: &Value, vm: &VM) -> PhResult<PromotedPair> {
     let a_parsed = expect_number_big_or_float(a, vm)?;
     let b_parsed = expect_number_big_or_float(b, vm)?;
@@ -105,6 +140,19 @@ fn checked_int_to_float(value: &BigInt, operation: &'static str, vm: &mut VM) ->
 
 fn floor_div_rational(an: BigInt, ad_power: usize, bn: BigInt, bd_power: usize) -> BigInt {
     (an << bd_power).div_floor(&(bn << ad_power))
+}
+
+fn exact_integer_division(a: BigInt, b: BigInt, vm: &mut VM) -> PhResult<(Value, Value)> {
+    if b.is_zero() {
+        return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
+    }
+
+    // Operate on BigInt before division so i64::MIN / -1 cannot reach a
+    // fixed-width host operation that would panic or wrap.
+    let (quotient, remainder) = a.div_mod_floor(&b);
+    check_limit_bigint(&quotient, vm)?;
+    check_limit_bigint(&remainder, vm)?;
+    Ok((normalize_bigint(quotient, &mut vm.heap), normalize_bigint(remainder, &mut vm.heap)))
 }
 
 fn dyadic_to_float(numerator: &BigInt, denominator_power: usize) -> f64 {
@@ -446,12 +494,8 @@ pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     let right = expect_number_big_or_float(&args[0], vm)?;
     match (left, right) {
         (EitherIntOrFloat::Int(a), EitherIntOrFloat::Int(b)) => {
-            if b.is_zero() {
-                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
-            }
-            let res = a.div_floor(&b);
-            check_limit_bigint(&res, vm)?;
-            Ok(normalize_bigint(res, &mut vm.heap))
+            let (quotient, _) = exact_integer_division(a, b, vm)?;
+            Ok(quotient)
         }
         (left, right) => {
             let (an, ad_power) = match left {
@@ -499,12 +543,8 @@ pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     let right = expect_number_big_or_float(&args[0], vm)?;
     match (left, right) {
         (EitherIntOrFloat::Int(a), EitherIntOrFloat::Int(b)) => {
-            if b.is_zero() {
-                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
-            }
-            let res = a.mod_floor(&b);
-            check_limit_bigint(&res, vm)?;
-            Ok(normalize_bigint(res, &mut vm.heap))
+            let (_, remainder) = exact_integer_division(a, b, vm)?;
+            Ok(remainder)
         }
         (left, right) => {
             let a = match left {
@@ -619,12 +659,7 @@ pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     effects = pure
 )]
 pub fn number_lt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
-    match pair {
-        PromotedPair::Int(a, b) => Ok(Value::bool(a < b)),
-        PromotedPair::Big(a, b) => Ok(Value::bool(a < b)),
-        PromotedPair::Float(a, b) => Ok(Value::bool(a < b)),
-    }
+    Ok(Value::bool(matches!(exact_compare(receiver, &args[0], vm)?, Some(std::cmp::Ordering::Less))))
 }
 
 /// Signature: `Number::<=(_)`
@@ -637,12 +672,10 @@ pub fn number_lt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
     effects = pure
 )]
 pub fn number_le(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
-    match pair {
-        PromotedPair::Int(a, b) => Ok(Value::bool(a <= b)),
-        PromotedPair::Big(a, b) => Ok(Value::bool(a <= b)),
-        PromotedPair::Float(a, b) => Ok(Value::bool(a <= b)),
-    }
+    Ok(Value::bool(matches!(
+        exact_compare(receiver, &args[0], vm)?,
+        Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+    )))
 }
 
 /// Signature: `Number::>(_)`
@@ -655,12 +688,7 @@ pub fn number_le(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
     effects = pure
 )]
 pub fn number_gt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
-    match pair {
-        PromotedPair::Int(a, b) => Ok(Value::bool(a > b)),
-        PromotedPair::Big(a, b) => Ok(Value::bool(a > b)),
-        PromotedPair::Float(a, b) => Ok(Value::bool(a > b)),
-    }
+    Ok(Value::bool(matches!(exact_compare(receiver, &args[0], vm)?, Some(std::cmp::Ordering::Greater))))
 }
 
 /// Signature: `Number::>=(_)`
@@ -673,17 +701,15 @@ pub fn number_gt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
     effects = pure
 )]
 pub fn number_ge(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
-    match pair {
-        PromotedPair::Int(a, b) => Ok(Value::bool(a >= b)),
-        PromotedPair::Big(a, b) => Ok(Value::bool(a >= b)),
-        PromotedPair::Float(a, b) => Ok(Value::bool(a >= b)),
-    }
+    Ok(Value::bool(matches!(
+        exact_compare(receiver, &args[0], vm)?,
+        Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+    )))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::dyadic_to_float;
+    use super::{compare_integer_to_float, dyadic_to_float};
     use num_bigint::BigInt;
 
     #[test]
@@ -697,6 +723,20 @@ mod tests {
         let smallest_normal = BigInt::from(1u8);
         assert_eq!(dyadic_to_float(&smallest_normal, 1022).to_bits(), (2f64).powi(-1022).to_bits());
         assert_eq!(dyadic_to_float(&smallest_normal, 1074).to_bits(), 1);
+    }
+
+    #[test]
+    fn mixed_comparison_keeps_integer_precision() {
+        let integer = BigInt::from(9_007_199_254_740_993i64);
+        let float = 9_007_199_254_740_992.0;
+
+        assert_eq!(compare_integer_to_float(&integer, float), Some(std::cmp::Ordering::Greater));
+        assert_eq!(
+            compare_integer_to_float(&BigInt::from(9_007_199_254_740_992i64), float),
+            Some(std::cmp::Ordering::Equal)
+        );
+        assert_eq!(compare_integer_to_float(&integer, f64::INFINITY), Some(std::cmp::Ordering::Less));
+        assert_eq!(compare_integer_to_float(&integer, f64::NAN), None);
     }
 }
 
@@ -732,16 +772,11 @@ fn ordering_value(vm: &mut VM, selector: &str) -> PhResult<Value> {
     effects = pure
 )]
 pub fn number_compare(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
+    if !is_number(receiver, vm) || !is_number(&args[0], vm) {
         return Ok(vm.require_semantic_roots()?.unsupported);
-    };
-    let selector = match pair {
-        PromotedPair::Int(a, b) => a.cmp(&b),
-        PromotedPair::Big(a, b) => a.cmp(&b),
-        PromotedPair::Float(a, b) => match a.partial_cmp(&b) {
-            Some(order) => order,
-            None => return ordering_value(vm, "unordered"),
-        },
+    }
+    let Some(selector) = exact_compare(receiver, &args[0], vm)? else {
+        return ordering_value(vm, "unordered");
     };
     ordering_value(
         vm,

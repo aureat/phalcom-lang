@@ -136,7 +136,7 @@ impl<'vm> Compiler<'vm> {
             // Context-free interpreter compilation has no semantic snapshot.
             // It remains an explicitly untyped compatibility boundary; the
             // canonical program path above never reaches this branch.
-            self.emit_getter_send("iterator", range);
+            self.emit_getter_send("iterator", range)?;
         }
         self.emit(Bytecode::SetLocal(iterator_slot), range);
         self.emit(Bytecode::Pop, range);
@@ -146,7 +146,7 @@ impl<'vm> Compiler<'vm> {
         if let Some(spec) = &spec {
             self.emit_for_iteration_requirement(&spec.next, range)?;
         } else {
-            self.emit_getter_send("next", range);
+            self.emit_getter_send("next", range)?;
         }
         self.emit(Bytecode::Dup, range);
         let exit = self.emit_forward_jump(Bytecode::JumpIfNone, range);
@@ -184,7 +184,7 @@ impl<'vm> Compiler<'vm> {
                     ..
                 } => {
                     let label = self.vm.interner.intern(&text);
-                    let index = self.add_constant(Value::symbol(label));
+                    let index = self.add_constant(Value::symbol(label), range)?;
                     self.emit(Bytecode::GetLocal(builder_slot), range);
                     self.emit(Bytecode::PackReserveStaticLabel(index), range);
                     self.compile_expr(value)?;
@@ -243,7 +243,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Pop, range);
         self.compile_dynamic_pack_items(builder_slot, items)?;
         let base = self.vm.interner.intern(&base);
-        let base_idx = self.add_constant(Value::symbol(base));
+        let base_idx = self.add_constant(Value::symbol(base), range)?;
         self.emit(Bytecode::GetLocal(receiver_slot), range);
         self.emit(Bytecode::GetLocal(builder_slot), range);
         self.emit(
@@ -428,10 +428,10 @@ impl<'vm> Compiler<'vm> {
                             BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
                             BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), call.range),
                             BareNameResolution::Global => {
-                                let name_idx = self.add_constant(Value::symbol(name_sym));
+                                let name_idx = self.add_constant(Value::symbol(name_sym), call.range)?;
                                 self.emit(Bytecode::GetGlobal(name_idx), call.range);
                             }
-                            BareNameResolution::Unresolved => self.emit_global_reference(name_sym, call.range),
+                            BareNameResolution::Unresolved => self.emit_global_reference(name_sym, call.range)?,
                             BareNameResolution::ImplicitSelf => unreachable!("handled above"),
                         }
                         self.emit(Bytecode::SetLocal(receiver_slot), call.range);
@@ -443,7 +443,7 @@ impl<'vm> Compiler<'vm> {
                         self.emit(Bytecode::Pop, call.range);
                         self.compile_dynamic_pack_items(builder_slot, call.args)?;
                         let base = self.vm.interner.intern("call");
-                        let base_idx = self.add_constant(Value::symbol(base));
+                        let base_idx = self.add_constant(Value::symbol(base), call.range)?;
                         self.emit(Bytecode::GetLocal(receiver_slot), call.range);
                         self.emit(Bytecode::GetLocal(builder_slot), call.range);
                         self.emit(
@@ -463,10 +463,10 @@ impl<'vm> Compiler<'vm> {
                     BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
                     BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), call.range),
                     BareNameResolution::Global => {
-                        let name_idx = self.add_constant(Value::symbol(name_sym));
+                        let name_idx = self.add_constant(Value::symbol(name_sym), call.range)?;
                         self.emit(Bytecode::GetGlobal(name_idx), call.range);
                     }
-                    BareNameResolution::Unresolved => self.emit_global_reference(name_sym, call.range),
+                    BareNameResolution::Unresolved => self.emit_global_reference(name_sym, call.range)?,
                     BareNameResolution::ImplicitSelf => {
                         let arity = checked_send_arity("implicit message send", call.args.len(), call.range)?;
                         let labels = self.pack_labels(&call.args)?;
@@ -476,7 +476,7 @@ impl<'vm> Compiler<'vm> {
                         for arg in call.args {
                             self.compile_pack_item(arg)?;
                         }
-                        let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                        let selector_idx = self.add_constant(Value::symbol(selector_sym), call.range)?;
                         let is_conditional = self.lowering().and_then(|l| {
                             l.conditional_invocations
                                 .iter()
@@ -494,10 +494,10 @@ impl<'vm> Compiler<'vm> {
                                 .get(&spec.declaring_owner.module)
                                 .map(|record| record.object)
                                 .ok_or(CompilerError::MissingImplLoweringSemantics(call.range))?;
-                            let declaring_module_idx = self.add_constant(Value::obj(declaring_module));
-                            let declaring_name_idx = self.add_constant(Value::symbol(declaring_sym));
+                            let declaring_module_idx = self.add_constant(Value::obj(declaring_module), call.range)?;
+                            let declaring_name_idx = self.add_constant(Value::symbol(declaring_sym), call.range)?;
                             let fallback_method_obj = self.get_or_compile_conditional_method(&spec.callable)?;
-                            let fallback_method_idx = self.add_constant(Value::obj(fallback_method_obj));
+                            let fallback_method_idx = self.add_constant(Value::obj(fallback_method_obj), call.range)?;
                             self.emit(
                                 Bytecode::InvokeConditional {
                                     arity,
@@ -522,7 +522,7 @@ impl<'vm> Compiler<'vm> {
                 }
                 let selector = encode_selector("call", &labels, SignatureKind::Method(arity));
                 let selector_sym = self.vm.interner.intern(&selector);
-                let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                let selector_idx = self.add_constant(Value::symbol(selector_sym), call.range)?;
                 self.emit_invoke(arity, selector_idx, call.range, InvocationAuthority::Ordinary)?;
             }
             Expr::MethodCall(method_call) => {
@@ -632,13 +632,7 @@ impl<'vm> Compiler<'vm> {
                 if matches!(&method_call.object, Expr::SuperVar { .. }) {
                     let mc = *method_call;
                     if Self::needs_dynamic_pack(&mc.args) {
-                        let class_key = self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
-                        let defining = if self.is_static_context {
-                            let name = self.vm.resolve_symbol(class_key.name).to_string();
-                            self.vm.interner.intern(&format!("{name}.class"))
-                        } else {
-                            class_key.name
-                        };
+                        self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
                         let base = match self.functions.last().unwrap().constructor_name.as_deref() {
                             Some(constructor) if mc.method == constructor => format!("init {constructor}"),
                             _ => mc.method.clone(),
@@ -653,17 +647,10 @@ impl<'vm> Compiler<'vm> {
                         self.emit(Bytecode::Pop, mc.range);
                         self.compile_dynamic_pack_items(builder_slot, mc.args)?;
                         let base_sym = self.vm.interner.intern(&base);
-                        let base_idx = self.add_constant(Value::symbol(base_sym));
-                        let defining_idx = self.add_constant(Value::symbol(defining));
+                        let base_idx = self.add_constant(Value::symbol(base_sym), mc.range)?;
                         self.emit(Bytecode::GetLocal(receiver_slot), mc.range);
                         self.emit(Bytecode::GetLocal(builder_slot), mc.range);
-                        self.emit(
-                            Bytecode::SuperSendPack {
-                                base_name: base_idx,
-                                defining_class: defining_idx,
-                            },
-                            mc.range,
-                        );
+                        self.emit(Bytecode::SuperSendPack { base_name: base_idx }, mc.range);
                         self.release_pack_scratch_from(receiver_slot, 2, mc.range);
                         return Ok(());
                     }
@@ -732,7 +719,7 @@ impl<'vm> Compiler<'vm> {
                         for arg in method_call.args {
                             self.compile_pack_item(arg)?;
                         }
-                        let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                        let selector_idx = self.add_constant(Value::symbol(selector_sym), method_call.range)?;
                         let is_conditional = self.lowering().and_then(|l| {
                             l.conditional_invocations
                                 .iter()
@@ -750,10 +737,10 @@ impl<'vm> Compiler<'vm> {
                                 .get(&spec.declaring_owner.module)
                                 .map(|record| record.object)
                                 .ok_or(CompilerError::MissingImplLoweringSemantics(method_call.range))?;
-                            let declaring_module_idx = self.add_constant(Value::obj(declaring_module));
-                            let declaring_name_idx = self.add_constant(Value::symbol(declaring_sym));
+                            let declaring_module_idx = self.add_constant(Value::obj(declaring_module), method_call.range)?;
+                            let declaring_name_idx = self.add_constant(Value::symbol(declaring_sym), method_call.range)?;
                             let fallback_method_obj = self.get_or_compile_conditional_method(&spec.callable)?;
-                            let fallback_method_idx = self.add_constant(Value::obj(fallback_method_obj));
+                            let fallback_method_idx = self.add_constant(Value::obj(fallback_method_obj), method_call.range)?;
                             self.emit(
                                 Bytecode::InvokeConditional {
                                     arity,
@@ -851,7 +838,7 @@ impl<'vm> Compiler<'vm> {
                 }
                 self.compile_expr(get_prop.object)?;
                 let selector_sym = self.vm.interner.intern(&get_prop.property);
-                let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                let selector_idx = self.add_constant(Value::symbol(selector_sym), get_prop.range)?;
                 if !self.emit_trait_requirement_if_present(0, get_prop.range)? && !self.emit_trait_invoke_if_present(0, get_prop.range)? {
                     self.emit_invoke(0, selector_idx, get_prop.range, InvocationAuthority::Ordinary)?;
                 }
@@ -861,7 +848,7 @@ impl<'vm> Compiler<'vm> {
                 self.compile_expr(set_prop.value)?;
                 let selector = make_signature(&set_prop.property, SignatureKind::Setter);
                 let selector_sym = self.vm.interner.intern(&selector);
-                let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                let selector_idx = self.add_constant(Value::symbol(selector_sym), set_prop.range)?;
                 self.emit_invoke(1, selector_idx, set_prop.range, InvocationAuthority::Ordinary)?;
             }
             Expr::Index(ix) => {
@@ -884,7 +871,7 @@ impl<'vm> Compiler<'vm> {
                 }
                 let selector = encode_selector("", &labels, SignatureKind::SubscriptGet(argc));
                 let sym = self.vm.interner.intern(&selector);
-                let idx = self.add_constant(Value::symbol(sym));
+                let idx = self.add_constant(Value::symbol(sym), ix.range)?;
                 self.emit_invoke(argc, idx, ix.range, InvocationAuthority::Ordinary)?;
             }
             Expr::SetIndex(six) => {
@@ -904,7 +891,7 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::SetLocal(rhs_slot), six.range);
                     self.emit(Bytecode::Pop, six.range);
                     let base = self.vm.interner.intern("");
-                    let base_idx = self.add_constant(Value::symbol(base));
+                    let base_idx = self.add_constant(Value::symbol(base), six.range)?;
                     self.emit(Bytecode::GetLocal(receiver_slot), six.range);
                     self.emit(Bytecode::GetLocal(builder_slot), six.range);
                     self.emit(Bytecode::GetLocal(rhs_slot), six.range);
@@ -947,7 +934,7 @@ impl<'vm> Compiler<'vm> {
                 // 6. Invoke setter
                 let selector = encode_selector("", &labels, SignatureKind::SubscriptSet(index_argc));
                 let sym = self.vm.interner.intern(&selector);
-                let idx = self.add_constant(Value::symbol(sym));
+                let idx = self.add_constant(Value::symbol(sym), six.range)?;
                 self.emit_invoke(invoke_argc, idx, six.range, InvocationAuthority::Ordinary)?;
 
                 // 7. Pop setter result
@@ -997,16 +984,16 @@ impl<'vm> Compiler<'vm> {
                         return Err(CompilerError::Message(format!("Invalid radix integer literal: {digits}")));
                     }
                 };
-                let idx = self.add_constant(val);
+                let idx = self.add_constant(val, range)?;
                 self.emit(Bytecode::Constant(idx), range);
             }
             Expr::Float { value, range } => {
-                let idx = self.add_constant(Value::float(value));
+                let idx = self.add_constant(Value::float(value), range)?;
                 self.emit(Bytecode::Constant(idx), range);
             }
             Expr::String { value, range } => {
                 let string_obj = self.vm.alloc_string_value(value);
-                let idx = self.add_constant(string_obj);
+                let idx = self.add_constant(string_obj, range)?;
                 self.emit(Bytecode::Constant(idx), range);
             }
             Expr::Boolean { value, range } => {
@@ -1053,13 +1040,13 @@ impl<'vm> Compiler<'vm> {
                     }
                 };
                 let sym = self.vm.interner.intern(&canonical);
-                let idx = self.add_constant(Value::symbol(sym));
+                let idx = self.add_constant(Value::symbol(sym), range)?;
                 self.emit(Bytecode::Constant(idx), range);
             }
             Expr::TupleLiteral(tuple_expr) => {
                 let tuple_expr = *tuple_expr;
                 if tuple_expr.entries.is_empty() {
-                    let idx = self.add_constant(Value::unit());
+                    let idx = self.add_constant(Value::unit(), tuple_expr.range)?;
                     self.emit(Bytecode::Constant(idx), tuple_expr.range);
                     return Ok(());
                 }
@@ -1105,7 +1092,7 @@ impl<'vm> Compiler<'vm> {
                             TupleLiteralEntry::Labeled { label, value, range } => match label {
                                 ProductLabel::Static { symbol, .. } => {
                                     let sym = self.canonical_symbol(symbol, range)?;
-                                    let idx = self.add_constant(Value::symbol(sym));
+                                    let idx = self.add_constant(Value::symbol(sym), range)?;
                                     self.emit(Bytecode::GetLocal(builder_slot), range);
                                     self.emit(Bytecode::PackReserveStaticLabel(idx), range);
                                     self.compile_expr(value)?;
@@ -1167,7 +1154,7 @@ impl<'vm> Compiler<'vm> {
             Expr::RecordLiteral(record_expr) => {
                 let record_expr = *record_expr;
                 if record_expr.entries.is_empty() {
-                    let idx = self.add_constant(Value::unit());
+                    let idx = self.add_constant(Value::unit(), record_expr.range)?;
                     self.emit(Bytecode::Constant(idx), record_expr.range);
                     return Ok(());
                 }
@@ -1250,7 +1237,7 @@ impl<'vm> Compiler<'vm> {
                                         return Err(CompilerError::Message(format!("duplicate Map literal key `#{name}`")));
                                     }
                                     let symbol = self.vm.interner.intern(&name);
-                                    let idx = self.add_constant(Value::symbol(symbol));
+                                    let idx = self.add_constant(Value::symbol(symbol), range)?;
                                     self.emit(Bytecode::Constant(idx), range);
                                 }
                                 MapLiteralKey::Computed { expr, .. } => {
@@ -1365,13 +1352,13 @@ impl<'vm> Compiler<'vm> {
                     BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), range),
                     BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), range),
                     BareNameResolution::Global => {
-                        let name_idx = self.add_constant(Value::symbol(name_sym));
+                        let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
                         self.emit(Bytecode::GetGlobal(name_idx), range);
                     }
-                    BareNameResolution::Unresolved => self.emit_global_reference(name_sym, range),
+                    BareNameResolution::Unresolved => self.emit_global_reference(name_sym, range)?,
                     BareNameResolution::ImplicitSelf => {
                         self.emit_self(range);
-                        let selector_idx = self.add_constant(Value::symbol(name_sym));
+                        let selector_idx = self.add_constant(Value::symbol(name_sym), range)?;
                         self.emit(Bytecode::Invoke(0, selector_idx), range);
                     }
                 }
@@ -1394,7 +1381,7 @@ impl<'vm> Compiler<'vm> {
                     } else {
                         self.emit_self(range);
                         let class_sym = self.vm.interner.intern("class");
-                        let class_idx = self.add_constant(Value::symbol(class_sym));
+                        let class_idx = self.add_constant(Value::symbol(class_sym), range)?;
                         self.emit(Bytecode::Invoke(0, class_idx), range);
                     }
                     self.emit(Bytecode::GetField(slot), range);
@@ -1438,18 +1425,18 @@ impl<'vm> Compiler<'vm> {
                                 return Err(CompilerError::AssignToImmutable(value));
                             }
                             self.compile_expr(assign_expr.value)?;
-                            let name_idx = self.add_constant(Value::symbol(name_sym));
+                            let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
                             self.emit(Bytecode::SetGlobal(name_idx), range);
                         } else if self.functions.last().is_some_and(|function| function.has_self) {
                             self.emit_self(range);
                             self.compile_expr(assign_expr.value)?;
                             let selector = make_signature(&value, SignatureKind::Setter);
                             let selector_sym = self.vm.interner.intern(&selector);
-                            let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                            let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
                             self.emit(Bytecode::Invoke(1, selector_idx), range);
                         } else {
                             self.compile_expr(assign_expr.value)?;
-                            let name_idx = self.add_constant(Value::symbol(name_sym));
+                            let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
                             self.emit(Bytecode::SetGlobal(name_idx), range);
                         }
                     }
@@ -1474,7 +1461,7 @@ impl<'vm> Compiler<'vm> {
                             } else {
                                 self.emit_self(range);
                                 let class_sym = self.vm.interner.intern("class");
-                                let class_idx = self.add_constant(Value::symbol(class_sym));
+                                let class_idx = self.add_constant(Value::symbol(class_sym), range)?;
                                 self.emit(Bytecode::Invoke(0, class_idx), range);
                             }
                             self.compile_expr(assign_expr.value)?;
@@ -1560,7 +1547,7 @@ impl<'vm> Compiler<'vm> {
                     op => {
                         self.compile_expr(binary_expr.left)?;
                         self.compile_expr(binary_expr.right)?;
-                        self.emit_operator_send(binary_op_selector_name(&op), 1, range);
+                        self.emit_operator_send(binary_op_selector_name(&op), 1, range)?;
                     }
                 }
             }
@@ -1575,7 +1562,7 @@ impl<'vm> Compiler<'vm> {
                     UnaryOp::Minus => self.emit_getter_send("-", range),
                     UnaryOp::Not => self.emit_getter_send("not", range),
                     UnaryOp::BitNot => self.emit_getter_send("~", range),
-                }
+                }?;
             }
             Expr::Membership(m) => {
                 let range = m.range;
@@ -1592,9 +1579,9 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::GetLocal(right_slot), range);
                 self.emit(Bytecode::GetLocal(left_slot), range);
 
-                self.emit_operator_send("contains", 1, range);
+                self.emit_operator_send("contains", 1, range)?;
                 if m.negated {
-                    self.emit_getter_send("not", range);
+                    self.emit_getter_send("not", range)?;
                 }
 
                 self.release_pack_scratch_from(left_slot, 2, range);
@@ -1647,11 +1634,11 @@ impl<'vm> Compiler<'vm> {
                 let labels = [Some("where".to_string())];
                 let selector = encode_selector("any", &labels, SignatureKind::Method(1));
                 let selector_sym = self.vm.interner.intern(&selector);
-                let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
                 self.emit(Bytecode::Invoke(1, selector_idx), range);
 
                 if m.negated {
-                    self.emit_getter_send("not", range);
+                    self.emit_getter_send("not", range)?;
                 }
 
                 self.release_pack_scratch_from(left_slot, 2, range);
@@ -1670,7 +1657,7 @@ impl<'vm> Compiler<'vm> {
                 let name_sym = self.vm.interner.intern("<closure>");
                 let constructor_name = self.functions.last().unwrap().constructor_name.clone();
                 let closure = self.compile_block(block_expr.body, name_sym, block_expr.params, false, false, constructor_name)?;
-                let idx = self.add_constant(Value::obj(closure));
+                let idx = self.add_constant(Value::obj(closure), block_expr.range)?;
                 self.emit(Bytecode::Closure(idx), block_expr.range);
             } // Expr::Call(call_expr) => {
             //     // TODO: Implement function call compilation
@@ -1713,7 +1700,7 @@ impl<'vm> Compiler<'vm> {
                             if matches!(op, BinaryOp::Same) {
                                 self.emit(Bytecode::Same, chain.range);
                             } else {
-                                self.emit_operator_send(binary_op_selector_name(op), 1, chain.range);
+                                self.emit_operator_send(binary_op_selector_name(op), 1, chain.range)?;
                             }
                         }
                         phalcom_ast::ast::RelationOp::Matches => {
@@ -1721,12 +1708,12 @@ impl<'vm> Compiler<'vm> {
                             // RHS: lower to `pattern.matches(candidate)`.
                             self.emit(Bytecode::GetLocal(operand_slots[index]), chain.range);
                             self.emit(Bytecode::GetLocal(operand_slots[index - 1]), chain.range);
-                            self.emit_operator_send("matches", 1, chain.range);
+                            self.emit_operator_send("matches", 1, chain.range)?;
                         }
                         phalcom_ast::ast::RelationOp::Understands => {
                             self.emit(Bytecode::GetLocal(operand_slots[index - 1]), chain.range);
                             self.emit(Bytecode::GetLocal(operand_slots[index]), chain.range);
-                            self.emit_operator_send("understands", 1, chain.range);
+                            self.emit_operator_send("understands", 1, chain.range)?;
                         }
                     }
                     let result_slot = self.reserve_pack_scratch("$chain_result", chain.range)?;
@@ -1760,17 +1747,17 @@ impl<'vm> Compiler<'vm> {
                 match type_form_value {
                     Some(crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::ClassObject { declaration }) => {
                         let symbol = self.vm.interner.intern(&declaration.name);
-                        self.emit_global_reference(symbol, type_annotation.range);
+                        self.emit_global_reference(symbol, type_annotation.range)?;
                     }
                     None => match &type_annotation.expr {
                         phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {
                             let sym = self.vm.interner.intern(sym_ref.leaf_name());
-                            self.emit_global_reference(sym, sym_ref.range);
+                            self.emit_global_reference(sym, sym_ref.range)?;
                         }
                         phalcom_ast::ast::TypeAnnotationExpr::Application { origin, .. } => {
                             if let phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) = &origin.expr {
                                 let sym = self.vm.interner.intern(sym_ref.leaf_name());
-                                self.emit_global_reference(sym, sym_ref.range);
+                                self.emit_global_reference(sym, sym_ref.range)?;
                             } else {
                                 return Err(CompilerError::Message(format!(
                                     "unsupported executable type form at {:?}",
@@ -1877,16 +1864,16 @@ impl<'vm> Compiler<'vm> {
 
         let direct_selector = encode_selector(direct_name, &[None], SignatureKind::Method(1));
         let direct_symbol = self.vm.interner.intern(&direct_selector);
-        let direct = self.add_constant(Value::symbol(direct_symbol));
+        let direct = self.add_constant(Value::symbol(direct_symbol), range)?;
         let reflected_selector = if compare {
             encode_selector(reflected_name, &[None], SignatureKind::Method(1))
         } else {
             encode_selector(reflected_name, &[Some("from".to_string())], SignatureKind::Method(1))
         };
         let reflected_symbol = self.vm.interner.intern(&reflected_selector);
-        let reflected = self.add_constant(Value::symbol(reflected_symbol));
+        let reflected = self.add_constant(Value::symbol(reflected_symbol), range)?;
         let operator_symbol = self.vm.interner.intern(operator);
-        let operator_idx = self.add_constant(Value::symbol(operator_symbol));
+        let operator_idx = self.add_constant(Value::symbol(operator_symbol), range)?;
 
         self.emit(Bytecode::GetLocal(left_slot), range);
         self.emit(Bytecode::GetLocal(right_slot), range);
@@ -2111,7 +2098,7 @@ impl<'vm> Compiler<'vm> {
                 if !seen.insert(sym) {
                     return Err(CompilerError::Message(format!("duplicate product label `{}`", self.vm.resolve_symbol(sym))));
                 }
-                let idx = self.add_constant(Value::symbol(sym));
+                let idx = self.add_constant(Value::symbol(sym), range)?;
                 self.emit(Bytecode::Constant(idx), range);
             }
             ProductLabel::Computed { expr, range } => {
@@ -2123,7 +2110,7 @@ impl<'vm> Compiler<'vm> {
     }
 
     #[allow(dead_code)]
-    fn compile_selector_spec_constant(&mut self, spec: &SelectorSpecSyntax) -> Result<(u16, FamilySpecKind), CompilerError> {
+    fn compile_selector_spec_constant(&mut self, spec: &SelectorSpecSyntax, range: SourceRange) -> Result<(u16, FamilySpecKind), CompilerError> {
         let normalized = spec.normalize().map_err(|error| match error {
             phalcom_common::selector::SelectorError::TooManySlots => CompilerError::ArityLimit {
                 subject: "pinned selector",
@@ -2136,12 +2123,12 @@ impl<'vm> Compiler<'vm> {
         match normalized {
             NormalizedSelectorSpec::Exact(selector) => {
                 let symbol = self.vm.interner.intern(&selector.encode());
-                Ok((self.add_constant(Value::symbol(symbol)), FamilySpecKind::Exact))
+                Ok((self.add_constant(Value::symbol(symbol), range)?, FamilySpecKind::Exact))
             }
             NormalizedSelectorSpec::Pattern(pattern) => {
                 let pattern_object = crate::heap::SelectorPatternObject::compile(pattern, &mut self.vm.interner);
                 let object = self.vm.heap.alloc(crate::heap::Object::SelectorPattern(Box::new(pattern_object)));
-                Ok((self.add_constant(Value::obj(object)), FamilySpecKind::Pattern))
+                Ok((self.add_constant(Value::obj(object), range)?, FamilySpecKind::Pattern))
             }
         }
     }

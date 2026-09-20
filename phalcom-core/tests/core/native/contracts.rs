@@ -1,6 +1,7 @@
 //! Runtime and generated-metadata contracts for fixed-return `System` natives.
 
 use super::vm_support::native_vm;
+use phalcom_core::primitive::string::string_raw_byte_at;
 use phalcom_core::primitive::system::{system_class_print, system_gc};
 use phalcom_core::primitive::time::{system_clock_monotonic_nanoseconds, system_wall_clock_unix_nanoseconds};
 use phalcom_core::value::Value;
@@ -12,6 +13,13 @@ fn native_record(selector: &str) -> &'static phalcom_native_surface::NativeSurfa
         .iter()
         .find(|record| record.owner() == UniverseKey::System && record.selector() == selector)
         .unwrap_or_else(|| panic!("missing System native {selector}"))
+}
+
+fn string_native_record(selector: &str) -> &'static phalcom_native_surface::NativeSurfaceRecord {
+    NATIVE_SURFACES
+        .iter()
+        .find(|record| record.owner() == UniverseKey::String && record.selector() == selector)
+        .unwrap_or_else(|| panic!("missing String native {selector}"))
 }
 
 #[test]
@@ -38,6 +46,25 @@ fn system_native_metadata_matches_language_contracts() {
     let gc = native_record("gc");
     assert_eq!(gc.returns(), &TypeExprSpec::Universe(UniverseKey::Unit));
     assert_eq!(gc.callable().return_type, &TypeExprSpec::Universe(UniverseKey::Unit));
+}
+
+#[test]
+fn string_raw_byte_at_publishes_bare_int_or_none_contract() {
+    let raw_byte_at = string_native_record("rawByteAt(_)");
+    assert_eq!(raw_byte_at.returns(), &TypeExprSpec::Universe(UniverseKey::Int));
+    assert_eq!(raw_byte_at.callable().return_type, &TypeExprSpec::Universe(UniverseKey::Int));
+}
+
+#[test]
+fn string_raw_byte_at_runtime_returns_int_or_none() {
+    let mut vm = native_vm();
+    let string = vm.alloc_string_value("A".to_owned());
+
+    let in_range = string_raw_byte_at(&mut vm, &string, &[Value::int(0)]).expect("String.rawByteAt(0)");
+    assert_eq!(in_range.as_int(), Some(65));
+
+    let out_of_range = string_raw_byte_at(&mut vm, &string, &[Value::int(1)]).expect("String.rawByteAt(1)");
+    assert!(out_of_range.is_none(), "out-of-range byte access must return None, got {out_of_range:?}");
 }
 
 #[test]

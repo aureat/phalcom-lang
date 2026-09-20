@@ -337,9 +337,16 @@ impl VM {
                             self.deliver_control_value(control.destination, val)?;
                             return Ok(ControlStepOutcome::Completed(val));
                         }
-                        Transfer::Raise(mut err) => {
+                        Transfer::Raise(err) => {
+                            let (mut err, native_origin) = err.into_underlying();
                             // Extract surface error value and ensure traceback is captured.
-                            let captured_tb = self.capture_frames(callback_floor);
+                            let mut captured_tb = self.capture_frames(callback_floor);
+                            if let Some(origin) = native_origin {
+                                captured_tb.push(crate::error::FrameRecord::Native {
+                                    class: origin.class,
+                                    selector: origin.selector,
+                                });
+                            }
                             let error_val = match &err {
                                 PhError::Runtime(RuntimeError::Raise { error, .. }) => *error,
                                 _ => {
@@ -359,6 +366,20 @@ impl VM {
                                 }) => {
                                     if traceback.is_none() {
                                         traceback = Some(captured_tb);
+                                    } else if let Some(origin) = native_origin {
+                                        let records = traceback.as_mut().expect("traceback checked above");
+                                        if !records.iter().any(|record| {
+                                            matches!(
+                                                record,
+                                                crate::error::FrameRecord::Native { class, selector }
+                                                    if *class == origin.class && *selector == origin.selector
+                                            )
+                                        }) {
+                                            records.push(crate::error::FrameRecord::Native {
+                                                class: origin.class,
+                                                selector: origin.selector,
+                                            });
+                                        }
                                     }
                                     err = PhError::Runtime(RuntimeError::Raise {
                                         error,

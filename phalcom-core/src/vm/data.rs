@@ -61,6 +61,7 @@ impl VM {
                 module,
                 upvalues: Vec::new(),
                 lexical_class: Some(class_id),
+                super_anchor: Some(class_id),
                 foreign_receiver_guard: None,
             })));
 

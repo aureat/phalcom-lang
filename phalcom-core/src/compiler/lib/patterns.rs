@@ -168,8 +168,8 @@ impl<'vm> Compiler<'vm> {
                 Ok(())
             }
             ExecutablePattern::Tuple { elements } => {
-                self.emit_class_test(value_slot, "Tuple", failures, range);
-                self.emit_size_test(value_slot, elements.len(), false, failures, range);
+                self.emit_class_test(value_slot, "Tuple", failures, range)?;
+                self.emit_size_test(value_slot, elements.len(), false, failures, range)?;
                 for (index, element) in elements.iter().enumerate() {
                     let child = self.emit_element_temp(value_slot, index, range)?;
                     self.emit_executable_pattern(element, child, frame, failures, range)?;
@@ -177,8 +177,8 @@ impl<'vm> Compiler<'vm> {
                 Ok(())
             }
             ExecutablePattern::List { elements, rest } => {
-                self.emit_class_test(value_slot, "List", failures, range);
-                self.emit_size_test(value_slot, elements.len(), rest.is_some(), failures, range);
+                self.emit_class_test(value_slot, "List", failures, range)?;
+                self.emit_size_test(value_slot, elements.len(), rest.is_some(), failures, range)?;
                 for (index, element) in elements.iter().enumerate() {
                     let child = self.emit_element_temp(value_slot, index, range)?;
                     self.emit_executable_pattern(element, child, frame, failures, range)?;
@@ -190,22 +190,22 @@ impl<'vm> Compiler<'vm> {
                 Ok(())
             }
             ExecutablePattern::Record { entries } => {
-                self.emit_class_test(value_slot, "Record", failures, range);
+                self.emit_class_test(value_slot, "Record", failures, range)?;
                 for (label, child_pat) in entries.iter() {
                     let key = Value::symbol(self.vm.interner.intern(label));
                     let option = self.emit_lookup_temp(value_slot, key, range)?;
-                    self.emit_option_test(option, true, failures, range);
+                    self.emit_option_test(option, true, failures, range)?;
                     let child = self.emit_option_value_temp(option, range)?;
                     self.emit_executable_pattern(child_pat, child, frame, failures, range)?;
                 }
                 Ok(())
             }
             ExecutablePattern::Map { entries } => {
-                self.emit_class_test(value_slot, "Map", failures, range);
+                self.emit_class_test(value_slot, "Map", failures, range)?;
                 for (key_pattern, child_pat) in entries.iter() {
                     let key = self.pattern_key_value(key_pattern);
                     let option = self.emit_lookup_temp(value_slot, key, range)?;
-                    self.emit_option_test(option, true, failures, range);
+                    self.emit_option_test(option, true, failures, range)?;
                     let child = self.emit_option_value_temp(option, range)?;
                     self.emit_executable_pattern(child_pat, child, frame, failures, range)?;
                 }
@@ -278,8 +278,8 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Pattern::Tuple { elements, range } => {
-                self.emit_class_test(value_slot, "Tuple", failures, *range);
-                self.emit_size_test(value_slot, elements.len(), false, failures, *range);
+                self.emit_class_test(value_slot, "Tuple", failures, *range)?;
+                self.emit_size_test(value_slot, elements.len(), false, failures, *range)?;
                 for (index, element) in elements.iter().enumerate() {
                     if !matches!(element, Pattern::Name { .. }) {
                         let child = self.emit_element_temp(value_slot, index, element.range())?;
@@ -288,8 +288,8 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Pattern::List { elements, rest, range } => {
-                self.emit_class_test(value_slot, "List", failures, *range);
-                self.emit_size_test(value_slot, elements.len(), rest.is_some(), failures, *range);
+                self.emit_class_test(value_slot, "List", failures, *range)?;
+                self.emit_size_test(value_slot, elements.len(), rest.is_some(), failures, *range)?;
                 for (index, element) in elements.iter().enumerate() {
                     if !matches!(element, Pattern::Name { .. }) {
                         let child = self.emit_element_temp(value_slot, index, element.range())?;
@@ -305,7 +305,7 @@ impl<'vm> Compiler<'vm> {
                 let range = variant_pat.range;
                 let constructor = &variant_pat.base;
                 if constructor == "Some" {
-                    self.emit_option_test(value_slot, true, failures, range);
+                    self.emit_option_test(value_slot, true, failures, range)?;
                     if let phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } = &variant_pat.mode {
                         if arguments.len() == 1 && !matches!(&arguments[0].pattern, Pattern::Name { .. }) {
                             let child = self.emit_option_value_temp(value_slot, range)?;
@@ -313,9 +313,9 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
                 } else if constructor == "None" {
-                    self.emit_option_test(value_slot, false, failures, range);
+                    self.emit_option_test(value_slot, false, failures, range)?;
                 } else {
-                    self.emit_class_test(value_slot, constructor, failures, range);
+                    self.emit_class_test(value_slot, constructor, failures, range)?;
                     match &variant_pat.mode {
                         phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
                             for (index, argument) in arguments.iter().enumerate() {
@@ -338,11 +338,11 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Pattern::Record { entries, range } => {
-                self.emit_class_test(value_slot, "Record", failures, *range);
+                self.emit_class_test(value_slot, "Record", failures, *range)?;
                 for entry in entries {
                     let key = Value::symbol(self.vm.interner.intern(&entry.label));
                     let option = self.emit_lookup_temp(value_slot, key, entry.range)?;
-                    self.emit_option_test(option, true, failures, entry.range);
+                    self.emit_option_test(option, true, failures, entry.range)?;
                     if !matches!(&entry.pattern, Pattern::Name { .. }) {
                         let child = self.emit_option_value_temp(option, entry.range)?;
                         self.emit_pattern_match_tests(&entry.pattern, child, failures)?;
@@ -350,11 +350,11 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Pattern::Map { entries, range } => {
-                self.emit_class_test(value_slot, "Map", failures, *range);
+                self.emit_class_test(value_slot, "Map", failures, *range)?;
                 for entry in entries {
                     let key = self.pattern_key_value(&entry.key);
                     let option = self.emit_lookup_temp(value_slot, key, entry.range)?;
-                    self.emit_option_test(option, true, failures, entry.range);
+                    self.emit_option_test(option, true, failures, entry.range)?;
                     if !matches!(&entry.pattern, Pattern::Name { .. }) {
                         let child = self.emit_option_value_temp(option, entry.range)?;
                         self.emit_pattern_match_tests(&entry.pattern, child, failures)?;
@@ -397,7 +397,7 @@ impl<'vm> Compiler<'vm> {
             }
             Pattern::Tuple { elements, .. } | Pattern::List { elements, .. } => {
                 for (index, element) in elements.iter().enumerate() {
-                    self.emit_element_read(value_slot, index, element.range());
+                    self.emit_element_read(value_slot, index, element.range())?;
                     self.assign_pattern_from_top(element)?;
                 }
                 if let Pattern::List { rest: Some(rest), range, .. } = pattern {
@@ -420,7 +420,7 @@ impl<'vm> Compiler<'vm> {
                             if let Pattern::Name { .. } = &arguments[0].pattern {
                                 self.emit(Bytecode::GetLocal(value_slot), range);
                                 self.emit(Bytecode::Nil, range);
-                                self.emit_operator_send("unwrapOr", 1, range);
+                                self.emit_operator_send("unwrapOr", 1, range)?;
                                 self.assign_pattern_from_top(&arguments[0].pattern)?;
                             } else {
                                 let child = self.emit_option_value_temp(value_slot, range)?;
@@ -432,17 +432,17 @@ impl<'vm> Compiler<'vm> {
                     match &variant_pat.mode {
                         phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
                             for (index, argument) in arguments.iter().enumerate() {
-                                self.emit_element_read(value_slot, index, argument.pattern.range());
+                                self.emit_element_read(value_slot, index, argument.pattern.range())?;
                                 self.assign_pattern_from_top(&argument.pattern)?;
                             }
                         }
                         phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
                             for (index, argument) in prefix.iter().enumerate() {
-                                self.emit_element_read(value_slot, index, argument.pattern.range());
+                                self.emit_element_read(value_slot, index, argument.pattern.range())?;
                                 self.assign_pattern_from_top(&argument.pattern)?;
                             }
                             for (index, argument) in suffix.iter().enumerate() {
-                                self.emit_element_read(value_slot, prefix.len() + index, argument.pattern.range());
+                                self.emit_element_read(value_slot, prefix.len() + index, argument.pattern.range())?;
                                 self.assign_pattern_from_top(&argument.pattern)?;
                             }
                         }
@@ -470,52 +470,58 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
-    fn emit_class_test(&mut self, value_slot: u16, class_name: &str, failures: &mut Vec<usize>, range: SourceRange) {
+    fn emit_class_test(&mut self, value_slot: u16, class_name: &str, failures: &mut Vec<usize>, range: SourceRange) -> Result<(), CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        self.emit_getter_send("class", range);
+        self.emit_getter_send("class", range)?;
         let class_symbol = self.vm.interner.intern(class_name);
-        self.emit_global_reference(class_symbol, range);
+        self.emit_global_reference(class_symbol, range)?;
         self.emit(Bytecode::Same, range);
         failures.push(self.emit_forward_jump(Bytecode::JumpIfFalse, range));
+        Ok(())
     }
 
-    fn emit_required_class_check(&mut self, value_slot: u16, class_name: &str, range: SourceRange) {
+    fn emit_required_class_check(&mut self, value_slot: u16, class_name: &str, range: SourceRange) -> Result<(), CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        self.emit_getter_send("class", range);
+        self.emit_getter_send("class", range)?;
         let class_symbol = self.vm.interner.intern(class_name);
-        self.emit_global_reference(class_symbol, range);
+        self.emit_global_reference(class_symbol, range)?;
         self.emit(Bytecode::Same, range);
-        self.emit_required_predicate_result(format!("pattern expected {}", class_name), range);
+        self.emit_required_predicate_result(format!("pattern expected {}", class_name), range)?;
+        Ok(())
     }
 
-    fn emit_required_predicate(&mut self, value_slot: u16, selector: &str, range: SourceRange) {
+    fn emit_required_predicate(&mut self, value_slot: u16, selector: &str, range: SourceRange) -> Result<(), CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        self.emit_getter_send(selector, range);
-        self.emit_required_predicate_result(format!("pattern predicate {} failed", selector), range);
+        self.emit_getter_send(selector, range)?;
+        self.emit_required_predicate_result(format!("pattern predicate {} failed", selector), range)?;
+        Ok(())
     }
 
-    fn emit_required_predicate_result(&mut self, message: String, range: SourceRange) {
+    fn emit_required_predicate_result(&mut self, message: String, range: SourceRange) -> Result<(), CompilerError> {
         let skip_raise = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         let after_raise = self.emit_forward_jump(Bytecode::Jump, range);
         let failure = self.chunk_len();
         self.patch_forward_jump_to(skip_raise, failure);
-        self.emit_pattern_mismatch_raise(message, range);
+        self.emit_pattern_mismatch_raise(message, range)?;
         self.patch_forward_jump_to(after_raise, self.chunk_len());
+        Ok(())
     }
 
-    fn emit_size_test(&mut self, value_slot: u16, expected: usize, at_least: bool, failures: &mut Vec<usize>, range: SourceRange) {
+    fn emit_size_test(&mut self, value_slot: u16, expected: usize, at_least: bool, failures: &mut Vec<usize>, range: SourceRange) -> Result<(), CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        self.emit_getter_send("size", range);
-        let count = self.add_constant(Value::int(expected as i64));
+        self.emit_getter_send("size", range)?;
+        let count = self.add_constant(Value::int(expected as i64), range)?;
         self.emit(Bytecode::Constant(count), range);
-        self.emit_operator_send(if at_least { ">=" } else { "==" }, 1, range);
+        self.emit_operator_send(if at_least { ">=" } else { "==" }, 1, range)?;
         failures.push(self.emit_forward_jump(Bytecode::JumpIfFalse, range));
+        Ok(())
     }
 
-    fn emit_option_test(&mut self, value_slot: u16, some: bool, failures: &mut Vec<usize>, range: SourceRange) {
+    fn emit_option_test(&mut self, value_slot: u16, some: bool, failures: &mut Vec<usize>, range: SourceRange) -> Result<(), CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        self.emit_getter_send(if some { "isSome" } else { "isNone" }, range);
+        self.emit_getter_send(if some { "isSome" } else { "isNone" }, range)?;
         failures.push(self.emit_forward_jump(Bytecode::JumpIfFalse, range));
+        Ok(())
     }
 
     fn claim_pattern_temp(&mut self, prefix: &str, range: SourceRange) -> Result<u16, CompilerError> {
@@ -526,22 +532,22 @@ impl<'vm> Compiler<'vm> {
     }
 
     fn emit_element_temp(&mut self, value_slot: u16, index: usize, range: SourceRange) -> Result<u16, CompilerError> {
-        self.emit_element_read(value_slot, index, range);
+        self.emit_element_read(value_slot, index, range)?;
         self.claim_pattern_temp("$pattern_element", range)
     }
 
     fn emit_option_value_temp(&mut self, value_slot: u16, range: SourceRange) -> Result<u16, CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit(Bytecode::Nil, range);
-        self.emit_operator_send("unwrapOr", 1, range);
+        self.emit_operator_send("unwrapOr", 1, range)?;
         self.claim_pattern_temp("$pattern_option_value", range)
     }
 
     fn emit_lookup_temp(&mut self, value_slot: u16, key: Value, range: SourceRange) -> Result<u16, CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        let key_idx = self.add_constant(key);
+        let key_idx = self.add_constant(key, range)?;
         self.emit(Bytecode::Constant(key_idx), range);
-        self.emit_operator_send("get", 1, range);
+        self.emit_operator_send("get", 1, range)?;
         self.claim_pattern_temp("$pattern_lookup", range)
     }
 
@@ -549,29 +555,29 @@ impl<'vm> Compiler<'vm> {
         // Reuse existing list-rest construction, but keep the result as a
         // compiler temporary for the refutable matcher.
         let list_sym = self.vm.interner.intern("List");
-        self.emit_global_reference(list_sym, range);
-        self.emit_operator_send("new", 0, range);
+        self.emit_global_reference(list_sym, range)?;
+        self.emit_operator_send("new", 0, range)?;
         let rest_slot = self.claim_pattern_temp("$pattern_rest", range)?;
         self.begin_scope();
-        let start = self.add_constant(Value::int(fixed_count as i64));
+        let start = self.add_constant(Value::int(fixed_count as i64), range)?;
         self.emit(Bytecode::Constant(start), range);
         let counter = self.claim_pattern_temp("$pattern_rest_index", range)?;
         let loop_start = self.chunk_len();
         self.emit(Bytecode::GetLocal(counter), range);
         self.emit(Bytecode::GetLocal(value_slot), range);
-        self.emit_getter_send("size", range);
-        self.emit_operator_send("<", 1, range);
+        self.emit_getter_send("size", range)?;
+        self.emit_operator_send("<", 1, range)?;
         let done = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         self.emit(Bytecode::GetLocal(rest_slot), range);
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit(Bytecode::GetLocal(counter), range);
-        self.emit_operator_send("at", 1, range);
-        self.emit_operator_send("append", 1, range);
+        self.emit_operator_send("at", 1, range)?;
+        self.emit_operator_send("append", 1, range)?;
         self.emit(Bytecode::Pop, range);
         self.emit(Bytecode::GetLocal(counter), range);
-        let one = self.add_constant(Value::int(1));
+        let one = self.add_constant(Value::int(1), range)?;
         self.emit(Bytecode::Constant(one), range);
-        self.emit_operator_send("+", 1, range);
+        self.emit_operator_send("+", 1, range)?;
         self.emit(Bytecode::SetLocal(counter), range);
         self.emit(Bytecode::Pop, range);
         self.emit_backward_loop(loop_start, range);
@@ -617,7 +623,7 @@ impl<'vm> Compiler<'vm> {
                     // assignment path consults (ADR-0064); the same call
                     // rejects a same-scope redeclaration (L-3/L-5).
                     self.declare_global(name_sym, mutable)?;
-                    let name_idx = self.add_constant(Value::symbol(name_sym));
+                    let name_idx = self.add_constant(Value::symbol(name_sym), *range)?;
                     self.emit(Bytecode::DefineGlobal(name_idx), *range);
                 } else {
                     // Local variable — record its mutability for the
@@ -675,25 +681,25 @@ impl<'vm> Compiler<'vm> {
                 Ok(())
             }
             Pattern::Tuple { elements, range } => {
-                self.emit_required_class_check(value_slot, "Tuple", *range);
+                self.emit_required_class_check(value_slot, "Tuple", *range)?;
                 let message = format!("destructuring pattern expected a {}-element Tuple", elements.len());
-                self.emit_pattern_arity_check(value_slot, elements.len(), false, message, *range);
+                self.emit_pattern_arity_check(value_slot, elements.len(), false, message, *range)?;
                 for (index, elem) in elements.iter().enumerate() {
-                    self.emit_element_read(value_slot, index, elem.range());
+                    self.emit_element_read(value_slot, index, elem.range())?;
                     self.compile_pattern_bind_top_of_stack(elem, mutable, as_global)?;
                 }
                 Ok(())
             }
             Pattern::List { elements, rest, range } => {
-                self.emit_required_class_check(value_slot, "List", *range);
+                self.emit_required_class_check(value_slot, "List", *range)?;
                 let message = if rest.is_some() {
                     format!("destructuring pattern expected a List of at least {} element(s)", elements.len())
                 } else {
                     format!("destructuring pattern expected a {}-element List", elements.len())
                 };
-                self.emit_pattern_arity_check(value_slot, elements.len(), rest.is_some(), message, *range);
+                self.emit_pattern_arity_check(value_slot, elements.len(), rest.is_some(), message, *range)?;
                 for (index, elem) in elements.iter().enumerate() {
-                    self.emit_element_read(value_slot, index, elem.range());
+                    self.emit_element_read(value_slot, index, elem.range())?;
                     self.compile_pattern_bind_top_of_stack(elem, mutable, as_global)?;
                 }
                 if let Some(rest_pattern) = rest {
@@ -709,20 +715,20 @@ impl<'vm> Compiler<'vm> {
                         if arguments.len() != 1 {
                             return Err(CompilerError::Message("Some pattern requires exactly one payload pattern".into()));
                         }
-                        self.emit_required_predicate(value_slot, "isSome", range);
+                        self.emit_required_predicate(value_slot, "isSome", range)?;
                         let child = self.emit_option_value_temp(value_slot, range)?;
                         self.compile_pattern_bind_from_slot(&arguments[0].pattern, child, mutable, as_global)?;
                     }
                 } else if constructor == "None" {
-                    self.emit_required_predicate(value_slot, "isNone", range);
+                    self.emit_required_predicate(value_slot, "isNone", range)?;
                 } else {
-                    self.emit_required_class_check(value_slot, constructor, range);
+                    self.emit_required_class_check(value_slot, constructor, range)?;
                     match &variant_pat.mode {
                         phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
                             let message = format!("destructuring pattern {} expected {} argument(s)", constructor, arguments.len());
-                            self.emit_pattern_arity_check(value_slot, arguments.len(), false, message, range);
+                            self.emit_pattern_arity_check(value_slot, arguments.len(), false, message, range)?;
                             for (index, argument) in arguments.iter().enumerate() {
-                                self.emit_element_read(value_slot, index, argument.pattern.range());
+                                self.emit_element_read(value_slot, index, argument.pattern.range())?;
                                 let child = self.claim_pattern_temp("$destructure_variant", argument.pattern.range())?;
                                 self.compile_pattern_bind_from_slot(&argument.pattern, child, mutable, as_global)?;
                             }
@@ -730,14 +736,14 @@ impl<'vm> Compiler<'vm> {
                         phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
                             let total_len = prefix.len() + suffix.len();
                             let message = format!("destructuring pattern {} expected {} argument(s)", constructor, total_len);
-                            self.emit_pattern_arity_check(value_slot, total_len, false, message, range);
+                            self.emit_pattern_arity_check(value_slot, total_len, false, message, range)?;
                             for (index, argument) in prefix.iter().enumerate() {
-                                self.emit_element_read(value_slot, index, argument.pattern.range());
+                                self.emit_element_read(value_slot, index, argument.pattern.range())?;
                                 let child = self.claim_pattern_temp("$destructure_variant", argument.pattern.range())?;
                                 self.compile_pattern_bind_from_slot(&argument.pattern, child, mutable, as_global)?;
                             }
                             for (index, argument) in suffix.iter().enumerate() {
-                                self.emit_element_read(value_slot, prefix.len() + index, argument.pattern.range());
+                                self.emit_element_read(value_slot, prefix.len() + index, argument.pattern.range())?;
                                 let child = self.claim_pattern_temp("$destructure_variant", argument.pattern.range())?;
                                 self.compile_pattern_bind_from_slot(&argument.pattern, child, mutable, as_global)?;
                             }
@@ -748,7 +754,7 @@ impl<'vm> Compiler<'vm> {
                 Ok(())
             }
             Pattern::Record { entries, range } => {
-                self.emit_required_class_check(value_slot, "Record", *range);
+                self.emit_required_class_check(value_slot, "Record", *range)?;
                 for entry in entries {
                     let key_sym = Value::symbol(self.vm.interner.intern(&entry.label));
                     let child = self.emit_required_lookup_value(
@@ -762,7 +768,7 @@ impl<'vm> Compiler<'vm> {
                 Ok(())
             }
             Pattern::Map { entries, range } => {
-                self.emit_required_class_check(value_slot, "Map", *range);
+                self.emit_required_class_check(value_slot, "Map", *range)?;
                 for entry in entries {
                     let key_val = self.pattern_key_value(&entry.key);
                     let child = self.emit_required_lookup_value(value_slot, key_val, entry.range, "destructuring map missing key".into())?;
@@ -776,16 +782,17 @@ impl<'vm> Compiler<'vm> {
     /// Emits `GetLocal(value_slot).at(index)`, leaving the element's value on
     /// top of the operand stack — the shared positional read every pattern
     /// element compiles through (ADR-0020's `at(_)`, ADR-0046 §1).
-    fn emit_element_read(&mut self, value_slot: u16, index: usize, range: SourceRange) {
+    fn emit_element_read(&mut self, value_slot: u16, index: usize, range: SourceRange) -> Result<(), CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        let idx_const = self.add_constant(Value::int(index as i64));
+        let idx_const = self.add_constant(Value::int(index as i64), range)?;
         self.emit(Bytecode::Constant(idx_const), range);
-        self.emit_operator_send("at", 1, range);
+        self.emit_operator_send("at", 1, range)?;
+        Ok(())
     }
 
     fn emit_required_lookup_value(&mut self, value_slot: u16, key: Value, range: SourceRange, message: String) -> Result<u16, CompilerError> {
         let option = self.emit_lookup_temp(value_slot, key, range)?;
-        self.emit_required_predicate(option, "isSome", range);
+        self.emit_required_predicate(option, "isSome", range)?;
         let value = self.emit_option_value_temp(option, range)?;
         // Keep diagnostic text attached to the pattern path even though the
         // shared predicate helper provides the runtime branch.
@@ -801,35 +808,37 @@ impl<'vm> Compiler<'vm> {
     /// `at_least` selects the comparison: `false` requires `size` to equal
     /// `expected` exactly (a `Tuple` pattern, or a rest-less `List` pattern);
     /// `true` requires `size >= expected` (a `List` pattern with `*rest`).
-    fn emit_pattern_arity_check(&mut self, value_slot: u16, expected: usize, at_least: bool, message: String, range: SourceRange) {
+    fn emit_pattern_arity_check(&mut self, value_slot: u16, expected: usize, at_least: bool, message: String, range: SourceRange) -> Result<(), CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        self.emit_getter_send("size", range);
-        let count_idx = self.add_constant(Value::int(expected as i64));
+        self.emit_getter_send("size", range)?;
+        let count_idx = self.add_constant(Value::int(expected as i64), range)?;
         self.emit(Bytecode::Constant(count_idx), range);
         // `size < expected` (rest form) or `size != expected` (exact form) is
         // a mismatch — the condition pushed here is true exactly when the
         // pattern does NOT match.
-        self.emit_operator_send(if at_least { "<" } else { "!=" }, 1, range);
+        self.emit_operator_send(if at_least { "<" } else { "!=" }, 1, range)?;
         let skip_raise = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
-        self.emit_pattern_mismatch_raise(message, range);
+        self.emit_pattern_mismatch_raise(message, range)?;
         let after_raise = self.chunk_len();
         self.patch_forward_jump_to(skip_raise, after_raise);
+        Ok(())
     }
 
     /// Emits `Error.new(message).raise()` — the shape-mismatch diagnostic a
     /// destructuring pattern's arity guard raises (ADR-0046 §2). Mirrors
     /// [`super::loops`]'s deopt-block-control-trap raise-and-balance idiom.
-    pub(super) fn emit_pattern_mismatch_raise(&mut self, message: String, range: SourceRange) {
+    pub(super) fn emit_pattern_mismatch_raise(&mut self, message: String, range: SourceRange) -> Result<(), CompilerError> {
         let error_sym = self.vm.interner.intern("Error");
-        self.emit_global_reference(error_sym, range);
+        self.emit_global_reference(error_sym, range)?;
         let message_obj = self.vm.alloc_string_value(message);
-        let message_idx = self.add_constant(message_obj);
+        let message_idx = self.add_constant(message_obj, range)?;
         self.emit(Bytecode::Constant(message_idx), range);
-        self.emit_operator_send("new", 1, range);
-        self.emit_operator_send("raise", 0, range);
+        self.emit_operator_send("new", 1, range)?;
+        self.emit_operator_send("raise", 0, range)?;
         // `raise` never returns normally, so this `Pop` is unreachable dead
         // code — kept only so the chunk's static stack shape stays balanced.
         self.emit(Bytecode::Pop, range);
+        Ok(())
     }
 
     /// Builds the `*rest` tail of a [`Pattern::List`] as a fresh `List`
@@ -858,8 +867,8 @@ impl<'vm> Compiler<'vm> {
     ) -> Result<(), CompilerError> {
         // `$rest = List.new()`
         let list_sym = self.vm.interner.intern("List");
-        self.emit_global_reference(list_sym, range);
-        self.emit_operator_send("new", 0, range);
+        self.emit_global_reference(list_sym, range)?;
+        self.emit_operator_send("new", 0, range)?;
         let rest_sym = self.fresh_scratch_symbol("$destructure_rest");
         self.add_local(rest_sym, true)?;
         let rest_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
@@ -867,7 +876,7 @@ impl<'vm> Compiler<'vm> {
 
         // `$i = fixed_count` — scoped to this copy loop only.
         self.begin_scope();
-        let count_idx = self.add_constant(Value::int(fixed_count as i64));
+        let count_idx = self.add_constant(Value::int(fixed_count as i64), range)?;
         self.emit(Bytecode::Constant(count_idx), range);
         let i_sym = self.fresh_scratch_symbol("$destructure_i");
         self.add_local(i_sym, true)?;
@@ -878,21 +887,21 @@ impl<'vm> Compiler<'vm> {
         let loop_start = self.chunk_len();
         self.emit(Bytecode::GetLocal(i_slot), range);
         self.emit(Bytecode::GetLocal(value_slot), range);
-        self.emit_getter_send("size", range);
-        self.emit_operator_send("<", 1, range);
+        self.emit_getter_send("size", range)?;
+        self.emit_operator_send("<", 1, range)?;
         let exit_on_false = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
 
         self.emit(Bytecode::GetLocal(rest_slot), range);
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit(Bytecode::GetLocal(i_slot), range);
-        self.emit_operator_send("at", 1, range);
-        self.emit_operator_send("append", 1, range);
+        self.emit_operator_send("at", 1, range)?;
+        self.emit_operator_send("append", 1, range)?;
         self.emit(Bytecode::Pop, range);
 
         self.emit(Bytecode::GetLocal(i_slot), range);
-        let one_idx = self.add_constant(Value::int(1));
+        let one_idx = self.add_constant(Value::int(1), range)?;
         self.emit(Bytecode::Constant(one_idx), range);
-        self.emit_operator_send("+", 1, range);
+        self.emit_operator_send("+", 1, range)?;
         self.emit(Bytecode::SetLocal(i_slot), range);
         self.emit(Bytecode::Pop, range);
         self.emit_backward_loop(loop_start, range);

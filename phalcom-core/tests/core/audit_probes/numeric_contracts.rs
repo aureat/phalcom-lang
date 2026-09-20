@@ -1,5 +1,6 @@
 //! Numeric domain and primitive contract audit probes.
 
+use num_bigint::BigInt;
 use phalcom_core::{value::Value, vm::VM};
 
 #[test]
@@ -38,6 +39,23 @@ fn numeric_contracts_remainder_and_quotient() {
 }
 
 #[test]
+fn numeric_contracts_fixed_width_minimum_divided_by_negative_one_is_exact() {
+    let mut vm = VM::new_native();
+    let minimum = Value::int(i64::MIN);
+    let negative_one = Value::int(-1);
+    let floor_div = vm.get_or_intern("~/(_)");
+    let modulo = vm.get_or_intern("%(_)");
+
+    let quotient = vm.send_dynamic(minimum, floor_div, &[negative_one]).unwrap();
+    let quotient_id = quotient.as_obj().expect("minimum quotient must promote to LargeInt");
+    let expected_quotient = -BigInt::from(i64::MIN);
+    assert_eq!(vm.heap.as_large_int(quotient_id), Some(&expected_quotient));
+
+    let remainder = vm.send_dynamic(minimum, modulo, &[negative_one]).unwrap();
+    assert_eq!(remainder, Value::int(0));
+}
+
+#[test]
 fn numeric_contracts_float_remainder_special_values_and_signed_zero() {
     let mut vm = VM::new_native();
     let modulo = vm.get_or_intern("%(_)");
@@ -73,5 +91,19 @@ fn numeric_contracts_mixed_floor_division_preserves_exact_float_value() {
     ] {
         let result = vm.send_dynamic(receiver, floor_div, &[argument]).unwrap();
         assert_eq!(result.as_int(), Some(expected));
+    }
+}
+
+#[test]
+fn numeric_contracts_mixed_relations_preserve_exact_integer_order() {
+    let mut vm = VM::new_native();
+    let cases = [("<", false), ("<=", false), (">", true), (">=", true)];
+    for (operator, expected) in cases {
+        let selector_name = format!("{operator}(_)");
+        let selector = vm.get_or_intern(&selector_name);
+        let result = vm
+            .send_dynamic(Value::int(9_007_199_254_740_993), selector, &[Value::float(9_007_199_254_740_992.0)])
+            .expect("mixed relation should execute");
+        assert_eq!(result.as_bool(), Some(expected), "operator {operator}");
     }
 }

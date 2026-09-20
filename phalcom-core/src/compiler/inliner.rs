@@ -248,13 +248,14 @@ impl<'vm> Compiler<'vm> {
     /// [`encode_selector`], the single source of truth for selector spelling
     /// (ADR-0012), so the inliner's fallback and `universe.rs`'s primitive
     /// registrations can never drift apart.
-    fn emit_sacred_send(&mut self, name: &str, labels: &[Option<&str>], range: SourceRange) {
+    fn emit_sacred_send(&mut self, name: &str, labels: &[Option<&str>], range: SourceRange) -> Result<(), CompilerError> {
         let arity = labels.len() as u8;
         let owned_labels: Vec<Option<String>> = labels.iter().map(|l| l.map(str::to_string)).collect();
         let selector = encode_selector(name, &owned_labels, SignatureKind::Method(arity));
         let selector_sym = self.vm.interner.intern(&selector);
-        let selector_idx = self.add_constant(Value::symbol(selector_sym));
+        let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
         self.emit(Bytecode::Invoke(arity, selector_idx), range);
+        Ok(())
     }
 
     /// Compiles `block`'s statements **inline** into the current function —
@@ -297,7 +298,7 @@ impl<'vm> Compiler<'vm> {
             let emit_pop = !(is_last && leaves_value);
             self.compile_statement_with_pop_control(statement, emit_pop)?;
             if tail_let {
-                let unit_idx = self.add_constant(crate::value::Value::unit());
+                let unit_idx = self.add_constant(crate::value::Value::unit(), range)?;
                 self.emit(Bytecode::Constant(unit_idx), range);
             }
         }
@@ -357,7 +358,7 @@ impl<'vm> Compiler<'vm> {
         let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
         self.with_deopt_fallback(|c| c.compile_expr(then_block_fallback))?;
-        self.emit_sacred_send("ifTrue", &[None], range);
+        self.emit_sacred_send("ifTrue", &[None], range)?;
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
         Ok(())
@@ -385,7 +386,7 @@ impl<'vm> Compiler<'vm> {
         let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
         self.with_deopt_fallback(|c| c.compile_expr(else_block_fallback))?;
-        self.emit_sacred_send("ifFalse", &[None], range);
+        self.emit_sacred_send("ifFalse", &[None], range)?;
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
         Ok(())
@@ -411,7 +412,7 @@ impl<'vm> Compiler<'vm> {
             c.compile_expr(then_fallback)?;
             c.compile_expr(else_fallback)
         })?;
-        self.emit_sacred_send("ifTrue", &[None, Some("ifFalse")], range);
+        self.emit_sacred_send("ifTrue", &[None, Some("ifFalse")], range)?;
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
         Ok(())
@@ -433,7 +434,7 @@ impl<'vm> Compiler<'vm> {
         let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
         self.with_deopt_fallback(|c| c.compile_expr(rhs_fallback))?;
-        self.emit_sacred_send("and", &[None], range);
+        self.emit_sacred_send("and", &[None], range)?;
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
         Ok(())
@@ -453,7 +454,7 @@ impl<'vm> Compiler<'vm> {
         let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
         self.with_deopt_fallback(|c| c.compile_expr(rhs_fallback))?;
-        self.emit_sacred_send("or", &[None], range);
+        self.emit_sacred_send("or", &[None], range)?;
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
         Ok(())
@@ -508,7 +509,7 @@ impl<'vm> Compiler<'vm> {
             c.compile_expr(cond_fallback)?;
             c.compile_expr(body_fallback)
         })?;
-        self.emit_sacred_send("whileTrue", &[None], range);
+        self.emit_sacred_send("whileTrue", &[None], range)?;
         self.patch_forward_jump(to_end);
         // Discard the context now that both bodies are compiled (its jumps
         // were already patched from the peek above).

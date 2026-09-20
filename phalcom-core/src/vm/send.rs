@@ -263,6 +263,7 @@ impl VM {
         let kind = self.heap.method(method).kind;
         match kind {
             MethodKind::Primitive(PrimitiveFn::Legacy(native_fn)) => {
+                self.check_native_activation()?;
                 let receiver_idx = self.stack.len() - 1 - arity;
                 let receiver = self.stack[receiver_idx];
 
@@ -275,15 +276,18 @@ impl VM {
                     self.heap.class(class_id).name.clone()
                 };
                 let class_sym = self.interner.intern(&class_name_str);
-                self.native_selector = Some(selector_sym);
-                self.native_class = Some(class_sym);
                 let native_context = crate::vm::NativeMethodContext {
                     access_owner: method_obj.access_owner.or(method_obj.holder),
                     origin: method_obj.origin,
+                    diagnostic: crate::error::NativeFrameIdentity {
+                        class: class_sym,
+                        selector: selector_sym,
+                    },
                 };
                 let frames_before = self.frames.len();
                 self.switch_pending = false;
                 const INLINE_ARGS: usize = 8;
+                self.native_activation_depth += 1;
                 self.native_method_contexts.push(native_context);
                 let result = if arity <= INLINE_ARGS {
                     let mut args = [Value::nil(); INLINE_ARGS];
@@ -293,11 +297,9 @@ impl VM {
                     let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
                     native_fn(self, &receiver, &args)
                 };
+                let result = result.map_err(|error| error.with_native_origin(native_context.diagnostic));
                 self.native_method_contexts.pop();
-                if result.is_ok() {
-                    self.native_selector = None;
-                    self.native_class = None;
-                }
+                self.native_activation_depth -= 1;
                 result.map(|result| {
                     if self.switch_pending {
                         self.switch_pending = false;
@@ -432,6 +434,7 @@ impl VM {
                     ))
                     .into());
                 }
+                self.check_native_activation()?;
                 let view = ArgumentView::from_layout(receiver_idx, layout, caller_authority.0, caller_authority.1);
                 let method_obj = self.heap.method(method);
                 let selector_sym = method_obj.signature.selector;
@@ -439,27 +442,31 @@ impl VM {
                     .holder
                     .map(|holder| self.heap.class(holder).name.clone())
                     .unwrap_or_else(|| self.heap.class(callee.class(self)).name.clone());
-                self.native_selector = Some(selector_sym);
-                self.native_class = Some(self.interner.intern(&class_name));
+                let class_sym = self.interner.intern(&class_name);
+                let native_context = crate::vm::NativeMethodContext {
+                    access_owner: method_obj.access_owner.or(method_obj.holder),
+                    origin: method_obj.origin,
+                    diagnostic: crate::error::NativeFrameIdentity {
+                        class: class_sym,
+                        selector: selector_sym,
+                    },
+                };
                 self.native_method_contexts.push(crate::vm::NativeMethodContext {
                     access_owner: method_obj.access_owner.or(method_obj.holder),
                     origin: method_obj.origin,
+                    diagnostic: native_context.diagnostic,
                 });
                 self.switch_pending = false;
                 let frames_before = self.frames.len();
-                let result = native_fn(self, receiver, view);
+                self.native_activation_depth += 1;
+                let result = native_fn(self, receiver, view).map_err(|error| error.with_native_origin(native_context.diagnostic));
                 self.native_method_contexts.pop();
+                self.native_activation_depth -= 1;
                 match result? {
                     CallOutcome::EnteredFrame => Ok(()),
-                    CallOutcome::EnteredControl => {
-                        self.native_selector = None;
-                        self.native_class = None;
-                        Ok(())
-                    }
+                    CallOutcome::EnteredControl => Ok(()),
                     CallOutcome::SwitchedFiber => {
                         self.switch_pending = false;
-                        self.native_selector = None;
-                        self.native_class = None;
                         Ok(())
                     }
                     CallOutcome::Returned(value) => {
@@ -471,8 +478,6 @@ impl VM {
                         } else {
                             self.stack.push(value);
                         }
-                        self.native_selector = None;
-                        self.native_class = None;
                         Ok(())
                     }
                 }
@@ -643,12 +648,11 @@ impl VM {
             InvocationLayout::ordinary(structural_positionals, labels)
         };
         if layout.physical_arity() != physical_arity {
-            return Err(RuntimeError::Internal(format!(
-                "selector `{}` layout arity {} does not match physical arity {}",
-                self.resolve_symbol(selector),
-                layout.physical_arity(),
-                physical_arity
-            )));
+            return Err(RuntimeError::Arity {
+                signature: "send_dynamic",
+                expected: layout.physical_arity(),
+                found: physical_arity,
+            });
         }
         Ok(layout)
     }
@@ -1422,6 +1426,7 @@ impl VM {
     /// Sends `selector` to `receiver` with `args`, runs the resolved method to
     /// completion, and returns its result value (messages-and-selectors.md §5).
     pub fn send_dynamic(&mut self, receiver: Value, selector: Symbol, args: &[Value]) -> PhResult<Value> {
+        let layout = self.invocation_layout_for_selector(selector, args.len())?;
         if let Some(res) = self.try_module_export_send_dynamic(receiver, selector, args)? {
             return Ok(res);
         }
@@ -1431,7 +1436,6 @@ impl VM {
         self.stack.extend_from_slice(args);
 
         let base_frames = self.frames.len();
-        let layout = self.invocation_layout_for_selector(selector, args.len())?;
         self.dispatch_selector_window_as(receiver_idx, selector, layout, SourceRange::default(), self.current_caller_authority())?;
         self.check_native_reentry()?;
         self.native_reentry_depth += 1;

@@ -1,7 +1,7 @@
 //! Disassembly golden for the `SuperSend` opcode (U-INH §3.4, ADR-0040).
 //!
-//! A `super.sel(…)` body must lower to [`Bytecode::SuperSend`] carrying the
-//! defining-class constant, **not** an ordinary [`Bytecode::Invoke`]. Since the
+//! A `super.sel(…)` body must lower to [`Bytecode::SuperSend`] carrying exactly
+//! the selector and arity, **not** an ordinary [`Bytecode::Invoke`]. Since the
 //! send lives inside a method closure (not the top-level chunk), this walks the
 //! compiled constants to the method bodies and inspects their opcodes directly.
 
@@ -47,7 +47,7 @@ class Dog is Animal {
     let ops = method_body_opcodes(&vm, top);
 
     assert!(
-        ops.iter().any(|op| matches!(op, Bytecode::SuperSend(..))),
+        ops.iter().any(|op| matches!(op, Bytecode::SuperSend(_, _))),
         "a `super.speak` body must emit a SuperSend opcode; opcodes were: {ops:?}"
     );
 }

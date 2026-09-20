@@ -1,17 +1,33 @@
 use crate::error::{PhResult, RuntimeError};
+use crate::heap::{is_strict_subclass, Object};
 use crate::primitive::expect_string;
 use crate::resource::{ResourceHandle, ResourceKind};
 use crate::value::Value;
 use crate::vm::VM;
 
-/// `Resource.register_(_)` static native primitive.
-#[phalcom_native_macros::primitive(Resource, "register(_)" , side = class, visibility = internal)]
-pub fn resource_register(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+/// Attaches a managed resource row to the receiver's hidden slot 0.
+#[phalcom_native_macros::primitive(Resource, "attach(_)" , side = instance, visibility = internal)]
+pub fn resource_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let kind_str = expect_string(vm, &args[0])?;
-    let site = None;
-    let handle = vm.resources.open(ResourceKind::Custom(kind_str), site);
-    let packed = ResourceHandle::pack(handle.index, handle.generation);
-    Ok(Value::float(packed))
+    let obj_ref = receiver.as_obj().ok_or_else(|| RuntimeError::Type { expected: "Resource instance", found: receiver.type_name() })?;
+    let class = match vm.heap.get(obj_ref) {
+        Object::Instance(instance) => instance.class,
+        _ => return Err(RuntimeError::Type { expected: "Resource instance", found: receiver.type_name() }.into()),
+    };
+    let resource_class = vm.universe.classes.resource_class;
+    if class != resource_class && !is_strict_subclass(&vm.heap, class, resource_class) {
+        return Err(RuntimeError::Type { expected: "Resource instance", found: receiver.type_name() }.into());
+    }
+    if vm.heap.instance(obj_ref).slots.first().is_some_and(|value| !value.is_nil()) {
+        return Err(RuntimeError::Internal("Resource instance is already attached".into()).into());
+    }
+    let handle = vm
+        .resources
+        .open(ResourceKind::Custom(kind_str), None)
+        .map_err(|_| RuntimeError::ResourceLimit)?;
+    let packed = handle.pack().map_err(|_| RuntimeError::ResourceLimit)?;
+    vm.heap.instance_mut(obj_ref).slots[0] = Value::float(packed);
+    Ok(Value::unit())
 }
 
 /// Helper to extract ResourceHandle from an Instance instance slot 0.
@@ -21,9 +37,7 @@ fn extract_handle(vm: &VM, instance_val: &Value) -> PhResult<ResourceHandle> {
         if let crate::heap::Object::Instance(inst) = heap_obj {
             if let Some(val) = inst.slots.first() {
                 if let Some(n) = val.as_float() {
-                    return Ok(ResourceHandle::unpack(n));
-                } else if let Some(n) = val.as_int() {
-                    return Ok(ResourceHandle::unpack(n as f64));
+                    return ResourceHandle::unpack(n).map_err(|_| RuntimeError::Type { expected: "valid Resource handle", found: "Float" }.into());
                 }
             }
         }
@@ -33,6 +47,15 @@ fn extract_handle(vm: &VM, instance_val: &Value) -> PhResult<ResourceHandle> {
         found: instance_val.type_name(),
     }
     .into())
+}
+
+#[phalcom_native_macros::primitive(Resource, "ensureOpen", side = instance, visibility = internal)]
+pub fn resource_ensure_open(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let handle = extract_handle(vm, receiver)?;
+    if vm.resources.is_closed(handle) {
+        return raise_use_after_close(vm, "Resource already closed or stale");
+    }
+    Ok(Value::unit())
 }
 
 /// Helper to raise a UseAfterCloseError surface error.
@@ -60,6 +83,7 @@ pub fn resource_raw_close(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
         Ok(()) => Ok(Value::none()),
         Err(crate::resource::ResourceError::AlreadyClosed) => Ok(Value::none()),
         Err(crate::resource::ResourceError::StaleHandle) => raise_use_after_close(vm, "Resource already closed or stale"),
+        Err(crate::resource::ResourceError::Capacity) => Err(RuntimeError::ResourceLimit.into()),
     }
 }
 

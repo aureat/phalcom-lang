@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 335usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 336usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -3389,10 +3389,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 labeled: &[],
                 rest: None,
             },
-            returns: &::phalcom_native_meta::TypeExprSpec::Applied {
-                origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
-            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
@@ -3400,10 +3397,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                     labeled: &[],
                     rest: None,
                 },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
-                    origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
-                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
                 constraints: &[],
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
@@ -3425,7 +3419,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         },
         kind: NativeMemberKind::Method,
         abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Instance("Option"),
+        return_shape: NativeReturnShape::Instance("Int"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {
@@ -12889,6 +12883,100 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::Resource,
                 side: NativeDispatch::Instance,
+                selector: "attach(_)",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Attaches a managed resource row to the receiver's hidden slot 0."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Resource,
+                side: NativeDispatch::Instance,
+                selector: "ensureOpen",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: None,
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Resource,
+                side: NativeDispatch::Instance,
                 selector: "rawClose()",
             },
             visibility: NativeVisibility::Internal,
@@ -12975,53 +13063,6 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             conceptual: None,
         },
         kind: NativeMemberKind::Getter,
-        abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Unknown,
-    },
-    NativeSurfaceRecord {
-        surface: PrimitiveSurfaceSpec {
-            key: PrimitiveKey {
-                owner: UniverseKey::Resource,
-                side: NativeDispatch::Class,
-                selector: "register(_)",
-            },
-            visibility: NativeVisibility::Internal,
-            stability: NativeStability::Unspecified,
-            anchor: NativeAnchorPolicy::Required,
-            params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
-                labeled: &[],
-                rest: None,
-            },
-            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
-            callable: &::phalcom_native_meta::CallableTypeSpec {
-                type_params: &[],
-                params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
-                    labeled: &[],
-                    rest: None,
-                },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
-                constraints: &[],
-            },
-            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
-            effects: ::phalcom_native_meta::EffectSpec::Unknown,
-            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
-            termination: TerminationSpec::Unknown,
-            since: None,
-            deprecated_since: None,
-            replacement: None,
-            lifecycle: NativeLifecycleSpec {
-                since: None,
-                deprecated_since: None,
-                replacement: None,
-            },
-            intrinsic: None,
-            trust: NativeTrust::Ordinary,
-            docs: Some(" `Resource.register_(_)` static native primitive."),
-            conceptual: None,
-        },
-        kind: NativeMemberKind::Method,
         abi: PrimitiveAbi::Value,
         return_shape: NativeReturnShape::Unknown,
     },

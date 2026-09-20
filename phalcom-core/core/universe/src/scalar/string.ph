@@ -8,7 +8,7 @@ native class String is Object {
   @class
   native new(_ value: Dynamic) -> String
   internal native rawByteCount -> Int
-  internal native rawByteAt(_ index: Int) -> Option<Int>
+  internal native rawByteAt(_ index: Int) -> Int
   internal native rawSlice(_ start: Int, _ end: Int) -> String
   // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
   // representation read, so this is `.ph`-derivable rather than a floor

@@ -809,15 +809,13 @@ A VM MAY use a valid per-call-site inline cache.
 
 ---
 
-## 17.2 `SuperSend(arity, selector, definingClass)`
+## 17.2 `SuperSend(arity, selector)`
 
 Performs a statically anchored `super` send.
 
 The original receiver remains `self`.
 
-Method lookup begins **above the defining class**, not above the receiver's dynamic class and not from a statically baked superclass object.
-
-The defining class operand names the class whose body contains the send. At runtime the VM resolves that class and begins lookup at its current superclass.
+Method lookup begins **above the executing closure's `super_anchor` class**, not above the receiver's dynamic class and not from a statically baked superclass object. The anchor is stamped when a method is installed: instance methods use the defining instance class and static methods use its metaclass. Nested closures inherit the enclosing anchor.
 
 This preserves correct behavior if superclass relationships are mutable under the runtime model.
 
@@ -1253,7 +1251,7 @@ The resulting behavior MUST equal a direct static `Invoke` whenever the dynamic 
 
 Performs a `super` send using a dynamically assembled argument pack.
 
-Lookup begins above the statically known defining class while the receiver remains the original `self`.
+Lookup begins above the executing closure's `super_anchor` while the receiver remains the original `self`.
 
 ---
 
@@ -1923,7 +1921,7 @@ lowers to a `SuperSend` carrying:
 
 - the exact selector;
 - static arity;
-- the name/identity needed to resolve the defining class.
+- no defining-class name; the executing closure carries the stable lookup anchor.
 
 The runtime does **not** replace the receiver with the superclass.
 
@@ -2219,7 +2217,7 @@ These notes are descriptive and exist to keep the normative specification audita
 - Dispatch/global inline caches are side state indexed by call/instruction site and are not part of bytecode semantics.
 - `Nil` pushes surface `None`; the private raw nil sentinel remains internal.
 - `ReturnNonLocal` derives its destination from the block activation's home-frame token, not from an instruction operand.
-- `SuperSend` retains the original receiver and begins lookup above the statically identified defining class.
+- `SuperSend` retains the original receiver and begins lookup above the executing closure's `super_anchor`.
 - ADT/data instructions use the executable-semantic pool to retain compiler-resolved declaration and constructor identity.
 
 A change to the implementation that violates any normative rule above requires either an implementation fix or an explicit specification amendment.

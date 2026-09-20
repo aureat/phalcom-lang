@@ -47,7 +47,7 @@ impl<'vm> Compiler<'vm> {
 
         // 5. Define global slot for the data class
         self.declare_global(name_sym, false)?;
-        let name_idx = self.add_constant(Value::symbol(name_sym));
+        let name_idx = self.add_constant(Value::symbol(name_sym), data_def.range)?;
         self.emit(Bytecode::DefineGlobal(name_idx), data_def.range);
 
         Ok(())

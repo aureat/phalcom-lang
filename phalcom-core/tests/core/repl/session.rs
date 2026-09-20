@@ -95,6 +95,22 @@ fn open_upvalue_hygiene_across_cells() {
     );
 }
 
+#[test]
+fn raw_run_closes_captures_before_reuse() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "<raw-run>");
+    let getter = vm.get_or_intern("getter");
+    vm.define_global(module, getter, Value::unit()).unwrap();
+
+    let first = vm.compile_closure(module, "let secret = 999\ngetter = || { secret }\nNone.missing\n").unwrap();
+    assert!(vm.run_in_module(module, first).is_err());
+
+    let result_sym = vm.get_or_intern("result");
+    let second = vm.compile_closure(module, "let filler = 111\nlet result = getter()\n").unwrap();
+    vm.run_in_module(module, second).unwrap();
+    assert_eq!(vm.heap.module(module).get(result_sym), Some(Value::int(999)));
+}
+
 /// `class_redefinition_shadows`: Cell 2's `class Foo` shadows cell 1's `class Foo`.
 /// Existing instances keep the old class.
 #[test]
@@ -124,4 +140,39 @@ fn class_redefinition_shadows() {
         }
     }
     panic!("Expected list result");
+}
+
+#[test]
+fn old_super_behavior_survives_hostile_class_redefinition() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "<repl>");
+
+    let first = vm
+        .compile_closure_as(
+            module,
+            "class A { value { 1 } }\nclass B is A { value { super.value + 10 } }\nlet old = B.new()\n",
+            UnitKind::Repl,
+        )
+        .unwrap();
+    vm.run_cell(module, first).unwrap();
+
+    let second = vm
+        .compile_closure_as(
+            module,
+            "class A { value { 100 } }\nclass B is A { value { super.value + 10 } }\nlet new = B.new()\n",
+            UnitKind::Repl,
+        )
+        .unwrap();
+    vm.run_cell(module, second).unwrap();
+
+    let third = vm.compile_closure_as(module, "[old.value, new.value]\n", UnitKind::Repl).unwrap();
+    let result = vm.run_cell(module, third).unwrap();
+
+    let Some(id) = result.as_obj() else {
+        panic!("expected list result");
+    };
+    let Object::List(list) = vm.heap.get(id) else {
+        panic!("expected list result");
+    };
+    assert_eq!(list.elements(), [Value::int(11), Value::int(110)]);
 }

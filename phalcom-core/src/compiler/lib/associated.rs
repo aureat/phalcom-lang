@@ -22,7 +22,7 @@ impl<'vm> Compiler<'vm> {
         let mut compiled = Vec::with_capacity(entries.len());
         for entry in entries {
             let fallback_method = self.get_or_compile_conditional_method(&entry.callable)?;
-            let fallback_method = self.add_constant(Value::obj(fallback_method));
+            let fallback_method = self.add_constant(Value::obj(fallback_method), range)?;
             let selector = self.vm.interner.intern(&entry.callable.selector.to_string());
             compiled.push(ConditionalFamilyEntry {
                 operation: entry.operation.clone(),
@@ -156,7 +156,7 @@ impl<'vm> Compiler<'vm> {
                     return Err(CompilerError::CallableReferenceNotLoweredYet(expr.range));
                 };
                 self.compile_expr((**receiver).clone())?;
-                let (spec_idx, kind) = self.compile_behavioral_family_spec(&spec)?;
+                let (spec_idx, kind) = self.compile_behavioral_family_spec(&spec, expr.range)?;
                 if conditional_members.is_empty() {
                     self.emit(Bytecode::MakeFamily { spec: spec_idx, kind }, expr.range);
                 } else {
@@ -438,16 +438,20 @@ impl<'vm> Compiler<'vm> {
         Err(CompilerError::AssociatedInvokeNotLoweredYet(expr.range))
     }
 
-    fn compile_behavioral_family_spec(&mut self, spec: &BehavioralFamilySpec) -> Result<(u16, crate::bytecode::FamilySpecKind), CompilerError> {
+    fn compile_behavioral_family_spec(
+        &mut self,
+        spec: &BehavioralFamilySpec,
+        range: SourceRange,
+    ) -> Result<(u16, crate::bytecode::FamilySpecKind), CompilerError> {
         match spec {
             BehavioralFamilySpec::Exact(selector) => {
                 let symbol = self.vm.interner.intern(&selector.encode());
-                Ok((self.add_constant(Value::symbol(symbol)), crate::bytecode::FamilySpecKind::Exact))
+                Ok((self.add_constant(Value::symbol(symbol), range)?, crate::bytecode::FamilySpecKind::Exact))
             }
             BehavioralFamilySpec::Pattern(pattern) => {
                 let pattern_object = crate::heap::SelectorPatternObject::compile(pattern.clone(), &mut self.vm.interner);
                 let object = self.vm.heap.alloc(crate::heap::Object::SelectorPattern(Box::new(pattern_object)));
-                Ok((self.add_constant(Value::obj(object)), crate::bytecode::FamilySpecKind::Pattern))
+                Ok((self.add_constant(Value::obj(object), range)?, crate::bytecode::FamilySpecKind::Pattern))
             }
         }
     }
@@ -482,7 +486,7 @@ impl<'vm> Compiler<'vm> {
         callable.max_slots = (arity as usize) + 2;
         cls.callable = std::rc::Rc::new(callable);
 
-        let const_idx = self.add_constant(Value::obj(closure));
+        let const_idx = self.add_constant(Value::obj(closure), range)?;
         self.emit(Bytecode::Closure(const_idx), range);
 
         Ok(())
@@ -531,7 +535,7 @@ impl<'vm> Compiler<'vm> {
         callable.max_slots = (arity as usize) + 2;
         cls.callable = std::rc::Rc::new(callable);
 
-        let const_idx = self.add_constant(Value::obj(closure));
+        let const_idx = self.add_constant(Value::obj(closure), range)?;
         self.emit(Bytecode::Closure(const_idx), range);
 
         Ok(())

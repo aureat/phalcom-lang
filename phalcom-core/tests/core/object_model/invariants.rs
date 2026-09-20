@@ -687,6 +687,14 @@ fn subclass_static_field_offset_stability() {
     assert_eq!(sub_meta_layout.field_count, 2);
 }
 
+#[test]
+fn resource_bootstrap_keeps_hidden_slot_without_source_field() {
+    let vm = VM::new();
+    let resource = vm.heap.class(vm.universe.classes.resource_class);
+    assert_eq!(resource.field_count, 1);
+    assert!(resource.field_slots.is_empty(), "resource handle slot must not be source-addressable");
+}
+
 // ---------------------------------------------------------------------------
 // R-INV-0.x — the audit substrate (U-CORE-1 spec §5.1). These are the shared
 // invariants every later U-CORE unit extends: the census set/count audit

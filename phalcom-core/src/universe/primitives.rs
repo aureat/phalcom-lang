@@ -407,7 +407,7 @@ impl Universe {
             SignatureKind::Method(1),
             system_take_unhandled_scheduled_failures
         );
-        primitive_static_internal!(
+        primitive_internal!(
             vm,
             system_cls,
             "reportUnhandledScheduledFailures",
@@ -728,12 +728,12 @@ impl Universe {
 
         // U-RESOURCE primitives
         let resource_cls = vm.universe.classes.resource_class;
-        primitive_static_internal!(
+        primitive_internal!(
             vm,
             resource_cls,
-            "register",
+            "attach",
             SignatureKind::Method(1),
-            crate::primitive::resource::resource_register
+            crate::primitive::resource::resource_attach
         );
         primitive_internal!(
             vm,
@@ -749,6 +749,7 @@ impl Universe {
             SignatureKind::Getter,
             crate::primitive::resource::resource_raw_is_closed
         );
+        primitive_internal!(vm, resource_cls, "ensureOpen", SignatureKind::Getter, crate::primitive::resource::resource_ensure_open);
 
         let system_cls = vm.universe.classes.system_class;
         primitive_static_internal!(

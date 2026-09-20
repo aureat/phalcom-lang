@@ -200,7 +200,7 @@ impl<'vm> Compiler<'vm> {
         }
 
         let ordinal = self.declare_loop_local("$for_ordinal", true)? as u16;
-        let zero = self.add_constant(Value::int(0));
+        let zero = self.add_constant(Value::int(0), range)?;
         self.emit(Bytecode::Constant(zero), range);
         self.emit(Bytecode::SetLocal(ordinal), range);
         self.emit(Bytecode::Pop, range);
@@ -258,7 +258,7 @@ impl<'vm> Compiler<'vm> {
         for jump in mismatch {
             self.patch_forward_jump_to(jump, error);
         }
-        self.emit_strict_zip_error(range);
+        self.emit_strict_zip_error(range)?;
         let all_some_label = self.chunk_len();
         self.patch_forward_jump_to(all_some, all_some_label);
         for jump in later_none {
@@ -287,7 +287,7 @@ impl<'vm> Compiler<'vm> {
         for jump in pattern_failures {
             self.patch_forward_jump_to(jump, pattern_failure);
         }
-        self.emit_pattern_mismatch_raise("for pattern did not match iterable value".into(), range);
+        self.emit_pattern_mismatch_raise("for pattern did not match iterable value".into(), range)?;
         self.patch_forward_jump_to(after_pattern, self.chunk_len());
 
         self.begin_scope();
@@ -311,9 +311,9 @@ impl<'vm> Compiler<'vm> {
             }
         }
         self.emit(Bytecode::GetLocal(ordinal), range);
-        let one = self.add_constant(Value::int(1));
+        let one = self.add_constant(Value::int(1), range)?;
         self.emit(Bytecode::Constant(one), range);
-        self.emit_operator_send("+", 1, range);
+        self.emit_operator_send("+", 1, range)?;
         self.emit(Bytecode::SetLocal(ordinal), range);
         self.emit(Bytecode::Pop, range);
         self.emit_backward_loop(loop_start, range);
@@ -331,15 +331,16 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
-    fn emit_strict_zip_error(&mut self, range: SourceRange) {
+    fn emit_strict_zip_error(&mut self, range: SourceRange) -> Result<(), CompilerError> {
         let error_sym = self.vm.interner.intern("ZipLengthMismatchError");
-        self.emit_global_reference(error_sym, range);
+        self.emit_global_reference(error_sym, range)?;
         let message = self.vm.alloc_string_value("strict zip lanes ended at different times".to_string());
-        let message_idx = self.add_constant(message);
+        let message_idx = self.add_constant(message, range)?;
         self.emit(Bytecode::Constant(message_idx), range);
-        self.emit_operator_send("new", 1, range);
-        self.emit_operator_send("raise", 0, range);
+        self.emit_operator_send("new", 1, range)?;
+        self.emit_operator_send("raise", 0, range)?;
         self.emit(Bytecode::Pop, range);
+        Ok(())
     }
 
     /// Emits a runtime trap for a `break`/`continue` reached through a
@@ -358,23 +359,24 @@ impl<'vm> Compiler<'vm> {
     /// intent. Full non-local break/continue (threading the target across
     /// [`super::state::FunctionState`] frames so the jump truly escapes the closure) is a
     /// larger follow-on left for a future unit.
-    fn emit_deopt_block_control_trap(&mut self, range: SourceRange) {
+    fn emit_deopt_block_control_trap(&mut self, range: SourceRange) -> Result<(), CompilerError> {
         let error_sym = self.vm.interner.intern("Error");
-        self.emit_global_reference(error_sym, range);
+        self.emit_global_reference(error_sym, range)?;
         let message = self.vm.alloc_string_value(
             "`break`/`continue` reached through a materialized block (a deopt fallback or a real \
              block-arg closure) cannot leave its enclosing loop — non-local break/continue across a \
              materialized block is not supported (U-REOPEN-FIX; see docs/forge/DEFERRED.md)."
                 .to_string(),
         );
-        let message_idx = self.add_constant(message);
+        let message_idx = self.add_constant(message, range)?;
         self.emit(Bytecode::Constant(message_idx), range);
-        self.emit_operator_send("new", 1, range);
-        self.emit_operator_send("raise", 0, range);
+        self.emit_operator_send("new", 1, range)?;
+        self.emit_operator_send("raise", 0, range)?;
         // `raise` never returns normally (it unwinds the stack), so this `Pop`
         // is unreachable dead code — kept only so the chunk's static stack
         // shape stays balanced like any other statement.
         self.emit(Bytecode::Pop, range);
+        Ok(())
     }
 
     /// Lowers a `break` statement (ADR-0035 §3, iteration.md §3, U-ITER
@@ -395,7 +397,7 @@ impl<'vm> Compiler<'vm> {
             let jump = self.emit_forward_jump(Bytecode::Jump, range);
             self.loop_contexts.last_mut().unwrap().break_jumps.push(jump);
         } else {
-            self.emit_deopt_block_control_trap(range);
+            self.emit_deopt_block_control_trap(range)?;
         }
         Ok(())
     }
@@ -419,7 +421,7 @@ impl<'vm> Compiler<'vm> {
             let jump = self.emit_forward_jump(Bytecode::Jump, range);
             self.loop_contexts.last_mut().unwrap().continue_jumps.push(jump);
         } else {
-            self.emit_deopt_block_control_trap(range);
+            self.emit_deopt_block_control_trap(range)?;
         }
         Ok(())
     }

@@ -8,7 +8,7 @@
 use phalcom_core::compiler::lib::UnitKind;
 use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::value::Value;
-use phalcom_core::vm::{MAX_CALL_DEPTH, MAX_NATIVE_REENTRY, VM};
+use phalcom_core::vm::{MAX_CALL_DEPTH, MAX_NATIVE_ACTIVATION_DEPTH, VM};
 
 /// Runs `source` as a module and returns the outcome.
 fn run(source: &str) -> Result<(), PhError> {
@@ -47,7 +47,7 @@ fn native_reentry_is_bounded() {
     // must trip the native re-entry ceiling, not the ordinary frame ceiling.
     let source = "class Probe {\n@constructor\nnew() {}\n  hash {\n    let s = Set.new()\n    s.add(Probe.new())\n    1\n  }\n}\nlet s = Set.new()\ns.add(Probe.new())\n";
     let err = run(source).expect_err("unbounded native re-entrancy must fail");
-    assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
+    assert_depth_exceeded(err, "native activation depth", MAX_NATIVE_ACTIVATION_DEPTH);
 }
 
 #[test]
@@ -90,5 +90,5 @@ fn traceback_survives_a_frame_that_executed_nothing() {
     let source = "class Probe {\n@constructor\nnew() {}\n  hash {\n    let s = Set.new()\n    s.add(Probe.new())\n    1\n  }\n}\nlet s = Set.new()\ns.add(Probe.new())\n";
     let err = run(source).expect_err("must raise");
     // Reaching this line at all means the traceback walk did not panic.
-    assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
+    assert_depth_exceeded(err, "native activation depth", MAX_NATIVE_ACTIVATION_DEPTH);
 }

@@ -362,6 +362,15 @@ pub enum CompilerError {
     #[error("compiler.semantic_pool_overflow: executable semantic pool overflow for {kind}")]
     ExecutableSemanticPoolOverflow { kind: &'static str, span: SourceRange },
 
+    /// An executable operand cannot represent the producer's logical value.
+    #[error("compiler.executable_operand_overflow: {kind} {found} exceeds {limit}")]
+    ExecutableOperandOverflow {
+        kind: &'static str,
+        found: usize,
+        limit: usize,
+        span: SourceRange,
+    },
+
     /// Static member on variant case is illegal.
     #[error("variant.static_member_illegal: static or @class member '{0}' is not permitted on enum variant case.")]
     IllegalStaticOnVariantMember(String, SourceRange),

@@ -70,6 +70,13 @@ fn render_human_traceback(vm: &mut VM, err: &PhError, config: &RenderConfig, tra
             // Caught path: render from the captured FrameRecord vec.
             render_records_human(&mut out, vm, tb, config, trace_core, &styler);
         }
+        PhError::NativeOrigin { source, .. } => {
+            if let PhError::Runtime(RuntimeError::Raise { traceback: Some(tb), .. }) = source.as_ref() {
+                render_records_human(&mut out, vm, tb, config, trace_core, &styler);
+            } else {
+                render_live_human(&mut out, vm, config, trace_core, &styler);
+            }
+        }
         _ => {
             // Uncaught path: walk the live VM frame stack.
             render_live_human(&mut out, vm, config, trace_core, &styler);
@@ -77,7 +84,7 @@ fn render_human_traceback(vm: &mut VM, err: &PhError, config: &RenderConfig, tra
     }
 
     // Optional native frame synthesized from the in-flight send context (IS §5.5).
-    if let Some(native_line) = maybe_native_frame_line(vm, &styler) {
+    if let Some(native_line) = maybe_native_frame_line(vm, err, &styler) {
         out.push_str(&native_line);
     }
 
@@ -137,6 +144,17 @@ fn render_records_human(out: &mut String, vm: &mut VM, records: &[FrameRecord], 
         // Only the innermost group's final frame is the innermost overall.
         let is_last_group = group_idx == groups_len - 1;
         emit_human_items(out, vm, &items, config, styler, is_last_group);
+        for record in *group_frames {
+            if let FrameRecord::Native { class, selector } = record {
+                let class_name = vm.resolve_symbol(*class);
+                let selector_name = vm.resolve_symbol(*selector);
+                out.push_str(&format!(
+                    "  {}   in {}\n",
+                    styler.paint(Role::Location, "[native]"),
+                    styler.paint(Role::Identifier, &format!("{}.{}", class_name, selector_name)),
+                ));
+            }
+        }
     }
 }
 
@@ -160,13 +178,51 @@ fn render_json_traceback(vm: &mut VM, err: &PhError) -> String {
             let groups = partition_records(tb, vm);
             for (_fiber_seq, _boundary, frames) in &groups {
                 for rec in *frames {
-                    if let FrameRecord::Normal { module, method, line } = rec {
-                        let module_name = vm.resolve_symbol(*module).to_string();
-                        let file = format!("{}.ph", module_name);
-                        let name = vm.resolve_symbol(*method).to_string();
-                        let is_core = is_universe_module(vm, *module);
-                        json_frames.push(json_frame(&module_name, &file, *line, &name, is_core, 1));
+                    match rec {
+                        FrameRecord::Normal { module, method, line } => {
+                            let module_name = vm.resolve_symbol(*module).to_string();
+                            let file = format!("{}.ph", module_name);
+                            let name = vm.resolve_symbol(*method).to_string();
+                            let is_core = is_universe_module(vm, *module);
+                            json_frames.push(json_frame(&module_name, &file, *line, &name, is_core, 1));
+                        }
+                        FrameRecord::Native { class, selector } => {
+                            let name = format!("{}.{}", vm.resolve_symbol(*class), vm.resolve_symbol(*selector));
+                            json_frames.push(json_frame("[native]", "[native]", 0, &name, false, 1));
+                        }
+                        FrameRecord::FiberBoundary { .. } => {}
                     }
+                }
+            }
+        }
+        PhError::NativeOrigin { source, .. } => {
+            if let PhError::Runtime(RuntimeError::Raise { traceback: Some(tb), .. }) = source.as_ref() {
+                let groups = partition_records(tb, vm);
+                for (_fiber_seq, _boundary, frames) in &groups {
+                    for rec in *frames {
+                        match rec {
+                            FrameRecord::Normal { module, method, line } => {
+                                let module_name = vm.resolve_symbol(*module).to_string();
+                                let file = format!("{}.ph", module_name);
+                                let name = vm.resolve_symbol(*method).to_string();
+                                let is_core = is_universe_module(vm, *module);
+                                json_frames.push(json_frame(&module_name, &file, *line, &name, is_core, 1));
+                            }
+                            FrameRecord::Native { class, selector } => {
+                                let name = format!("{}.{}", vm.resolve_symbol(*class), vm.resolve_symbol(*selector));
+                                json_frames.push(json_frame("[native]", "[native]", 0, &name, false, 1));
+                            }
+                            FrameRecord::FiberBoundary { .. } => {}
+                        }
+                    }
+                }
+            } else {
+                let views: Vec<FrameView> = vm.walk().collect();
+                for v in &views {
+                    let module_name = vm.resolve_symbol(v.module).to_string();
+                    let file = format!("{}.ph", module_name);
+                    let name = frame_name_to_string(vm, &v.name);
+                    json_frames.push(json_frame(&module_name, &file, v.line, &name, v.is_core, v.fiber));
                 }
             }
         }
@@ -182,7 +238,7 @@ fn render_json_traceback(vm: &mut VM, err: &PhError) -> String {
     }
 
     // Optional native frame (IS §5.5).
-    if let (Some(sel), Some(cls)) = (vm.native_selector, vm.native_class) {
+    if let Some(crate::error::NativeFrameIdentity { selector: sel, class: cls }) = err.native_origin() {
         let sel_str = vm.resolve_symbol(sel).to_string();
         let cls_str = vm.resolve_symbol(cls).to_string();
         let name = format!("{}.{}", cls_str, sel_str);
@@ -416,9 +472,8 @@ fn innermost_caret_block(vm: &VM, err: &PhError, config: &RenderConfig) -> Optio
 /// Builds a native-frame line when the VM has an in-flight selector+class (IS §5.5).
 ///
 /// Returns `None` when no native context is set.
-fn maybe_native_frame_line(vm: &VM, styler: &Styler) -> Option<String> {
-    let sel = vm.native_selector?;
-    let cls = vm.native_class?;
+fn maybe_native_frame_line(vm: &VM, err: &PhError, styler: &Styler) -> Option<String> {
+    let crate::error::NativeFrameIdentity { selector: sel, class: cls } = err.native_origin()?;
     let sel_str = vm.resolve_symbol(sel);
     let cls_str = vm.resolve_symbol(cls);
     Some(format!(
@@ -528,6 +583,7 @@ fn is_universe_module(vm: &VM, module_sym: Symbol) -> bool {
 /// Returns the `kind` string for an error, or `""` when none applies.
 fn extract_kind_str(vm: &mut VM, err: &PhError) -> String {
     match err {
+        PhError::NativeOrigin { source, .. } => extract_kind_str(vm, source),
         PhError::Runtime(RuntimeError::Raise { error, .. }) => {
             if let Some(id) = error.as_obj() {
                 vm.heap
@@ -594,6 +650,7 @@ pub(crate) fn json_str(s: &str) -> String {
 /// Computes the optional `help:` suggestion line for human traceback output (IS §9).
 fn get_help_suggestion(vm: &mut VM, err: &PhError, config: &RenderConfig, styler: &Styler) -> Option<String> {
     match err {
+        PhError::NativeOrigin { source, .. } => get_help_suggestion(vm, source, config, styler),
         PhError::Runtime(RuntimeError::Raise { help: Some(h), .. }) => Some(format!("  {} {}\n", styler.paint(Role::SeverityHelp, "help:"), h)),
         PhError::Runtime(RuntimeError::UndefinedVariable { name }) => {
             let mut candidates = Vec::new();
