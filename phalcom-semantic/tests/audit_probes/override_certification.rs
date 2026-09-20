@@ -143,12 +143,23 @@ class Probe {
 }
 
 #[test]
-#[ignore = "AUD-SEM-006: tuple union source assignment"]
 fn tuple_union_source_accepts_both_components() {
     let f = Fixture::new(
         r#"
 class Probe {
   @class run() { let value: (Int | String, Int | String) = (1, 2) }
+}
+"#,
+    );
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn tuple_union_source_accepts_heterogeneous_components() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class run() { let value: (Int | String, Int | String) = (1, "two") }
 }
 "#,
     );

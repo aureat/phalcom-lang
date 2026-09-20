@@ -172,3 +172,9 @@ annotations, callable results, defaults, and a `Unit | Int` expected context.
 
 No relation-level equivalence bridge is required: the canonical construction
 boundary provides the single identity before assignability or diagnostics run.
+
+The formerly ignored tuple-union source assignment is not a Unit issue. It
+became green with AUD-SEM-004's active-relation-pair lifetime repair: repeated
+component obligations no longer inherit stale cycle state. Homogeneous and
+heterogeneous tuple components are now enabled regressions under the relation
+audit surface.
