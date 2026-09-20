@@ -1014,6 +1014,12 @@ mod tests {
     }
 
     #[test]
+    fn empty_tuple_normalizes_to_unit() {
+        let mut store = TypeStore::new();
+        assert_eq!(store.tuple(Box::new([])), store.unit());
+    }
+
+    #[test]
     fn associated_projection_interning_uses_trait_and_requirement_identity() {
         let mut store = TypeStore::new();
         let subject = store.nominal_type(test_decl("Subject"));

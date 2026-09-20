@@ -161,3 +161,14 @@ compile and execute. Runtime type-form lowering consumes the semantic
 `ClassObject` projection for a declaration-backed applied type form, so its value
 is the nominal class object rather than `Nil`. The historical lowering defect is
 therefore resolved for the supported nominal applied type-form surface.
+
+## AUD-SEM-006 — Unit normalization
+
+The canonical `TypeStore::tuple` constructor already normalizes an empty tuple
+to `store.unit()`, so both `Unit` and `()` annotations resolve to the same
+proper type as the `()` value literal. The retained source probe passes, and
+new direct-store plus source regressions cover canonical identity in explicit
+annotations, callable results, defaults, and a `Unit | Int` expected context.
+
+No relation-level equivalence bridge is required: the canonical construction
+boundary provides the single identity before assignability or diagnostics run.

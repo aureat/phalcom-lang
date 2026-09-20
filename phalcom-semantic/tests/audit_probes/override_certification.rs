@@ -156,6 +156,8 @@ class Probe {
 }
 
 #[test]
+/// AUD-SEM-006: `()` is the canonical Unit value, including under either Unit
+/// annotation spelling.
 fn unit_spellings_have_one_source_identity() {
     let f = Fixture::new(
         r#"
@@ -163,4 +165,27 @@ class Probe { @class run() { let a: Unit = (); let b: () = () } }
 "#,
     );
     f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn unit_literal_default_and_union_share_canonical_identity() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class explicit() -> Unit { () }
+  @class inferred() { () }
+  @class run() {
+    let default: Unit = ()
+    let alternative: Unit | Int = ()
+  }
+}
+"#,
+    );
+    f.assert_no_error_diagnostics();
+    let run = f.callable("Probe", "run", phalcom_semantic::identity::DispatchSide::Class);
+    let default = f.binding(run, "default");
+    let alternative = f.binding(run, "alternative");
+    let unit = f.analysis.snapshot.store.unit();
+    assert_eq!(default.current.ty(), Some(unit));
+    assert_eq!(alternative.current.ty(), Some(unit));
 }
