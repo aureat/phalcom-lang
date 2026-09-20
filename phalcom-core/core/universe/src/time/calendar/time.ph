@@ -3,10 +3,6 @@ data Time private(_ hour: Int, _ minute: Int, _ second: Int, _ nanosecond: Int)
 impl Time {
   @class
   new(_ hour: Int, _ minute: Int, _ second: Int, _ nanosecond: Int) -> Time {
-    if not (hour is Int) { ArgumentError.new("Time.new: hour must be an Int").raise() }
-    if not (minute is Int) { ArgumentError.new("Time.new: minute must be an Int").raise() }
-    if not (second is Int) { ArgumentError.new("Time.new: second must be an Int").raise() }
-    if not (nanosecond is Int) { ArgumentError.new("Time.new: nanosecond must be an Int").raise() }
     if hour < 0 or hour > 23 { ArgumentError.new("Time.new: hour must be between 0 and 23").raise() }
     if minute < 0 or minute > 59 { ArgumentError.new("Time.new: minute must be between 0 and 59").raise() }
     if second < 0 or second > 59 { ArgumentError.new("Time.new: second must be between 0 and 59").raise() }
@@ -23,7 +19,6 @@ impl Time {
   noon -> Time { Time(12, 0, 0, 0) }
 
   compare(_ other: Time) -> Ordering {
-    if not (other is Time) { ArgumentError.new("Time.compare: other must be a Time").raise() }
     if self.hour != other.hour { return self.hour.compare(other.hour) }
     if self.minute != other.minute { return self.minute.compare(other.minute) }
     if self.second != other.second { return self.second.compare(other.second) }

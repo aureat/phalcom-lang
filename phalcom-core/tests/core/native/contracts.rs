@@ -5,7 +5,7 @@ use phalcom_core::primitive::string::string_raw_byte_at;
 use phalcom_core::primitive::system::{system_class_print, system_gc};
 use phalcom_core::primitive::time::{system_clock_monotonic_nanoseconds, system_wall_clock_unix_nanoseconds};
 use phalcom_core::value::Value;
-use phalcom_native_meta::{TypeExprSpec, UniverseKey};
+use phalcom_native_meta::{EffectSpec, NativeEffect, TypeExprSpec, UniverseKey};
 use phalcom_native_surface::NATIVE_SURFACES;
 
 fn native_record(selector: &str) -> &'static phalcom_native_surface::NativeSurfaceRecord {
@@ -74,6 +74,7 @@ fn time_monotonic_native_metadata_is_owned_by_system_clock() {
         .find(|record| record.owner() == UniverseKey::SystemClock && record.selector() == "monotonicNanoseconds")
         .expect("missing SystemClock monotonic native");
     assert_eq!(system_clock.returns(), &TypeExprSpec::Universe(UniverseKey::Int));
+    assert_eq!(system_clock.effects(), EffectSpec::Known(&[NativeEffect::Nondeterminism]));
     assert!(
         !NATIVE_SURFACES
             .iter()
@@ -95,6 +96,7 @@ fn time_wall_native_metadata_is_owned_by_system_wall_clock() {
         .find(|record| record.owner() == UniverseKey::SystemWallClock && record.selector() == "unixNanoseconds")
         .expect("missing SystemWallClock wall-time native");
     assert_eq!(wall_clock.returns(), &TypeExprSpec::Universe(UniverseKey::Int));
+    assert_eq!(wall_clock.effects(), EffectSpec::Known(&[NativeEffect::Nondeterminism]));
     assert!(
         !NATIVE_SURFACES
             .iter()

@@ -9,7 +9,6 @@ impl UtcOffset {
 
   @class
   seconds(_ value: Int) -> UtcOffset {
-    if not (value is Int) { ArgumentError.new("UtcOffset.seconds: value must be an Int").raise() }
     if value < -93_599 or value > 93_599 {
       ArgumentError.new("UtcOffset.seconds: value must be between -93599 and 93599").raise()
     }
@@ -18,14 +17,12 @@ impl UtcOffset {
 
   @class
   hours(_ value: Int) -> UtcOffset {
-    if not (value is Int) { ArgumentError.new("UtcOffset.hours: value must be an Int").raise() }
     UtcOffset.seconds(value * 3_600)
   }
 
   negated -> UtcOffset { UtcOffset.seconds(-self.seconds) }
 
   compare(_ other: UtcOffset) -> Ordering {
-    if not (other is UtcOffset) { ArgumentError.new("UtcOffset.compare: other must be a UtcOffset").raise() }
     self.seconds.compare(other.seconds)
   }
 

@@ -24,23 +24,19 @@ class Instant {
   }
 
   since(_ earlier: Instant) -> Duration {
-    if not (earlier is Instant) { ArgumentError.new("Instant.since: earlier must be an Instant").raise() }
     self.requireSameClock(earlier)
     Duration.nanoseconds(_ticks - earlier.ticks)
   }
 
   plus(_ duration: Duration) -> Instant {
-    if not (duration is Duration) { ArgumentError.new("Instant.plus: duration must be a Duration").raise() }
     Instant.from(_clock, _ticks + duration.nanoseconds)
   }
 
   minus(_ duration: Duration) -> Instant {
-    if not (duration is Duration) { ArgumentError.new("Instant.minus: duration must be a Duration").raise() }
     Instant.from(_clock, _ticks - duration.nanoseconds)
   }
 
   compare(_ other: Instant) -> Ordering {
-    if not (other is Instant) { ArgumentError.new("Instant.compare: other must be an Instant").raise() }
     self.requireSameClock(other)
     _ticks.compare(other.ticks)
   }
@@ -116,6 +112,7 @@ class SystemClock is Clock {
   private create() { self }
 
   @class
+  @primitive
   internal native monotonicNanoseconds -> Int
 
   now -> Instant {

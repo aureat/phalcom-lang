@@ -550,7 +550,8 @@ snapshot that BoundMethodFamily closes over.
 | `_$takeUnhandledScheduledFailures(_)` | static | `system_take_unhandled_scheduled_failures` | internal root-await consumption |
 | `_$reportUnhandledScheduledFailures` | static | `system_report_unhandled_scheduled_failures` | internal safe-boundary reporting |
 | `_$wake(_,_)` | static | `system_wake` | internal exact Future wake |
-| `_$monotonicNanoseconds` | static | `system_monotonic_nanoseconds` | internal VM-owned monotonic nanosecond source; the only STDL002.C1.P1 floor addition |
+| `SystemClock.monotonicNanoseconds` | class | `system_clock_monotonic_nanoseconds` | internal native primitive host monotonic observation owned by the canonical SystemClock capability |
+| `SystemWallClock.unixNanoseconds` | class | `system_wall_clock_unix_nanoseconds` | internal native primitive host wall-clock observation owned by the canonical SystemWallClock capability |
 
 > The public raw `nextScheduled` getter was removed in C5; the internal rows above
 > retain queue ownership and failure-reporting authority inside the runtime.

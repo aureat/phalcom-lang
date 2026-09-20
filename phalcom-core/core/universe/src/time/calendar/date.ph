@@ -12,9 +12,6 @@ data Date private(_ year: Int, _ month: Month, _ day: Int)
 impl Date {
   @class
   new(_ year: Int, _ month: Month, _ day: Int) -> Date {
-    if not (year is Int) { ArgumentError.new("Date.new: year must be an Int").raise() }
-    if not (month is Month) { ArgumentError.new("Date.new: month must be a Month").raise() }
-    if not (day is Int) { ArgumentError.new("Date.new: day must be an Int").raise() }
     const lastDay = Gregorian.daysInMonth(year, month.number)
     if day < 1 or day > lastDay {
       ArgumentError.new("Date.new: day is outside the month").raise()
@@ -41,7 +38,6 @@ impl Date {
   daysSince -> Int { Gregorian.daysFromCivil(self.year, self.month.number, self.day) }
 
   compare(_ other: Date) -> Ordering {
-    if not (other is Date) { ArgumentError.new("Date.compare: other must be a Date").raise() }
     self.daysSince.compare(other.daysSince)
   }
 

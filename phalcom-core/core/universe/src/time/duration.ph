@@ -7,37 +7,31 @@ data Duration private(_ nanoseconds: Int)
 impl Duration {
   @class
   nanoseconds(_ value: Int) -> Duration {
-    if not (value is Int) { ArgumentError.new("Duration.nanoseconds: value must be an Int").raise() }
     Duration(value)
   }
 
   @class
   microseconds(_ value: Int) -> Duration {
-    if not (value is Int) { ArgumentError.new("Duration.microseconds: value must be an Int").raise() }
     Duration(value * 1_000)
   }
 
   @class
   milliseconds(_ value: Int) -> Duration {
-    if not (value is Int) { ArgumentError.new("Duration.milliseconds: value must be an Int").raise() }
     Duration(value * 1_000_000)
   }
 
   @class
   seconds(_ value: Int) -> Duration {
-    if not (value is Int) { ArgumentError.new("Duration.seconds: value must be an Int").raise() }
     Duration(value * 1_000_000_000)
   }
 
   @class
   minutes(_ value: Int) -> Duration {
-    if not (value is Int) { ArgumentError.new("Duration.minutes: value must be an Int").raise() }
     Duration.seconds(value * 60)
   }
 
   @class
   hours(_ value: Int) -> Duration {
-    if not (value is Int) { ArgumentError.new("Duration.hours: value must be an Int").raise() }
     Duration.minutes(value * 60)
   }
 

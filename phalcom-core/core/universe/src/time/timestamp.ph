@@ -21,6 +21,7 @@ class SystemWallClock is WallClock {
   private create() { self }
 
   @class
+  @primitive
   internal native unixNanoseconds -> Int
 
   now -> Timestamp {
@@ -38,25 +39,21 @@ impl Timestamp {
 
   @class
   nanoseconds(_ value: Int) -> Timestamp {
-    if not (value is Int) { ArgumentError.new("Timestamp.nanoseconds: value must be an Int").raise() }
     Timestamp(value)
   }
 
   @class
   microseconds(_ value: Int) -> Timestamp {
-    if not (value is Int) { ArgumentError.new("Timestamp.microseconds: value must be an Int").raise() }
     Timestamp(value * 1_000)
   }
 
   @class
   milliseconds(_ value: Int) -> Timestamp {
-    if not (value is Int) { ArgumentError.new("Timestamp.milliseconds: value must be an Int").raise() }
     Timestamp(value * 1_000_000)
   }
 
   @class
   seconds(_ value: Int) -> Timestamp {
-    if not (value is Int) { ArgumentError.new("Timestamp.seconds: value must be an Int").raise() }
     Timestamp(value * 1_000_000_000)
   }
 
@@ -70,12 +67,10 @@ impl Timestamp {
   now -> Timestamp { wallClock.now }
 
   plus(_ duration: Duration) -> Timestamp {
-    if not (duration is Duration) { ArgumentError.new("Timestamp.plus: duration must be a Duration").raise() }
     Timestamp(self.unixNanoseconds + duration.nanoseconds)
   }
 
   minus(_ duration: Duration) -> Timestamp {
-    if not (duration is Duration) { ArgumentError.new("Timestamp.minus: duration must be a Duration").raise() }
     Timestamp(self.unixNanoseconds - duration.nanoseconds)
   }
 
@@ -88,12 +83,10 @@ impl Timestamp {
   }
 
   since(_ earlier: Timestamp) -> Duration {
-    if not (earlier is Timestamp) { ArgumentError.new("Timestamp.since: earlier must be a Timestamp").raise() }
     Duration.nanoseconds(self.unixNanoseconds - earlier.unixNanoseconds)
   }
 
   compare(_ other: Timestamp) -> Ordering {
-    if not (other is Timestamp) { ArgumentError.new("Timestamp.compare: other must be a Timestamp").raise() }
     self.unixNanoseconds.compare(other.unixNanoseconds)
   }
 

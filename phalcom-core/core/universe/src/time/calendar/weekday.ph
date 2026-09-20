@@ -11,7 +11,6 @@ enum Weekday {
 impl Weekday {
   @class
   fromNumber(_ number: Int) -> Weekday {
-    if not (number is Int) { ArgumentError.new("Weekday.fromNumber: number must be an Int").raise() }
     if number == 1 { return Weekday::Monday }
     if number == 2 { return Weekday::Tuesday }
     if number == 3 { return Weekday::Wednesday }

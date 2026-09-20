@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
     types = "() -> Int",
     side = class,
     visibility = internal,
-    effects = pure
+    effects = [nondeterminism]
 )]
 pub fn system_clock_monotonic_nanoseconds(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let nanos = BigInt::from(vm.start_time.elapsed().as_nanos());
@@ -33,7 +33,7 @@ pub fn system_clock_monotonic_nanoseconds(vm: &mut VM, _receiver: &Value, _args:
     types = "() -> Int",
     side = class,
     visibility = internal,
-    effects = pure
+    effects = [nondeterminism]
 )]
 pub fn system_wall_clock_unix_nanoseconds(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let nanos = match SystemTime::now().duration_since(UNIX_EPOCH) {

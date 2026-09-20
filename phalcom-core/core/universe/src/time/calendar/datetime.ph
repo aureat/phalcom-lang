@@ -7,13 +7,10 @@ data DateTime private(_ date: Date, _ time: Time)
 impl DateTime {
   @class
   new(_ date: Date, _ time: Time) -> DateTime {
-    if not (date is Date) { ArgumentError.new("DateTime.new: date must be a Date").raise() }
-    if not (time is Time) { ArgumentError.new("DateTime.new: time must be a Time").raise() }
     DateTime(date, time)
   }
 
   compare(_ other: DateTime) -> Ordering {
-    if not (other is DateTime) { ArgumentError.new("DateTime.compare: other must be a DateTime").raise() }
     const dateOrder = self.date.compare(other.date)
     if dateOrder != Ordering::Equal { return dateOrder }
     self.time.compare(other.time)
