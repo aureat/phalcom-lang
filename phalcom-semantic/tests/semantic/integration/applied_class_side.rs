@@ -32,22 +32,57 @@ class Probe {
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
 
+    let int_instances = applied("List", [applied("Box", [fixture.ty("Int").into()])]);
+    let string_instances = applied("List", [applied("Box", [fixture.ty("String").into()])]);
+    let boxed_int = applied("Box", [fixture.ty("Int").into()]);
+
     fixture.assert_type(
-        fixture.binding(run, "int_instances").current.ty().expect("Box<Int> getter result"),
-        applied("List", [applied("Box", [fixture.ty("Int").into()])]),
+        fixture.expression(run, "Box<Int>.instances").knowledge.ty().expect("Box<Int> getter result"),
+        int_instances,
     );
     fixture.assert_type(
-        fixture.binding(run, "string_instances").current.ty().expect("Box<String> getter result"),
-        applied("List", [applied("Box", [fixture.ty("String").into()])]),
+        fixture
+            .expression(run, "Box<String>.instances")
+            .knowledge
+            .ty()
+            .expect("Box<String> getter result"),
+        string_instances,
     );
     fixture.assert_type(
-        fixture.binding(run, "inferred").current.ty().expect("inferred constructor result"),
-        applied("Box", [fixture.ty("Int").into()]),
+        fixture.expression(run, "Box.new(10)").knowledge.ty().expect("inferred constructor result"),
+        boxed_int.clone(),
     );
     fixture.assert_type(
-        fixture.binding(run, "explicit").current.ty().expect("explicit constructor result"),
-        applied("Box", [fixture.ty("Int").into()]),
+        fixture.expression(run, "Box<Int>.new(10)").knowledge.ty().expect("explicit constructor result"),
+        boxed_int.clone(),
     );
+
+    for (expression_text, expected_ty) in [
+        ("Box<Int>.instances", fixture.ty("Int")),
+        ("Box<String>.instances", fixture.ty("String")),
+        ("Box.new(10)", fixture.ty("Int")),
+        ("Box<Int>.new(10)", fixture.ty("Int")),
+    ] {
+        let expression = fixture.expression(run, expression_text);
+        fixture.assert_expression_ready(expression);
+        let specialization = expression.call_specialization.as_ref().expect("class-side call specialization");
+        assert_eq!(specialization.bindings.len(), 1, "{expression_text}: {specialization:#?}");
+        assert_eq!(specialization.bindings[0].1, expected_ty, "{expression_text}: {specialization:#?}");
+    }
+
+    assert!(
+        fixture.binding(run, "int_instances").current.is_unknown(),
+        "opaque calls intentionally invalidate mutable local current knowledge"
+    );
+    assert!(
+        fixture.binding(run, "string_instances").current.is_unknown(),
+        "opaque calls intentionally invalidate mutable local current knowledge"
+    );
+    assert!(
+        fixture.binding(run, "inferred").current.is_unknown(),
+        "opaque calls intentionally invalidate mutable local current knowledge"
+    );
+    fixture.assert_type(fixture.binding(run, "explicit").current.ty().expect("final constructor result"), boxed_int);
 
     let inferred_call = fixture.expression(run, "Box.new(10)");
     let explicit_call = fixture.expression(run, "Box<Int>.new(10)");
