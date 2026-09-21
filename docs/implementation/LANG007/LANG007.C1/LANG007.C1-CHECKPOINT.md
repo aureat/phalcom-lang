@@ -4,13 +4,16 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C1
 kind: checkpoint-record
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 repository: aureat/phalcom-lang
 planning_baseline_revision: 5b63ade8073d13d6b528af4774181665c30cbd47
 planning_baseline_subject: "fix(core): restore standalone semantic universe"
 prepared: 2026-09-21
+p1_implementation_revision: 479f8fb82fa58730fb2c40c2652b5e07016549ec
+p1_implementation_subject: "feat(semantic): add intrinsic type-level structural operations"
+active_plan: LANG007.C1.P2
 requires:
   - accepted LANG007 type-level domain semantics
   - accepted LANG007 type-member semantics
@@ -41,12 +44,13 @@ Numbered plans describe intended work. Walkthroughs record what a plan actually 
 Current lifecycle truth:
 
 ```yaml
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 ```
 
-No C1 production code or verification result is claimed by this record.
+P1 is complete and focused-tested. C1 remains in progress because P2 is the
+active specification/source convergence plan.
 
 ---
 
@@ -154,23 +158,30 @@ If P1 appears to require one of these to satisfy a C1 requirement, that is archi
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
-| `LANG007.C1.P1` | semantic domains, type-member identity/projection, structural operations, inference/persistence, Universe/runtime boundary | `PROPOSED` | `NOT_STARTED` | `UNVERIFIED` | patch-grade plan prepared; implementation not started |
+| `LANG007.C1.P1` | semantic domains, type-member identity/projection, structural operations, inference/persistence, Universe/runtime boundary | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | completed at `479f8fb8`; final scoped validation remains uncommitted |
+| `LANG007.C1.P2` | authoritative specification and `intrinsic` keyword convergence | `IN_PROGRESS` | `PARTIAL` | `UNVERIFIED` | activated after P1 closure; begin P2 T0 authority census |
 
-There is no completed C1 plan yet.
+P1 lifecycle closure is recorded by:
 
-Latest completed plan: **none**.
+- `LANG007.C1.P1-walkthrough.md`
+- `LANG007.C1.P1-handoff.md`
 
-Active plan: **none**.
+Latest completed plan: **`LANG007.C1.P1`**.
 
-Next plan: `LANG007.C1.P1`.
+Active plan: **`LANG007.C1.P2`**.
 
-A corrective `P2` belongs to this checkpoint only if P1 implementation/testing exposes missing work required to make the same C1 acceptance objective truthful. Do not create a new checkpoint merely because P1 requires bounded corrective closure.
+Next action: `LANG007.C1.P2` T0.
+
+P2 is a planned specification/source convergence slice of this checkpoint, not
+a corrective reopening of P1's semantic architecture.
 
 ---
 
 # 4. Accepted architectural invariants
 
-These are durable C1 architectural facts accepted by the LANG007 design/planning work. They are not claims that the code already implements them.
+These are durable C1 architectural facts accepted by the LANG007 design/planning
+work. P1's implementation and focused evidence now establish the corresponding
+code path; P2 must converge the authority corpus on these facts.
 
 ## 4.1 Canonical semantic domains
 
@@ -271,11 +282,11 @@ The P1 plan divides C1 implementation evidence into coherent gates.
 
 | Gate | Scope | Required semantic proof | State |
 |---|---|---|---|
-| `LANG007.C1.P1.G1` | canonical domains | TypePack/LabeledTypePack kinding, proper-type boundary, pack canonicalization, checked Tuple formation | `NOT_RUN` |
-| `LANG007.C1.P1.G2` | member identity/projection | typed arguments, `[]`/`At` identity, symbolic projections, existing associated-type compatibility | `NOT_RUN` |
-| `LANG007.C1.P1.G3` | structural algebra | Positionals/Labeled/At/Map including negative indexes and open-row mapped tails | `NOT_RUN` |
-| `LANG007.C1.P1.G4` | inference/persistence | no query-local leakage; stable metadata/source identity; row residual preservation | `NOT_RUN` |
-| `LANG007.C1.P1.G5` | focused plan acceptance | complete focused C1 matrix + affected-crate checks + hygiene | `NOT_RUN` |
+| `LANG007.C1.P1.G1` | canonical domains | TypePack/LabeledTypePack kinding, proper-type boundary, pack canonicalization, checked Tuple formation | `PASS` |
+| `LANG007.C1.P1.G2` | member identity/projection | typed arguments, `[]`/`At` identity, symbolic projections, existing associated-type compatibility | `PASS` |
+| `LANG007.C1.P1.G3` | structural algebra | Positionals/Labeled/At/Map including negative indexes and open-row mapped tails | `PASS` |
+| `LANG007.C1.P1.G4` | inference/persistence | no query-local leakage; stable metadata/source identity; row residual preservation | `PASS` |
+| `LANG007.C1.P1.G5` | focused plan acceptance | complete focused C1 matrix + affected-crate checks + hygiene | `PASS` |
 
 No gate may be marked PASS until its named evidence has actually run successfully.
 
@@ -283,19 +294,26 @@ No gate may be marked PASS until its named evidence has actually run successfull
 
 # 7. Verification ledger
 
-No implementation verification has been executed.
+P1 implementation verification is complete at the focused-acceptance level. The
+commands below are representative gate evidence; the full chronological test
+transcript remains in the P1 walkthrough.
 
 | Gate / evidence | Scope | Command / target | Result | Proves |
 |---|---|---|---|---|
 | planning repository inspection | remote `main` at P1 planning baseline | source/architecture inspection only | `INFORMATIONAL` | establishes planning assumptions; **not implementation verification** |
+| P1 focused semantic foundations | `phalcom-semantic` semantic integration target | `foundations::type_members` (6), `foundations::type_annotations` (40), `foundations::record_row_inference` (3), `foundations::generic_application` (9) | `PASS` | structural operations, argument validation, type formation, rows, and generic application |
+| P1 metadata and parser focus | `phalcom-semantic` / `phalcom-ast` | `integration::metadata` (14), parser kind/projection/intrinsic tests (1 + 1 + 1) | `PASS` | stable metadata and accepted source forms |
+| P1 affected-crate and hygiene checks | `phalcom-ast`, `phalcom-type-meta`, `phalcom-semantic`, `phalcom-core` | `cargo check`, `cargo fmt --all -- --check`, `git diff --check` | `PASS` | affected crate compilation and patch hygiene |
+| focused trait suite residuals | `phalcom-semantic` semantic integration target | 36 passed, 2 baseline failures reproduced at predecessor `5b63ade8` | `BASELINE_DEFERRED` | unrelated semantic dependency/evidence baseline; see §9 and P1 walkthrough |
 
 Current checkpoint verification:
 
 ```yaml
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 ```
 
-When execution starts, record only coherent gate evidence here. Do not turn this section into a chronological transcript of every test invocation.
+P1's focused gate does not claim workspace-wide, clippy, corpus, runtime,
+LSP, performance, or release certification.
 
 ---
 
@@ -320,9 +338,39 @@ broad performance suites
 
 # 9. Deferred / baseline issue ledger
 
-No C1 implementation failure has been observed yet because implementation has not started.
+P1's focused execution observed two residual trait-suite failures. Both
+reproduce at the clean predecessor revision and are deferred as unrelated
+baseline work:
 
-Use this section once failures are encountered.
+- `semantic::capabilities::traits::trait_default_replays_external_nominal_callable_dependencies`
+- `semantic::capabilities::traits::trait_defaults_reject_unknown_members_storage_and_super_without_concrete_capabilities`
+
+They do not block P1 or P2 because they are outside the changed type-member
+path and reproduce before the P1 implementation.
+
+### BASELINE-001
+
+- **Observed:** focused trait test fails on the active tree because an
+  unexpected Universe declaration-shell dependency is present.
+- **Classification:** baseline / unrelated.
+- **Why it does not block C1:** the assertion concerns trait dependency
+  evidence, not type-member formation, projection, or structural normalization;
+  the failure reproduces at the clean predecessor.
+- **Reproduction:**
+  `cargo test -p phalcom-semantic --test semantic capabilities::traits::trait_default_replays_external_nominal_callable_dependencies -- --nocapture`
+- **When to revisit:** the owning semantic dependency/evidence plan.
+
+### BASELINE-002
+
+- **Observed:** focused trait test fails on the active tree because a Bool
+  declaration-shell dependency accompanies the expected trait-surface evidence.
+- **Classification:** baseline / unrelated.
+- **Why it does not block C1:** the assertion concerns trait default dependency
+  filtering, not type-member formation, projection, or structural normalization;
+  the failure reproduces at the clean predecessor.
+- **Reproduction:**
+  `cargo test -p phalcom-semantic --test semantic capabilities::traits::trait_defaults_reject_unknown_members_storage_and_super_without_concrete_capabilities -- --nocapture`
+- **When to revisit:** the owning semantic dependency/evidence plan.
 
 Required entry shape:
 
@@ -379,22 +427,22 @@ No architectural consultation has occurred yet.
 # 11. Current implementation state
 
 ```text
-AST/parser implementation:             NOT_STARTED
-TypePack/LabeledTypePack kinds:        NOT_STARTED
-canonical pack forms:                  NOT_STARTED
-type-member registry/identity:         NOT_STARTED
-generalized projection:                NOT_STARTED
-typed const member arguments:          NOT_STARTED
-Tuple Positionals/Labeled/At:          NOT_STARTED
-Tuple/pack/labeled-pack Map:           NOT_STARTED
-Record/RecordRow Map:                  NOT_STARTED
-inference/materialization integration: NOT_STARTED
-stable metadata:                       NOT_STARTED
-source-index integration:              NOT_STARTED
-Universe source integration:           NOT_STARTED
-runtime negative gate:                 NOT_STARTED
-focused acceptance:                    NOT_STARTED
-release certification:                 NOT_STARTED
+AST/parser implementation:             IMPLEMENTED
+TypePack/LabeledTypePack kinds:        IMPLEMENTED
+canonical pack forms:                  IMPLEMENTED
+type-member registry/identity:         IMPLEMENTED
+generalized projection:                IMPLEMENTED
+typed const member arguments:          IMPLEMENTED
+Tuple Positionals/Labeled/At:          IMPLEMENTED
+Tuple/pack/labeled-pack Map:           IMPLEMENTED
+Record/RecordRow Map:                  IMPLEMENTED
+inference/materialization integration: IMPLEMENTED
+stable metadata:                       IMPLEMENTED
+source-index integration:              IMPLEMENTED
+Universe source integration:           IMPLEMENTED
+runtime negative gate:                 PASS
+focused acceptance:                    PASS
+release certification:                 DEFERRED
 ```
 
 Planning/specification completion is not code completion.
@@ -406,28 +454,35 @@ Planning/specification completion is not code completion.
 Current:
 
 ```text
-active plan: none
-latest completed C1 plan: none
-next plan: LANG007.C1.P1
-blockers: none recorded
+active plan: LANG007.C1.P2
+latest completed C1 plan: LANG007.C1.P1
+next plan: LANG007.C1.P2
+blockers: none recorded; two unrelated baseline trait failures deferred
 ```
 
 Next action:
 
-> Execute `LANG007.C1.P1` from T0. Verify local repository state and live accepted LANG007 specifications, mark P1 active, then implement in the plan's dependency order.
+> Execute `LANG007.C1.P2` from T0. Consume the P1 walkthrough/handoff, verify
+> the live decision/specification authority, and perform the named
+> `@intrinsic`/`intrinsic` census before substantive edits.
 
-Required T0 state update:
+P1 closure and P2 activation state:
 
 ```yaml
 checkpoint status: IN_PROGRESS
 checkpoint completion: PARTIAL
-checkpoint verification: UNVERIFIED
-P1 status: IN_PROGRESS
-P1 completion: PARTIAL
-P1 verification: UNVERIFIED
+checkpoint verification: FOCUSED_TESTED
+P1 status: COMPLETE
+P1 completion: IMPLEMENTED
+P1 verification: FOCUSED_TESTED
+P2 status: IN_PROGRESS
+P2 completion: PARTIAL
+P2 verification: UNVERIFIED
 ```
 
-Use the actual local repository state, not the planning revision, as the execution anchor.
+Use the actual local repository state, not the planning revision, as the
+execution anchor. The final P1 semantic/test changes remain intentionally
+uncommitted and are listed in the P1 handoff.
 
 ---
 

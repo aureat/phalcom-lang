@@ -3,7 +3,9 @@ use phalcom_common::range::SourceRange;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::identity::DeclarationId;
-use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeFormResolution, TypeFormationSite, resolve_type_annotation, resolve_type_form};
+use phalcom_semantic::types::annotation::{
+    SimpleTypeResolver, TypeFormResolution, TypeFormationInvalid, TypeFormationSite, resolve_type_annotation, resolve_type_form,
+};
 use phalcom_semantic::types::row::RecordRowField;
 use phalcom_semantic::types::store::{LabeledTypePackElement, TupleTypeElement, TypeStore};
 
@@ -99,7 +101,18 @@ fn setup() -> TestEnv {
     let module = ModuleId::universe_root();
     let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
     let mut resolver = SimpleTypeResolver::new();
-    for name in ["Int", "String", "Bool", "List", "Map", "Tuple", "Record", "TypePack", "LabeledTypePack"] {
+    for name in [
+        "Int",
+        "String",
+        "Bool",
+        "List",
+        "Map",
+        "Option",
+        "Tuple",
+        "Record",
+        "TypePack",
+        "LabeledTypePack",
+    ] {
         resolver.insert(name, DeclarationId::new(module.clone(), name.into()));
     }
     let site = TypeFormationSite::module(module);
@@ -289,4 +302,34 @@ fn test_tuple_and_record_map_projection() {
     ]));
     assert_eq!(res_rec.ty(), Some(expected_rec));
     assert!(diags.is_empty());
+}
+
+#[test]
+fn test_map_rejects_non_constructor_argument() {
+    let mut env = setup();
+    let ann = proj_ann(
+        tuple_ann(vec![(None, ref_ann("Int"))]),
+        "Map",
+        vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("Int"))],
+    );
+    let mut diags = Vec::new();
+
+    let result = resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &ann, &mut diags);
+
+    assert_eq!(result, TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch));
+}
+
+#[test]
+fn test_at_rejects_non_integer_argument() {
+    let mut env = setup();
+    let ann = proj_ann(
+        tuple_ann(vec![(None, ref_ann("Int"))]),
+        "At",
+        vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("Option"))],
+    );
+    let mut diags = Vec::new();
+
+    let result = resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &ann, &mut diags);
+
+    assert_eq!(result, TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch));
 }

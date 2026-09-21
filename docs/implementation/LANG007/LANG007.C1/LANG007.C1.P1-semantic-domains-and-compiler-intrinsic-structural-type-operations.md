@@ -4,9 +4,9 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C1
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on:
   - LANG007.C1 semantic/specification convergence already completed
 follows: LANG007.C1.P1 requirements analysis
@@ -60,7 +60,9 @@ DO NOT modify:
 
 unless the user later explicitly re-enables documentation work.
 
-At completion, Luna should provide the equivalent factual completion report in its final response or implementation transcript rather than creating documentation files.
+The later lifecycle request superseded this temporary documentation exception.
+P1 completion records are now maintained in the checkpoint, walkthrough, and
+handoff artifacts.
 
 ---
 

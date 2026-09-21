@@ -2,9 +2,9 @@
 id: LANG007
 category: LANG
 kind: implementation-status
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 repository: aureat/phalcom-lang
 prepared: 2026-09-21
 ---
@@ -13,27 +13,23 @@ prepared: 2026-09-21
 
 | Checkpoint | State | Active / next plan | Next action |
 |---|---|---|---|
-| `LANG007.C1` | `PROPOSED / NOT_STARTED / UNVERIFIED` | next: `LANG007.C1.P1` | begin P1 T0 takeover and live-authority verification |
+| `LANG007.C1` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | active: `LANG007.C1.P2` | begin P2 T0 authority census |
 
 ## Current program state
 
-LANG007 has an accepted architectural direction and a patch-grade C1.P1 implementation plan, but no code implementation or executed verification has been recorded yet.
+LANG007 has a focused-tested P1 implementation and is now active on P2 specification/source convergence. C1 is not yet release-complete.
 
 Current truth:
 
 ```yaml
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 ```
 
-Do not promote these fields because:
-
-- the plan exists;
-- specifications exist;
-- repository inspection was performed during planning;
-- files are generated or staged;
-- the Git tree is clean.
+P1 implementation and focused verification are recorded in the checkpoint,
+walkthrough, and handoff. The program remains partial because P2 is active and
+workspace-wide/release certification is intentionally deferred.
 
 Implementation, focused testing, and release certification are separate evidence states.
 
@@ -60,9 +56,13 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 
 | Plan | Scope | Status | Completion | Verification |
 |---|---|---|---|---|
-| `LANG007.C1.P1` | semantic domains and compiler-intrinsic structural type operations | `PROPOSED` | `NOT_STARTED` | `UNVERIFIED` |
+| `LANG007.C1.P1` | semantic domains and compiler-intrinsic structural type operations | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C1.P2` | authoritative specification and `intrinsic` keyword convergence | `IN_PROGRESS` | `PARTIAL` | `UNVERIFIED` |
 
-No walkthrough or handoff exists yet because P1 has not been executed.
+P1 lifecycle records:
+
+- `LANG007.C1/LANG007.C1.P1-walkthrough.md`
+- `LANG007.C1/LANG007.C1.P1-handoff.md`
 
 ## Administrative amendment
 
@@ -77,26 +77,26 @@ LANG007.C1-CHECKPOINT.md
 LANG007.C1-GUIDANCE.md
 ```
 
-C1 implementation should therefore follow the normal lifecycle convention for checkpoint updates and P1 walkthrough/handoff creation.
+C1 implementation should therefore follow the normal lifecycle convention for checkpoint updates and P1/P2 walkthrough and handoff creation.
 
 This amendment does **not** authorize opportunistic normative specification rewrites during P1. The accepted specifications remain read-only language authority unless the user separately requests a specification change.
 
 ## Verification state
 
-No C1 implementation verification gate has run.
+P1 focused verification has passed. The checkpoint records the semantic,
+metadata/parser, affected-crate, and hygiene evidence and classifies two
+trait-suite failures as pre-existing baseline failures.
 
-Planning-time repository inspection is not implementation verification.
+P2 is active but has not yet produced verification evidence.
 
-Deferred until execution:
+Deferred beyond focused acceptance:
 
 ```text
-parser/type-member regressions
-semantic kind/domain tests
-intrinsic operation tests
-row/inference tests
-metadata/source-index tests
-affected-crate checks
-format/diff hygiene
+workspace-wide tests and clippy
+full language corpus
+unrelated VM/runtime and LSP suites
+broad performance suites
+release certification
 ```
 
 Workspace-wide test/clippy certification is not required by P1's focused acceptance unless later requested.
@@ -109,23 +109,18 @@ If the local implementation checkout lacks the accepted LANG007 specifications a
 
 ## Next action
 
-Execute `LANG007.C1.P1`:
+Execute `LANG007.C1.P2`:
 
 ```text
-T0  live authority and repository takeover
-T1  AST/parser
-T2  canonical domains
-G1
-T3  type-member identity/source anchors
-T4  generalized projection/typed arguments
-G2
-T5  intrinsic structural algebra
-G3
-T6  inference/materialization
-T7  metadata/source persistence
-G4
-T8  Universe/core integration
-G5  focused acceptance
+T0  consume P1 walkthrough/handoff and verify authority census
+T1  ratify intrinsic keyword and record the amendment TDR
+T2  retire the obsolete @intrinsic source/presentation surface
+T3  converge normative specifications and neighboring ownership
+T4  focused contradiction/deletion searches and acceptance tests
+G1  P2 focused acceptance
 ```
 
-At T0 start, update the checkpoint from `PROPOSED / NOT_STARTED / UNVERIFIED` to the truthful active state and record the actual local revision.
+The P2 start lock is satisfied: P1 is `COMPLETE / IMPLEMENTED /
+FOCUSED_TESTED`, the checkpoint records P1 completion and gate evidence, and
+both required P1 lifecycle files exist. The final scoped P1 semantic/test
+changes remain intentionally uncommitted and are listed in the handoff.

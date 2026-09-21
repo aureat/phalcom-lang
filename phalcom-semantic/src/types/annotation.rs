@@ -1596,6 +1596,36 @@ fn resolve_type_member_projection(
         _ => KindId::TYPE,
     };
 
+    let intrinsic = lookup_intrinsic_type_operation(target_domain, &canonical_selector);
+    let map_operation = matches!(
+        intrinsic,
+        Some(
+            IntrinsicTypeOperation::TupleMap
+                | IntrinsicTypeOperation::RecordMap
+                | IntrinsicTypeOperation::TypePackMap
+                | IntrinsicTypeOperation::LabeledTypePackMap
+                | IntrinsicTypeOperation::RecordRowMap,
+        )
+    );
+    let at_operation = matches!(intrinsic, Some(IntrinsicTypeOperation::TupleAt));
+    let valid_arguments = if map_operation {
+        let expected_kind = store.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
+        matches!(canonical_args.as_slice(), [TypeMemberArgument::Type(argument)] if store.kind_of(*argument) == expected_kind)
+    } else if at_operation {
+        matches!(canonical_args.as_slice(), [TypeMemberArgument::Const(ConstTerm::Int(_))])
+    } else {
+        canonical_args.is_empty()
+    };
+    if intrinsic.is_some() && !valid_arguments {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            "type-member arguments do not match the intrinsic member signature",
+            range,
+        ));
+        return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+    }
+
     let projection = TypeLevelProjection {
         subject: ProjectionSubject::Type(subject_ty),
         selector: canonical_selector,

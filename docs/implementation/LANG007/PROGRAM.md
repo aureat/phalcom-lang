@@ -2,9 +2,9 @@
 id: LANG007
 category: LANG
 kind: implementation
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 repository: aureat/phalcom-lang
 prepared: 2026-09-21
 ---
@@ -34,7 +34,10 @@ LANG007 does not own ordinary runtime collection iteration, general VM dispatch,
 
 ### C1 — Semantic domains and compiler-intrinsic structural type operations
 
-**State:** `PROPOSED / NOT_STARTED / UNVERIFIED`
+**State:** `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`
+
+P1 is complete and focused-tested. P2 is the active specification/source
+convergence plan; C1 is not yet release-complete.
 
 C1 is the first implementation checkpoint. It establishes the canonical domains, type-member identity/projection machinery, structural operations, persistence/inference integration, and runtime boundary required for:
 
@@ -54,9 +57,10 @@ C1 is the first implementation checkpoint. It establishes the canonical domains,
 
 and the corresponding abstract/symbolic operations over accepted pack/row domains.
 
-Current numbered plan:
+Current numbered plans:
 
-- `LANG007.C1.P1` — semantic domains and compiler-intrinsic structural type operations — `PROPOSED / NOT_STARTED / UNVERIFIED`.
+- `LANG007.C1.P1` — semantic domains and compiler-intrinsic structural type operations — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+- `LANG007.C1.P2` — authoritative specification and `intrinsic` keyword convergence — `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 
 C1 is not release certification for all future type-level programming.
 
@@ -110,17 +114,18 @@ These are architectural constraints inherited by LANG007 work unless a later acc
 
 ```yaml
 program: LANG007
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
-active checkpoint: none
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
+active checkpoint: LANG007.C1
+active plan: LANG007.C1.P2
 next checkpoint: LANG007.C1
-next plan: LANG007.C1.P1
+next plan: LANG007.C1.P2
 ```
 
-The program is `PROPOSED` because architecture/specification/planning records exist but no C1 code implementation evidence has been recorded.
-
-Publishing this program record claims no implementation or test result.
+The program is `IN_PROGRESS` because P1 implementation and focused test
+results are recorded while C1's P2 specification/source convergence remains
+active. `FOCUSED_TESTED` does not claim workspace-wide or release certification.
 
 ## Canonical records
 
@@ -134,8 +139,9 @@ docs/implementation/LANG007/
         LANG007.C1-CHECKPOINT.md
         LANG007.C1-GUIDANCE.md
         LANG007.C1.P1-patch-grade-implementation-plan.md
-        LANG007.C1.P1-walkthrough.md      # after implementation
-        LANG007.C1.P1-handoff.md          # after implementation when successor work exists
+        LANG007.C1.P1-walkthrough.md
+        LANG007.C1.P1-handoff.md
+        LANG007.C1.P2-authoritative-specification-and-intrinsic-keyword-convergence.md
 ```
 
 `PROGRAM.md` owns the long-lived program purpose and checkpoint map.
@@ -150,13 +156,15 @@ Numbered plans describe intended work; they do not replace checkpoint state.
 
 ## Next action
 
-Create/install the C1 record set and execute `LANG007.C1.P1` from its T0 takeover/authority verification step.
+Execute `LANG007.C1.P2` from T0. P1 lifecycle closure is recorded in the
+checkpoint, walkthrough, and handoff; the P2 start lock is satisfied.
 
-At implementation start:
+At P2 start:
 
 1. record the actual local repository revision and working-tree state;
-2. mark C1/P1 `IN_PROGRESS` in the checkpoint ledger;
-3. verify the live accepted LANG007 specifications;
-4. proceed through the plan's ordered tasks and gates;
+2. consume the P1 walkthrough and handoff rather than reconstructing P1;
+3. verify the live decision/specification authority and run the named
+   `@intrinsic`/`intrinsic` census;
+4. proceed through P2's ordered tasks and gates;
 5. update the checkpoint only at durable architecture/verification events;
-6. create the P1 walkthrough and handoff at completion unless explicitly superseded by a later user instruction.
+6. create the P2 walkthrough and handoff at P2 completion.
