@@ -47,6 +47,21 @@ class Child is Base { accept(_ value: Object) -> Int { return 1 } }
 }
 
 #[test]
+fn unannotated_override_does_not_reject_body_derived_return() {
+    let f = Fixture::new(
+        r#"
+class Base { toString() -> String { return "base" } }
+class Child is Base {
+  _value
+  @constructor new(_ value) { _value = value }
+  toString { "Child(" + _value + ")" }
+}
+"#,
+    );
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
 fn alpha_equivalent_generic_hkt_override_is_accepted() {
     let f = Fixture::new(
         r#"

@@ -56,7 +56,11 @@ pub(crate) fn validate_class_overrides(ctx: &mut CheckingContext<'_>, class_def:
 
         let generic_contract_matches = align_callable_generic_binders(ctx, &mut candidate, &inherited);
         let shape_matches = generic_contract_matches
-            && candidate.kind == inherited.kind
+            // A source method may override a native behavior contract. The
+            // constructor distinction is semantic, but implementation origin
+            // is not part of the caller-visible selector contract.
+            && matches!(candidate.kind, crate::dispatch::CallableSemanticKind::Constructor)
+                == matches!(inherited.kind, crate::dispatch::CallableSemanticKind::Constructor)
             && candidate.parameters.len() == inherited.parameters.len()
             && candidate
                 .parameters
@@ -64,18 +68,33 @@ pub(crate) fn validate_class_overrides(ctx: &mut CheckingContext<'_>, class_def:
                 .zip(&inherited.parameters)
                 .all(|(candidate, inherited)| candidate.external_label == inherited.external_label && candidate.rest == inherited.rest);
         let parameters_match = shape_matches
-            && candidate.parameters.iter().zip(&inherited.parameters).all(|(candidate, inherited)| {
-                let (Some(candidate), Some(inherited)) = (candidate.ty.ty(), inherited.ty.ty()) else {
-                    return true;
-                };
-                ctx.check_knowledge_against_type(&TypeKnowledge::established(inherited, EvidenceOrigin::CallableSignature), candidate)
-                    .is_proven()
-            });
-        let returns_match = match (candidate.return_type.ty(), inherited.return_type.ty()) {
-            (Some(candidate), Some(inherited)) => ctx
-                .check_knowledge_against_type(&TypeKnowledge::established(candidate, EvidenceOrigin::CallableSignature), inherited)
-                .is_proven(),
-            _ => true,
+            && candidate
+                .parameters
+                .iter()
+                .zip(&inherited.parameters)
+                .zip(candidate_semantic.parameters.iter())
+                .all(|((candidate, inherited), candidate_declaration)| {
+                    // A body-derived parameter fact is not a declaration-owned
+                    // override contract. Only a source/native declaration may
+                    // constrain callers through an inherited signature.
+                    if !candidate_declaration.declared_type.is_known() {
+                        return true;
+                    }
+                    let (Some(candidate), Some(inherited)) = (candidate.ty.ty(), inherited.ty.ty()) else {
+                        return true;
+                    };
+                    ctx.check_knowledge_against_type(&TypeKnowledge::established(inherited, EvidenceOrigin::CallableSignature), candidate)
+                        .is_proven()
+                });
+        let returns_match = if !candidate_semantic.declared_return.is_known() {
+            true
+        } else {
+            match (candidate.return_type.ty(), inherited.return_type.ty()) {
+                (Some(candidate), Some(inherited)) => ctx
+                    .check_knowledge_against_type(&TypeKnowledge::established(candidate, EvidenceOrigin::CallableSignature), inherited)
+                    .is_proven(),
+                _ => true,
+            }
         };
         if !parameters_match || !returns_match {
             let range = candidate_semantic.source.as_ref().map(|source| source.range).unwrap_or(class_def.range);

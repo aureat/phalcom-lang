@@ -518,7 +518,7 @@ impl ProgramAnalyzer {
         let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
         let universe = Arc::new(ProjectUniverse::new());
         let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
-        let interfaces = BTreeMap::from([(entry_id.clone(), interface)]);
+        let mut interfaces = BTreeMap::from([(entry_id.clone(), interface)]);
 
         let mut sources = BTreeMap::new();
         let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
@@ -532,6 +532,28 @@ impl ProgramAnalyzer {
             Arc::new(parsed.program.clone()),
         ));
         sources.insert(entry_id.clone(), parsed_unit);
+
+        // Standalone execution has the same implicit Universe runtime as inline
+        // evaluation. Include the source-authored collection and scalar
+        // conformance modules so semantic products such as canonical `for`
+        // lowering are derived from their declared contracts, not native
+        // surfaces or compiler fallback lookup.
+        let universe_provider = UniverseSourceProvider::new();
+        for node in universe_provider
+            .nodes()
+            .iter()
+            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", "string"]))
+        {
+            let path = ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                    .collect::<Vec<_>>(),
+            );
+            let module = ModuleId::universe(path);
+            interfaces.insert(module.clone(), universe_provider.load_interface(&module)?);
+            sources.insert(module.clone(), universe_provider.load_parsed(&module)?);
+        }
 
         for dependency in &parsed.program.preamble.dependencies {
             let path = match dependency {
@@ -554,17 +576,24 @@ impl ProgramAnalyzer {
 
         let provider = FilesystemSourceProvider::new();
         let mut resolver = ModuleResolver::new(&universe, &provider);
-        let discovered = discover_reachable_dependencies(
-            &mut resolver,
-            &universe,
-            interfaces,
-            sources,
-            BTreeMap::new(),
-            [entry_id.clone()],
-            Some(&entry_id),
-        )?;
+        let mut resolved = BTreeMap::new();
+        for (module, interface) in &interfaces {
+            if !module.project.is_universe() {
+                continue;
+            }
+            for import in &interface.imports {
+                let path = match import {
+                    ImportSurface::Module(decl) => &decl.path,
+                    ImportSurface::Selective(decl) => &decl.path,
+                    ImportSurface::ReExport(decl) => &decl.path,
+                };
+                let target = resolver.resolve_import(module, path)?;
+                resolved.insert((module.clone(), path.to_string()), target.id);
+            }
+        }
+        let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, [entry_id.clone()], Some(&entry_id))?;
 
-        let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).link(entry_id.clone(), &discovered.resolved)?);
+        let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).link_all(entry_id.clone(), &discovered.resolved)?);
 
         let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0));
 

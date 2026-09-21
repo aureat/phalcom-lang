@@ -47,3 +47,32 @@ fn compiler_rejects_program_with_semantic_errors() {
 
     assert!(diagnostics.has_errors());
 }
+
+#[test]
+fn standalone_module_projects_canonical_for_iteration_lowering() {
+    let directory = tempfile::tempdir().expect("temporary source directory");
+    let source_path = directory.path().join("iteration.ph");
+    std::fs::write(
+        &source_path,
+        r#"
+for value in [1, 2] {
+  System.print(value)
+}
+"#,
+    )
+    .expect("standalone source");
+
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Module(source_path)).expect("standalone module analyzes");
+    assert!(
+        !analyzed.semantic.has_errors(),
+        "canonical List iteration must analyze without diagnostics: {:#?}",
+        analyzed.semantic.diagnostics
+    );
+
+    let program = ProgramCompiler::compile_analyzed(&analyzed).expect("standalone module projects");
+    assert_eq!(
+        program.modules[&program.entry].lowering.for_iteration_lanes.len(),
+        1,
+        "standalone List iteration must retain its semantic lowering specification"
+    );
+}
