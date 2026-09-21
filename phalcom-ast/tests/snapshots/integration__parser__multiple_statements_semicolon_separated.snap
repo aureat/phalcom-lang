@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 405
 expression: "parse(\"System.print(1); System.print(2)\")"
 ---
 Program {
@@ -45,6 +46,7 @@ Program {
                             },
                         },
                     ],
+                    invocation_authority: Ordinary,
                     range: CopyRange {
                         start: 0,
                         end: 15,
@@ -89,6 +91,7 @@ Program {
                             },
                         },
                     ],
+                    invocation_authority: Ordinary,
                     range: CopyRange {
                         start: 17,
                         end: 32,

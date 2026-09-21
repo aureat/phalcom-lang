@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 626
 expression: "parse(\"class Point {\\n  @ensures(__result >= 0)\\n  magnitude() {\\n    return 1\\n  }\\n}\\n\")"
 ---
 Program {
@@ -72,7 +73,7 @@ Program {
                                                 ),
                                                 left: Field {
                                                     value: "__result",
-                                                    kind: Implementation,
+                                                    kind: Source,
                                                     range: CopyRange {
                                                         start: 25,
                                                         end: 33,

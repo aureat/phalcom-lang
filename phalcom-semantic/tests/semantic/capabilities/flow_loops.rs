@@ -388,10 +388,7 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Instance);
     let observed = f.binding(run, "observed");
     assert_eq!(observed.current.ty(), Some(f.ty("Object")));
-    assert_eq!(
-        observed.current.status(),
-        Some(phalcom_semantic::types::evidence::EvidenceStatus::Established)
-    );
+    assert_eq!(observed.current.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Established));
     assert_eq!(
         observed.current.origin(),
         Some(phalcom_semantic::types::evidence::EvidenceOrigin::FieldLifecycle)

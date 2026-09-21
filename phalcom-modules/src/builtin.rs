@@ -84,7 +84,18 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["time"],
         kind: ModuleKind::Package,
-        children: &["clock", "duration", "timestamp", "offset", "calendar"],
+        children: &[
+            "clock",
+            "duration",
+            "timestamp",
+            "offset",
+            "calendar",
+            "timezone",
+            "zone_transition",
+            "zoned",
+            "resolution",
+            "testing",
+        ],
     },
     UniverseNodeSpec {
         path: &["time", "clock"],
@@ -103,6 +114,36 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["time", "offset"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "timezone"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "zone_transition"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "zoned"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "resolution"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["time", "testing"],
+        kind: ModuleKind::Package,
+        children: &["clocks"],
+    },
+    UniverseNodeSpec {
+        path: &["time", "testing", "clocks"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -639,6 +680,24 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "time" && m.as_str() == "offset" => {
                 include_str!("../../phalcom-core/core/universe/src/time/offset.ph")
+            }
+            [c, m] if c.as_str() == "time" && m.as_str() == "timezone" => {
+                include_str!("../../phalcom-core/core/universe/src/time/timezone.ph")
+            }
+            [c, m] if c.as_str() == "time" && m.as_str() == "zone_transition" => {
+                include_str!("../../phalcom-core/core/universe/src/time/zone_transition.ph")
+            }
+            [c, m] if c.as_str() == "time" && m.as_str() == "zoned" => {
+                include_str!("../../phalcom-core/core/universe/src/time/zoned.ph")
+            }
+            [c, m] if c.as_str() == "time" && m.as_str() == "resolution" => {
+                include_str!("../../phalcom-core/core/universe/src/time/resolution.ph")
+            }
+            [c, p, m] if c.as_str() == "time" && p.as_str() == "testing" && m.as_str() == "clocks" => {
+                include_str!("../../phalcom-core/core/universe/src/time/testing/clocks.ph")
+            }
+            [c, p] if c.as_str() == "time" && p.as_str() == "testing" => {
+                include_str!("../../phalcom-core/core/universe/src/time/testing/package.ph")
             }
             [c, p] if c.as_str() == "time" && p.as_str() == "calendar" => {
                 include_str!("../../phalcom-core/core/universe/src/time/calendar/package.ph")

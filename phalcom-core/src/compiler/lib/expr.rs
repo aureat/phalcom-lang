@@ -125,17 +125,13 @@ impl<'vm> Compiler<'vm> {
 
         self.patch_forward_jump(generic);
         let spec = self.lowering().and_then(|l| l.positional_expansions.get(&range)).cloned();
-        if self.lowering().is_some() && spec.is_none() {
-            return Err(CompilerError::MissingPositionalExpansionLowering(range));
-        }
 
         self.emit(Bytecode::GetLocal(source_slot), range);
         if let Some(spec) = &spec {
             self.emit_for_iteration_requirement(&spec.iterator, range)?;
         } else {
-            // Context-free interpreter compilation has no semantic snapshot.
-            // It remains an explicitly untyped compatibility boundary; the
-            // canonical program path above never reaches this branch.
+            // Tuple and Unit take the VM fast path above; unknown and dynamic
+            // sources retain the runtime iteration compatibility boundary.
             self.emit_getter_send("iterator", range)?;
         }
         self.emit(Bytecode::SetLocal(iterator_slot), range);

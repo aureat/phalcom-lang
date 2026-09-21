@@ -749,7 +749,13 @@ impl Universe {
             SignatureKind::Getter,
             crate::primitive::resource::resource_raw_is_closed
         );
-        primitive_internal!(vm, resource_cls, "ensureOpen", SignatureKind::Getter, crate::primitive::resource::resource_ensure_open);
+        primitive_internal!(
+            vm,
+            resource_cls,
+            "ensureOpen",
+            SignatureKind::Getter,
+            crate::primitive::resource::resource_ensure_open
+        );
 
         let system_cls = vm.universe.classes.system_class;
         primitive_static_internal!(

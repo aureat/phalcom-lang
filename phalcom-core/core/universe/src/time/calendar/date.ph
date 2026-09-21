@@ -1,6 +1,8 @@
 from universe.time.calendar.month import Month, Gregorian
 from universe.time.calendar.period import Period
 from universe.time.calendar.weekday import Weekday
+from universe.time.timezone import TimeZone
+from universe.time.timestamp import Timestamp
 
 enum DateOverflow {
   Constrain
@@ -17,6 +19,40 @@ impl Date {
       ArgumentError.new("Date.new: day is outside the month").raise()
     }
     Date(year, month, day)
+  }
+
+  @class
+  parse(_ text: String) -> Date {
+    const parts = text.split("-")
+    if parts.size != 3 { ArgumentError.new("Date.parse: expected YYYY-MM-DD").raise() }
+    Date.new(Date.parseInteger(parts.at(0)), Month.fromNumber(Date.parseInteger(parts.at(1))), Date.parseInteger(parts.at(2)))
+  }
+
+  @class
+  private parseInteger(_ text: String) -> Int {
+    if text.size == 0 { ArgumentError.new("Date.parse: invalid integer").raise() }
+    let sign = 1
+    let index = 0
+    if text.codePointAt(0) == 45 { sign = -1; index = 1 }
+    let value = 0
+    while index < text.size {
+      const cp = text.codePointAt(index)
+      if cp < 48 or cp > 57 { ArgumentError.new("Date.parse: invalid digit").raise() }
+      value = value * 10 + cp - 48
+      index = index + 1
+    }
+    value * sign
+  }
+
+  @class
+  today -> Date { Date.fromLocalParts(TimeZone.system.localNative(Timestamp.now.unixNanoseconds)) }
+
+  @class
+  todayIn(_ zone: TimeZone) -> Date { Date.fromLocalParts(zone.localNative(Timestamp.now.unixNanoseconds)) }
+
+  @class
+  private fromLocalParts(_ parts: List<Int>) -> Date {
+    Date.new(parts.at(0), Month.fromNumber(parts.at(1)), parts.at(2))
   }
 
   daysInMonth -> Int { Gregorian.daysInMonth(self.year, self.month.number) }
@@ -95,7 +131,10 @@ impl Date {
   }
 
   toString -> String {
-    "#{self.year}-#{self.month.number}-#{self.day}"
+    const yearText = "\(self.year)"
+    const monthText = if self.month.number < 10 { "0\(self.month.number)" } else { "\(self.month.number)" }
+    const dayText = if self.day < 10 { "0\(self.day)" } else { "\(self.day)" }
+    "\(yearText)-\(monthText)-\(dayText)"
   }
 }
 

@@ -1808,6 +1808,30 @@ unavailable `Period` ordering operation.
 
 ## 26. Current next action
 
+### `STDL002.C2.P2-INCIDENT-2026-09-21` — canonical data inherent publication resolved
+
+The P2 WIP now merges canonical data-owned inherent implementation
+contributions through `build_effective_surface` during semantic bootstrap and
+publishes the resulting class-side dispatch members and callable signatures.
+The focused semantic regression proves that `Duration.seconds(_)` resolves
+from the baseline dispatch surface with its `Int` parameter contract and is
+present in the canonical callable signature table.
+
+The compiler-owned negative fixture `duration_fractional.ph` now rejects
+`Duration.seconds(1.5)` with `type.call.argument_mismatch`; its expected output
+was updated from the stale source-name substring to that canonical diagnostic
+code.
+
+The aggregate `corpus::time_negative` lane now passes. Its apparent
+`Instant.plus`/`Instant.since` contract failures were stale fixtures that used
+the intentionally non-prelude `SystemClock` unqualified. VM bootstrap retained
+the runtime binding, but semantic analysis correctly required the normal
+`from universe.time import SystemClock` import. The corrected fixtures exercise
+the public import path and reject the wrong argument with
+`type.call.argument_mismatch`. Stale `duration_fractional` and offset-parser
+expected substrings were likewise aligned with their canonical current
+diagnostics.
+
 P1 remains active after the A1 blocker-remediation amendment. T1's
 validated-data and abstract-member prerequisites, T2 Duration/Measurement, T3
 monotonic time, T4 absolute wall-time, T5 Period identity, and the non-offset

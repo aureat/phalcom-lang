@@ -5,6 +5,11 @@ expose .duration
 expose .timestamp
 expose .offset
 expose .calendar
+expose .timezone
+expose .zone_transition
+expose .zoned
+expose .resolution
+expose .testing
 from universe.time.clock import (
   Clock,
   Instant,
@@ -21,6 +26,10 @@ from universe.time.timestamp import (
   wallClock
 )
 from universe.time.offset import UtcOffset
+from universe.time.timezone import TimeZone
+from universe.time.zone_transition import ZoneTransition
+from universe.time.zoned import ZonedDateTime
+from universe.time.resolution import LocalTimeDisambiguation, LocalTimeResolution
 from universe.time.calendar.month import Month
 from universe.time.calendar.weekday import Weekday
 from universe.time.calendar.period import Period
@@ -47,6 +56,11 @@ export (
   WallClock,
   SystemWallClock,
   UtcOffset,
+  TimeZone,
+  ZoneTransition,
+  ZonedDateTime,
+  LocalTimeDisambiguation,
+  LocalTimeResolution,
   Month,
   Weekday,
   Period,

@@ -1,5 +1,5 @@
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::{is_strict_subclass, Object};
+use crate::heap::{Object, is_strict_subclass};
 use crate::primitive::expect_string;
 use crate::resource::{ResourceHandle, ResourceKind};
 use crate::value::Value;
@@ -9,14 +9,27 @@ use crate::vm::VM;
 #[phalcom_native_macros::primitive(Resource, "attach(_)" , side = instance, visibility = internal)]
 pub fn resource_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let kind_str = expect_string(vm, &args[0])?;
-    let obj_ref = receiver.as_obj().ok_or_else(|| RuntimeError::Type { expected: "Resource instance", found: receiver.type_name() })?;
+    let obj_ref = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
+        expected: "Resource instance",
+        found: receiver.type_name(),
+    })?;
     let class = match vm.heap.get(obj_ref) {
         Object::Instance(instance) => instance.class,
-        _ => return Err(RuntimeError::Type { expected: "Resource instance", found: receiver.type_name() }.into()),
+        _ => {
+            return Err(RuntimeError::Type {
+                expected: "Resource instance",
+                found: receiver.type_name(),
+            }
+            .into());
+        }
     };
     let resource_class = vm.universe.classes.resource_class;
     if class != resource_class && !is_strict_subclass(&vm.heap, class, resource_class) {
-        return Err(RuntimeError::Type { expected: "Resource instance", found: receiver.type_name() }.into());
+        return Err(RuntimeError::Type {
+            expected: "Resource instance",
+            found: receiver.type_name(),
+        }
+        .into());
     }
     if vm.heap.instance(obj_ref).slots.first().is_some_and(|value| !value.is_nil()) {
         return Err(RuntimeError::Internal("Resource instance is already attached".into()).into());
@@ -37,7 +50,13 @@ fn extract_handle(vm: &VM, instance_val: &Value) -> PhResult<ResourceHandle> {
         if let crate::heap::Object::Instance(inst) = heap_obj {
             if let Some(val) = inst.slots.first() {
                 if let Some(n) = val.as_float() {
-                    return ResourceHandle::unpack(n).map_err(|_| RuntimeError::Type { expected: "valid Resource handle", found: "Float" }.into());
+                    return ResourceHandle::unpack(n).map_err(|_| {
+                        RuntimeError::Type {
+                            expected: "valid Resource handle",
+                            found: "Float",
+                        }
+                        .into()
+                    });
                 }
             }
         }

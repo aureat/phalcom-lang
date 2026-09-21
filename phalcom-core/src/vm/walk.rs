@@ -311,8 +311,8 @@ impl VM {
 mod tests {
     use super::*;
 
-    /// A 3-deep `.ph` call — `<main>` → `Cart#total(_)` → a block passed to
-    /// `fold` — asserting frame order (oldest first, Python order) and
+    /// A nested `.ph` call ending in a block — `<main>` → `Cart#total(_)` →
+    /// `Cart#callCallback(_,_)` → block — asserting frame order (oldest first, Python order) and
     /// selector-shaped names, including a block frame whose `enclosing` name
     /// resolves back to `total(_)`.
     ///
@@ -331,16 +331,14 @@ mod tests {
         let module = vm.create_module("main", "walk_orders_oldest_first_with_selector_shaped_names");
         let source = "\
 class Cart {
-  total(_ items) { items.fold(initial: 0, using: |acc, it| { acc + it.missingSelector }) }
+  total(_ item) { self.callCallback(|it| { it.missingSelector }, item) }
+  callCallback(_ callback, _ item) { callback.call(item) }
 }
 const cart = Cart.new()
-const result = cart.total([1, 2, 3])
+const result = cart.total(1)
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");
         let result = vm.run_in_module(module, closure);
-        if let Err(ref e) = result {
-            println!("WALK TEST ERROR: {:?}", e);
-        }
         assert!(result.is_err(), "the block's `it.missingSelector` send must raise");
 
         let views: Vec<FrameView> = vm.walk().collect();

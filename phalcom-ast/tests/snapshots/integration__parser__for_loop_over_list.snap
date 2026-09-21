@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 591
 expression: "parse(\"for x in xs { System.print(x) }\")"
 ---
 Program {
@@ -70,6 +71,7 @@ Program {
                                         },
                                     },
                                 ],
+                                invocation_authority: Ordinary,
                                 range: CopyRange {
                                     start: 14,
                                     end: 29,

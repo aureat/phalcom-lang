@@ -2636,7 +2636,12 @@ pub(crate) fn apply_resolved_callable(
         local_type,
         symbolic_result,
     };
-    ctx.flow.invalidate_opaque_calls();
+    if !matches!(
+        target.target,
+        Some(crate::identity::InvocationTargetId::VariantConstructor(_) | crate::identity::InvocationTargetId::DataConstructor(_))
+    ) {
+        ctx.flow.invalidate_opaque_calls();
+    }
     debug_assert_call_result_coherent(&result);
     result
 }

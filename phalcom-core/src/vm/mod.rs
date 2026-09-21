@@ -321,6 +321,9 @@ pub struct VM {
     pub reflection_cache: crate::modules::ReflectionCache,
     /// VM start time, used for `System` timing primitives.
     pub start_time: Instant,
+    /// Rust-only timezone database snapshot and named-zone cache. This adapter
+    /// stores no guest handles and is classified as non-root by GC.
+    pub(crate) timezone_adapter: crate::timezone::TimeZoneAdapter,
     /// Fixture/embedding-local destination for Phalcom-visible output.
     pub(crate) output: Box<dyn RuntimeOutput>,
     /// The kernel: handles to the bootstrapped core classes.

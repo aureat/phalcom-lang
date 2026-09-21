@@ -24,6 +24,36 @@ impl Period {
   @class
   zero -> Period { Period(0, 0) }
 
+  @class
+  parse(_ text: String) -> Period {
+    if text.size < 5 or text.codePointAt(0) != 80 { ArgumentError.new("Period.parse: expected P<months>M<days>D").raise() }
+    const monthEnd = text.indexOf("M")
+    const dayEnd = text.indexOf("D")
+    if monthEnd < 2 or dayEnd <= monthEnd { ArgumentError.new("Period.parse: invalid fields").raise() }
+    const monthText = text.slice(1, monthEnd)
+    const dayText = text.slice(monthEnd + 1, dayEnd)
+    Period.newParsed(Period.parseInteger(monthText), Period.parseInteger(dayText))
+  }
+
+  @class
+  private newParsed(_ months: Int, _ days: Int) -> Period { Period(months, days) }
+
+  @class
+  private parseInteger(_ text: String) -> Int {
+    let sign = 1
+    let index = 0
+    if text.size > 0 and text.codePointAt(0) == 45 { sign = -1; index = 1 }
+    if index >= text.size { ArgumentError.new("Period.parse: invalid integer").raise() }
+    let value = 0
+    while index < text.size {
+      const cp = text.codePointAt(index)
+      if cp < 48 or cp > 57 { ArgumentError.new("Period.parse: invalid digit").raise() }
+      value = value * 10 + cp - 48
+      index = index + 1
+    }
+    value * sign
+  }
+
   +(_ other: Period) -> Period {
     Period(self.months + other.months, self.days + other.days)
   }
@@ -41,6 +71,8 @@ impl Period {
   isZero -> Bool {
     if self.months == 0 { self.days == 0 } else { false }
   }
+
+  toString -> String { "P\(self.months)M\(self.days)D" }
 }
 
 export Period

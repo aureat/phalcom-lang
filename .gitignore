@@ -34,3 +34,5 @@ skills-lock.json
 
 # REPL history
 .phalcom_history
+
+.private

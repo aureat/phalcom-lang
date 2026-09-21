@@ -99,7 +99,7 @@ fn render_human_traceback(vm: &mut VM, err: &PhError, config: &RenderConfig, tra
     }
 
     // Help suggestion line (IS §9).
-    if let Some(help_line) = get_help_suggestion(vm, err, config, &styler) {
+    if let Some(help_line) = get_help_suggestion(vm, err, &styler) {
         out.push_str(&help_line);
     }
 
@@ -648,9 +648,9 @@ pub(crate) fn json_str(s: &str) -> String {
 }
 
 /// Computes the optional `help:` suggestion line for human traceback output (IS §9).
-fn get_help_suggestion(vm: &mut VM, err: &PhError, config: &RenderConfig, styler: &Styler) -> Option<String> {
+fn get_help_suggestion(vm: &mut VM, err: &PhError, styler: &Styler) -> Option<String> {
     match err {
-        PhError::NativeOrigin { source, .. } => get_help_suggestion(vm, source, config, styler),
+        PhError::NativeOrigin { source, .. } => get_help_suggestion(vm, source, styler),
         PhError::Runtime(RuntimeError::Raise { help: Some(h), .. }) => Some(format!("  {} {}\n", styler.paint(Role::SeverityHelp, "help:"), h)),
         PhError::Runtime(RuntimeError::UndefinedVariable { name }) => {
             let mut candidates = Vec::new();

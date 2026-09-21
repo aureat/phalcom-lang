@@ -297,7 +297,7 @@ impl VM {
                     let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
                     native_fn(self, &receiver, &args)
                 };
-                let result = result.map_err(|error| error.with_native_origin(native_context.diagnostic));
+                let result = result.map_err(|error| self.with_native_error_origin(error, native_context.diagnostic));
                 self.native_method_contexts.pop();
                 self.native_activation_depth -= 1;
                 result.map(|result| {
@@ -459,7 +459,7 @@ impl VM {
                 self.switch_pending = false;
                 let frames_before = self.frames.len();
                 self.native_activation_depth += 1;
-                let result = native_fn(self, receiver, view).map_err(|error| error.with_native_origin(native_context.diagnostic));
+                let result = native_fn(self, receiver, view).map_err(|error| self.with_native_error_origin(error, native_context.diagnostic));
                 self.native_method_contexts.pop();
                 self.native_activation_depth -= 1;
                 match result? {
@@ -483,6 +483,17 @@ impl VM {
                 }
             }
             MethodKind::Primitive(PrimitiveFn::Legacy(_)) => unreachable!("legacy primitive returned above"),
+        }
+    }
+
+    /// Native provenance belongs to failures produced by a primitive body.
+    /// Structural family rejection happens before dispatch, and a depth error
+    /// with guest frames belongs to guest execution rather than its native driver.
+    fn with_native_error_origin(&self, error: crate::error::PhError, identity: crate::error::NativeFrameIdentity) -> crate::error::PhError {
+        match error {
+            error @ crate::error::PhError::Runtime(RuntimeError::SelectorPatternMismatch(_)) => error,
+            error @ crate::error::PhError::Runtime(RuntimeError::DepthExceeded { .. }) if !self.frames.is_empty() => error,
+            error => error.with_native_origin(identity),
         }
     }
 

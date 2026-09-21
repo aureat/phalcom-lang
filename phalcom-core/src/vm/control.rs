@@ -366,8 +366,7 @@ impl VM {
                                 }) => {
                                     if traceback.is_none() {
                                         traceback = Some(captured_tb);
-                                    } else if let Some(origin) = native_origin {
-                                        let records = traceback.as_mut().expect("traceback checked above");
+                                    } else if let (Some(origin), Some(records)) = (native_origin, traceback.as_mut()) {
                                         if !records.iter().any(|record| {
                                             matches!(
                                                 record,

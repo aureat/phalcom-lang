@@ -1,0 +1,8 @@
+name: phalcom-parser
+entry: src/main.ph
+purpose: self-hosted Phalcom parser stress-test
+features:
+  - pattern-polymorphic same-selector methods
+  - controlled refinements
+  - record-shaped enum variants
+  - Pratt expression parser

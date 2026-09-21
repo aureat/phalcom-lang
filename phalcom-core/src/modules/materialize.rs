@@ -55,10 +55,7 @@ fn remap_runtime_conformance_slot(slot: &mut crate::typing::RuntimeConformanceSl
     }
 }
 
-fn remap_runtime_indexed_conformance_slots(
-    slots: &mut Box<[(u16, crate::typing::RuntimeConformanceSlotRecipe)]>,
-    pool_id: crate::typing::MetadataPoolId,
-) {
+fn remap_runtime_indexed_conformance_slots(slots: &mut Box<[(u16, crate::typing::RuntimeConformanceSlotRecipe)]>, pool_id: crate::typing::MetadataPoolId) {
     for (_, slot) in slots.iter_mut() {
         remap_runtime_conformance_slot(slot, pool_id);
     }

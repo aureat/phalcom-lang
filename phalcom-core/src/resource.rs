@@ -52,7 +52,10 @@ impl ResourceHandle {
         if index > RESOURCE_MAX_INDEX {
             return Err(ResourceHandleError::IndexOutOfRange);
         }
-        Ok(Self { index, generation: packed as u32 })
+        Ok(Self {
+            index,
+            generation: packed as u32,
+        })
     }
 }
 
@@ -121,10 +124,7 @@ impl ResourceTable {
             entry.kind = kind;
             entry.open_site = site;
             entry.state = ResourceState::Open;
-            Ok(ResourceHandle {
-                index,
-                generation,
-            })
+            Ok(ResourceHandle { index, generation })
         } else {
             let index = u32::try_from(self.entries.len()).map_err(|_| ResourceError::Capacity)?;
             if self.entries.len() >= RESOURCE_MAX_SLOTS {
@@ -168,7 +168,11 @@ impl ResourceTable {
             // Idempotent close per stream-protocol §3.1 law 4
             return Ok(());
         }
-        entry.state = if entry.generation == u32::MAX { ResourceState::Retired } else { ResourceState::Closed };
+        entry.state = if entry.generation == u32::MAX {
+            ResourceState::Retired
+        } else {
+            ResourceState::Closed
+        };
         if entry.state == ResourceState::Closed {
             self.free_list.push(handle.index);
         }
@@ -178,7 +182,11 @@ impl ResourceTable {
     pub fn drain(&mut self) {
         for (index, entry) in self.entries.iter_mut().enumerate() {
             if entry.state == ResourceState::Open {
-                entry.state = if entry.generation == u32::MAX { ResourceState::Retired } else { ResourceState::Closed };
+                entry.state = if entry.generation == u32::MAX {
+                    ResourceState::Retired
+                } else {
+                    ResourceState::Closed
+                };
                 if entry.state == ResourceState::Closed {
                     self.free_list.push(index as u32);
                 }
@@ -187,7 +195,11 @@ impl ResourceTable {
     }
 
     pub fn leaks(&self) -> Vec<(&ResourceKind, Option<SourceRange>)> {
-        self.entries.iter().filter(|e| e.state == ResourceState::Open).map(|e| (&e.kind, e.open_site)).collect()
+        self.entries
+            .iter()
+            .filter(|e| e.state == ResourceState::Open)
+            .map(|e| (&e.kind, e.open_site))
+            .collect()
     }
 
     pub fn leaks_detail(&self) -> Vec<(u32, &ResourceKind, Option<SourceRange>)> {
@@ -209,7 +221,10 @@ mod tests {
         let cases = [
             ResourceHandle { index: 0, generation: 0 },
             ResourceHandle { index: 1, generation: 1 },
-            ResourceHandle { index: (1 << 21) - 1, generation: u32::MAX },
+            ResourceHandle {
+                index: (1 << 21) - 1,
+                generation: u32::MAX,
+            },
         ];
 
         for handle in cases {
@@ -265,7 +280,10 @@ mod tests {
             }],
             free_list: Vec::new(),
         };
-        let handle = ResourceHandle { index: 0, generation: u32::MAX };
+        let handle = ResourceHandle {
+            index: 0,
+            generation: u32::MAX,
+        };
         assert!(table.close(handle).is_ok());
         assert!(table.is_closed(handle));
         assert!(table.close(handle).is_ok());

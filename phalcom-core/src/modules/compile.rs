@@ -1093,34 +1093,35 @@ impl ProgramCompiler {
                                     };
                                     if let Some(callable) = callable {
                                         if idx < slots.len() {
-                                            let nested_slots = if matches!(selection, phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }) {
-                                                evidence
-                                                    .requirements
-                                                    .iter()
-                                                    .filter_map(|(requirement, selected)| {
-                                                        let callable = phalcom_semantic::trait_dispatch::selected_callable(selected)?;
-                                                        let selector = analyzed
-                                                            .semantic
-                                                            .trait_surfaces
-                                                            .get(&slot_key.conformance.trait_ref.declaration)
-                                                            .and_then(|surface| surface.get(requirement))
-                                                            .map(|member| member.requirement.selector.clone())
-                                                            .unwrap_or_else(|| callable.selector.clone());
-                                                        default_requirement_slots.get(requirement).copied().map(|slot| {
-                                                            (
-                                                                slot,
-                                                                crate::typing::RuntimeConformanceSlotRecipe::Selection {
-                                                                    callable,
-                                                                    selector,
-                                                                    nested_slots: Box::new([]),
-                                                                },
-                                                            )
+                                            let nested_slots =
+                                                if matches!(selection, phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }) {
+                                                    evidence
+                                                        .requirements
+                                                        .iter()
+                                                        .filter_map(|(requirement, selected)| {
+                                                            let callable = phalcom_semantic::trait_dispatch::selected_callable(selected)?;
+                                                            let selector = analyzed
+                                                                .semantic
+                                                                .trait_surfaces
+                                                                .get(&slot_key.conformance.trait_ref.declaration)
+                                                                .and_then(|surface| surface.get(requirement))
+                                                                .map(|member| member.requirement.selector.clone())
+                                                                .unwrap_or_else(|| callable.selector.clone());
+                                                            default_requirement_slots.get(requirement).copied().map(|slot| {
+                                                                (
+                                                                    slot,
+                                                                    crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                        callable,
+                                                                        selector,
+                                                                        nested_slots: Box::new([]),
+                                                                    },
+                                                                )
+                                                            })
                                                         })
-                                                    })
-                                                    .collect::<Box<[(u16, crate::typing::RuntimeConformanceSlotRecipe)]>>()
-                                            } else {
-                                                Box::new([])
-                                            };
+                                                        .collect::<Box<[(u16, crate::typing::RuntimeConformanceSlotRecipe)]>>()
+                                                } else {
+                                                    Box::new([])
+                                                };
                                             slots[idx] = Some(crate::typing::RuntimeConformanceSlotRecipe::Selection {
                                                 callable,
                                                 selector,
@@ -1181,9 +1182,7 @@ impl ProgramCompiler {
                                             // a separate relation handled below for witnesses.
                                             for (requirement, default_selection) in evidence.requirements().iter() {
                                                 let default_slot = default_requirement_slots.get(requirement).copied().ok_or_else(|| {
-                                                    ProgramCompileError::GenericEvidenceLayout(format!(
-                                                        "missing default requirement slot for {requirement:?}"
-                                                    ))
+                                                    ProgramCompileError::GenericEvidenceLayout(format!("missing default requirement slot for {requirement:?}"))
                                                 })?;
                                                 let default_callable = match default_selection {
                                                     phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { callable }
@@ -1242,11 +1241,14 @@ impl ProgramCompiler {
                                                                         .and_then(|s| s.get(req))
                                                                         .map(|m| m.requirement.selector.clone())
                                                                         .unwrap_or_else(|| nested_callable.selector.clone());
-                                                                    nested_slots.push((0, crate::typing::RuntimeConformanceSlotRecipe::Selection {
-                                                                        callable: nested_callable,
-                                                                        selector: nested_selector,
-                                                                        nested_slots: Box::new([]),
-                                                                    }));
+                                                                    nested_slots.push((
+                                                                        0,
+                                                                        crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                            callable: nested_callable,
+                                                                            selector: nested_selector,
+                                                                            nested_slots: Box::new([]),
+                                                                        },
+                                                                    ));
                                                                 }
                                                             }
                                                         }
@@ -1297,11 +1299,14 @@ impl ProgramCompiler {
                                                                         .and_then(|s| s.get(req))
                                                                         .map(|m| m.requirement.selector.clone())
                                                                         .unwrap_or_else(|| nested_callable.selector.clone());
-                                                                    nested_slots.push((0, crate::typing::RuntimeConformanceSlotRecipe::Selection {
-                                                                        callable: nested_callable,
-                                                                        selector: nested_selector,
-                                                                        nested_slots: Box::new([]),
-                                                                    }));
+                                                                    nested_slots.push((
+                                                                        0,
+                                                                        crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                            callable: nested_callable,
+                                                                            selector: nested_selector,
+                                                                            nested_slots: Box::new([]),
+                                                                        },
+                                                                    ));
                                                                 }
                                                             }
                                                         }

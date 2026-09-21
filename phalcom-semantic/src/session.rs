@@ -668,11 +668,12 @@ impl SemanticWorkspaceSession {
                     base_declarations.insert(DeclarationTypeInfo {
                         declaration: decl_id.clone(),
                         form,
-                        class_object_type: store.class_object_type(decl_id),
+                        class_object_type: store.class_object_type(decl_id.clone()),
                         kind,
                         generic_signature,
                         supertype_template: None,
                     });
+                    base_hierarchy.insert(decl_id, crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object));
                 } else if let phalcom_ast::ast::Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                     if base_declarations.get(&decl_id).is_some() {
@@ -713,11 +714,12 @@ impl SemanticWorkspaceSession {
                     base_declarations.insert(DeclarationTypeInfo {
                         declaration: decl_id.clone(),
                         form,
-                        class_object_type: store.class_object_type(decl_id),
+                        class_object_type: store.class_object_type(decl_id.clone()),
                         kind,
                         generic_signature,
                         supertype_template: None,
                     });
+                    base_hierarchy.insert(decl_id, crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object));
                 }
             }
         }
@@ -911,6 +913,52 @@ impl SemanticWorkspaceSession {
                 impl_ctx.attach_data_semantics(&base_data_semantics);
                 impl_ctx.attach_enum_semantics(&base_enum_semantics);
                 base_inherent_contributions.push(crate::impls::build_inherent_impl_contribution(&mut impl_ctx, &impl_id, impl_def));
+            }
+
+            // Canonical data declarations have no source class surface of
+            // their own, but their inherent impls still define ordinary
+            // dispatch members. Merge those contributions into the baseline
+            // surface before publishing the reusable Universe snapshot.
+            let mut contributions_by_target = BTreeMap::<DeclarationId, Vec<crate::impls::InherentImplContribution>>::new();
+            for contribution in &base_inherent_contributions {
+                if matches!(contribution.target, crate::impls::InherentImplTarget::Declaration(_)) {
+                    contributions_by_target
+                        .entry(contribution.target.declaration().clone())
+                        .or_default()
+                        .push(contribution.clone());
+                }
+            }
+            for (target, contributions) in contributions_by_target {
+                let Some(data_info) = base_data_semantics.data_info(&target).map(AsRef::as_ref) else {
+                    continue;
+                };
+                let primary_surface = base_dispatch
+                    .surface(&target)
+                    .cloned()
+                    .unwrap_or_else(|| crate::surface::DeclarationSurface::new(Some(target.clone())));
+                let primary_signatures = base_callable_signatures
+                    .iter()
+                    .filter(|(callable, _)| callable.try_declaration_owner() == Some(&target))
+                    .map(|(callable, signature)| (callable.clone(), signature.clone()))
+                    .collect::<HashMap<_, _>>();
+                let effective = crate::impls::build_effective_surface(
+                    &target,
+                    &primary_surface,
+                    &primary_signatures,
+                    &contributions,
+                    Some(data_info),
+                    base_associated_surfaces.surfaces.get(&target).map(AsRef::as_ref),
+                );
+                base_dispatch.register_surface(target.clone(), (*effective.surface).clone());
+                base_dispatch.register_conditional_members(
+                    crate::impls::InherentImplTarget::Declaration(target.clone()),
+                    effective.conditional_members.clone(),
+                );
+                for contribution in &contributions {
+                    for member in &contribution.members {
+                        base_callable_signatures.insert(member.signature.clone());
+                    }
+                }
             }
 
             // Phase 3: derive enum behavior, requirements, and associated
@@ -2887,10 +2935,10 @@ impl SemanticWorkspaceSession {
                 QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
             }
         }
-        for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
-            let class_decl = crate::core_surface::universe_declaration(relation.class);
-            let super_decl = relation.superclass.map(crate::core_surface::universe_declaration);
-            match query_bootstrap_hierarchy_edge(&mut self.db, class_decl, super_decl) {
+        // Canonical source declarations (for example Duration) participate in
+        // tracked hierarchy dependencies just like native bootstrap classes.
+        for (class_decl, _) in self.base_declarations.iter() {
+            match query_bootstrap_hierarchy_edge(&mut self.db, class_decl.clone(), self.base_hierarchy.superclasses.get(class_decl).cloned()) {
                 QueryOutcome::Ready(_) => {}
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                 QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
@@ -4125,9 +4173,11 @@ impl SemanticWorkspaceSession {
             // long-standing native-facing contracts. Identify them by both
             // their Universe module identity and the canonical provider URI;
             // synthetic test fixtures may validly use a Universe module ID.
-            let canonical_universe_source = shard.source.source.as_ref().is_some_and(|source| {
-                phalcom_modules::universe_module_from_uri(source.source_id.0.as_ref()).as_ref() == Some(module_id)
-            });
+            let canonical_universe_source = shard
+                .source
+                .source
+                .as_ref()
+                .is_some_and(|source| phalcom_modules::universe_module_from_uri(source.source_id.0.as_ref()).as_ref() == Some(module_id));
             if canonical_universe_source {
                 continue;
             }

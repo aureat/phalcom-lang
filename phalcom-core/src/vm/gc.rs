@@ -100,6 +100,7 @@ impl VM {
             next_scheduler_failure_seq: _,
             world_version: _,
             start_time: _,
+            timezone_adapter: _,
             output: _,
             compile_mode: _,
             strip_contract_metadata: _,

@@ -85,6 +85,7 @@ phalcom-diagnostics = { path = "../phalcom-diagnostics" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
 linkme = { workspace = true }
 indexmap = { workspace = true }
+jiff = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = "2.0.12"

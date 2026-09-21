@@ -69,6 +69,7 @@ impl VM {
             interner,
             reflection_cache: crate::modules::ReflectionCache::new(),
             start_time: Instant::now(),
+            timezone_adapter: crate::timezone::TimeZoneAdapter::new(),
             output,
             module_registry: crate::modules::ModuleRegistry::new(),
             typing_registry: crate::typing::RuntimeTypingRegistry::new(),
@@ -762,6 +763,7 @@ impl VM {
                     | "MonthDay"
                     | "Period"
                     | "UtcOffset"
+                    | "TimeZone"
             ) {
                 continue;
             }

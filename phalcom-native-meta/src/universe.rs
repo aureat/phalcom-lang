@@ -64,6 +64,8 @@ pub enum UniverseKey {
     /// A canonical source-owned class whose native members are attached after
     /// its Universe source declaration is materialized.
     SystemWallClock,
+    /// Source-owned timezone value whose rule queries use the VM adapter.
+    TimeZone,
     Message,
     Attribute,
 
@@ -381,6 +383,7 @@ impl UniverseKey {
             Self::System | Self::Fiber => &["concurrency", "fiber"],
             Self::SystemClock => &["time", "clock"],
             Self::SystemWallClock => &["time", "timestamp"],
+            Self::TimeZone => &["time", "timezone"],
             Self::Message => &["reflection", "message"],
             Self::Attribute => &["reflection", "attribute"],
             Self::Error | Self::MessageNotUnderstood | Self::CannotYieldAcrossNativeFrame | Self::UseAfterCloseError => &["errors", "error"],
@@ -445,6 +448,7 @@ impl UniverseKey {
             Self::System => "System",
             Self::SystemClock => "SystemClock",
             Self::SystemWallClock => "SystemWallClock",
+            Self::TimeZone => "TimeZone",
             Self::Message => "Message",
             Self::Attribute => "Attribute",
             Self::Error => "Error",
@@ -514,6 +518,7 @@ impl UniverseKey {
             "System" => Some(Self::System),
             "SystemClock" => Some(Self::SystemClock),
             "SystemWallClock" => Some(Self::SystemWallClock),
+            "TimeZone" => Some(Self::TimeZone),
             "Message" => Some(Self::Message),
             "Attribute" => Some(Self::Attribute),
             "Error" => Some(Self::Error),
