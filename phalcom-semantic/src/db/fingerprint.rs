@@ -228,6 +228,23 @@ pub fn declaration_surface_source_input_fingerprint(
                 delegation.target_field.hash(&mut hasher);
                 delegation.kind.hash(&mut hasher);
             }
+            ClassMember::TypeMember(type_member) => {
+                7u8.hash(&mut hasher);
+                match &type_member.selector {
+                    phalcom_ast::ast::TypeMemberSelectorSyntax::Named { name, .. } => {
+                        0u8.hash(&mut hasher);
+                        name.hash(&mut hasher);
+                    }
+                    phalcom_ast::ast::TypeMemberSelectorSyntax::Subscript { .. } => {
+                        1u8.hash(&mut hasher);
+                    }
+                }
+                type_member.implementation.hash(&mut hasher);
+                type_member.parameters.len().hash(&mut hasher);
+                for param in &type_member.parameters {
+                    param.name.hash(&mut hasher);
+                }
+            }
         }
     }
     finish_input(hasher)

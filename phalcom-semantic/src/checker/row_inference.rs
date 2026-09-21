@@ -25,6 +25,7 @@ pub enum InferenceRecordTail {
     Closed,
     Parameter(TypeParameterId),
     Var(RecordRowVarId),
+    Projection(TypeId),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,6 +129,30 @@ fn collect_stable_record_row_lacks_inner(
             for &argument in projection.trait_ref.arguments.iter() {
                 collect_stable_record_row_lacks_inner(store, argument, visited, emitted, lacks);
             }
+        }
+        TypeData::TypeMemberProjection(projection) => {
+            if let crate::types::type_member::ProjectionSubject::Type(ty) = projection.subject {
+                collect_stable_record_row_lacks_inner(store, ty, visited, emitted, lacks);
+            }
+            for argument in projection.arguments.iter() {
+                if let crate::types::type_member::TypeMemberArgument::Type(ty) = argument {
+                    collect_stable_record_row_lacks_inner(store, *ty, visited, emitted, lacks);
+                }
+            }
+        }
+        TypeData::TypePack(elements) => {
+            for &element in elements.iter() {
+                collect_stable_record_row_lacks_inner(store, element, visited, emitted, lacks);
+            }
+        }
+        TypeData::LabeledTypePack(elements) => {
+            for element in elements.iter() {
+                collect_stable_record_row_lacks_inner(store, element.element, visited, emitted, lacks);
+            }
+        }
+        TypeData::TupleFromPacks { positionals, labeled } => {
+            collect_stable_record_row_lacks_inner(store, *positionals, visited, emitted, lacks);
+            collect_stable_record_row_lacks_inner(store, *labeled, visited, emitted, lacks);
         }
         TypeData::Never
         | TypeData::Unit
@@ -267,6 +292,7 @@ impl GenericApplicationSession {
         let actual_tail = match actual_row.tail {
             RecordRowTail::Closed => RecordRowTermTail::Closed,
             RecordRowTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
+            RecordRowTail::Projection(proj) => RecordRowTermTail::Projection(proj),
         };
         match formal.tail {
             InferenceRecordTail::Closed => {}
@@ -274,6 +300,14 @@ impl GenericApplicationSession {
                 if !extra.is_empty() || actual_tail != RecordRowTermTail::Parameter(parameter) {
                     return Err(CombinedInferenceFailure::RowRejected(RecordRowFailure::RigidTailMismatch {
                         expected: RecordRowTermTail::Parameter(parameter),
+                        actual: actual_tail,
+                    }));
+                }
+            }
+            InferenceRecordTail::Projection(proj) => {
+                if !extra.is_empty() || actual_tail != RecordRowTermTail::Projection(proj) {
+                    return Err(CombinedInferenceFailure::RowRejected(RecordRowFailure::RigidTailMismatch {
+                        expected: RecordRowTermTail::Projection(proj),
                         actual: actual_tail,
                     }));
                 }

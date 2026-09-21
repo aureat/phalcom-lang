@@ -198,7 +198,12 @@ UniverseKey::Result
     -> universe.errors.result::Result
 ```
 
-Native metadata may enrich canonical declarations with implementation information; it must not create competing semantic ownership.
+Native metadata may enrich canonical declarations with implementation
+information; it must not create competing semantic ownership. The host
+implementation may be the runtime/VM for executable declarations or the
+compiler/semantic normalizer for native type members. A native type-member
+registry is an implementation association with the canonical declaration, not
+a second declaration database.
 
 ---
 
@@ -517,6 +522,11 @@ Their semantic forms retain the same information as user declarations:
 - exact-case and ADT relationships.
 
 Native implementation does not justify weakening public signatures to `Dynamic` when the formal type system can express the real contract.
+
+Source-owned native type members likewise use the formal type-level domain and
+type-member contracts. For example, a compiler-native structural `Map<F>` is
+not a runtime message send and does not make anonymous structural types legal
+ordinary inherent-`impl` targets.
 
 A native body exemption is not a signature-soundness exemption. Source-owned Universe declarations must themselves be semantically valid.
 
@@ -898,7 +908,7 @@ A conforming implementation preserves all of the following.
 | **U-2** | Every source-visible builtin declaration is owned by its authored Universe module. |
 | **U-3** | No production semantic/runtime/tooling path uses a hidden `core` module as declaration authority. |
 | **U-4** | Former standard-library facilities have Universe ownership; there is no independent `std` identity. |
-| **U-5** | Native/runtime keys associate implementation with canonical declarations instead of creating parallel declarations. |
+| **U-5** | Native compiler/runtime keys associate implementation with canonical declarations instead of creating parallel declarations. |
 | **U-6** | Prelude availability is policy over canonical declarations, not a second namespace. |
 | **U-7** | Runtime-support behaviors do not automatically become source-visible nominal types. |
 | **U-8** | Universe obeys ordinary import, relative-import, export, and `expose` semantics. |
@@ -1065,7 +1075,7 @@ The exact repository organization may change, but responsibility should remain a
 | enum/variant semantic identity | semantic analyzer |
 | executable ADT identity lowering | semantic lowering |
 | runtime enum/class association | VM/runtime ADT registry |
-| native implementation association | native metadata/runtime |
+| native implementation association | canonical native metadata plus the category-appropriate compiler/runtime registry |
 | source definitions/occurrences | semantic source index |
 | canonical Universe URI codec | module system |
 | hover/definition presentation | semantic/editor products |

@@ -1,4 +1,6 @@
 native class Record is Object {
+  intrinsic type Map<F: Type -> Type>: Type
+
   internal native rawSize -> Int
   internal native rawLabelAt(_ index: Int) -> Symbol
   internal native rawValueAt(_ index: Int) -> Dynamic

@@ -92,9 +92,23 @@ existing protocol semantics.
 ## 5. Native and foreign declarations
 
 `native` identifies a declaration whose live implementation is supplied by the
-native runtime and whose source/native descriptor must agree on selector,
-signature, visibility, and owner provenance. It does not itself grant access,
-install a primitive, or change the selector.
+host Phalcom implementation rather than by a Phalcom source body. The host
+subsystem depends on the declaration category, and the source/native
+descriptor must agree on the declaration's identity, signature/domain,
+visibility, and owner provenance. It does not itself grant access, install a
+primitive, or change a selector.
+
+For executable declarations, the host implementation is normally the native
+runtime/VM. For a native type member, the host implementation is the
+compiler/semantic type normalizer:
+
+```phalcom
+native type Map<F: Type -> Type>: Type
+```
+
+is bodyless because its semantic evaluator is supplied by the host compiler;
+it does not execute VM dispatch. A bodyless trait type requirement is bodyless
+because it is a requirement, not because it is native.
 
 `foreign` is a distinct implementation category reserved for the bounded
 foreign-declaration scaffold. It is not routed through the native descriptor
@@ -107,6 +121,9 @@ implicit execution mechanism.
 `@primitive` and `@intrinsic` are metadata-only attributes. They do not change
 visibility, implementation kind, selector identity, field identity, lowering,
 bytecode, representation, or runtime authorization merely by being present.
+`@intrinsic` may associate a canonical native declaration with a registered
+compiler or runtime operation, but it is not an alternate implementation-origin
+keyword and does not itself define executable semantics.
 Their authored use is legal only in the canonical Universe project; use outside
 Universe is a compile-time error.
 

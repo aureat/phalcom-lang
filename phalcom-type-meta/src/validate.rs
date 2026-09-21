@@ -180,7 +180,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
     // Validate kinds graph (strictly topologically sorted)
     for (i, entry) in bundle.kinds.iter().enumerate() {
         match &entry.node {
-            KindNode::Type | KindNode::RecordRow => {}
+            KindNode::Type | KindNode::RecordRow | KindNode::TypePack | KindNode::LabeledTypePack => {}
             KindNode::Arrow { parameters, result } => {
                 for &p in parameters.iter() {
                     if p.0 as usize >= i {
@@ -370,6 +370,52 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         "associated type requirement owner {:?} does not match trait application declaration {:?}",
                         requirement.owner, trait_application.declaration
                     )));
+                }
+            }
+            TypeNode::TypePack(elements) => {
+                for &el in elements.iter() {
+                    if el.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: el.0 });
+                    }
+                }
+            }
+            TypeNode::LabeledTypePack(elements) => {
+                for el in elements.iter() {
+                    if el.element.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: el.element.0,
+                        });
+                    }
+                }
+            }
+            TypeNode::TupleFromPacks { positionals, labeled } => {
+                if positionals.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: positionals.0,
+                    });
+                }
+                if labeled.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: labeled.0,
+                    });
+                }
+            }
+            TypeNode::TypeMemberProjection(proj) => {
+                if proj.subject.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: proj.subject.0,
+                    });
+                }
+                for arg in proj.arguments.iter() {
+                    if let crate::type_node::TypeMemberArgumentRef::Type(ty) = arg {
+                        if ty.0 as usize >= i {
+                            return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
+                        }
+                    }
                 }
             }
         }

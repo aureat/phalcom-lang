@@ -11,6 +11,8 @@ pub struct KindNodeId(pub u32);
 pub enum KindNode {
     Type,
     RecordRow,
+    TypePack,
+    LabeledTypePack,
     Arrow { parameters: Box<[KindNodeId]>, result: KindNodeId },
 }
 

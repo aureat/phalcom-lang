@@ -56,6 +56,31 @@ pub struct OpenRecordTypeRef {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct LabeledTypePackElementRef {
+    pub label: Box<str>,
+    pub element: TypeNodeId,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub enum TypeMemberSelectorRef {
+    Named(Box<str>),
+    Subscript,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub enum TypeMemberArgumentRef {
+    Type(TypeNodeId),
+    ConstInt(i64),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct TypeMemberProjectionRef {
+    pub subject: TypeNodeId,
+    pub selector: TypeMemberSelectorRef,
+    pub arguments: Box<[TypeMemberArgumentRef]>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum TypeNode {
     Never,
     Unit,
@@ -79,6 +104,13 @@ pub enum TypeNode {
         trait_application: StableTraitApplicationRef,
         requirement: StableAssociatedTypeRequirementRef,
     },
+    TypePack(Box<[TypeNodeId]>),
+    LabeledTypePack(Box<[LabeledTypePackElementRef]>),
+    TupleFromPacks {
+        positionals: TypeNodeId,
+        labeled: TypeNodeId,
+    },
+    TypeMemberProjection(TypeMemberProjectionRef),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

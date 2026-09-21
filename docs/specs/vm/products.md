@@ -46,7 +46,7 @@ This document also does not replace the source-language specifications for:
 - associated variant lookup;
 - generic inference;
 - match syntax and exhaustiveness;
-- record/tuple typing;
+- record/tuple typing, which is owned by the language-level [Structural Products](../structural-products.md) specification;
 - visibility;
 - constructor invocation.
 
@@ -748,6 +748,9 @@ The empty Tuple:
 ```
 
 normalizes to the canonical `Unit` value.
+
+This realizes the language-level zero-product rule; it does not define the
+static `Positionals`, `Labeled`, `At`, or `Map` operations.
 
 The VM MUST NOT materialize a positive `TupleObject` with zero components.
 

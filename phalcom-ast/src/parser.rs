@@ -1329,13 +1329,23 @@ impl<'source> Parser<'source> {
             let stmt = if matches!(self.peek(), Token::Enum) {
                 self.parse_enum(header_attrs, modifiers)?
             } else if matches!(self.peek(), Token::Data) {
-                if let Some(range) = modifiers.implementation_range {
+                if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+                    let k = modifiers.implementation.as_str();
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("native.illegal_target: 'data' declarations cannot be marked 'native'".to_string()),
-                        range: range.start..range.end,
+                        kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: 'data' declarations cannot be marked '{k}'")),
+                        range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(0..0),
                     });
                 }
-                self.parse_data(header_attrs)?
+                self.parse_data(header_attrs, modifiers)?
+            } else if matches!(self.peek(), Token::TypeKw) {
+                if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+                    let k = modifiers.implementation.as_str();
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: 'type' alias declarations cannot be marked '{k}'")),
+                        range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(0..0),
+                    });
+                }
+                self.parse_type_alias_with_modifiers(modifiers)?
             } else if matches!(self.peek(), Token::Impl) {
                 if let Some(range) = modifiers.implementation_range {
                     return Err(SyntaxError {
@@ -1355,7 +1365,7 @@ impl<'source> Parser<'source> {
             } else if matches!(self.peek(), Token::Class) {
                 self.parse_class(header_attrs, modifiers)?
             } else {
-                return Err(self.error_here(strs(&["\"class\"", "\"enum\"", "\"data\"", "\"trait\"", "\"impl\""])));
+                return Err(self.error_here(strs(&["\"class\"", "\"enum\"", "\"data\"", "\"trait\"", "\"impl\"", "\"type\""])));
             };
             out.push(stmt);
             // A compound statement requires a NEWLINE terminator, not EOF.
@@ -1481,7 +1491,11 @@ impl<'source> Parser<'source> {
 
     /// Parses a transparent type alias declaration `type Name<T> where ... = Body` (Spec 04 §7.5, §13).
     fn parse_type_alias(&mut self) -> ParserResult<Statement> {
-        let start = self.cur_start();
+        self.parse_type_alias_with_modifiers(ParsedModifiers::default())
+    }
+
+    fn parse_type_alias_with_modifiers(&mut self, modifiers: ParsedModifiers) -> ParserResult<Statement> {
+        let start = modifiers.implementation_range.map(|r| r.start).unwrap_or_else(|| self.cur_start());
         self.expect(&Token::TypeKw, &["\"type\""])?;
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["type alias name"])?;
@@ -1503,6 +1517,8 @@ impl<'source> Parser<'source> {
             generic_parameters,
             where_clause,
             body,
+            implementation: modifiers.implementation,
+            implementation_range: modifiers.implementation_range,
             range,
         }))
     }
@@ -1840,31 +1856,26 @@ impl<'source> Parser<'source> {
     /// Parses a callable type or postfix type (Spec 04 §5.6).
     pub fn parse_callable_type(&mut self) -> ParserResult<TypeAnnotation> {
         let start = self.cur_start();
-        if matches!(self.peek(), Token::LParen) {
-            let paren = self.parse_paren_type()?;
-            Ok(paren)
-        } else {
-            let atom = self.parse_postfix_type()?;
-            if self.eat(&Token::Arrow) {
-                let result = self.parse_type_after_arrow()?;
-                let range = (start..self.prev_end).into();
-                let param = TypeCallableParameter {
-                    label: None,
-                    ty: atom.clone(),
-                    rest: false,
-                    range: atom.range,
-                };
-                Ok(TypeAnnotation {
-                    expr: TypeAnnotationExpr::Callable {
-                        parameters: vec![param],
-                        result: Box::new(result),
-                        range,
-                    },
+        let atom = self.parse_postfix_type()?;
+        if self.eat(&Token::Arrow) {
+            let result = self.parse_type_after_arrow()?;
+            let range = (start..self.prev_end).into();
+            let param = TypeCallableParameter {
+                label: None,
+                ty: atom.clone(),
+                rest: false,
+                range: atom.range,
+            };
+            Ok(TypeAnnotation {
+                expr: TypeAnnotationExpr::Callable {
+                    parameters: vec![param],
+                    result: Box::new(result),
                     range,
-                })
-            } else {
-                Ok(atom)
-            }
+                },
+                range,
+            })
+        } else {
+            Ok(atom)
         }
     }
 
@@ -1964,60 +1975,17 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses a postfix type with angle-bracket application `<...>` (Spec 04 §5.4).
+    /// Parses a postfix type with angle-bracket application `<...>`, subscript `[...]`, or `::` member/case lookup (Spec 04 §5.4).
     pub fn parse_postfix_type(&mut self) -> ParserResult<TypeAnnotation> {
         let mut atom = self.parse_type_atom()?;
-        while matches!(self.peek(), Token::Less | Token::ShiftLeft) {
-            let start = atom.range.start;
-            self.eat_less();
-            self.skip_newlines();
-            let mut arguments = Vec::new();
-            while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
-                arguments.push(self.parse_type_form()?);
-                if self.eat(&Token::Comma) {
-                    self.skip_newlines();
-                } else {
-                    break;
-                }
-            }
-            self.skip_newlines();
-            self.expect_greater()?;
-            let range = (start..self.prev_end).into();
-            atom = TypeAnnotation {
-                expr: TypeAnnotationExpr::Application {
-                    origin: Box::new(atom),
-                    arguments,
-                    range,
-                },
-                range,
-            };
-        }
-
-        if self.eat(&Token::ColonColon) {
-            let start = atom.range.start;
-            let v_start = self.cur_start();
-            let variant_name = self.expect_identifier(&["variant name"])?;
-            let variant_name_range = (v_start..self.prev_end).into();
-
-            if matches!(atom.expr, TypeAnnotationExpr::SelfType { .. }) {
-                let range = (start..self.prev_end).into();
-                return Ok(TypeAnnotation {
-                    expr: TypeAnnotationExpr::AssociatedTypeProjection {
-                        subject: Box::new(atom),
-                        name: variant_name,
-                        name_range: variant_name_range,
-                        range,
-                    },
-                    range,
-                });
-            }
-
-            let mut generic_arguments = Vec::new();
+        loop {
             if matches!(self.peek(), Token::Less | Token::ShiftLeft) {
+                let start = atom.range.start;
                 self.eat_less();
                 self.skip_newlines();
+                let mut arguments = Vec::new();
                 while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
-                    generic_arguments.push(self.parse_type_form()?);
+                    arguments.push(self.parse_type_form()?);
                     if self.eat(&Token::Comma) {
                         self.skip_newlines();
                     } else {
@@ -2026,76 +1994,323 @@ impl<'source> Parser<'source> {
                 }
                 self.skip_newlines();
                 self.expect_greater()?;
-            }
-
-            let payload_shape = if matches!(self.peek(), Token::LParen) {
-                let p_start = self.cur_start();
-                self.advance(); // '('
+                let range = (start..self.prev_end).into();
+                atom = TypeAnnotation {
+                    expr: TypeAnnotationExpr::Application {
+                        origin: Box::new(atom),
+                        arguments,
+                        range,
+                    },
+                    range,
+                };
+            } else if self.eat(&Token::LBracket) {
+                let start = atom.range.start;
+                let subscript_start = self.tokens[self.pos - 1].start;
                 self.skip_newlines();
-                let mut parameters = Vec::new();
-                if !matches!(self.peek(), Token::RParen) {
-                    loop {
+                let mut arguments = Vec::new();
+                while !matches!(self.peek(), Token::RBracket | Token::Eof) {
+                    arguments.push(self.parse_type_member_argument()?);
+                    if self.eat(&Token::Comma) {
                         self.skip_newlines();
-                        let param_start = self.cur_start();
-                        if self.eat(&Token::Underscore) {
-                            let range = (param_start..self.prev_end).into();
-                            parameters.push(ExactCaseParameterSyntax {
-                                label: None,
-                                label_range: None,
-                                range,
-                            });
-                        } else if matches!(self.peek(), Token::Identifier(_)) {
-                            let label_start = self.cur_start();
-                            let label_name = self.expect_identifier(&["parameter label or placeholder"])?;
-                            let label_range = (label_start..self.prev_end).into();
-                            if self.eat(&Token::Colon) {
-                                self.skip_newlines();
-                                self.eat(&Token::Underscore); // eat optional '_' after label:
-                                let range = (param_start..self.prev_end).into();
-                                parameters.push(ExactCaseParameterSyntax {
-                                    label: Some(label_name),
-                                    label_range: Some(label_range),
-                                    range,
-                                });
-                            } else {
-                                let range = (param_start..self.prev_end).into();
-                                parameters.push(ExactCaseParameterSyntax {
-                                    label: Some(label_name),
-                                    label_range: Some(label_range),
-                                    range,
-                                });
-                            }
-                        } else {
-                            break;
-                        }
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(&Token::RBracket, &["\"]\""])?;
+                let selector_range = (subscript_start..self.prev_end).into();
+                let range = (start..self.prev_end).into();
+                atom = TypeAnnotation {
+                    expr: TypeAnnotationExpr::TypeMemberProjection {
+                        subject: Box::new(atom),
+                        selector: TypeMemberSelectorSyntax::Subscript { range: selector_range },
+                        arguments,
+                        range,
+                    },
+                    range,
+                };
+            } else if self.eat(&Token::ColonColon) {
+                let start = atom.range.start;
+                let v_start = self.cur_start();
+                let variant_name = self.expect_identifier(&["variant name"])?;
+                let variant_name_range = (v_start..self.prev_end).into();
+
+                if matches!(atom.expr, TypeAnnotationExpr::SelfType { .. }) {
+                    let range = (start..self.prev_end).into();
+                    atom = TypeAnnotation {
+                        expr: TypeAnnotationExpr::AssociatedTypeProjection {
+                            subject: Box::new(atom),
+                            name: variant_name,
+                            name_range: variant_name_range,
+                            range,
+                        },
+                        range,
+                    };
+                    continue;
+                }
+
+                if matches!(self.peek(), Token::Less | Token::ShiftLeft) {
+                    self.eat_less();
+                    self.skip_newlines();
+                    let mut arguments = Vec::new();
+                    while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+                        arguments.push(self.parse_type_member_argument()?);
                         if self.eat(&Token::Comma) {
                             self.skip_newlines();
                         } else {
                             break;
                         }
                     }
-                }
-                self.expect(&Token::RParen, &["\")\""])?;
-                let p_range = (p_start..self.prev_end).into();
-                Some(ExactCasePayloadSyntax { parameters, range: p_range })
-            } else {
-                None
-            };
+                    self.skip_newlines();
+                    self.expect_greater()?;
 
-            let range = (start..self.prev_end).into();
-            atom = TypeAnnotation {
-                expr: TypeAnnotationExpr::ExactEnumCase {
-                    enum_target: Box::new(atom),
-                    variant_name,
-                    variant_name_range,
-                    generic_arguments,
-                    payload_shape,
-                    range,
-                },
-                range,
-            };
+                    if matches!(self.peek(), Token::LParen) {
+                        let p_start = self.cur_start();
+                        self.advance(); // '('
+                        self.skip_newlines();
+                        let mut parameters = Vec::new();
+                        if !matches!(self.peek(), Token::RParen) {
+                            loop {
+                                self.skip_newlines();
+                                let param_start = self.cur_start();
+                                if self.eat(&Token::Underscore) {
+                                    let range = (param_start..self.prev_end).into();
+                                    parameters.push(ExactCaseParameterSyntax {
+                                        label: None,
+                                        label_range: None,
+                                        range,
+                                    });
+                                } else if matches!(self.peek(), Token::Identifier(_)) {
+                                    let label_start = self.cur_start();
+                                    let label_name = self.expect_identifier(&["parameter label or placeholder"])?;
+                                    let label_range = (label_start..self.prev_end).into();
+                                    if self.eat(&Token::Colon) {
+                                        self.skip_newlines();
+                                        self.eat(&Token::Underscore); // eat optional '_' after label:
+                                        let range = (param_start..self.prev_end).into();
+                                        parameters.push(ExactCaseParameterSyntax {
+                                            label: Some(label_name),
+                                            label_range: Some(label_range),
+                                            range,
+                                        });
+                                    } else {
+                                        let range = (param_start..self.prev_end).into();
+                                        parameters.push(ExactCaseParameterSyntax {
+                                            label: Some(label_name),
+                                            label_range: Some(label_range),
+                                            range,
+                                        });
+                                    }
+                                } else {
+                                    break;
+                                }
+                                if self.eat(&Token::Comma) {
+                                    self.skip_newlines();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        self.expect(&Token::RParen, &["\")\""])?;
+                        let p_range = (p_start..self.prev_end).into();
+                        let payload_shape = Some(ExactCasePayloadSyntax { parameters, range: p_range });
+                        let range = (start..self.prev_end).into();
+
+                        let generic_arguments = arguments
+                            .into_iter()
+                            .map(|arg| match arg {
+                                TypeMemberArgumentSyntax::TypeForm(t) => t,
+                                TypeMemberArgumentSyntax::Name { name, range } => TypeAnnotation {
+                                    expr: TypeAnnotationExpr::Reference(StaticSymbolRef {
+                                        root: name,
+                                        root_range: range,
+                                        members: Vec::new(),
+                                        range,
+                                    }),
+                                    range,
+                                },
+                                TypeMemberArgumentSyntax::IntLiteral { value, range } => TypeAnnotation {
+                                    expr: TypeAnnotationExpr::Invalid {
+                                        message: format!("unexpected integer literal `{}` in enum generic arguments", value),
+                                        range,
+                                    },
+                                    range,
+                                },
+                            })
+                            .collect();
+
+                        atom = TypeAnnotation {
+                            expr: TypeAnnotationExpr::ExactEnumCase {
+                                enum_target: Box::new(atom),
+                                variant_name,
+                                variant_name_range,
+                                generic_arguments,
+                                payload_shape,
+                                range,
+                            },
+                            range,
+                        };
+                    } else {
+                        let range = (start..self.prev_end).into();
+                        atom = TypeAnnotation {
+                            expr: TypeAnnotationExpr::TypeMemberProjection {
+                                subject: Box::new(atom),
+                                selector: TypeMemberSelectorSyntax::Named {
+                                    name: variant_name,
+                                    range: variant_name_range,
+                                },
+                                arguments,
+                                range,
+                            },
+                            range,
+                        };
+                    }
+                } else if matches!(self.peek(), Token::LParen) {
+                    let p_start = self.cur_start();
+                    self.advance(); // '('
+                    self.skip_newlines();
+                    let mut parameters = Vec::new();
+                    if !matches!(self.peek(), Token::RParen) {
+                        loop {
+                            self.skip_newlines();
+                            let param_start = self.cur_start();
+                            if self.eat(&Token::Underscore) {
+                                let range = (param_start..self.prev_end).into();
+                                parameters.push(ExactCaseParameterSyntax {
+                                    label: None,
+                                    label_range: None,
+                                    range,
+                                });
+                            } else if matches!(self.peek(), Token::Identifier(_)) {
+                                let label_start = self.cur_start();
+                                let label_name = self.expect_identifier(&["parameter label or placeholder"])?;
+                                let label_range = (label_start..self.prev_end).into();
+                                if self.eat(&Token::Colon) {
+                                    self.skip_newlines();
+                                    self.eat(&Token::Underscore); // eat optional '_' after label:
+                                    let range = (param_start..self.prev_end).into();
+                                    parameters.push(ExactCaseParameterSyntax {
+                                        label: Some(label_name),
+                                        label_range: Some(label_range),
+                                        range,
+                                    });
+                                } else {
+                                    let range = (param_start..self.prev_end).into();
+                                    parameters.push(ExactCaseParameterSyntax {
+                                        label: Some(label_name),
+                                        label_range: Some(label_range),
+                                        range,
+                                    });
+                                }
+                            } else {
+                                break;
+                            }
+                            if self.eat(&Token::Comma) {
+                                self.skip_newlines();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect(&Token::RParen, &["\")\""])?;
+                    let p_range = (p_start..self.prev_end).into();
+                    let payload_shape = Some(ExactCasePayloadSyntax { parameters, range: p_range });
+                    let range = (start..self.prev_end).into();
+                    atom = TypeAnnotation {
+                        expr: TypeAnnotationExpr::ExactEnumCase {
+                            enum_target: Box::new(atom),
+                            variant_name,
+                            variant_name_range,
+                            generic_arguments: Vec::new(),
+                            payload_shape,
+                            range,
+                        },
+                        range,
+                    };
+                } else {
+                    let range = (start..self.prev_end).into();
+                    // If atom is a structural/compound form (Tuple, Record, Unit, Callable, Union, TypeLambda, TypeMemberProjection),
+                    // treat it as TypeMemberProjection directly. Otherwise use ExactEnumCase with empty generic_arguments
+                    // and None payload_shape for backward compatibility with existing nominal/enum resolution.
+                    match &atom.expr {
+                        TypeAnnotationExpr::Tuple { .. }
+                        | TypeAnnotationExpr::Record { .. }
+                        | TypeAnnotationExpr::Unit { .. }
+                        | TypeAnnotationExpr::Callable { .. }
+                        | TypeAnnotationExpr::Union { .. }
+                        | TypeAnnotationExpr::TypeLambda { .. }
+                        | TypeAnnotationExpr::TypeMemberProjection { .. } => {
+                            atom = TypeAnnotation {
+                                expr: TypeAnnotationExpr::TypeMemberProjection {
+                                    subject: Box::new(atom),
+                                    selector: TypeMemberSelectorSyntax::Named {
+                                        name: variant_name,
+                                        range: variant_name_range,
+                                    },
+                                    arguments: Vec::new(),
+                                    range,
+                                },
+                                range,
+                            };
+                        }
+                        _ => {
+                            atom = TypeAnnotation {
+                                expr: TypeAnnotationExpr::ExactEnumCase {
+                                    enum_target: Box::new(atom),
+                                    variant_name,
+                                    variant_name_range,
+                                    generic_arguments: Vec::new(),
+                                    payload_shape: None,
+                                    range,
+                                },
+                                range,
+                            };
+                        }
+                    }
+                }
+            } else {
+                break;
+            }
         }
         Ok(atom)
+    }
+
+    fn parse_type_member_argument(&mut self) -> ParserResult<TypeMemberArgumentSyntax> {
+        self.skip_newlines();
+        let start = self.cur_start();
+        if self.eat(&Token::Minus) {
+            if let Token::Int { digits, radix } = self.peek().clone() {
+                self.advance();
+                let value = i64::from_str_radix(&digits, radix).map_err(|e| SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("invalid integer literal: {}", e)),
+                    range: start..self.prev_end,
+                })?;
+                let range = (start..self.prev_end).into();
+                return Ok(TypeMemberArgumentSyntax::IntLiteral { value: -value, range });
+            } else {
+                return Err(self.error_here(vec!["integer literal after '-'".to_string()]));
+            }
+        }
+        if let Token::Int { digits, radix } = self.peek().clone() {
+            self.advance();
+            let value = i64::from_str_radix(&digits, radix).map_err(|e| SyntaxError {
+                kind: SyntaxErrorKind::Message(format!("invalid integer literal: {}", e)),
+                range: start..self.prev_end,
+            })?;
+            let range = (start..self.prev_end).into();
+            return Ok(TypeMemberArgumentSyntax::IntLiteral { value, range });
+        }
+
+        if self.eat(&Token::Colon) {
+            let start = self.tokens[self.pos - 1].start;
+            let name = self.expect_identifier(&["name literal"])?;
+            return Ok(TypeMemberArgumentSyntax::Name {
+                name,
+                range: (start..self.prev_end).into(),
+            });
+        }
+
+        let ty = self.parse_type_form()?;
+        Ok(TypeMemberArgumentSyntax::TypeForm(ty))
     }
 
     /// Parses a structural record type `#{ ... }` (Spec 04 §5.7).
@@ -2147,7 +2362,7 @@ impl<'source> Parser<'source> {
         })
     }
 
-    /// Parses a kind expression (Spec 04 §3.3): `Type`, `RecordRow`, `Kind -> Kind`, `(Kind)`.
+    /// Parses a kind expression (Spec 04 §3.3): `Type`, `RecordRow`, `TypePack`, `LabeledTypePack`, `Kind -> Kind`, `(Kind)`.
     pub fn parse_kind_expression(&mut self) -> ParserResult<KindSyntax> {
         let start = self.cur_start();
         let atom = if self.eat(&Token::LParen) {
@@ -2163,8 +2378,21 @@ impl<'source> Parser<'source> {
             self.advance();
             let range = (start..self.prev_end).into();
             KindSyntax::RecordRow(range)
+        } else if matches!(self.peek(), Token::Identifier(s) if s == "TypePack") {
+            self.advance();
+            let range = (start..self.prev_end).into();
+            KindSyntax::TypePack(range)
+        } else if matches!(self.peek(), Token::Identifier(s) if s == "LabeledTypePack") {
+            self.advance();
+            let range = (start..self.prev_end).into();
+            KindSyntax::LabeledTypePack(range)
         } else {
-            let err = self.error_here(vec!["\"Type\"".to_string(), "\"RecordRow\"".to_string()]);
+            let err = self.error_here(vec![
+                "\"Type\"".to_string(),
+                "\"RecordRow\"".to_string(),
+                "\"TypePack\"".to_string(),
+                "\"LabeledTypePack\"".to_string(),
+            ]);
             self.advance();
             let range = (start..self.prev_end).into();
             return Ok(KindSyntax::Invalid {
@@ -3194,6 +3422,7 @@ impl<'source> Parser<'source> {
             Token::Module => "module",
             Token::Package => "package",
             Token::Foreign => "foreign",
+            Token::Intrinsic => "intrinsic",
             _ => return None,
         })
     }
@@ -3207,7 +3436,7 @@ impl<'source> Parser<'source> {
     fn is_modifier_start(&self) -> bool {
         matches!(
             self.peek(),
-            Token::Native | Token::Foreign | Token::Private | Token::Protected | Token::Module | Token::Package | Token::Internal
+            Token::Native | Token::Foreign | Token::Intrinsic | Token::Private | Token::Protected | Token::Module | Token::Package | Token::Internal
         )
     }
 
@@ -3229,7 +3458,7 @@ impl<'source> Parser<'source> {
                         });
                     }
                     if modifiers.implementation_range.is_some() {
-                        return Err(SyntaxError {
+                        self.errors.push(SyntaxError {
                             kind: SyntaxErrorKind::Message(
                                 "modifier.order: visibility modifier must precede implementation modifier (e.g. 'private native')".to_string(),
                             ),
@@ -3250,7 +3479,7 @@ impl<'source> Parser<'source> {
                         });
                     }
                     if modifiers.implementation_range.is_some() {
-                        return Err(SyntaxError {
+                        self.errors.push(SyntaxError {
                             kind: SyntaxErrorKind::Message(
                                 "modifier.order: visibility modifier must precede implementation modifier (e.g. 'protected native')".to_string(),
                             ),
@@ -3271,7 +3500,7 @@ impl<'source> Parser<'source> {
                         });
                     }
                     if modifiers.implementation_range.is_some() {
-                        return Err(SyntaxError {
+                        self.errors.push(SyntaxError {
                             kind: SyntaxErrorKind::Message(
                                 "modifier.order: visibility modifier must precede implementation modifier (e.g. 'module native')".to_string(),
                             ),
@@ -3292,7 +3521,7 @@ impl<'source> Parser<'source> {
                         });
                     }
                     if modifiers.implementation_range.is_some() {
-                        return Err(SyntaxError {
+                        self.errors.push(SyntaxError {
                             kind: SyntaxErrorKind::Message(
                                 "modifier.order: visibility modifier must precede implementation modifier (e.g. 'package native')".to_string(),
                             ),
@@ -3313,7 +3542,7 @@ impl<'source> Parser<'source> {
                         });
                     }
                     if modifiers.implementation_range.is_some() {
-                        return Err(SyntaxError {
+                        self.errors.push(SyntaxError {
                             kind: SyntaxErrorKind::Message(
                                 "modifier.order: visibility modifier must precede implementation modifier (e.g. 'internal native')".to_string(),
                             ),
@@ -3347,6 +3576,19 @@ impl<'source> Parser<'source> {
                         });
                     }
                     modifiers.implementation = ImplementationKind::Foreign;
+                    modifiers.implementation_range = Some(range);
+                }
+                Token::Intrinsic => {
+                    let start = self.cur_start();
+                    self.advance();
+                    let range = (start..self.prev_end).into();
+                    if modifiers.implementation_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.duplicate_implementation: multiple implementation modifiers are not allowed".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    modifiers.implementation = ImplementationKind::Intrinsic;
                     modifiers.implementation_range = Some(range);
                 }
                 _ => break,
@@ -3516,12 +3758,12 @@ impl<'source> Parser<'source> {
         Ok((members, class_attributes, class_invariants))
     }
 
-    fn parse_data(&mut self, mut header_attrs: Vec<Attribute>) -> ParserResult<Statement> {
+    fn parse_data(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers) -> ParserResult<Statement> {
         while matches!(self.peek(), Token::At) {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
         }
-        let start = self.cur_start();
+        let start = modifiers.implementation_range.map(|r| r.start).unwrap_or_else(|| self.cur_start());
         self.expect(&Token::Data, &["\"data\""])?;
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["identifier"])?;
@@ -3571,6 +3813,8 @@ impl<'source> Parser<'source> {
             where_clause,
             shape,
             attributes: header_attrs,
+            implementation: modifiers.implementation,
+            implementation_range: modifiers.implementation_range,
             range,
         }))
     }
@@ -4579,6 +4823,7 @@ impl<'source> Parser<'source> {
             // support attaching, would land here rather than panicking).
             ClassMember::Variant(v) => v.attributes = attrs,
             ClassMember::Index(ix) => ix.attributes = attrs,
+            ClassMember::TypeMember(t) => t.attributes = attrs,
         }
         Ok(())
     }
@@ -4612,12 +4857,8 @@ impl<'source> Parser<'source> {
     /// expression is malformed, or the
     /// declaration is not followed by a newline, `}`, or end-of-file.
     fn parse_field_decl(&mut self, start: usize, is_const: bool, modifiers: ParsedModifiers) -> ParserResult<ClassMember> {
-        if modifiers.implementation != ImplementationKind::Phalcom {
-            let k = if modifiers.implementation == ImplementationKind::Native {
-                "native"
-            } else {
-                "foreign"
-            };
+        if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+            let k = modifiers.implementation.as_str();
             return Err(SyntaxError {
                 kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: fields cannot be marked '{k}'")),
                 range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(start..self.prev_end),
@@ -4649,6 +4890,8 @@ impl<'source> Parser<'source> {
             is_static: false,
             visibility: modifiers.visibility,
             visibility_range: modifiers.visibility_range,
+            implementation: modifiers.implementation,
+            implementation_range: modifiers.implementation_range,
             annotation,
             default,
             attributes: Vec::new(),
@@ -4719,6 +4962,10 @@ impl<'source> Parser<'source> {
         // branches below, which never expect a leading `[`.
         if matches!(self.peek(), Token::LBracket) {
             return self.parse_index_member(start, false, modifiers);
+        }
+        if matches!(self.peek(), Token::TypeKw) {
+            self.advance();
+            return self.parse_type_member_decl(start, modifiers);
         }
         if self.starts_delegation() {
             if modifiers.visibility != Visibility::Public || modifiers.implementation != ImplementationKind::Phalcom {
@@ -4974,6 +5221,127 @@ impl<'source> Parser<'source> {
             range,
             name_range,
         }))
+    }
+
+    fn looks_like_kind_expression(&self) -> bool {
+        match self.peek() {
+            Token::LParen => true,
+            Token::Identifier(s) => s == "Type" || s == "RecordRow" || s == "TypePack" || s == "LabeledTypePack",
+            _ => false,
+        }
+    }
+
+    fn parse_type_member_decl(&mut self, start: usize, modifiers: ParsedModifiers) -> ParserResult<ClassMember> {
+        self.skip_newlines();
+        let (selector, parameters) = if self.eat(&Token::LBracket) {
+            let sel_start = self.tokens[self.pos - 1].start;
+            let mut params = Vec::new();
+            while !matches!(self.peek(), Token::RBracket | Token::Eof) {
+                self.skip_newlines();
+                let param_start = self.cur_start();
+                let p_name_start = self.cur_start();
+                let p_name = self.expect_identifier(&["parameter name"])?;
+                let p_name_range = (p_name_start..self.prev_end).into();
+                self.expect(&Token::Colon, &["\":\""])?;
+                let domain = self.parse_type_member_parameter_domain()?;
+                let p_range = (param_start..self.prev_end).into();
+                params.push(TypeMemberParameterSyntax {
+                    name: p_name,
+                    name_range: p_name_range,
+                    domain,
+                    range: p_range,
+                });
+                if self.eat(&Token::Comma) {
+                    self.skip_newlines();
+                } else {
+                    break;
+                }
+            }
+            self.expect(&Token::RBracket, &["\"]\""])?;
+            let sel_range = (sel_start..self.prev_end).into();
+            (TypeMemberSelectorSyntax::Subscript { range: sel_range }, params)
+        } else {
+            let name_start = self.cur_start();
+            let name = self.expect_identifier(&["type member name"])?;
+            let name_range = (name_start..self.prev_end).into();
+            let selector = TypeMemberSelectorSyntax::Named { name, range: name_range };
+            let mut params = Vec::new();
+            if matches!(self.peek(), Token::Less | Token::ShiftLeft) {
+                self.eat_less();
+                self.skip_newlines();
+                while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+                    self.skip_newlines();
+                    let param_start = self.cur_start();
+                    let p_name_start = self.cur_start();
+                    let p_name = self.expect_identifier(&["parameter name"])?;
+                    let p_name_range = (p_name_start..self.prev_end).into();
+                    let domain = if self.eat(&Token::Colon) {
+                        self.parse_type_member_parameter_domain()?
+                    } else {
+                        TypeMemberParameterDomainSyntax::Kind(KindSyntax::Type(p_name_range))
+                    };
+                    let p_range = (param_start..self.prev_end).into();
+                    params.push(TypeMemberParameterSyntax {
+                        name: p_name,
+                        name_range: p_name_range,
+                        domain,
+                        range: p_range,
+                    });
+                    if self.eat(&Token::Comma) {
+                        self.skip_newlines();
+                    } else {
+                        break;
+                    }
+                }
+                self.skip_newlines();
+                self.expect_greater()?;
+            }
+            (selector, params)
+        };
+
+        self.expect(&Token::Colon, &["\":\""])?;
+        self.skip_newlines();
+        let result = self.parse_type_member_result()?;
+        self.skip_newlines_if_followed_by(&Token::Where);
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
+        } else {
+            None
+        };
+        let range = (start..self.prev_end).into();
+
+        Ok(ClassMember::TypeMember(TypeMemberDef {
+            selector,
+            parameters,
+            result,
+            where_clause,
+            implementation: modifiers.implementation,
+            implementation_range: modifiers.implementation_range,
+            attributes: Vec::new(),
+            range,
+        }))
+    }
+
+    fn parse_type_member_parameter_domain(&mut self) -> ParserResult<TypeMemberParameterDomainSyntax> {
+        self.skip_newlines();
+        if self.looks_like_kind_expression() {
+            let kind = self.parse_kind_expression()?;
+            Ok(TypeMemberParameterDomainSyntax::Kind(kind))
+        } else {
+            let ty = self.parse_type_form()?;
+            Ok(TypeMemberParameterDomainSyntax::ConstType(ty))
+        }
+    }
+
+    fn parse_type_member_result(&mut self) -> ParserResult<TypeMemberResultSyntax> {
+        self.skip_newlines();
+        if self.looks_like_kind_expression() {
+            let kind = self.parse_kind_expression()?;
+            Ok(TypeMemberResultSyntax::Kind(kind))
+        } else {
+            let ty = self.parse_type_form()?;
+            Ok(TypeMemberResultSyntax::Type(ty))
+        }
     }
 
     /// Parses a method name: an identifier or an overloadable operator token.
@@ -5393,7 +5761,7 @@ impl<'source> Parser<'source> {
                     let stmt = if is_enum {
                         self.parse_enum(header_attrs, ParsedModifiers::default())?
                     } else if is_data {
-                        self.parse_data(header_attrs)?
+                        self.parse_data(header_attrs, ParsedModifiers::default())?
                     } else if is_impl {
                         self.parse_impl(header_attrs)?
                     } else if is_trait {

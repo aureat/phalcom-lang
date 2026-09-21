@@ -5709,6 +5709,14 @@ fn collect_alias_dependencies(
                 collect_alias_dependencies(&spec.value, module, resolver, aliases, dependencies);
             }
         }
+        TypeAnnotationExpr::TypeMemberProjection { subject, arguments, .. } => {
+            collect_alias_dependencies(subject, module, resolver, aliases, dependencies);
+            for argument in arguments {
+                if let phalcom_ast::ast::TypeMemberArgumentSyntax::TypeForm(ty) = argument {
+                    collect_alias_dependencies(ty, module, resolver, aliases, dependencies);
+                }
+            }
+        }
         TypeAnnotationExpr::Unit { .. }
         | TypeAnnotationExpr::Dynamic { .. }
         | TypeAnnotationExpr::Never { .. }
@@ -5784,6 +5792,14 @@ fn collect_associated_projection_targets(
             collect_associated_projection_targets(enum_target, module, surface, targets);
             for argument in generic_arguments {
                 collect_associated_projection_targets(argument, module, surface, targets);
+            }
+        }
+        TypeAnnotationExpr::TypeMemberProjection { subject, arguments, .. } => {
+            collect_associated_projection_targets(subject, module, surface, targets);
+            for argument in arguments {
+                if let phalcom_ast::ast::TypeMemberArgumentSyntax::TypeForm(ty) = argument {
+                    collect_associated_projection_targets(ty, module, surface, targets);
+                }
             }
         }
         TypeAnnotationExpr::Reference(_)
@@ -5902,6 +5918,17 @@ fn collect_type_annotation_declarations(
             collect_type_annotation_declarations(&trait_ref.trait_type, module, resolver, dependencies);
             for spec in &trait_ref.associated_specializations {
                 collect_type_annotation_declarations(&spec.value, module, resolver, dependencies);
+            }
+        }
+        TypeAnnotationExpr::TypeMemberProjection { subject, arguments, .. } => {
+            collect_type_annotation_declarations(subject, module, resolver, dependencies);
+            for argument in arguments {
+                match argument {
+                    phalcom_ast::ast::TypeMemberArgumentSyntax::TypeForm(ty) => {
+                        collect_type_annotation_declarations(ty, module, resolver, dependencies);
+                    }
+                    phalcom_ast::ast::TypeMemberArgumentSyntax::IntLiteral { .. } | phalcom_ast::ast::TypeMemberArgumentSyntax::Name { .. } => {}
+                }
             }
         }
         TypeAnnotationExpr::Unit { .. }
@@ -6917,7 +6944,7 @@ fn advisory_callable_member<'a>(declaration: &DeclarationId, member: &'a ClassMe
                 index.range,
             ))
         }
-        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => None,
+        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => None,
     }
 }
 

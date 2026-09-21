@@ -516,7 +516,9 @@ requests an associated callable reference from `Owner`.
 
 ### Associated lookup surfaces
 
-An associated name may expose different semantic surfaces, such as a type, a value, and callable behavior.
+An associated name may expose different semantic surfaces, such as a type, a
+type-level member, a value, and callable behavior. Type-level projection is
+not a callable reference and is governed by [Type Members](../type-members.md).
 
 These forms are therefore not interchangeable:
 
@@ -533,7 +535,8 @@ Bare:
 Owner::member
 ```
 
-requests the associated value surface.
+requests the associated value or type-member surface according to the resolved
+declaration. It does not request runtime callable behavior.
 
 A callable reference requests the callable capability selected by the written selector shape.
 

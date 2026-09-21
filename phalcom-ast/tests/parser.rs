@@ -19,8 +19,9 @@
 
 use phalcom_ast::{
     ast::{
-        AssociatedMemberSyntax, ClassMember, Expr, GenericConstraintSyntax, KindSyntax, MemberBody, RecordLiteralEntry, ReturnStatement, Statement,
-        SymbolLiteralKind, TypeAnnotationExpr, VarianceSyntax,
+        AssociatedMemberSyntax, ClassMember, Expr, GenericConstraintSyntax, ImplementationKind, KindSyntax, MemberBody, RecordLiteralEntry, ReturnStatement,
+        Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeMemberArgumentSyntax, TypeMemberParameterDomainSyntax, TypeMemberResultSyntax,
+        TypeMemberSelectorSyntax, VarianceSyntax,
     },
     error::SyntaxErrorKind,
     parse as parse_with_recovery, parse_source,
@@ -1716,4 +1717,186 @@ fn parses_same_subject_trait_conjunction() {
         }
         other => panic!("expected Conforms constraint with 3 bounds, got {other:?}"),
     }
+}
+
+#[test]
+fn parses_type_pack_and_labeled_type_pack_kinds() {
+    let source = "type PackAlias<P: TypePack, L: LabeledTypePack> = P\n";
+    let program = parse_source(source, 0).expect("type pack kinds should parse");
+    let Statement::TypeAlias(alias) = &program.statements[0] else {
+        panic!("expected type alias");
+    };
+    assert_eq!(alias.generic_parameters.len(), 2);
+    assert!(matches!(alias.generic_parameters[0].kind.as_ref().unwrap(), KindSyntax::TypePack(_)));
+    assert!(matches!(alias.generic_parameters[1].kind.as_ref().unwrap(), KindSyntax::LabeledTypePack(_)));
+}
+
+#[test]
+fn parses_type_member_projections() {
+    let source = "type Mapped = (Int, String)::Map<Option>\ntype AtPos = (Int, String)::At<1>\ntype AtNeg = (Int, String)::At<-1>\ntype Sub = (Int, String)[1]\ntype RowPos = #{ x: Int, y: String }::Positionals\n";
+    let program = parse_source(source, 0).expect("type member projections should parse");
+    assert_eq!(program.statements.len(), 5);
+
+    // 0: Map<Option>
+    let Statement::TypeAlias(alias0) = &program.statements[0] else { panic!() };
+    match &alias0.body.expr {
+        TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
+            assert!(matches!(selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "Map"));
+            assert_eq!(arguments.len(), 1);
+            assert!(matches!(&arguments[0], TypeMemberArgumentSyntax::TypeForm(_)));
+        }
+        other => panic!("expected TypeMemberProjection, got {other:?}"),
+    }
+
+    // 1: At<1>
+    let Statement::TypeAlias(alias1) = &program.statements[1] else { panic!() };
+    match &alias1.body.expr {
+        TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
+            assert!(matches!(selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "At"));
+            assert_eq!(arguments.len(), 1);
+            assert!(matches!(&arguments[0], TypeMemberArgumentSyntax::IntLiteral { value: 1, .. }));
+        }
+        other => panic!("expected TypeMemberProjection, got {other:?}"),
+    }
+
+    // 2: At<-1>
+    let Statement::TypeAlias(alias2) = &program.statements[2] else { panic!() };
+    match &alias2.body.expr {
+        TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
+            assert!(matches!(selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "At"));
+            assert_eq!(arguments.len(), 1);
+            assert!(matches!(&arguments[0], TypeMemberArgumentSyntax::IntLiteral { value: -1, .. }));
+        }
+        other => panic!("expected TypeMemberProjection, got {other:?}"),
+    }
+
+    // 3: [1]
+    let Statement::TypeAlias(alias3) = &program.statements[3] else { panic!() };
+    match &alias3.body.expr {
+        TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
+            assert!(matches!(selector, TypeMemberSelectorSyntax::Subscript { .. }));
+            assert_eq!(arguments.len(), 1);
+            assert!(matches!(&arguments[0], TypeMemberArgumentSyntax::IntLiteral { value: 1, .. }));
+        }
+        other => panic!("expected TypeMemberProjection, got {other:?}"),
+    }
+
+    // 4: Positionals
+    let Statement::TypeAlias(alias4) = &program.statements[4] else { panic!() };
+    match &alias4.body.expr {
+        TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
+            assert!(matches!(selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "Positionals"));
+            assert!(arguments.is_empty());
+        }
+        other => panic!("expected TypeMemberProjection, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_intrinsic_declarations() {
+    let source = r#"
+intrinsic class Tuple {
+    intrinsic type Positionals: TypePack
+    intrinsic type Labeled: LabeledTypePack
+    intrinsic type At<I: Int>: Type
+    intrinsic type Map<F>: Type where F: Type -> Type
+    intrinsic type [I: Int]: Type
+}
+
+intrinsic data Point(x: Int, y: Int)
+
+intrinsic type MyType = Map<Symbol, UserInfo>
+"#;
+    let program = parse_source(source, 0).expect("intrinsic declarations should parse");
+    assert_eq!(program.statements.len(), 3);
+
+    // 0: intrinsic class Tuple
+    let Statement::Class(class) = &program.statements[0] else { panic!() };
+    assert_eq!(class.name, "Tuple");
+    assert_eq!(class.implementation, ImplementationKind::Intrinsic);
+    assert_eq!(class.members.len(), 5);
+
+    let ClassMember::TypeMember(m0) = &class.members[0] else { panic!() };
+    assert_eq!(m0.implementation, ImplementationKind::Intrinsic);
+    assert!(matches!(&m0.selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "Positionals"));
+    assert!(m0.parameters.is_empty());
+    assert!(matches!(&m0.result, TypeMemberResultSyntax::Kind(KindSyntax::TypePack(_))));
+
+    let ClassMember::TypeMember(m1) = &class.members[1] else { panic!() };
+    assert_eq!(m1.implementation, ImplementationKind::Intrinsic);
+    assert!(matches!(&m1.selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "Labeled"));
+    assert!(m1.parameters.is_empty());
+    assert!(matches!(&m1.result, TypeMemberResultSyntax::Kind(KindSyntax::LabeledTypePack(_))));
+
+    let ClassMember::TypeMember(m2) = &class.members[2] else { panic!() };
+    assert_eq!(m2.implementation, ImplementationKind::Intrinsic);
+    assert!(matches!(&m2.selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "At"));
+    assert_eq!(m2.parameters.len(), 1);
+    assert_eq!(m2.parameters[0].name, "I");
+    assert!(
+        matches!(&m2.parameters[0].domain, TypeMemberParameterDomainSyntax::ConstType(ty) if matches!(&ty.expr, TypeAnnotationExpr::Reference(r) if r.root == "Int"))
+    );
+    assert!(matches!(&m2.result, TypeMemberResultSyntax::Kind(KindSyntax::Type(_))));
+
+    let ClassMember::TypeMember(m3) = &class.members[3] else { panic!() };
+    assert_eq!(m3.implementation, ImplementationKind::Intrinsic);
+    assert!(matches!(&m3.selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "Map"));
+    assert_eq!(m3.parameters.len(), 1);
+    assert_eq!(m3.parameters[0].name, "F");
+    assert!(matches!(&m3.result, TypeMemberResultSyntax::Kind(KindSyntax::Type(_))));
+    assert!(m3.where_clause.is_some());
+
+    let ClassMember::TypeMember(m4) = &class.members[4] else { panic!() };
+    assert_eq!(m4.implementation, ImplementationKind::Intrinsic);
+    assert!(matches!(&m4.selector, TypeMemberSelectorSyntax::Subscript { .. }));
+    assert_eq!(m4.parameters.len(), 1);
+    assert_eq!(m4.parameters[0].name, "I");
+
+    // 1: intrinsic data Point
+    let Statement::Data(data) = &program.statements[1] else { panic!() };
+    assert_eq!(data.name, "Point");
+    assert_eq!(data.implementation, ImplementationKind::Intrinsic);
+
+    // 2: intrinsic type MyType
+    let Statement::TypeAlias(alias) = &program.statements[2] else { panic!() };
+    assert_eq!(alias.name, "MyType");
+    assert_eq!(alias.implementation, ImplementationKind::Intrinsic);
+}
+
+#[test]
+fn parses_intrinsic_fields_and_methods() {
+    let source = r#"
+class BuiltinBox {
+    intrinsic _handle: Int
+    intrinsic const _id: Int
+
+    @class
+    intrinsic create(id: Int) -> BuiltinBox
+
+    intrinsic get() -> Int
+}
+"#;
+    let program = parse_source(source, 0).expect("intrinsic fields and methods should parse");
+    let Statement::Class(class) = &program.statements[0] else { panic!() };
+    assert_eq!(class.members.len(), 4);
+
+    let ClassMember::Field(f0) = &class.members[0] else { panic!() };
+    assert_eq!(f0.name, "_handle");
+    assert_eq!(f0.implementation, ImplementationKind::Intrinsic);
+    assert!(f0.mutable);
+
+    let ClassMember::Field(f1) = &class.members[1] else { panic!() };
+    assert_eq!(f1.name, "_id");
+    assert_eq!(f1.implementation, ImplementationKind::Intrinsic);
+    assert!(!f1.mutable);
+
+    let ClassMember::Method(m0) = &class.members[2] else { panic!() };
+    assert_eq!(m0.name, "create");
+    assert_eq!(m0.implementation, ImplementationKind::Intrinsic);
+    assert!(m0.attributes.iter().any(|a| a.name == "class"));
+
+    let ClassMember::Method(m1) = &class.members[3] else { panic!() };
+    assert_eq!(m1.name, "get");
+    assert_eq!(m1.implementation, ImplementationKind::Intrinsic);
+    assert!(!m1.is_static);
 }

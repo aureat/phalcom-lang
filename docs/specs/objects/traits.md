@@ -76,7 +76,13 @@ A trait declaration may contain:
 - setter requirements;
 - index requirements;
 - associated type declarations;
+- associated type-member requirements with explicit result domains;
 - default implementations for behavioral requirements.
+
+Trait-owned type members use the general declaration, parameter, result-domain,
+identity, and projection rules from [Type Members](../type-members.md).
+Conformance completeness, bindings, witnesses, and evidence remain owned by
+this specification and [Associated Types](../associated-types.md).
 
 A trait declaration cannot contain instance fields, data components, enum variants, or other instance representation.
 
@@ -310,13 +316,19 @@ An associated type is not an ordinary generic argument of the trait.
 
 Its concrete meaning is obtained through a conformance.
 
+An unannotated declaration defaults to result domain `Type`. An explicit
+result-domain annotation is part of the requirement contract. The initial
+trait-associated surface does not bind member-local parameters; parameterized
+compiler/domain-native type members remain available under the general
+type-member specification.
+
 > **Associated-type invariant**
 >
 > Associated types are trait-owned declarations whose concrete bindings are conformance-dependent projections.
 
-In the initial declaration/binding surface, an associated declaration is a
-plain trait-owned type requirement with no default, generic associated-type
-binder, or additional trait-bound syntax:
+The unannotated declaration/binding surface remains a plain trait-owned type
+requirement with result domain `Type`, no default, no member-local parameters,
+and no additional trait-bound syntax:
 
 ```phalcom
 trait Iterator {
@@ -363,12 +375,12 @@ those states to `Dynamic`. No generic `T::Item` assumption rule, explicit
 `<T as Trait>::Item` syntax, or runtime associated-type lookup is defined by
 this initial projection surface.
 
-Projection formation and normalization are later semantic consumers of the
+Projection formation and normalization are semantic consumers of the
 canonical declaration, binding, and evidence products described above. They do
 not authorize a second name-based binding resolver or runtime associated-type
-lookup. Projection normalization, ambiguity, cycles, and future generic
-associated types are specified by the associated-type/type-system
-specifications rather than by this chapter.
+lookup. General member parameters, result domains, projection normalization,
+ambiguity, and stuck/invalid states are specified by the type-member and
+associated-type specifications rather than duplicated by this chapter.
 
 ---
 
@@ -982,7 +994,7 @@ The following are not defined by this specification:
 - overlapping conformance resolution by specificity;
 - first-class trait objects or existential trait values;
 - metatype/class-side conformance syntax;
-- generic associated types;
+- parameterized associated members not admitted by the applicable trait grammar;
 - trait-qualified callable-reference syntax beyond the ordinary concrete instance reference model.
 
 These facilities may be introduced by later specifications without changing the foundational distinction between traits, conformances, and witnesses.

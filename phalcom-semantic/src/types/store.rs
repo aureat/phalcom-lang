@@ -7,6 +7,7 @@ use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 use super::row::{RecordRowData, RecordRowField, RecordRowTail};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
+use super::type_member::TypeLevelProjection;
 use super::variance::Variance;
 use crate::identity::{DeclarationId, VariantId};
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
@@ -20,6 +21,16 @@ static NEXT_TYPE_STORE_ID: AtomicU64 = AtomicU64::new(1);
 pub struct TupleTypeElement {
     pub label: Option<Box<str>>,
     pub ty: TypeId,
+}
+
+impl TupleTypeElement {
+    pub fn unlabeled(ty: TypeId) -> Self {
+        Self { label: None, ty }
+    }
+
+    pub fn labeled(label: impl Into<Box<str>>, ty: TypeId) -> Self {
+        Self { label: Some(label.into()), ty }
+    }
 }
 
 pub type RecordTypeField = RecordRowField;
@@ -75,6 +86,22 @@ pub struct AssociatedTypeProjection {
     pub requirement: AssociatedTypeRequirementId,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum PackFormationError {
+    #[error("pack element {ty:?} has invalid kind {kind:?}, expected proper type")]
+    ElementNotProperType { ty: TypeId, kind: KindId },
+    #[error("duplicate label in labeled type pack: {0}")]
+    DuplicateLabel(String),
+    #[error("invalid tuple pack component {ty:?} with kind {kind:?}")]
+    InvalidTuplePackComponent { ty: TypeId, kind: KindId },
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct LabeledTypePackElement {
+    pub label: Box<str>,
+    pub element: TypeId,
+}
+
 /// Structural canonical type definition.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TypeData {
@@ -96,6 +123,12 @@ pub enum TypeData {
     Tuple(Box<[TupleTypeElement]>),
     /// Record / structural property map backed by a canonical record row.
     Record(RecordRowId),
+    /// Flat, ordered pack of types (kind TypePack).
+    TypePack(Box<[TypeId]>),
+    /// Flat, ordered pack of labeled types (kind LabeledTypePack).
+    LabeledTypePack(Box<[LabeledTypePackElement]>),
+    /// Tuple type formed from symbolic positional and labeled packs.
+    TupleFromPacks { positionals: TypeId, labeled: TypeId },
     /// Callable / block signature.
     Callable(CallableType),
     /// First-class structural associated member family.
@@ -108,6 +141,8 @@ pub enum TypeData {
     SelfType(SelfTypeTerm),
     /// Contextual associated-type projection.
     AssociatedProjection(AssociatedTypeProjection),
+    /// Compiler-intrinsic or domain-native type-member projection.
+    TypeMemberProjection(TypeLevelProjection),
 }
 
 /// Central store for canonical type interning, hash-consing, and kind assignments.
@@ -168,6 +203,10 @@ impl TypeStore {
         assert_eq!(type_kind, KindId::TYPE);
         let record_row_kind = store.intern_kind(KindData::RecordRow);
         assert_eq!(record_row_kind, KindId::RECORD_ROW);
+        let type_pack_kind = store.intern_kind(KindData::TypePack);
+        assert_eq!(type_pack_kind, KindId::TYPE_PACK);
+        let labeled_type_pack_kind = store.intern_kind(KindData::LabeledTypePack);
+        assert_eq!(labeled_type_pack_kind, KindId::LABELED_TYPE_PACK);
 
         store.never_id = store.intern_with_kind(TypeData::Never, KindId::TYPE);
         store.unit_id = store.intern_with_kind(TypeData::Unit, KindId::TYPE);
@@ -285,6 +324,10 @@ impl TypeStore {
         )
     }
 
+    pub fn type_member_projection(&mut self, projection: TypeLevelProjection, kind: KindId) -> TypeId {
+        self.intern_with_kind(TypeData::TypeMemberProjection(projection), kind)
+    }
+
     #[inline]
     pub fn type_parameter(&self, id: TypeParameterId) -> &TypeParameterData {
         &self.type_parameters[id.index()]
@@ -336,6 +379,8 @@ impl TypeStore {
         match self.get_kind(id) {
             KindData::Type => "Type".to_string(),
             KindData::RecordRow => "RecordRow".to_string(),
+            KindData::TypePack => "TypePack".to_string(),
+            KindData::LabeledTypePack => "LabeledTypePack".to_string(),
             KindData::Arrow { parameters, result } => {
                 let parameters = parameters.iter().map(|&parameter| self.format_kind(parameter)).collect::<Vec<_>>().join(", ");
                 format!("({parameters}) -> {}", self.format_kind(*result))
@@ -371,7 +416,7 @@ impl TypeStore {
 
         let callee_data = self.get_kind(callee).clone();
         match callee_data {
-            KindData::Type | KindData::RecordRow => Err(KindApplicationError::NotApplicable { kind: callee }),
+            KindData::Type | KindData::RecordRow | KindData::TypePack | KindData::LabeledTypePack => Err(KindApplicationError::NotApplicable { kind: callee }),
             KindData::Arrow { parameters, result } => {
                 if arguments.len() > parameters.len() {
                     return Err(KindApplicationError::TooManyArguments {
@@ -536,15 +581,89 @@ impl TypeStore {
         ))
     }
 
-    /// Interns a tuple type.
+    /// Interns a tuple type with full validation.
     pub fn tuple(&mut self, elements: Box<[TupleTypeElement]>) -> TypeId {
         if elements.is_empty() {
             return self.unit();
         }
+        let mut seen_labels = std::collections::HashSet::new();
+        let mut seen_labeled = false;
         for elem in elements.iter() {
-            debug_assert!(self.is_proper_type(elem.ty), "tuple element must be a proper type");
+            assert!(self.is_proper_type(elem.ty), "tuple element must be a proper type");
+            if let Some(ref l) = elem.label {
+                seen_labeled = true;
+                assert!(seen_labels.insert(l.clone()), "duplicate label in tuple: {}", l);
+            } else {
+                assert!(!seen_labeled, "unlabeled tuple element cannot follow labeled elements");
+            }
         }
         self.intern_with_kind(TypeData::Tuple(elements), KindId::TYPE)
+    }
+
+    /// Interns a TypePack into the store after validation.
+    pub fn type_pack(&mut self, elements: Box<[TypeId]>) -> Result<TypeId, PackFormationError> {
+        for &elem in elements.iter() {
+            if !self.is_proper_type(elem) {
+                return Err(PackFormationError::ElementNotProperType {
+                    ty: elem,
+                    kind: self.kind_of(elem),
+                });
+            }
+        }
+        Ok(self.intern_with_kind(TypeData::TypePack(elements), KindId::TYPE_PACK))
+    }
+
+    /// Interns a LabeledTypePack into the store after validation.
+    pub fn labeled_type_pack(&mut self, elements: Box<[LabeledTypePackElement]>) -> Result<TypeId, PackFormationError> {
+        let mut seen = std::collections::HashSet::new();
+        for elem in elements.iter() {
+            if !seen.insert(elem.label.clone()) {
+                return Err(PackFormationError::DuplicateLabel(elem.label.to_string()));
+            }
+            if !self.is_proper_type(elem.element) {
+                return Err(PackFormationError::ElementNotProperType {
+                    ty: elem.element,
+                    kind: self.kind_of(elem.element),
+                });
+            }
+        }
+        Ok(self.intern_with_kind(TypeData::LabeledTypePack(elements), KindId::LABELED_TYPE_PACK))
+    }
+
+    /// Interns a tuple formed from symbolic positional and labeled packs.
+    pub fn tuple_from_packs(&mut self, positionals: TypeId, labeled: TypeId) -> Result<TypeId, PackFormationError> {
+        let pos_kind = self.kind_of(positionals);
+        if pos_kind != KindId::TYPE_PACK {
+            return Err(PackFormationError::InvalidTuplePackComponent {
+                ty: positionals,
+                kind: pos_kind,
+            });
+        }
+        let lab_kind = self.kind_of(labeled);
+        if lab_kind != KindId::LABELED_TYPE_PACK {
+            return Err(PackFormationError::InvalidTuplePackComponent { ty: labeled, kind: lab_kind });
+        }
+
+        let pos_data = self.get(positionals).clone();
+        let lab_data = self.get(labeled).clone();
+        if let (TypeData::TypePack(pos_elems), TypeData::LabeledTypePack(lab_elems)) = (pos_data, lab_data) {
+            if pos_elems.is_empty() && lab_elems.is_empty() {
+                return Ok(self.unit());
+            }
+            let mut elements = Vec::with_capacity(pos_elems.len() + lab_elems.len());
+            for &elem in pos_elems.iter() {
+                elements.push(TupleTypeElement { label: None, ty: elem });
+            }
+            for elem in lab_elems.iter() {
+                elements.push(TupleTypeElement {
+                    label: Some(elem.label.clone()),
+                    ty: elem.element,
+                });
+            }
+            return Ok(self.tuple(elements.into_boxed_slice()));
+        }
+
+        Ok(self.intern_with_kind(TypeData::TupleFromPacks { positionals, labeled }, KindId::TYPE))
     }
 
     /// Interns a record row into the store.
@@ -773,6 +892,14 @@ impl TypeStore {
                             format!("{{{fields}, ..{p_name}}}")
                         }
                     }
+                    RecordRowTail::Projection(proj) => {
+                        let proj_name = self.format_type(proj);
+                        if fields.is_empty() {
+                            format!("{{..{proj_name}}}")
+                        } else {
+                            format!("{{{fields}, ..{proj_name}}}")
+                        }
+                    }
                 }
             }
             TypeData::Callable(callable) => {
@@ -840,6 +967,21 @@ impl TypeStore {
             TypeData::Parameter(param_id) => self.type_parameters[param_id.index()].name.to_string(),
             TypeData::Lambda(_) => "[TypeLambda]".to_string(),
             TypeData::SelfType(_) => "Self".to_string(),
+            TypeData::TypePack(elements) => {
+                let elems = elements.iter().map(|&t| self.format_type(t)).collect::<Vec<_>>().join(", ");
+                format!("[{elems}]")
+            }
+            TypeData::LabeledTypePack(elements) => {
+                let elems = elements
+                    .iter()
+                    .map(|e| format!("{}: {}", e.label, self.format_type(e.element)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("[{elems}]")
+            }
+            TypeData::TupleFromPacks { positionals, labeled } => {
+                format!("TupleFromPacks({}, {})", self.format_type(*positionals), self.format_type(*labeled))
+            }
             TypeData::AssociatedProjection(projection) => {
                 format!(
                     "<{} as {}>::{}",
@@ -847,6 +989,28 @@ impl TypeStore {
                     projection.trait_ref.declaration.name,
                     projection.requirement.index
                 )
+            }
+            TypeData::TypeMemberProjection(projection) => {
+                let subject_str = match &projection.subject {
+                    super::type_member::ProjectionSubject::Type(ty) => self.format_type(*ty),
+                    super::type_member::ProjectionSubject::RecordRow(r) => format!("{r:?}"),
+                };
+                let args_str = if projection.arguments.is_empty() {
+                    String::new()
+                } else {
+                    let formatted_args = projection
+                        .arguments
+                        .iter()
+                        .map(|arg| match arg {
+                            super::type_member::TypeMemberArgument::Type(ty) => self.format_type(*ty),
+                            super::type_member::TypeMemberArgument::Const(super::type_member::ConstTerm::Int(i)) => i.to_string(),
+                            super::type_member::TypeMemberArgument::RecordRow(r) => format!("{r:?}"),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("<{formatted_args}>")
+                };
+                format!("{subject_str}::{}{args_str}", projection.selector.name())
             }
         }
     }
@@ -943,6 +1107,25 @@ impl TypeStore {
                         .arguments
                         .iter()
                         .any(|&argument| self.contains_type_parameter(argument, target))
+            }
+            TypeData::TypeMemberProjection(projection) => {
+                let subject_has = match &projection.subject {
+                    super::type_member::ProjectionSubject::Type(ty) => self.contains_type_parameter(*ty, target),
+                    super::type_member::ProjectionSubject::RecordRow(row_id) => {
+                        let row = self.record_row(*row_id);
+                        row.fields.iter().any(|f| self.contains_type_parameter(f.ty, target)) || matches!(row.tail, RecordRowTail::Parameter(p) if p == target)
+                    }
+                };
+                subject_has
+                    || projection.arguments.iter().any(|arg| match arg {
+                        super::type_member::TypeMemberArgument::Type(ty) => self.contains_type_parameter(*ty, target),
+                        super::type_member::TypeMemberArgument::RecordRow(row_id) => {
+                            let row = self.record_row(*row_id);
+                            row.fields.iter().any(|f| self.contains_type_parameter(f.ty, target))
+                                || matches!(row.tail, RecordRowTail::Parameter(p) if p == target)
+                        }
+                        super::type_member::TypeMemberArgument::Const(_) => false,
+                    })
             }
             _ => false,
         }

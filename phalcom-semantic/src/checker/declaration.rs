@@ -241,7 +241,7 @@ pub fn build_declared_class_surface(
                 surface.add_callable_with_visibility(side, projection, visibility);
                 signatures.insert(signature.callable.clone(), signature);
             }
-            ClassMember::Variant(_) | ClassMember::Delegation(_) => {}
+            ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => {}
         }
     }
 

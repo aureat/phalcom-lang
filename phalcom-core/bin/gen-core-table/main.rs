@@ -185,6 +185,7 @@ fn harvest_universe_sources(classes: &mut BTreeMap<String, Vec<SelectorEntry>>) 
                         });
                     }
                     ClassMember::Delegation(_) => {}
+                    ClassMember::TypeMember(_) => {}
                 }
             }
         }
@@ -200,6 +201,7 @@ fn member_is_class_side(member: &ClassMember) -> bool {
         ClassMember::Field(f) => (f.is_static, f.attributes.as_slice()),
         ClassMember::Variant(v) => (false, v.attributes.as_slice()),
         ClassMember::Delegation(d) => (false, d.attributes.as_slice()),
+        ClassMember::TypeMember(tm) => (false, tm.attributes.as_slice()),
     };
     intrinsic
         || attrs
@@ -214,7 +216,7 @@ fn member_visibility(member: &ClassMember) -> &'static str {
         ClassMember::Setter(s) => s.visibility,
         ClassMember::Index(ix) => ix.visibility,
         ClassMember::Field(f) => f.visibility,
-        ClassMember::Variant(_) | ClassMember::Delegation(_) => Visibility::Public,
+        ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => Visibility::Public,
     };
     match visibility {
         Visibility::Public => "public",

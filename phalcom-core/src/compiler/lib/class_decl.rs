@@ -111,7 +111,12 @@ fn validate_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
                 return Err(CompilerError::RestModeUnsupportedForMember(rest.range));
             }
         }
-        ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
+        ClassMember::Getter(_)
+        | ClassMember::Setter(_)
+        | ClassMember::Delegation(_)
+        | ClassMember::Field(_)
+        | ClassMember::Variant(_)
+        | ClassMember::TypeMember(_) => {}
     }
     Ok(())
 }
@@ -288,6 +293,7 @@ impl<'vm> Compiler<'vm> {
             ClassMember::Getter(getter) => getter.implementation != ImplementationKind::Native,
             ClassMember::Setter(setter) => setter.implementation != ImplementationKind::Native,
             ClassMember::Index(index) => index.implementation != ImplementationKind::Native,
+            ClassMember::TypeMember(_) => false,
             ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => true,
         });
         // Rest-scope validation must precede duplicate-selector
@@ -298,7 +304,12 @@ impl<'vm> Compiler<'vm> {
             match member {
                 ClassMember::Method(method) => validate_declaration_labels(&method.params)?,
                 ClassMember::Index(index) => validate_declaration_labels(&index.params)?,
-                ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
+                ClassMember::Getter(_)
+                | ClassMember::Setter(_)
+                | ClassMember::Delegation(_)
+                | ClassMember::Field(_)
+                | ClassMember::Variant(_)
+                | ClassMember::TypeMember(_) => {}
             }
         }
         // Retained class-level attributes (M-ATTR-ROOT): needed after
@@ -362,6 +373,7 @@ impl<'vm> Compiler<'vm> {
                     }
                     ClassMember::Variant(_) => continue,
                     ClassMember::Delegation(_) => continue,
+                    ClassMember::TypeMember(_) => continue,
                 };
                 if self.vm.universe_module() != Some(self.module)
                     && let MemberKey::Selector(_, selector) = &key
@@ -1171,6 +1183,7 @@ impl<'vm> Compiler<'vm> {
 
                     self.emit_member_attribute_attaches(&index_def.attributes, method_obj_idx, range)?;
                 }
+                ClassMember::TypeMember(_) => {}
             }
         }
 

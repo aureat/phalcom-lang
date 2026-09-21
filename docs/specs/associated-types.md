@@ -81,8 +81,8 @@ This specification does not define:
 - associated specialization inside generic trait bounds;
 - conditional-conformance proof search;
 - associated type defaults;
-- generic associated types;
-- higher-kinded associated declarations;
+- the general type-member declaration/projection substrate, which is owned by
+  [Type Members](type-members.md);
 - trait objects or existential trait packaging;
 - public reflection descriptors for associated declarations;
 - runtime associated-type lookup.
@@ -136,13 +136,17 @@ The binding belongs to the conformance. It does not mutate the trait declaration
 
 A projection denotes the associated value of one associated declaration for one subject under one trait context.
 
-The contextual projection form owned by this specification is:
+The associated specialization of the contextual projection form is:
 
 ```phalcom
 Self::Item
 ```
 
-A projection is an ordinary type-level expression. It may remain symbolic or normalize to another type depending on the evidence available in its semantic context.
+A projection is an ordinary type-level expression in its declaration's result
+domain. It may remain symbolic or normalize depending on the evidence available
+in its semantic context. General projection identity and states are owned by
+[Type Members](type-members.md); this specification supplies the trait context
+and conformance evidence for associated members.
 
 > **Category-separation invariant**
 >
@@ -198,9 +202,14 @@ is invalid.
 
 ---
 
-## 4. Associated declarations denote proper types
+## 4. Associated declaration result domains
 
-The associated declaration form defined here denotes one proper type per exact valid conformance.
+An associated declaration has a declared result domain under the general
+type-member model. Existing unannotated declarations default to the proper
+type domain `Type` and therefore denote one proper type per exact valid
+conformance. The initial associated-type surface may declare an explicit
+result domain but does not bind member-local parameters. Associated declarations
+remain trait-owned requirements, not inherent or domain-native members.
 
 ```phalcom
 trait Source {
@@ -208,7 +217,9 @@ trait Source {
 }
 ```
 
-A binding for `Item` must therefore form a proper type in the conformance's type environment.
+A binding for an associated declaration must form a value in its declared
+result domain in the conformance's type environment. For the unannotated
+`Item` form above, that remains a proper type.
 
 Examples include:
 
@@ -220,7 +231,10 @@ type Item = (key: K, value: V)
 type Item = Option<Self::Element>
 ```
 
-This specification does not define associated declarations whose values are themselves generic type constructors, generic associated families, or kind-polymorphic entities.
+The result-domain annotation uses the general rules in [Type Members](type-members.md).
+Parameterized associated members remain outside the initial trait surface; this
+category-specific restriction does not restrict parameterized inherent or
+domain-native type members.
 
 Ordinary trait generic parameters and associated types remain different mechanisms:
 
@@ -398,7 +412,7 @@ At minimum, the following associated-binding failures are distinct:
 - **missing binding** — a required associated declaration has no binding;
 - **duplicate binding** — the same associated declaration is bound more than once in one conformance;
 - **unknown binding** — a binding names no associated declaration of the conformed trait;
-- **invalid binding** — the right-hand side is not a valid proper type in the conformance environment;
+- **invalid binding** — the right-hand side is not valid in the associated declaration's result domain;
 - **recursive binding** — the associated dependency graph contains a cycle.
 
 A conformance is not valid unless all required associated bindings and all applicable behavioral obligations are valid.
@@ -467,7 +481,8 @@ A projection is not identified by:
 subject + associated name
 ```
 
-Canonical projection identity contains, conceptually:
+The general projection identity from [Type Members](type-members.md), specialized
+for an associated declaration, contains conceptually:
 
 ```text
 subject type
@@ -540,7 +555,9 @@ merely because the trait is abstract.
 
 ## 11. Associated projections are ordinary type structure
 
-Associated projections participate in the ordinary canonical type graph.
+Associated projections with result domain `Type` participate in the ordinary
+canonical type graph. Associated projections with another declared domain
+participate in that domain's canonical structure.
 
 They may appear inside applied, tuple, record, callable, union, or other type structure:
 
@@ -1034,7 +1051,7 @@ A reflection system must not collapse an associated declaration into:
 
 ## 20. Deliberately unsupported forms
 
-The following are not introduced by this specification.
+The following are not introduced solely by this trait/conformance specialization.
 
 ### 20.1 Associated type defaults
 
@@ -1048,21 +1065,28 @@ trait T {
 
 Every associated declaration defined here requires each valid conformance to establish its associated value.
 
-### 20.2 Generic associated types
+### 20.2 Parameterized associated members
 
-Associated declarations do not bind their own generic parameters.
+The general type-member model permits member-local parameters, but the initial
+trait-associated surface remains unparameterized.
 
 A form conceptually resembling:
 
 ```text
-type Item<T>
+type Item<T: Type>: Type
 ```
 
-requires a separate specification.
+This form requires a later amendment defining associated-family bindings. Such
+parameters would belong to each projection application rather than becoming
+hidden trait generic arguments. This restriction does not apply to
+compiler/domain-native members such as structural `At<I>` and `Map<F>`.
 
-### 20.3 Higher-kinded associated values
+### 20.3 Non-`Type` and higher-kinded result domains
 
-Associated declarations defined here denote proper types. Associated type constructors require a separate extension.
+An associated declaration may have an explicit result domain where its owning
+grammar permits it. A result such as `TypePack` is not a proper type, and a
+higher-kinded result is not implicitly saturated. The declaration's domain is
+part of its identity and binding contract.
 
 ### 20.4 Structural associated types
 
@@ -1091,7 +1115,8 @@ A program is invalid when, among other ordinary trait/conformance failures:
 - a conformance binds an associated name the trait does not declare;
 - a conformance binds the same associated declaration more than once;
 - a required associated declaration has no binding;
-- an associated binding does not form a valid proper type;
+- an associated binding does not form a valid value in the declaration's
+  result domain;
 - associated bindings form a recursive dependency cycle;
 - a behavioral witness is incompatible after associated specialization;
 - an exact-case binding is incorrectly treated as a binding for the enum root or another exact case;
@@ -1109,7 +1134,7 @@ The following invariants summarize the associated-type model.
 | **Nominal identity** | Same spelling in different traits does not imply the same associated declaration. |
 | **Conformance binding** | Concrete associated values are supplied by conformances. |
 | **Category separation** | Declaration, binding, projection, and behavioral witness identities remain distinct. |
-| **Proper-type value** | Each associated declaration defined here denotes one proper type per exact valid conformance. |
+| **Declared result domain** | An associated declaration's result domain is part of its contract; unannotated declarations default to `Type`. |
 | **Contextual `Self`** | `Self::Item` resolves through an established trait/conformance context, never global name search. |
 | **Projection identity** | Subject, trait context, and associated declaration identity participate in canonical projection identity. |
 | **Symbolic validity** | A well-formed abstract projection may remain symbolic without becoming `Dynamic` or an error. |
@@ -1130,6 +1155,10 @@ The following invariants summarize the associated-type model.
 
 Associated types depend on, and deliberately delegate to, the following specifications:
 
+- [Type Members](type-members.md) — general member parameters, result domains,
+  projection identity, lookup, and symbolic/invalid normalization states;
+- [Type-Level Domains](type-level-domains.md) — kinds, packs, rows, and
+  compile-time parameter domains;
 - [Generic Constraints](generic-constraints.md) — `where`, `|=`, generic evidence, generic-subject projections, qualified projections, associated equality, and associated specialization in trait bounds;
 - [Traits](objects/traits.md) — trait requirements, conformance, witnesses, defaults, coherence, and evidence;
 - [Implementation Declarations](objects/impl.md) — conformance declaration structure, generic scope, and implementation ownership;

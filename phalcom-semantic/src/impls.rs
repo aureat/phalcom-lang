@@ -2531,6 +2531,13 @@ fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, 
             .fields
             .iter()
             .any(|field| occurs_in_conformance_binding(store, parameter, field.ty, bindings)),
+        TypeData::TypePack(elements) => elements.iter().any(|&elem| occurs_in_conformance_binding(store, parameter, elem, bindings)),
+        TypeData::LabeledTypePack(elements) => elements
+            .iter()
+            .any(|elem| occurs_in_conformance_binding(store, parameter, elem.element, bindings)),
+        TypeData::TupleFromPacks { positionals, labeled } => {
+            occurs_in_conformance_binding(store, parameter, *positionals, bindings) || occurs_in_conformance_binding(store, parameter, *labeled, bindings)
+        }
         TypeData::Callable(callable) => {
             callable
                 .parameters
@@ -2600,6 +2607,30 @@ fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindin
                     .zip(right.iter())
                     .all(|(left, right)| left.label == right.label && unify_conformance_head(store, left.ty, right.ty, bindings))
         }
+        (TypeData::TypePack(left), TypeData::TypePack(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(&left, &right)| unify_conformance_head(store, left, right, bindings))
+        }
+        (TypeData::LabeledTypePack(left), TypeData::LabeledTypePack(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| left.label == right.label && unify_conformance_head(store, left.element, right.element, bindings))
+        }
+        (
+            TypeData::TupleFromPacks {
+                positionals: left_pos,
+                labeled: left_lab,
+            },
+            TypeData::TupleFromPacks {
+                positionals: right_pos,
+                labeled: right_lab,
+            },
+        ) => unify_conformance_head(store, *left_pos, *right_pos, bindings) && unify_conformance_head(store, *left_lab, *right_lab, bindings),
         (TypeData::Record(left), TypeData::Record(right)) => {
             let left = store.record_row(*left);
             let right = store.record_row(*right);
@@ -3060,6 +3091,17 @@ fn type_id_mentions_param(store: &TypeStore, ty: TypeId, param: TypeParameterId)
         }
         TypeData::AssociatedProjection(proj) => {
             type_id_mentions_param(store, proj.subject, param) || proj.trait_ref.arguments.iter().any(|&a| type_id_mentions_param(store, a, param))
+        }
+        TypeData::TypeMemberProjection(proj) => {
+            let subject_has = match &proj.subject {
+                crate::types::type_member::ProjectionSubject::Type(ty) => type_id_mentions_param(store, *ty, param),
+                crate::types::type_member::ProjectionSubject::RecordRow(_) => false,
+            };
+            subject_has
+                || proj.arguments.iter().any(|arg| match arg {
+                    crate::types::type_member::TypeMemberArgument::Type(ty) => type_id_mentions_param(store, *ty, param),
+                    _ => false,
+                })
         }
         TypeData::Tuple(elements) => elements.iter().any(|e| type_id_mentions_param(store, e.ty, param)),
         TypeData::Union(types) => types.iter().any(|&t| type_id_mentions_param(store, t, param)),

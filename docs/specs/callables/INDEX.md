@@ -105,9 +105,14 @@ The canonical associated/member/reference operators are:
 
 ```text
 .      ordinary object member lookup / message send
-::     associated lookup
+::     associated or type-member lookup
 &      callable reference / capture
 ```
+
+Type-level `::` projections are not callable references or runtime message
+sends. Their declaration identity and result-domain rules are owned by
+[Type Members](../type-members.md); trait-associated lookup is one specialized
+surface of that model.
 
 ## Normative ownership
 

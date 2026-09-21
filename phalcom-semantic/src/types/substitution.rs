@@ -1,7 +1,7 @@
 //! Type parameter substitution for generic declarations and applied member views.
 
-use super::id::{TypeId, TypeParameterId};
-use super::row::RecordRowField;
+use super::id::{KindId, TypeId, TypeParameterId};
+use super::row::{RecordRowField, RecordRowTail};
 use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use std::collections::HashMap;
@@ -39,6 +39,32 @@ impl TypeSubstitution {
 
     pub fn len(&self) -> usize {
         self.bindings.len()
+    }
+
+    /// Recursively applies this substitution to a `RecordRowId`.
+    pub fn apply_record_row(&self, store: &mut TypeStore, row_id: crate::types::id::RecordRowId) -> crate::types::id::RecordRowId {
+        if self.is_empty() {
+            return row_id;
+        }
+        let (fields, tail) = {
+            let row = store.record_row(row_id);
+            (row.fields.to_vec(), row.tail)
+        };
+        let subst_fields: Vec<RecordRowField> = fields
+            .into_iter()
+            .map(|field| RecordRowField {
+                name: field.name,
+                ty: self.apply(store, field.ty),
+            })
+            .collect();
+        let subst_tail = match tail {
+            RecordRowTail::Closed => RecordRowTail::Closed,
+            RecordRowTail::Parameter(param) => RecordRowTail::Parameter(param),
+            RecordRowTail::Projection(proj) => RecordRowTail::Projection(self.apply(store, proj)),
+        };
+        store
+            .record_row_checked(subst_fields, subst_tail)
+            .expect("type substitution must preserve canonical Record-row invariants")
     }
 
     /// Recursively applies this substitution to `ty`.
@@ -80,20 +106,8 @@ impl TypeSubstitution {
                 store.tuple(subst_elements.into_boxed_slice())
             }
             TypeData::Record(row_id) => {
-                let (fields, tail) = {
-                    let row = store.record_row(row_id);
-                    (row.fields.to_vec(), row.tail)
-                };
-                let subst_fields: Vec<RecordRowField> = fields
-                    .into_iter()
-                    .map(|field| RecordRowField {
-                        name: field.name,
-                        ty: self.apply(store, field.ty),
-                    })
-                    .collect();
-                store
-                    .record_row_type_checked(subst_fields, tail)
-                    .expect("type substitution must preserve canonical Record-row invariants")
+                let subst_row = self.apply_record_row(store, row_id);
+                store.intern_with_kind(TypeData::Record(subst_row), KindId::TYPE)
             }
             TypeData::Callable(callable) => {
                 let params: Vec<CallableParameterType> = callable
@@ -140,12 +154,62 @@ impl TypeSubstitution {
                     projection.requirement,
                 )
             }
+            TypeData::TypeMemberProjection(projection) => {
+                let kind = store.kind_of(ty);
+                let subject = match &projection.subject {
+                    super::type_member::ProjectionSubject::Type(sub_ty) => super::type_member::ProjectionSubject::Type(self.apply(store, *sub_ty)),
+                    super::type_member::ProjectionSubject::RecordRow(row_id) => {
+                        let subst_row = self.apply_record_row(store, *row_id);
+                        super::type_member::ProjectionSubject::RecordRow(subst_row)
+                    }
+                };
+                let arguments = projection
+                    .arguments
+                    .iter()
+                    .map(|arg| match arg {
+                        super::type_member::TypeMemberArgument::Type(arg_ty) => super::type_member::TypeMemberArgument::Type(self.apply(store, *arg_ty)),
+                        super::type_member::TypeMemberArgument::Const(c) => super::type_member::TypeMemberArgument::Const(c.clone()),
+                        super::type_member::TypeMemberArgument::RecordRow(row_id) => {
+                            let subst_row = self.apply_record_row(store, *row_id);
+                            super::type_member::TypeMemberArgument::RecordRow(subst_row)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                store.type_member_projection(
+                    super::type_member::TypeLevelProjection {
+                        subject,
+                        selector: projection.selector.clone(),
+                        arguments,
+                    },
+                    kind,
+                )
+            }
             TypeData::Lambda(lambda_id) => {
                 if self.is_empty() {
                     ty
                 } else {
                     store.substitute_type_lambda(lambda_id, self)
                 }
+            }
+            TypeData::TypePack(elements) => {
+                let subst_elements: Vec<TypeId> = elements.iter().map(|&elem| self.apply(store, elem)).collect();
+                store.type_pack(subst_elements.into_boxed_slice()).unwrap_or(ty)
+            }
+            TypeData::LabeledTypePack(elements) => {
+                let subst_elements: Vec<crate::types::store::LabeledTypePackElement> = elements
+                    .iter()
+                    .map(|elem| crate::types::store::LabeledTypePackElement {
+                        label: elem.label.clone(),
+                        element: self.apply(store, elem.element),
+                    })
+                    .collect();
+                store.labeled_type_pack(subst_elements.into_boxed_slice()).unwrap_or(ty)
+            }
+            TypeData::TupleFromPacks { positionals, labeled } => {
+                let subst_pos = self.apply(store, positionals);
+                let subst_lab = self.apply(store, labeled);
+                store.tuple_from_packs(subst_pos, subst_lab).unwrap_or(ty)
             }
             TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
         }
@@ -233,6 +297,35 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 projection.requirement,
             )
         }
+        TypeData::TypeMemberProjection(projection) => {
+            let kind = store.kind_of(ty);
+            let subject = match &projection.subject {
+                super::type_member::ProjectionSubject::Type(sub_ty) => {
+                    super::type_member::ProjectionSubject::Type(specialize_self_type(store, declarations, receiver, *sub_ty))
+                }
+                super::type_member::ProjectionSubject::RecordRow(row_id) => super::type_member::ProjectionSubject::RecordRow(*row_id),
+            };
+            let arguments = projection
+                .arguments
+                .iter()
+                .map(|arg| match arg {
+                    super::type_member::TypeMemberArgument::Type(arg_ty) => {
+                        super::type_member::TypeMemberArgument::Type(specialize_self_type(store, declarations, receiver, *arg_ty))
+                    }
+                    super::type_member::TypeMemberArgument::Const(c) => super::type_member::TypeMemberArgument::Const(c.clone()),
+                    super::type_member::TypeMemberArgument::RecordRow(row_id) => super::type_member::TypeMemberArgument::RecordRow(*row_id),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            store.type_member_projection(
+                super::type_member::TypeLevelProjection {
+                    subject,
+                    selector: projection.selector.clone(),
+                    arguments,
+                },
+                kind,
+            )
+        }
         TypeData::Union(members) => {
             let subst_members: Vec<TypeId> = members.iter().map(|&m| specialize_self_type(store, declarations, receiver, m)).collect();
             store.union(&subst_members)
@@ -291,6 +384,25 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 })
                 .collect();
             store.family_type(subst_members).unwrap_or(ty)
+        }
+        TypeData::TypePack(elements) => {
+            let subst_elements: Vec<TypeId> = elements.iter().map(|&elem| specialize_self_type(store, declarations, receiver, elem)).collect();
+            store.type_pack(subst_elements.into_boxed_slice()).unwrap_or(ty)
+        }
+        TypeData::LabeledTypePack(elements) => {
+            let subst_elements: Vec<crate::types::store::LabeledTypePackElement> = elements
+                .iter()
+                .map(|elem| crate::types::store::LabeledTypePackElement {
+                    label: elem.label.clone(),
+                    element: specialize_self_type(store, declarations, receiver, elem.element),
+                })
+                .collect();
+            store.labeled_type_pack(subst_elements.into_boxed_slice()).unwrap_or(ty)
+        }
+        TypeData::TupleFromPacks { positionals, labeled } => {
+            let subst_pos = specialize_self_type(store, declarations, receiver, positionals);
+            let subst_lab = specialize_self_type(store, declarations, receiver, labeled);
+            store.tuple_from_packs(subst_pos, subst_lab).unwrap_or(ty)
         }
         TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
     }

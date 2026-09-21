@@ -413,6 +413,7 @@ fn member_range(member: &ClassMember) -> phalcom_common::range::SourceRange {
         // arm is handled uniformly alongside the other member kinds here.
         ClassMember::Variant(v) => v.range,
         ClassMember::Index(ix) => ix.range,
+        ClassMember::TypeMember(tm) => tm.range,
     }
 }
 
@@ -425,6 +426,7 @@ fn member_attributes(member: &ClassMember) -> &[phalcom_ast::ast::Attribute] {
         ClassMember::Delegation(item) => &item.attributes,
         ClassMember::Variant(item) => &item.attributes,
         ClassMember::Index(item) => &item.attributes,
+        ClassMember::TypeMember(item) => &item.attributes,
     }
 }
 

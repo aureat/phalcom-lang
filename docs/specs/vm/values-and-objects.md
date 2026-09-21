@@ -300,6 +300,10 @@ some_depth = 0
 
 The empty tuple `()` normalizes to this immediate representation.
 
+The language-level [Structural Products](../structural-products.md)
+specification owns the corresponding zero-product type and type-member rules.
+This VM rule only specifies the runtime representation consequence.
+
 The VM MUST NOT allocate a `TupleObject` merely to represent the empty tuple.
 
 This establishes:

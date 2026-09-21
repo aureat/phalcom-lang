@@ -124,6 +124,8 @@ pub enum Token {
     Package,
     /// The `foreign` keyword introducing foreign declarations.
     Foreign,
+    /// The `intrinsic` keyword introducing compiler-intrinsic declarations.
+    Intrinsic,
 
     /// An identifier lexeme, e.g. `foo` or a field name like `_bar`.
     Identifier(String),

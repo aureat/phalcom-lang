@@ -1704,6 +1704,7 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
                             }
                         }
                         ClassMember::Delegation(_) => {}
+                        ClassMember::TypeMember(_) => {}
                     }
                 }
             }

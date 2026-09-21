@@ -12,6 +12,7 @@ pub struct RecordRowField {
 pub enum RecordRowTail {
     Closed,
     Parameter(TypeParameterId), // must have kind RecordRow
+    Projection(TypeId),         // must have kind RecordRow
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

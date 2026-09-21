@@ -636,6 +636,17 @@ fn type_contains_self(store: &TypeStore, ty: TypeId) -> bool {
         crate::types::store::TypeData::AssociatedProjection(p) => {
             type_contains_self(store, p.subject) || p.trait_ref.arguments.iter().any(|&arg| type_contains_self(store, arg))
         }
+        crate::types::store::TypeData::TypeMemberProjection(p) => {
+            let sub_has = match &p.subject {
+                crate::types::type_member::ProjectionSubject::Type(ty) => type_contains_self(store, *ty),
+                crate::types::type_member::ProjectionSubject::RecordRow(_) => false,
+            };
+            sub_has
+                || p.arguments.iter().any(|arg| match arg {
+                    crate::types::type_member::TypeMemberArgument::Type(ty) => type_contains_self(store, *ty),
+                    _ => false,
+                })
+        }
         crate::types::store::TypeData::Applied { origin, arguments } => {
             type_contains_self(store, *origin) || arguments.iter().any(|&arg| type_contains_self(store, arg))
         }
@@ -779,6 +790,37 @@ fn substitute_type_id_self_and_params(store: &mut TypeStore, ty: TypeId, subject
             let trait_ref = TraitRef::new(projection.trait_ref.declaration, subst_args);
             let subject_ty = term_to_type_id(store, subst_subject);
             TypeTerm::Canonical(store.associated_projection(subject_ty, trait_ref, projection.requirement))
+        }
+        crate::types::store::TypeData::TypeMemberProjection(projection) => {
+            let kind = store.kind_of(ty);
+            let new_subject = match &projection.subject {
+                crate::types::type_member::ProjectionSubject::Type(sub_ty) => {
+                    let term = substitute_type_id_self_and_params(store, *sub_ty, subject, subst);
+                    crate::types::type_member::ProjectionSubject::Type(term_to_type_id(store, term))
+                }
+                crate::types::type_member::ProjectionSubject::RecordRow(row_id) => crate::types::type_member::ProjectionSubject::RecordRow(*row_id),
+            };
+            let arguments = projection
+                .arguments
+                .iter()
+                .map(|arg| match arg {
+                    crate::types::type_member::TypeMemberArgument::Type(arg_ty) => {
+                        let term = substitute_type_id_self_and_params(store, *arg_ty, subject, subst);
+                        crate::types::type_member::TypeMemberArgument::Type(term_to_type_id(store, term))
+                    }
+                    crate::types::type_member::TypeMemberArgument::Const(c) => crate::types::type_member::TypeMemberArgument::Const(c.clone()),
+                    crate::types::type_member::TypeMemberArgument::RecordRow(row_id) => crate::types::type_member::TypeMemberArgument::RecordRow(*row_id),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            TypeTerm::Canonical(store.type_member_projection(
+                crate::types::type_member::TypeLevelProjection {
+                    subject: new_subject,
+                    selector: projection.selector.clone(),
+                    arguments,
+                },
+                kind,
+            ))
         }
         crate::types::store::TypeData::Applied { origin, arguments } => {
             let origin_term = substitute_type_id_self_and_params(store, origin, subject, subst);

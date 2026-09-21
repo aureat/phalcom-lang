@@ -242,6 +242,18 @@ Anonymous structural types such as Tuple and Record are not direct inherent `imp
 
 Function types and other structural type expressions are likewise not direct inherent targets unless a separate specification explicitly introduces such a facility.
 
+Compiler/domain-defined structural type members do not weaken this rule. For
+example:
+
+```phalcom
+(Int, String)::Map<Option>
+```
+
+uses the domain-native type-member mechanism defined by [Type Members](../type-members.md)
+and [Structural Products](../structural-products.md). It does not imply that
+the anonymous Tuple shape is an ordinary inherent `impl` target, and it does
+not authorize source code to reopen that shape with `impl`.
+
 > **Nominal-target invariant**
 >
 > Inherent behavior is attached to declaration-owned nominal targets, not to arbitrary structural type expressions.
@@ -545,7 +557,11 @@ If no such proof exists, the member is not part of the receiver's available surf
 
 Implementation constraints use the general generic-constraint system defined by [Generic Constraints](../generic-constraints.md).
 
-This specification does not redefine kind classification (`:`), trait conformance (`|=`), subtyping (`<:`), type equivalence (`==`), associated specialization, or their inference rules. It defines only how constraints already proven in the implementation's generic environment affect implementation applicability.
+This specification does not redefine parameter-domain classification (`:`),
+trait conformance (`|=`), subtyping (`<:`), type equivalence (`==`), associated
+specialization, or their inference rules. It defines only how constraints
+already proven in the implementation's generic environment affect
+implementation applicability.
 
 ## Reserved target-pattern specialization
 
@@ -854,6 +870,9 @@ A target that is not an eligible nominal target or exact enum case is invalid.
 ## Structural target
 
 An anonymous structural type cannot be used as an inherent target.
+
+This does not prohibit compiler/domain-native type members on structural
+domains. Those members are not ordinary inherent implementation fragments.
 
 ## Representation contribution
 

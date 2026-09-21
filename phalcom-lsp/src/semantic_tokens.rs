@@ -205,7 +205,8 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Protected
         | Token::Module
         | Token::Package
-        | Token::Foreign => Some(Keyword),
+        | Token::Foreign
+        | Token::Intrinsic => Some(Keyword),
 
         Token::Identifier(_) | Token::FieldIdentifier(_) => Some(Variable),
 
@@ -785,6 +786,17 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
                 is_index: true,
             });
             collect_decl_names(index_def.body.statements().unwrap_or_default(), out);
+        }
+        ClassMember::TypeMember(type_member_def) => {
+            let (name_range, is_index) = match &type_member_def.selector {
+                phalcom_ast::ast::TypeMemberSelectorSyntax::Named { range, .. } => (*range, false),
+                phalcom_ast::ast::TypeMemberSelectorSyntax::Subscript { range } => (*range, true),
+            };
+            out.push(DeclNameOverride {
+                range: name_range,
+                kind: SemanticTokenKind::Property,
+                is_index,
+            });
         }
     }
 }

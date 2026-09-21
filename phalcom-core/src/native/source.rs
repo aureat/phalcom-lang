@@ -640,6 +640,7 @@ impl NativeSourceIndex {
             }
             ClassMember::Variant(_) => return Ok(()),
             ClassMember::Delegation(_) => return Ok(()),
+            ClassMember::TypeMember(_) => return Ok(()),
         };
 
         self.census.members.push(UniverseMemberRow {

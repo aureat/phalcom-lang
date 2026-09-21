@@ -277,6 +277,42 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                     let trait_name = trait_application.declaration.path.last().map_or_else(|| "<trait>", |name| name.as_ref());
                     format!("<{} as {}>::#{}", subject_str, trait_name, requirement.index)
                 }
+                TypeNode::TypePack(elements) => format!(
+                    "TypePack({})",
+                    elements
+                        .iter()
+                        .map(|elem| display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *elem }, depth + 1))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                TypeNode::LabeledTypePack(elements) => format!(
+                    "LabeledTypePack({})",
+                    elements
+                        .iter()
+                        .map(|elem| format!(
+                            "{}: {}",
+                            elem.label,
+                            display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: elem.element }, depth + 1)
+                        ))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                TypeNode::TupleFromPacks { positionals, labeled } => format!(
+                    "TupleFromPacks({}, {})",
+                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *positionals }, depth + 1),
+                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *labeled }, depth + 1)
+                ),
+                TypeNode::TypeMemberProjection(proj) => {
+                    let subject_str = display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: proj.subject }, depth + 1);
+                    format!(
+                        "{}::{}",
+                        subject_str,
+                        match &proj.selector {
+                            phalcom_type_meta::type_node::TypeMemberSelectorRef::Named(name) => name.as_ref(),
+                            phalcom_type_meta::type_node::TypeMemberSelectorRef::Subscript => "[]",
+                        }
+                    )
+                }
             },
             None => "<invalid-type>".to_string(),
         },
@@ -357,7 +393,10 @@ pub fn kind_children(context: &TypingContextData, registry: &RuntimeTypingRegist
             RuntimeOverlayKindNode::Arrow { parameters, .. } => Some(parameters.to_vec()),
         },
         RuntimeKindRef::Base { pool, node } => match &registry.get_pool(pool)?.bundle.kinds.get(node.0 as usize)?.node {
-            phalcom_type_meta::kind::KindNode::Type | phalcom_type_meta::kind::KindNode::RecordRow => Some(Vec::new()),
+            phalcom_type_meta::kind::KindNode::Type
+            | phalcom_type_meta::kind::KindNode::RecordRow
+            | phalcom_type_meta::kind::KindNode::TypePack
+            | phalcom_type_meta::kind::KindNode::LabeledTypePack => Some(Vec::new()),
             phalcom_type_meta::kind::KindNode::Arrow { parameters, .. } => {
                 Some(parameters.iter().map(|node| RuntimeKindRef::Base { pool, node: *node }).collect())
             }
@@ -372,7 +411,10 @@ pub fn kind_result(context: &TypingContextData, registry: &RuntimeTypingRegistry
             RuntimeOverlayKindNode::Arrow { result, .. } => Some(**result),
         },
         RuntimeKindRef::Base { pool, node } => match &registry.get_pool(pool)?.bundle.kinds.get(node.0 as usize)?.node {
-            phalcom_type_meta::kind::KindNode::Type | phalcom_type_meta::kind::KindNode::RecordRow => None,
+            phalcom_type_meta::kind::KindNode::Type
+            | phalcom_type_meta::kind::KindNode::RecordRow
+            | phalcom_type_meta::kind::KindNode::TypePack
+            | phalcom_type_meta::kind::KindNode::LabeledTypePack => None,
             phalcom_type_meta::kind::KindNode::Arrow { result, .. } => Some(RuntimeKindRef::Base { pool, node: *result }),
         },
     }
@@ -396,6 +438,8 @@ pub fn kind_display(context: &TypingContextData, registry: &RuntimeTypingRegistr
             Some(entry) => match &entry.node {
                 phalcom_type_meta::kind::KindNode::Type => "Type".to_string(),
                 phalcom_type_meta::kind::KindNode::RecordRow => "RecordRow".to_string(),
+                phalcom_type_meta::kind::KindNode::TypePack => "TypePack".to_string(),
+                phalcom_type_meta::kind::KindNode::LabeledTypePack => "LabeledTypePack".to_string(),
                 phalcom_type_meta::kind::KindNode::Arrow { parameters, result } => {
                     let parameters = parameters
                         .iter()

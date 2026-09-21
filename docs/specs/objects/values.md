@@ -34,6 +34,14 @@ It does **not** define:
 
 Those subjects are defined by their respective specifications.
 
+Static structural Tuple/Record typing and the closed `Positionals`, `Labeled`,
+`At`, and `Map` operations are defined by
+[Structural Products](../structural-products.md). Type-level domains and
+compile-time parameter classification are defined by
+[Type-Level Domains](../type-level-domains.md). This specification remains
+the owner of runtime value/object foundations and does not absorb static
+product typing.
+
 > **Foundational rule**
 >
 > Every observable Phalcom runtime value is an object in the language-semantic sense. Objecthood does not imply heap allocation, pointer representation, mutable state, or allocation identity.

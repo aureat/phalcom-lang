@@ -334,13 +334,16 @@ is ordinary dot dispatch on the class object `Fiber`.
 
 It is not Java-like static dispatch.
 
-Associated lookup:
+Associated/type-member lookup:
 
 ```phalcom
 Option::Some(42)
 ```
 
-is a different operation. `::` identifies behavior associated with a namespace-bearing owner and is not ordinary receiver-dot dispatch.
+is a different operation. `::` identifies an associated or type-level member
+associated with a namespace-bearing owner and is not ordinary receiver-dot
+dispatch. Type-level projections are resolved by the semantic type-member
+model; they do not enter runtime message dispatch.
 
 ## Message misses
 

@@ -6,6 +6,11 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 // Product literals compile directly to native build bytecodes.
 
 native class Tuple is Collection {
+  intrinsic type Positionals: TypePack
+  intrinsic type Labeled: LabeledTypePack
+  intrinsic type At<I: Int>: Type
+  intrinsic type Map<F: Type -> Type>: Type
+
   @class
   internal native rawFromList(_ value: List<Dynamic>) -> Tuple
   internal native rawSize -> Int

@@ -1,6 +1,6 @@
 use crate::ast::{
     BehaviorMember, ClassMember, DelegatedAccessorKind, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef,
-    VariantDecl,
+    TypeMemberSelectorSyntax, VariantDecl,
 };
 pub use phalcom_common::selector::{
     Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot, decode_label_component, encode_label_component,
@@ -99,6 +99,18 @@ pub fn selector_from_member(member: &ClassMember) -> Selector {
             slots: Box::new([]),
         }),
         ClassMember::Index(ix) => selector_from_index(ix),
+        ClassMember::TypeMember(t) => match &t.selector {
+            TypeMemberSelectorSyntax::Named { name, .. } => Selector::getter(name).unwrap_or_else(|_| Selector {
+                base: SelectorBase::Named(name.clone()),
+                kind: SelectorKind::Getter,
+                slots: Box::new([]),
+            }),
+            TypeMemberSelectorSyntax::Subscript { .. } => Selector::subscript_get(Vec::new()).unwrap_or_else(|_| Selector {
+                base: SelectorBase::Subscript,
+                kind: SelectorKind::Getter,
+                slots: Box::new([]),
+            }),
+        },
     }
 }
 

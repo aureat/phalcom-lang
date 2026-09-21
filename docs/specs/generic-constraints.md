@@ -51,7 +51,7 @@ Phalcom generic constraints use four distinct relations:
 
 | Syntax | Meaning |
 |---|---|
-| `:` | kind classification |
+| `:` | generic binder-domain classification; kind constraint in `where` |
 | `|=` | trait conformance |
 | `<:` | subtyping |
 | `==` | canonical type equivalence |
@@ -62,7 +62,7 @@ Supporting syntax:
 |---|---|
 | `+` | conjunction of trait requirements on one subject |
 | `=` | associated-type specialization inside a trait application |
-| `::` | associated-type projection |
+| `::` | type-member lookup/projection; associated-type projection is one specialization |
 
 They must not be conflated. In particular:
 
@@ -85,6 +85,17 @@ Generic parameter lists bind parameters:
 <T, U>
 <F, A, B>
 ```
+
+Where the declaration form permits parameter-domain annotations, a binder may
+classify a parameter directly:
+
+```phalcom
+<F: Type -> Type, P: TypePack, I: Int>
+```
+
+`F` and `P` are kinded parameters. `I` is a compile-time value parameter in
+`Const(Int)`; `Int` is not treated as a kind. The complete domain model is
+owned by [Type-Level Domains](type-level-domains.md).
 
 Trait, subtype, and equivalence bounds belong in `where`:
 
@@ -112,7 +123,10 @@ where F: Type -> Type
 
 If a declaration form also admits a kind annotation directly on a generic binder, both spellings contribute to the same parameter-kind contract and must agree.
 
-`where` constrains already-bound or otherwise-resolvable type-level names. It never introduces an implicit generic parameter.
+`where` constrains already-bound or otherwise-resolvable names. It never
+introduces an implicit generic parameter. Binder annotations establish a
+parameter's domain; `where` remains the proposition/obligation language and
+does not need a redundant `where I: Int` restatement for a const parameter.
 
 Line breaks are non-semantic.
 
@@ -156,7 +170,7 @@ AssociatedSpecializations
     := AssociatedSpecialization ("," AssociatedSpecialization)*
 
 AssociatedSpecialization
-    := Identifier "=" TypeExpression
+    := Identifier "=" TypeLevelExpression
 
 EquivalenceConstraint
     := TypeLevelExpression "==" TypeLevelExpression
@@ -167,17 +181,35 @@ SubtypeChain
 
 Ordinary trait arguments are positional. Once an associated specialization appears, remaining arguments must also be associated specializations.
 
+Ordinary trait arguments remain type expressions in the initial surface.
+Heterogeneous non-`Type` arguments are required initially for type-member
+applications, not for general trait references. An associated specialization's
+right-hand side must inhabit the associated declaration's result domain; an
+unannotated associated declaration therefore still requires a proper type.
+
 ---
 
-## 5. Kind constraints
+## 5. Parameter-domain constraints
 
-`:` classifies a generic parameter by kind:
+On a generic binder, `:` classifies a generic parameter by domain. A kind
+expression names a kinded domain, and a proper type may name a compile-time
+value domain. In a `where` clause, the initial constraint grammar retains only
+kind constraints over an already-bound parameter:
 
 ```phalcom
 where F: Type -> Type
 ```
 
-It does not state trait conformance.
+The equivalent binder annotation is `F: Type -> Type`. A compile-time value
+parameter is instead declared on its binder:
+
+```phalcom
+<I: Int>
+```
+
+means `Domain(I) = Const(Int)`, not `Kind(I) = Int`. `Int` remains a proper
+type of kind `Type`. This specification does not introduce `where I: Int` as
+a redundant restatement. Neither form states trait conformance.
 
 ```phalcom
 where
@@ -187,11 +219,15 @@ where
 
 contains two independent propositions.
 
-An ordinary generic parameter has kind `Type` unless its declaration, use, or explicit kind contract establishes another kind.
+An ordinary generic parameter has kind `Type` unless its declaration, use, or
+explicit domain contract establishes another kind/domain. `TypePack`,
+`LabeledTypePack`, and `RecordRow` are distinct kind domains; compile-time
+values are classified by `Const(τ)` as specified by [Type-Level Domains](type-level-domains.md).
 
 A `where` kind constraint directly constrains a generic parameter. Compound type expressions are kind-checked through ordinary type formation.
 
-The kind specification owns kind syntax, canonical kind identity, application, and partial application.
+The type-level-domain specification owns domain syntax, canonical domain
+identity, application, partial application, and restricted compile-time terms.
 
 ---
 
@@ -310,7 +346,9 @@ trait Converts<From, To> {
 
 `Converts<String, Int>` and `Converts<Bytes, Int>` are distinct trait applications.
 
-Ordinary trait arguments are positional. `Name = Type` inside a constrained trait application means associated-type specialization:
+Ordinary trait arguments are positional. `Name = Value` inside a constrained
+trait application means associated-type specialization, with `Value` checked
+against the associated declaration's result domain:
 
 ```phalcom
 where C |= Converts<A, B, Error = E>
@@ -350,9 +388,13 @@ where
 
 ---
 
-## 9. Associated projections
+## 9. Type-member projections
 
-Generic constraints may use contextual or qualified associated projections.
+Generic constraints may use contextual or qualified type-member projections.
+Trait-associated projections are one kind of type member. Domain-native
+projections such as `P::Map<F>` are governed by [Type Members](type-members.md)
+and [Structural Products](structural-products.md); they do not require trait
+conformance evidence merely because they use `::`.
 
 ### Contextual
 
@@ -391,7 +433,11 @@ where
 
 requires both qualifying conformances and then equality of the projected types.
 
-Projection normalization uses the conformance evidence available in the current environment. Associated declaration identity and normalization remain owned by the associated-type specification.
+Projection normalization uses the applicable semantic evidence and the member's
+declared result domain. Trait-associated declaration identity and conformance
+normalization remain owned by [Associated Types](associated-types.md); general
+projection identity and symbolic/stuck/invalid states remain owned by [Type
+Members](type-members.md).
 
 ---
 
@@ -708,13 +754,20 @@ This specification does not define:
 - user-defined constraint operators;
 - open-world existential search for a type satisfying a bound;
 - automatic runtime conformance checks for `Dynamic`;
-- generic associated types or higher-kinded associated declarations.
+- arbitrary user-defined type families or arbitrary compile-time execution;
+- general nominal or trait const-generics beyond the initial type-member and
+  structural-operation surface.
 
 Neighboring specifications remain authoritative for:
 
 - generic parameter binding, kinds, and type formation;
+- type-level domains, packs, rows, compile-time value terms, and domain
+  classification;
+- general type-member declaration, lookup, application, and projection
+  normalization;
 - trait identity, conformance, witnesses, defaults, and coherence;
-- associated declarations, bindings, and projection normalization;
+- trait-associated ownership, conformance bindings, and evidence-based
+  normalization;
 - subtyping and canonical type equivalence;
 - ADT/GADT syntax and branch refinement;
 - method selectors, receiver semantics, method references, and invocation.
@@ -727,7 +780,10 @@ Implementation specifications own solver architecture, evidence storage and tran
 
 ```text
 F: Type -> Type
-    kind classification
+    parameter-domain classification as Kind(Type -> Type)
+
+I: Int
+    binder-domain classification as Const(Int), not kinding by Int
 
 T |= Printable
     nominal trait-conformance obligation

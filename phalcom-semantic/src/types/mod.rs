@@ -24,7 +24,13 @@ pub mod specialization;
 pub mod store;
 pub mod substitution;
 pub mod type_lambda;
+pub mod type_member;
 pub mod variance;
+
+pub use type_member::{
+    ConstTerm, IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberDomain, TypeMemberId, TypeMemberParameter,
+    TypeMemberSelector, TypeMemberSignature, lookup_intrinsic_type_operation,
+};
 
 pub use annotation::{
     KindResolution, SimpleTypeResolver, TypeFormResolution, TypeFormationInvalid, TypeFormationMissing, TypeFormationOutcome, TypeFormationUnresolved,

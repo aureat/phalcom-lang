@@ -585,6 +585,8 @@ pub struct DataDef {
     pub where_clause: Option<WhereClauseSyntax>,
     pub shape: DataShapeSyntax,
     pub attributes: Vec<Attribute>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
     pub range: SourceRange,
 }
 
@@ -871,8 +873,101 @@ pub enum TypeAnnotationExpr {
         body: Box<TypeAnnotation>,
         range: SourceRange,
     },
+    /// Compiler-intrinsic / domain-native type member projection (e.g. `(Int, String)::Positionals`, `(Int, String)::Map<Option>`, `(Int, String)[1]`, `(Int, String)::At<1>`).
+    TypeMemberProjection {
+        subject: Box<TypeAnnotation>,
+        selector: TypeMemberSelectorSyntax,
+        arguments: Vec<TypeMemberArgumentSyntax>,
+        range: SourceRange,
+    },
     /// Recovered invalid type expression.
     Invalid { message: String, range: SourceRange },
+}
+
+/// The selector of a type member (e.g. `Positionals`, `Map`, `At`, or `[...]`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeMemberSelectorSyntax {
+    Named { name: String, range: SourceRange },
+    Subscript { range: SourceRange },
+}
+
+impl TypeMemberSelectorSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Named { range, .. } | Self::Subscript { range } => *range,
+        }
+    }
+}
+
+/// An argument to a type member application/projection.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeMemberArgumentSyntax {
+    TypeForm(TypeAnnotation),
+    IntLiteral { value: i64, range: SourceRange },
+    Name { name: String, range: SourceRange },
+}
+
+impl TypeMemberArgumentSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::TypeForm(ann) => ann.range,
+            Self::IntLiteral { range, .. } | Self::Name { range, .. } => *range,
+        }
+    }
+}
+
+/// The domain of a type member parameter (e.g. `Kind` or `ConstType`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeMemberParameterDomainSyntax {
+    Kind(KindSyntax),
+    ConstType(TypeAnnotation),
+}
+
+impl TypeMemberParameterDomainSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Kind(k) => k.range(),
+            Self::ConstType(t) => t.range,
+        }
+    }
+}
+
+/// A parameter to a domain-native type member declaration.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeMemberParameterSyntax {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub domain: TypeMemberParameterDomainSyntax,
+    pub range: SourceRange,
+}
+
+/// The result domain / return type annotation of a type member declaration.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeMemberResultSyntax {
+    Kind(KindSyntax),
+    Type(TypeAnnotation),
+}
+
+impl TypeMemberResultSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Kind(k) => k.range(),
+            Self::Type(t) => t.range,
+        }
+    }
+}
+
+/// A domain-native type member declaration inside a nominal/native class body.
+#[derive(Debug, Clone)]
+pub struct TypeMemberDef {
+    pub selector: TypeMemberSelectorSyntax,
+    pub parameters: Vec<TypeMemberParameterSyntax>,
+    pub result: TypeMemberResultSyntax,
+    pub where_clause: Option<WhereClauseSyntax>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -914,6 +1009,8 @@ pub enum VarianceSyntax {
 pub enum KindSyntax {
     Type(SourceRange),
     RecordRow(SourceRange),
+    TypePack(SourceRange),
+    LabeledTypePack(SourceRange),
     Arrow {
         parameter: Box<KindSyntax>,
         result: Box<KindSyntax>,
@@ -934,6 +1031,8 @@ impl KindSyntax {
         match self {
             KindSyntax::Type(r) => *r,
             KindSyntax::RecordRow(r) => *r,
+            KindSyntax::TypePack(r) => *r,
+            KindSyntax::LabeledTypePack(r) => *r,
             KindSyntax::Arrow { range, .. } => *range,
             KindSyntax::Grouped { range, .. } => *range,
             KindSyntax::Invalid { range, .. } => *range,
@@ -1040,6 +1139,8 @@ pub struct TypeAliasDef {
     pub generic_parameters: Vec<GenericParameterSyntax>,
     pub where_clause: Option<WhereClauseSyntax>,
     pub body: TypeAnnotation,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
     pub range: SourceRange,
 }
 
@@ -1065,6 +1166,8 @@ pub enum ClassMember {
     /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md).
     /// See [`IndexMethodDef`].
     Index(IndexMethodDef),
+    /// A domain-native type member declaration (`type Positionals: TypePack`, `type [I: Int]: Type`, `type Map<F: Type -> Type>: Type`).
+    TypeMember(TypeMemberDef),
 }
 
 impl ClassMember {
@@ -1077,6 +1180,7 @@ impl ClassMember {
             ClassMember::Index(_) => false,
             ClassMember::Variant(_) => false,
             ClassMember::Field(f) => f.is_static,
+            ClassMember::TypeMember(_) => false,
         }
     }
 
@@ -1096,6 +1200,7 @@ impl ClassMember {
             ClassMember::Index(i) => &i.attributes,
             ClassMember::Variant(v) => &v.attributes,
             ClassMember::Field(f) => &f.attributes,
+            ClassMember::TypeMember(t) => &t.attributes,
         }
     }
 
@@ -1108,6 +1213,7 @@ impl ClassMember {
             ClassMember::Index(i) => &mut i.attributes,
             ClassMember::Variant(v) => &mut v.attributes,
             ClassMember::Field(f) => &mut f.attributes,
+            ClassMember::TypeMember(t) => &mut t.attributes,
         }
     }
 
@@ -1120,6 +1226,7 @@ impl ClassMember {
             ClassMember::Index(i) => i.range,
             ClassMember::Variant(v) => v.range,
             ClassMember::Field(f) => f.range,
+            ClassMember::TypeMember(t) => t.range,
         }
     }
 
@@ -1132,6 +1239,7 @@ impl ClassMember {
             ClassMember::Index(i) => i.name_range,
             ClassMember::Variant(v) => v.name_range,
             ClassMember::Field(f) => f.name_range,
+            ClassMember::TypeMember(t) => t.selector.range(),
         }
     }
 
@@ -1144,6 +1252,7 @@ impl ClassMember {
             ClassMember::Index(i) => i.visibility,
             ClassMember::Variant(_) => Visibility::Public,
             ClassMember::Field(f) => f.visibility,
+            ClassMember::TypeMember(_) => Visibility::Public,
         }
     }
 
@@ -1156,6 +1265,7 @@ impl ClassMember {
             ClassMember::Index(i) => i.visibility_range,
             ClassMember::Variant(_) => None,
             ClassMember::Field(f) => f.visibility_range,
+            ClassMember::TypeMember(_) => None,
         }
     }
 
@@ -1167,7 +1277,8 @@ impl ClassMember {
             ClassMember::Delegation(_) => ImplementationKind::Phalcom,
             ClassMember::Index(i) => i.implementation,
             ClassMember::Variant(_) => ImplementationKind::Phalcom,
-            ClassMember::Field(_) => ImplementationKind::Phalcom,
+            ClassMember::Field(f) => f.implementation,
+            ClassMember::TypeMember(t) => t.implementation,
         }
     }
 
@@ -1179,7 +1290,8 @@ impl ClassMember {
             ClassMember::Delegation(_) => None,
             ClassMember::Index(i) => i.implementation_range,
             ClassMember::Variant(_) => None,
-            ClassMember::Field(_) => None,
+            ClassMember::Field(f) => f.implementation_range,
+            ClassMember::TypeMember(t) => t.implementation_range,
         }
     }
 }
@@ -1297,6 +1409,8 @@ pub struct FieldDef {
     pub is_static: bool,
     pub visibility: Visibility,
     pub visibility_range: Option<SourceRange>,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
     /// Explicit type annotation, if provided.
     pub annotation: Option<TypeAnnotation>,
     /// The field's default-value expression (`= expr`), or `None` if the

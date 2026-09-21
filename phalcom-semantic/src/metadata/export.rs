@@ -241,6 +241,8 @@ impl<'a> MetadataExporter<'a> {
         let node = match data {
             KindData::Type => KindNode::Type,
             KindData::RecordRow => KindNode::RecordRow,
+            KindData::TypePack => KindNode::TypePack,
+            KindData::LabeledTypePack => KindNode::LabeledTypePack,
             KindData::Arrow { ref parameters, result } => {
                 let p_nodes: Vec<KindNodeId> = parameters.iter().map(|&p| self.export_kind(p)).collect();
                 let r_node = self.export_kind(result);
@@ -255,6 +257,8 @@ impl<'a> MetadataExporter<'a> {
         match &node {
             KindNode::Type => fp_b.write_u8(1),
             KindNode::RecordRow => fp_b.write_u8(3),
+            KindNode::TypePack => fp_b.write_u8(4),
+            KindNode::LabeledTypePack => fp_b.write_u8(5),
             KindNode::Arrow { parameters, result } => {
                 fp_b.write_u8(2);
                 fp_b.write_u32(parameters.len() as u32);
@@ -554,6 +558,7 @@ impl<'a> MetadataExporter<'a> {
                         fields: field_refs.into_boxed_slice(),
                         tail: self.export_type_parameter(parameter),
                     }),
+                    crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableForm(ty)),
                 }
             }
             TypeData::Callable(ref call) => {
@@ -613,6 +618,58 @@ impl<'a> MetadataExporter<'a> {
                 TypeNode::TypeLambda(TypeLambdaRef {
                     parameter_kinds: p_kinds.into_boxed_slice(),
                     body,
+                })
+            }
+            TypeData::TypePack(elements) => {
+                let exported = elements.iter().map(|&el| self.export_type_form(el)).collect::<Result<Vec<_>, _>>()?;
+                TypeNode::TypePack(exported.into_boxed_slice())
+            }
+            TypeData::LabeledTypePack(elements) => {
+                let exported = elements
+                    .iter()
+                    .map(|el| {
+                        Ok(phalcom_type_meta::type_node::LabeledTypePackElementRef {
+                            label: el.label.clone(),
+                            element: self.export_type_form(el.element)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                TypeNode::LabeledTypePack(exported.into_boxed_slice())
+            }
+            TypeData::TupleFromPacks { positionals, labeled } => {
+                let pos = self.export_type_form(positionals)?;
+                let lab = self.export_type_form(labeled)?;
+                TypeNode::TupleFromPacks {
+                    positionals: pos,
+                    labeled: lab,
+                }
+            }
+            TypeData::TypeMemberProjection(proj) => {
+                let subject = match &proj.subject {
+                    crate::types::type_member::ProjectionSubject::Type(ty) => self.export_type_form(*ty)?,
+                    crate::types::type_member::ProjectionSubject::RecordRow(_) => return Err(MetadataExportError::NonExportableForm(ty)),
+                };
+                let selector = match &proj.selector {
+                    crate::types::type_member::TypeMemberSelector::Named(name) => phalcom_type_meta::type_node::TypeMemberSelectorRef::Named(name.clone()),
+                    crate::types::type_member::TypeMemberSelector::Subscript => phalcom_type_meta::type_node::TypeMemberSelectorRef::Subscript,
+                };
+                let arguments = proj
+                    .arguments
+                    .iter()
+                    .map(|arg| match arg {
+                        crate::types::type_member::TypeMemberArgument::Type(arg_ty) => {
+                            Ok(phalcom_type_meta::type_node::TypeMemberArgumentRef::Type(self.export_type_form(*arg_ty)?))
+                        }
+                        crate::types::type_member::TypeMemberArgument::Const(crate::types::type_member::ConstTerm::Int(i)) => {
+                            Ok(phalcom_type_meta::type_node::TypeMemberArgumentRef::ConstInt(*i))
+                        }
+                        crate::types::type_member::TypeMemberArgument::RecordRow(_) => Err(MetadataExportError::NonExportableForm(ty)),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                TypeNode::TypeMemberProjection(phalcom_type_meta::type_node::TypeMemberProjectionRef {
+                    subject,
+                    selector,
+                    arguments: arguments.into_boxed_slice(),
                 })
             }
             TypeData::ClassObject { .. } | TypeData::Family(_) => return Err(MetadataExportError::NonExportableForm(ty)),
@@ -716,6 +773,52 @@ impl<'a> MetadataExporter<'a> {
                     fp_b.write_str(c);
                 }
                 fp_b.write_u32(requirement.index);
+            }
+            TypeNode::TypePack(elements) => {
+                fp_b.write_u8(14);
+                fp_b.write_u32(elements.len() as u32);
+                for el in elements.iter() {
+                    fp_b.write_fingerprint(self.types[el.0 as usize].structural_fingerprint);
+                }
+            }
+            TypeNode::LabeledTypePack(elements) => {
+                fp_b.write_u8(15);
+                fp_b.write_u32(elements.len() as u32);
+                for el in elements.iter() {
+                    fp_b.write_str(&el.label);
+                    fp_b.write_fingerprint(self.types[el.element.0 as usize].structural_fingerprint);
+                }
+            }
+            TypeNode::TupleFromPacks { positionals, labeled } => {
+                fp_b.write_u8(16);
+                fp_b.write_fingerprint(self.types[positionals.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.types[labeled.0 as usize].structural_fingerprint);
+            }
+            TypeNode::TypeMemberProjection(proj) => {
+                fp_b.write_u8(17);
+                fp_b.write_fingerprint(self.types[proj.subject.0 as usize].structural_fingerprint);
+                match &proj.selector {
+                    phalcom_type_meta::type_node::TypeMemberSelectorRef::Named(name) => {
+                        fp_b.write_u8(0);
+                        fp_b.write_str(name);
+                    }
+                    phalcom_type_meta::type_node::TypeMemberSelectorRef::Subscript => {
+                        fp_b.write_u8(1);
+                    }
+                }
+                fp_b.write_u32(proj.arguments.len() as u32);
+                for arg in proj.arguments.iter() {
+                    match arg {
+                        phalcom_type_meta::type_node::TypeMemberArgumentRef::Type(ty) => {
+                            fp_b.write_u8(0);
+                            fp_b.write_fingerprint(self.types[ty.0 as usize].structural_fingerprint);
+                        }
+                        phalcom_type_meta::type_node::TypeMemberArgumentRef::ConstInt(i) => {
+                            fp_b.write_u8(1);
+                            fp_b.write_u64(*i as u64);
+                        }
+                    }
+                }
             }
         }
         let structural_fingerprint = fp_b.finish();

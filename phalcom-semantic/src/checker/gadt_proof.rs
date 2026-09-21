@@ -506,6 +506,35 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                     projection.requirement,
                 )
             }
+            TypeData::TypeMemberProjection(projection) => {
+                let kind = store.kind_of(ty);
+                let subject = match &projection.subject {
+                    crate::types::type_member::ProjectionSubject::Type(sub_ty) => {
+                        crate::types::type_member::ProjectionSubject::Type(normalize(store, substitution, *sub_ty, states))
+                    }
+                    crate::types::type_member::ProjectionSubject::RecordRow(row_id) => crate::types::type_member::ProjectionSubject::RecordRow(*row_id),
+                };
+                let arguments = projection
+                    .arguments
+                    .iter()
+                    .map(|arg| match arg {
+                        crate::types::type_member::TypeMemberArgument::Type(arg_ty) => {
+                            crate::types::type_member::TypeMemberArgument::Type(normalize(store, substitution, *arg_ty, states))
+                        }
+                        crate::types::type_member::TypeMemberArgument::Const(c) => crate::types::type_member::TypeMemberArgument::Const(c.clone()),
+                        crate::types::type_member::TypeMemberArgument::RecordRow(row_id) => crate::types::type_member::TypeMemberArgument::RecordRow(*row_id),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                store.type_member_projection(
+                    crate::types::type_member::TypeLevelProjection {
+                        subject,
+                        selector: projection.selector.clone(),
+                        arguments,
+                    },
+                    kind,
+                )
+            }
             TypeData::Union(members) => {
                 let members = members.iter().map(|&member| normalize(store, substitution, member, states)).collect::<Vec<_>>();
                 store.union(&members)
@@ -565,6 +594,28 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                     .collect::<Vec<_>>();
                 store.family_type(members).unwrap_or(ty)
             }
+            TypeData::TypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|&element| normalize(store, substitution, element, states))
+                    .collect::<Vec<_>>();
+                store.type_pack(elements.into_boxed_slice()).unwrap_or(ty)
+            }
+            TypeData::LabeledTypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|element| crate::types::store::LabeledTypePackElement {
+                        label: element.label.clone(),
+                        element: normalize(store, substitution, element.element, states),
+                    })
+                    .collect::<Vec<_>>();
+                store.labeled_type_pack(elements.into_boxed_slice()).unwrap_or(ty)
+            }
+            TypeData::TupleFromPacks { positionals, labeled } => {
+                let positionals = normalize(store, substitution, positionals, states);
+                let labeled = normalize(store, substitution, labeled, states);
+                store.tuple_from_packs(positionals, labeled).unwrap_or(ty)
+            }
             TypeData::Never | TypeData::Unit | TypeData::ClassObject { .. } | TypeData::Nominal { .. } | TypeData::Lambda(_) | TypeData::SelfType(_) => ty,
         };
         states.insert(ty, VisitState::Resolved(normalized));
@@ -600,6 +651,16 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
                 collect_type_parameters(store, argument, output);
             }
         }
+        TypeData::TypeMemberProjection(projection) => {
+            if let crate::types::type_member::ProjectionSubject::Type(ty) = projection.subject {
+                collect_type_parameters(store, ty, output);
+            }
+            for argument in projection.arguments.iter() {
+                if let crate::types::type_member::TypeMemberArgument::Type(ty) = argument {
+                    collect_type_parameters(store, *ty, output);
+                }
+            }
+        }
         TypeData::Union(members) => {
             for &member in members.iter() {
                 collect_type_parameters(store, member, output);
@@ -620,6 +681,20 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
             for field in store.record_row(*row).fields.iter() {
                 collect_type_parameters(store, field.ty, output);
             }
+        }
+        TypeData::TypePack(elements) => {
+            for &element in elements.iter() {
+                collect_type_parameters(store, element, output);
+            }
+        }
+        TypeData::LabeledTypePack(elements) => {
+            for element in elements.iter() {
+                collect_type_parameters(store, element.element, output);
+            }
+        }
+        TypeData::TupleFromPacks { positionals, labeled } => {
+            collect_type_parameters(store, *positionals, output);
+            collect_type_parameters(store, *labeled, output);
         }
         TypeData::Never
         | TypeData::Unit

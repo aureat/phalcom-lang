@@ -171,6 +171,25 @@ impl TypeReferenceTargetCollector<'_> {
                             }
                             self.where_clause(index.where_clause.as_ref(), &index_bound);
                         }
+                        ClassMember::TypeMember(type_member) => {
+                            let mut type_member_bound = class_bound.clone();
+                            type_member_bound.extend(type_member.parameters.iter().map(|parameter| parameter.name.clone()));
+                            for parameter in &type_member.parameters {
+                                match &parameter.domain {
+                                    phalcom_ast::ast::TypeMemberParameterDomainSyntax::Kind(_) => {}
+                                    phalcom_ast::ast::TypeMemberParameterDomainSyntax::ConstType(t) => {
+                                        self.annotation(t, &type_member_bound);
+                                    }
+                                }
+                            }
+                            match &type_member.result {
+                                phalcom_ast::ast::TypeMemberResultSyntax::Kind(_) => {}
+                                phalcom_ast::ast::TypeMemberResultSyntax::Type(t) => {
+                                    self.annotation(t, &type_member_bound);
+                                }
+                            }
+                            self.where_clause(type_member.where_clause.as_ref(), &type_member_bound);
+                        }
                         ClassMember::Variant(_) | ClassMember::Delegation(_) => {}
                     }
                 }
@@ -459,6 +478,14 @@ impl TypeReferenceTargetCollector<'_> {
                     self.annotation(&spec.value, bound);
                 }
             }
+            TypeAnnotationExpr::TypeMemberProjection { subject, arguments, .. } => {
+                self.annotation(subject, bound);
+                for argument in arguments {
+                    if let phalcom_ast::ast::TypeMemberArgumentSyntax::TypeForm(ty) = argument {
+                        self.annotation(ty, bound);
+                    }
+                }
+            }
             TypeAnnotationExpr::Unit { .. }
             | TypeAnnotationExpr::Dynamic { .. }
             | TypeAnnotationExpr::Never { .. }
@@ -630,6 +657,14 @@ impl SourceScopeBuilder<'_> {
                 self.visit_annotation_projection_targets(enum_target);
                 for argument in generic_arguments {
                     self.visit_annotation_projection_targets(argument);
+                }
+            }
+            TypeAnnotationExpr::TypeMemberProjection { subject, arguments, .. } => {
+                self.visit_annotation_projection_targets(subject);
+                for argument in arguments {
+                    if let phalcom_ast::ast::TypeMemberArgumentSyntax::TypeForm(ty) = argument {
+                        self.visit_annotation_projection_targets(ty);
+                    }
                 }
             }
             TypeAnnotationExpr::Reference(_)
@@ -1295,7 +1330,7 @@ impl SourceScopeBuilder<'_> {
                     self.visit_expr(parent, default);
                 }
             }
-            ClassMember::Variant(_) | ClassMember::Delegation(_) => {}
+            ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => {}
         }
     }
 

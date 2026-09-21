@@ -69,6 +69,7 @@ pub enum ImplementationKind {
     Phalcom,
     Native,
     Foreign,
+    Intrinsic,
 }
 
 impl ImplementationKind {
@@ -84,11 +85,16 @@ impl ImplementationKind {
         matches!(self, ImplementationKind::Foreign)
     }
 
+    pub const fn is_intrinsic(self) -> bool {
+        matches!(self, ImplementationKind::Intrinsic)
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             ImplementationKind::Phalcom => "phalcom",
             ImplementationKind::Native => "native",
             ImplementationKind::Foreign => "foreign",
+            ImplementationKind::Intrinsic => "intrinsic",
         }
     }
 }

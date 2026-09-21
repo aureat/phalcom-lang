@@ -133,6 +133,31 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 projection.requirement,
             )
         }
+        TypeData::TypeMemberProjection(projection) => {
+            let kind = store.kind_of(ty);
+            let subject = match &projection.subject {
+                super::type_member::ProjectionSubject::Type(sub_ty) => super::type_member::ProjectionSubject::Type(materialize_view(store, *sub_ty, env)),
+                super::type_member::ProjectionSubject::RecordRow(row_id) => super::type_member::ProjectionSubject::RecordRow(*row_id),
+            };
+            let arguments = projection
+                .arguments
+                .iter()
+                .map(|arg| match arg {
+                    super::type_member::TypeMemberArgument::Type(arg_ty) => super::type_member::TypeMemberArgument::Type(materialize_view(store, *arg_ty, env)),
+                    super::type_member::TypeMemberArgument::Const(c) => super::type_member::TypeMemberArgument::Const(c.clone()),
+                    super::type_member::TypeMemberArgument::RecordRow(row_id) => super::type_member::TypeMemberArgument::RecordRow(*row_id),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            store.type_member_projection(
+                super::type_member::TypeLevelProjection {
+                    subject,
+                    selector: projection.selector.clone(),
+                    arguments,
+                },
+                kind,
+            )
+        }
         TypeData::Applied { origin, arguments } => {
             let subst_origin = materialize_view(store, origin, env);
             let subst_args: Vec<TypeId> = arguments.iter().map(|&a| materialize_view(store, a, env)).collect();
@@ -209,6 +234,25 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
             } else {
                 store.substitute_type_lambda(lambda_id, &substitution)
             }
+        }
+        TypeData::TypePack(elements) => {
+            let subst_elements: Vec<TypeId> = elements.iter().map(|&elem| materialize_view(store, elem, env)).collect();
+            store.type_pack(subst_elements.into_boxed_slice()).unwrap_or(ty)
+        }
+        TypeData::LabeledTypePack(elements) => {
+            let subst_elements: Vec<crate::types::store::LabeledTypePackElement> = elements
+                .iter()
+                .map(|elem| crate::types::store::LabeledTypePackElement {
+                    label: elem.label.clone(),
+                    element: materialize_view(store, elem.element, env),
+                })
+                .collect();
+            store.labeled_type_pack(subst_elements.into_boxed_slice()).unwrap_or(ty)
+        }
+        TypeData::TupleFromPacks { positionals, labeled } => {
+            let subst_pos = materialize_view(store, positionals, env);
+            let subst_lab = materialize_view(store, labeled, env);
+            store.tuple_from_packs(subst_pos, subst_lab).unwrap_or(ty)
         }
         TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
     }

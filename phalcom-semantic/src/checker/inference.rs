@@ -730,6 +730,7 @@ impl InferenceSession {
                     tail: match row.tail {
                         RecordRowTail::Closed => InferenceRecordTail::Closed,
                         RecordRowTail::Parameter(parameter) => InferenceRecordTail::Parameter(parameter),
+                        RecordRowTail::Projection(proj) => InferenceRecordTail::Projection(proj),
                     },
                 })
             }
@@ -835,6 +836,7 @@ impl InferenceSession {
                             .get(&parameter)
                             .copied()
                             .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
+                        RecordRowTail::Projection(proj) => InferenceRecordTail::Projection(proj),
                     },
                 })
             }
@@ -948,6 +950,7 @@ impl InferenceSession {
                 let tail = match record.tail {
                     InferenceRecordTail::Closed => RecordRowTail::Closed,
                     InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+                    InferenceRecordTail::Projection(proj) => RecordRowTail::Projection(proj),
                     InferenceRecordTail::Var(_) => return None,
                 };
                 store.record_row_type_checked(fields, tail).ok()
@@ -3021,6 +3024,7 @@ impl InferenceSession {
                         match record.tail {
                             InferenceRecordTail::Closed => RecordRowTail::Closed,
                             InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+                            InferenceRecordTail::Projection(proj) => RecordRowTail::Projection(proj),
                             InferenceRecordTail::Var(_) => return Err(InferenceMaterializationFailure::InternalInvariant),
                         },
                     )

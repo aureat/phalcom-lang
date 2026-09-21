@@ -116,6 +116,7 @@ pub enum Target {
     /// (out of this unit's scope; contracts on `[]`/`[]=` are not specified
     /// by ADR-0060).
     Index,
+    TypeMember,
 }
 
 pub trait AttributeExpander {
@@ -1072,7 +1073,7 @@ fn member_selector(m: &ClassMember) -> Result<Option<String>, CompilerError> {
             };
             Some(encode_selector("", &labels, kind))
         }
-        ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::Variant(_) => None,
+        ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::TypeMember(_) => None,
     })
 }
 
@@ -1803,6 +1804,8 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
                 is_static: false,
                 visibility: Visibility::Public,
                 visibility_range: None,
+                implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
+                implementation_range: None,
                 annotation: None,
                 default: None,
                 attributes: Vec::new(),
@@ -2120,6 +2123,7 @@ fn member_target(member: &ClassMember) -> Target {
         ClassMember::Field(_) => Target::Field,
         ClassMember::Variant(_) => Target::Variant,
         ClassMember::Index(_) => Target::Index,
+        ClassMember::TypeMember(_) => Target::TypeMember,
     }
 }
 
@@ -2140,6 +2144,7 @@ fn member_has_attr(member: &ClassMember, name: &str) -> bool {
         ClassMember::Variant(v) => &v.attributes,
         ClassMember::Index(ix) => &ix.attributes,
         ClassMember::Delegation(delegation) => &delegation.attributes,
+        ClassMember::TypeMember(tm) => &tm.attributes,
     };
     attrs.iter().any(|a| a.name == name)
 }
@@ -2341,6 +2346,7 @@ pub fn expand_class_attributes(
             ClassMember::Variant(v) => std::mem::take(&mut v.attributes),
             ClassMember::Index(ix) => std::mem::take(&mut ix.attributes),
             ClassMember::Delegation(delegation) => std::mem::take(&mut delegation.attributes),
+            ClassMember::TypeMember(tm) => std::mem::take(&mut tm.attributes),
         };
 
         for attr in &attrs {
@@ -2367,6 +2373,7 @@ pub fn expand_class_attributes(
             ClassMember::Variant(v) => v.attributes = attrs,
             ClassMember::Index(ix) => ix.attributes = attrs,
             ClassMember::Delegation(delegation) => delegation.attributes = attrs,
+            ClassMember::TypeMember(tm) => tm.attributes = attrs,
         }
     }
 

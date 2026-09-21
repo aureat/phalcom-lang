@@ -63,7 +63,11 @@ fn shape_from_type_for_receiver(store: &TypeStore, ty: TypeId, receiver: &ValueS
         | TypeData::Family(_)
         | TypeData::Parameter(_)
         | TypeData::Lambda(_)
-        | TypeData::AssociatedProjection(_) => ValueShape::Unknown,
+        | TypeData::AssociatedProjection(_)
+        | TypeData::TypePack(_)
+        | TypeData::LabeledTypePack(_)
+        | TypeData::TupleFromPacks { .. }
+        | TypeData::TypeMemberProjection(_) => ValueShape::Unknown,
     }
 }
 
@@ -112,6 +116,10 @@ fn shape_from_type(store: &TypeStore, ty: TypeId, depth: usize) -> ValueShape {
         | TypeData::Family(_)
         | TypeData::Parameter(_)
         | TypeData::Lambda(_)
-        | TypeData::AssociatedProjection(_) => ValueShape::Unknown,
+        | TypeData::AssociatedProjection(_)
+        | TypeData::TypePack(_)
+        | TypeData::LabeledTypePack(_)
+        | TypeData::TupleFromPacks { .. }
+        | TypeData::TypeMemberProjection(_) => ValueShape::Unknown,
     }
 }

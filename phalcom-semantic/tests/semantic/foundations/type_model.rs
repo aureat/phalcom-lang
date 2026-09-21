@@ -374,3 +374,64 @@ fn structural_family_substitution_rewrites_member_types() {
     assert_eq!(c.parameters[0].ty, int_ty);
     assert_eq!(c.return_type, int_ty);
 }
+
+#[test]
+fn type_pack_and_labeled_type_pack_formation_and_kinds() {
+    use phalcom_semantic::types::store::LabeledTypePackElement;
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal(decl("Int"));
+    let str_ty = store.nominal(decl("String"));
+
+    let pack = store.type_pack(Box::new([int_ty, str_ty])).unwrap();
+    assert_eq!(store.kind_of(pack), KindId::TYPE_PACK);
+
+    let labeled_pack = store
+        .labeled_type_pack(Box::new([
+            LabeledTypePackElement {
+                label: "name".into(),
+                element: str_ty,
+            },
+            LabeledTypePackElement {
+                label: "age".into(),
+                element: int_ty,
+            },
+        ]))
+        .unwrap();
+    assert_eq!(store.kind_of(labeled_pack), KindId::LABELED_TYPE_PACK);
+
+    // Duplicate label error
+    let dup_res = store.labeled_type_pack(Box::new([
+        LabeledTypePackElement {
+            label: "x".into(),
+            element: int_ty,
+        },
+        LabeledTypePackElement {
+            label: "x".into(),
+            element: str_ty,
+        },
+    ]));
+    assert!(dup_res.is_err());
+}
+
+#[test]
+fn tuple_from_packs_and_canonical_tuple_equivalence() {
+    use phalcom_semantic::types::store::{LabeledTypePackElement, TupleTypeElement};
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal(decl("Int"));
+    let str_ty = store.nominal(decl("String"));
+
+    let pos_pack = store.type_pack(Box::new([int_ty])).unwrap();
+    let lab_pack = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "key".into(),
+            element: str_ty,
+        }]))
+        .unwrap();
+
+    let from_packs = store.tuple_from_packs(pos_pack, lab_pack).unwrap();
+    let direct_tuple = store.tuple(Box::new([TupleTypeElement::unlabeled(int_ty), TupleTypeElement::labeled("key", str_ty)]));
+
+    assert_eq!(from_packs, direct_tuple);
+}

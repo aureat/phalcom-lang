@@ -103,6 +103,36 @@ fn materialize_type_inner(
                 projection.requirement,
             ))
         }
+        TypeData::TypeMemberProjection(projection) => {
+            let kind = store.kind_of(ty);
+            let subject = match &projection.subject {
+                super::type_member::ProjectionSubject::Type(sub_ty) => {
+                    super::type_member::ProjectionSubject::Type(materialize_type_inner(store, *sub_ty, instantiation, row_mode, visiting_rows)?)
+                }
+                super::type_member::ProjectionSubject::RecordRow(row_id) => super::type_member::ProjectionSubject::RecordRow(*row_id),
+            };
+            let arguments = projection
+                .arguments
+                .iter()
+                .map(|arg| match arg {
+                    super::type_member::TypeMemberArgument::Type(arg_ty) => {
+                        let mat = materialize_type_inner(store, *arg_ty, instantiation, row_mode, visiting_rows)?;
+                        Ok(super::type_member::TypeMemberArgument::Type(mat))
+                    }
+                    super::type_member::TypeMemberArgument::Const(c) => Ok(super::type_member::TypeMemberArgument::Const(c.clone())),
+                    super::type_member::TypeMemberArgument::RecordRow(row_id) => Ok(super::type_member::TypeMemberArgument::RecordRow(*row_id)),
+                })
+                .collect::<Result<Vec<_>, TypeMaterializationError>>()?
+                .into_boxed_slice();
+            Ok(store.type_member_projection(
+                super::type_member::TypeLevelProjection {
+                    subject,
+                    selector: projection.selector.clone(),
+                    arguments,
+                },
+                kind,
+            ))
+        }
         TypeData::Union(members) => {
             let members = members
                 .iter()
@@ -158,6 +188,34 @@ fn materialize_type_inner(
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
             store.family_type(members).map_err(|_| TypeMaterializationError::TypeApplication)
+        }
+        TypeData::TypePack(elements) => {
+            let elements = elements
+                .iter()
+                .map(|&elem| materialize_type_inner(store, elem, instantiation, row_mode, visiting_rows))
+                .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
+            store
+                .type_pack(elements.into_boxed_slice())
+                .map_err(|_| TypeMaterializationError::TypeApplication)
+        }
+        TypeData::LabeledTypePack(elements) => {
+            let elements = elements
+                .iter()
+                .map(|elem| {
+                    Ok(crate::types::store::LabeledTypePackElement {
+                        label: elem.label.clone(),
+                        element: materialize_type_inner(store, elem.element, instantiation, row_mode, visiting_rows)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
+            store
+                .labeled_type_pack(elements.into_boxed_slice())
+                .map_err(|_| TypeMaterializationError::TypeApplication)
+        }
+        TypeData::TupleFromPacks { positionals, labeled } => {
+            let pos = materialize_type_inner(store, positionals, instantiation, row_mode, visiting_rows)?;
+            let lab = materialize_type_inner(store, labeled, instantiation, row_mode, visiting_rows)?;
+            store.tuple_from_packs(pos, lab).map_err(|_| TypeMaterializationError::TypeApplication)
         }
         TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => Ok(ty),
     }

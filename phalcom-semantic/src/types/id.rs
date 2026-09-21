@@ -88,6 +88,8 @@ pub struct KindId(pub u32);
 impl KindId {
     pub const TYPE: Self = Self(0);
     pub const RECORD_ROW: Self = Self(1);
+    pub const TYPE_PACK: Self = Self(2);
+    pub const LABELED_TYPE_PACK: Self = Self(3);
 
     #[inline]
     pub fn index(self) -> usize {

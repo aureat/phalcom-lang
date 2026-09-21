@@ -232,7 +232,7 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
         ClassMember::Getter(g) => CallableSyntaxRef::Getter(g),
         ClassMember::Setter(s) => CallableSyntaxRef::Setter(s),
         ClassMember::Index(i) => CallableSyntaxRef::Index(i),
-        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => return None,
+        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => return None,
     };
     callable_id_for_syntax(&CallableOwnerId::Declaration(owner.clone()), syntax, declared_side)
 }
@@ -869,7 +869,7 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
         ClassMember::Getter(g) => CallableSyntaxRef::Getter(g),
         ClassMember::Setter(s) => CallableSyntaxRef::Setter(s),
         ClassMember::Index(i) => CallableSyntaxRef::Index(i),
-        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => return None,
+        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => return None,
     };
     semantic_signature_for_syntax(ctx, &CallableOwnerId::Declaration(owner.clone()), syntax, declared_side)
 }

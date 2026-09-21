@@ -405,6 +405,15 @@ fn check_subtype_impl(
             }
             (TypeData::AssociatedProjection(_), _) | (_, TypeData::AssociatedProjection(_)) => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
 
+            (TypeData::TypeMemberProjection(sub_projection), TypeData::TypeMemberProjection(sup_projection)) => {
+                if sub_projection == sup_projection {
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
+                }
+            }
+            (TypeData::TypeMemberProjection(_), _) | (_, TypeData::TypeMemberProjection(_)) => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
+
             (TypeData::Tuple(sub_elems), TypeData::Tuple(sup_elems)) => {
                 if sub_elems.len() == sup_elems.len() {
                     for (a, b) in sub_elems.iter().zip(sup_elems.iter()) {
@@ -427,6 +436,59 @@ fn check_subtype_impl(
             }
             (TypeData::Record(sub_row_id), TypeData::Record(sup_row_id)) => {
                 check_record_row_subtype(store, hierarchy, sub_row_id, sup_row_id, sub, sup, budget, cancellation, visited, depth)
+            }
+            (TypeData::TypePack(sub_elems), TypeData::TypePack(sup_elems)) => {
+                if sub_elems.len() == sup_elems.len() {
+                    for (&a, &b) in sub_elems.iter().zip(sup_elems.iter()) {
+                        let out = check_subtype_impl(store, hierarchy, a, b, budget, cancellation, visited, depth + 1);
+                        match out {
+                            RelationOutcome::Proven { .. } => {}
+                            RelationOutcome::Refuted(_) => {
+                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                            }
+                            terminal => return terminal,
+                        }
+                    }
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+                }
+            }
+            (TypeData::LabeledTypePack(sub_elems), TypeData::LabeledTypePack(sup_elems)) => {
+                if sub_elems.len() == sup_elems.len() {
+                    for (a, b) in sub_elems.iter().zip(sup_elems.iter()) {
+                        if a.label != b.label {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                        }
+                        let out = check_subtype_impl(store, hierarchy, a.element, b.element, budget, cancellation, visited, depth + 1);
+                        match out {
+                            RelationOutcome::Proven { .. } => {}
+                            RelationOutcome::Refuted(_) => {
+                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                            }
+                            terminal => return terminal,
+                        }
+                    }
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+                }
+            }
+            (
+                TypeData::TupleFromPacks {
+                    positionals: sub_p,
+                    labeled: sub_l,
+                },
+                TypeData::TupleFromPacks {
+                    positionals: sup_p,
+                    labeled: sup_l,
+                },
+            ) => {
+                if sub_p == sup_p && sub_l == sup_l {
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
+                }
             }
             (TypeData::Callable(sub_call), TypeData::Callable(sup_call)) => {
                 if sub_call.parameters.len() == sup_call.parameters.len() {
@@ -650,6 +712,10 @@ pub fn check_record_row_subtype(
         RecordRowTail::Closed => RelationOutcome::proven(()),
         RecordRowTail::Parameter(required_tail) => match sub_row.tail {
             RecordRowTail::Parameter(actual_tail) if actual_tail == required_tail => RelationOutcome::proven(()),
+            _ => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
+        },
+        RecordRowTail::Projection(required_proj) => match sub_row.tail {
+            RecordRowTail::Projection(actual_proj) if actual_proj == required_proj => RelationOutcome::proven(()),
             _ => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
         },
     }

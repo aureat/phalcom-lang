@@ -17,6 +17,7 @@ pub struct RecordRowVarId(pub u32);
 pub enum RecordRowTermTail {
     Closed,
     Parameter(TypeParameterId),
+    Projection(TypeId),
     Var(RecordRowVarId),
 }
 
@@ -52,6 +53,7 @@ impl RecordRowTerm {
             tail: match data.tail {
                 RecordRowTail::Closed => RecordRowTermTail::Closed,
                 RecordRowTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
+                RecordRowTail::Projection(proj) => RecordRowTermTail::Projection(proj),
             },
         }
     }
@@ -97,6 +99,7 @@ impl RecordRowSolution {
         let tail = match term.tail {
             RecordRowTermTail::Closed => RecordRowTail::Closed,
             RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+            RecordRowTermTail::Projection(proj) => RecordRowTail::Projection(proj),
             RecordRowTermTail::Var(variable) => {
                 if !visiting.insert(variable) {
                     return Err(RecordRowZonkError::Recursive(variable));
@@ -410,6 +413,16 @@ impl RecordRowSolver {
                 } else {
                     Err(ControlFailure::Rejected(RecordRowFailure::RigidTailMismatch {
                         expected: RecordRowTermTail::Parameter(parameter),
+                        actual: term.tail,
+                    }))
+                }
+            }
+            RecordRowTermTail::Projection(proj) => {
+                if term.fields.is_empty() && term.tail == RecordRowTermTail::Projection(proj) {
+                    Ok(())
+                } else {
+                    Err(ControlFailure::Rejected(RecordRowFailure::RigidTailMismatch {
+                        expected: RecordRowTermTail::Projection(proj),
                         actual: term.tail,
                     }))
                 }

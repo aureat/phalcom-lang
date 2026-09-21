@@ -480,6 +480,7 @@ impl<'input> Lexer<'input> {
                 "module" => Token::Module,
                 "package" => Token::Package,
                 "foreign" => Token::Foreign,
+                "intrinsic" => Token::Intrinsic,
                 _ => Token::Identifier(slice.to_string()),
             });
         }

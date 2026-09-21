@@ -20,8 +20,11 @@ Language specifications define source-visible and semantic behavior independent 
 
 They include:
 
+- [`type-level-domains.md`](type-level-domains.md) — type-level kinds and domains, type forms, packs, rows, and compile-time parameter domains;
+- [`type-members.md`](type-members.md) — type-member declarations, ownership, identity, lookup, application, and projection normalization;
+- [`structural-products.md`](structural-products.md) — static structural Tuple/Record typing and closed structural type operations;
 - [`generic-constraints.md`](generic-constraints.md) — generic `where` constraints, conformance bounds, associated specialization, generic projection, equivalence, and subtyping constraints;
-- [`associated-types.md`](associated-types.md) — trait-owned associated declarations, conformance bindings, projection identity, and normalization;
+- [`associated-types.md`](associated-types.md) — trait-owned associated declarations, conformance bindings, and the trait specialization of general type members;
 - [`objects/`](objects/) — values, data objects, enums, traits, and implementation declarations;
 - [`callables/`](callables/) — selectors, arguments, methods, callable values, closures, references, families, dispatch, execution context, binding, and callable reflection.
 
@@ -81,8 +84,11 @@ An accepted decision or implementation checkpoint that changes current language 
 
 | Domain | Owning specification |
 | --- | --- |
+| Type-level kinds, type forms, packs, rows, and compile-time parameter domains | [`type-level-domains.md`](type-level-domains.md) |
+| Type-member declarations, ownership, identity, lookup, application, and projection normalization | [`type-members.md`](type-members.md) |
+| Structural Tuple/Record typing and closed structural type operations | [`structural-products.md`](structural-products.md) |
 | Generic `where` constraints and generic evidence | [`generic-constraints.md`](generic-constraints.md) |
-| Associated declarations, bindings, projection identity, normalization | [`associated-types.md`](associated-types.md) |
+| Trait-owned associated declarations, bindings, and conformance evidence | [`associated-types.md`](associated-types.md) |
 | Source declaration modifiers, access domains, implementation origin, and legacy namespace retirement | [`source-declarations.md`](source-declarations.md) |
 | Foundational value/object semantics and exactness | [`objects/values.md`](objects/values.md) |
 | Nominal transparent data objects | [`objects/data-objects.md`](objects/data-objects.md) |
@@ -122,11 +128,17 @@ Other specifications may summarize the rule needed for local context, but they s
 For example:
 
 ```text
-associated declaration identity
+type-member declaration/projection identity and result domains
+    owned by type-members.md
+
+trait-associated ownership, bindings, and evidence
     owned by associated-types.md
 
+structural Tuple/Record formation and operations
+    owned by structural-products.md
+
 generic T::Item / <T as Trait>::Item syntax
-    owned by generic-constraints.md
+    owned by generic-constraints.md, using the projection model from type-members.md
 
 trait conformance and witness selection
     owned by objects/traits.md

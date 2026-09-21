@@ -11,6 +11,8 @@ use crate::types::store::{TypeData, TypeStore};
 pub enum CompiledKindRef {
     Type,
     RecordRow,
+    TypePack,
+    LabeledTypePack,
     Arrow {
         parameters: Box<[CompiledKindRef]>,
         result: Box<CompiledKindRef>,
@@ -87,6 +89,8 @@ pub fn export_kind(store: &TypeStore, kind: KindId) -> CompiledKindRef {
     match store.get_kind(kind) {
         KindData::Type => CompiledKindRef::Type,
         KindData::RecordRow => CompiledKindRef::RecordRow,
+        KindData::TypePack => CompiledKindRef::TypePack,
+        KindData::LabeledTypePack => CompiledKindRef::LabeledTypePack,
         KindData::Arrow { parameters, result } => {
             let p_kinds: Vec<CompiledKindRef> = parameters.iter().map(|&p| export_kind(store, p)).collect();
             let r_kind = export_kind(store, *result);
@@ -157,8 +161,14 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
             })
         }
         TypeData::ExactCase { enum_type, .. } => export_type_form(store, *enum_type),
-        TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::ClassObject { .. } | TypeData::Family(_) | TypeData::AssociatedProjection(_) => {
-            Err(SemanticExportError::NonExportableTypeForm { form })
-        }
+        TypeData::Lambda(_)
+        | TypeData::SelfType(_)
+        | TypeData::ClassObject { .. }
+        | TypeData::Family(_)
+        | TypeData::AssociatedProjection(_)
+        | TypeData::TypePack(_)
+        | TypeData::LabeledTypePack(_)
+        | TypeData::TupleFromPacks { .. }
+        | TypeData::TypeMemberProjection(_) => Err(SemanticExportError::NonExportableTypeForm { form }),
     }
 }

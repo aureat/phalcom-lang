@@ -8,6 +8,10 @@ pub enum KindData {
     Type,
     /// Record row kind (`RecordRow`).
     RecordRow,
+    /// Ordered sequence of types (`TypePack`).
+    TypePack,
+    /// Ordered sequence of labeled types (`LabeledTypePack`).
+    LabeledTypePack,
     /// Type constructor (`Kind -> Kind` or `(Kind, ...) -> Kind`).
     Arrow { parameters: Box<[KindId]>, result: KindId },
 }

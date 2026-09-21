@@ -7,10 +7,13 @@ use super::kind::KindApplicationError;
 use super::outcome::{BlockReason, BudgetReport};
 use super::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
 use super::row::RecordRowTail;
-use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore};
+use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
 use super::type_lambda::{
     ScopedCallableParameter, ScopedCallableType, ScopedOpenRecord, ScopedRecordField, ScopedRecordTail, ScopedTupleElement, ScopedTypeData,
     TypeLambdaProvenance,
+};
+use super::type_member::{
+    ConstTerm, IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
 };
 use super::variance::Variance;
 use crate::declarations::DeclarationTypeTable;
@@ -349,6 +352,8 @@ pub fn resolve_kind_syntax(store: &mut TypeStore, kind: &KindSyntax) -> KindReso
     match kind {
         KindSyntax::Type(_) => KindResolution::Ready(KindId::TYPE),
         KindSyntax::RecordRow(_) => KindResolution::Ready(KindId::RECORD_ROW),
+        KindSyntax::TypePack(_) => KindResolution::Ready(KindId::TYPE_PACK),
+        KindSyntax::LabeledTypePack(_) => KindResolution::Ready(KindId::LABELED_TYPE_PACK),
         KindSyntax::Grouped { inner, .. } => resolve_kind_syntax(store, inner),
         KindSyntax::Arrow { parameter, result, .. } => {
             let p_kind = match resolve_kind_syntax(store, parameter) {
@@ -545,6 +550,13 @@ fn lower_scoped_type_form(
             name_range,
             range,
         } => resolve_qualified_associated_projection(store, declarations, resolver, site, subject, trait_ref, name, *name_range, *range, diagnostics)
+            .map_ready(|ty| intern_scoped_free(store, ty)),
+        TypeAnnotationExpr::TypeMemberProjection {
+            subject,
+            selector,
+            arguments,
+            range,
+        } => resolve_type_member_projection(store, declarations, resolver, site, subject, selector, arguments, *range, diagnostics)
             .map_ready(|ty| intern_scoped_free(store, ty)),
         TypeAnnotationExpr::Reference(sym_ref) => {
             let name = sym_ref.leaf_name();
@@ -1495,6 +1507,12 @@ pub fn resolve_type_form(
             ));
             TypeFormResolution::Invalid(TypeFormationInvalid::Syntax)
         }
+        TypeAnnotationExpr::TypeMemberProjection {
+            subject,
+            selector,
+            arguments,
+            range,
+        } => resolve_type_member_projection(store, declarations, resolver, site, subject, selector, arguments, *range, diagnostics),
         TypeAnnotationExpr::Invalid { message, range } => {
             diagnostics.push(SemanticDiagnostic::error_in(
                 current_module.clone(),
@@ -1504,6 +1522,118 @@ pub fn resolve_type_form(
             ));
             TypeFormResolution::Invalid(TypeFormationInvalid::Syntax)
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_type_member_projection(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn TypeResolver,
+    site: &TypeFormationSite,
+    subject: &TypeAnnotation,
+    selector: &phalcom_ast::ast::TypeMemberSelectorSyntax,
+    arguments: &[phalcom_ast::ast::TypeMemberArgumentSyntax],
+    range: phalcom_common::range::SourceRange,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> TypeFormResolution {
+    let current_module = &site.module;
+    let subject_res = resolve_type_form(store, declarations, resolver, site, subject, diagnostics);
+    let subject_ty = match subject_res {
+        TypeFormResolution::Ready(ty) => ty,
+        other => return other,
+    };
+
+    let canonical_selector = TypeMemberSelector::from_syntax(selector);
+    let mut canonical_args = Vec::with_capacity(arguments.len());
+
+    for arg in arguments {
+        match arg {
+            phalcom_ast::ast::TypeMemberArgumentSyntax::TypeForm(ann) => {
+                let arg_res = resolve_type_form(store, declarations, resolver, site, ann, diagnostics);
+                let arg_ty = match arg_res {
+                    TypeFormResolution::Ready(ty) => ty,
+                    other => return other,
+                };
+                canonical_args.push(TypeMemberArgument::Type(arg_ty));
+            }
+            phalcom_ast::ast::TypeMemberArgumentSyntax::IntLiteral { value, .. } => {
+                canonical_args.push(TypeMemberArgument::Const(ConstTerm::Int(*value)));
+            }
+            phalcom_ast::ast::TypeMemberArgumentSyntax::Name { name, range: arg_range } => {
+                let dummy_ann = TypeAnnotation {
+                    expr: TypeAnnotationExpr::Reference(phalcom_ast::ast::StaticSymbolRef {
+                        root: name.clone(),
+                        root_range: *arg_range,
+                        members: Vec::new(),
+                        range: *arg_range,
+                    }),
+                    range: *arg_range,
+                };
+                let arg_res = resolve_type_form(store, declarations, resolver, site, &dummy_ann, diagnostics);
+                let arg_ty = match arg_res {
+                    TypeFormResolution::Ready(ty) => ty,
+                    other => return other,
+                };
+                canonical_args.push(TypeMemberArgument::Type(arg_ty));
+            }
+        }
+    }
+
+    let target_domain = match store.get(subject_ty) {
+        TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => "Tuple",
+        TypeData::Record(_) => "Record",
+        TypeData::TypePack(_) => "TypePack",
+        TypeData::LabeledTypePack(_) => "LabeledTypePack",
+        TypeData::Nominal { declaration } if declaration.name.as_ref() == "Tuple" => "Tuple",
+        TypeData::Nominal { declaration } if declaration.name.as_ref() == "Record" => "Record",
+        _ => "",
+    };
+
+    let kind = match lookup_intrinsic_type_operation(target_domain, &canonical_selector) {
+        Some(IntrinsicTypeOperation::TuplePositionals) | Some(IntrinsicTypeOperation::TypePackMap) => KindId::TYPE_PACK,
+        Some(IntrinsicTypeOperation::TupleLabeled) | Some(IntrinsicTypeOperation::LabeledTypePackMap) => KindId::LABELED_TYPE_PACK,
+        _ => KindId::TYPE,
+    };
+
+    let projection = TypeLevelProjection {
+        subject: ProjectionSubject::Type(subject_ty),
+        selector: canonical_selector,
+        arguments: canonical_args.into_boxed_slice(),
+    };
+
+    let proj_ty = store.type_member_projection(projection, kind);
+
+    let mut budget = crate::types::outcome::QueryBudget::new(10000);
+    let cancel = crate::types::outcome::CancellationToken::new();
+    let empty_hier = crate::types::relation::MapTypeHierarchy::new();
+    let conformance_index = crate::impls::ConformanceIndex::new();
+    let witness_plans = std::collections::BTreeMap::new();
+    let trait_surfaces = crate::traits::TraitSurfaceTable::new();
+    let mode = crate::types::projection::ProjectionNormalizationMode::Exact {
+        conformance_index: &conformance_index,
+        witness_plans: &witness_plans,
+        trait_surfaces: &trait_surfaces,
+        derived_rules: None,
+        declarations,
+        hierarchy: &empty_hier,
+    };
+    let mut context = crate::types::projection::ProjectionNormalizationContext::new(mode, &mut budget, &cancel);
+    let norm_res = crate::types::projection::normalize_type(store, proj_ty, &mut context);
+    match norm_res {
+        crate::types::projection::ProjectionNormalizationResult::Normalized(ty) | crate::types::projection::ProjectionNormalizationResult::Symbolic(ty) => {
+            TypeFormResolution::Ready(ty)
+        }
+        crate::types::projection::ProjectionNormalizationResult::InternalFailure(err) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                err.to_string(),
+                range,
+            ));
+            TypeFormResolution::Invalid(TypeFormationInvalid::Syntax)
+        }
+        _ => TypeFormResolution::Ready(proj_ty),
     }
 }
 
