@@ -4,8 +4,8 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C1
 kind: checkpoint-record
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 repository: aureat/phalcom-lang
 planning_baseline_revision: 5b63ade8073d13d6b528af4774181665c30cbd47
@@ -13,6 +13,8 @@ planning_baseline_subject: "fix(core): restore standalone semantic universe"
 prepared: 2026-09-21
 p1_implementation_revision: 479f8fb82fa58730fb2c40c2652b5e07016549ec
 p1_implementation_subject: "feat(semantic): add intrinsic type-level structural operations"
+p3_start_revision: 6551576035a6e55718497c457fac6073b322d599
+p3_start_subject: "feat(lang007): implement P2 authoritative specification and intrinsic keyword convergence"
 active_plan: null
 requires:
   - accepted LANG007 type-level domain semantics
@@ -44,13 +46,12 @@ Numbered plans describe intended work. Walkthroughs record what a plan actually 
 Current lifecycle truth:
 
 ```yaml
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 ```
 
-P1 and P2 are complete and focused-tested. C1 remains in progress pending
-subsequent checkpoint plans (such as P3).
+P1, P2, and P3 are complete and focused-tested. `LANG007.C1` is complete and closed.
 
 ---
 
@@ -160,6 +161,7 @@ If P1 appears to require one of these to satisfy a C1 requirement, that is archi
 |---|---|---|---|---|---|
 | `LANG007.C1.P1` | semantic domains, type-member identity/projection, structural operations, inference/persistence, Universe/runtime boundary | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | completed at `479f8fb8`; final scoped validation remains uncommitted |
 | `LANG007.C1.P2` | authoritative specification and `intrinsic` keyword convergence | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | completed; TDR-0089 accepted, @intrinsic retired, intrinsic keyword preserved, normative specs converged |
+| `LANG007.C1.P3` | architecture baseline, cross-layer certification, roadmap re-baselining, and C1 closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | completed; architecture baseline established, cross-layer integration certified, incremental parity proven, acceptance matrix CV-01..CV-28 verified, roadmap re-baselined, C1 closed |
 
 P1 lifecycle closure is recorded by:
 
@@ -171,11 +173,16 @@ P2 lifecycle closure is recorded by:
 - `LANG007.C1.P2-walkthrough.md`
 - `LANG007.C1.P2-handoff.md`
 
-Latest completed plan: **`LANG007.C1.P2`**.
+P3 lifecycle closure is recorded by:
+
+- `LANG007.C1.P3-walkthrough.md`
+- `LANG007.C1.P3-handoff.md`
+
+Latest completed plan: **`LANG007.C1.P3`**.
 
 Active plan: **none**.
 
-Next action: `LANG007.C1.P3`.
+Next action: define and plan follow-on checkpoint `LANG007.C2`.
 
 ---
 
@@ -312,6 +319,9 @@ transcript remains in the P1 walkthrough.
 | P2 type members regression | `phalcom-semantic` foundations test target | `foundations::type_members` (6 tests) | `PASS` | regression proof for all P1 type-member operations |
 | P2 affected-crate compilation | `phalcom-ast`, `phalcom-semantic`, `phalcom-core` | `cargo check` for each crate | `PASS` | all affected crates compile cleanly |
 | P2 specification & audit searches | `docs/specs`, `docs/decisions`, `phalcom-*` | G1, G2, G3, T5 audit queries and `git diff --check` | `PASS` | zero live `@intrinsic` in current authority, singular ownership, no diff warnings |
+| P3 closure integration | `phalcom-semantic` integration target | `integration::type_member_closure` (9 tests) | `PASS` | alias identity, domain separation, trait compatibility, structural composition, zero products, metadata fingerprints, density |
+| P3 incremental cold parity | `phalcom-semantic` incremental target | `incremental::type_members` (2 tests) | `PASS` | cold/incremental final-state parity for Tuple indexing and Map edits without global invalidation |
+| P3 affected-crate & hygiene checks | `phalcom-ast`, `phalcom-type-meta`, `phalcom-semantic`, `phalcom-core` | `cargo check`, `cargo fmt --all -- --check`, `git diff --check` | `PASS` | affected crates check cleanly, formatting clean, zero diff warnings |
 
 Current checkpoint verification:
 
@@ -477,22 +487,21 @@ Current:
 
 ```text
 active plan: none
-latest completed C1 plan: LANG007.C1.P2
-next plan: LANG007.C1.P3
+latest completed C1 plan: LANG007.C1.P3
+next checkpoint: LANG007.C2
 blockers: none recorded; two unrelated baseline trait failures deferred
 ```
 
 Next action:
 
-> Execute `LANG007.C1.P3`. Consume the P2 walkthrough and handoff, verify the
-> synchronized decision and specification corpus, and proceed with the
-> architecture baseline and acceptance matrix.
+> `LANG007.C1` is complete and closed. Define and plan follow-on checkpoint
+> `LANG007.C2` (variadic generic parameters and pack expansion syntax).
 
-P1 and P2 closure state:
+C1 closure state:
 
 ```yaml
-checkpoint status: IN_PROGRESS
-checkpoint completion: PARTIAL
+checkpoint status: COMPLETE
+checkpoint completion: IMPLEMENTED
 checkpoint verification: FOCUSED_TESTED
 P1 status: COMPLETE
 P1 completion: IMPLEMENTED
@@ -500,6 +509,9 @@ P1 verification: FOCUSED_TESTED
 P2 status: COMPLETE
 P2 completion: IMPLEMENTED
 P2 verification: FOCUSED_TESTED
+P3 status: COMPLETE
+P3 completion: IMPLEMENTED
+P3 verification: FOCUSED_TESTED
 ```
 
 ---

@@ -34,10 +34,9 @@ LANG007 does not own ordinary runtime collection iteration, general VM dispatch,
 
 ### C1 — Semantic domains and compiler-intrinsic structural type operations
 
-**State:** `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`
+**State:** `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`
 
-P1 is complete and focused-tested. P2 is the active specification/source
-convergence plan; C1 is not yet release-complete.
+C1 is complete and focused-tested across all three numbered plans (P1, P2, P3).
 
 C1 is the first implementation checkpoint. It establishes the canonical domains, type-member identity/projection machinery, structural operations, persistence/inference integration, and runtime boundary required for:
 
@@ -61,23 +60,42 @@ Current numbered plans:
 
 - `LANG007.C1.P1` — semantic domains and compiler-intrinsic structural type operations — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C1.P2` — authoritative specification and `intrinsic` keyword convergence — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+- `LANG007.C1.P3` — architecture baseline, cross-layer certification, roadmap re-baselining, and C1 closure — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 
 C1 is not release certification for all future type-level programming.
 
+## Re-baselined capability map
+
+### Capabilities owned by C1 (DO NOT REIMPLEMENT)
+
+- `TypePack` and `LabeledTypePack` kinds, domains, and canonical terms (`TypeData::TypePack`, `TypeData::LabeledTypePack`);
+- Parameterized compiler-intrinsic type members and typed compile-time `Const(Int)` arguments;
+- Canonical type-member identity, selectors, and domain registry (`types/type_member.rs`);
+- Single canonical Subscript member identity for `T[I]` and `T::At<I>`;
+- Symbolic type-member projections (`TypeLevelProjection`, `TypeData::TypeMemberProjection`);
+- Closed compiler-side structural normalization for `Positionals`, `Labeled`, `At`, and `Map<F>`;
+- Shape-preserving `Map<F>` over `Tuple`, `Record`, `TypePack`, `LabeledTypePack`, and `RecordRow`;
+- Open-row mapped tails (`RecordRowTail::Projection` / `RecordRowMap`);
+- Substitution, materialization, and type-inference preservation (no query-local solver variable leakage);
+- Stable metadata nodes and validation (`KindNode`, `TypeNode::TypePack`, `TypeNode::LabeledTypePack`, `TypeNode::TypeMemberProjection`);
+- Source-target identity and alias convergence;
+- Incremental cold/incremental final-state parity for structural type edits;
+- Zero-product static distinctions (`Tuple([], []) ≡ Unit`, `Record({})` distinct static Record);
+- Zero VM type-member bytecode / solver execution / runtime object model.
+
+### Remaining capability gaps for future checkpoints
+
+- **Variadic generic syntax & expansion:** Pack expansion syntax (e.g. `...P`), variadic type parameters on functions/types;
+- **Variadic inference:** Inferring packs from call arguments, pack splitting, prefix/suffix decomposition;
+- **Variadic callable lowering & ABI:** Bytecode generation and calling convention for variadic parameter packs;
+- **Broader const generics:** User-declared const parameters beyond intrinsic member arguments;
+- **Additional structural operations:** Additional intrinsic type-level operators if accepted (e.g. pack concatenation, slicing);
+- **Tooling & LSP integration:** Editor hover, inlay hints, and navigation for symbolic structural projections;
+- **Release certification:** Program-wide release gates and performance benchmarking.
+
 ## Future checkpoint allocation
 
-No later LANG007 checkpoint identifier is assigned by this record.
-
-Expected follow-on concerns may include:
-
-- variadic pack expansion syntax and structural formation;
-- bounded sequence/pack inference;
-- broader compile-time generic argument support;
-- additional closed intrinsic structural operations;
-- richer reflection/tooling for type-level members and domains;
-- broader checkpoint/release certification.
-
-These are **program roadmap topics, not accepted checkpoint scope**. Create a new checkpoint only when its bounded acceptance objective is explicitly defined and differs from C1.
+Future LANG007 work will extend the canonical C1 substrate above. A candidate follow-on checkpoint `LANG007.C2` would focus on variadic generic parameters and pack expansion syntax once its bounded acceptance objective is formally specified and planned.
 
 ## Program dependency model
 
@@ -117,15 +135,13 @@ program: LANG007
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active checkpoint: LANG007.C1
-active plan: LANG007.C1.P2
-next checkpoint: LANG007.C1
-next plan: LANG007.C1.P2
+active checkpoint: null
+active_plan: null
+next checkpoint: LANG007.C2
+next plan: null
 ```
 
-The program is `IN_PROGRESS` because P1 implementation and focused test
-results are recorded while C1's P2 specification/source convergence remains
-active. `FOCUSED_TESTED` does not claim workspace-wide or release certification.
+The program is `IN_PROGRESS` with `LANG007.C1` fully complete at the `FOCUSED_TESTED` level. Follow-on roadmap checkpoints remain for future definition.
 
 ## Canonical records
 
@@ -142,6 +158,11 @@ docs/implementation/LANG007/
         LANG007.C1.P1-walkthrough.md
         LANG007.C1.P1-handoff.md
         LANG007.C1.P2-authoritative-specification-and-intrinsic-keyword-convergence.md
+        LANG007.C1.P2-walkthrough.md
+        LANG007.C1.P2-handoff.md
+        LANG007.C1.P3-architecture-baseline-cross-layer-certification-and-roadmap-rebaseline.md
+        LANG007.C1.P3-walkthrough.md
+        LANG007.C1.P3-handoff.md
 ```
 
 `PROGRAM.md` owns the long-lived program purpose and checkpoint map.
@@ -156,15 +177,4 @@ Numbered plans describe intended work; they do not replace checkpoint state.
 
 ## Next action
 
-Execute `LANG007.C1.P2` from T0. P1 lifecycle closure is recorded in the
-checkpoint, walkthrough, and handoff; the P2 start lock is satisfied.
-
-At P2 start:
-
-1. record the actual local repository revision and working-tree state;
-2. consume the P1 walkthrough and handoff rather than reconstructing P1;
-3. verify the live decision/specification authority and run the named
-   `@intrinsic`/`intrinsic` census;
-4. proceed through P2's ordered tasks and gates;
-5. update the checkpoint only at durable architecture/verification events;
-6. create the P2 walkthrough and handoff at P2 completion.
+`LANG007.C1` is complete. Next action is to define and plan follow-on checkpoint `LANG007.C2` (variadic generic parameters and pack expansion syntax).

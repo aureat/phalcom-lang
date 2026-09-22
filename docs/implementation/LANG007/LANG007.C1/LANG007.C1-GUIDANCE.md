@@ -57,19 +57,15 @@ Current state:
 
 ```yaml
 checkpoint: LANG007.C1
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 active plan: none
-next plan: LANG007.C1.P3
+next plan: null
 planning baseline: 5b63ade8073d13d6b528af4774181665c30cbd47
 ```
 
-No implementation test has run.
-
-The P1 plan is intent, not implementation evidence.
-
-At P1 T0 start, record the actual local revision and mark P1/checkpoint active.
+`LANG007.C1` is complete across P1, P2, and P3. Subsequent work extends the established C1 substrate.
 
 ---
 

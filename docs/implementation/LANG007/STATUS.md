@@ -13,11 +13,11 @@ prepared: 2026-09-21
 
 | Checkpoint | State | Active / next plan | Next action |
 |---|---|---|---|
-| `LANG007.C1` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | next: `LANG007.C1.P3` | begin P3 architecture baseline and acceptance matrix |
+| `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | next: candidate `LANG007.C2` | plan follow-on checkpoint extending C1 canonical substrate |
 
 ## Current program state
 
-LANG007 has focused-tested P1 and P2 implementations and is now preparing for P3. C1 is not yet release-complete.
+LANG007 has completed and focused-tested `LANG007.C1` across all three numbered plans (P1, P2, P3).
 
 Current truth:
 
@@ -27,9 +27,7 @@ completion: PARTIAL
 verification: FOCUSED_TESTED
 ```
 
-P1 and P2 implementation and focused verification are recorded in the checkpoint,
-walkthroughs, and handoffs. The program remains partial because further checkpoint
-plans remain and workspace-wide/release certification is intentionally deferred.
+`LANG007.C1` is complete. The program remains `IN_PROGRESS` because future roadmap topics (such as variadic pack expansion and bounded pack inference) remain for subsequent checkpoints.
 
 Implementation, focused testing, and release certification are separate evidence states.
 
@@ -58,6 +56,7 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 |---|---|---|---|---|
 | `LANG007.C1.P1` | semantic domains and compiler-intrinsic structural type operations | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C1.P2` | authoritative specification and `intrinsic` keyword convergence | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C1.P3` | architecture baseline, cross-layer certification, roadmap re-baseline, and C1 closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 
 P1 lifecycle records:
 
@@ -68,6 +67,11 @@ P2 lifecycle records:
 
 - `LANG007.C1/LANG007.C1.P2-walkthrough.md`
 - `LANG007.C1/LANG007.C1.P2-handoff.md`
+
+P3 lifecycle records:
+
+- `LANG007.C1/LANG007.C1.P3-walkthrough.md`
+- `LANG007.C1/LANG007.C1.P3-handoff.md`
 
 ## Administrative amendment
 
@@ -108,11 +112,4 @@ No implementation blocker is currently recorded.
 
 ## Next action
 
-Execute `LANG007.C1.P3`:
-
-```text
-T0  consume P2 walkthrough/handoff and verify synchronized decision/specification corpus
-T1  architecture baseline verification
-T2  acceptance matrix validation
-G1  C1 acceptance gate
-```
+`LANG007.C1` is complete. Next action is to define and plan follow-on checkpoint `LANG007.C2` (variadic generic parameters and pack expansion syntax).
