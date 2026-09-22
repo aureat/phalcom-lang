@@ -1,3 +1,8 @@
+//! Error handling and operations on computation outcomes with `Result<T, E>`.
+//!
+//! A `Result` represents either success (`Result::Ok(T)`) or failure (`Result::Error(E)`). It is
+//! the standard mechanism for recoverable error propagation in Phalcom.
+
 /// Represents the outcome of an operation that may succeed or fail.
 ///
 /// A `Result<T, E>` is either `Ok(value)`, containing a successful value of
@@ -54,20 +59,20 @@ impl<T, E> Result<T, E> {
     ///
     /// @returns `true` when this result is `Ok`; otherwise `false`.
     isOk -> Bool {
-        match(
-            ok: |v| { true },
-            err: |e| { false }
-        )
+        match self {
+            Result::Ok(_) => true
+            Result::Error(_) => false
+        }
     }
 
     /// Tests whether this result represents failure.
     ///
     /// @returns `true` when this result is `Error`; otherwise `false`.
     isErr -> Bool {
-        match(
-            ok: |v| { false },
-            err: |e| { true }
-        )
+        match self {
+            Result::Ok(_) => false
+            Result::Error(_) => true
+        }
     }
 
     /// Transforms the successful value of this result.
@@ -81,10 +86,10 @@ impl<T, E> Result<T, E> {
     /// @returns A result containing the transformed success value, or the
     /// original error when this result is `Error`.
     map<U>(_ f: (value: T) -> U) -> Result<U, E> {
-        self.match(
-            ok: |v| { Result::Ok(f.call(v)) },
-            err: |e| { Result::Error(e) }
-        )
+        match self {
+            Result::Ok(v) => Result::Ok(f.call(v))
+            Result::Error(e) => Result::Error(e)
+        }
     }
 
     /// Transforms the error of this result.
@@ -99,10 +104,10 @@ impl<T, E> Result<T, E> {
     /// @returns A result containing the original successful value, or the
     /// transformed error when this result is `Error`.
     mapErr<F>(_ f: (error: E) -> F) -> Result<T, F> {
-        self.match(
-            ok: |v| { Result::Ok(v) },
-            err: |e| { Result::Error(f.call(e)) }
-        )
+        match self {
+            Result::Ok(v) => Result::Ok(v)
+            Result::Error(e) => Result::Error(f.call(e))
+        }
     }
 
     /// Transforms both possible values of this result.
@@ -124,8 +129,8 @@ impl<T, E> Result<T, E> {
         err: (E) -> F
     ) -> Result<U, F> {
         match self {
-            Ok(value) => Result::Ok(ok.call(value))
-            Error(error) => Result::Error(err.call(error))
+            Result::Ok(value) => Result::Ok(ok.call(value))
+            Result::Error(error) => Result::Error(err.call(error))
         }
     }
 
@@ -147,10 +152,10 @@ impl<T, E> Result<T, E> {
     andThen<U>(
         _ f: (value: T) -> Result<U, E>
     ) -> Result<U, E> {
-        self.match(
-            ok: |v| { f.call(v) },
-            err: |e| { Result::Error(e) }
-        )
+        match self {
+            Result::Ok(v) => f.call(v)
+            Result::Error(e) => Result::Error(e)
+        }
     }
 
     /// Recovers from a failed result using another result-producing operation.
@@ -169,14 +174,10 @@ impl<T, E> Result<T, E> {
     orElse<F>(
         _ f: (error: E) -> Result<T, F>
     ) -> Result<T, F> {
-        self.match(
-            ok: |value| {
-                Result::Ok(value)
-            },
-            err: |error| {
-                f.call(error)
-            }
-        )
+        match self {
+            Result::Ok(value) => Result::Ok(value)
+            Result::Error(error) => f.call(error)
+        }
     }
 
     /// Tests whether this result is `Ok` and its successful value satisfies a
@@ -189,10 +190,10 @@ impl<T, E> Result<T, E> {
     /// @returns `true` when this result is `Ok` and `predicate` returns
     /// `true`; otherwise `false`.
     isOkAnd(_ predicate: (value: T) -> Bool) -> Bool {
-        self.match(
-            ok: |value| { predicate.call(value) },
-            err: |error| { false }
-        )
+        match self {
+            Result::Ok(value) => predicate.call(value)
+            Result::Error(_) => false
+        }
     }
 
     /// Tests whether this result is `Error` and its error satisfies a predicate.
@@ -204,10 +205,10 @@ impl<T, E> Result<T, E> {
     /// @returns `true` when this result is `Error` and `predicate` returns
     /// `true`; otherwise `false`.
     isErrAnd(_ predicate: (error: E) -> Bool) -> Bool {
-        self.match(
-            ok: |value| { false },
-            err: |error| { predicate.call(error) }
-        )
+        match self {
+            Result::Ok(_) => false
+            Result::Error(error) => predicate.call(error)
+        }
     }
 
     /// Performs an action on the successful value without changing the result.
@@ -225,15 +226,13 @@ impl<T, E> Result<T, E> {
     inspect(
         _ f: (value: T) -> Unit
     ) -> Result<T, E> {
-        self.match(
-            ok: |value| {
+        match self {
+            Result::Ok(value) => {
                 f.call(value)
                 Result::Ok(value)
-            },
-            err: |error| {
-                Result::Error(error)
             }
-        )
+            Result::Error(error) => Result::Error(error)
+        }
     }
 
     /// Performs an action on the error without changing the result.
@@ -250,15 +249,13 @@ impl<T, E> Result<T, E> {
     inspectErr(
         _ f: (error: E) -> Unit
     ) -> Result<T, E> {
-        self.match(
-            ok: |value| {
-                Result::Ok(value)
-            },
-            err: |error| {
+        match self {
+            Result::Ok(value) => Result::Ok(value)
+            Result::Error(error) => {
                 f.call(error)
                 Result::Error(error)
             }
-        )
+        }
     }
 
     /// Extracts the successful value from this result.
@@ -272,14 +269,10 @@ impl<T, E> Result<T, E> {
     ///
     /// @returns The successful value carried by `Ok`.
     unwrap -> T {
-        self.match(
-            ok: |value| {
-                value
-            },
-            err: |error| {
-                error.raise()
-            }
-        )
+        match self {
+            Result::Ok(value) => value
+            Result::Error(error) => error.raise()
+        }
     }
 
     /// Extracts the error from this result.
@@ -289,14 +282,10 @@ impl<T, E> Result<T, E> {
     ///
     /// @returns The error carried by `Error`.
     unwrapErr -> E {
-        self.match(
-            ok: |value| {
-                Error.new().raise()
-            },
-            err: |error| {
-                error
-            }
-        )
+        match self {
+            Result::Ok(_) => Error.new().raise()
+            Result::Error(error) => error
+        }
     }
 
     /// Extracts the successful value or returns a fallback value.
@@ -312,10 +301,10 @@ impl<T, E> Result<T, E> {
     /// @returns The successful value when this result is `Ok`; otherwise
     /// `default`.
     unwrapOr(_ default: T) -> T {
-        self.match(
-            ok: |v| { v },
-            err: |e| { default }
-        )
+        match self {
+            Result::Ok(v) => v
+            Result::Error(_) => default
+        }
     }
 
     /// Extracts the successful value or computes a fallback from the error.
@@ -333,14 +322,10 @@ impl<T, E> Result<T, E> {
     unwrapOrElse(
         _ f: (error: E) -> T
     ) -> T {
-        self.match(
-            ok: |value| {
-                value
-            },
-            err: |error| {
-                f.call(error)
-            }
-        )
+        match self {
+            Result::Ok(value) => value
+            Result::Error(error) => f.call(error)
+        }
     }
 
     /// Extracts the successful value, using a caller-provided message when
@@ -354,14 +339,10 @@ impl<T, E> Result<T, E> {
     /// extraction.
     /// @returns The successful value carried by `Ok`.
     expect(_ message: String) -> T {
-        self.match(
-            ok: |value| {
-                value
-            },
-            err: |error| {
-                UnwrapError.new(message, error).raise()
-            }
-        )
+        match self {
+            Result::Ok(value) => value
+            Result::Error(error) => UnwrapError.new(message, error).raise()
+        }
     }
 
     /// Extracts the error, using a caller-provided message when the result is
@@ -375,14 +356,10 @@ impl<T, E> Result<T, E> {
     /// extraction.
     /// @returns The error carried by `Error`.
     expectErr(_ message: String) -> E {
-        self.match(
-            ok: |value| {
-                UnwrapError.new(message, value).raise()
-            },
-            err: |error| {
-                error
-            }
-        )
+        match self {
+            Result::Ok(value) => UnwrapError.new(message, value).raise()
+            Result::Error(error) => error
+        }
     }
 
     /// Removes one level of nested `Result`.
@@ -399,14 +376,10 @@ impl<T, E> Result<T, E> {
     flatten<U>() -> Result<U, E>
         where T == Result<U, E>
     {
-        self.match(
-            ok: |result| {
-                result
-            },
-            err: |error| {
-                Result::Error(error)
-            }
-        )
+        match self {
+            Result::Ok(result) => result
+            Result::Error(error) => Result::Error(error)
+        }
     }
 
     /// Exchanges the nesting order of `Result` and `Option`.
@@ -421,21 +394,15 @@ impl<T, E> Result<T, E> {
     /// @returns The corresponding optional result.
     transpose<U>() -> Option<Result<U, E>> where T == Option<U>
     {
-        self.match(
-            ok: |option| {
-                option.match(
-                    some: |value| {
-                        Option::Some(Result::Ok(value))
-                    },
-                    none: || {
-                        Option::None
-                    }
-                )
-            },
-            err: |error| {
-                Option::Some(Result::Error(error))
+        match self {
+            Result::Ok(option) => {
+                match option {
+                    Option::Some(value) => Option::Some(Result::Ok(value))
+                    Option::None => Option::None
+                }
             }
-        )
+            Result::Error(error) => Option::Some(Result::Error(error))
+        }
     }
 
     /// Converts the successful side of this result into an `Option`.
@@ -446,10 +413,10 @@ impl<T, E> Result<T, E> {
     /// @returns `Some` containing the successful value when this result is
     /// `Ok`; otherwise `None`.
     ok -> Option<T> {
-        self.match(
-            ok: |v| { Option::Some(v) },
-            err: |e| { Option::None }
-        )
+        match self {
+            Result::Ok(v) => Option::Some(v)
+            Result::Error(_) => Option::None
+        }
     }
 
     /// Converts the error side of this result into an `Option`.
@@ -460,10 +427,10 @@ impl<T, E> Result<T, E> {
     /// @returns `Some` containing the error when this result is `Error`;
     /// otherwise `None`.
     err -> Option<E> {
-        self.match(
-            ok: |v| { Option::None },
-            err: |e| { Option::Some(e) }
-        )
+        match self {
+            Result::Ok(_) => Option::None
+            Result::Error(e) => Option::Some(e)
+        }
     }
 
     /// Returns a string representation of this result.
@@ -474,9 +441,9 @@ impl<T, E> Result<T, E> {
     ///
     /// @returns The string representation of this result.
     toString -> String {
-        self.match(
-            ok: |v| { "Result::Ok(" + v.toString + ")" },
-            err: |e| { "Result::Error(" + e.toString + ")" }
-        )
+        match self {
+            Result::Ok(v) => "Result::Ok(" + v.toString + ")"
+            Result::Error(e) => "Result::Error(" + e.toString + ")"
+        }
     }
 }

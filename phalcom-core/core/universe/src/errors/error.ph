@@ -1,29 +1,22 @@
-// `Error` (U-CORE-6, ADR-0008) is bootstrapped natively with `_message` at
-// fixed slot 0 (`message`/`raise` are native primitives reading/using it
-// directly — `primitive/error.rs`), but ships with no user-visible way to
-// *set* that slot: bare `Error.new()` (the generic 0-arg allocator) leaves it
-// unset, and — per ADR-0011/U-INH §3.5 "fields stack, never alias" — a `.ph`
-// *subclass* that independently assigns a same-named `_message` field gets
-// its own **fresh** slot, not this one (`subclass_field_offset_stability`).
-// So the only way to reach the native slot 0 from `.ph` is an `@constructor`
-// declared on `Error` **itself**: this reopen (recognised at compile time as
-// reopening the already-registered native class, not a fresh `extends`) adds
-// exactly that, giving `Error.new(msg)` a working 1-arg constructor and every
-// subclass a `super.new(msg)` to route through (error-handling.md §1,
-// U-ERR: `throw ArgumentError("age must be >= 0")`-style user `Error`
-// subclasses need this to carry a real `message`).
+//! Base error hierarchy and runtime exception definitions.
+//!
+//! All catchable exceptions in Phalcom inherit from `Error`. This module defines the
+//! base `Error` class carrying messages, causes, kinds, and displaced payloads.
+
+/// Base class for all exception and error types in Phalcom.
+///
+/// `Error` instances carry a message string, an optional diagnostic error kind, an optional
+/// causal error chain, and an optional displaced payload.
 native class Error is Object {
   native message -> String
   native raise() -> Dynamic
-  _message // : Option<String>
-  _kind // : Option<Symbol>
-  _cause // : Option<Error>
-  _displaced // : Option<?>
 
-  // Preserved bare 0-arg form (many pre-U-ERR call sites — `Error.new()` in
-  // Fiber/Future fixtures — rely on it; declaring *any* `new`-named
-  // `@constructor` drops the generic inherited bare allocator, U7, so this must
-  // be declared explicitly alongside the 1-arg form below, not left implicit).
+  _message
+  _kind
+  _cause
+  _displaced
+
+  /// Creates a blank `Error` with no message.
   @constructor
   new() {
     _message = None
@@ -32,6 +25,9 @@ native class Error is Object {
     _displaced = None
   }
 
+  /// Creates an `Error` initialized with a message string.
+  ///
+  /// @param msg The error description.
   @constructor
   new(_ msg) {
     _message = msg
@@ -40,6 +36,7 @@ native class Error is Object {
     _displaced = None
   }
 
+  /// Initializes all metadata fields of this error.
   initialize(with msg, of kind, from cause, displaced) {
     _message = msg
     _kind = kind
@@ -47,39 +44,41 @@ native class Error is Object {
     _displaced = displaced
   }
 
+  /// The symbolic error classification kind, if set.
   kind { _kind }
 
+  /// Sets the symbolic error classification kind.
   kind=(_ value) { _kind = value }
 
+  /// The underlying cause of this error, if chained.
   cause { _cause }
 
+  /// Sets the underlying causal error.
   cause=(_ value) { _cause = value }
 
+  /// The displaced object associated with this error, if any.
   displaced { _displaced }
 
+  /// Sets the displaced object for this error.
   displaced=(_ value) { _displaced = value }
 }
 
+/// Raised when a receiver does not understand an invoked selector.
 native class MessageNotUnderstood is Error {}
 
+/// Raised when a fiber attempts to yield across an unmanaged native boundary.
 native class CannotYieldAcrossNativeFrame is Error {}
 
+/// Raised when accessing a closed resource or stream handle.
 native class UseAfterCloseError is Error {}
 
-/// Represents an invalid attempt to extract the opposite variant of a
-/// `Result`.
-///
-/// An `UnwrapError` is raised when an operation requiring `Ok` receives an
-/// `Error`, or when an operation requiring `Error` receives an `Ok`.
+/// Raised when unwrapping an `Option` or `Result` variant fails.
 class UnwrapError is Error {
-
-    /// Returns the diagnostic description of this unwrap failure.
-    ///
-    /// @returns A human-readable description of the invalid extraction.
-    toString -> String {
-        "called `Result::unwrap()` on an `Error` value"
-    }
+  /// Returns the diagnostic description of this unwrap failure.
+  toString -> String {
+    "called `Result::unwrap()` on an `Error` value"
+  }
 }
 
+/// Raised when an asynchronous operation or future times out.
 class TimeoutError is Error {}
-

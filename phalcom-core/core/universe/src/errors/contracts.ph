@@ -1,17 +1,13 @@
-// Design-by-Contract failure classes (U-ANNOT-CONTRACTS,
-// `docs/spec/v0.2/experimental/annotations-contracts.md`). Each is raised by
-// the woven `@requires`/`@ensures`/`@invariant` check emitted by
-// `phalcom-core/src/compiler/attributes.rs`'s `build_check_stmt` — zero Rust,
-// zero new primitive, ordinary `Error` subclasses that inherit `message`/
-// `raise` from the `_message`-slot machinery above.
+//! Contract verification and specification failure exception types.
+//!
+//! Defines the exception hierarchy for Design-by-Contract assertions,
+//! including preconditions, postconditions, and class invariants.
+
+/// Raised when a method precondition (`@requires`) is violated by the caller.
 class PreconditionError is Error {}
 
+/// Raised when a method postcondition (`@ensures`) fails upon returning.
 class PostconditionError is Error {}
 
+/// Raised when a class state invariant (`@invariant`) fails verification.
 class InvariantError is Error {}
-
-// Boundary-guard exception (error-handling.md §1, U-STRING). Raised by library
-// code to indicate invalid argument values or arities. Zero fields — the
-// inherited `Error` `@constructor new(msg)` gives `ArgumentError.new(msg)` a working
-// constructor for `throw ArgumentError.new("msg")` sites (U-INH inherited-ctor
-// resolution).

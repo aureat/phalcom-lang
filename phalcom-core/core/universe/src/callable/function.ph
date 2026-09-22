@@ -1,32 +1,24 @@
+//! Abstract function and callable representation.
+//!
+//! `Function` is the root class for invokable routines, methods, and closures.
 
-// The throw -> value bridge (error-handling.md §5): runs `self` (0-arity),
-// capturing a `throw` into `Result::Error(e)`; success is `Result::Ok(v)`. Pure `.ph` over
-// `on(_)(_)` (U-ERR, ADR-0038) — no floor cost. Installed on the abstract
-// `Function` root so both `Closure` and (reflectively) `Method` inherit it,
-// mirroring how `call`/`on`/`ensure` are native on both.
+/// Root abstract class for callable values in Phalcom.
+///
+/// Inherited by `Closure` and `Method`. Provides dynamic invocation, arity inspection,
+/// and error-capturing helpers.
 native class Function is Object {
   native arity -> Int
   native name -> Symbol
   native callWith(_ value: Dynamic) -> Dynamic
   native call(***args: Dynamic) -> Dynamic
-  // Explicit `()` (a method, not a getter — `attempt() { … }` vs `attempt {
-  // …`) so the call-site selector encodes as `attempt()`, matching the
-  // spec's `{ risky() }.attempt()` call form (error-handling.md §5) exactly.
+
+  /// Executes this zero-argument callable, capturing any raised `Error` into a `Result`.
+  ///
+  /// Returns `Result::Ok(value)` upon successful completion, or `Result::Error(e)`
+  /// if an error was raised.
+  ///
+  /// @returns Execution outcome as a `Result`.
   attempt() {
     return || { Result::Ok(self.call()) }.on(Error) |e| { Result::Error(e) }
   }
 }
-
-// Kernel List (ADR-0020): a native array-backed heap object (ListObject),
-// not an InstanceObject — bootstrapped in Rust (universe.rs) with five floor
-// implementation primitives (`rawLength`/`rawAt`/`rawSet`/`rawPush`, plus native `new()`). This
-// skeleton reopens that bootstrapped row to define the public protocol over
-// those primitives (ADR-0019's "hybrid: native primitives, self-defined
-// control"). `toString` is ALSO a native primitive this unit, not defined
-// here — see the U-LIST return contract for why (element-value stringification
-// is blocked on U-CORE-4; DEFERRED.md #19). U-STD (catalog-delta §2.4;
-// DEFERRED.md #18/#20/#25) discharges the deferral for the combinator layer:
-// `map`/`reduce`/`filter`/`includes`/`isEmpty` and the `at(_:put:)` wrapper
-// over `rawSet` now live below, all pure `.ph` over the floor. Only
-// **list-literal syntax** `[a, b, c]` remains deferred (it needs a new ADR +
-// parser work; DEFERRED.md #6) — do not add that here.

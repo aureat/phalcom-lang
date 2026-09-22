@@ -1,3 +1,8 @@
+//! Representation of optional values and absence handling.
+//!
+//! `Option<T>` is the foundational type for representing values that may or may not be
+//! present. It encapsulates either `Some(value)` of type `T` or `None` representing absence.
+
 /// Represents the presence or absence of a value.
 ///
 /// `Option<T>` contains either `Some(value)`, which carries a value of type `T`,
@@ -52,13 +57,13 @@ impl<T> Option<T> {
   /// @param f A zero-argument callback invoked only when this option is `None`.
   /// @returns This option unchanged.
   ifNone(_ f: () -> Unit) -> Option<T> {
-    match(
-      some: |v| self,
-      none: || {
+    match self {
+      Option::Some(_) => self
+      Option::None => {
         f.call()
         self
       }
-    )
+    }
   }
 
   /// Returns this option when it contains a value, or computes an alternative
@@ -73,30 +78,30 @@ impl<T> Option<T> {
   /// @returns This option when it is `Some`; otherwise, the option returned by
   /// `f`.
   orElse(_ f: () -> Option<T>) -> Option<T> {
-    match(
-      some: |v| self,
-      none: || f.call()
-    )
+    match self {
+      Option::Some(_) => self
+      Option::None => f.call()
+    }
   }
 
   /// Tests whether this option contains a value.
   ///
   /// @returns `true` when this option is `Some`; otherwise `false`.
   isSome -> Bool {
-    match(
-      some: |v| true,
-      none: || false
-    )
+    match self {
+      Option::Some(_) => true
+      Option::None => false
+    }
   }
 
   /// Tests whether this option represents absence.
   ///
   /// @returns `true` when this option is `None`; otherwise `false`.
   isNone -> Bool {
-    match(
-      some: |v| false,
-      none: || true
-    )
+    match self {
+      Option::Some(_) => false
+      Option::None => true
+    }
   }
 
   /// Transforms the value contained by this option.
@@ -110,10 +115,10 @@ impl<T> Option<T> {
   /// @returns `Some` containing the transformed value when this option is
   /// `Some`; otherwise `None`.
   map<U>(_ f: (T) -> U) -> Option<U> {
-    match(
-      some: |v| Option::Some(f.call(v)),
-      none: || self
-    )
+    match self {
+      Option::Some(v) => Option::Some(f.call(v))
+      Option::None => self
+    }
   }
 
   /// Transforms the value contained by this option using an operation that
@@ -131,10 +136,10 @@ impl<T> Option<T> {
   /// @returns The option returned by `f` when this option is `Some`; otherwise
   /// `None`.
   flatMap<U>(_ f: (T) -> Option<U>) -> Option<U> {
-    match(
-      some: |v| f.call(v),
-      none: || self
-    )
+    match self {
+      Option::Some(v) => f.call(v)
+      Option::None => self
+    }
   }
 
   /// Retains a contained value only when it satisfies a predicate.
@@ -150,18 +155,16 @@ impl<T> Option<T> {
   /// @returns This option when it is `None` or when the predicate succeeds;
   /// otherwise `None`.
   filter(_ pred: (T) -> Bool) -> Option<T> {
-    match(
-      some: |v| {
-        if (pred.call(v)) {
+    match self {
+      Option::Some(v) => {
+        if pred.call(v) {
           self
         } else {
           Option::None
         }
-      },
-      none: || {
-        self
       }
-    )
+      Option::None => self
+    }
   }
 
   /// Performs an action on the contained value without changing this option.
@@ -176,13 +179,13 @@ impl<T> Option<T> {
   /// option is `Some`.
   /// @returns This option unchanged.
   ifSome(_ f: (T) -> Unit) -> Option<T> {
-    match(
-      some: |v| {
+    match self {
+      Option::Some(v) => {
         f.call(v)
         self
-      },
-      none: || self
-    )
+      }
+      Option::None => self
+    }
   }
 
   /// Extracts the contained value or returns a fallback value.
@@ -198,10 +201,10 @@ impl<T> Option<T> {
   /// @returns The contained value when this option is `Some`; otherwise
   /// `default`. The result type is `T`.
   unwrapOr(_ default: T) -> T {
-    match(
-      some: |v| v,
-      none: || default
-    )
+    match self {
+      Option::Some(v) => v
+      Option::None => default
+    }
   }
 
   /// Returns a string representation of this option.
@@ -211,10 +214,10 @@ impl<T> Option<T> {
   ///
   /// @returns The string representation of this option.
   toString -> String {
-    match(
-      some: |v| "Some(" + v.toString + ")",
-      none: || "None"
-    )
+    match self {
+      Option::Some(v) => "Some(" + v.toString + ")"
+      Option::None => "None"
+    }
   }
 
   /// Converts this option into a `Result`, supplying an error for the absent
@@ -229,10 +232,10 @@ impl<T> Option<T> {
   /// @returns `Ok` containing the wrapped value when this option is `Some`;
   /// otherwise `Error` containing `err`.
   okOr<E>(_ err: E) -> Result<T, E> {
-    match(
-      some: |v| Result::Ok(v),
-      none: || Result::Error(err)
-    )
+    match self {
+      Option::Some(v) => Result::Ok(v)
+      Option::None => Result::Error(err)
+    }
   }
 
   /// Tests this option for value equality with another option.
@@ -245,19 +248,19 @@ impl<T> Option<T> {
   /// @param other The value to compare with this option.
   /// @returns `true` when `other` is an equivalent option; otherwise `false`.
   ==(_ other) -> Bool {
-    other.is(Option).ifFalse {
+    if not other.is(Option) {
       return false
     }
 
-    match(
-      some: |v| {
-        other.match(
-          some: |ov| v == ov,
-          none: || false
-        )
-      },
-      none: || other.isNone
-    )
+    match self {
+      Option::Some(v) => {
+        match other {
+          Option::Some(ov) => v == ov
+          _ => false
+        }
+      }
+      Option::None => other.isNone
+    }
   }
 
   /// Computes the hash value of this option.
@@ -269,9 +272,9 @@ impl<T> Option<T> {
   ///
   /// @returns The hash value of this option.
   hash -> Int {
-    self.match(
-      some: |v| v.hash,
-      none: || 0
-    )
+    match self {
+      Option::Some(v) => v.hash
+      Option::None => 0
+    }
   }
 }

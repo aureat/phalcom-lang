@@ -1,17 +1,41 @@
+//! Concurrency primitives, asynchronous computation (`Future`), fibers, and scheduling.
+//!
+//! Provides the core building blocks for concurrency in Phalcom:
+//! - `System`: System-level operations, scheduling, time, and fiber dispatch.
+//! - `Fiber`: Lightweight cooperative coroutines and execution contexts.
+//! - `Future<T>`: Settle-once asynchronous computation handles.
+//! - `CompletionSource<T>`: Explicit producer capability for creating and resolving futures.
+//! - `FutureSubscription`: Lifecycle handle for readiness observers on futures.
+//! - `Backoff`: Delay strategies for retries and polling.
+//! - `Tracer` & `OffBehavior`: Observability sinks and feature flag fallback configurations.
+
+/// Low-level system interface for scheduling, I/O, garbage collection, and diagnostics.
 native class System is Object {
 
+  /// Prints the string representation of an object to the standard output.
+  ///
+  /// @param value Object to print.
   @class
   native print(_ value: Object) -> Unit
 
+  /// Prevents direct instantiation of `System`.
   @class
-  native new() -> Never
+  native new() -> Dynamic
 
+  /// Enqueues a fiber for execution in the cooperative scheduler.
+  ///
+  /// @param fiber Target fiber to schedule.
+  /// @returns The scheduled fiber.
   @class
   native schedule(_ fiber: Object) -> Fiber
 
+  /// Suspends the current execution context asynchronously for the given duration.
+  ///
+  /// @param duration Time duration to sleep.
+  /// @returns A `Future` that fulfills with `Unit` when the duration elapses.
   @class
   sleep(_ duration: Duration) -> Future<Unit> {
-    System.sleepRaw(duration.nanoseconds)
+    sleepRaw(duration.nanoseconds)
   }
 
   @class
@@ -32,6 +56,7 @@ native class System is Object {
   @class
   internal native wake(_ fiber: Fiber, _ generation: Int) -> Bool
 
+  /// Triggers a garbage collection cycle.
   @class
   native gc -> Unit
 
@@ -44,13 +69,13 @@ native class System is Object {
   @class
   internal native strictResources(_ enabled: Bool) -> Unit
 
-  // U-STRING write funnel (ADR-0049 amendment): pure `.ph` control flow over
-  // native `write_(_)` and the `toString` message. Additive-only: does not
-  // touch the native `print(_)` pathway (pre-existing divergence between
-  // `Value::to_string` and the `.toString` message is out of scope).
+  /// Writes the string representation of an object to the standard output without a newline.
+  ///
+  /// @param obj Object to write.
+  /// @returns The input object.
   @class
   write(_ obj: Object) -> Object {
-    System.writeObject(obj)
+    writeObject(obj)
     obj
   }
 
@@ -58,50 +83,51 @@ native class System is Object {
   private writeObject(_ obj: Object) -> Object {
     const s = obj.toString
     if s is String {
-      System.rawWrite(s)
+      rawWrite(s)
     } else {
-      System.rawWrite("invalid toString")
+      rawWrite("invalid toString")
     }
     obj
   }
 
-  // U-SCHED: the `.ph`-callable counterpart to `VM::run`'s native
-  // root-drive belt-and-suspenders pump (`vm/dispatch.rs`) — pumps
-  // `System.nextScheduled` to exhaustion, scheduler-resuming each queued
-  // fiber (capture-not-propagate, so one scheduled task's uncaught raise
-  // cannot abort another) — including any fiber a running scheduled fiber
-  // itself schedules mid-drain, since `nextScheduled` is re-read every
-  // iteration. Deliberately does **not** unwrap via `.match(some:none:)`
-  // (which runs its arm through `Closure#call`'s native re-entrant
-  // `run_until`, forbidding a fiber switch underneath, ADR-0030 §4):
-  // `f.resumeScheduled()`
-  // must run at this method's own top level, not nested inside a block a
-  // native primitive is driving, so the receiver is unwrapped via
-  // `unwrapOr(_)` into a plain local first, and `resumeScheduled()` sent as its own
-  // statement.
+  /// Pumps all currently scheduled fibers to completion in the current thread.
+  ///
+  /// Iterates through queued fibers until the run queue is exhausted and reports
+  /// any unhandled failures.
   @class
   runScheduled() -> Unit {
-    let next = System.nextScheduled
-    while (next.isSome) {
+    let next = nextScheduled
+    while next.isSome {
       let f = next.unwrapOr(None)
       f.resumeScheduled()
-      next = System.nextScheduled
+      next = nextScheduled
     }
-    System.reportUnhandledScheduledFailures
+    reportUnhandledScheduledFailures
     ()
   }
 }
 
+/// Lightweight cooperative execution context (coroutine / fiber).
+///
+/// Fibers encapsulate a stack, execution state, and completion lifecycle.
 native class Fiber is Object {
+
+  /// Creates a new fiber wrapping the given callable entry point.
+  ///
+  /// @param body Function or closure to execute.
   @class
   native new(_ body: Function) -> Fiber
 
+  /// Resumes or starts this fiber without arguments.
   native call() -> Dynamic
 
+  /// Resumes or starts this fiber, passing a value to the yield point.
   native call(_ value: Dynamic) -> Dynamic
 
+  /// Resumes this fiber in protected mode, capturing runtime errors.
   native try() -> Dynamic
 
+  /// Resumes this fiber with an argument in protected mode.
   native try(_ value: Dynamic) -> Dynamic
 
   internal native resumeScheduled() -> Dynamic
@@ -114,27 +140,33 @@ native class Fiber is Object {
 
   internal native terminalValue -> Dynamic
 
+  /// Yields execution from the currently active fiber back to its caller or scheduler.
   @class
   native yield() -> Dynamic
 
+  /// Yields execution from the active fiber, producing a value for the caller.
   @class
   native yield(_ value: Dynamic) -> Dynamic
 
+  /// Returns the currently executing fiber context.
   @class
   native current -> Fiber
 
+  /// Aborts the active fiber immediately with the given error.
   @class
   native abort(_ error: Error) -> Never
 
+  /// Returns `true` if this fiber has terminated.
   native isDone -> Bool
 
+  /// Returns `true` if this fiber is the root execution fiber.
   native isRoot -> Bool
 
+  /// Returns the error that caused this fiber to abort, if any.
   native error -> Option<Error>
 }
 
-// Explicit readiness registration variant (`ParkedFiber` or `Callback`).
-// Supports idempotent detachment, release of captures, and lifecycle tracking.
+/// Registration handle representing a listener subscribed to future readiness.
 class FutureSubscription {
   @constructor
   fiber(_ id: Int, _ fiber: Fiber, _ generation: Int, _ onDetach: () -> Unit) {
@@ -158,17 +190,24 @@ class FutureSubscription {
     _state = "active"
   }
 
+  /// Subscription identifier.
   id -> Int { _id }
+
+  /// Returns `true` if this subscription is actively awaiting delivery.
   isActive -> Bool { _state == "active" }
+
+  /// Returns `true` if this subscription has been cancelled or detached.
   isDetached -> Bool { _state == "detached" }
 
-  // Idempotently cancels this subscription. Releases references immediately.
+  /// Detaches and cancels this subscription, releasing all references immediately.
+  ///
+  /// @returns `true` if the subscription was active and successfully detached.
   detach() -> Bool {
-    if (_state == "active") {
+    if _state == "active" {
       _state = "detached"
       _fiber = None
       _callback = None
-      if (_onDetach != None) {
+      if _onDetach != None {
         const hook = _onDetach
         _onDetach = None
         hook.call()
@@ -178,11 +217,11 @@ class FutureSubscription {
     return false
   }
 
-  // Delivers readiness notification: wakes parked fiber or runs callback.
+  /// Delivers readiness notification by waking the parked fiber or executing the callback.
   deliver() -> Unit {
-    if (_state == "active") {
+    if _state == "active" {
       _state = "delivered"
-      if (_kind == "fiber") {
+      if _kind == "fiber" {
         const f = _fiber
         const gen = _generation
         _fiber = None
@@ -192,7 +231,7 @@ class FutureSubscription {
         const cb = _callback
         _callback = None
         _onDetach = None
-        if (cb != None) {
+        if cb != None {
           cb.call()
         }
       }
@@ -201,16 +240,14 @@ class FutureSubscription {
   }
 }
 
-// `Future` (concurrency.md §2; ADR-0030 §1): a settle-once state machine over
-// a fulfilled/rejected result. A **plain `InstanceObject`** (concurrency.md §2
-// "Implementation" ¶1) — zero new floor, with scheduler-owned waiting routed
-// through private ticketed Fiber park/wake seams.
-//
-// Matching then/map/catch callbacks always run on observed scheduler Fibers,
-// independent of whether the receiver was already settled at registration.
-// Await of an already-settled Future is an immediate state read.
+/// Settle-once representation of an asynchronous computation outcome.
+///
+/// A `Future<T>` transitions from pending to either fulfilled (with `T`) or
+/// rejected (with `Error`). It provides combinators for chaining, transformation,
+/// recovery, and concurrency orchestration.
 class Future<T> {
-  // Builds a pending future (U-FUTURE Slice B).
+
+  /// Creates a pending future.
   @constructor
   new() {
     _outcome = None
@@ -219,47 +256,44 @@ class Future<T> {
     _detachCount = 0
   }
 
-  // Builds an already-`fulfilled` future wrapping `v` (concurrency.md §2
-  // `@constructor value(_)`). Goes through the pending→`settleValue` path
-  // rather than setting `_outcome` directly so construction and
-  // post-construction settlement share one settle-once code path.
+  /// Creates an already-fulfilled future containing `v`.
+  ///
+  /// @param v Value to fulfill with.
   @constructor
   value(_ v: T) {
     _outcome = None
     _registrations = List.new()
     _nextRegId = 0
     _detachCount = 0
-    self.settleValue(v)
+    settleValue(v)
   }
 
-  // Builds an already-`rejected` future wrapping `e` (concurrency.md §2
-  // `@constructor error(_)`); see `value(_)` for why this routes
-  // through `settleError` instead of assigning state directly.
+  /// Creates an already-rejected future containing `e`.
+  ///
+  /// @param e Error to reject with.
   @constructor
   error(_ e: Error) {
     _outcome = None
     _registrations = List.new()
     _nextRegId = 0
     _detachCount = 0
-    self.settleError(e)
+    settleError(e)
   }
 
-  // `true` once `self` has settled (`fulfilled` or `rejected`); `false`
-  // while `pending`.
+  /// Returns `true` if this future has settled (fulfilled or rejected).
   isReady -> Bool { _outcome.isSome }
 
-  // Internal single settlement transition. Returns `true` if this call settled the future,
-  // or `false` if the future was already settled (settle-once).
+  /// Internal settlement transition.
   internal trySettle(_ outcome: Result<T, Error>) -> Bool {
-    if self.isReady {
+    if isReady {
       return false
     }
-    _outcome = Some(outcome)
+    _outcome = Option::Some(outcome)
     const regs = _registrations
     _registrations = List.new()
     let i = 0
     const n = regs.size
-    while (i < n) {
+    while i < n {
       const r = regs.at(i)
       r.deliver()
       i = i + 1
@@ -267,41 +301,42 @@ class Future<T> {
     true
   }
 
-  // Settles `self` as `fulfilled` with `v`, unless already settled (settle-
-  // once, C-FUT-3): a `self.isReady` receiver is a no-op that returns `self`
-  // unchanged, so a second `settleValue`/`settleError` can never clobber the
-  // first result. Returns `self` either way so callers can chain.
+  /// Settles this future as fulfilled with `v` if pending; otherwise no-op.
+  ///
+  /// @param v Success value.
+  /// @returns `self` for chaining.
   settleValue(_ v: T) -> Future<T> {
     const res: Result<T, Error> = Result::Ok(v)
-    self.trySettle(res)
+    trySettle(res)
     self
   }
 
-  // Settles `self` as `rejected` with `e` (an `Error`), unless already
-  // settled — the rejection sibling of `settleValue(_)`; see it for
-  // the settle-once contract (C-FUT-3).
+  /// Settles this future as rejected with `e` if pending; otherwise no-op.
+  ///
+  /// @param e Error instance.
+  /// @returns `self` for chaining.
   settleError(_ e: Error) -> Future<T> {
     const res: Result<T, Error> = Result::Error(e)
-    self.trySettle(res)
+    trySettle(res)
     self
   }
 
-  // The settled value as an `Option` (concurrency.md §2): `Some(v)` once
-  // `fulfilled`, `None` while `pending` or once `rejected` (the rejection
-  // reason is reached via `catch(_)`/`then(_)`, not `value`).
+  /// Returns the settled value as an `Option<T>`.
+  ///
+  /// Returns `Some(value)` when fulfilled, or `None` when pending or rejected.
   value -> Option<T> {
-    _outcome.match(
-      some: |out| {
-        out.match(
-          ok: |v| { Some(v) },
-          err: |_| { None }
-        )
-      },
-      none: || { None }
-    )
+    match _outcome {
+      Option::Some(out) => {
+        match out {
+          Result::Ok(v) => Some(v)
+          _ => None
+        }
+      }
+      _ => None
+    }
   }
 
-  // The complete settlement outcome as an `Option<Result<T, Error>>`.
+  /// Returns the complete settlement outcome as `Option<Result<T, Error>>`.
   outcome -> Option<Result<T, Error>> {
     _outcome
   }
@@ -311,7 +346,7 @@ class Future<T> {
     const compacted = List.new()
     let i = 0
     const n = _registrations.size
-    while (i < n) {
+    while i < n {
       const r = _registrations.at(i)
       if r.isActive {
         compacted.rawPush(r)
@@ -322,73 +357,58 @@ class Future<T> {
     ()
   }
 
-  // Subscribes a callback to readiness, returning a detachable `FutureSubscription`.
-  subscribeReady(_ callback: () -> Unit) -> FutureSubscription {
+  /// Internal subscription seam for callbacks.
+  internal subscribeReady(_ callback: () -> Unit) -> FutureSubscription {
+    const regId = _nextRegId
     _nextRegId = _nextRegId + 1
+
     const reg = FutureSubscription.callback(
-      _nextRegId,
+      regId,
       callback,
       || {
         _detachCount = _detachCount + 1
-        if (_detachCount >= 16) {
-          self.compactRegistrations()
+        if _detachCount >= 16 {
+          compactRegistrations()
           _detachCount = 0
         }
       }
     )
-    if self.isReady {
+
+    if isReady {
       reg.deliver()
-    } else {
-      _registrations.rawPush(reg)
+      return reg
+    }
+
+    _registrations.rawPush(reg)
+    if isReady {
+      reg.deliver()
     }
     reg
   }
 
-  // Backward compatibility helper for internal combinator wiring.
-  private whenReady(_ continuation: () -> Unit) -> FutureSubscription {
-    self.subscribeReady(continuation)
-  }
-
-  // Suspends the current scheduler-owned fiber until settled (U-FUTURE Slice
-  // B). A non-root await registers an exact `(Fiber, generation)` ticket and
-  // performs an authorized Future park. The root fiber drives the scheduler
-  // because it cannot park itself.
+  /// Suspends the current fiber until this future settles, returning the value or re-raising the error.
+  ///
+  /// @returns Fulfilled value of type `T`.
   await -> T {
-    while (not self.isReady) {
-      if (Fiber.current.isRoot) {
-        // Pump until someone settles us. If the ready queue drains while we are
-        // still pending, nothing can settle us and looping again would spin
-        // forever in silence (E004(b)) — report it instead. Scheduler resume
-        // isolates one scheduled task's uncaught raise from the others.
-        const failure_cursor = System.schedulerFailureCursor
-        while (not self.isReady) {
-          const next = System.nextScheduled
-          if (next.isNone) {
-            if (self.isReady) {
-              break
-            }
-            const failures = System.takeUnhandledScheduledFailures(failure_cursor)
-            if failures.isSome {
-              const details = failures.unwrapOr("")
-              return Error.new("await: the future is still pending and the scheduler is empty; nothing can currently settle it.\n" + details).raise()
-            }
-            return Error.new("await: the future is still pending and the scheduler is empty; nothing can settle it").raise()
-          }
-          const f = next.unwrapOr(None)
-          f.resumeScheduled()
-        }
+    while not isReady {
+      const current = Fiber.current
+      if current.isRoot {
+        System.runScheduled()
       } else {
-        const current = Fiber.current
         const generation = current.preparePark()
+        if isReady {
+          break
+        }
+        const regId = _nextRegId
         _nextRegId = _nextRegId + 1
         const reg = FutureSubscription.fiber(
-          _nextRegId,
+          regId,
           current,
           generation,
           || {
             _detachCount = _detachCount + 1
-            if (_detachCount >= 16) {
-              self.compactRegistrations()
+            if _detachCount >= 16 {
+              compactRegistrations()
               _detachCount = 0
             }
           }
@@ -402,21 +422,22 @@ class Future<T> {
         }
       }
     }
-    _outcome.match(
-      some: |out| {
-        out.match(
-          ok: |v| { v },
-          err: |e| { e.raise() }
-        )
-      },
-      none: || {
+
+    match _outcome {
+      Option::Some(out) => {
+        match out {
+          Result::Ok(v) => v
+          Result::Error(e) => e.raise()
+          _ => Error.new("await: invalid outcome").raise()
+        }
+      }
+      _ => {
         Error.new("await: future settled without outcome").raise()
       }
-    )
+    }
   }
 
   // Runs `action` to terminal completion and invokes the matching callback.
-  // Nonterminal park/yield turns do not call either callback.
   @class
   private runToTerminal<U>(_ action: () -> U, _ onSuccess: (U) -> Unit, _ onError: (Error) -> Unit) -> Fiber {
     const fiber = Fiber.new(action)
@@ -431,6 +452,11 @@ class Future<T> {
     fiber
   }
 
+  /// Executes an asynchronous block on a new fiber, returning a `Future` for its result.
+  ///
+  /// @typeparam U Return type of the asynchronous action.
+  /// @param action Block to execute asynchronously.
+  /// @returns Future tracking execution of the action.
   @class
   async<U>(_ action: () -> U) -> Future<U> {
     const result: Future<U> = Future.new()
@@ -442,41 +468,51 @@ class Future<T> {
     result
   }
 
-  // Value mapping preserves U exactly, including when U is itself a Future.
+  /// Transforms the fulfilled value of this future with a synchronous function.
+  ///
+  /// @typeparam U Target transformed value type.
+  /// @param callback Function mapping `T` to `U`.
+  /// @returns A new future resolving to the transformed value.
   map<U>(_ callback: (T) -> U) -> Future<U> {
     const result: Future<U> = Future.new()
-    self.subscribeReady(|| {
-      _outcome.match(
-        some: |out| {
-          out.match(
-            ok: |v| {
+    subscribeReady(|| {
+      match _outcome {
+        Option::Some(out) => {
+          match out {
+            Result::Ok(v) => {
               Future.runToTerminal(
                 || { callback.call(v) },
                 |value| { result.settleValue(value); () },
                 |error| { result.settleError(error); () }
               )
-            },
-            err: |e| {
+              ()
+            }
+            Result::Error(e) => {
               result.settleError(e)
               ()
             }
-          )
-        },
-        none: || { () }
-      )
+            _ => ()
+          }
+        }
+        _ => ()
+      }
+      ()
     })
     result
   }
 
-  // Chaining explicitly adopts the callback's Future; there is no type-based
-  // runtime guess between U-as-data and Future<U>-as-computation.
+  /// Chains an asynchronous computation after this future fulfills.
+  ///
+  /// @typeparam U Value type of the subsequent future.
+  /// @param callback Function returning a new future from the fulfilled value.
+  /// @returns A future tracking the chained computation.
   then<U>(_ callback: (T) -> Future<U>) -> Future<U> {
     const result: Future<U> = Future.new()
-    self.subscribeReady(|| {
-      _outcome.match(
-        some: |out| {
-          out.match(
-            ok: |v| {
+    subscribeReady(|| {
+      match _outcome {
+        Option::Some(out) => {
+          match out {
+            Result::Ok(v) => {
               Future.runToTerminal(
                 || {
                   const next = callback.call(v)
@@ -486,57 +522,69 @@ class Future<T> {
                 |value| { result.settleValue(value); () },
                 |error| { result.settleError(error); () }
               )
-            },
-            err: |e| {
+              ()
+            }
+            Result::Error(e) => {
               result.settleError(e)
               ()
             }
-          )
-        },
-        none: || { () }
-      )
+            _ => ()
+          }
+        }
+        _ => ()
+      }
+      ()
     })
     result
   }
 
-  // A recovery value must inhabit the Future's payload type. Returning another
-  // Future as data remains distinct from recovering with asynchronous work.
+  /// Recovers from a rejection by computing a fallback value of type `T`.
+  ///
+  /// @param callback Error recovery function returning `T`.
+  /// @returns A future recovering to a valid value on error.
   catch(_ callback: (Error) -> T) -> Future<T> {
     const result: Future<T> = Future.new()
-    self.subscribeReady(|| {
-      _outcome.match(
-        some: |out| {
-          out.match(
-            ok: |v| {
+    subscribeReady(|| {
+      match _outcome {
+        Option::Some(out) => {
+          match out {
+            Result::Ok(v) => {
               result.settleValue(v)
               ()
-            },
-            err: |e| {
+            }
+            Result::Error(e) => {
               Future.runToTerminal(
                 || { callback.call(e) },
                 |value| { result.settleValue(value); () },
                 |error| { result.settleError(error); () }
               )
+              ()
             }
-          )
-        },
-        none: || { () }
-      )
+            _ => ()
+          }
+        }
+        _ => ()
+      }
+      ()
     })
     result
   }
 
+  /// Recovers from a rejection using an asynchronous fallback operation.
+  ///
+  /// @param callback Error recovery function returning `Future<T>`.
+  /// @returns A future tracking the recovery operation.
   recoverWith(_ callback: (Error) -> Future<T>) -> Future<T> {
     const result: Future<T> = Future.new()
-    self.subscribeReady(|| {
-      _outcome.match(
-        some: |out| {
-          out.match(
-            ok: |v| {
+    subscribeReady(|| {
+      match _outcome {
+        Option::Some(out) => {
+          match out {
+            Result::Ok(v) => {
               result.settleValue(v)
               ()
-            },
-            err: |e| {
+            }
+            Result::Error(e) => {
               Future.runToTerminal(
                 || {
                   const next = callback.call(e)
@@ -546,32 +594,44 @@ class Future<T> {
                 |value| { result.settleValue(value); () },
                 |error| { result.settleError(error); () }
               )
+              ()
             }
-          )
-        },
-        none: || { () }
-      )
+            _ => ()
+          }
+        }
+        _ => ()
+      }
+      ()
     })
     result
   }
 
+  /// Flattens a nested future `Future<Future<U>>` into `Future<U>`.
+  ///
+  /// @typeparam U Value type of inner future.
+  /// @param nested Outer future containing an inner future.
+  /// @returns Flattened future.
   @class
   flatten<U>(_ nested: Future<Future<U>>) -> Future<U> {
     nested.then(|inner| { inner })
   }
 
-  // Waits for all input futures to fulfill, or rejects with the first observed rejection.
+  /// Waits for all input futures to fulfill, or rejects with the first observed rejection.
+  ///
+  /// @typeparam U Element value type.
+  /// @param inputs List of futures to await.
+  /// @returns Future resolving to a list of fulfilled values.
   @class
   all<U>(_ inputs: List<Future<U>>) -> Future<List<U>> {
     const n = inputs.size
-    if (n == 0) {
+    if n == 0 {
       return Future.value(List.new())
     }
     const result: Future<List<U>> = Future.new()
     let remaining = n
     const values = List.new()
     let idx = 0
-    while (idx < n) {
+    while idx < n {
       values.rawPush(None)
       idx = idx + 1
     }
@@ -579,7 +639,7 @@ class Future<T> {
     const subs = List.new()
 
     let i = 0
-    while (i < n) {
+    while i < n {
       if settled {
         break
       }
@@ -589,25 +649,25 @@ class Future<T> {
         if settled {
           return ()
         }
-        input.outcome.match(
-          some: |out| {
-            out.match(
-              ok: |v| {
-                if (not settled) {
+        match input.outcome {
+          Option::Some(out) => {
+            match out {
+              Result::Ok(v) => {
+                if not settled {
                   values.at(index, put: v)
                   remaining = remaining - 1
-                  if (remaining == 0) {
+                  if remaining == 0 {
                     settled = true
                     result.settleValue(values)
                   }
                 }
                 ()
-              },
-              err: |e| {
-                if (not settled) {
+              }
+              Result::Error(e) => {
+                if not settled {
                   settled = true
                   let j = 0
-                  while (j < subs.size) {
+                  while j < subs.size {
                     const s = subs.at(j)
                     s.detach()
                     j = j + 1
@@ -616,10 +676,11 @@ class Future<T> {
                 }
                 ()
               }
-            )
-          },
-          none: || { () }
-        )
+              _ => ()
+            }
+          }
+          _ => ()
+        }
         ()
       })
       subs.rawPush(sub)
@@ -632,39 +693,43 @@ class Future<T> {
     result
   }
 
-  // Waits for all input futures to settle, preserving order as List<Result<U, Error>>.
+  /// Waits for all input futures to settle, preserving outcome order as `List<Result<U, Error>>`.
+  ///
+  /// @typeparam U Element value type.
+  /// @param inputs List of futures to monitor.
+  /// @returns Future resolving to a list of settlement results.
   @class
   allSettled<U>(_ inputs: List<Future<U>>) -> Future<List<Result<U, Error>>> {
     const n = inputs.size
-    if (n == 0) {
+    if n == 0 {
       return Future.value(List.new())
     }
     const result: Future<List<Result<U, Error>>> = Future.new()
     let remaining = n
     const outcomes = List.new()
     let idx = 0
-    while (idx < n) {
+    while idx < n {
       outcomes.rawPush(None)
       idx = idx + 1
     }
     const subs = List.new()
 
     let i = 0
-    while (i < n) {
+    while i < n {
       const index = i
       const input = inputs.at(i)
       const sub = input.subscribeReady(|| {
-        input.outcome.match(
-          some: |out| {
+        match input.outcome {
+          Option::Some(out) => {
             outcomes.at(index, put: out)
             remaining = remaining - 1
-            if (remaining == 0) {
+            if remaining == 0 {
               result.settleValue(outcomes)
             }
             ()
-          },
-          none: || { () }
-        )
+          }
+          _ => ()
+        }
         ()
       })
       subs.rawPush(sub)
@@ -674,11 +739,15 @@ class Future<T> {
     result
   }
 
-  // Races input futures; first observed terminal outcome (fulfillment or rejection) wins.
+  /// Races input futures against each other; first observed settlement wins.
+  ///
+  /// @typeparam U Element value type.
+  /// @param inputs List of futures to race.
+  /// @returns Future reflecting the winning outcome.
   @class
   race<U>(_ inputs: List<Future<U>>) -> Future<U> {
     const n = inputs.size
-    if (n == 0) {
+    if n == 0 {
       return Future.error(ArgumentError.new("Future.race: cannot race on an empty list"))
     }
     const result: Future<U> = Future.new()
@@ -686,7 +755,7 @@ class Future<T> {
     const subs = List.new()
 
     let i = 0
-    while (i < n) {
+    while i < n {
       if settled {
         break
       }
@@ -696,28 +765,29 @@ class Future<T> {
         if settled {
           return ()
         }
-        input.outcome.match(
-          some: |out| {
+        match input.outcome {
+          Option::Some(out) => {
             settled = true
             let j = 0
-            while (j < subs.size) {
+            while j < subs.size {
               const s = subs.at(j)
               s.detach()
               j = j + 1
             }
-            out.match(
-              ok: |v| {
+            match out {
+              Result::Ok(v) => {
                 result.settleValue(v)
                 ()
-              },
-              err: |e| {
+              }
+              Result::Error(e) => {
                 result.settleError(e)
                 ()
               }
-            )
-          },
-          none: || { () }
-        )
+              _ => ()
+            }
+          }
+          _ => ()
+        }
         ()
       })
       subs.rawPush(sub)
@@ -730,12 +800,15 @@ class Future<T> {
     result
   }
 
-  // Returns a future that rejects with TimeoutError if self does not settle within `duration`.
+  /// Returns a future that rejects with `TimeoutError` if this future does not settle within `duration`.
+  ///
+  /// @param duration Maximum allowed waiting duration.
+  /// @returns A future bounded by the specified timeout.
   timeout(_ duration: Duration) -> Future<T> {
-    if (duration.isNegative) {
+    if duration.isNegative {
       throw ArgumentError.new("Future#timeout: duration must be non-negative")
     }
-    if self.isReady {
+    if isReady {
       return self
     }
     const result: Future<T> = Future.new()
@@ -745,36 +818,37 @@ class Future<T> {
 
     const timer = System.sleep(duration)
 
-    sourceSub = self.subscribeReady(|| {
-      if (not settled) {
+    sourceSub = subscribeReady(|| {
+      if not settled {
         settled = true
-        if (timerSub != None) {
+        if timerSub != None {
           timerSub.detach()
         }
-        self.outcome.match(
-          some: |out| {
-            out.match(
-              ok: |v| {
+        match outcome {
+          Option::Some(out) => {
+            match out {
+              Result::Ok(v) => {
                 result.settleValue(v)
                 ()
-              },
-              err: |e| {
+              }
+              Result::Error(e) => {
                 result.settleError(e)
                 ()
               }
-            )
-          },
-          none: || { () }
-        )
+              _ => ()
+            }
+          }
+          _ => ()
+        }
       }
       ()
     })
 
-    if (not settled) {
+    if not settled {
       timerSub = timer.subscribeReady(|| {
-        if (not settled) {
+        if not settled {
           settled = true
-          if (sourceSub != None) {
+          if sourceSub != None {
             sourceSub.detach()
           }
           result.settleError(TimeoutError.new("Future timed out after " + duration.toString))
@@ -782,7 +856,7 @@ class Future<T> {
         ()
       })
       if settled {
-        if (timerSub != None) {
+        if timerSub != None {
           timerSub.detach()
         }
       }
@@ -792,80 +866,104 @@ class Future<T> {
   }
 }
 
-// Producer capability wrapper providing isolated settlement authority over an internal `Future<T>`.
+/// Producer capability wrapper providing isolated settlement authority over a `Future<T>`.
 class CompletionSource<T> {
+
+  /// Creates a new completion source and its underlying pending future.
   @constructor
   new() {
     const f: Future<T> = Future.new()
     _future = f
   }
 
+  /// Returns the underlying future managed by this completion source.
   future -> Future<T> {
     _future
   }
 
+  /// Attempts to resolve the underlying future with `value`.
+  ///
+  /// @param value Fulfillment value.
+  /// @returns `true` if this call settled the future; `false` if already settled.
   tryResolve(_ value: T) -> Bool {
     const res: Result<T, Error> = Result::Ok(value)
     _future.trySettle(res)
   }
 
+  /// Attempts to reject the underlying future with `error`.
+  ///
+  /// @param error Rejection error.
+  /// @returns `true` if this call settled the future; `false` if already settled.
   tryReject(_ error: Error) -> Bool {
     const res: Result<T, Error> = Result::Error(error)
     _future.trySettle(res)
   }
 }
 
-// `Tracer` (decorators-dispatch-observability.md D-2, ratified 2026-07-13):
-// the pluggable observability sink `@traced`'s `sink:` argument targets —
-// duck-typed (`enter`/`exit`/`threw`), so any object answering this protocol
-// drops in. `Tracer.stdout` is the shipped default, routing through
-// `System.print` (Phalcom has no dedicated logging primitive, system.md).
-// Ships standalone: `@traced` itself is Install/Dispatch/Runtime-tier
-// decorator-mechanism work, not yet built (see PLAN-DECORATORS.md), so this
-// class has no caller yet — the sink protocol is ready when it lands.
+/// Observability and execution trace sink.
 class Tracer {
+
+  /// Returns a standard output tracer.
   @class
   stdout -> Tracer { Tracer.new() }
 
-  enter(_ name: Object, _ args: Object) -> Unit { System.print("-> " + name.toString + " " + args.toString) }
-  exit(_ name: Object, _ result: Dynamic, _ elapsed: Object) -> Unit { System.print("<- " + name.toString + " = " + result.toString) }
-  threw(_ name: Object, _ err: Error) -> Unit { System.print("!! " + name.toString + " threw " + err.toString) }
+  /// Records callable entry with argument representation.
+  enter(_ name: Object, _ args: Object) -> Unit {
+    System.print("-> " + name.toString + " " + args.toString)
+  }
+
+  /// Records callable normal exit with result and elapsed time.
+  exit(_ name: Object, _ result: Dynamic, _ elapsed: Object) -> Unit {
+    System.print("<- " + name.toString + " = " + result.toString)
+  }
+
+  /// Records callable abnormal exit with raised error.
+  threw(_ name: Object, _ err: Error) -> Unit {
+    System.print("!! " + name.toString + " threw " + err.toString)
+  }
 }
 
-// `OffBehavior` (decorators-dispatch-observability.md D-3, ratified
-// 2026-07-13): `@featureFlag`'s off-path — what a gated call does when its
-// flag reads false. `applyTo(inv)` (invoked by the not-yet-built
-// `@featureFlag` Runtime interceptor's `aroundSend` hook against a
-// not-yet-defined `inv` envelope) is deliberately NOT implemented here —
-// this class ships now as pure value semantics only; wiring it to a real
-// interception envelope is Install/Dispatch/Runtime mechanism work.
+/// Configurable behavior for disabled feature flags.
 class OffBehavior {
+
+  /// Raises an error when the feature flag is disabled.
   @class
   raise -> OffBehavior { OffBehavior.new("raise", None) }
+
+  /// Falls back to invoking an alternative selector when disabled.
   @class
   fallback(_ sel: Symbol) -> OffBehavior { OffBehavior.new("fallback", Some(sel)) }
+
+  /// Skips execution and returns a default value when disabled.
   @class
   skip(_ value: Dynamic) -> OffBehavior { OffBehavior.new("skip", Some(value)) }
 
   @constructor
-  new(_ kind: String, _ payload: Dynamic) { _kind = kind; _payload = payload }
+  new(_ kind: String, _ payload: Dynamic) {
+    _kind = kind
+    _payload = payload
+  }
 
+  /// Kind of off-behavior (`"raise"`, `"fallback"`, or `"skip"`).
   kind -> String { _kind }
+
+  /// Payload value or fallback selector associated with this behavior.
   payload -> Dynamic { _payload }
 }
 
-// `Backoff` (decorators-behavioral.md B-2, ratified 2026-07-13): `@retry`'s
-// backoff strategy. `.none` is fully usable today — no suspension needed,
-// matching `@retry`'s own default. `.fixed(ms)`/`.exponential(base:,max:)`
-// compute pure delay policies with overflow-safe saturation. Suspending waits
-// between attempts via `waitBefore` require `System.sleep(Duration)`.
+/// Delay calculation and suspension strategy for retries and backoff.
 class Backoff {
+
+  /// Immediate retry without delay.
   @class
   none -> Backoff { Backoff.new("none", 0, 0) }
 
+  /// Fixed constant delay between attempts.
+  ///
+  /// @param ms Delay in milliseconds.
   @class
   fixed(_ ms: Int) -> Backoff {
-    if (ms < 0) {
+    if ms < 0 {
       throw ArgumentError.new("Backoff.fixed: delay must be non-negative")
     }
     Backoff.new("fixed", ms, ms)
@@ -873,15 +971,19 @@ class Backoff {
 
   @class
   fixed(ms: Int) -> Backoff {
-    Backoff.fixed(ms)
+    fixed(ms)
   }
 
+  /// Exponential backoff with maximum saturation limit.
+  ///
+  /// @param base Initial delay base in milliseconds.
+  /// @param max Maximum capped delay in milliseconds.
   @class
   exponential(_ base: Int, _ max: Int) -> Backoff {
-    if (base < 0) {
+    if base < 0 {
       throw ArgumentError.new("Backoff.exponential: base must be non-negative")
     }
-    if (max < base) {
+    if max < base {
       throw ArgumentError.new("Backoff.exponential: max must be greater than or equal to base")
     }
     Backoff.new("exponential", base, max)
@@ -889,7 +991,7 @@ class Backoff {
 
   @class
   exponential(base: Int, max: Int) -> Backoff {
-    Backoff.exponential(base, max)
+    exponential(base, max)
   }
 
   @constructor
@@ -899,30 +1001,34 @@ class Backoff {
     _b = b
   }
 
+  /// Strategy kind (`"none"`, `"fixed"`, `"exponential"`).
   kind -> String { _kind }
 
-  // Pure delay calculation with overflow-safe saturation.
+  /// Computes the delay in milliseconds for a specific attempt index.
+  ///
+  /// @param attempt Zero-indexed attempt number.
+  /// @returns Delay in milliseconds.
   delayFor(_ attempt: Int) -> Int {
-    if (attempt < 0) {
+    if attempt < 0 {
       throw ArgumentError.new("Backoff.delayFor: attempt must be non-negative")
     }
-    if (_kind == "none") {
+    if _kind == "none" {
       return 0
     }
-    if (_kind == "fixed") {
+    if _kind == "fixed" {
       return _a
     }
-    if (_kind == "exponential") {
+    if _kind == "exponential" {
       const base = _a
       const max = _b
-      if (base == 0) {
+      if base == 0 {
         return 0
       }
       let delay = base
       let i = 0
-      while (i < attempt and delay < max) {
+      while i < attempt and delay < max {
         delay = delay * 2
-        if (delay > max) {
+        if delay > max {
           delay = max
         }
         i = i + 1
@@ -932,9 +1038,12 @@ class Backoff {
     0
   }
 
+  /// Asynchronously suspends the current fiber for the calculated backoff delay.
+  ///
+  /// @param attempt Zero-indexed attempt number.
   waitBefore(_ attempt: Int) -> Unit {
-    const delay = self.delayFor(attempt)
-    if (delay == 0) {
+    const delay = delayFor(attempt)
+    if delay == 0 {
       return ()
     }
     System.sleep(Duration.milliseconds(delay)).await

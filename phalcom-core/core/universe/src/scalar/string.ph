@@ -1,307 +1,369 @@
+//! UTF-8 encoded string primitives, slicing, search, transformation, and sequence views.
+//!
+//! Phalcom strings are immutable byte arrays representing valid UTF-8 sequences.
+//! This module provides string manipulation, searching, trimming, character iteration,
+//! and Unicode scalar decoding.
+
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
+/// Immutable UTF-8 text string.
+///
+/// Strings represent text sequences encoded as UTF-8. Slicing and indexing operations
+/// are specified at byte granularity, while codepoint accessors provide decoded
+/// Unicode scalar values.
 native class String is Object {
   native +(_ other: String) -> String
   native hash -> Int
+
   @class
   native new() -> String
+
   @class
   native new(_ value: Dynamic) -> String
+
   internal native rawByteCount -> Int
   internal native rawByteAt(_ index: Int) -> Int
   internal native rawSlice(_ start: Int, _ end: Int) -> String
-  // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
-  // representation read, so this is `.ph`-derivable rather than a floor
-  // primitive (ADR-0019's derivability test).
+
+  /// Returns the string itself as its string representation.
   toString { self }
 
-  // Byte count. UTF-8 buffer length in bytes (not codepoints).
-  size { self.rawByteCount }
-  isEmpty { self.rawByteCount == 0 }
+  /// Length of the UTF-8 encoded string in bytes.
+  size { rawByteCount }
 
-  // Byte-range slice. Native storage operation stays internal; public wrapper
-  // preserves existing bounds/UTF-8-boundary diagnostics.
-  slice(_ start, _ end) { self.rawSlice(start, end) }
+  /// Indicates whether the string contains zero bytes.
+  isEmpty { rawByteCount == 0 }
 
-  // Number of leading bytes in the UTF-8 sequence starting at byte offset `i`.
-  // Read purely from the lead byte's numeric range: 1/2/3/4-byte sequences are
-  // encoded by the lead byte's numeric value (no bitmask needed).
+  /// Extracts a substring by half-open byte range `[start, end)`.
+  ///
+  /// @param start Starting byte offset (inclusive).
+  /// @param end Ending byte offset (exclusive).
+  /// @returns Sliced substring.
+  slice(_ start, _ end) { rawSlice(start, end) }
+
+  /// Determines the number of bytes in the UTF-8 code point starting at byte offset `i`.
+  ///
+  /// Returns `1`, `2`, `3`, or `4` depending on the lead byte range, or `None` if `i` is out of bounds.
+  ///
+  /// @param i Byte offset into the string.
+  /// @returns Number of bytes (1-4) or `None`.
   leadByteLen(_ i) {
-    const b = self.rawByteAt(i)
-    return (b == None).ifTrue(|| { None }, ifFalse: || {
-      (b < 128).ifTrue(|| { 1 }, ifFalse: || {
-        (b < 224).ifTrue(|| { 2 }, ifFalse: || {
-          (b < 240).ifTrue(|| { 3 }, ifFalse: || { 4 }) }) })
-    })
+    const b = rawByteAt(i)
+    if b == None {
+      return None
+    }
+
+    if b < 128 {
+      return 1
+    } else if b < 224 {
+      return 2
+    } else if b < 240 {
+      return 3
+    } else {
+      return 4
+    }
   }
 
-  // The Unicode scalar value at byte offset `i`, or `None` if out-of-range
-  // or mid-sequence. UTF-8 decode via division/modulo (no bitwise ops).
+  /// Decodes and returns the Unicode scalar value starting at byte offset `i`.
+  ///
+  /// Returns `None` if `i` is out of bounds or points to an invalid/continuation byte.
+  ///
+  /// @param i Byte offset into the string.
+  /// @returns Decoded Unicode codepoint as an `Int`, or `None`.
   codePointAt(_ i) {
-    const b0 = self.rawByteAt(i)
-    return (b0 == None).ifTrue(|| { None }, ifFalse: || {
-      (b0 < 128).ifTrue(|| {
-        // ASCII single byte (0xxxxxxx)
-        b0
-      }, ifFalse: || {
-        (b0 < 192).ifTrue(|| {
-          // Continuation byte (10xxxxxx), not a start byte
-          None
-        }, ifFalse: || {
-          (b0 < 224).ifTrue(|| {
-            // 2-byte sequence (110xxxxx 10xxxxxx)
-            const b1 = self.rawByteAt(i + 1)
-            (b1 == None).ifTrue(|| { None }, ifFalse: || {
-              (b1 < 128).ifTrue(|| { None }, ifFalse: || {
-                (b1 >= 192).ifTrue(|| { None }, ifFalse: || {
-                  ((b0 - 192) * 64) + (b1 - 128)
-                })
-              })
-            })
-          }, ifFalse: || {
-            (b0 < 240).ifTrue(|| {
-              // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
-              const b1 = self.rawByteAt(i + 1)
-              const b2 = self.rawByteAt(i + 2)
-              (b1 == None).ifTrue(|| { None }, ifFalse: || {
-                (b2 == None).ifTrue(|| { None }, ifFalse: || {
-                  (b1 < 128).ifTrue(|| { None }, ifFalse: || {
-                    (b1 >= 192).ifTrue(|| { None }, ifFalse: || {
-                      (b2 < 128).ifTrue(|| { None }, ifFalse: || {
-                        (b2 >= 192).ifTrue(|| { None }, ifFalse: || {
-                          ((b0 - 224) * 4096) + ((b1 - 128) * 64) + (b2 - 128)
-                        })
-                      })
-                    })
-                  })
-                })
-              })
-            }, ifFalse: || {
-              (b0 < 248).ifTrue(|| {
-                // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
-                const b1 = self.rawByteAt(i + 1)
-                const b2 = self.rawByteAt(i + 2)
-                const b3 = self.rawByteAt(i + 3)
-                (b1 == None).ifTrue(|| { None }, ifFalse: || {
-                  (b2 == None).ifTrue(|| { None }, ifFalse: || {
-                    (b3 == None).ifTrue(|| { None }, ifFalse: || {
-                      (b1 < 128).ifTrue(|| { None }, ifFalse: || {
-                        (b1 >= 192).ifTrue(|| { None }, ifFalse: || {
-                          (b2 < 128).ifTrue(|| { None }, ifFalse: || {
-                            (b2 >= 192).ifTrue(|| { None }, ifFalse: || {
-                              (b3 < 128).ifTrue(|| { None }, ifFalse: || {
-                                (b3 >= 192).ifTrue(|| { None }, ifFalse: || {
-                                  ((b0 - 240) * 262144) + ((b1 - 128) * 4096) + ((b2 - 128) * 64) + (b3 - 128)
-                                })
-                              })
-                            })
-                          })
-                        })
-                      })
-                    })
-                  })
-                })
-              }, ifFalse: || {
-                // Invalid UTF-8 start byte
-                None
-              })
-            })
-          })
-        })
-      })
-    })
+    const b0 = rawByteAt(i)
+    if b0 == None {
+      return None
+    }
+
+    if b0 < 128 {
+      // Single-byte ASCII (0xxxxxxx)
+      return b0
+    } else if b0 < 192 {
+      // Continuation byte (10xxxxxx), not a valid UTF-8 start byte
+      return None
+    } else if b0 < 224 {
+      // 2-byte sequence (110xxxxx 10xxxxxx)
+      const b1 = rawByteAt(i + 1)
+      if b1 == None or b1 < 128 or b1 >= 192 {
+        return None
+      }
+      return ((b0 - 192) * 64) + (b1 - 128)
+    } else if b0 < 240 {
+      // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
+      const b1 = rawByteAt(i + 1)
+      const b2 = rawByteAt(i + 2)
+      if b1 == None or b2 == None or b1 < 128 or b1 >= 192 or b2 < 128 or b2 >= 192 {
+        return None
+      }
+      return ((b0 - 224) * 4096) + ((b1 - 128) * 64) + (b2 - 128)
+    } else if b0 < 248 {
+      // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+      const b1 = rawByteAt(i + 1)
+      const b2 = rawByteAt(i + 2)
+      const b3 = rawByteAt(i + 3)
+      if b1 == None or b2 == None or b3 == None or b1 < 128 or b1 >= 192 or b2 < 128 or b2 >= 192 or b3 < 128 or b3 >= 192 {
+        return None
+      }
+      return ((b0 - 240) * 262144) + ((b1 - 128) * 4096) + ((b2 - 128) * 64) + (b3 - 128)
+    } else {
+      // Invalid start byte
+      return None
+    }
   }
 
-  // Find first occurrence of a substring, scanning left-to-right by byte.
-  // O(n·m) naive search. Returns the byte offset, or -1 if not found.
+  /// Finds the first occurrence of a substring, scanning from left to right.
+  ///
+  /// Returns the starting byte offset of the match, or `-1` if not found.
+  ///
+  /// @param needle The substring to find.
+  /// @returns Byte index of the match or `-1`.
   indexOf(_ needle) {
-    (needle.is(String)).ifTrue(|| {}, ifFalse: || {
+    if not needle.is(String) {
       throw ArgumentError.new("indexOf: needle must be a String")
-    })
-    (needle.isEmpty).ifTrue(|| {
+    }
+    if needle.isEmpty {
       throw ArgumentError.new("indexOf: needle must be non-empty")
-    })
+    }
 
     let i = 0
-    while (i <= self.rawByteCount - needle.rawByteCount) {
+    while i <= rawByteCount - needle.rawByteCount {
       let is_match = true
       let j = 0
-      while (j < needle.rawByteCount) {
-        (self.rawByteAt(i + j) == needle.rawByteAt(j)).ifTrue(|| {}, ifFalse: || {
+      while j < needle.rawByteCount {
+        if rawByteAt(i + j) != needle.rawByteAt(j) {
           is_match = false
-        })
-        (is_match).ifTrue(|| { j = j + 1 }, ifFalse: || { j = needle.rawByteCount })
+        }
+        if is_match {
+          j = j + 1
+        } else {
+          j = needle.rawByteCount
+        }
       }
-      (is_match).ifTrue(|| { return i })
+      if is_match {
+        return i
+      }
       i = i + 1
     }
     return -1
   }
 
+  /// Checks whether this string contains the given substring.
+  ///
+  /// @param needle The substring to search for.
+  /// @returns `true` if `needle` is found; otherwise `false`.
   contains(_ needle) {
-    (needle.is(String)).ifFalse || {
+    if not needle.is(String) {
       throw ArgumentError.new("contains: needle must be a String")
     }
-    if (needle.isEmpty) { return true }
-    return self.indexOf(needle) != -1
+    if needle.isEmpty {
+      return true
+    }
+    return indexOf(needle) != -1
   }
 
-  includes(_ needle) { self.contains(needle) }
+  /// Alias for `contains`.
+  includes(_ needle) { contains(needle) }
 
-  // Split by delimiter substring. Returns a List of String segments.
+  /// Splits the string around occurrences of `delimiter`.
+  ///
+  /// Returns a list of substrings separated by the delimiter.
+  ///
+  /// @param delimiter Non-empty string separator.
+  /// @returns List of sliced string components.
   split(_ delimiter) {
-    (delimiter.is(String)).ifTrue(|| {}, ifFalse: || {
+    if not delimiter.is(String) {
       throw ArgumentError.new("split: delimiter must be a String")
-    })
-    (delimiter.isEmpty).ifTrue(|| {
+    }
+    if delimiter.isEmpty {
       throw ArgumentError.new("split: delimiter must be non-empty")
-    })
+    }
 
     let result = List<Dynamic>.new()
     let prev = 0
-    let i = self.indexOf(delimiter)
-    while (i != -1) {
-      result.rawPush(self.rawSlice(prev, i))
+    let i = indexOf(delimiter)
+    while i != -1 {
+      result.rawPush(rawSlice(prev, i))
       prev = i + delimiter.rawByteCount
+
       // Search for next occurrence after this delimiter
-      let rest = self.rawSlice(prev, self.rawByteCount)
+      let rest = rawSlice(prev, rawByteCount)
       let nextIdx = rest.indexOf(delimiter)
-      (nextIdx == -1).ifTrue(|| { i = -1 }, ifFalse: || { i = prev + nextIdx })
+      if nextIdx == -1 {
+        i = -1
+      } else {
+        i = prev + nextIdx
+      }
     }
-    result.rawPush(self.rawSlice(prev, self.rawByteCount))
+    result.rawPush(rawSlice(prev, rawByteCount))
     return result
   }
 
-  // Replace all occurrences of `from` with `to`.
+  /// Replaces all occurrences of `needle` with `to`.
+  ///
+  /// @param needle Non-empty substring to be replaced.
+  /// @param to Substring replacement.
+  /// @returns Transformed string.
   replace(_ needle, _ to) {
-    (needle.is(String)).ifTrue(|| {}, ifFalse: || {
+    if not needle.is(String) {
       throw ArgumentError.new("replace: from must be a String")
-    })
-    (to.is(String)).ifTrue(|| {}, ifFalse: || {
+    }
+    if not to.is(String) {
       throw ArgumentError.new("replace: to must be a String")
-    })
-    (needle.isEmpty).ifTrue(|| {
+    }
+    if needle.isEmpty {
       throw ArgumentError.new("replace: from must be non-empty")
-    })
+    }
 
     let result = ""
     let prev = 0
-    let i = self.indexOf(needle)
-    while (i != -1) {
-      result = result + self.rawSlice(prev, i) + to
+    let i = indexOf(needle)
+    while i != -1 {
+      result = result + rawSlice(prev, i) + to
       prev = i + needle.rawByteCount
-      let rest = self.rawSlice(prev, self.rawByteCount)
+      let rest = rawSlice(prev, rawByteCount)
       let nextIdx = rest.indexOf(needle)
-      (nextIdx == -1).ifTrue(|| { i = -1 }, ifFalse: || { i = prev + nextIdx })
+      if nextIdx == -1 {
+        i = -1
+      } else {
+        i = prev + nextIdx
+      }
     }
-    result = result + self.rawSlice(prev, self.rawByteCount)
+    result = result + rawSlice(prev, rawByteCount)
     return result
   }
 
-  // Trim whitespace from start and end, default or custom charset.
+  /// Trims whitespace from both the beginning and end of the string.
   trim() {
-    return self.trim(" \t\n\r")
+    return trim(" \t\n\r")
   }
+
+  /// Trims whitespace from the beginning of the string.
   trimStart() {
-    return self.trimStart(" \t\n\r")
+    return trimStart(" \t\n\r")
   }
+
+  /// Trims whitespace from the end of the string.
   trimEnd() {
-    return self.trimEnd(" \t\n\r")
+    return trimEnd(" \t\n\r")
   }
 
-  trim(_ chars) { self.trimStart(chars).trimEnd(chars) }
+  /// Trims custom characters from both the start and end of the string.
+  ///
+  /// @param chars String containing characters to strip.
+  /// @returns Trimmed string.
+  trim(_ chars) { trimStart(chars).trimEnd(chars) }
 
-  // Trim from the start using the given charset.
+  /// Trims custom characters from the start of the string.
+  ///
+  /// @param chars String containing characters to strip.
+  /// @returns Trimmed string.
   trimStart(_ chars) {
-    (chars.is(String)).ifTrue(|| {}, ifFalse: || {
+    if not chars.is(String) {
       throw ArgumentError.new("trimStart: chars must be a String")
-    })
+    }
 
     let i = 0
     let stop = false
-    while ((i < self.rawByteCount).and(|| { not stop })) {
-      const cp = self.codePointAt(i)
+    while i < rawByteCount and not stop {
+      const cp = codePointAt(i)
       let found = false
       let j = 0
-      while (j < chars.rawByteCount) {
-        (chars.codePointAt(j) == cp).ifTrue(|| { found = true })
+      while j < chars.rawByteCount {
+        if chars.codePointAt(j) == cp {
+          found = true
+        }
         const len = chars.leadByteLen(j)
-        (len == None).ifTrue(|| { j = j + 1 }, ifFalse: || { j = j + len })
+        if len == None {
+          j = j + 1
+        } else {
+          j = j + len
+        }
       }
-      (found).ifTrue(|| {
-        i = i + self.leadByteLen(i)
-      }, ifFalse: || {
-        stop = true  // exit loop, keeping i at the first non-trimmed byte
-      })
+      if found {
+        i = i + leadByteLen(i)
+      } else {
+        stop = true // Exit loop at first non-trimmed character
+      }
     }
-    return self.rawSlice(i, self.rawByteCount)
+    return rawSlice(i, rawByteCount)
   }
 
-  // Trim from the end using the given charset.
+  /// Trims custom characters from the end of the string.
+  ///
+  /// @param chars String containing characters to strip.
+  /// @returns Trimmed string.
   trimEnd(_ chars) {
-    (chars.is(String)).ifTrue(|| {}, ifFalse: || {
+    if not chars.is(String) {
       throw ArgumentError.new("trimEnd: chars must be a String")
-    })
+    }
 
-    let i = self.rawByteCount
+    let i = rawByteCount
     let stop = false
-    while ((i > 0).and(|| { not stop })) {
-      // Scan backward one byte at a time to find the previous lead byte
+    while i > 0 and not stop {
+      // Scan backward one byte at a time to find previous lead byte
       i = i - 1
-      let cp = self.codePointAt(i)
-      (cp == None).ifTrue(|| {
-        // Not a lead byte, keep scanning back
-      }, ifFalse: || {
-        // Found a lead byte; check if it's in the trim set
+      let cp = codePointAt(i)
+      if cp != None {
+        // Found a lead byte; check if it matches the trim set
         let found = false
         let j = 0
-        while (j < chars.rawByteCount) {
-          (chars.codePointAt(j) == cp).ifTrue(|| { found = true })
+        while j < chars.rawByteCount {
+          if chars.codePointAt(j) == cp {
+            found = true
+          }
           const len = chars.leadByteLen(j)
-          (len == None).ifTrue(|| { j = j + 1 }, ifFalse: || { j = j + len })
+          if len == None {
+            j = j + 1
+          } else {
+            j = j + len
+          }
         }
-        (found).ifTrue(|| {}, ifFalse: || {
-          // Not in the set; keep this whole character and stop scanning
-          i = i + self.leadByteLen(i)
+        if not found {
+          // Not in trim set; keep this character and terminate scanning
+          i = i + leadByteLen(i)
           stop = true
-        })
-      })
+        }
+      }
     }
-    return self.rawSlice(0, i)
+    return rawSlice(0, i)
   }
 
-  // Repeat the string `count` times.
+  /// Repeats the string `count` times.
+  ///
+  /// @param count Non-negative integer repetition count.
+  /// @returns Repeated string.
   *(_ count) {
-    (count.is(Number)).ifTrue(|| {}, ifFalse: || {
+    if not count.is(Number) {
       throw ArgumentError.new("*: count must be a Number")
-    })
-    (count >= 0).ifTrue(|| {}, ifFalse: || {
+    }
+    if count < 0 {
       throw ArgumentError.new("*: count must be >= 0")
-    })
-    (count % 1 == 0).ifTrue(|| {}, ifFalse: || {
+    }
+    if count % 1 != 0 {
       throw ArgumentError.new("*: count must be an integer")
-    })
+    }
 
-    (count == 0).ifTrue(|| { return "" })
-    (count == 1).ifTrue(|| { return self })
+    if count == 0 { return "" }
+    if count == 1 { return self }
 
     let result = ""
     let i = 0
-    while (i < count) {
+    while i < count {
       result = result + self
       i = i + 1
     }
     return result
   }
 
-  // Byte sequence accessor (U-STRING §2.4).
+  /// Returns a byte-level sequence view of this string.
   bytes { StringByteSequence.new(self) }
 
-  // Codepoint sequence accessor (U-STRING §2.4).
+  /// Returns a Unicode codepoint sequence view of this string.
   codePoints { StringCodePointSequence.new(self) }
 }
 
-// Byte-level sequence view (U-STRING §2.4, ADR-0048 shaped).
+/// Byte-level sequence view over a UTF-8 string.
 class StringByteSequence {
   @constructor
   new(_ s) { _string = s }
@@ -316,21 +378,27 @@ class StringByteSequence {
 
   each(_ f) {
     let i = 0
-    while (i < self.size) {
-      f.call(self.at(i))
+    while i < size {
+      f.call(at(i))
       i = i + 1
     }
   }
 
   // Iterate over byte offsets: cursor steps to next lead byte.
   private nextCursor(_ cursor) {
-    const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || {
-      cursor + 1
-    })
-    return (next < _string.rawByteCount).ifTrue(|| { next }, ifFalse: || { None })
+    let next = 0
+    if cursor != None {
+      next = cursor + 1
+    }
+    if next < _string.rawByteCount {
+      return next
+    } else {
+      return None
+    }
   }
 }
 
+/// Iterator over raw byte values of a string.
 class StringByteIterator {
   _source: StringByteSequence
   _offset: Int
@@ -344,8 +412,8 @@ class StringByteIterator {
   }
 
   next -> Option<Int> {
-    if (_done) { return None }
-    if (_offset >= _source.size) {
+    if _done { return None }
+    if _offset >= _source.size {
       _done = true
       return None
     }
@@ -367,20 +435,20 @@ impl CanonicalIterable for StringByteSequence {
   iterator -> StringByteIterator { StringByteIterator.new(self) }
 }
 
-// Codepoint-level sequence view (U-STRING §2.4, ADR-0048 shaped).
+/// Unicode codepoint sequence view over a UTF-8 string.
 class StringCodePointSequence {
   @constructor
   new(_ s) { _string = s }
 
   iterator -> StringCodePointIterator { StringCodePointIterator.new(self) }
 
-  // Codepoint count: full scan (no native "codepoint length").
+  /// Number of Unicode code points in the string.
   size {
     let n = 0
-    let i = self.nextCursor(None)
-    while (i != None) {
+    let i = nextCursor(None)
+    while i != None {
       n = n + 1
-      i = self.nextCursor(i)
+      i = nextCursor(i)
     }
     return n
   }
@@ -394,22 +462,28 @@ class StringCodePointSequence {
   internal rawLeadByteLen(_ byteOffset) { _string.leadByteLen(byteOffset) }
 
   each(_ f) {
-    let i = self.nextCursor(None)
-    while (i != None) {
-      f.call(self.at(i))
-      i = self.nextCursor(i)
+    let i = nextCursor(None)
+    while i != None {
+      f.call(at(i))
+      i = nextCursor(i)
     }
   }
 
-  // Iterate over byte offsets: cursor steps by UTF-8 char boundary.
+  // Iterate over byte offsets: cursor steps by UTF-8 character boundary.
   private nextCursor(_ cursor) {
-    const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || {
-      cursor + _string.leadByteLen(cursor)
-    })
-    return (next < _string.rawByteCount).ifTrue(|| { next }, ifFalse: || { None })
+    let next = 0
+    if cursor != None {
+      next = cursor + _string.leadByteLen(cursor)
+    }
+    if next < _string.rawByteCount {
+      return next
+    } else {
+      return None
+    }
   }
 }
 
+/// Iterator over decoded Unicode scalar values of a string.
 class StringCodePointIterator {
   _source: StringCodePointSequence
   _offset: Int
@@ -423,17 +497,17 @@ class StringCodePointIterator {
   }
 
   next -> Option<Int> {
-    if (_done) { return None }
-    if (_offset >= _source.byteCountView) {
+    if _done { return None }
+    if _offset >= _source.byteCountView {
       _done = true
       return None
     }
     let value = _source.rawCodePointAt(_offset)
-    if (value == None) {
+    if value == None {
       throw Error.new("String code-point iterator encountered an invalid sequence")
     }
     let length = _source.rawLeadByteLen(_offset)
-    if (length == None) {
+    if length == None {
       throw Error.new("String code-point iterator encountered an invalid lead byte")
     }
     _offset = _offset + length
