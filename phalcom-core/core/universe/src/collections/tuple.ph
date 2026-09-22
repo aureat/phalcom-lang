@@ -1,10 +1,6 @@
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
-// Kernel Tuple (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a native fixed
-// arity immutable slice — Object::Tuple, mirroring List's shape but with NO
-// mutation selector (immutability is structural, TupleObject's Box<[Value]>).
-// Product literals compile directly to native build bytecodes.
-
+/// Immutable fixed-arity product collection.
 native class Tuple is Collection {
   intrinsic type Positionals: TypePack
   intrinsic type Labeled: LabeledTypePack
@@ -26,23 +22,23 @@ native class Tuple is Collection {
   labelAt(_ index) { self.rawLabelAt(index) }
 
   first {
-    if (self.size == 0) { return None }
+    if self.size == 0 { return None }
     return Some(self.at(0))
   }
 
   last {
-    if (self.size == 0) { return None }
+    if self.size == 0 { return None }
     return Some(self.at(self.size - 1))
   }
 
-  // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
-  // native `Tuple` rendering exactly — `(a, b)`, `()` when empty. Derived over
-  // `size_`/`at_`; each element renders via its OWN `toString`.
+  /// Renders elements in positional order using each element's string form.
   toString {
     let s = "("
     let i = 0
-    while (i < self.rawSize) {
-      s = s + (i > 0).ifTrue(|| { ", " }, ifFalse: || { "" })
+    while i < self.rawSize {
+      if i > 0 {
+        s = s + ", "
+      }
       s = s + self.rawAt(i).toString
       i = i + 1
     }
@@ -54,8 +50,8 @@ native class Tuple is Collection {
   private findLabel(_ sym) {
     let num_labeled = self.size - self.rawPositionalSize
     let i = 0
-    while (i < num_labeled) {
-      if (self.rawLabelAt(i) == sym) {
+    while i < num_labeled {
+      if self.rawLabelAt(i) == sym {
         return Some(self.rawPositionalSize + i)
       }
       i = i + 1
@@ -64,7 +60,7 @@ native class Tuple is Collection {
   }
 
   private access(_ key) {
-    if (key.is(Symbol)) {
+    if key is Symbol {
       return self.findLabel(key).match(
         some: |idx| { Some(self.rawAt(idx)) },
         none: || { None }
@@ -73,8 +69,8 @@ native class Tuple is Collection {
     let raw = self.rawAt(key)
     let len = self.size
     let i = key
-    if (i < 0) { i = len + i }
-    if (i >= 0 and i < len) {
+    if i < 0 { i = len + i }
+    if i >= 0 and i < len {
       return Some(raw)
     }
     return None
@@ -83,18 +79,20 @@ native class Tuple is Collection {
   get(_ key) { self.access(key) }
 
   [_ key] {
-    if (key.is(Range)) {
+    if key is Range {
       return key.rawSliceBounds(self.size).match(
         ok: |bounds| {
           let start = bounds[0]
           let end = bounds[1]
-          if (start > end) { end = start }
+          if start > end {
+            end = start
+          }
           self.rawSlice(start, end)
         },
         err: |error| { error.raise() }
       )
     }
-    if (key.is(Symbol)) {
+    if key is Symbol {
       return self.findLabel(key).match(
         some: |idx| { self.rawAt(idx) },
         none: || { throw KeyError.new("Tuple label not found") }
@@ -103,15 +101,15 @@ native class Tuple is Collection {
     let raw = self.rawAt(key)
     let len = self.size
     let i = key
-    if (i < 0) { i = len + i }
-    if (i >= 0 and i < len) {
+    if i < 0 { i = len + i }
+    if i >= 0 and i < len {
       return raw
     }
     throw IndexError.new("Tuple index out of range")
   }
 
   [_ key, default] {
-    if (key.is(Symbol)) {
+    if key is Symbol {
       return self.findLabel(key).match(
         some: |idx| { self.rawAt(idx) },
         none: || { default }
@@ -120,15 +118,15 @@ native class Tuple is Collection {
     let raw = self.rawAt(key)
     let len = self.size
     let i = key
-    if (i < 0) { i = len + i }
-    if (i >= 0 and i < len) {
+    if i < 0 { i = len + i }
+    if i >= 0 and i < len {
       return raw
     }
     return default
   }
 
   get(_ key, orElse) {
-    if (key.is(Symbol)) {
+    if key is Symbol {
       return self.findLabel(key).match(
         some: |idx| { self.rawAt(idx) },
         none: || { orElse.call(key) }
@@ -137,15 +135,15 @@ native class Tuple is Collection {
     let raw = self.rawAt(key)
     let len = self.size
     let i = key
-    if (i < 0) { i = len + i }
-    if (i >= 0 and i < len) {
+    if i < 0 { i = len + i }
+    if i >= 0 and i < len {
       return raw
     }
     return orElse.call(key)
   }
 
   doesNotUnderstand(_ message) {
-    if (message.args == ()) {
+    if message.args == () {
       let idx = self.findLabel(message.selector)
       return idx.match(
         some: |i| { self.rawAt(i) },
@@ -159,47 +157,40 @@ native class Tuple is Collection {
 
   zipped -> TupleZipView { TupleZipView.new(self) }
 
-  // Structural equality: same arity, pairwise-==. Guarded by isA(Tuple) so a
-  // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
+  /// Compares tuples by labels and corresponding element equality.
   ==(_ other) {
-    if (other.is(Tuple)) {
-      let same = (self.size == other.size) and (self.rawPositionalSize == other.rawPositionalSize)
+    if other is Tuple {
+      let same = self.size == other.size and self.rawPositionalSize == other.rawPositionalSize
       let i = 0
-      while (same and (i < self.size - self.rawPositionalSize)) {
-        same = (self.rawLabelAt(i) == other.rawLabelAt(i))
+      while same and i < self.size - self.rawPositionalSize {
+        same = self.rawLabelAt(i) == other.rawLabelAt(i)
         i = i + 1
       }
       i = 0
-      while (same and (i < self.size)) {
-        same = (self.at(i) == other.at(i))
+      while same and i < self.size {
+        same = self.at(i) == other.at(i)
         i = i + 1
       }
       return same
-    } else {
-      return false
     }
+    return false
   }
 
+  /// Returns the inverse of structural tuple equality.
   !=(_ other) {
     return not (self == other)
   }
 
-  // Value hash (DEC-CT-D): a .ph fold over each element's own `hash` —
-  // order-sensitive, zero new floor. Consistent with == by construction (a
-  // deterministic function of the same elements == compares), and survives
-  // the future Int/Float split for free (forward-compat §4): it folds
-  // *mathematical-value* hashes (whatever Number#hash decides), never bits.
-  // Bounded by a large prime modulus so the accumulator stays a stable,
-  // comparable Number regardless of tuple length.
+  /// Computes an order-sensitive hash from labels and element hashes.
   hash {
     let acc = 17 + self.rawPositionalSize
     let i = 0
-    while (i < self.size) {
+    while i < self.size {
       acc = (acc * 31 + self.at(i).hash) % 999999937
       i = i + 1
     }
     i = 0
-    while (i < self.size - self.rawPositionalSize) {
+    while i < self.size - self.rawPositionalSize {
       acc = (acc * 31 + self.rawLabelAt(i).hash) % 999999937
       i = i + 1
     }
@@ -220,8 +211,8 @@ class TupleIterator {
   }
 
   next -> Option<Dynamic> {
-    if (_done) { return None }
-    if (_index >= _source.size) {
+    if _done { return None }
+    if _index >= _source.size {
       _done = true
       return None
     }
@@ -251,7 +242,7 @@ class TupleZipIterator {
   new(_ tuple: Tuple) {
     _iterators = List<Dynamic>.new()
     let i = 0
-    while (i < tuple.size) {
+    while i < tuple.size {
       _iterators.rawPush(tuple.at(i).iterator)
       i = i + 1
     }
@@ -259,15 +250,15 @@ class TupleZipIterator {
   }
 
   next -> Option<Dynamic> {
-    if (_done or _iterators.size == 0) {
+    if _done or _iterators.size == 0 {
       _done = true
       return None
     }
     let firstStep = _iterators.at(0).next
-    if (firstStep.isNone) {
+    if firstStep.isNone {
       let i = 1
-      while (i < _iterators.size) {
-        if (_iterators.at(i).next.isSome) {
+      while i < _iterators.size {
+        if _iterators.at(i).next.isSome {
           _done = true
           throw ZipLengthMismatchError.new("strict zip lanes ended at different times")
         }
@@ -279,9 +270,9 @@ class TupleZipIterator {
     let items = List<Dynamic>.new()
     items.rawPush(firstStep.match(some: |v| { v }, none: || { None }))
     let i = 1
-    while (i < _iterators.size) {
+    while i < _iterators.size {
       let step = _iterators.at(i).next
-      if (step.isNone) {
+      if step.isNone {
         _done = true
         throw ZipLengthMismatchError.new("strict zip lanes ended at different times")
       }

@@ -1,5 +1,4 @@
-@!documentation("Canonical Iterator and Iterable trait laws.")
-
+/// Iterator and iterable collection protocols.
 trait Iterator {
   type Item
 
@@ -39,7 +38,7 @@ trait Iterable
   each(_ f) {
     let it = self.iterator
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
       f.call(val)
       step = it.next
@@ -51,7 +50,7 @@ trait Iterable
     let it = self.iterator
     let step = it.next
     let index = 0
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
       f.call(index, val)
       index = index + 1
@@ -63,9 +62,9 @@ trait Iterable
   contains(_ x) {
     let it = self.iterator
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
-      if (val == x) { return true }
+      if val == x { return true }
       step = it.next
     }
     return false
@@ -77,7 +76,7 @@ trait Iterable
     let it = self.iterator
     let n = 0
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       n = n + 1
       step = it.next
     }
@@ -88,9 +87,9 @@ trait Iterable
     let it = self.iterator
     let n = 0
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
-      if (f.call(val)) { n = n + 1 }
+      if f.call(val) { n = n + 1 }
       step = it.next
     }
     return n
@@ -99,9 +98,9 @@ trait Iterable
   find(where f) {
     let it = self.iterator
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
-      if (f.call(val)) { return Some(val) }
+      if f.call(val) { return Some(val) }
       step = it.next
     }
     return None
@@ -111,9 +110,9 @@ trait Iterable
     let it = self.iterator
     let index = 0
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
-      if (f.call(val)) { return Some(index) }
+      if f.call(val) { return Some(index) }
       index = index + 1
       step = it.next
     }
@@ -123,9 +122,9 @@ trait Iterable
   any(where f) {
     let it = self.iterator
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
-      if (f.call(val)) { return true }
+      if f.call(val) { return true }
       step = it.next
     }
     return false
@@ -134,9 +133,9 @@ trait Iterable
   all(where f) {
     let it = self.iterator
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
-      if (not f.call(val)) { return false }
+      if not f.call(val) { return false }
       step = it.next
     }
     return true
@@ -145,23 +144,24 @@ trait Iterable
   none(where f) {
     let it = self.iterator
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
-      if (f.call(val)) { return false }
+      if f.call(val) { return false }
       step = it.next
     }
     return true
   }
 
+  /// Returns the element at zero-based iterator position `n`.
   nth(_ n) {
-    (n.is(Number) and n >= 0 and ((n % 1) == 0)).ifFalse || {
+    if n is not Number or n < 0 or n % 1 != 0 {
       throw ArgumentError.new("nth: n must be a non-negative integer")
     }
     let it = self.iterator
     let rem = n
-    while (rem > 0) {
+    while rem > 0 {
       let step = it.next
-      if (step.isNone) { return None }
+      if step.isNone { return None }
       rem = rem - 1
     }
     return it.next
@@ -170,10 +170,10 @@ trait Iterable
   last {
     let it = self.iterator
     let step = it.next
-    if (step.isNone) { return None }
+    if step.isNone { return None }
     let lastVal = step.match(some: |v| { v }, none: || { None })
     step = it.next
-    while (step.isSome) {
+    while step.isSome {
       lastVal = step.match(some: |v| { v }, none: || { None })
       step = it.next
     }
@@ -184,7 +184,7 @@ trait Iterable
     let it = self.iterator
     let acc = initial
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
       acc = f.call(acc, val)
       step = it.next
@@ -195,10 +195,10 @@ trait Iterable
   reduce(using f) {
     let it = self.iterator
     let firstStep = it.next
-    if (firstStep.isNone) { return None }
+    if firstStep.isNone { return None }
     let acc = firstStep.match(some: |v| { v }, none: || { None })
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
       acc = f.call(acc, val)
       step = it.next
@@ -211,12 +211,12 @@ trait Iterable
   join(_ sep) {
     let it = self.iterator
     let step = it.next
-    if (step.isNone) { return "" }
+    if step.isNone { return "" }
     let first = true
     let result = ""
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
-      if (not first) {
+      if not first {
         result = result + sep
       }
       first = false
@@ -230,7 +230,7 @@ trait Iterable
     let it = self.iterator
     let result = Map<Dynamic, Dynamic>.new()
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
       let key = block.call(val)
       let list = result.get(key).match(
@@ -248,42 +248,39 @@ trait Iterable
   }
 
   partition(where predicate) {
-    let it = self.iterator
     let accepted = List<Dynamic>.new()
     let rejected = List<Dynamic>.new()
-    let step = it.next
-    while (step.isSome) {
-      let val = step.match(some: |v| { v }, none: || { None })
-      if (predicate.call(val)) {
+
+    let it = self.iterator
+    while let Some(val) = it.next {
+      if predicate.call(val) {
         accepted.append(val)
       } else {
         rejected.append(val)
       }
-      step = it.next
     }
+
     return (accepted, rejected)
   }
 
   toSet {
-    let it = self.iterator
     let result = Set<Dynamic>.new()
-    let step = it.next
-    while (step.isSome) {
-      let val = step.match(some: |v| { v }, none: || { None })
+
+    let it = self.iterator
+    while let Some(val) = it.next {
       result.add(val)
-      step = it.next
     }
+
     return result
   }
 
-  toMap {
-    let it = self.iterator
+  toMap -> Result<Map<Dynamic, Dynamic>, DuplicateKeyError> {
     let result = Map<Dynamic, Dynamic>.new()
-    let step = it.next
-    while (step.isSome) {
-      let entry = step.match(some: |v| { v }, none: || { None })
+
+    let it = self.iterator
+    while let Some(entry) = it.next {
       let key = entry.key
-      if (result.includes(key)) {
+      if result.includes(key) {
         return Result::Error(DuplicateKeyError.new(key))
       }
       result.insert(entry.value, for: key)
@@ -296,7 +293,7 @@ trait Iterable
     let it = self.iterator
     let result = Map<Dynamic, Dynamic>.new()
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let entry = step.match(some: |v| { v }, none: || { None })
       let key = entry.key
       let val = entry.value
@@ -318,7 +315,7 @@ trait Iterable
     let it = self.iterator
     let result = List<Dynamic>.new()
     let step = it.next
-    while (step.isSome) {
+    while step.isSome {
       let val = step.match(some: |v| { v }, none: || { None })
       result.append(val)
       step = it.next
@@ -327,9 +324,6 @@ trait Iterable
   }
 }
 
-// The canonical Iterator => Iterable theorem is an ordinary guarded
-// generic-target conformance. It intentionally remains in this transition
-// module while the legacy public Iterable runtime class is retired by P5.
 impl<I> Iterable for I
   where I |= Iterator
 {
@@ -338,10 +332,6 @@ impl<I> Iterable for I
 
   iterator { self }
 }
-
-// ============================================================================
-// Canonical Lazy Iterator Adapters (one-shot, stateful)
-// ============================================================================
 
 class MappedIterator<I, U> {
   _upstream: I
@@ -356,9 +346,9 @@ class MappedIterator<I, U> {
   }
 
   next {
-    if (_done) { return None }
+    if _done { return None }
     let step = _upstream.next
-    if (step.isNone) {
+    if step.isNone {
       _done = true
       return None
     }
@@ -386,15 +376,15 @@ class FilterIterator<I> {
   }
 
   next {
-    if (_done) { return None }
-    while (true) {
+    if _done { return None }
+    while true {
       let step = _upstream.next
-      if (step.isNone) {
+      if step.isNone {
         _done = true
         return None
       }
       let val = step.match(some: |v| { v }, none: || { None })
-      if (_predicate.call(val)) {
+      if _predicate.call(val) {
         return Some(val)
       }
     }
@@ -420,16 +410,16 @@ class FilterMapIterator<I, U> {
   }
 
   next {
-    if (_done) { return None }
-    while (true) {
+    if _done { return None }
+    while true {
       let step = _upstream.next
-      if (step.isNone) {
+      if step.isNone {
         _done = true
         return None
       }
       let val = step.match(some: |v| { v }, none: || { None })
       let mapped = _mapper.call(val)
-      if (mapped.isSome) {
+      if mapped.isSome {
         return mapped
       }
     }
@@ -457,17 +447,17 @@ class FlatMapIterator<I, S> {
   }
 
   next {
-    if (_done) { return None }
-    while (true) {
-      if (_currentInner != None) {
+    if _done { return None }
+    while true {
+      if _currentInner is not None {
         let innerStep = _currentInner.next
-        if (innerStep.isSome) {
+        if innerStep.isSome {
           return innerStep
         }
         _currentInner = None
       }
       let step = _upstream.next
-      if (step.isNone) {
+      if step.isNone {
         _done = true
         return None
       }
@@ -497,17 +487,17 @@ class FlattenIterator<I> {
   }
 
   next {
-    if (_done) { return None }
-    while (true) {
-      if (_currentInner != None) {
+    if _done { return None }
+    while true {
+      if _currentInner is not None {
         let innerStep = _currentInner.next
-        if (innerStep.isSome) {
+        if innerStep.isSome {
           return innerStep
         }
         _currentInner = None
       }
       let step = _upstream.next
-      if (step.isNone) {
+      if step.isNone {
         _done = true
         return None
       }
@@ -536,15 +526,15 @@ class ChainIterator<I, J> {
   }
 
   next {
-    if (_phase == 2) { return None }
-    if (_phase == 0) {
+    if _phase == 2 { return None }
+    if _phase == 0 {
       let step = _first.next
-      if (step.isSome) { return step }
+      if step.isSome { return step }
       _phase = 1
     }
-    if (_phase == 1) {
+    if _phase == 1 {
       let step = _second.next
-      if (step.isSome) { return step }
+      if step.isSome { return step }
       _phase = 2
       return None
     }
@@ -565,7 +555,7 @@ class SkipIterator<I> {
 
   @constructor
   new(_ upstream: I, _ n) {
-    (n.is(Number) and n >= 0 and ((n % 1) == 0)).ifFalse || {
+    if n is not Number or n < 0 or n % 1 != 0 {
       throw ArgumentError.new("skip: n must be a non-negative integer")
     }
     _upstream = upstream
@@ -574,17 +564,17 @@ class SkipIterator<I> {
   }
 
   next {
-    if (_done) { return None }
-    while (_remaining > 0) {
+    if _done { return None }
+    while _remaining > 0 {
       let step = _upstream.next
-      if (step.isNone) {
+      if step.isNone {
         _done = true
         return None
       }
       _remaining = _remaining - 1
     }
     let step = _upstream.next
-    if (step.isNone) {
+    if step.isNone {
       _done = true
       return None
     }
@@ -613,21 +603,21 @@ class SkipWhileIterator<I> {
   }
 
   next {
-    if (_done) { return None }
-    while (_stillSkipping) {
+    if _done { return None }
+    while _stillSkipping {
       let step = _upstream.next
-      if (step.isNone) {
+      if step.isNone {
         _done = true
         return None
       }
       let val = step.match(some: |v| { v }, none: || { None })
-      if (not _predicate.call(val)) {
+      if not _predicate.call(val) {
         _stillSkipping = false
         return step
       }
     }
     let step = _upstream.next
-    if (step.isNone) {
+    if step.isNone {
       _done = true
       return None
     }
@@ -648,7 +638,7 @@ class TakeIterator<I> {
 
   @constructor
   new(_ upstream: I, _ n) {
-    (n.is(Number) and n >= 0 and ((n % 1) == 0)).ifFalse || {
+    if n is not Number or n < 0 or n % 1 != 0 {
       throw ArgumentError.new("take: n must be a non-negative integer")
     }
     _upstream = upstream
@@ -657,12 +647,12 @@ class TakeIterator<I> {
   }
 
   next {
-    if (_done or (_remaining <= 0)) {
+    if _done or _remaining <= 0 {
       _done = true
       return None
     }
     let step = _upstream.next
-    if (step.isNone) {
+    if step.isNone {
       _done = true
       return None
     }
@@ -690,14 +680,14 @@ class TakeWhileIterator<I> {
   }
 
   next {
-    if (_done) { return None }
+    if _done { return None }
     let step = _upstream.next
-    if (step.isNone) {
+    if step.isNone {
       _done = true
       return None
     }
     let val = step.match(some: |v| { v }, none: || { None })
-    if (_predicate.call(val)) {
+    if _predicate.call(val) {
       return step
     }
     _done = true
@@ -724,15 +714,15 @@ class MapWhileIterator<I, U> {
   }
 
   next {
-    if (_done) { return None }
+    if _done { return None }
     let step = _upstream.next
-    if (step.isNone) {
+    if step.isNone {
       _done = true
       return None
     }
     let val = step.match(some: |v| { v }, none: || { None })
     let mapped = _mapper.call(val)
-    if (mapped.isSome) {
+    if mapped.isSome {
       return mapped
     }
     _done = true
@@ -759,9 +749,9 @@ class InspectIterator<I> {
   }
 
   next {
-    if (_done) { return None }
+    if _done { return None }
     let step = _upstream.next
-    if (step.isNone) {
+    if step.isNone {
       _done = true
       return None
     }
@@ -790,15 +780,15 @@ class StrictZipIterator<I, J> {
   }
 
   next {
-    if (_done) { return None }
+    if _done { return None }
     let leftStep = _left.next
     let rightStep = _right.next
-    if (leftStep.isSome and rightStep.isSome) {
+    if leftStep.isSome and rightStep.isSome {
       let leftVal = leftStep.match(some: |v| { v }, none: || { None })
       let rightVal = rightStep.match(some: |v| { v }, none: || { None })
       return Some((leftVal, rightVal))
     }
-    if (leftStep.isNone and rightStep.isNone) {
+    if leftStep.isNone and rightStep.isNone {
       _done = true
       return None
     }
@@ -826,9 +816,9 @@ class IndexedIterator<I> {
   }
 
   next {
-    if (_done) { return None }
+    if _done { return None }
     let step = _upstream.next
-    if (step.isNone) {
+    if step.isNone {
       _done = true
       return None
     }

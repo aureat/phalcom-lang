@@ -1,5 +1,4 @@
-@!documentation("Collection and sequence data structures.")
-
+/// Public collection types and iterator protocols.
 expose .collection
 expose .iterator_laws
 expose .list

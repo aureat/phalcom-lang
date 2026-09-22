@@ -1,3 +1,2 @@
-@!documentation("Abstract root class for collection data structures.")
-
+/// Common nominal type for collection values.
 native class Collection is Object {}

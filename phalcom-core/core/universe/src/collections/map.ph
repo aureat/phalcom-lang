@@ -12,31 +12,24 @@ native class Map<K, V> is Collection {
   internal native rawValueAt(_ index: Int) -> Dynamic
   size { self.rawSize }
 
-  // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
-  // native `Map` rendering exactly — `{k: v, k2: v2}`, `{}` when empty — so the
-  // `.toString` message and the native render agree. Derived over the floor
-  // (`size_`/`keyAt_`/`valueAt_`), not a primitive: ADR-0019's default answer to
-  // "add a primitive" is no, and this is expressible.
-  //
-  // Each key and value renders via its OWN `toString` — which the native path
-  // cannot do. That is the point of CB-1: once `\(…)` sends `toString`, this is
-  // the path it takes.
+  /// Renders entries in insertion order using each key and value's string form.
   toString {
     let s = "{"
     let i = 0
-    while (i < self.rawSize) {
-      s = s + (i > 0).ifTrue(|| { ", " }, ifFalse: || { "" })
+    while i < self.rawSize {
+      if i > 0 {
+        s = s + ", "
+      }
       s = s + self.rawKeyAt(i).toString + ": " + self.rawValueAt(i).toString
       i = i + 1
     }
     return s + "}"
   }
 
-  // Safe association lookup: Some(value) on hit, None on absence.
+  /// Returns the value for `k`, or `None` when no association exists.
   get(_ k) { self.rawGet(k) }
 
-  // Strict association lookup. Do one lookup so a stored None remains a
-  // value rather than being confused with an absent key.
+  /// Returns the value for `k`, raising when the key is absent.
   [_ k] {
     return self.get(k).match(
       some: |value| { value },
@@ -69,56 +62,60 @@ native class Map<K, V> is Collection {
     )
   }
 
-  // Explicit insert returns the previous value when replacing an association.
+  /// Inserts `value` for `key` and returns the previous association.
   insert(_ value, for key) { self.rawPut(key, value) }
 
-  // Legacy mutation spelling retained only while B.3 still lowers association
-  // literals into chained sends. `get` and `[]` are the lookup surface.
+  /// Stores a value for `k` and returns the map.
   at(_ k, put) {
     self.rawPut(k, put)
     return self
   }
 
-  // `m[k] = v` shares insert's key identity and encounter-order semantics.
+  /// Stores a value for `k` through the subscript protocol.
   [_ k]=(_ val) { self.rawPut(k, val) }
 
+  /// Reports whether `k` has an association.
   contains(_ k) { self.rawHas(k) }
+
+  /// Reports whether `k` has an association.
   includes(_ k) { self.contains(k) }
 
-  // Removes an association. The raw primitive returns its former value, but
-  // the public mutable-collection protocol is chainable.
+  /// Removes `k` and returns the map.
   remove(_ k) {
     self.rawRemove(k)
+    return self
   }
 
+  /// Removes all associations from the map.
   clear {
-    while (self.size > 0) {
+    while self.size > 0 {
       self.rawRemove(self.rawKeyAt(0))
     }
     return ()
   }
 
-  // Lightweight live encounter-order views. They retain the Map and read its
-  // current slots; they never copy associations into a List.
+  /// Returns a live view of the map's keys in encounter order.
   keys -> MapKeysView<K, V> { MapKeysView.new(self) }
 
+  /// Returns a live view of the map's values in encounter order.
   values -> MapValuesView<K, V> { MapValuesView.new(self) }
 
+  /// Returns a live view of the map's entries in encounter order.
   entries -> MapEntriesView<K, V> { MapEntriesView.new(self) }
 
+  /// Returns a fresh iterator over the map's entries.
   iterator -> MapIterator<K, V> { MapIterator<K, V>.new(self) }
 
-  // Copies a positive Record's Symbol labels and values into a fresh mutable
-  // Map. `#{}` canonicalizes to Unit, which represents the empty Record form.
+  /// Builds a mutable map from a record's labels and values.
   @class
   from(_ record) {
-    if ((not record.is(Record)) and (not record.is(Unit))) {
+    if record is not Record and record is not Unit {
       throw ArgumentError.new("Map.from: argument must be a Record or Unit")
     }
     let result = Map<Dynamic, Dynamic>.new()
-    if (record.is(Record)) {
+    if record is Record {
       let i = 0
-      while (i < record.rawSize) {
+      while i < record.rawSize {
         result.insert(record.rawValueAt(i), for: record.rawLabelAt(i))
         i = i + 1
       }
@@ -126,29 +123,25 @@ native class Map<K, V> is Collection {
     return result
   }
 
-  // Structural equality: same key set, pairwise-== values (order-independent
-  // over keys — `includes`/`get` do the membership + value work, not raw
-  // index comparison). Guarded by `isA(Map)` so a non-Map is simply unequal.
+  /// Compares maps by key set and corresponding value equality.
   ==(_ other) {
-    if (other.is(Map)) {
-      let same = (self.size == other.size)
+    if other is Map {
+      let same = self.size == other.size
       let i = 0
-      while (same and (i < self.size)) {
-        let k = self.rawKeyAt(i)
-        same = other.get(k).match(
+      while same and i < self.size {
+        let key = self.rawKeyAt(i)
+        same = other.get(key).match(
           some: |value| { self.rawValueAt(i) == value },
           none: || { false }
         )
         i = i + 1
       }
       return same
-    } else {
-      return false
     }
+    return false
   }
 
-  // MUST route through == (the ==/!= decoupling hazard) — Object#!= negates
-  // identity, not this structural ==.
+  /// Returns the inverse of structural map equality.
   !=(_ other) {
     return not (self == other)
   }
@@ -167,8 +160,8 @@ class MapIterator<K, V> {
   }
 
   next -> Option<(key: K, value: V)> {
-    if (_done) { return None }
-    if (_index >= _source.size) {
+    if _done { return None }
+    if _index >= _source.size {
       _done = true
       return None
     }
@@ -191,10 +184,7 @@ impl<K, V> CanonicalIterable for Map<K, V> {
   iterator -> MapIterator<K, V> { MapIterator<K, V>.new(self) }
 }
 
-
-// Map projections are ordinary retained-source Iterable views. They inherit
-// the generic cursor walk and deliberately leave active-iteration mutation
-// behavior unspecified.
+/// Live view of map keys in encounter order.
 class MapKeysView<K, V> is Collection {
   _map: Map<K, V>
 
@@ -208,6 +198,7 @@ class MapKeysView<K, V> is Collection {
   iterator -> MapKeysIterator<K, V> { MapKeysIterator<K, V>.new(self) }
 }
 
+/// Live view of map values in encounter order.
 class MapValuesView<K, V> is Collection {
   _map: Map<K, V>
 
@@ -221,8 +212,7 @@ class MapValuesView<K, V> is Collection {
   iterator -> MapValuesIterator<K, V> { MapValuesIterator<K, V>.new(self) }
 }
 
-// Immutable-by-surface association value for MapEntriesView. No setters or
-// value-object equality/hash protocol are part of this phase.
+/// Immutable key-value association used by entry views.
 class Entry {
   @constructor
   new(_ key, _ value) {
@@ -261,8 +251,8 @@ class MapKeysIterator<K, V> {
   }
 
   next -> Option<K> {
-    if (_done) { return None }
-    if (_index >= _source.size) {
+    if _done { return None }
+    if _index >= _source.size {
       _done = true
       return None
     }
@@ -287,8 +277,8 @@ class MapValuesIterator<K, V> {
   }
 
   next -> Option<V> {
-    if (_done) { return None }
-    if (_index >= _source.size) {
+    if _done { return None }
+    if _index >= _source.size {
       _done = true
       return None
     }
@@ -313,8 +303,8 @@ class MapEntriesIterator<K, V> {
   }
 
   next -> Option<(key: K, value: V)> {
-    if (_done) { return None }
-    if (_index >= _source.size) {
+    if _done { return None }
+    if _index >= _source.size {
       _done = true
       return None
     }

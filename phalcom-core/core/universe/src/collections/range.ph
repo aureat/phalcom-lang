@@ -1,67 +1,73 @@
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
-// Range is a native bounds descriptor. Its lower_/upper_/upperInclusive_
-// observations preserve omitted endpoints. Stateful traversal is owned by
-// RangeIterator; the legacy cursor methods remain during the staged migration.
+/// Describes a bounded or unbounded numeric interval.
 native class Range is Collection {
   internal native rawLower -> Option<Number>
   internal native rawUpper -> Option<Number>
   internal native rawUpperInclusive -> Bool
+  /// Constructs a range from optional lower and upper bounds.
   @class
   new(_ lower, _ upper, _ upperInclusive) {
-    if (lower == None) {
-      if (upper == None) { return .. }
-      return upperInclusive.ifTrue(|| { ..=upper }, ifFalse: || { ..upper })
+    if lower == None {
+      if upper == None {
+        return ..
+      }
+      if upperInclusive {
+        return ..=upper
+      }
+      return ..upper
     }
-    if (upper == None) { return lower.. }
-    return upperInclusive.ifTrue(|| { lower..=upper }, ifFalse: || { lower..upper })
+    if upper == None {
+      return lower..
+    }
+    if upperInclusive {
+      return lower..=upper
+    }
+    lower..upper
   }
 
+  /// Reports whether a value is an integral numeric slice coordinate.
   private isSliceCoordinate(_ value) {
-    // TODO(NUMERIC-TOWER): require Int once the tower is fully landed.
-    return value.is(Number) and ((value % 1) == 0)
+    return value is Number and value % 1 == 0
   }
 
   private sliceBoundary(_ coordinate, _ size) {
-    if (coordinate < 0) {
-      if (coordinate < -size) { return 0 }
+    if coordinate < 0 {
+      if coordinate < -size { return 0 }
       return size + coordinate
     }
-    if (coordinate > size) { return size }
+    if coordinate > size { return size }
     return coordinate
   }
 
   private sliceInclusiveEnd(_ coordinate, _ size) {
-    if (coordinate < 0) {
-      if (coordinate < -size) { return 0 }
-      // Here -size <= coordinate < 0, so adding one cannot overflow and
-      // denotes the exclusive boundary after the included element.
+    if coordinate < 0 {
+      if coordinate < -size { return 0 }
       return size + coordinate + 1
     }
-    if (coordinate >= size) { return size }
+    if coordinate >= size { return size }
     return coordinate + 1
   }
 
-  // Normalizes this bound descriptor for a finite sequence of `size` elements.
-  // Omitted endpoints are distinct from a supplied None, which is malformed.
+  /// Normalizes bounds for a finite sequence of `size` elements.
   internal rawSliceBounds(_ size) {
     let start = 0
     let end = size
     let lower = self.rawLower
-    if (lower.isSome) {
+    if lower.isSome {
       let coordinate = lower.unwrapOr(0)
-      if (not self.isSliceCoordinate(coordinate)) {
+      if not self.isSliceCoordinate(coordinate) {
         return Result::Error(SliceError.new("Range lower bound must be an integer coordinate"))
       }
       start = self.sliceBoundary(coordinate, size)
     }
     let upper = self.rawUpper
-    if (upper.isSome) {
+    if upper.isSome {
       let coordinate = upper.unwrapOr(0)
-      if (not self.isSliceCoordinate(coordinate)) {
+      if not self.isSliceCoordinate(coordinate) {
         return Result::Error(SliceError.new("Range upper bound must be an integer coordinate"))
       }
-      if (self.rawUpperInclusive) {
+      if self.rawUpperInclusive {
         end = self.sliceInclusiveEnd(coordinate, size)
       } else {
         end = self.sliceBoundary(coordinate, size)
@@ -70,96 +76,135 @@ native class Range is Collection {
     return Result::Ok((start, end))
   }
 
+  /// Returns a fresh iterator over the range.
   iterator -> RangeIterator { RangeIterator.new(self) }
 
-  // first, last, size, includes (Spec E.2 / Range specs)
+  /// Returns the lower bound, or raises for an unbounded lower side.
   first {
-    let lowerOpt = self.rawLower
-    lowerOpt.isNone.ifTrue || {
+    let lower = self.rawLower
+    if lower.isNone {
       throw Error.new("Range has no first element because lower bound is absent")
     }
-    return lowerOpt.unwrapOr(None)
+    return lower.unwrapOr(None)
   }
 
+  /// Returns the last included value, or raises for an unbounded upper side.
   last {
-    let upperOpt = self.rawUpper
-    upperOpt.isNone.ifTrue || {
+    let upper = self.rawUpper
+    if upper.isNone {
       throw Error.new("Range has no last element because upper bound is absent")
     }
-    let upper = upperOpt.unwrapOr(None)
-    return self.rawUpperInclusive.ifTrue(|| { upper }, ifFalse: || { upper - 1 })
+    let value = upper.unwrapOr(None)
+    if self.rawUpperInclusive {
+      return value
+    }
+    return value - 1
   }
 
+  /// Returns the number of values in a bounded range.
   size {
-    let lowerOpt = self.rawLower
-    let upperOpt = self.rawUpper
-    (lowerOpt.isNone or upperOpt.isNone).ifTrue || {
+    let lower = self.rawLower
+    let upper = self.rawUpper
+    if lower.isNone or upper.isNone {
       throw Error.new("Unbounded Range has no size")
     }
-    let lower = lowerOpt.unwrapOr(None)
-    let upper = upperOpt.unwrapOr(None)
-    (lower > upper).ifTrue || {
+    let first = lower.unwrapOr(None)
+    let last = upper.unwrapOr(None)
+    if first > last {
       return 0
     }
-    let diff = upper - lower
-    return self.rawUpperInclusive.ifTrue(|| { diff + 1 }, ifFalse: || { diff })
+    let difference = last - first
+    if self.rawUpperInclusive {
+      return difference + 1
+    }
+    difference
   }
 
+  /// Reports whether `x` falls within the range bounds.
   contains(_ x) {
-    let lowerOpt = self.rawLower
-    let upperOpt = self.rawUpper
+    let lower = self.rawLower
+    let upper = self.rawUpper
+    let lowerOk = true
+    let upperOk = true
 
-    let lowerOk = lowerOpt.isNone.ifTrue(|| { true }, ifFalse: || { x >= lowerOpt.unwrapOr(None) })
-    let upperOk = upperOpt.isNone.ifTrue(|| { true }, ifFalse: || {
-      self.rawUpperInclusive.ifTrue(|| { x <= upperOpt.unwrapOr(None) }, ifFalse: || { x < upperOpt.unwrapOr(None) })
-    })
-    return lowerOk and upperOk
+    if lower.isSome {
+      lowerOk = x >= lower.unwrapOr(None)
+    }
+    if upper.isSome {
+      let bound = upper.unwrapOr(None)
+      if self.rawUpperInclusive {
+        upperOk = x <= bound
+      } else {
+        upperOk = x < bound
+      }
+    }
+    lowerOk and upperOk
   }
 
+  /// Reports whether `x` falls within the range bounds.
   includes(_ x) { self.contains(x) }
 
+  /// Returns the value at zero-based index `i`, supporting negative indexes.
   at(_ i) {
-    let lowerOpt = self.rawLower
-    lowerOpt.isNone.ifTrue || {
+    let lower = self.rawLower
+    if lower.isNone {
       throw Error.new("Range index out of range (lower bound is absent)")
     }
-    let lower = lowerOpt.unwrapOr(None)
     let index = i
-    // Support negative indexing
-    (index < 0).ifTrue || {
-      let sz = self.size
-      index = sz + index
+    if index < 0 {
+      index = self.size + index
     }
-    // Check range bounds
-    let sz = self.size
-    (index < 0 or index >= sz).ifTrue || {
+    let count = self.size
+    if index < 0 or index >= count {
       throw Error.new("Range index out of range")
     }
-    return lower + index
+    lower.unwrapOr(None) + index
   }
 
+  /// Compares ranges by bounds and upper-bound inclusivity.
   ==(_ other) {
-    other.is(Range).ifFalse || { return false }
-    return (self.rawLower == other.rawLower) and
-           (self.rawUpper == other.rawUpper) and
-           (self.rawUpperInclusive == other.rawUpperInclusive)
+    if other is not Range {
+      return false
+    }
+    self.rawLower == other.rawLower and
+      self.rawUpper == other.rawUpper and
+      self.rawUpperInclusive == other.rawUpperInclusive
   }
 
+  /// Renders the range using its bound syntax.
   toString {
-    let lowerOpt = self.rawLower
-    let upperOpt = self.rawUpper
-    let lowerStr = lowerOpt.isNone.ifTrue(|| { "" }, ifFalse: || { lowerOpt.unwrapOr(0).toString })
-    let upperStr = upperOpt.isNone.ifTrue(|| { "" }, ifFalse: || { upperOpt.unwrapOr(0).toString })
-    let op = self.rawUpperInclusive.ifTrue(|| { "..=" }, ifFalse: || { ".." })
-    return lowerStr + op + upperStr
+    let lower = ""
+    let upper = ""
+    if self.rawLower.isSome {
+      lower = self.rawLower.unwrapOr(0).toString
+    }
+    if self.rawUpper.isSome {
+      upper = self.rawUpper.unwrapOr(0).toString
+    }
+    let operator = ".."
+    if self.rawUpperInclusive {
+      operator = "..="
+    }
+    lower + operator + upper
   }
 
+  /// Computes a hash from the range bounds.
   hash {
-    let h1 = self.rawLower.isSome.ifTrue(|| { self.rawLower.unwrapOr(0).hash }, ifFalse: || { 17 })
-    let h2 = self.rawUpper.isSome.ifTrue(|| { self.rawUpper.unwrapOr(0).hash }, ifFalse: || { 31 })
-    let h3 = self.rawUpperInclusive.ifTrue(|| { 1 }, ifFalse: || { 0 })
-    return h1 + h2 * 37 + h3 * 97
+    let lower = 17
+    let upper = 31
+    let inclusive = 0
+    if self.rawLower.isSome {
+      lower = self.rawLower.unwrapOr(0).hash
+    }
+    if self.rawUpper.isSome {
+      upper = self.rawUpper.unwrapOr(0).hash
+    }
+    if self.rawUpperInclusive {
+      inclusive = 1
+    }
+    lower + upper * 37 + inclusive * 97
   }
+
 }
 
 class RangeIterator {
@@ -177,25 +222,25 @@ class RangeIterator {
   }
 
   next -> Option<Number> {
-    if (_done) { return None }
+    if _done { return None }
 
-    if (not _started) {
+    if not _started {
       let lowerOpt = _range.rawLower
-      if (lowerOpt.isNone) {
+      if lowerOpt.isNone {
         throw ArgumentError.new("Range iteration unsupported when lower bound is absent")
       }
       let lower = lowerOpt.unwrapOr(0)
-      if (not (lower.is(Number) and ((lower % 1) == 0))) {
+      if lower is not Number or lower % 1 != 0 {
         throw ArgumentError.new("Range iteration unsupported: lower bound must be an integer")
       }
 
       let upperOpt = _range.rawUpper
-      if (upperOpt.isSome) {
+      if upperOpt.isSome {
         let upper = upperOpt.unwrapOr(0)
-        if (not (upper.is(Number) and ((upper % 1) == 0))) {
+        if upper is not Number or upper % 1 != 0 {
           throw ArgumentError.new("Range iteration unsupported: upper bound must be an integer")
         }
-        if (lower > upper) {
+        if lower > upper {
           throw ArgumentError.new("Range iteration unsupported: lower bound exceeds upper (descending traversal not supported)")
         }
       }
@@ -207,10 +252,13 @@ class RangeIterator {
     }
 
     let upperOpt = _range.rawUpper
-    if (upperOpt.isSome) {
+    if upperOpt.isSome {
       let upper = upperOpt.unwrapOr(0)
-      let live = _range.rawUpperInclusive.ifTrue(|| { _nextValue <= upper }, ifFalse: || { _nextValue < upper })
-      if (not live) {
+      let live = _nextValue < upper
+      if _range.rawUpperInclusive {
+        live = _nextValue <= upper
+      }
+      if not live {
         _done = true
         return None
       }
@@ -219,6 +267,21 @@ class RangeIterator {
   }
 
   iterator { self }
+
+  /// Returns all remaining values as a list.
+  toList {
+    let result = List<Dynamic>.new()
+    let step = self.next
+    while step.isSome {
+      let value = step.match(some: |v| { v }, none: || { None })
+      result.append(value)
+      step = self.next
+    }
+    result
+  }
+
+  /// Returns the first `n` values from this iterator.
+  take(_ n) { TakeIterator.new(self, n) }
 }
 
 impl CanonicalIterator for RangeIterator {

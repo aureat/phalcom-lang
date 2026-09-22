@@ -12,18 +12,16 @@ native class List<T> is Collection {
   size { self.rawLength }
 
   first {
-    if (self.size == 0) { return None }
+    if self.size == 0 { return None }
     return Some(self.at(0))
   }
 
   last {
-    if (self.size == 0) { return None }
+    if self.size == 0 { return None }
     return Some(self.at(self.size - 1))
   }
 
-  // Canonical LANG005.C6 iterator entry point. The legacy cursor selectors
-  // below remain available during the staged migration, but `for` consumes
-  // this fresh, stateful iterator through the canonical trait evidence.
+  /// Returns a fresh iterator over the list's current elements.
   iterator -> ListIterator<T> { ListIterator.new(self) }
 
   at(_ i) {
@@ -34,8 +32,8 @@ native class List<T> is Collection {
     let raw = self.rawAt(index)
     let len = self.size
     let i = index
-    if (i < 0) { i = len + i }
-    if (i >= 0 and i < len) {
+    if i < 0 { i = len + i }
+    if i >= 0 and i < len {
       return Some(raw)
     }
     return None
@@ -46,12 +44,12 @@ native class List<T> is Collection {
       ok: |bounds| {
         let start = bounds[0]
         let end = bounds[1]
-        // C.3's consumer-local rule: a reversed normalized interval selects
-        // no ascending elements. Range itself gains no descending semantics.
-        if (start > end) { end = start }
+        if start > end {
+          end = start
+        }
         let result = List<T>.new()
         let i = start
-        while (i < end) {
+        while i < end {
           result.rawPush(self.rawAt(i))
           i = i + 1
         }
@@ -62,12 +60,14 @@ native class List<T> is Collection {
   }
 
   [_ index] {
-    if (index.is(Range)) { return self.sliceByRange(index) }
+    if index is Range {
+      return self.sliceByRange(index)
+    }
     let raw = self.rawAt(index)
     let len = self.size
     let i = index
-    if (i < 0) { i = len + i }
-    if (i >= 0 and i < len) {
+    if i < 0 { i = len + i }
+    if i >= 0 and i < len {
       return raw
     }
     throw IndexError.new("List index out of range")
@@ -77,8 +77,8 @@ native class List<T> is Collection {
     let raw = self.rawAt(index)
     let len = self.size
     let i = index
-    if (i < 0) { i = len + i }
-    if (i >= 0 and i < len) {
+    if i < 0 { i = len + i }
+    if i >= 0 and i < len {
       return raw
     }
     return default
@@ -88,8 +88,8 @@ native class List<T> is Collection {
     let raw = self.rawAt(index)
     let len = self.size
     let i = index
-    if (i < 0) { i = len + i }
-    if (i >= 0 and i < len) {
+    if i < 0 { i = len + i }
+    if i >= 0 and i < len {
       return raw
     }
     return orElse.call(index)
@@ -116,8 +116,8 @@ native class List<T> is Collection {
   insert(_ value, at index) {
     let n = self.size
     let p = index
-    if (p < 0) { p = n + p }
-    if (p < 0 or p > n) {
+    if p < 0 { p = n + p }
+    if p < 0 or p > n {
       return Result::Error(IndexError.new("List#insert: index out of bounds"))
     }
     let oneElementList = List<T>.new()
@@ -130,8 +130,8 @@ native class List<T> is Collection {
   remove(at index) {
     let n = self.size
     let p = index
-    if (p < 0) { p = n + p }
-    if (p < 0 or p >= n) {
+    if p < 0 { p = n + p }
+    if p < 0 or p >= n {
       return Result::Error(IndexError.new("List#remove: index out of bounds"))
     }
     let captured = self.rawAt(p)
@@ -143,7 +143,7 @@ native class List<T> is Collection {
 
   popFirst {
     let n = self.size
-    if (n == 0) { return None }
+    if n == 0 { return None }
     let captured = self.rawAt(0)
     let emptyList = List<T>.new()
     self.rawReplaceSlice(0, 1, emptyList)
@@ -152,7 +152,7 @@ native class List<T> is Collection {
 
   popLast {
     let n = self.size
-    if (n == 0) { return None }
+    if n == 0 { return None }
     let captured = self.rawAt(n - 1)
     let emptyList = List<T>.new()
     self.rawReplaceSlice(n - 1, n, emptyList)
@@ -164,9 +164,9 @@ native class List<T> is Collection {
     let count = 0
     let i = 0
     let n = self.size
-    while (i < n) {
+    while i < n {
       let x = self.rawAt(i)
-      if (predicate.call(x)) {
+      if predicate.call(x) {
         count = count + 1
       } else {
         retained.rawPush(x)
@@ -180,16 +180,16 @@ native class List<T> is Collection {
   swap(first a, second b) {
     let n = self.size
     let idxA = a
-    if (idxA < 0) { idxA = n + idxA }
-    if (idxA < 0 or idxA >= n) {
+    if idxA < 0 { idxA = n + idxA }
+    if idxA < 0 or idxA >= n {
       return Result::Error(IndexError.new("List#swap: first index out of bounds"))
     }
     let idxB = b
-    if (idxB < 0) { idxB = n + idxB }
-    if (idxB < 0 or idxB >= n) {
+    if idxB < 0 { idxB = n + idxB }
+    if idxB < 0 or idxB >= n {
       return Result::Error(IndexError.new("List#swap: second index out of bounds"))
     }
-    if (idxA == idxB) {
+    if idxA == idxB {
       let ok: Result<Unit, Error> = Result::Ok(())
       return ok
     }
@@ -201,35 +201,33 @@ native class List<T> is Collection {
     return ok
   }
 
-  // U-STD (DEFERRED.md #18): the public `.ph` wrapper over `rawSet(_,_)`
-  // floor primitive — writes `put` at index `i` and returns `self` so writes
-  // chain (mirrors `add`). Selector `at(_,put)` matches `rawSet`'s 2 args;
-  // the labeled parameter is named `put` (label == name, parser convention).
+  /// Replaces the element at `i` and returns the list.
   at(_ i, put) {
     let len = self.size
     let norm = i
-    if (norm < 0) { norm = len + norm }
-    if (norm < 0 or norm >= len) {
+    if norm < 0 { norm = len + norm }
+    if norm < 0 or norm >= len {
       throw IndexError.new("Expected an in-range index, got an out-of-range Number")
     }
     self.rawSet(i, put)
     return self
   }
 
-  // C.3 deliberately accepts only a finite List replacement source. General
-  // Iterable replacement waits for Spec E's boundedness and re-entrancy rules.
+  /// Replaces the selected range with elements from a list.
   replace(_ range, with replacements) {
-    if (not range.is(Range)) {
+    if range is not Range {
       return Result::Error(SliceError.new("List#replace: first argument must be a Range"))
     }
-    if (not replacements.is(List)) {
+    if replacements is not List {
       return Result::Error(SliceError.new("List#replace: replacement must be a List"))
     }
     return range.rawSliceBounds(self.size).match(
       ok: |bounds| {
         let start = bounds[0]
         let end = bounds[1]
-        if (start > end) { end = start }
+        if start > end {
+          end = start
+        }
         self.rawReplaceSlice(start, end, replacements)
         let ok: Result<Unit, Error> = Result::Ok(())
         ok
@@ -238,45 +236,29 @@ native class List<T> is Collection {
     )
   }
 
-  // U-INDEX (ADR-0060): `[]` is its own dedicated, user-overridable
-  // selector — not `at`'s call-site sugar — so `List` must opt in
-  // explicitly with a thin delegation, same as any other collection
-  // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_]=(_)`.
+  /// Assigns an element or replaces a range through the subscript protocol.
   [_ i]=(_ val) {
-    if (i.is(Range)) { return self.replace(i, with: val).unwrap }
+    if i is Range {
+      return self.replace(i, with: val).unwrap
+    }
     return self.at(i, put: val)
   }
 
-  // U-CORE-5 (decisions.md Q5, R-INV-5.3 E1-E5): structural equality —
-  // element-wise, order-sensitive, via each element's own `==`. Guarded by
-  // `isA(List)` so a non-List `other` is simply unequal (E2), never a dNU.
-  // Derived entirely over the floor (`size`/`at`/`isA`/`while`/`and`/`not`) —
-  // no new native primitive (ADR-0019 unchanged). `and`/`not` are the
-  // language's infix/prefix operator forms (`Bool#and(_:)`/`Bool#not`
-  // dispatched by the compiler, not dotted-call syntax — `and`/`not` are
-  // reserved words and cannot follow `.` as a bare identifier).
+  /// Compares lists by size and corresponding element equality.
   ==(_ other) {
-    if (other.is(List)) {
-      let same = (self.size == other.size)
+    if other is List {
+      let same = self.size == other.size
       let i = 0
-      // `and` is lazy (short-circuits); once `same` is false the loop
-      // condition is false without evaluating `i < self.size`, so the loop
-      // exits before `at(i)` can run out of bounds.
-      while (same and (i < self.size)) {
-        same = (self.at(i) == other.at(i))
+      while same and i < self.size {
+        same = self.at(i) == other.at(i)
         i = i + 1
       }
       return same
-    } else {
-      return false
     }
+    return false
   }
 
-  // U-CORE-5 (R-INV-5.3 E6): `!=` MUST route through `==`. The floor
-  // `Object#!=` (`object_neq`) negates identity `value_eq` directly, NOT
-  // `self.==` — without this override `list != other` would stay
-  // identity-based and contradict the structural `==` above (the `==`⊗`!=`
-  // decoupling hazard).
+  /// Returns the inverse of structural list equality.
   !=(_ other) {
     return not (self == other)
   }
@@ -292,7 +274,7 @@ class ListIterator<T> {
   }
 
   next -> Option<T> {
-    if (_index < _values.size) {
+    if _index < _values.size {
       let value = _values[_index]
       _index = _index + 1
       return Some(value)
@@ -312,14 +294,3 @@ impl<T> CanonicalIterable for List<T> {
   type Iterator = ListIterator<T>
   iterator -> ListIterator<T> { ListIterator.new(self) }
 }
-
-// Kernel Map/Set (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 1): native
-// insertion-ordered hash collections — Object::Map/Object::Set, sharing the
-// MapObject backing struct (DEC-CT-B) but with distinct native-primitive
-// bindings and distinct classes. This skeleton reopens the bootstrapped rows
-// to define the public protocol over the native floor (ADR-0019's "hybrid: native
-// primitives, self-defined control"). Both are MUTABLE, so neither installs a
-// `hash` override — they inherit Object#hash (identity), so per Q5
-// (decisions.md, collection-protocol.md law 4) neither is a valid Map/Set key;
-// `put_`/`add_` enforce this (DEC-CT-C) by rejecting a mutable-collection
-// key (List/Map/Set) with a raised Error.
