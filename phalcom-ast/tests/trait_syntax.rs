@@ -107,7 +107,7 @@ fn c5p2_self_associated_type_projection_preserves_nested_ranges() {
     let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
         panic!("expected Option application")
     };
-    let projection = &arguments[0];
+    let projection = arguments[0].as_single().expect("ordinary generic argument");
     let TypeAnnotationExpr::AssociatedTypeProjection {
         subject,
         name,

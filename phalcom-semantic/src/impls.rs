@@ -2789,6 +2789,15 @@ pub fn resolve_conformance_head(
         TypeAnnotationExpr::Application { arguments, .. } => {
             let mut resolved = Vec::with_capacity(arguments.len());
             for argument in arguments {
+                let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "type-pack expansion is not available in conformance trait arguments",
+                        argument.range(),
+                    ));
+                    continue;
+                };
                 let TypeKnowledge::Known(evidence) =
                     resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, argument, &mut diagnostics)
                 else {

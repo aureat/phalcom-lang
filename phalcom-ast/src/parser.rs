@@ -1868,7 +1868,7 @@ impl<'source> Parser<'source> {
             };
             Ok(TypeAnnotation {
                 expr: TypeAnnotationExpr::Callable {
-                    parameters: vec![param],
+                    parameters: vec![TypeCallableItem::Parameter(param)],
                     result: Box::new(result),
                     range,
                 },
@@ -1908,6 +1908,27 @@ impl<'source> Parser<'source> {
         let mut trailing_comma = false;
         while !matches!(self.peek(), Token::RParen | Token::Eof) {
             let item_start = self.cur_start();
+            if let Some(mode) = self.expansion_mode_at_cursor() {
+                let operator_range = (item_start..self.tokens[self.pos].end).into();
+                self.advance();
+                let operand = self.parse_type_form()?;
+                let range = (item_start..self.prev_end).into();
+                items.push(TypeCallableItem::Expansion(TypePackExpansionSyntax {
+                    mode,
+                    operator_range,
+                    operand,
+                    range,
+                }));
+                if self.eat(&Token::Comma) {
+                    if matches!(self.peek(), Token::RParen) {
+                        trailing_comma = true;
+                        break;
+                    }
+                } else {
+                    break;
+                }
+                continue;
+            }
             let rest = self.eat(&Token::DotDotDot);
             let label = if matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon) {
                 let lbl = self.expect_identifier(&["label"])?;
@@ -1918,7 +1939,12 @@ impl<'source> Parser<'source> {
             };
             let ty = self.parse_type_form()?;
             let item_range = (item_start..self.prev_end).into();
-            items.push((label, ty, rest, item_range));
+            items.push(TypeCallableItem::Parameter(TypeCallableParameter {
+                label,
+                ty,
+                rest,
+                range: item_range,
+            }));
 
             if self.eat(&Token::Comma) {
                 if matches!(self.peek(), Token::RParen) {
@@ -1934,18 +1960,9 @@ impl<'source> Parser<'source> {
         if self.eat(&Token::Arrow) {
             let result = self.parse_type_after_arrow()?;
             let range = (start..self.prev_end).into();
-            let parameters = items
-                .into_iter()
-                .map(|(label, ty, rest, p_range)| TypeCallableParameter {
-                    label,
-                    ty,
-                    rest,
-                    range: p_range,
-                })
-                .collect();
             Ok(TypeAnnotation {
                 expr: TypeAnnotationExpr::Callable {
-                    parameters,
+                    parameters: items,
                     result: Box::new(result),
                     range,
                 },
@@ -1953,19 +1970,29 @@ impl<'source> Parser<'source> {
             })
         } else {
             let range = (start..self.prev_end).into();
-            if items.iter().any(|(_, _, rest, _)| *rest) {
+            if items.iter().any(|item| matches!(item, TypeCallableItem::Parameter(parameter) if parameter.rest)) {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message("rest parameter '...' only permitted in callable parameter list".to_string()),
                     range: start..self.prev_end,
                 });
             }
-            if items.len() == 1 && !trailing_comma && items[0].0.is_none() {
-                let (_, inner, _, _) = items.remove(0);
-                Ok(inner)
+            if items.len() == 1
+                && !trailing_comma
+                && matches!(&items[0], TypeCallableItem::Parameter(parameter) if parameter.label.is_none())
+            {
+                let TypeCallableItem::Parameter(parameter) = items.remove(0) else { unreachable!() };
+                Ok(parameter.ty)
             } else {
                 let elements = items
                     .into_iter()
-                    .map(|(label, ty, _, el_range)| TypeTupleElement { label, ty, range: el_range })
+                    .map(|item| match item {
+                        TypeCallableItem::Parameter(parameter) => TypeTupleItem::Element(TypeTupleElement {
+                            label: parameter.label,
+                            ty: parameter.ty,
+                            range: parameter.range,
+                        }),
+                        TypeCallableItem::Expansion(expansion) => TypeTupleItem::Expansion(expansion),
+                    })
                     .collect();
                 Ok(TypeAnnotation {
                     expr: TypeAnnotationExpr::Tuple { elements, range },
@@ -1985,7 +2012,21 @@ impl<'source> Parser<'source> {
                 self.skip_newlines();
                 let mut arguments = Vec::new();
                 while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
-                    arguments.push(self.parse_type_form()?);
+                    if let Some(mode) = self.expansion_mode_at_cursor() {
+                        let operator_start = self.cur_start();
+                        let operator_range = (operator_start..self.tokens[self.pos].end).into();
+                        self.advance();
+                        let operand = self.parse_type_form()?;
+                        let range = (operator_start..self.prev_end).into();
+                        arguments.push(GenericArgumentSyntax::Expansion(TypePackExpansionSyntax {
+                            mode,
+                            operator_range,
+                            operand,
+                            range,
+                        }));
+                    } else {
+                        arguments.push(GenericArgumentSyntax::Single(self.parse_type_form()?));
+                    }
                     if self.eat(&Token::Comma) {
                         self.skip_newlines();
                     } else {
@@ -2468,6 +2509,14 @@ impl<'source> Parser<'source> {
                 VarianceSyntax::Invariant
             };
 
+            let mode_start = self.cur_start();
+            let mode = self.expansion_mode_at_cursor();
+            let mode_range = mode.map(|_| {
+                let range = (mode_start..self.tokens[self.pos].end).into();
+                self.advance();
+                range
+            });
+
             if matches!(self.peek(), Token::Underscore) {
                 let u_start = self.cur_start();
                 self.advance();
@@ -2517,6 +2566,8 @@ impl<'source> Parser<'source> {
 
             let range = (param_start..self.prev_end).into();
             params.push(GenericParameterSyntax {
+                mode,
+                mode_range,
                 variance,
                 name,
                 name_range,
@@ -2706,9 +2757,9 @@ impl<'source> Parser<'source> {
                             kind: SyntaxErrorKind::Message("positional type arguments cannot follow associated type specializations".to_string()),
                             range: pos_range.start..pos_range.end,
                         });
-                        arguments.push(val);
+                        arguments.push(GenericArgumentSyntax::Single(val));
                     } else {
-                        arguments.push(self.parse_type_form()?);
+                        arguments.push(GenericArgumentSyntax::Single(self.parse_type_form()?));
                     }
                 }
 
@@ -6478,7 +6529,7 @@ impl<'source> Parser<'source> {
                     self.skip_newlines();
                     let mut arguments = Vec::new();
                     while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
-                        arguments.push(self.parse_type_form()?);
+                        arguments.push(GenericArgumentSyntax::Single(self.parse_type_form()?));
                         if self.eat(&Token::Comma) {
                             self.skip_newlines();
                         } else {
@@ -6634,7 +6685,14 @@ impl<'source> Parser<'source> {
                 TypeAnnotationExpr::Reference(sym) => Some((sym.clone(), Vec::new())),
                 TypeAnnotationExpr::Application { origin, arguments, .. } => {
                     if let TypeAnnotationExpr::Reference(sym) = &origin.expr {
-                        Some((sym.clone(), arguments.clone()))
+                        let arguments = arguments
+                            .iter()
+                            .map(|argument| match argument {
+                                GenericArgumentSyntax::Single(argument) => Some(argument.clone()),
+                                GenericArgumentSyntax::Expansion(_) => None,
+                            })
+                            .collect::<Option<Vec<_>>>()?;
+                        Some((sym.clone(), arguments))
                     } else {
                         None
                     }
@@ -6767,7 +6825,7 @@ impl<'source> Parser<'source> {
                     self.skip_newlines();
                     let mut arguments = Vec::new();
                     while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
-                        arguments.push(self.parse_type_form()?);
+                        arguments.push(GenericArgumentSyntax::Single(self.parse_type_form()?));
                         if self.eat(&Token::Comma) {
                             self.skip_newlines();
                         } else {

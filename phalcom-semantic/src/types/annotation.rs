@@ -5,9 +5,9 @@ use super::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReaso
 use super::id::{KindId, TypeId, TypeParameterId};
 use super::kind::KindApplicationError;
 use super::outcome::{BlockReason, BudgetReport};
-use super::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
+use super::parameter::{GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
 use super::row::RecordRowTail;
-use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
+use super::store::{CallableParameterType, CallableType, RecordTypeField, TypeData, TypeStore};
 use super::type_lambda::{
     ScopedCallableParameter, ScopedCallableType, ScopedOpenRecord, ScopedRecordField, ScopedRecordTail, ScopedTupleElement, ScopedTypeData,
     TypeLambdaProvenance,
@@ -20,7 +20,7 @@ use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
-use phalcom_ast::ast::{GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax, WhereClauseSyntax};
+use phalcom_ast::ast::{ExpansionMode, GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax, WhereClauseSyntax};
 use std::collections::BTreeMap;
 
 /// Lexical type-level binding domain. Record-row binders cannot be represented as value type forms.
@@ -628,6 +628,15 @@ fn lower_scoped_type_form(
             let scoped_origin = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, origin, diagnostics));
             let mut scoped_arguments = Vec::with_capacity(arguments.len());
             for argument in arguments {
+                let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "type-pack expansion is not available in this scoped type form",
+                        argument.range(),
+                    ));
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                };
                 scoped_arguments.push(scoped_ready_or_propagate!(lower_scoped_type_form(
                     store,
                     declarations,
@@ -656,6 +665,15 @@ fn lower_scoped_type_form(
         TypeAnnotationExpr::Tuple { elements, .. } => {
             let mut scoped_elements = Vec::with_capacity(elements.len());
             for element in elements {
+                let phalcom_ast::ast::TypeTupleItem::Element(element) = element else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "type-pack expansion is not available in this scoped Tuple form",
+                        element.range(),
+                    ));
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                };
                 let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &element.ty, diagnostics,));
                 scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, element.range, diagnostics));
                 scoped_elements.push(ScopedTupleElement {
@@ -726,6 +744,15 @@ fn lower_scoped_type_form(
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
             let mut scoped_parameters = Vec::with_capacity(parameters.len());
             for parameter in parameters {
+                let phalcom_ast::ast::TypeCallableItem::Parameter(parameter) = parameter else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "type-pack expansion is not available in this scoped callable form",
+                        parameter.range(),
+                    ));
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                };
                 let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &parameter.ty, diagnostics,));
                 scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, parameter.range, diagnostics));
                 scoped_parameters.push(ScopedCallableParameter {
@@ -1112,6 +1139,21 @@ pub fn resolve_type_form(
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> TypeFormResolution {
     let current_module = &site.module;
+    macro_rules! type_form_ready_or_return {
+        ($result:expr) => {
+            match $result {
+                TypeFormResolution::Ready(ty) => ty,
+                TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
+                TypeFormResolution::Unresolved(reason) => return TypeFormResolution::Unresolved(reason),
+                TypeFormResolution::Missing(reason) => return TypeFormResolution::Missing(reason),
+                TypeFormResolution::Invalid(reason) => return TypeFormResolution::Invalid(reason),
+                TypeFormResolution::Blocked(reason) => return TypeFormResolution::Blocked(reason),
+                TypeFormResolution::Cancelled => return TypeFormResolution::Cancelled,
+                TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
+                TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
+            }
+        };
+    }
     match &annotation.expr {
         TypeAnnotationExpr::Unit { .. } => TypeFormResolution::Ready(store.unit()),
         TypeAnnotationExpr::Dynamic { .. } => TypeFormResolution::Dynamic,
@@ -1211,8 +1253,191 @@ pub fn resolve_type_form(
                 TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
             };
 
+            // Declaration signatures, unlike arrow kinds, retain source binder
+            // modes. Assemble every variadic source contribution before the
+            // canonical store sees the application.
+            let declaration = origin.origin_symbol_ref().and_then(|symbol| {
+                let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                resolver.resolve_type_name(current_module, &symbol.root, &members)
+            });
+            if let Some(signature) = declaration.and_then(|declaration| declarations.generic_signature(&declaration))
+                && signature.parameter_modes.iter().any(|mode| *mode != GenericParameterMode::Single)
+            {
+                enum Contribution {
+                    Single(TypeId),
+                    Positional(TypeId),
+                    Labeled(TypeId),
+                    Complete(TypeId),
+                }
+
+                macro_rules! ready_or_return {
+                    ($result:expr) => {
+                        match $result {
+                            TypeFormResolution::Ready(ty) => ty,
+                            TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
+                            TypeFormResolution::Unresolved(reason) => return TypeFormResolution::Unresolved(reason),
+                            TypeFormResolution::Missing(reason) => return TypeFormResolution::Missing(reason),
+                            TypeFormResolution::Invalid(reason) => return TypeFormResolution::Invalid(reason),
+                            TypeFormResolution::Blocked(reason) => return TypeFormResolution::Blocked(reason),
+                            TypeFormResolution::Cancelled => return TypeFormResolution::Cancelled,
+                            TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
+                            TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
+                        }
+                    };
+                }
+
+                let mut contributions = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    let (mode, operand, range) = match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::Single(operand) => {
+                            contributions.push(Contribution::Single(ready_or_return!(resolve_type_form(
+                                store, declarations, resolver, site, operand, diagnostics,
+                            ))));
+                            continue;
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                            (expansion.mode, &expansion.operand, expansion.range)
+                        }
+                    };
+                    let operand = ready_or_return!(resolve_type_form(store, declarations, resolver, site, operand, diagnostics));
+                    let projected = match mode {
+                        ExpansionMode::Positional => store.project_positionals(operand).map(Contribution::Positional),
+                        ExpansionMode::Labeled => store.project_labeled(operand).map(Contribution::Labeled),
+                        ExpansionMode::Complete => store.project_complete(operand).map(Contribution::Complete),
+                    };
+                    match projected {
+                        Ok(contribution) => contributions.push(contribution),
+                        Err(error) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                format!("invalid type-pack expansion: {error}"),
+                                range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                        }
+                    }
+                }
+
+                let fixed_count = signature
+                    .parameter_modes
+                    .iter()
+                    .take_while(|mode| **mode == GenericParameterMode::Single)
+                    .count();
+                if contributions.len() < fixed_count {
+                    if contributions.is_empty() {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::ApplicationTooManyArguments,
+                            "required generic arguments are missing",
+                            annotation.range,
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                    }
+                    if contributions.iter().any(|contribution| !matches!(contribution, Contribution::Single(_))) {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::AnnotationUnsupported,
+                            "a symbolic pack cannot satisfy a preceding fixed generic binder without pack decomposition",
+                            annotation.range,
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                    }
+                } else {
+                    let mut canonical_arguments = Vec::with_capacity(signature.parameters.len());
+                    for contribution in contributions.iter().take(fixed_count) {
+                        let Contribution::Single(ty) = contribution else {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "a pack expansion cannot satisfy a fixed generic binder without decomposition",
+                                annotation.range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                        };
+                        canonical_arguments.push(*ty);
+                    }
+
+                    let mut positional_segments = Vec::new();
+                    let mut labeled_segments = Vec::new();
+                    for contribution in contributions.into_iter().skip(fixed_count) {
+                        match contribution {
+                            Contribution::Single(ty) => {
+                                if store.kind_of(ty) != KindId::TYPE {
+                                    diagnostics.push(SemanticDiagnostic::error_in(
+                                        current_module.clone(),
+                                        DiagnosticCode::KindExpectedType,
+                                        "a positional generic pack can contain only proper types",
+                                        annotation.range,
+                                    ));
+                                    return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
+                                }
+                                let pack = match store.type_pack(vec![ty].into_boxed_slice()) {
+                                    Ok(pack) => pack,
+                                    Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                };
+                                positional_segments.push(pack);
+                            }
+                            Contribution::Positional(pack) => positional_segments.push(pack),
+                            Contribution::Labeled(pack) => labeled_segments.push(pack),
+                            Contribution::Complete(pack) => {
+                                let positionals = match store.project_positionals(pack) {
+                                    Ok(positionals) => positionals,
+                                    Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                };
+                                let labeled = match store.project_labeled(pack) {
+                                    Ok(labeled) => labeled,
+                                    Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                };
+                                positional_segments.push(positionals);
+                                labeled_segments.push(labeled);
+                            }
+                        }
+                    }
+                    let positionals = match store.type_pack_concat(&positional_segments) {
+                        Ok(pack) => pack,
+                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                    };
+                    let labeled = match store.labeled_type_pack_concat(&labeled_segments) {
+                        Ok(pack) => pack,
+                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                    };
+                    for mode in signature.parameter_modes.iter().skip(fixed_count) {
+                        match mode {
+                            GenericParameterMode::PositionalPack => canonical_arguments.push(positionals),
+                            GenericParameterMode::LabeledPack => canonical_arguments.push(labeled),
+                            GenericParameterMode::CompletePack => match store.complete_type_pack(positionals, labeled) {
+                                Ok(pack) => canonical_arguments.push(pack),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                            },
+                            GenericParameterMode::Single => {
+                                return TypeFormResolution::InternalFailure("non-prefix fixed generic binder escaped signature validation".into());
+                            }
+                        }
+                    }
+                    return match store.apply_type_form(origin_ty, &canonical_arguments) {
+                        Ok(applied) => TypeFormResolution::Ready(applied),
+                        Err(error) => TypeFormResolution::Invalid(match error {
+                            TypeApplicationError::NotAConstructor { .. } => TypeFormationInvalid::NotAConstructor,
+                            TypeApplicationError::TooManyArguments { .. } => TypeFormationInvalid::TooManyTypeArguments,
+                            TypeApplicationError::ArgumentKindMismatch { .. } => TypeFormationInvalid::TypeArgumentKindMismatch,
+                            TypeApplicationError::MalformedLambda => TypeFormationInvalid::MalformedTypeLambda,
+                        }),
+                    };
+                }
+            }
+
             let mut arg_tys = Vec::with_capacity(arguments.len());
             for arg in arguments {
+                let phalcom_ast::ast::GenericArgumentSyntax::Single(arg) = arg else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "type-pack expansion is not available in generic applications yet",
+                        arg.range(),
+                    ));
+                    return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                };
                 let arg_res = resolve_type_form(store, declarations, resolver, site, arg, diagnostics);
                 match arg_res {
                     TypeFormResolution::Ready(ty) => arg_tys.push(ty),
@@ -1247,11 +1472,13 @@ pub fn resolve_type_form(
             }
         }
         TypeAnnotationExpr::Tuple { elements, range: _ } => {
-            let mut tuple_elements = Vec::with_capacity(elements.len());
+            let mut positional_segments = Vec::new();
+            let mut labeled_segments = Vec::new();
+            let mut labeled_phase = false;
             for elem in elements {
-                let elem_res = resolve_type_form(store, declarations, resolver, site, &elem.ty, diagnostics);
-                let ty = match elem_res {
-                    TypeFormResolution::Ready(ty) => {
+                match elem {
+                    phalcom_ast::ast::TypeTupleItem::Element(elem) => {
+                        let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, &elem.ty, diagnostics));
                         if store.kind_of(ty) != KindId::TYPE {
                             diagnostics.push(SemanticDiagnostic::error_in(
                                 current_module.clone(),
@@ -1261,24 +1488,82 @@ pub fn resolve_type_form(
                             ));
                             return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
                         }
-                        ty
+                        if let Some(label) = &elem.label {
+                            labeled_phase = true;
+                            match store.labeled_type_pack(vec![super::store::LabeledTypePackElement {
+                                label: label.clone().into(),
+                                element: ty,
+                            }].into_boxed_slice()) {
+                                Ok(pack) => labeled_segments.push(pack),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                            }
+                        } else {
+                            if labeled_phase {
+                                diagnostics.push(SemanticDiagnostic::error_in(
+                                    current_module.clone(),
+                                    DiagnosticCode::AnnotationUnsupported,
+                                    "positional Tuple entries cannot follow labeled entries",
+                                    elem.range,
+                                ));
+                                return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                            }
+                            match store.type_pack(vec![ty].into_boxed_slice()) {
+                                Ok(pack) => positional_segments.push(pack),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                            }
+                        }
                     }
-                    TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
-                    TypeFormResolution::Unresolved(reason) => return TypeFormResolution::Unresolved(reason),
-                    TypeFormResolution::Missing(reason) => return TypeFormResolution::Missing(reason),
-                    TypeFormResolution::Invalid(reason) => return TypeFormResolution::Invalid(reason),
-                    TypeFormResolution::Blocked(reason) => return TypeFormResolution::Blocked(reason),
-                    TypeFormResolution::Cancelled => return TypeFormResolution::Cancelled,
-                    TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
-                    TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
-                };
-                tuple_elements.push(TupleTypeElement {
-                    label: elem.label.clone().map(Into::into),
-                    ty,
-                });
+                    phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
+                        if labeled_phase && expansion.mode != ExpansionMode::Labeled {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "positional type-pack expansion cannot follow labeled Tuple entries",
+                                expansion.range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                        }
+                        let operand = type_form_ready_or_return!(resolve_type_form(
+                            store, declarations, resolver, site, &expansion.operand, diagnostics,
+                        ));
+                        let result = match expansion.mode {
+                            ExpansionMode::Positional => store.project_positionals(operand).map(|pack| {
+                                positional_segments.push(pack);
+                            }),
+                            ExpansionMode::Labeled => store.project_labeled(operand).map(|pack| {
+                                labeled_phase = true;
+                                labeled_segments.push(pack);
+                            }),
+                            ExpansionMode::Complete => store.project_complete(operand).and_then(|pack| {
+                                positional_segments.push(store.project_positionals(pack)?);
+                                labeled_segments.push(store.project_labeled(pack)?);
+                                Ok(())
+                            }),
+                        };
+                        if let Err(error) = result {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                format!("invalid Tuple type-pack expansion: {error}"),
+                                expansion.range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                        }
+                    }
+                }
             }
-            let tuple_ty = store.tuple(tuple_elements.into_boxed_slice());
-            TypeFormResolution::Ready(tuple_ty)
+            let positionals = match store.type_pack_concat(&positional_segments) {
+                Ok(pack) => pack,
+                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+            };
+            let labeled = match store.labeled_type_pack_concat(&labeled_segments) {
+                Ok(pack) => pack,
+                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+            };
+            match store.tuple_from_packs(positionals, labeled) {
+                Ok(tuple) => TypeFormResolution::Ready(tuple),
+                Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+            }
         }
         TypeAnnotationExpr::Record { fields, tail, range: _ } => {
             let record_tail = match tail {
@@ -1365,6 +1650,15 @@ pub fn resolve_type_form(
         TypeAnnotationExpr::Callable { parameters, result, range: _ } => {
             let mut param_types = Vec::with_capacity(parameters.len());
             for param in parameters {
+                let phalcom_ast::ast::TypeCallableItem::Parameter(param) = param else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "type-pack expansion is not available in callable types yet",
+                        param.range(),
+                    ));
+                    return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                };
                 let param_res = resolve_type_form(store, declarations, resolver, site, &param.ty, diagnostics);
                 let ty = match param_res {
                     TypeFormResolution::Ready(ty) => {
@@ -1740,7 +2034,20 @@ fn resolve_trait_ref_for_conformance(
                 ));
                 return TypeFormationOutcome::Unresolved(TypeFormationUnresolved::Name(sym_ref.root.clone().into()));
             };
-            (decl, arguments.clone())
+            let mut type_arguments = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "type-pack expansion is not available in conformance bounds",
+                        argument.range(),
+                    ));
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                };
+                type_arguments.push(argument.clone());
+            }
+            (decl, type_arguments)
         }
         _ => {
             diagnostics.push(SemanticDiagnostic::error_in(
@@ -1798,7 +2105,55 @@ pub fn resolve_generic_signature(
     }
 
     let mut pending = Vec::with_capacity(params.len());
+    let mut positional_captured = false;
+    let mut labeled_captured = false;
+    let mut complete_captured = false;
     for p in params {
+        let mode = match p.mode {
+            None => GenericParameterMode::Single,
+            Some(ExpansionMode::Positional) => GenericParameterMode::PositionalPack,
+            Some(ExpansionMode::Labeled) => GenericParameterMode::LabeledPack,
+            Some(ExpansionMode::Complete) => GenericParameterMode::CompletePack,
+        };
+        let invalid_order = match mode {
+            GenericParameterMode::Single => positional_captured || labeled_captured || complete_captured,
+            GenericParameterMode::PositionalPack => positional_captured || labeled_captured || complete_captured,
+            GenericParameterMode::LabeledPack => labeled_captured || complete_captured,
+            GenericParameterMode::CompletePack => positional_captured || labeled_captured || complete_captured,
+        };
+        if invalid_order {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnsupported,
+                "generic pack binders must have deterministic, non-overlapping lane ownership",
+                p.mode_range.unwrap_or(p.range),
+            ));
+            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+        }
+        if mode != GenericParameterMode::Single && p.kind.is_some() {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnsupported,
+                "a generic pack operator already determines its binder domain",
+                p.kind.as_ref().map_or(p.range, KindSyntax::range),
+            ));
+            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+        }
+        if mode != GenericParameterMode::Single && p.variance != VarianceSyntax::Invariant {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnsupported,
+                "variance on variadic generic pack binders is unsupported",
+                p.mode_range.unwrap_or(p.range),
+            ));
+            return TypeFormationOutcome::Invalid(TypeFormationInvalid::InvalidVariance);
+        }
+        match mode {
+            GenericParameterMode::PositionalPack => positional_captured = true,
+            GenericParameterMode::LabeledPack => labeled_captured = true,
+            GenericParameterMode::CompletePack => complete_captured = true,
+            GenericParameterMode::Single => {}
+        }
         let binder_kind = match p.kind.as_ref() {
             None => None,
             Some(syntax) => {
@@ -1815,7 +2170,13 @@ pub fn resolve_generic_signature(
             }
         };
 
-        let kind = match (binder_kind, where_kind_facts.get(&p.name)) {
+        let inferred_kind = match mode {
+            GenericParameterMode::Single => None,
+            GenericParameterMode::PositionalPack => Some(KindId::TYPE_PACK),
+            GenericParameterMode::LabeledPack => Some(KindId::LABELED_TYPE_PACK),
+            GenericParameterMode::CompletePack => Some(KindId::COMPLETE_TYPE_PACK),
+        };
+        let kind = match (inferred_kind.or(binder_kind), where_kind_facts.get(&p.name)) {
             (None, None) => KindId::TYPE,
             (Some(k), None) => k,
             (None, Some((k, _))) => *k,
@@ -1852,14 +2213,15 @@ pub fn resolve_generic_signature(
             ));
             return TypeFormationOutcome::Invalid(TypeFormationInvalid::InvalidVariance);
         }
-        pending.push((p, kind, variance));
+        pending.push((p, kind, variance, mode));
     }
 
     // Phase 2: Intern parameter identities
     let mut param_ids = Vec::with_capacity(params.len());
-    for (idx, (p, kind, variance)) in pending.iter().enumerate() {
+    for (idx, (p, kind, variance, mode)) in pending.iter().enumerate() {
         let data = TypeParameterData::new(owner.clone(), idx as u32, p.name.clone(), *kind)
             .with_variance(*variance)
+            .with_mode(*mode)
             .with_source(crate::diagnostic::SemanticSourceSpan::new(current_module.clone(), p.range));
         let param_id = store.intern_type_parameter(data);
         param_ids.push(param_id);
@@ -2021,14 +2383,15 @@ pub fn resolve_generic_signature(
         .into_boxed_slice();
     let signature = GenericSignature::with_constraints(owner, param_ids.into_boxed_slice(), constraints.into_boxed_slice())
         .with_parameter_metadata(
-            pending.iter().map(|(_, kind, _)| *kind).collect::<Vec<_>>().into_boxed_slice(),
-            pending.iter().map(|(_, _, variance)| *variance).collect::<Vec<_>>().into_boxed_slice(),
+            pending.iter().map(|(_, kind, _, _)| *kind).collect::<Vec<_>>().into_boxed_slice(),
+            pending.iter().map(|(_, _, variance, _)| *variance).collect::<Vec<_>>().into_boxed_slice(),
         )
+        .with_parameter_modes(pending.iter().map(|(_, _, _, mode)| *mode).collect::<Vec<_>>().into_boxed_slice())
         .with_constraint_shapes(constraint_shapes);
     let signature = signature.with_parameter_kind_shapes(
         pending
             .iter()
-            .map(|(_, kind, _)| store.format_kind(*kind).into_boxed_str())
+            .map(|(_, kind, _, _)| store.format_kind(*kind).into_boxed_str())
             .collect::<Vec<_>>()
             .into_boxed_slice(),
     );

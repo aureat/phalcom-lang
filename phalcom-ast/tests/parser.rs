@@ -21,7 +21,7 @@ use phalcom_ast::{
     ast::{
         AssociatedMemberSyntax, ClassMember, Expr, GenericConstraintSyntax, ImplementationKind, KindSyntax, MemberBody, RecordLiteralEntry, ReturnStatement,
         Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeMemberArgumentSyntax, TypeMemberParameterDomainSyntax, TypeMemberResultSyntax,
-        TypeMemberSelectorSyntax, VarianceSyntax,
+        ExpansionMode, GenericArgumentSyntax, TypeCallableItem, TypeMemberSelectorSyntax, TypeTupleItem, VarianceSyntax,
     },
     error::SyntaxErrorKind,
     parse as parse_with_recovery, parse_source,
@@ -1012,7 +1012,7 @@ fn parse_type_syntax_generic_class_and_token_fission() {
             let sym = origin.origin_symbol_ref().expect("symbol");
             assert_eq!(sym.root, "Super");
             assert_eq!(arguments.len(), 1);
-            match &arguments[0].expr {
+            match &arguments[0].as_single().expect("ordinary generic argument").expr {
                 TypeAnnotationExpr::Application {
                     origin: inner_orig,
                     arguments: inner_args,
@@ -1040,6 +1040,60 @@ fn parse_type_syntax_generic_class_and_token_fission() {
 }
 
 #[test]
+fn parse_type_pack_syntax_is_lane_aware() {
+    let source = r#"
+class Positional<*Ts> {}
+class Labeled<**Ls> {}
+class Complete<***P> {}
+type AddHead<*Ts> = (Int, *Ts)
+type Fn<*Ps> = (*Ps,) -> Bool
+"#;
+
+    let program = parse_source(source, 0).expect("variadic generic binders and type pack expansions should parse");
+
+    for (statement, (expected_mode, expected_operator)) in program.statements[..3]
+        .iter()
+        .zip([
+            (ExpansionMode::Positional, "*"),
+            (ExpansionMode::Labeled, "**"),
+            (ExpansionMode::Complete, "***"),
+        ])
+    {
+        let Statement::Class(class) = statement else {
+            panic!("expected class declaration")
+        };
+        let parameter = &class.generic_parameters[0];
+        assert_eq!(parameter.mode, Some(expected_mode));
+        assert_eq!(source_slice(source, parameter.mode_range.expect("operator range")), expected_operator);
+    }
+
+    let Statement::TypeAlias(add_head) = &program.statements[3] else {
+        panic!("expected AddHead alias")
+    };
+    let TypeAnnotationExpr::Tuple { elements, .. } = &add_head.body.expr else {
+        panic!("expected tuple alias body")
+    };
+    assert!(matches!(elements[1], TypeTupleItem::Expansion(ref expansion) if expansion.mode == ExpansionMode::Positional));
+
+    let Statement::TypeAlias(callable) = &program.statements[4] else {
+        panic!("expected Fn alias")
+    };
+    let TypeAnnotationExpr::Callable { parameters, .. } = &callable.body.expr else {
+        panic!("expected callable alias body")
+    };
+    assert!(matches!(parameters[0], TypeCallableItem::Expansion(ref expansion) if expansion.mode == ExpansionMode::Positional));
+
+    let application = parse_source("type Applied<P> = Target<*P>\n", 0).expect("generic expansion parses");
+    let Statement::TypeAlias(alias) = &application.statements[0] else {
+        panic!("expected type alias")
+    };
+    let TypeAnnotationExpr::Application { arguments, .. } = &alias.body.expr else {
+        panic!("expected generic application")
+    };
+    assert!(matches!(arguments[0], GenericArgumentSyntax::Expansion(ref expansion) if expansion.mode == ExpansionMode::Positional));
+}
+
+#[test]
 fn parse_compact_type_lambda_as_generic_argument() {
     let program = parse_source("type M<E> = Monad<<X> =>> Either<E, X>>\n", 0).expect("compact type-lambda generic argument should parse");
     let Statement::TypeAlias(alias) = &program.statements[0] else {
@@ -1051,7 +1105,7 @@ fn parse_compact_type_lambda_as_generic_argument() {
     };
     assert_eq!(arguments.len(), 1);
 
-    let TypeAnnotationExpr::TypeLambda { parameters, body, .. } = &arguments[0].expr else {
+    let TypeAnnotationExpr::TypeLambda { parameters, body, .. } = &arguments[0].as_single().expect("ordinary generic argument").expr else {
         panic!("expected type-lambda argument");
     };
     assert_eq!(parameters.len(), 1);
@@ -1071,7 +1125,7 @@ fn parse_compact_type_lambda_as_value_type_application() {
     let TypeAnnotationExpr::Application { arguments, .. } = &application.expr else {
         panic!("expected outer type application");
     };
-    assert!(matches!(arguments[0].expr, TypeAnnotationExpr::TypeLambda { .. }));
+    assert!(matches!(arguments[0].as_single().expect("ordinary generic argument").expr, TypeAnnotationExpr::TypeLambda { .. }));
 }
 
 #[test]
@@ -1473,7 +1527,7 @@ fn assert_generic_typed_fields(source: &str) {
         };
         assert_eq!(origin.origin_symbol_ref().expect("generic origin").root, "Option");
         assert_eq!(arguments.len(), 1);
-        assert_eq!(arguments[0].origin_symbol_ref().expect("generic argument").root, argument_name);
+        assert_eq!(arguments[0].as_single().expect("ordinary generic argument").origin_symbol_ref().expect("generic argument").root, argument_name);
     }
 }
 

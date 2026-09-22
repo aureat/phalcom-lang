@@ -2,6 +2,7 @@ use phalcom_modules::{DeclarationId, ModuleId};
 use phalcom_semantic::db::{CancellationToken, DependencyRecorder, InputFingerprint, ProductFingerprint, QueryBudget, QueryKey, QueryValue, SemanticDb};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::{KindId, TypeId};
+use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, check_assignability_bounded, check_subtype_bounded};
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_semantic::{SnapshotTypeRef, TypeHierarchy};
@@ -36,6 +37,22 @@ fn proper_type_enforcement_and_kinds() {
     assert!(knowledge.is_known());
     assert_eq!(knowledge.ty(), Some(int_id));
     assert_eq!(knowledge.proper_ty(&store), Some(proper_int));
+}
+
+#[test]
+fn lane_projections_accept_symbolic_terms_with_their_exact_pack_kind() {
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(decl("PackOwner"));
+    let positional = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK));
+    let labeled = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 1, "L", KindId::LABELED_TYPE_PACK));
+    let complete = store.intern_type_parameter(TypeParameterData::new(owner, 2, "Q", KindId::COMPLETE_TYPE_PACK));
+    let positional = store.parameter_form(positional);
+    let labeled = store.parameter_form(labeled);
+    let complete = store.parameter_form(complete);
+
+    assert_eq!(store.project_positionals(positional).expect("TypePack parameter projects positionally"), positional);
+    assert_eq!(store.project_labeled(labeled).expect("LabeledTypePack parameter projects by label"), labeled);
+    assert_eq!(store.project_complete(complete).expect("CompleteTypePack parameter projects completely"), complete);
 }
 
 #[test]

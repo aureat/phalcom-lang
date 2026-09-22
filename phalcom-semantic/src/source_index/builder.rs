@@ -431,7 +431,10 @@ impl TypeReferenceTargetCollector<'_> {
             TypeAnnotationExpr::Application { origin, arguments, .. } => {
                 self.annotation(origin, bound);
                 for argument in arguments {
-                    self.annotation(argument, bound);
+                    match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.annotation(annotation, bound),
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                    }
                 }
             }
             TypeAnnotationExpr::Union { members, .. } => {
@@ -441,12 +444,18 @@ impl TypeReferenceTargetCollector<'_> {
             }
             TypeAnnotationExpr::Tuple { elements, .. } => {
                 for element in elements {
-                    self.annotation(&element.ty, bound);
+                    match element {
+                        phalcom_ast::ast::TypeTupleItem::Element(element) => self.annotation(&element.ty, bound),
+                        phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                    }
                 }
             }
             TypeAnnotationExpr::Callable { parameters, result, .. } => {
                 for parameter in parameters {
-                    self.annotation(&parameter.ty, bound);
+                    match parameter {
+                        phalcom_ast::ast::TypeCallableItem::Parameter(parameter) => self.annotation(&parameter.ty, bound),
+                        phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                    }
                 }
                 self.annotation(result, bound);
             }
@@ -506,7 +515,10 @@ impl TypeReferenceTargetCollector<'_> {
             TypeAnnotationExpr::Application { origin, arguments, .. } => {
                 self.trait_annotation(origin, bound);
                 for argument in arguments {
-                    self.annotation(argument, bound);
+                    match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.annotation(annotation, bound),
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                    }
                 }
             }
             _ => self.annotation(annotation, bound),
@@ -624,7 +636,12 @@ impl SourceScopeBuilder<'_> {
             TypeAnnotationExpr::Application { origin, arguments, .. } => {
                 self.visit_annotation_projection_targets(origin);
                 for argument in arguments {
-                    self.visit_annotation_projection_targets(argument);
+                    match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.visit_annotation_projection_targets(annotation),
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                            self.visit_annotation_projection_targets(&expansion.operand)
+                        }
+                    }
                 }
             }
             TypeAnnotationExpr::Union { members, .. } => {
@@ -634,7 +651,12 @@ impl SourceScopeBuilder<'_> {
             }
             TypeAnnotationExpr::Tuple { elements, .. } => {
                 for element in elements {
-                    self.visit_annotation_projection_targets(&element.ty);
+                    match element {
+                        phalcom_ast::ast::TypeTupleItem::Element(element) => self.visit_annotation_projection_targets(&element.ty),
+                        phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
+                            self.visit_annotation_projection_targets(&expansion.operand)
+                        }
+                    }
                 }
             }
             TypeAnnotationExpr::Record { fields, .. } => {
@@ -644,7 +666,14 @@ impl SourceScopeBuilder<'_> {
             }
             TypeAnnotationExpr::Callable { parameters, result, .. } => {
                 for parameter in parameters {
-                    self.visit_annotation_projection_targets(&parameter.ty);
+                    match parameter {
+                        phalcom_ast::ast::TypeCallableItem::Parameter(parameter) => {
+                            self.visit_annotation_projection_targets(&parameter.ty)
+                        }
+                        phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
+                            self.visit_annotation_projection_targets(&expansion.operand)
+                        }
+                    }
                 }
                 self.visit_annotation_projection_targets(result);
             }

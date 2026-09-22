@@ -254,7 +254,7 @@ fn type_form_expression_synthesizes_class_object_and_applied_denotation() {
                 }),
                 range: SourceRange { start: 0, end: 4 },
             }),
-            arguments: vec![phalcom_ast::ast::TypeAnnotation {
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Single(phalcom_ast::ast::TypeAnnotation {
                 expr: phalcom_ast::ast::TypeAnnotationExpr::Reference(phalcom_ast::ast::StaticSymbolRef {
                     root: "Int".into(),
                     root_range: SourceRange { start: 5, end: 8 },
@@ -262,7 +262,7 @@ fn type_form_expression_synthesizes_class_object_and_applied_denotation() {
                     range: SourceRange { start: 5, end: 8 },
                 }),
                 range: SourceRange { start: 5, end: 8 },
-            }],
+            })],
             range: SourceRange { start: 0, end: 9 },
         },
         range: SourceRange { start: 0, end: 9 },

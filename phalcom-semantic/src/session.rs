@@ -5664,7 +5664,14 @@ fn collect_alias_dependencies(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_alias_dependencies(origin, module, resolver, aliases, dependencies);
             for argument in arguments {
-                collect_alias_dependencies(argument, module, resolver, aliases, dependencies);
+                match argument {
+                    phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
+                        collect_alias_dependencies(annotation, module, resolver, aliases, dependencies);
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_alias_dependencies(&expansion.operand, module, resolver, aliases, dependencies);
+                    }
+                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -5674,12 +5681,26 @@ fn collect_alias_dependencies(
         }
         TypeAnnotationExpr::Tuple { elements, .. } => {
             for element in elements {
-                collect_alias_dependencies(&element.ty, module, resolver, aliases, dependencies);
+                match element {
+                    phalcom_ast::ast::TypeTupleItem::Element(element) => {
+                        collect_alias_dependencies(&element.ty, module, resolver, aliases, dependencies);
+                    }
+                    phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
+                        collect_alias_dependencies(&expansion.operand, module, resolver, aliases, dependencies);
+                    }
+                }
             }
         }
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
             for parameter in parameters {
-                collect_alias_dependencies(&parameter.ty, module, resolver, aliases, dependencies);
+                match parameter {
+                    phalcom_ast::ast::TypeCallableItem::Parameter(parameter) => {
+                        collect_alias_dependencies(&parameter.ty, module, resolver, aliases, dependencies);
+                    }
+                    phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
+                        collect_alias_dependencies(&expansion.operand, module, resolver, aliases, dependencies);
+                    }
+                }
             }
             collect_alias_dependencies(result, module, resolver, aliases, dependencies);
         }
@@ -5759,7 +5780,14 @@ fn collect_associated_projection_targets(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_associated_projection_targets(origin, module, surface, targets);
             for argument in arguments {
-                collect_associated_projection_targets(argument, module, surface, targets);
+                match argument {
+                    phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
+                        collect_associated_projection_targets(annotation, module, surface, targets);
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_associated_projection_targets(&expansion.operand, module, surface, targets);
+                    }
+                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -5769,7 +5797,14 @@ fn collect_associated_projection_targets(
         }
         TypeAnnotationExpr::Tuple { elements, .. } => {
             for element in elements {
-                collect_associated_projection_targets(&element.ty, module, surface, targets);
+                match element {
+                    phalcom_ast::ast::TypeTupleItem::Element(element) => {
+                        collect_associated_projection_targets(&element.ty, module, surface, targets);
+                    }
+                    phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
+                        collect_associated_projection_targets(&expansion.operand, module, surface, targets);
+                    }
+                }
             }
         }
         TypeAnnotationExpr::Record { fields, .. } => {
@@ -5779,7 +5814,14 @@ fn collect_associated_projection_targets(
         }
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
             for parameter in parameters {
-                collect_associated_projection_targets(&parameter.ty, module, surface, targets);
+                match parameter {
+                    phalcom_ast::ast::TypeCallableItem::Parameter(parameter) => {
+                        collect_associated_projection_targets(&parameter.ty, module, surface, targets);
+                    }
+                    phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
+                        collect_associated_projection_targets(&expansion.operand, module, surface, targets);
+                    }
+                }
             }
             collect_associated_projection_targets(result, module, surface, targets);
         }
@@ -5875,7 +5917,14 @@ fn collect_type_annotation_declarations(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_type_annotation_declarations(origin, module, resolver, dependencies);
             for argument in arguments {
-                collect_type_annotation_declarations(argument, module, resolver, dependencies);
+                match argument {
+                    phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
+                        collect_type_annotation_declarations(annotation, module, resolver, dependencies);
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_type_annotation_declarations(&expansion.operand, module, resolver, dependencies);
+                    }
+                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -5885,12 +5934,26 @@ fn collect_type_annotation_declarations(
         }
         TypeAnnotationExpr::Tuple { elements, .. } => {
             for element in elements {
-                collect_type_annotation_declarations(&element.ty, module, resolver, dependencies);
+                match element {
+                    phalcom_ast::ast::TypeTupleItem::Element(element) => {
+                        collect_type_annotation_declarations(&element.ty, module, resolver, dependencies);
+                    }
+                    phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
+                        collect_type_annotation_declarations(&expansion.operand, module, resolver, dependencies);
+                    }
+                }
             }
         }
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
             for parameter in parameters {
-                collect_type_annotation_declarations(&parameter.ty, module, resolver, dependencies);
+                match parameter {
+                    phalcom_ast::ast::TypeCallableItem::Parameter(parameter) => {
+                        collect_type_annotation_declarations(&parameter.ty, module, resolver, dependencies);
+                    }
+                    phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
+                        collect_type_annotation_declarations(&expansion.operand, module, resolver, dependencies);
+                    }
+                }
             }
             collect_type_annotation_declarations(result, module, resolver, dependencies);
         }

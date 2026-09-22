@@ -4,9 +4,9 @@ use crate::identity::DeclarationId;
 use crate::type_alias::TypeAliasInfo;
 use crate::types::annotation::{KindResolution, resolve_kind_syntax};
 use crate::types::id::{KindId, TypeId};
-use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
+use crate::types::parameter::{GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner};
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::{GenericParameterSyntax, Statement};
+use phalcom_ast::ast::{ExpansionMode, GenericParameterSyntax, Statement};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvider};
 use phalcom_native_meta::types::KindSpec;
 use phalcom_native_meta::universe::{UNIVERSE_BINDINGS, UniverseBindingKind, UniverseKey};
@@ -170,6 +170,12 @@ fn source_module_id(path: &[&str]) -> ModuleId {
 }
 
 fn source_parameter_kind(store: &mut TypeStore, parameter: &GenericParameterSyntax) -> KindId {
+    match parameter.mode {
+        Some(ExpansionMode::Positional) => return KindId::TYPE_PACK,
+        Some(ExpansionMode::Labeled) => return KindId::LABELED_TYPE_PACK,
+        Some(ExpansionMode::Complete) => return KindId::COMPLETE_TYPE_PACK,
+        None => {}
+    }
     match parameter
         .kind
         .as_ref()
@@ -187,16 +193,25 @@ fn insert_source_nominal(table: &mut DeclarationTypeTable, store: &mut TypeStore
     let mut parameter_ids = Vec::with_capacity(parameters.len());
     let mut parameter_kinds = Vec::with_capacity(parameters.len());
 
+    let mut parameter_modes = Vec::with_capacity(parameters.len());
     for (index, parameter) in parameters.iter().enumerate() {
         let kind = source_parameter_kind(store, parameter);
+        let mode = match parameter.mode {
+            None => GenericParameterMode::Single,
+            Some(ExpansionMode::Positional) => GenericParameterMode::PositionalPack,
+            Some(ExpansionMode::Labeled) => GenericParameterMode::LabeledPack,
+            Some(ExpansionMode::Complete) => GenericParameterMode::CompletePack,
+        };
         let parameter_id = store.intern_type_parameter(TypeParameterData::new(
             TypeParameterOwner::Declaration(declaration.clone()),
             index as u32,
             parameter.name.clone(),
             kind,
-        ));
+        )
+        .with_mode(mode));
         parameter_ids.push(parameter_id);
         parameter_kinds.push(kind);
+        parameter_modes.push(mode);
     }
 
     let (form, kind, generic_signature) = if parameter_ids.is_empty() {
@@ -204,7 +219,8 @@ fn insert_source_nominal(table: &mut DeclarationTypeTable, store: &mut TypeStore
     } else {
         let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
         let form = store.nominal_form(declaration.clone(), kind);
-        let signature = GenericSignature::new(TypeParameterOwner::Declaration(declaration.clone()), parameter_ids.into_boxed_slice());
+        let signature = GenericSignature::new(TypeParameterOwner::Declaration(declaration.clone()), parameter_ids.into_boxed_slice())
+            .with_parameter_modes(parameter_modes.into_boxed_slice());
         (form, kind, Some(signature))
     };
 

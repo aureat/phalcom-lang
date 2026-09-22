@@ -812,7 +812,7 @@ pub enum TypeAnnotationExpr {
     /// Generic type application (e.g. `List<Int>`).
     Application {
         origin: Box<TypeAnnotation>,
-        arguments: Vec<TypeAnnotation>,
+        arguments: Vec<GenericArgumentSyntax>,
         range: SourceRange,
     },
     /// Exact enum case target (e.g. `Option::None`, `Option<T>::Some(_)`, `Result::Error(reason: _)`).
@@ -827,10 +827,10 @@ pub enum TypeAnnotationExpr {
     /// Union type (e.g. `Int | String`).
     Union { members: Vec<TypeAnnotation>, range: SourceRange },
     /// Tuple type (e.g. `(Int, String)`).
-    Tuple { elements: Vec<TypeTupleElement>, range: SourceRange },
+    Tuple { elements: Vec<TypeTupleItem>, range: SourceRange },
     /// Callable / block signature (e.g. `(Int) -> String`).
     Callable {
-        parameters: Vec<TypeCallableParameter>,
+        parameters: Vec<TypeCallableItem>,
         result: Box<TypeAnnotation>,
         range: SourceRange,
     },
@@ -986,12 +986,75 @@ pub struct TypeTupleElement {
     pub range: SourceRange,
 }
 
+/// A generic application contribution. Expansion remains explicit because one
+/// source entry can assemble a pack argument rather than consume one binder.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GenericArgumentSyntax {
+    Single(TypeAnnotation),
+    Expansion(TypePackExpansionSyntax),
+}
+
+impl GenericArgumentSyntax {
+    pub fn as_single(&self) -> Option<&TypeAnnotation> {
+        match self {
+            Self::Single(ty) => Some(ty),
+            Self::Expansion(_) => None,
+        }
+    }
+
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Single(ty) => ty.range,
+            Self::Expansion(expansion) => expansion.range,
+        }
+    }
+}
+
+/// A lane-specific expansion at a type-formation site.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypePackExpansionSyntax {
+    pub mode: ExpansionMode,
+    pub operator_range: SourceRange,
+    pub operand: TypeAnnotation,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeTupleItem {
+    Element(TypeTupleElement),
+    Expansion(TypePackExpansionSyntax),
+}
+
+impl TypeTupleItem {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Element(element) => element.range,
+            Self::Expansion(expansion) => expansion.range,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeCallableParameter {
     pub label: Option<String>,
     pub ty: TypeAnnotation,
     pub rest: bool,
     pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeCallableItem {
+    Parameter(TypeCallableParameter),
+    Expansion(TypePackExpansionSyntax),
+}
+
+impl TypeCallableItem {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Parameter(parameter) => parameter.range,
+            Self::Expansion(expansion) => expansion.range,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1038,6 +1101,8 @@ impl KindSyntax {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParameterSyntax {
+    pub mode: Option<ExpansionMode>,
+    pub mode_range: Option<SourceRange>,
     pub variance: VarianceSyntax,
     pub name: String,
     pub name_range: SourceRange,

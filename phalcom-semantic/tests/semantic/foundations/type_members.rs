@@ -39,11 +39,11 @@ fn tuple_ann(elements: Vec<(Option<&str>, TypeAnnotation)>) -> TypeAnnotation {
         expr: TypeAnnotationExpr::Tuple {
             elements: elements
                 .into_iter()
-                .map(|(label, ty)| TypeTupleElement {
+                .map(|(label, ty)| phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: label.map(Into::into),
                     ty,
                     range: RANGE,
-                })
+                }))
                 .collect(),
             range: RANGE,
         },

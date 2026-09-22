@@ -43,7 +43,7 @@ fn application(origin: TypeAnnotation, arguments: Vec<TypeAnnotation>) -> TypeAn
     TypeAnnotation {
         expr: TypeAnnotationExpr::Application {
             origin: Box::new(origin),
-            arguments,
+            arguments: arguments.into_iter().map(phalcom_ast::ast::GenericArgumentSyntax::Single).collect(),
             range: RANGE,
         },
         range: RANGE,
@@ -174,16 +174,16 @@ fn lowers_labeled_tuple_and_callable_forms() {
     let tuple = TypeAnnotation {
         expr: TypeAnnotationExpr::Tuple {
             elements: vec![
-                TypeTupleElement {
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("Int"),
                     range: RANGE,
-                },
-                TypeTupleElement {
+                }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: Some("name".into()),
                     ty: reference("String"),
                     range: RANGE,
-                },
+                }),
             ],
             range: RANGE,
         },
@@ -196,18 +196,18 @@ fn lowers_labeled_tuple_and_callable_forms() {
     let callable = TypeAnnotation {
         expr: TypeAnnotationExpr::Callable {
             parameters: vec![
-                TypeCallableParameter {
+                phalcom_ast::ast::TypeCallableItem::Parameter(TypeCallableParameter {
                     label: None,
                     ty: reference("Int"),
                     rest: false,
                     range: RANGE,
-                },
-                TypeCallableParameter {
+                }),
+                phalcom_ast::ast::TypeCallableItem::Parameter(TypeCallableParameter {
                     label: Some("names".into()),
                     ty: reference("String"),
                     rest: true,
                     range: RANGE,
-                },
+                }),
             ],
             result: Box::new(reference("Bool")),
             range: RANGE,
@@ -813,16 +813,16 @@ fn nested_type_lambda_beta_reduction_avoids_capture() {
     let body = TypeAnnotation {
         expr: TypeAnnotationExpr::Tuple {
             elements: vec![
-                TypeTupleElement {
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("T"),
                     range: RANGE,
-                },
-                TypeTupleElement {
+                }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("U"),
                     range: RANGE,
-                },
+                }),
             ],
             range: RANGE,
         },
@@ -979,6 +979,8 @@ fn record_row_generic_binder_does_not_create_type_parameter_form() {
     let owner_callable = CallableId::new(owner_decl, Selector::getter("row").unwrap(), DispatchSide::Instance);
     let owner = phalcom_semantic::types::parameter::TypeParameterOwner::Callable(owner_callable);
     let params = vec![phalcom_ast::ast::GenericParameterSyntax {
+        mode: None,
+        mode_range: None,
         variance: phalcom_ast::ast::VarianceSyntax::Invariant,
         name: "R".into(),
         name_range: RANGE,
@@ -1020,6 +1022,8 @@ fn lowers_generic_signature_with_where_constraints() {
     let mut env = setup();
     let owner = phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "Container".into()));
     let params = vec![phalcom_ast::ast::GenericParameterSyntax {
+        mode: None,
+        mode_range: None,
         variance: phalcom_ast::ast::VarianceSyntax::Covariant,
         name: "T".into(),
         name_range: RANGE,
@@ -1056,10 +1060,135 @@ fn lowers_generic_signature_with_where_constraints() {
 }
 
 #[test]
+fn variadic_generic_binders_derive_modes_kinds_and_reject_ambiguous_order() {
+    let mut env = setup();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "Variadic".into()));
+    let params = vec![
+        phalcom_ast::ast::GenericParameterSyntax {
+            mode: Some(phalcom_ast::ast::ExpansionMode::Positional),
+            mode_range: Some(RANGE),
+            variance: phalcom_ast::ast::VarianceSyntax::Invariant,
+            name: "Ts".into(),
+            name_range: RANGE,
+            kind: None,
+            range: RANGE,
+        },
+        phalcom_ast::ast::GenericParameterSyntax {
+            mode: Some(phalcom_ast::ast::ExpansionMode::Labeled),
+            mode_range: Some(RANGE),
+            variance: phalcom_ast::ast::VarianceSyntax::Invariant,
+            name: "Ls".into(),
+            name_range: RANGE,
+            kind: None,
+            range: RANGE,
+        },
+    ];
+    let mut diagnostics = Vec::new();
+    let phalcom_semantic::types::annotation::TypeFormationOutcome::Ready(signature) =
+        phalcom_semantic::types::annotation::resolve_generic_signature(
+            &mut env.store,
+            &env.declarations,
+            &env.resolver,
+            &env.site,
+            owner,
+            phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
+            &params,
+            None,
+            &mut diagnostics,
+        )
+    else {
+        panic!("expected variadic signature")
+    };
+    assert!(diagnostics.is_empty());
+    assert_eq!(
+        signature.parameter_modes.as_ref(),
+        [
+            phalcom_semantic::types::parameter::GenericParameterMode::PositionalPack,
+            phalcom_semantic::types::parameter::GenericParameterMode::LabeledPack,
+        ]
+    );
+    assert_eq!(env.store.type_parameter(signature.parameters[0]).kind, KindId::TYPE_PACK);
+    assert_eq!(env.store.type_parameter(signature.parameters[1]).kind, KindId::LABELED_TYPE_PACK);
+
+    let mut diagnostics = Vec::new();
+    let invalid = vec![params[0].clone(), phalcom_ast::ast::GenericParameterSyntax {
+        mode: None,
+        mode_range: None,
+        variance: phalcom_ast::ast::VarianceSyntax::Invariant,
+        name: "T".into(),
+        name_range: RANGE,
+        kind: None,
+        range: RANGE,
+    }];
+    let result = phalcom_semantic::types::annotation::resolve_generic_signature(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "InvalidVariadic".into())),
+        phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
+        &invalid,
+        None,
+        &mut diagnostics,
+    );
+    assert!(matches!(result, phalcom_semantic::types::annotation::TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax)));
+    assert!(!diagnostics.is_empty());
+}
+
+#[test]
+fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
+    let mut env = setup();
+    let declaration = DeclarationId::new(env.module.clone(), "V".into());
+    let parameter = env.store.intern_type_parameter(
+        TypeParameterData::new(TypeParameterOwner::Declaration(declaration.clone()), 0, "Ts", KindId::TYPE_PACK)
+            .with_mode(phalcom_semantic::types::parameter::GenericParameterMode::PositionalPack),
+    );
+    let signature = GenericSignature::new(TypeParameterOwner::Declaration(declaration.clone()), vec![parameter].into_boxed_slice())
+        .with_parameter_modes(vec![phalcom_semantic::types::parameter::GenericParameterMode::PositionalPack].into_boxed_slice());
+    let kind = env.store.arrow_kind(vec![KindId::TYPE_PACK].into_boxed_slice(), KindId::TYPE);
+    let form = env.store.nominal_form(declaration.clone(), kind);
+    let class_object_type = env.store.class_object_type(declaration.clone());
+    env.declarations.insert(phalcom_semantic::declarations::DeclarationTypeInfo {
+        declaration: declaration.clone(),
+        form,
+        class_object_type,
+        kind,
+        generic_signature: Some(signature),
+        supertype_template: None,
+    });
+    env.resolver.insert("V", declaration);
+
+    let empty = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("V")),
+            arguments: vec![],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let (empty, diagnostics) = resolve(&mut env, &empty);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Applied { arguments, .. } = env.store.get(empty.ty().expect("V<> proper type")) else {
+        panic!("expected binder-aligned application")
+    };
+    assert!(matches!(env.store.get(arguments[0]), TypeData::TypePack(elements) if elements.is_empty()));
+
+    let applied = application(reference("V"), vec![reference("Int"), reference("String")]);
+    let (applied, diagnostics) = resolve(&mut env, &applied);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Applied { arguments, .. } = env.store.get(applied.ty().expect("V<Int, String> proper type")) else {
+        panic!("expected binder-aligned application")
+    };
+    assert!(matches!(env.store.get(arguments[0]), TypeData::TypePack(elements) if elements.len() == 2));
+}
+
+#[test]
 fn generic_constraint_substitution_preserves_parameter_identity() {
     let mut env = setup();
     let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "Constrained".into()));
     let params = vec![phalcom_ast::ast::GenericParameterSyntax {
+        mode: None,
+        mode_range: None,
         variance: phalcom_ast::ast::VarianceSyntax::Invariant,
         name: "T".into(),
         name_range: RANGE,
@@ -1134,6 +1263,8 @@ fn invalid_generic_kind_does_not_publish_signature() {
     let mut env = setup();
     let owner = phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "Broken".into()));
     let params = vec![phalcom_ast::ast::GenericParameterSyntax {
+        mode: None,
+        mode_range: None,
         variance: phalcom_ast::ast::VarianceSyntax::Invariant,
         name: "T".into(),
         name_range: RANGE,
@@ -1166,6 +1297,8 @@ fn malformed_generic_constraint_does_not_publish_partial_signature() {
     let mut env = setup();
     let owner = phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "BrokenConstraint".into()));
     let params = vec![phalcom_ast::ast::GenericParameterSyntax {
+        mode: None,
+        mode_range: None,
         variance: phalcom_ast::ast::VarianceSyntax::Invariant,
         name: "T".into(),
         name_range: RANGE,
@@ -1207,6 +1340,8 @@ fn callable_generic_variance_is_rejected() {
         DispatchSide::Instance,
     ));
     let params = vec![phalcom_ast::ast::GenericParameterSyntax {
+        mode: None,
+        mode_range: None,
         variance: phalcom_ast::ast::VarianceSyntax::Covariant,
         name: "T".into(),
         name_range: RANGE,
