@@ -14,11 +14,12 @@ prepared: 2026-09-21
 | Checkpoint | State | Active / next plan | Next action |
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
-| `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | closed | variadic generic binding and structural type expansion |
+| `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C3` | frozen C2 substrate |
+| `LANG007.C3` | `IN_PROGRESS / PARTIAL / UNVERIFIED` | active: `LANG007.C3.P1` | unified algebraic data declarations and type-data foundation |
 
 ## Current program state
 
-LANG007 has completed and focused-tested `LANG007.C1` across all three numbered plans (P1, P2, P3).
+LANG007 has completed and focused-tested `LANG007.C1` and `LANG007.C2`. Active checkpoint is `LANG007.C3`.
 
 Current truth:
 
@@ -26,6 +27,8 @@ Current truth:
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
+active_checkpoint: LANG007.C3
+active_plan: LANG007.C3.P1
 ```
 
 `LANG007.C1` is complete. The program remains `IN_PROGRESS` because future roadmap topics (such as variadic pack expansion and bounded pack inference) remain for subsequent checkpoints.

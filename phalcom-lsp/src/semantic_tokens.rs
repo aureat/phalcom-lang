@@ -646,13 +646,6 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>)
                     collect_member_decl_name(member, out);
                 }
             }
-            Statement::Enum(enum_def) => {
-                out.push(DeclNameOverride {
-                    range: enum_def.name_range,
-                    kind: SemanticTokenKind::Class,
-                    is_index: false,
-                });
-            }
             Statement::TypeAlias(alias) => {
                 out.push(DeclNameOverride {
                     range: alias.name_range,

@@ -276,10 +276,10 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
                     let declaration = source_declaration_identity(&module, &class_def.name, universe_resolver);
                     insert_source_nominal(&mut table, store, declaration, &class_def.generic_parameters);
                 }
-                Statement::Enum(enum_def) => {
-                    source_nominals.insert((module.clone(), enum_def.name.clone()));
-                    let declaration = source_declaration_identity(&module, &enum_def.name, universe_resolver);
-                    insert_source_nominal(&mut table, store, declaration, &enum_def.generic_parameters);
+                Statement::Data(data_def) => {
+                    source_nominals.insert((module.clone(), data_def.name.clone()));
+                    let declaration = source_declaration_identity(&module, &data_def.name, universe_resolver);
+                    insert_source_nominal(&mut table, store, declaration, &data_def.generic_parameters);
                 }
                 _ => {}
             }

@@ -645,6 +645,7 @@ fn test_exact_enum_case_target_success() {
         type_handle: phalcom_semantic::types::id::VariantTypeId::from_index(0),
         family: None,
         shape: VariantShape::Singleton,
+        payload_kind: phalcom_semantic::enum_semantics::AlgebraicCasePayloadKind::Singleton,
         fields: vec![].into_boxed_slice(),
         result_type_template: status_ty,
         exact_case_template: status_ty,

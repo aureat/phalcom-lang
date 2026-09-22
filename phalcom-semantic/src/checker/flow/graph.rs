@@ -259,7 +259,6 @@ impl CfgBuilder {
                     incoming = self.build_expression_flow(expr, *range, idx, incoming);
                 }
                 Statement::Class(_)
-                | Statement::Enum(_)
                 | Statement::Data(_)
                 | Statement::Trait(_)
                 | Statement::Impl(_)
@@ -475,7 +474,6 @@ fn has_labeled_arg(args: &[PackItem], label_name: &str) -> bool {
 fn stmt_range(stmt: &Statement) -> SourceRange {
     match stmt {
         Statement::Class(c) => c.range,
-        Statement::Enum(e) => e.range,
         Statement::Data(d) => d.range,
         Statement::Trait(t) => t.range,
         Statement::TypeAlias(t) => t.range,

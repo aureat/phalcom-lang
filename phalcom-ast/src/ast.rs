@@ -26,8 +26,7 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Class(ClassDef),
-    Enum(EnumDef),
-    Data(DataDef),
+    Data(AlgebraicDef),
     Trait(TraitDef),
     Impl(ImplDef),
     TypeAlias(TypeAliasDef),
@@ -285,18 +284,205 @@ impl ClassDef {
     }
 }
 
+/// The semantic phase of an algebraic declaration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AlgebraicPhase {
+    /// Runtime value domain (`data`).
+    Runtime,
+    /// Type-system-only static domain (`type data`).
+    TypeOnly,
+}
+
+/// The syntax shape of an algebraic declaration: product or sum.
 #[derive(Debug, Clone)]
-pub struct EnumDef {
-    pub name: String,
-    pub name_range: SourceRange,
-    pub generic_parameters: Vec<GenericParameterSyntax>,
-    pub where_clause: Option<WhereClauseSyntax>,
-    pub variants: Vec<VariantDecl>,
-    pub attributes: Vec<Attribute>,
-    pub implementation: ImplementationKind,
-    pub implementation_range: Option<SourceRange>,
+pub enum AlgebraicShapeSyntax {
+    Product(ProductShapeSyntax),
+    Sum(SumShapeSyntax),
+}
+
+impl AlgebraicShapeSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Product(product) => product.range(),
+            Self::Sum(sum) => sum.range,
+        }
+    }
+}
+
+/// Product shape syntax: positional tuple or named record.
+#[derive(Debug, Clone)]
+pub enum ProductShapeSyntax {
+    Tuple {
+        constructor_visibility: Visibility,
+        constructor_visibility_range: Option<SourceRange>,
+        components: Vec<DataComponentSyntax>,
+        range: SourceRange,
+    },
+    Record {
+        constructor_visibility: Visibility,
+        constructor_visibility_range: Option<SourceRange>,
+        components: Vec<DataComponentSyntax>,
+        range: SourceRange,
+    },
+}
+
+impl ProductShapeSyntax {
+    pub fn components(&self) -> &[DataComponentSyntax] {
+        match self {
+            Self::Tuple { components, .. } | Self::Record { components, .. } => components,
+        }
+    }
+
+    pub fn constructor_visibility(&self) -> Visibility {
+        match self {
+            Self::Tuple { constructor_visibility, .. } | Self::Record { constructor_visibility, .. } => *constructor_visibility,
+        }
+    }
+
+    pub fn constructor_visibility_range(&self) -> Option<SourceRange> {
+        match self {
+            Self::Tuple { constructor_visibility_range, .. } | Self::Record { constructor_visibility_range, .. } => *constructor_visibility_range,
+        }
+    }
+
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Tuple { range, .. } | Self::Record { range, .. } => *range,
+        }
+    }
+}
+
+/// Sum shape syntax containing declared cases.
+#[derive(Debug, Clone)]
+pub struct SumShapeSyntax {
+    pub cases: Vec<AlgebraicCaseSyntax>,
     pub range: SourceRange,
 }
+
+/// The payload shape of an algebraic sum case.
+#[derive(Debug, Clone)]
+pub enum CasePayloadSyntax {
+    /// Getter-shaped singleton case (e.g. `None` or `Ready`).
+    Singleton,
+    /// Positional/tuple constructor case (e.g. `Some(_ value: T)` or `Constructed()`).
+    Tuple {
+        parameters: Vec<ParameterDef>,
+        explicit_empty: bool,
+        range: SourceRange,
+    },
+    /// Record-shaped payload case (e.g. `Request { method: Method, path: String }`).
+    Record {
+        components: Vec<DataComponentSyntax>,
+        range: SourceRange,
+    },
+}
+
+/// A declared case inside an algebraic sum.
+#[derive(Debug, Clone)]
+pub struct AlgebraicCaseSyntax {
+    pub name: String,
+    pub name_range: SourceRange,
+    /// Span of the explicit `@variant` marker, if any.
+    pub variant_marker_range: Option<SourceRange>,
+    /// Generic parameters owned by this case constructor.
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    /// Generic `where` constraints attached to this case constructor.
+    pub where_clause: Option<WhereClauseSyntax>,
+    /// Case payload shape.
+    pub payload: CasePayloadSyntax,
+    /// GADT result specialization, if written.
+    pub result_annotation: Option<TypeAnnotation>,
+    /// Non-marker attributes preserved for later visibility/metadata semantics.
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+}
+
+impl AlgebraicCaseSyntax {
+    pub fn is_singleton(&self) -> bool {
+        matches!(self.payload, CasePayloadSyntax::Singleton)
+    }
+
+    pub fn is_explicit_empty(&self) -> bool {
+        matches!(self.payload, CasePayloadSyntax::Tuple { explicit_empty: true, .. })
+    }
+
+    pub fn tuple_parameters(&self) -> Option<&[ParameterDef]> {
+        match &self.payload {
+            CasePayloadSyntax::Tuple { parameters, .. } => Some(parameters),
+            _ => None,
+        }
+    }
+
+    pub fn record_components(&self) -> Option<&[DataComponentSyntax]> {
+        match &self.payload {
+            CasePayloadSyntax::Record { components, .. } => Some(components),
+            _ => None,
+        }
+    }
+}
+
+/// A unified first-class algebraic declaration (`data` or `type data`).
+#[derive(Debug, Clone)]
+pub struct AlgebraicDef {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub phase: AlgebraicPhase,
+    pub implementation: ImplementationKind,
+    pub implementation_range: Option<SourceRange>,
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub where_clause: Option<WhereClauseSyntax>,
+    pub shape: AlgebraicShapeSyntax,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+    /// Span of the legacy `enum` keyword if parsed from `enum`.
+    pub legacy_enum_keyword_range: Option<SourceRange>,
+}
+
+impl AlgebraicDef {
+    pub fn is_product(&self) -> bool {
+        matches!(self.shape, AlgebraicShapeSyntax::Product(_))
+    }
+
+    pub fn is_sum(&self) -> bool {
+        matches!(self.shape, AlgebraicShapeSyntax::Sum(_))
+    }
+
+    pub fn product_shape(&self) -> Option<&ProductShapeSyntax> {
+        match &self.shape {
+            AlgebraicShapeSyntax::Product(p) => Some(p),
+            AlgebraicShapeSyntax::Sum(_) => None,
+        }
+    }
+
+    pub fn sum_shape(&self) -> Option<&SumShapeSyntax> {
+        match &self.shape {
+            AlgebraicShapeSyntax::Sum(s) => Some(s),
+            AlgebraicShapeSyntax::Product(_) => None,
+        }
+    }
+
+    pub fn cases(&self) -> Option<&[AlgebraicCaseSyntax]> {
+        self.sum_shape().map(|s| s.cases.as_slice())
+    }
+
+    pub fn components(&self) -> Option<&[DataComponentSyntax]> {
+        self.product_shape().map(|p| p.components())
+    }
+
+    pub fn constructor_visibility(&self) -> Visibility {
+        self.product_shape().map_or(Visibility::Public, |p| p.constructor_visibility())
+    }
+
+    pub fn constructor_visibility_range(&self) -> Option<SourceRange> {
+        self.product_shape().and_then(|p| p.constructor_visibility_range())
+    }
+}
+
+pub type DataDef = AlgebraicDef;
+pub type EnumDef = AlgebraicDef;
+pub type VariantDecl = AlgebraicCaseSyntax;
+pub type VariantPayloadSyntax = CasePayloadSyntax;
+pub type DataShapeSyntax = ProductShapeSyntax;
 
 /// A behavior-only member definition (methods, getters, setters, index operators) (PDR-0035).
 #[allow(clippy::large_enum_variant)]
@@ -547,49 +733,6 @@ pub struct ImplDef {
     pub target_range: SourceRange,
 }
 
-#[derive(Debug, Clone)]
-pub struct VariantDecl {
-    pub name: String,
-    pub name_range: SourceRange,
-    /// Span of the explicit `@variant` marker.
-    pub variant_marker_range: SourceRange,
-    /// Generic parameters owned by this variant constructor.
-    pub generic_parameters: Vec<GenericParameterSyntax>,
-    /// Generic `where` constraints attached to this variant constructor.
-    pub where_clause: Option<WhereClauseSyntax>,
-    /// `None` means getter-shaped singleton variant `#name`.
-    pub payload: Option<VariantPayloadSyntax>,
-    /// GADT result specialization, if written.
-    pub result_annotation: Option<TypeAnnotation>,
-    /// Non-marker attributes preserved for later visibility/metadata semantics.
-    pub attributes: Vec<Attribute>,
-    pub range: SourceRange,
-}
-
-#[derive(Debug, Clone)]
-pub struct VariantPayloadSyntax {
-    pub parameters: Vec<ParameterDef>,
-    pub range: SourceRange,
-}
-
-/// A first-class nominal immutable data declaration (PDR-0035).
-#[derive(Debug, Clone)]
-pub struct DataDef {
-    pub name: String,
-    pub name_range: SourceRange,
-    pub generic_parameters: Vec<GenericParameterSyntax>,
-    /// Visibility of the compiler-generated primary data constructor.
-    pub constructor_visibility: Visibility,
-    /// Source span of the primary-constructor visibility modifier, if present.
-    pub constructor_visibility_range: Option<SourceRange>,
-    pub where_clause: Option<WhereClauseSyntax>,
-    pub shape: DataShapeSyntax,
-    pub attributes: Vec<Attribute>,
-    pub implementation: ImplementationKind,
-    pub implementation_range: Option<SourceRange>,
-    pub range: SourceRange,
-}
-
 /// A first-class behavioral contract declaration.
 ///
 /// Traits own no storage, superclass, variants, or runtime class identity.
@@ -605,26 +748,6 @@ pub struct TraitDef {
     pub members: Vec<TraitMember>,
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
-}
-
-#[derive(Debug, Clone)]
-pub enum DataShapeSyntax {
-    Tuple { components: Vec<DataComponentSyntax>, range: SourceRange },
-    Record { components: Vec<DataComponentSyntax>, range: SourceRange },
-}
-
-impl DataShapeSyntax {
-    pub fn components(&self) -> &[DataComponentSyntax] {
-        match self {
-            Self::Tuple { components, .. } | Self::Record { components, .. } => components,
-        }
-    }
-
-    pub fn range(&self) -> SourceRange {
-        match self {
-            Self::Tuple { range, .. } | Self::Record { range, .. } => *range,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

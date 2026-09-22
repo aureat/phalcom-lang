@@ -456,7 +456,7 @@ impl OccurrenceBuilder<'_> {
                 self.statements(&for_statement.body);
             }
             Statement::Export(export) => self.export_items(export),
-            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Data(_) | Statement::Enum(_) | Statement::Trait(_) => {}
+            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Data(_) | Statement::Trait(_) => {}
             Statement::Impl(impl_def) => {
                 for impl_member in &impl_def.members {
                     if let phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) = impl_member {

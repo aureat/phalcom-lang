@@ -383,8 +383,8 @@ fn source_index_covers_enum_variants_fields_and_behaviors() {
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let variant = match &parsed.program.statements[0] {
-        phalcom_ast::ast::Statement::Enum(enum_def) => enum_def.variants[0].clone(),
-        _ => panic!("expected enum"),
+        phalcom_ast::ast::Statement::Data(data_def) => data_def.cases().expect("cases")[0].clone(),
+        _ => panic!("expected enum/data"),
     };
     let module = ModuleId::universe_root();
     let index = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());

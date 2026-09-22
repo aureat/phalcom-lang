@@ -700,7 +700,7 @@ impl<'a> ProductPlanner<'a> {
                     self.nested_block_depth -= 1;
                 }
             }
-            Statement::Enum(_) | Statement::Data(_) | Statement::Trait(_) => {}
+            Statement::Data(_) | Statement::Trait(_) => {}
         }
     }
 

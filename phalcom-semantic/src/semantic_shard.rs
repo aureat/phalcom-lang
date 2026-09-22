@@ -54,8 +54,14 @@ impl ModuleSemanticStructureShard {
         for statement in &source.program.statements {
             let (name, kind) = match statement {
                 Statement::Class(class_def) => (&class_def.name, DeclarationKind::Class),
-                Statement::Enum(enum_def) => (&enum_def.name, DeclarationKind::Adt),
-                Statement::Data(data_def) => (&data_def.name, DeclarationKind::Data),
+                Statement::Data(data_def) => {
+                    let kind = if data_def.is_sum() {
+                        DeclarationKind::Adt
+                    } else {
+                        DeclarationKind::Data
+                    };
+                    (&data_def.name, kind)
+                }
                 Statement::Trait(trait_def) => (&trait_def.name, DeclarationKind::Trait),
                 Statement::TypeAlias(alias) => (&alias.name, DeclarationKind::Alias),
                 _ => continue,
@@ -80,10 +86,6 @@ impl ModuleSemanticStructureShard {
                         &mut field_signature_fingerprints,
                         &mut callable_body_fingerprints,
                     );
-                }
-                Statement::Enum(enum_def) => {
-                    declaration_header_fingerprints.insert(declaration.clone(), declaration_header_fingerprint(&source, enum_def.range));
-                    hierarchy_edge_fingerprints.insert(declaration.clone(), hierarchy_fingerprint(&source, None));
                 }
                 Statement::Data(data_def) => {
                     declaration_header_fingerprints.insert(declaration.clone(), declaration_header_fingerprint(&source, data_def.range));
@@ -152,7 +154,6 @@ impl ModuleSemanticStructureShard {
                         }
                     }
                 }
-                Statement::Enum(_) => {}
                 Statement::Impl(impl_def) => {
                     for member in &impl_def.members {
                         if let Some(range) = member.behavior().and_then(behavior_body_range) {
@@ -241,7 +242,6 @@ fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<
                 let owner = DeclarationId::new(source.id.clone(), class_def.name.clone().into());
                 collect_class_member_fingerprints(source, &owner, &class_def.members, &mut callable_signatures, &mut fields, &mut callable_bodies);
             }
-            Statement::Enum(_) => {}
             Statement::Trait(trait_def) => {
                 let owner = DeclarationId::new(source.id.clone(), trait_def.name.clone().into());
                 collect_trait_member_fingerprints(
@@ -368,7 +368,7 @@ fn declaration_header_fingerprint(source: &ParsedModuleUnit, range: phalcom_comm
                 body_ranges.extend(class_def.members.iter().filter_map(class_member_body_range));
                 true
             }
-            Statement::Enum(enum_def) if enum_def.range == range => true,
+            Statement::Data(data_def) if data_def.range == range => true,
             Statement::Trait(trait_def) if trait_def.range == range => {
                 body_ranges.extend(trait_def.members.iter().filter_map(|member| member.behavior().and_then(behavior_body_range)));
                 true

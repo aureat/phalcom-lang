@@ -16,6 +16,15 @@ pub enum VariantShape {
     Constructor,
 }
 
+/// Structural payload shape of an algebraic case.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AlgebraicCasePayloadKind {
+    Singleton,
+    Tuple,
+    Record,
+    ExplicitEmpty,
+}
+
 /// Multi-axis variant visibility metadata.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VariantVisibility {
@@ -73,6 +82,7 @@ pub struct VariantInfo {
     pub type_handle: VariantTypeId,
     pub family: Option<VariantFamilyId>,
     pub shape: VariantShape,
+    pub payload_kind: AlgebraicCasePayloadKind,
     pub fields: Box<[VariantFieldSemantic]>,
     pub result_type_template: TypeId,
     pub exact_case_template: TypeId,
@@ -80,6 +90,20 @@ pub struct VariantInfo {
     pub constructor: Option<VariantConstructorSignature>,
     pub visibility: VariantVisibility,
     pub source: Option<SemanticSourceSpan>,
+}
+
+impl VariantInfo {
+    pub fn is_singleton(&self) -> bool {
+        self.shape == VariantShape::Singleton
+    }
+
+    pub fn is_record(&self) -> bool {
+        self.payload_kind == AlgebraicCasePayloadKind::Record
+    }
+
+    pub fn is_explicit_empty(&self) -> bool {
+        self.payload_kind == AlgebraicCasePayloadKind::ExplicitEmpty
+    }
 }
 
 /// Complete structural semantic metadata for one declared enum root.

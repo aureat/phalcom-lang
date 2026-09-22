@@ -1737,8 +1737,7 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
                     }
                 }
             }
-            Statement::Enum(_)
-            | Statement::TypeAlias(_)
+            Statement::TypeAlias(_)
             | Statement::Data(_)
             | Statement::Trait(_)
             | Statement::Break { .. }

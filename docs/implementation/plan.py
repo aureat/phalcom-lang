@@ -1,3684 +1,3390 @@
 from pathlib import Path
+from textwrap import dedent
 
-plan = r'''# TEST002.C2.P1 — Runtime Correctness Remediation
+outdir = Path("LANG007/LANG007.C3")
 
-```yaml
+req = dedent(r'''
 ---
-id: TEST002.C2.P1
-category: TEST
-program: TEST002
-checkpoint: TEST002.C2
-kind: implementation-plan
+id: LANG007.C3.requirements-analysis
+category: LANG
+program: LANG007
+checkpoint: LANG007.C3
+kind: requirements-analysis
 status: PROPOSED
 completion: NOT_STARTED
 verification: UNVERIFIED
+title: "Type Data and Unified Algebraic Static Domains"
+repository: aureat/phalcom-lang
+branch: main
+prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
+prepared: 2026-09-22
 depends_on:
-  - TEST002.C1.P2
-follows: TEST002.C1.P2
-supersedes: null
+  - LANG007.C1
+  - LANG007.C2
+plans:
+  - LANG007.C3.P1
+  - LANG007.C3.P2
+  - LANG007.C3.P3
 ---
+
+# LANG007.C3 — Requirements Analysis
+
+## Type Data and Unified Algebraic Static Domains
+
+## 0. Executive conclusion
+
+`LANG007.C3` should implement one semantic algebra for Phalcom declarations and static domains across three bounded plans:
+
+```text
+P1
+    unify runtime algebraic declarations under `data`
+    +
+    establish `type data` declaration/case/static-term foundations
+
+P2
+    generalize static-domain classification, heterogeneous generic application,
+    static inference, associated `type data`, and `::` lookup
+
+P3
+    expose intrinsic structural domains through Universe,
+    migrate canonical library declarations and tooling/corpus,
+    certify metadata/incremental/runtime boundaries,
+    close C3
 ```
 
-## 0. Executor contract
+The live post-C2 repository strongly favors **extending the existing canonical kinded-term architecture rather than introducing a second general static-term universe**.
 
-This is a Luna-oriented patch-grade implementation plan. It is intended to let a capable implementation agent perform the mechanical work continuously without re-deciding the architecture.
+The central implementation recommendation is:
 
-The implementer:
+```text
+TypeId
+    remains the store-relative canonical handle for ordinary kinded static terms
 
-- may adapt mechanical details to the live repository;
-- must preserve the architecture, ownership boundaries, and invariants in this plan;
-- must not improvise material architecture;
-- must re-read the named live files and symbols immediately before editing;
-- must treat current repository state as authoritative for mechanics, while accepted specifications and the fixed decisions in this plan remain authoritative for intended behavior;
-- must use the smallest discriminating tests during BUILD mode;
-- must classify and defer unrelated failures instead of repairing them opportunistically;
-- must STOP AND CONSULT whenever a global or task-local escalation trigger fires;
-- must keep the shared `TEST002.C2` checkpoint record current at durable milestones;
-- must produce the required walkthrough and handoff before declaring the plan administratively complete.
+ProperTypeId
+    remains the proof that a TypeId is specifically a proper Type
 
-Testing is evidence gathering, not a ritual. Do not run a broad suite merely because an edit occurred.
+KindId / KindData
+    remains the compact classifier used by generic application and inference
+    and is generalized with ONE dynamic nominal-static-domain form
 
-This plan does **not** authorize commits or pushes by itself. If commit/push authorization exists separately, use the coherent commit groups in §26 and follow the repository's commit discipline. Do not create tiny edit-by-edit commits, do not stage unrelated changes, and do not push known-broken states.
+StaticDomainId
+    identifies a user-defined or specialized nominal static domain
 
----
+TypeData
+    gains canonical closed static terms such as const/static-data constructor terms
 
-## 1. Goal
+StaticArgument
+    is the heterogeneous generic/application envelope
+    ├── Term(TypeId)
+    └── RecordRow(RecordRowId)
+         (or an exact row-term equivalent reusing the current row subsystem)
 
-Eliminate the retained confirmed runtime-correctness failures from the 2026-09-07 runtime audit by repairing the owning compiler/runtime boundaries: bounded executable operands, lexical `super` identity, GC authority edges, public native admission and native activation depth, raw-run teardown, native diagnostic provenance, exact numeric division/remainder, Resource identity/lifecycle transport, and short-write-safe buffered output.
+RecordRow
+    remains its existing dedicated canonical/solver domain
 
----
+InferVarId
+    remains the single query-local inference-variable identity for all non-row domains,
+    classified by KindId
 
-## 2. Checkpoint acceptance objective
-
-`TEST002.C2` is a bounded runtime-correctness checkpoint.
-
-`TEST002.C2.P1` is intended to provide **full checkpoint implementation closure** if the fixed architecture can be implemented without an escalation that requires a follow-up plan.
-
-The checkpoint is acceptable when all confirmed retained defects below are corrected at their canonical owner and proven with focused evidence:
-
-| Audit | Acceptance claim |
-|---|---|
-| `AUD-RUNTIME-001` | No bounded executable operand can wrap, saturate, or become build-mode-dependent before publication. |
-| `AUD-RUNTIME-002` | Every lexical `super` uses stable defining-behavior identity rather than mutable name lookup. |
-| `AUD-RUNTIME-003` | Every strong runtime authority/layout/lexical identity edge held by a live runtime object participates in GC reachability. |
-| `AUD-RUNTIME-004` | Invalid public native invocation is rejected before execution-window mutation, and native Rust activations have their own explicit depth budget. |
-| `AUD-RUNTIME-005 §4` | Starting a fresh raw module run closes stale open captures before stack/frame storage is reused. |
-| `AUD-RUNTIME-005 §6` | Active native identity is scoped, while an escaping error retains the native origin that actually produced it. |
-| `AUD-RUNTIME-006` | `~/` and Float-domain `%` implement their specified mathematical domains without lossy convenience promotion. |
-| `AUD-RUNTIME-008` | Every valid managed Resource handle encoding is exact/injective, stale generations cannot revive, and Resource lifecycle uses the selected hidden-slot Resource-v2 model. |
-| `AUD-RUNTIME-007` | `BufferedWriter` tolerates legal short writes without loss, rejects zero progress, preserves pending suffixes on failure, propagates layered flush, and rejects overlapping mutation deterministically. |
-
-The following findings are **not** checkpoint blockers and remain explicit follow-ups:
-
-- full executable-chunk verification from `AUD-RUNTIME-005 §1`;
-- unmeasured rest/native metadata optimization from `AUD-RUNTIME-005 §2`;
-- sparse per-instruction metadata/cache layout from `AUD-RUNTIME-005 §3`;
-- separate unexecuted numeric/string/performance leads not promoted by the retained audits.
-
-A completed P1 may truthfully end as:
-
-```yaml
-status: COMPLETE
-completion: IMPLEMENTED
-verification: FOCUSED_TESTED
+RecordRowVarId / row inference
+    remains the row-specific solver authority
 ```
 
-`RELEASE_COMPLETE` is not required unless a later explicit certification gate runs successfully.
+This is effectively the attached specification's "extend canonical type-level term storage" option, refined for the live repository's deliberate row split. It does **not** make arbitrary static terms proper types; `ProperTypeId` continues to enforce that boundary.
 
-`TEST002.C1` currently has independent certification work recorded in its own checkpoint. C2 must not silently mark C1 complete or absorb unrelated C1 certification failures. C2 is grounded on the implementation state established through `TEST002.C1.P2`.
+C3 must also **reuse the mature runtime sum/ADT/GADT implementation**. Replacing `enum` with sum-shaped `data` is a source/semantic ownership migration, not an authorization to rewrite exact-case identity, GADT evidence, exhaustiveness, case dispatch, or runtime representation.
 
 ---
 
-## 3. Repository grounding
+# Part I — Acceptance objective and authority
 
-### 3.1 Prepared-against state
+## 1. Checkpoint acceptance objective
 
-Planning was grounded against the remote repository:
+`LANG007.C3` is accepted when Phalcom has one coherent algebraic declaration and static-domain model satisfying all of the following:
+
+1. `data` is the sole canonical runtime algebraic declaration keyword for products, closed sums, ADTs, and GADTs.
+2. `enum` has no distinct semantic declaration category.
+3. `type data` introduces closed nominal type-system-only domains with canonical static inhabitants and no runtime inhabitants.
+4. User-defined `type data` domains classify generic/static parameters.
+5. Generic/static applications can preserve heterogeneous arguments without coercing them into fake proper types.
+6. Associated `type data` declarations work for the accepted nominal owner categories and participate in the canonical `::` associated namespace.
+7. Existing type-member result-domain semantics operate over user-defined static domains.
+8. Runtime exact-case, GADT, pattern/exhaustiveness, inherent-case behavior, and conformance semantics remain intact under sum-shaped `data`.
+9. `TypePack`, `LabeledTypePack`, `TupleEntries`, and `RecordRow` can be exposed as `intrinsic type data` without replacing C1/C2 canonical terms.
+10. `Unit`, `Tuple`, and `Record` can be exposed coherently as `intrinsic data` without forcing general data-object runtime representation.
+11. `*`, `**`, and `***` retain their C2 positional, labeled, and complete-lane meanings.
+12. Metadata, imports, source identity, and incremental analysis preserve canonical static-domain and static-term identity.
+13. LSP/source indexing understands the new declarations and associated lookup paths.
+14. Static/type-data normalization remains compiler-semantic work; the VM does not become a general static-term solver.
+15. Current authoritative specifications no longer contradict the unified model.
+16. Focused and corpus-level regressions show no semantic loss in existing product, ADT/GADT, generic, associated-type, pack, Tuple, Record, or runtime behavior.
+
+This checkpoint is larger than a syntax migration. It changes the semantic classification model used by generics, static arguments, associated lookup, metadata, and tooling.
+
+---
+
+## 2. Normative and planning authority
+
+### 2.1 Desired language behavior
+
+The C3 specification supplied for this checkpoint establishes these fixed design directions:
+
+```text
+data
+    runtime algebraic domain
+
+type data
+    type-system-only algebraic/static domain
+
+shape
+    Product | Sum
+
+implementation provenance
+    independent from phase
+
+ownership
+    module | associated nominal owner
+
+intrinsic data
+    compiler-owned runtime algebraic declaration
+
+intrinsic type data
+    compiler-owned static domain declaration
+```
+
+It additionally fixes:
+
+```text
+enum
+    not a canonical source declaration category
+
+*
+    positional lane
+
+**
+    labeled lane
+
+***
+    complete two-lane pack
+
+...
+    not generic/type-pack syntax
+```
+
+The attached C3 specification is the semantic design authority for planning this checkpoint. Before implementation is considered complete, its accepted semantics must be migrated into the owning `docs/specs/**` documents.
+
+### 2.2 Inherited accepted architecture
+
+`LANG007.C2` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` at the live post-C2 baseline.
+
+C3 inherits and must not redesign:
+
+- C1/C2 kinded `TypeId` canonical terms;
+- `ProperTypeId`;
+- `RecordRowId` and row-specific inference;
+- `TypePack`, `LabeledTypePack`, `CompleteTypePack`;
+- flat positional/labeled concat;
+- `TupleFromPacks`;
+- `CallableFromPacks`;
+- `GenericParameterMode`;
+- binder-aligned generic applications;
+- `GenericBinderHeader`;
+- checked substitution/materialization;
+- whole-pack `InferVarId(KindId)` inference;
+- schema-v4 scoped pack metadata;
+- no pack sequence decomposition;
+- no runtime pack execution.
+
+### 2.3 Live repository authority
+
+This analysis was grounded against:
 
 ```text
 repository: aureat/phalcom-lang
 branch:     main
-revision:   6743b02725a11923cb1a4efdab9c39f87bb8f8c6
-subject:    fix(semantic): repair generic subtype projection
+revision:   62a6082ab463387c812d558e5561508267ecc63c
+subject:    feat(lang007): implement whole-pack inference, persistence, and close C2 (LANG007.C2.P3)
 ```
 
-The planning environment exposed the remote repository state, not the implementer's local working tree.
+Implementation plans must re-read the relevant live paths before editing.
 
-At execution start, run:
+Mechanical drift may be adapted.
 
-```sh
-git status --short
-git branch --show-current
-git rev-parse HEAD
-git log -5 --oneline
-```
-
-Record the actual starting revision in `TEST002.C2/CHECKPOINT.md`.
-
-If the local tree contains unrelated modifications, preserve them. Do not reset, clean, restore, stash, or stage them as part of this plan.
-
-### 3.2 Canonical implementation-record location
-
-The canonical TEST002 family is:
-
-```text
-docs/implementation/test/TEST002-baseline-stabilization/
-```
-
-Current remote state contains:
-
-```text
-PROGRAM.md
-C1-semantic-core-baseline-elimination/
-```
-
-No canonical `TEST002.C2` record currently exists.
-
-Do **not** create C2 under the legacy/duplicate:
-
-```text
-docs/implementation/TEST002/
-```
-
-Create the canonical C2 family under:
-
-```text
-docs/implementation/test/TEST002-baseline-stabilization/
-  C2-runtime-correctness-remediation/
-    CHECKPOINT.md
-    TEST002.C2.P1-runtime-correctness-remediation.md
-```
-
-At plan completion also create:
-
-```text
-TEST002.C2.P1-runtime-correctness-remediation-walkthrough.md
-TEST002.C2.P1-runtime-correctness-remediation-handoff.md
-```
-
-### 3.3 Verified repository facts
-
-The following facts were verified while preparing this plan.
-
-#### Compiler representation
-
-- `phalcom-core/src/chunk.rs::Chunk::add_constant` pushes first and narrows `(len - 1) as u16`.
-- `ExecutableSemanticPool` in the same file already uses checked `u16::try_from(...)` before publication and provides the preferred local architectural precedent.
-- `phalcom-core/src/compiler/lib/mod.rs::emit_global_reference` still contains both unchecked `binding.0 as u16` and `u16::try_from(index).unwrap_or(u16::MAX)`.
-- `class_decl.rs`, `loops.rs`, `patterns.rs`, `expr.rs`, and `product_opt.rs` still contain executable `usize -> u16/u8` narrowing.
-- `jumps.rs` narrows instruction positions to `i32` before computing relative offsets.
-
-#### Lexical `super`
-
-- `Bytecode::SuperSend` is currently `SuperSend(u8, u16, u16)`, with the third operand a defining-class-name constant.
-- `Bytecode::SuperSendPack` carries `defining_class: u16`.
-- `Compiler::compile_super_send` synthesizes the instance class name or `"<Name>.class"` and emits it as a constant.
-- both exact and packed VM handlers reconstruct `ClassKey { module, name }` at execution time and consult mutable `VM::classes`.
-- `Bytecode::Method` installation already knows the defining instance class/metaclass and stamps holder/access metadata and `ClosureObject.lexical_class`.
-
-#### GC authority edges
-
-- `ClosureObject` carries `lexical_class` and `foreign_receiver_guard`.
-- `MethodObject` carries `access_owner`.
-- `CallFrame` carries `foreign_receiver_guard`.
-- the retained audit probe for closure lexical authority remains ignored under `tests/core/audit_probes/runtime_invariants.rs`.
-
-#### Native entry
-
-- `VM::send_dynamic` currently pushes receiver/arguments before `invocation_layout_for_selector(...)`.
-- `native_reentry_depth` and `MAX_NATIVE_REENTRY = 32` intentionally measure recursive interpreter driving and are used by fiber-floor/yield semantics.
-- `NativeMethodContext` currently contains access authority only.
-- both legacy and shape-aware primitive activation paths still write singleton `native_selector` / `native_class`.
-- the retained native-only recursion audit probe currently succeeds at recursion depth 40, demonstrating that the existing re-entry counter is not an activation counter.
-
-#### Execution teardown
-
-- `VM::run_in_module` lives in `phalcom-core/src/interpret.rs` and begins with raw `frames.clear(); stack.clear()`.
-- `VM::unwind_cell` already delegates to `unwind_to(0, 0)`.
-- `VM::unwind_to` closes open upvalues before truncating frame and value-stack storage.
-
-#### Diagnostic transport
-
-- `FrameRecord` currently has `Normal` and `FiberBoundary`.
-- `RuntimeError::Raise` can carry captured `Vec<FrameRecord>`.
-- accepted traceback/error architecture captures frame records at the first `on` boundary before bulk unwind; records contain Symbols rather than GC handles.
-- the renderer currently adds native identity from ambient singleton VM state.
-
-#### Numeric execution
-
-- `number.rs::promote_pair` converts mixed exact integers to `f64`.
-- `number_floor_div` uses rounded Float arithmetic on mixed inputs.
-- `number_mod` uses host `%` for the Float branch.
-- `float.rs::float_to_rational(f64)` already decodes a finite binary64 exactly into `BigInt` numerator/denominator and is the canonical implementation component to reuse.
-- numeric integration tests already live in `tests/core/language/numeric_values.rs` and `numeric_diagnostics.rs`.
-
-#### Resources
-
-- `ResourceHandle` is `{ index: u32, generation: u32 }`.
-- `ResourceHandle::pack` currently maps the full 64-bit concatenation numerically to `f64`; `unpack` casts it back.
-- `ResourceTable::open` uses unchecked `entries.len() as u32` and `wrapping_add(1)`.
-- `Resource` already has `field_count = 1` at bootstrap, but bootstrap also publishes `_handle` in `field_slots`, making the infrastructure slot source-addressable.
-- `primitive/resource.rs` still exposes `Resource.register`, reads slot 0 as a user-stored number, and has no `ensureOpen` primitive.
-- current resource unit tests contain the false endpoint proof using `u32::MAX/u32::MAX`.
-
-#### Streams
-
-- `core/universe/src/collections/bytes.ph` assigns `_handle = Resource.register(...)` in all managed Resource subclasses.
-- `BufferedWriter.flush` performs one inner write, sets `_len = 0` before settlement, ignores the accepted count, and does not call `inner.flush`.
-- existing stream fixtures already cover basic buffering, `finish`, boundary writes, dirty close, and synchronous flush rejection.
-- the language-corpus test target supports focused `streams` execution.
-
-### 3.4 Drift rule
-
-> Re-read the named live paths before editing. Adapt mechanical drift locally. Treat architectural drift as an escalation condition.
+Architectural drift requires consultation.
 
 ---
 
-## 4. Required reads before implementation
+## 3. Repository lifecycle state
 
-Read these before editing, in this order.
+### 3.1 C2 is complete
 
-### Lifecycle and execution doctrine
-
-```text
-AGENTS.md
-docs/implementation/README.md
-docs/workflow/implementation-record-lifecycle.md
-docs/workflow/luna-execution-and-escalation-protocol.md
-docs/workflow/commit-and-push-discipline.md   # only if commits/pushes are authorized
-```
-
-If the workflow filenames have mechanically moved, locate their current canonical equivalents; do not use old duplicated project-source copies as state authority.
-
-### TEST002 state
+The C2 handoff and walkthrough establish:
 
 ```text
-docs/implementation/test/TEST002-baseline-stabilization/PROGRAM.md
-docs/implementation/test/TEST002-baseline-stabilization/C1-semantic-core-baseline-elimination/CHECKPOINT.md
-docs/implementation/test/TEST002-baseline-stabilization/C1-semantic-core-baseline-elimination/TEST002.C1.P2-walkthrough.md
-docs/implementation/test/TEST002-baseline-stabilization/C1-semantic-core-baseline-elimination/TEST002.C1.P2-handoff.md
+status:       COMPLETE
+completion:   IMPLEMENTED
+verification: FOCUSED_TESTED
 ```
 
-### Retained runtime audits
+All C2 P3 gates passed.
 
-```text
-docs/audit/runtime-2026-09-07/AUD-RUNTIME-001-unchecked-operand-narrowing.md
-docs/audit/runtime-2026-09-07/AUD-RUNTIME-002-super-dispatch-loses-lexical-identity.md
-docs/audit/runtime-2026-09-07/AUD-RUNTIME-003-gc-misses-authority-edges.md
-docs/audit/runtime-2026-09-07/AUD-RUNTIME-004-native-entry-validation.md
-docs/audit/runtime-2026-09-07/AUD-RUNTIME-005-grouped-contract-and-performance-findings.md
-docs/audit/runtime-2026-09-07/AUD-RUNTIME-006-numeric-domain-contracts.md
-docs/audit/runtime-2026-09-07/AUD-RUNTIME-007-buffered-writer-flush-contract.md
-docs/audit/runtime-2026-09-07/AUD-RUNTIME-008-resource-handle-lossy-transport.md
-```
+### 3.2 Program records contain future-facing drift
 
-### Normative / accepted behavioral authority
+At the planning baseline, `PROGRAM.md` / `STATUS.md` still contain stale future-facing C2 language in some sections even though the C2 checkpoint itself is complete.
 
-```text
-docs/specs/callables/dispatch.md
-docs/specs/vm/bytecodes.md
-docs/specs/vm/vm-execution-model.md
-docs/spec/library/numbers/numeric-tower.md
-docs/spec/library/numbers/float-protocol.md
-docs/spec/current/stdlib/stream-protocol.md
-docs/decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md
-docs/decisions/accepted/0059-bounded-call-depth-and-native-reentrancy.md
-docs/decisions/accepted/0062-errors-carry-structure-and-cheap-origin.md
-docs/adr/accepted/0013-block-closure-upvalues.md
-```
+Examples of drift include old next-plan references and pre-ratification pack wording.
 
-If decision numbering/paths have mechanically moved, resolve the current accepted record by title.
+This is not a semantic blocker for C3 planning.
 
-### Selected implementation architecture for Resources / Streams
+Required response:
 
-```text
-docs/implementation/NATV001-host-surfaces/C3-resource-host-surface/resource-host-surface-spec.md
-docs/implementation/NATV001-host-surfaces/C4-streams-host-surface/streams-host-surface-spec.md
-```
-
-These documents are currently proposal-shaped implementation records, not automatically normative. For this plan, the architecture explicitly selected in §§7, 8, T9–T11 is fixed. Do not independently implement every NATV001 proposal item outside the bounded C2 scope.
-
-### Test conventions
-
-```text
-phalcom-core/tests/README.md
-phalcom-core/tests/core/audit_probes/runtime_invariants.rs
-phalcom-core/tests/core/execution/depth_limits.rs
-phalcom-core/tests/core/execution/send_arity.rs
-phalcom-core/tests/core/repl/session.rs
-phalcom-core/tests/core/memory/gc.rs
-phalcom-core/tests/core/observability/super_disassembly.rs
-phalcom-core/tests/core/observability/traceback.rs
-phalcom-core/tests/core/language/numeric_values.rs
-phalcom-core/tests/core/language/numeric_diagnostics.rs
-phalcom-core/tests/fixtures/language/streams/
-```
-
-Avoid broad repository exploration unless evidence from these reads contradicts the plan.
+- C3 documents become the new checkpoint planning authority.
+- `LANG007.C3.P1` must rebaseline the active `PROGRAM.md` / `STATUS.md` lifecycle state at plan start.
+- Historical completed records must not be rewritten merely to make their old wording look current.
 
 ---
 
-## 5. Normative authority
+# Part II — Live repository analysis
 
-Keep four categories separate.
+## 4. Current declaration split
 
-### 5.1 Normative behavior
-
-The following behaviors are fixed by accepted/current specification:
-
-- lexical `super` begins above the Method's lexically defining behavior while keeping the dynamic receiver;
-- binding/exact-invoking a Method on another receiver does not move its lexical `super` anchor;
-- `~/` computes the floor of exact represented numeric values and returns exact `Int`;
-- Float-domain `%` uses floor remainder, one final correctly-rounded binary64 result, and divisor-signed zero/remainder behavior;
-- Writer `write` may legally report a short positive count;
-- Writer `flush` propagates durability/acceptance to the next layer;
-- Resource close is synchronous and idempotent;
-- open captures must be closed before their backing stack storage is reclaimed/reused;
-- traceback frame records are GC-immune Symbol-based records and caught-origin capture occurs at the first `on` boundary before bulk unwind;
-- `native_reentry_depth` protects recursive Rust-stack interpreter driving and fiber restrictions.
-
-### 5.2 Current implementation reality
-
-Current source is authoritative for:
-
-- exact file/symbol locations;
-- current private APIs and representation mechanics;
-- current test registration;
-- current native descriptor/census mechanics;
-- mechanical call fanout.
-
-Current implementation is **not** authority for behavior proven divergent by the retained audits.
-
-### 5.3 Plan-ratified implementation architecture
-
-This plan fixes the following architectural choices:
-
-- checked producer-side construction for bounded executable operands;
-- separate closure-carried `super_anchor`;
-- complete tracing of strong authority/layout edges;
-- a separate native activation budget;
-- public invocation shape validation before execution-window mutation;
-- a lightweight error-associated native-origin transport using Symbol identity, integrated into `FrameRecord`;
-- Resource-v2's exact 21-bit-index / 32-bit-generation managed handle domain;
-- hidden Resource slot 0 owned by runtime primitives;
-- transactional managed Resource attachment plus `ensureOpen`;
-- non-wrapping Resource generation lifecycle;
-- Streams-v2's BufferedWriter drain/gate/layered-flush architecture.
-
-### 5.4 Known specification conflict
-
-`docs/specs/callables/dispatch.md` describes stable Method-definition-owned lexical `super` identity.
-
-Current `docs/specs/vm/bytecodes.md` still describes a `definingClass` operand resolved at runtime.
-
-For C2, callable dispatch semantics win. T3 must change VM bytecode documentation to the stable-anchor design.
-
-If a newer accepted specification reverses this rule at execution time, STOP AND CONSULT.
-
----
-
-## 6. Takeover state
-
-| Concept | Current symbol/path | Owner | Invariant inherited by C2 |
-|---|---|---|---|
-| Constant pool | `Chunk::constants`, `Chunk::add_constant` | compiler/chunk | bytecode operand is `u16`; compact representation remains |
-| Checked semantic pools | `ExecutableSemanticPool::add_*` | compiler/chunk | validate before push/publication |
-| Compiler errors | `compiler/lib/error.rs` | compiler | source failures are structured and span-aware |
-| Local allocation | `Compiler::add_local` | compiler/scope | one canonical binding-local allocation seam |
-| Jump patching | `compiler/lib/jumps.rs` | compiler | relative VM operands are `i32` |
-| Lexical access | `ClosureObject.lexical_class` | runtime executable metadata | access privilege survives nested closures |
-| Method install identity | `MethodObject::{holder,access_owner}` | method/runtime | holder and access owner are not interchangeable with receiver class |
-| Foreign layout authority | `ForeignReceiverGuard.layout_owner` | runtime frame/closure | transplanted Method layout guard is execution authority |
-| Native re-entry | `VM::native_reentry_depth` | VM control | protects recursive `run_until`, also fiber-floor/yield behavior |
-| Native access context | `VM::native_method_contexts` | VM native activation | native bodies need their own lexical access authority |
-| Canonical unwind | `VM::unwind_to` | VM control | closes upvalues before frame/stack truncate |
-| Caught trace transport | `RuntimeError::Raise.traceback` / `FrameRecord` | runtime diagnostics | records use Symbols, not ObjRefs |
-| Exact Float decoder | `primitive::float::float_to_rational` | numeric runtime | finite Float represented value can be recovered exactly |
-| Resource table | `ResourceTable` | VM resource runtime | table contains no Phalcom heap roots |
-| Resource slot | `Resource.field_count = 1` | bootstrap/runtime | inherited slot 0 already exists |
-| Buffered pending state | `BufferedWriter._buf/_len` | stream wrapper | accepted-but-not-handed-off bytes belong to wrapper |
-| Audit probes | `tests/core/audit_probes/runtime_invariants.rs` | TEST evidence | retained ignored probes are migration inputs, not permanent test architecture |
-
-Do not redesign these unrelated established mechanisms.
-
----
-
-## 7. Architecture
-
-### 7.1 Overall correction shape
-
-```text
-source/compiler facts
-    │
-    ├─ checked bounded producer ──────────────► trustworthy bytecode operands
-    │
-    └─ Method-definition identity ────────────► closure.super_anchor
-                                                  │
-                                                  ├─ super dispatch
-                                                  └─ GC strong edge
-
-public host/native call
-    │
-    ├─ validate selector/argument shape
-    ├─ materialize execution window
-    └─ native activation
-          ├─ native_activation_depth
-          ├─ NativeMethodContext
-          └─ NativeOrigin transport on error
-                 └─ FrameRecord::Native at capture/render
-
-fresh raw execution
-    └─ unwind_to(0, 0) before frame/stack reuse
-
-Number
-    ├─ Float-result ordinary arithmetic may promote
-    ├─ ~/ uses exact represented values
-    └─ Float % converts into Float domain, decodes exactly, rounds once
-
-Resource instance
-    └─ hidden inherited slot 0
-          └─ exact packed handle <= 2^53 - 1
-                └─ ResourceTable state machine
-
-BufferedWriter
-    ├─ local accepted bytes
-    ├─ one unresolved mutation gate
-    ├─ short-write-safe drain
-    └─ layered flush -> inner.flush
-```
-
-### 7.2 Key identity separation
-
-The runtime must preserve these distinct identities:
-
-```text
-receiver dynamic class
-Method installation holder
-lexical access owner
-lexical super anchor
-foreign layout owner
-```
-
-They often coincide for ordinary source methods. That does not make them one concept.
-
-### 7.3 `super` architecture
-
-Add a stable behavior identity to closure-backed executable code:
+The live source still has a hard AST distinction:
 
 ```rust
-// STRUCTURAL — exact private type/name may adapt.
-ClosureObject {
-    ...
-    lexical_class: Option<ClassId>, // access authority
-    super_anchor: Option<ClassId>,  // lexical lookup origin
-    foreign_receiver_guard: Option<ForeignReceiverGuard>,
+Statement::Enum(EnumDef)
+Statement::Data(DataDef)
+```
+
+### 4.1 Current `DataDef`
+
+`DataDef` is runtime-product-only.
+
+Its shape is:
+
+```rust
+enum DataShapeSyntax {
+    Tuple { components, ... },
+    Record { components, ... },
 }
 ```
 
-Rules:
+Its semantic product is centered on:
 
-- ordinary instance Method installation sets `super_anchor = Some(defining_instance_class)`;
-- class-side Method installation sets `super_anchor = Some(defining_metaclass)`;
-- nested block materialization inherits the executing closure's anchor;
-- rebinding/transplanting a Method does not move the anchor;
-- each super send reads the **current superclass of the stable anchor** at execution time;
-- exact and packed super use the same anchor source;
-- source class names are not used to reconstruct identity at execution.
+```text
+DataInfo
+DataShape::{Tuple, Record}
+DataComponentSemantic
+DataConstructorSignature
+DataConstructorId
+DataSemanticTable
+DataDeclarationProduct
+```
 
-Target bytecode shape:
+This implementation is valuable and must be preserved as the product branch of the new unified algebraic declaration model.
+
+### 4.2 Current `EnumDef`
+
+`EnumDef` is the mature runtime closed-sum/GADT path.
+
+The current sum model includes:
+
+```text
+VariantDecl
+VariantId
+VariantFamilyId
+VariantFieldId
+EnumInfo
+VariantInfo
+VariantShape
+VariantConstructorSignature
+CaseTypeEnvironment
+ExactCase TypeData
+EnumSemanticTable
+EnumDeclarationProduct
+EnumRequirementsProduct
+pattern/exhaustiveness products
+runtime lowering/reification products
+```
+
+This is not disposable legacy code.
+
+C3 must move **semantic ownership** from "`enum` declaration" to "runtime sum-shaped `data` declaration" while retaining the exact-case/GADT machinery.
+
+### 4.3 Current sum syntax is not yet C3 syntax
+
+The live `VariantDecl` still assumes the pre-C3 enum surface:
+
+- variant marker state is explicit;
+- tuple payload is the primary payload representation;
+- many parser/tests branch on `Statement::Enum`;
+- runtime/lowering paths access `enum_def.variants`.
+
+C3 P1 therefore owns a real parser/AST migration, not just token substitution.
+
+---
+
+## 5. Current canonical type-level term model
+
+The live model is already more general than the name `TypeId` suggests.
+
+The source describes `TypeId` as a:
+
+> store/snapshot-local canonical identifier for a type-level form.
+
+A `TypeId` may represent:
+
+```text
+proper Type
+higher-kinded form
+TypePack
+LabeledTypePack
+CompleteTypePack
+symbolic pack concat
+type lambda
+type member projection
+other non-proper kinded terms
+```
+
+`ProperTypeId` explicitly proves:
+
+```text
+kind == Type
+```
+
+This is the crucial C3 seam.
+
+### 5.1 Consequence
+
+C3 should **not** introduce an independent, all-purpose `StaticTermId` arena merely because user-defined static terms are new.
+
+Doing so would duplicate:
+
+- interning;
+- kind/domain classification;
+- substitution;
+- inference;
+- metadata export;
+- fingerprinting;
+- scoped lambda handling;
+- normalization.
+
+### 5.2 Required extension
+
+The type-level term universe should be generalized so a `TypeId` may also denote:
+
+```text
+compile-time constant term
+type-data constructor/case term
+symbolic type-data term containing parameters
+```
+
+while `ProperTypeId` continues to reject every such non-`Type` term.
+
+---
+
+## 6. Current `KindData` and generic classifier model
+
+Current base kinds:
 
 ```rust
-// STRUCTURAL
-SuperSend(u8, u16) // arity, selector
-SuperSendPack {
-    base_name: u16,
+KindData::Type
+KindData::RecordRow
+KindData::TypePack
+KindData::LabeledTypePack
+KindData::CompleteTypePack
+KindData::Arrow { parameters, result }
+```
+
+Generic parameter state is currently centered on:
+
+```text
+TypeParameterData.kind: KindId
+GenericBinderHeader.parameter_kinds
+GenericSignature.parameter_kinds
+InferenceVariable.kind
+```
+
+`GenericParameterMode` is already orthogonal.
+
+This architecture is a strong fit for C3 if generalized carefully.
+
+### 6.1 Required decision
+
+Do **not** create one compiler enum case per user `type data` declaration.
+
+Instead add one dynamic nominal-domain classifier:
+
+```rust
+KindData::StaticDomain(StaticDomainId)
+```
+
+or an exact equivalent.
+
+The open-ended identity is in `StaticDomainId`, not in the closed Rust enum.
+
+This satisfies both requirements:
+
+```text
+user-defined static domains are nominal/open-ended
+
+and
+
+existing generic/inference machinery remains KindId-directed
+```
+
+### 6.2 `StaticDomainId`
+
+Conceptually:
+
+```rust
+pub struct StaticDomainId(u32);
+
+pub enum StaticDomainData {
+    // primitive compiler-defined constant domain, initially Int
+    ConstInt,
+
+    // module-scope type data
+    Nominal {
+        declaration: DeclarationId,
+    },
+
+    // P2 associated-domain specialization
+    Associated {
+        declaration: AssociatedStaticDomainDeclarationId,
+        owner_environment: StaticInstantiation,
+    },
 }
 ```
 
-No defining-class constant remains.
+Exact Rust layout is not normative.
 
-### 7.4 Native activation architecture
-
-Keep:
+Important law:
 
 ```text
-native_reentry_depth
+StaticDomainId
+    is canonical store-relative identity
+
+stable metadata
+    uses declaration/environment stable references
+    not the raw integer
 ```
 
-for recursive guest-interpreter driving.
+### 6.3 Existing structural domains
 
-Add:
+Do not re-encode:
 
 ```text
-native_activation_depth
+Type
+RecordRow
+TypePack
+LabeledTypePack
+CompleteTypePack
 ```
 
-for actual nested native Rust primitive invocations.
+as nominal user-domain nodes internally.
 
-Initial ceiling:
+Their existing optimized `KindData` forms remain canonical.
 
-```text
-MAX_NATIVE_ACTIVATION_DEPTH = 32
-```
+P3 `intrinsic type data` declarations are the **source-visible declaration surface over those existing domains**.
 
-may equal the re-entry ceiling, but it remains separately named and accounted.
+---
 
-Every legacy and shape-aware primitive invocation:
+## 7. Current heterogeneous seams
 
-```text
-check activation budget
-increment activation depth
-push NativeMethodContext
-call Rust primitive
-associate native origin with Err if needed
-pop context
-decrement activation depth
-reconcile CallOutcome / stack window
-```
+C3 does not begin from zero.
 
-The counter is released when the Rust primitive returns, including `EnteredFrame`; guest bytecode execution is not itself a native activation.
-
-### 7.5 Native diagnostic provenance architecture
-
-Ambient singleton `native_selector/native_class` cannot represent nested failure identity.
-
-Extend active native context with Symbol-only diagnostic identity:
+Type-member application already distinguishes:
 
 ```rust
-// STRUCTURAL
-struct NativeFrameIdentity {
-    class: Symbol,
-    selector: Symbol,
-}
-
-struct NativeMethodContext {
-    access_owner: Option<ClassId>,
-    origin: RuntimeAccessOrigin,
-    diagnostic: NativeFrameIdentity,
-}
+TypeMemberArgument::Type(TypeId)
+TypeMemberArgument::Const(ConstTerm)
+TypeMemberArgument::RecordRow(RecordRowId)
 ```
 
-Add a lightweight error-associated transport. Preferred shape:
+and domains include:
+
+```text
+Kind(KindId)
+ConstInt
+Type(TypeId)
+```
+
+This proves the semantic system already has a heterogeneous static-argument problem, but only in a bounded subsystem.
+
+Generic type application is still narrower:
 
 ```rust
-// STRUCTURAL: name may adapt, semantics may not.
-PhError::NativeOrigin {
-    source: Box<PhError>,
-    class: Symbol,
-    selector: Symbol,
+TypeData::Applied {
+    origin: TypeId,
+    arguments: Box<[TypeId]>,
 }
 ```
 
-Required behavior:
-
-- first native boundary producing an error attaches its identity;
-- an outer native boundary propagating an already-originated error must **not overwrite the inner origin**;
-- if inner failure is caught/dropped and outer later creates a new error, the new error receives the outer origin;
-- access authority is still popped immediately when the native Rust body returns; diagnostic provenance does not keep authority ambient;
-- the wrapper carries Symbols only and therefore introduces no GC rooting problem;
-- at first `on` capture, unwrap transport for ordinary error semantics and append/merge a `FrameRecord::Native { class, selector }`;
-- at an uncaught root renderer, render the error-associated native origin, not VM-global ambient state;
-- after capture into `RuntimeError::Raise.traceback`, native origin must not be duplicated by outer boundaries.
-
-If live error architecture makes a transparent `PhError` transport variant materially incompatible with accepted TDR-0062 semantics, STOP AND CONSULT rather than substituting ambient "last native failure" state.
-
-### 7.6 Numeric architecture
-
-There is no universal numeric promotion relation.
+`GenericInstantiation` is:
 
 ```text
-+ - * / and other Float-result operations
-    may use Float-domain conversion per numeric spec
-
-~/
-    exact represented-value rational arithmetic
-
-Float-domain %
-    ordinary Int->Float conversion first
-    then exact dyadic arithmetic
-    then exactly one correctly-rounded binary64 result
+type_bindings: TypeParameterId -> TypeId
+row_bindings:  TypeParameterId -> RecordRowId
 ```
 
-Reuse `float_to_rational`. Do not create guest Rational values.
+This is the seam P2 must generalize.
 
-### 7.7 Resource-v2 architecture selected for C2
+---
 
-Managed Resource identity remains semantically opaque but may use a numeric physical carrier because the valid domain is explicitly bounded to exact binary64 integers:
+## 8. Current row boundary
+
+`RecordRow` is deliberately separate:
 
 ```text
-bits  0..31  generation
-bits 32..52  table index
-bits 53+     invalid
+RecordRowId
+RecordRowData
+RecordRowTail::{Closed, Parameter, Projection}
+RecordRowSolver / row inference
 ```
 
-Constants:
+`type_level_binding_for_parameter` special-cases row parameters instead of constructing a `TypeData::Parameter`.
+
+This is an accepted pre-C3 architecture.
+
+### 8.1 C3 requirement
+
+Do not collapse row identity into `TypeId` merely to make heterogeneous applications easier.
+
+Instead introduce a generic/static application envelope:
 
 ```rust
-const RESOURCE_INDEX_BITS: u32 = 21;
-const RESOURCE_GENERATION_BITS: u32 = 32;
-const RESOURCE_MAX_SLOTS: u32 = 1 << RESOURCE_INDEX_BITS;
-const RESOURCE_MAX_INDEX: u32 = RESOURCE_MAX_SLOTS - 1;
-const RESOURCE_MAX_HANDLE: u64 = (1u64 << 53) - 1;
+pub enum StaticArgument {
+    Term(TypeId),
+    RecordRow(RecordRowId),
+}
 ```
 
-The table lifecycle is:
+or an exact equivalent that also represents the existing symbolic row-tail forms through the canonical row subsystem.
+
+For most domains:
 
 ```text
-Vacant
-Open(g)
-Closed(g)
-Retired(MAX)
+Type
+const Int
+type-data domain
+TypePack
+LabeledTypePack
+CompleteTypePack
+higher-kinded term
 ```
 
-Generation changes on reuse, never on close, and never wraps.
+the argument is `Term(TypeId)`.
 
-`Resource.field_count` stays `1`, but slot 0 ceases to have source-visible `_handle` authority. Resource primitives access it directly.
+For `RecordRow`, the argument remains row-owned.
 
-Managed acquisition becomes transactional instance attachment:
-
-```phalcom
-self.attach("BytesWriter") // exact internal selector spelling: verify live convention
-```
-
-rather than:
-
-```phalcom
-_handle = Resource.register("BytesWriter")
-```
-
-The internal physical unattached marker may be the allocator's private unread sentinel or `None`; it is not a source-visible value. `attach`, `close`, `isClosed`, and `ensureOpen` must normalize that state consistently.
-
-External files/sockets/reactor adoption are out of scope.
-
-### 7.8 BufferedWriter architecture selected for C2
-
-State:
-
-```text
-_inner
-_buf
-_len
-_busy
-hidden Resource slot
-```
-
-An internal drain operation owns short-write handling:
-
-```text
-snapshot local pending bytes
-accepted = 0
-
-repeat:
-    inner.write(remaining)
-    validate settled count
-
-    invalid count -> StreamProtocolError
-    zero for nonempty remainder -> WriteZeroError
-    positive short count -> advance accepted and continue
-
-success:
-    _len = 0
-
-failure after accepted prefix:
-    preserve exactly unaccepted suffix in _buf
-    _len = suffix length
-```
-
-Public `flush` is:
-
-```text
-drain local buffer fully
-then inner.flush
-then fulfill None
-```
-
-Even `_len == 0` must still call `inner.flush`.
-
-No internal `await`; use Future continuations.
-
-At most one unresolved state-mutating wrapper operation owns `_busy`. Do not create an implicit Future queue.
+This is the minimum representation generalization that supports C3 without undoing C1.
 
 ---
 
-## 8. Ownership boundaries
+# Part III — Architectural decisions
 
-### 8.1 Owns
+## 9. Decision register
 
-C2.P1 owns:
-
-- runtime-safe encoding of existing bounded bytecode/compiler operands;
-- lexical `super` runtime identity;
-- GC tracing of runtime authority/layout identity;
-- public host/native call admission atomicity;
-- native activation accounting;
-- raw top-level run reuse hygiene;
-- native diagnostic provenance;
-- the audited `~/` and Float `%` numeric divergences;
-- managed Resource handle exactness and selected Resource-v2 managed lifecycle;
-- managed stream migration to hidden Resource attachment;
-- BufferedWriter short-write/layered-flush correctness.
-
-### 8.2 Does not own
-
-C2.P1 does not own:
-
-- parser syntax redesign;
-- semantic type-system changes;
-- full bytecode verifier design;
-- bytecode serialization/external bytecode loading;
-- broad cache layout redesign;
-- unmeasured performance optimization;
-- new public Resource capability representation;
-- filesystem descriptors/sockets/reactor adoption;
-- GC finalizers;
-- implicit stream-operation queueing/backpressure policy;
-- public Reader/Writer marker types;
-- public Rational/BigInt surface redesign;
-- unrelated semantic baseline failures;
-- C1 release certification.
-
-### 8.3 Source-of-truth table
-
-| Fact | Canonical owner | Consumers | Forbidden duplicate |
-|---|---|---|---|
-| Constant/linked/local representability | producer-side compiler allocation helper | bytecode emitters | VM alias detection |
-| Field count/slot representability | class layout construction | accessors/VM | per-field late truncation |
-| Jump offset representability | jump patch/emit helper | bytecode | `as i32` before arithmetic |
-| Lexical super identity | `ClosureObject.super_anchor` | exact/pack super | `ClassKey` rebuilt from class name |
-| Lexical access authority | `lexical_class` / `access_owner` | access checks | `super_anchor` reused as privilege |
-| Foreign layout authority | `ForeignReceiverGuard.layout_owner` | field guard | receiver dynamic class |
-| Strong lifetime | GC trace routines | collector | registry rooting workaround |
-| Public invocation shape | selector-layout admission | host send | primitive-local `args.get` defenses |
-| Native Rust recursion | `native_activation_depth` | primitive activation | `native_reentry_depth` |
-| Recursive interpreter driving | `native_reentry_depth` | fiber/re-entry control | activation counter |
-| Active native access | `NativeMethodContext` stack | access checks | ambient singleton |
-| Escaping native origin | `PhError` native-origin transport / `FrameRecord::Native` | catch/renderer | VM-global "last native" |
-| Exact finite Float value | `float_to_rational` | `~/`, `%`, conversion helpers | second IEEE decoder |
-| Managed Resource identity | hidden slot + `ResourceTable` | Resource primitives | source `_handle` field |
-| Resource generation | table slot state | stale-handle checks | caller-managed version |
-| Local buffered pending bytes | `BufferedWriter._buf/_len` | `pending`, drain, close | inner writer state guess |
-| Wrapper mutation ownership | `_busy` | write/flush/finish/close | implicit queue |
-
----
-
-## 9. Global invariants
-
-### `INV-01 — Executable representability`
-
-Every bounded executable operand is validated in a sufficiently wide domain before publication. No wrap, saturation, or debug/release semantic difference is allowed.
-
-### `INV-02 — Lexical super identity`
-
-Every executable `super` is anchored to the stable defining behavior of its Method, independent of later source-name rebinding.
-
-### `INV-03 — Identity-axis separation`
-
-Dynamic receiver class, Method holder, access owner, lexical super anchor, and foreign layout owner remain distinct runtime concepts.
-
-### `INV-04 — Strong runtime lifetime`
-
-Every strong identity required for later correct execution remains GC-reachable through every live runtime object/frame that owns it.
-
-### `INV-05 — Public invocation atomicity`
-
-Malformed public host/native invocation fails before receiver/argument/frame execution-window mutation.
-
-### `INV-06 — Native activation bound`
-
-Nested native Rust primitive activations are explicitly bounded independently of recursive guest-interpreter re-entry.
-
-### `INV-07 — Coherent execution teardown`
-
-Any fresh-execution transition closes open captures before referenced frame/stack storage is truncated or reused.
-
-### `INV-08 — Diagnostic lifetime separation`
-
-Active native authority is scoped to the native body. Escaping native error identity travels with the error/traceback it describes and is not ambient VM state.
-
-### `INV-09 — Operation-specific numeric domains`
-
-Numeric conversion is permitted only when the operation's normative mathematical contract permits approximation.
-
-### `INV-10 — Transactional buffered output`
-
-Only bytes reported accepted cease to be pending at the wrapper. Unaccepted bytes remain recoverable exactly.
-
-### `INV-11 — Exact opaque Resource identity`
-
-Every valid managed Resource handle encoding is injective and exact; malformed carriers fail closed; generation never wraps; stale identity never resolves to a reused occupant.
-
-### `INV-12 — No speculative performance rewrite`
-
-Correctness remediation must not absorb unrelated unmeasured runtime/cache redesign.
-
-### `INV-13 — Durable checkpoint truth`
-
-`TEST002.C2/CHECKPOINT.md` is the single shared durable state record for the checkpoint. The plan describes intent; walkthrough/checkpoint describe what actually happened.
-
----
-
-## 10. Non-goals
-
-Do not expand the plan into:
-
-- a general typed bytecode IR;
-- widening every bytecode operand to `usize`;
-- a serialized bytecode compatibility version;
-- a generic GC tracing framework rewrite;
-- global rooting of historical class objects;
-- generalized native exception redesign beyond the provenance transport needed here;
-- a new Rational library;
-- a new `Value::ResourceHandle` tag;
-- a native finalizer/Drop-based Resource lifecycle;
-- filesystem/reactor ownership;
-- a public `writeAll` selector;
-- configurable buffering capacity;
-- transparent implicit serialization of stream calls;
-- full NATV001 C3/C4 implementation outside what C2 needs;
-- opportunistic TEST002 directory reorganization.
-
----
-
-## 11. Expected impact map
-
-### 11.1 Expected compiler/runtime source
-
-```text
-phalcom-core/src/chunk.rs
-phalcom-core/src/bytecode.rs
-phalcom-core/src/compiler/lib/error.rs
-phalcom-core/src/compiler/lib/mod.rs
-phalcom-core/src/compiler/lib/scope.rs
-phalcom-core/src/compiler/lib/class_decl.rs
-phalcom-core/src/compiler/lib/jumps.rs
-phalcom-core/src/compiler/lib/loops.rs
-phalcom-core/src/compiler/lib/patterns.rs
-phalcom-core/src/compiler/lib/expr.rs
-phalcom-core/src/compiler/lib/product_opt.rs
-phalcom-core/src/heap/closure.rs
-phalcom-core/src/heap/trace.rs
-phalcom-core/src/frame.rs
-phalcom-core/src/method/object.rs
-phalcom-core/src/vm/mod.rs
-phalcom-core/src/vm/api.rs
-phalcom-core/src/vm/send.rs
-phalcom-core/src/vm/dispatch.rs
-phalcom-core/src/vm/control.rs
-phalcom-core/src/interpret.rs
-phalcom-core/src/error.rs
-phalcom-core/src/diagnostics/traceback.rs
-phalcom-core/src/primitive/number.rs
-phalcom-core/src/primitive/float.rs
-phalcom-core/src/resource.rs
-phalcom-core/src/primitive/resource.rs
-phalcom-core/src/vm/bootstrap.rs
-phalcom-core/src/universe/invariants.rs
-phalcom-core/core/universe/src/collections/bytes.ph
-```
-
-`vm/data.rs`, `vm/adt.rs`, native descriptor installation, disassembly, or generated Method installation may require mechanical updates where they construct `ClosureObject`, Method metadata, or primitive rows.
-
-### 11.2 Expected tests
-
-```text
-phalcom-core/tests/core/audit_probes/runtime_invariants.rs
-phalcom-core/tests/core/mod.rs
-phalcom-core/tests/core/compiler/*
-phalcom-core/tests/core/repl/session.rs
-phalcom-core/tests/core/memory/gc.rs
-phalcom-core/tests/core/execution/depth_limits.rs
-phalcom-core/tests/core/execution/send_arity.rs
-phalcom-core/tests/core/execution/repair_regressions.rs
-phalcom-core/tests/core/observability/super_disassembly.rs
-phalcom-core/tests/core/observability/traceback.rs
-phalcom-core/tests/core/language/numeric_values.rs
-phalcom-core/tests/core/language/numeric_diagnostics.rs
-phalcom-core/tests/fixtures/language/streams/*
-```
-
-Private GC/frame tests may correctly live as `#[cfg(test)]` unit tests inside runtime modules when `pub(crate)` authority fields cannot be reached from integration tests. Prefer that over widening production visibility.
-
-### 11.3 Expected specification/state docs
-
-```text
-docs/specs/vm/bytecodes.md
-docs/specs/vm/vm-execution-model.md        # only if old super/native wording is affected
-docs/implementation/test/TEST002-baseline-stabilization/PROGRAM.md
-docs/implementation/test/TEST002-baseline-stabilization/C2-runtime-correctness-remediation/CHECKPOINT.md
-.../TEST002.C2.P1-runtime-correctness-remediation.md
-.../TEST002.C2.P1-runtime-correctness-remediation-walkthrough.md
-.../TEST002.C2.P1-runtime-correctness-remediation-handoff.md
-```
-
-Do not opportunistically rewrite historical audit or NATV001 state records.
-
-### 11.4 Unexpected-touch rule
-
-Touching adjacent helpers/tests is allowed when mechanically necessary.
-
-STOP AND CONSULT before entering a materially different subsystem—parser, semantic database, LSP, reactor/external FS ownership, serialized artifacts—when doing so changes architecture or ownership.
-
----
-
-## 12. Implementer decision authority
-
-### 12.1 FIXED
-
-The implementer must not change these choices:
-
-1. bounded operands remain compact and are checked before publication;
-2. `super` anchor is stable runtime behavior identity, not a name;
-3. access authority and `super` authority remain distinct;
-4. current superclass is read from the stable anchor at send time;
-5. strong authority identities are traced rather than globally rooted;
-6. `native_reentry_depth` remains the recursive-interpreter/fiber-floor counter;
-7. native Rust activation receives a separate counter;
-8. public call shape is validated before stack-window mutation;
-9. raw-run reuse uses close-before-truncate unwind;
-10. native diagnostic provenance is error-associated, not singleton ambient state;
-11. exact numeric operations reuse exact Float decoding;
-12. Resource uses exact 21+32-bit managed packing and a hidden runtime slot;
-13. Resource generation never wraps;
-14. `Resource.register` is retired in favor of instance attachment;
-15. BufferedWriter supports short writes;
-16. zero progress during required draining is a defined failure, not an infinite retry;
-17. public `flush` propagates to `inner.flush`, even when the wrapper local buffer is empty;
-18. unresolved overlapping BufferedWriter mutation is rejected, not secretly queued;
-19. full bytecode verifier/performance-cache work stays deferred.
-
-### 12.2 MECHANICALLY FLEXIBLE
-
-Luna may adapt without consultation:
-
-- private helper names;
-- whether small checked-conversion helpers live in `error.rs`, `scope.rs`, or a private limits module;
-- local iterator/data-structure choices;
-- private enum/struct names for Resource table state;
-- exact name of `super_anchor`;
-- exact transparent `PhError` native-origin variant name;
-- test function names;
-- splitting one source file-local helper into another existing runtime module;
-- source spelling of internal Resource methods if the live selector convention differs mechanically from NATV001 prose;
-- use of existing Future `then`/`catch`/settlement helpers rather than pseudocode names;
-- mechanically changed call signatures required by current HEAD.
-
-### 12.3 VERIFY-FIRST
-
-| Assumption | Verify in | If false |
+| ID | Decision | Status |
 |---|---|---|
-| Canonical TEST002 root is the lowercase `docs/implementation/test/...` family | `PROGRAM.md`, implementation index | use canonical current family; consult if two active state authorities compete |
-| C1 implementation through P2 is present | C1 checkpoint + current HEAD | record drift; consult only if C2 premise is invalid |
-| `ExecutableSemanticPool` remains checked-before-push | `chunk.rs` | reuse another current checked producer pattern |
-| `add_local` remains canonical local-allocation seam | `scope.rs` + call search | adapt owner mechanically; consult if multiple independent local allocators now exist |
-| `super` exact and pack handlers still reconstruct by class name | compiler/bytecode/dispatch | if already repaired, verify architecture and delete redundant planned edits |
-| all closure constructors can carry the new anchor | search `ClosureObject {` | update all; consult if an alternative executable object can contain source `super` |
-| `native_reentry_depth` still participates in fiber floor/yield | VM/fiber code | do not repurpose it; consult if architecture changed |
-| both primitive ABIs still share `send.rs` activation seams | `MethodKind::Primitive` call sites | centralize if possible; consult if a third unrelated activation path exists |
-| caught traceback still uses `FrameRecord` / `Raise.traceback` | `control.rs`, `diagnostics/traceback.rs` | adapt provenance transport; consult if accepted trace model changed |
-| ordinary Int->Float conversion has one reusable checked path or can be factored from `number.rs` | numeric primitives | create one canonical helper; do not duplicate conversion rules |
-| Resource bootstrap still has field_count=1 plus `_handle` field slot | `vm/bootstrap.rs` | retain hidden slot requirement; adapt mechanics |
-| native primitive installation is descriptor-driven | native install + census tests | update current descriptor authority; do not resurrect obsolete `NEW_RESOURCE` machinery |
-| Future supplies enough continuation/error composition for a nonblocking drain | live Future `.ph` class | adapt with existing continuation API; consult if error cleanup cannot be expressed without blocking |
-| stream fixtures are selected by `language-corpus streams` | test target | adapt exact command mechanically |
+| C3-D01 | One canonical algebraic declaration model with orthogonal phase and shape | FIXED |
+| C3-D02 | Final canonical runtime keyword is `data`; `enum` is compatibility-only during migration | FIXED |
+| C3-D03 | `type data` is semantic phase `TypeOnly`, not a parser-only flag | FIXED |
+| C3-D04 | Reuse exact-case/GADT/exhaustiveness machinery for runtime sums | FIXED |
+| C3-D05 | `TypeId` remains canonical handle for non-row static terms | RECOMMENDED/FIXED FOR PLANNING |
+| C3-D06 | `ProperTypeId` remains the proof boundary for actual types | FIXED |
+| C3-D07 | User nominal static domains use one dynamic `KindData::StaticDomain(...)` class, not one Rust enum variant per declaration | FIXED |
+| C3-D08 | Generic application uses `StaticArgument` envelope; RecordRow remains separate | FIXED |
+| C3-D09 | Compile-time Int becomes a canonical static term/domain usable by generic application; no runtime equality participates | FIXED |
+| C3-D10 | `GenericParameterMode` remains orthogonal to static domain | FIXED |
+| C3-D11 | `InferVarId` remains the non-row inference identity; its `KindId` may denote a nominal static domain | FIXED |
+| C3-D12 | First-order type-data constructor unification only; no general compile-time evaluator | FIXED |
+| C3-D13 | Associated `type data` is inherent declaration ownership, not trait associated-type evidence | FIXED |
+| C3-D14 | Associated static namespace extends the existing `AssociatedSurface` authority | FIXED |
+| C3-D15 | Trait generic parameters over new user static domains are not required for C3; reject them unless migrated safely by the ordinary generic path | SCOPE BOUNDARY |
+| C3-D16 | `TupleEntries` maps to the C2 complete-pack domain | FIXED |
+| C3-D17 | `intrinsic data Tuple/Record/Unit` is a semantic source facade; runtime physical representation remains specialized | FIXED |
+| C3-D18 | Stable metadata records declaration/domain identity structurally; never source strings | FIXED |
+| C3-D19 | Legacy `enum` and runtime `data` compatibility parsing must never create different semantic identities | FIXED |
+| C3-D20 | Public/new APIs converge to algebraic/domain/case terminology; internal Enum/Variant compatibility names may survive temporarily | FIXED |
 
 ---
 
-## 13. Global STOP / CONSULT triggers
+## 10. Unified algebraic declaration architecture
 
-Stop editing and prepare a compact consultation packet if any of these occurs:
+### 10.1 Canonical source AST
 
-1. a fixed architecture appears impossible or materially incorrect;
-2. a core plan premise is disproved;
-3. ownership, identity, lifetime, representation, semantic authority, or a cross-layer contract must change;
-4. a downstream public contract must materially change;
-5. accepted semantic behavior/test oracle appears wrong;
-6. the same nontrivial semantic failure persists after one serious corrective attempt;
-7. two plausible fixes have materially different architecture;
-8. an unexpected subsystem is required;
-9. a workaround/special-case architecture is emerging;
-10. duplicate canonical reasoning/state would be introduced;
-11. soundness-critical GC, control, error, numeric, or stale-generation behavior is uncertain;
-12. spec/code/test/plan authorities materially conflict;
-13. an invariant must be weakened to make tests pass;
-14. scope becomes materially more cross-cutting than this plan;
-15. Method transplantation is discovered to intentionally redefine lexical `super`, contradicting the current callable dispatch rule;
-16. a runtime identity this plan treats as strong is proven intentionally weak with a defined expiry protocol;
-17. fiber correctness requires `native_activation_depth` and `native_reentry_depth` to be the same state variable;
-18. no error-associated Symbol-only native-origin seam can be introduced without changing catch/error semantics materially;
-19. the authoritative numeric contract differs from exact represented-value `~/` or floor-remainder `%`;
-20. managed Resource requirements require a table capacity materially above the exact 21-bit index model;
-21. stream semantics require implicit serialization rather than explicit overlap rejection.
-
-A triggered consultation cannot be self-waived.
-
-### Consultation packet
-
-Provide only:
-
-```text
-Plan/task:
-Starting/current revision:
-Observed:
-Expected invariant:
-Smallest reproducer:
-Current call/data path:
-One passing comparator:
-Serious correction already attempted (if any):
-Why local architecture is insufficient:
-Options with consequences:
-Specific decision requested:
-```
-
-Do not ask an adviser to rediscover the repository.
-
----
-
-## 14. Debugging budget
-
-### 14.1 Mechanical failures
-
-Allow up to three coherent correction cycles while evidence shows progress:
-
-```text
-inspect
-identify concrete cause
-make one coherent correction
-rerun smallest discriminating command
-```
-
-Examples: imports, changed helper signature, borrow checker, exhaustive match/caller migration, test filter.
-
-### 14.2 Semantic failures
-
-Before changing code after a semantic failure, record:
-
-```text
-Observed:
-Hypothesis:
-Evidence:
-Prediction:
-Discriminating test:
-```
-
-Allow one serious correction for the same underlying semantic failure.
-
-If it persists, STOP AND CONSULT.
-
-### 14.3 Architectural failures
-
-Zero speculative architecture-fix attempts. Consult immediately.
-
-Never rerun an unchanged failing test unless something relevant to the failure changed.
-
----
-
-## 15. Testing surface analysis
-
-| Coverage ID | Dimension | Invariant(s) | Required case |
-|---|---|---|---|
-| `CV-OP-01` | first unrepresentable | INV-01 | constant index 65536 fails; index 65535 remains valid |
-| `CV-OP-02` | other bounded families | INV-01 | local/upvalue/linked/field count and jump helper boundaries |
-| `CV-OP-03` | hostile shortcut | INV-01 | no saturation/wrapped index aliases a valid entry |
-| `CV-SUP-01` | identity persistence | INV-02,03 | old instance executes old lexical super after same-name class redefinition |
-| `CV-SUP-02` | class-side | INV-02,03 | static/class Method anchors at metaclass |
-| `CV-SUP-03` | nested closure | INV-02,04 | block containing super inherits enclosing anchor |
-| `CV-SUP-04` | pack/rest | INV-02 | `SuperSendPack` uses same stable anchor |
-| `CV-SUP-05` | binding/transplant | INV-02,03 | bound/exact Method invocation does not move anchor where production supports it |
-| `CV-GC-01` | sole strong retainer | INV-04 | closure lexical class survives GC |
-| `CV-GC-02` | new anchor | INV-04 | `super_anchor` survives as sole owner |
-| `CV-GC-03` | access/layout | INV-04 | Method access owner and frame/closure layout owner survive sole-retainer GC |
-| `CV-GC-04` | release | INV-04 | dropping true owner permits eventual collection |
-| `CV-NAT-01` | admission negative | INV-05 | missing/excess selector arguments return controlled error |
-| `CV-NAT-02` | atomic failure | INV-05 | stack/frame/native-context depths unchanged on invalid public call |
-| `CV-NAT-03` | native-only recursion | INV-06 | native→native recursion trips native activation ceiling |
-| `CV-NAT-04` | re-entry preservation | INV-06 | native→bytecode recursion still trips native re-entry ceiling |
-| `CV-NAT-05` | fiber behavior | INV-06 | existing yield/re-entry floor tests remain valid |
-| `CV-UNW-01` | reuse after failure | INV-07 | escaped capture from failed raw run cannot alias next run's stack slot |
-| `CV-TRC-01` | direct native failure | INV-08 | direct native error names current native frame |
-| `CV-TRC-02` | nested success | INV-08 | inner native success then outer failure names outer |
-| `CV-TRC-03` | propagated inner failure | INV-08 | unchanged inner failure names inner, not outer |
-| `CV-TRC-04` | caught/replaced | INV-08 | dropped inner error does not poison later outer error |
-| `CV-TRC-05` | ABI parity | INV-08 | legacy and shape-aware primitive paths preserve same provenance |
-| `CV-NUM-01` | precision boundary | INV-09 | mixed `~/` around 2^53 retains exact Int quotient |
-| `CV-NUM-02` | sign matrix | INV-09 | positive/negative Float remainder follows divisor sign |
-| `CV-NUM-03` | special values | INV-09 | signed zero, NaN, infinities match numeric spec |
-| `CV-NUM-04` | limits | INV-09 | exact quotient still respects configured numeric bit limit |
-| `CV-RES-01` | exact encoding | INV-11 | max valid 21/32 handle and interior 2^53 neighbors round-trip |
-| `CV-RES-02` | malformed carrier | INV-11 | negative/fractional/NaN/Inf/>max fail closed |
-| `CV-RES-03` | stale generation | INV-11 | reuse invalidates old handle without wrapping |
-| `CV-RES-04` | terminal generation | INV-11 | MAX generation closes idempotently and retires |
-| `CV-RES-05` | hidden layout | INV-11 | Resource subclass fields start after hidden slot; source `_handle` is absent |
-| `CV-RES-06` | attachment transaction | INV-11 | invalid/double attachment leaves no orphan live row |
-| `CV-STR-01` | repeated short write | INV-10 | 2/1/2 acceptance of `ABCDE` produces exactly `ABCDE` |
-| `CV-STR-02` | zero progress | INV-10 | zero on nonempty drain rejects `WriteZeroError`, no loss |
-| `CV-STR-03` | partial failure | INV-10 | accepted prefix stays accepted; exact suffix remains pending |
-| `CV-STR-04` | layered flush | INV-10 | local-empty outer flush still invokes inner flush |
-| `CV-STR-05` | overlap | INV-10 | concurrent mutation raises and `_busy` always releases |
-| `CV-STR-06` | source ownership | INV-10 | delayed write snapshots caller Bytes before return |
-| `CV-STR-07` | close recovery | INV-10 | dirty close mutates nothing; subsequent finish can recover |
-
-Do not add redundant tests for every preparatory edit. Each coverage obligation needs sufficient evidence once.
-
----
-
-## 16. Verification execution budget
-
-### 16.1 Modes
-
-#### BUILD MODE
-
-Use only T0/T1 evidence that discriminates the current task.
-
-Do not run whole `phalcom-core` or workspace tests after every task.
-
-#### STABILIZE MODE
-
-Run focused owning suites at G1–G7.
-
-#### CERTIFY MODE
-
-Run broader package/workspace gates only if explicitly requested for release/checkpoint certification.
-
-### 16.2 Verification ladder
-
-```text
-T0 — exact reproducer/new regression
-T1 — directly affected feature tests
-T2 — owning subsystem/module suite
-T3 — adjacent cross-layer integration
-T4 — broad phalcom-core verification
-T5 — workspace/release verification
-```
-
-### 16.3 Mandatory during BUILD
-
-Only the task-local commands listed in §18.
-
-### 16.4 Mandatory stabilization gates
-
-- G1 bounded executable operands;
-- G2 stable super identity + GC authority;
-- G3 native admission/activation/teardown/provenance;
-- G4 numeric correctness;
-- G5 managed Resource-v2;
-- G6 BufferedWriter/stream integration;
-- G7 final focused C2 acceptance.
-
-### 16.5 Explicitly deferred during BUILD
-
-Do **not** reflexively run:
-
-```sh
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo check --workspace --all-targets
-```
-
-Do not run unrelated language corpora.
-
-These add little diagnostic value while architecture is incomplete.
-
----
-
-## 17. Baseline / unrelated failure policy
-
-Classify every unexpected failure:
-
-```text
-A — definitely caused by this patch
-B — probably caused by this patch
-C — unclear
-D — clearly unrelated/baseline
-```
-
-- A/B: active responsibility.
-- C: perform one bounded classification pass. If nonblocking and still unclear, record in `TEST002.C2/CHECKPOINT.md` and continue.
-- D: record and defer immediately.
-- do not consume adviser compute on D unless it blocks acceptance;
-- do not weaken assertions or skip a required test to make a broad gate green;
-- C1 certification failures stay in C1 unless C2 demonstrably caused them.
-
----
-
-# 18. Tasks
-
-## T1 — Establish canonical C2 execution records and drift baseline
-
-### Purpose
-
-Create the durable C2 state authority, attach P1 to TEST002, and record the actual local execution baseline before code changes.
-
-### Risk
-
-- Semantic: LOW
-- Implementation fanout: documentation/local Git state
-
-### Preconditions
-
-- `TEST002.C1.P2` implementation exists on the starting revision.
-- No active C2 state record already exists in another canonical location.
-
-### Consumes
-
-- TEST002 program record;
-- C1 checkpoint/walkthrough/handoff;
-- this plan.
-
-### Produces
-
-- canonical `TEST002.C2` checkpoint record;
-- P1 ledger entry marked active when execution actually starts;
-- exact starting revision and baseline notes.
-
-### Files and symbols
-
-**Read:**
-
-```text
-docs/implementation/test/TEST002-baseline-stabilization/PROGRAM.md
-docs/implementation/test/TEST002-baseline-stabilization/C1-semantic-core-baseline-elimination/CHECKPOINT.md
-```
-
-**Create if absent:**
-
-```text
-docs/implementation/test/TEST002-baseline-stabilization/C2-runtime-correctness-remediation/CHECKPOINT.md
-```
-
-**Add/copy into repository execution record:**
-
-```text
-.../TEST002.C2.P1-runtime-correctness-remediation.md
-```
-
-**Modify:**
-
-```text
-docs/implementation/test/TEST002-baseline-stabilization/PROGRAM.md
-```
-
-### Required implementation shape
-
-1. Inspect local Git state.
-2. Confirm no canonical C2 record exists.
-3. Add C2 to the TEST002 checkpoint ledger without rewriting C1 history.
-4. If `PROGRAM.md` currently describes TEST002 too narrowly as semantic/core-only stabilization, minimally broaden the objective/ownership text to include retained correctness baselines, while preserving its historical C1 description.
-5. Create `CHECKPOINT.md` with:
-   - `id: TEST002.C2`;
-   - `status: IN_PROGRESS`;
-   - `completion: NOT_STARTED` initially;
-   - `verification: UNVERIFIED`;
-   - bounded objective from §2;
-   - plans ledger with P1;
-   - inherited invariants;
-   - empty verification/deferred/consultation ledgers;
-   - starting revision;
-   - active plan / next action.
-6. Do not create a plan-specific `implementation-state.md`.
-
-### Forbidden approaches
-
-- no legacy `docs/implementation/TEST002/` C2 state;
-- no opportunistic migration of C1;
-- no claim that C1 certification passed;
-- no implementation edits in this task.
-
-### Tests to run now
-
-None.
-
-Run only:
-
-```sh
-git status --short
-git rev-parse HEAD
-```
-
-These prove repository state, not runtime behavior.
-
-### Acceptance
-
-- canonical C2 checkpoint record exists;
-- TEST002 program ledger references C2;
-- P1 is recorded as active only when work actually starts;
-- starting revision is truthful;
-- no competing C2 state file exists.
-
-### Local STOP / CONSULT triggers
-
-- two active canonical TEST002 program/checkpoint roots compete;
-- TEST002 ownership is explicitly constrained so runtime audits cannot belong to C2;
-- local HEAD lacks C1.P2 implementation facts needed by this plan.
-
-### Checkpoint update
-
-This task creates the checkpoint authority; record starting state immediately.
-
----
-
-## T2 — Make bounded executable operands fail before publication (`AUD-RUNTIME-001`)
-
-### Purpose
-
-Eliminate unchecked executable narrowing by making the producer that mints each bounded operand prove representability before publication.
-
-### Risk
-
-- Semantic: HIGH
-- Implementation fanout: multi-file compiler
-
-### Preconditions
-
-- T1 complete.
-- `CompilerError` remains the source compilation failure channel.
-- compact bytecode operand widths remain unchanged.
-
-### Consumes
-
-- `INV-01`;
-- current checked `ExecutableSemanticPool` precedent.
-
-### Produces
-
-- checked constant-pool insertion;
-- checked linked-read encoding;
-- checked local/scratch/upvalue indices;
-- checked field counts/slots;
-- checked jump offsets;
-- structured overflow diagnostics.
-
-### Files and symbols
-
-**Primary:**
-
-```text
-phalcom-core/src/chunk.rs                         Chunk::add_constant
-phalcom-core/src/compiler/lib/error.rs            CompilerError + checked helpers
-phalcom-core/src/compiler/lib/scope.rs            Compiler::add_local
-phalcom-core/src/compiler/lib/mod.rs              constant/global/link emission
-phalcom-core/src/compiler/lib/class_decl.rs       field/rest layout
-phalcom-core/src/compiler/lib/jumps.rs            jump patch/loop offsets
-```
-
-**Exhaustive producer inventory:**
-
-```text
-phalcom-core/src/compiler/lib/loops.rs
-phalcom-core/src/compiler/lib/patterns.rs
-phalcom-core/src/compiler/lib/expr.rs
-phalcom-core/src/compiler/lib/product_opt.rs
-phalcom-core/src/compiler/
-```
-
-**Tests:**
-
-```text
-phalcom-core/tests/core/audit_probes/runtime_invariants.rs
-phalcom-core/tests/core/compiler/
-phalcom-core/tests/core/mod.rs
-```
-
-### Inspect before editing
-
-Run:
-
-```sh
-rg -n 'as u16|as u8|as i32|unwrap_or\(u16::MAX\)|try_from' \
-  phalcom-core/src/chunk.rs phalcom-core/src/compiler
-```
-
-Classify every hit that contributes to executable meaning:
-
-```text
-A — producer must become checked
-B — conversion is dominated by a stricter already-proven bound
-C — not an executable operand/count
-```
-
-Do not mechanically replace category B/C.
-
-### Source of truth
-
-Producer-side wide integer state is authoritative until a checked narrow operand is created.
-
-### Required implementation shape
-
-#### A. General compiler overflow error
-
-Prefer a general structured error rather than abusing semantic-pool-specific wording.
-
-STRUCTURAL:
+Target conceptual AST:
 
 ```rust
-CompilerError::ExecutableOperandOverflow {
-    kind: &'static str,
-    found: usize,          // or a wider signed form for offsets
-    limit: usize,
-    span: SourceRange,
+pub struct AlgebraicDef {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub phase: AlgebraicPhase,
+    pub implementation: ImplementationKind,
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub where_clause: Option<WhereClauseSyntax>,
+    pub shape: AlgebraicShapeSyntax,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+
+    // compatibility/source presentation only, if retained during migration
+    pub legacy_enum_keyword_range: Option<SourceRange>,
+}
+
+pub enum AlgebraicPhase {
+    Runtime,
+    TypeOnly,
+}
+
+pub enum AlgebraicShapeSyntax {
+    Product(ProductShapeSyntax),
+    Sum(SumShapeSyntax),
+}
+
+pub enum ProductShapeSyntax {
+    Tuple {
+        components: Vec<DataComponentSyntax>,
+        constructor_visibility: Visibility,
+        ...
+    },
+    Record {
+        components: Vec<DataComponentSyntax>,
+        constructor_visibility: Visibility,
+        ...
+    },
+}
+
+pub struct SumShapeSyntax {
+    pub cases: Vec<AlgebraicCaseSyntax>,
+    ...
+}
+
+pub enum CasePayloadSyntax {
+    Singleton,
+    Tuple {
+        parameters: Vec<ParameterDef>,
+        explicit_empty: bool,
+    },
+    Record {
+        components: Vec<DataComponentSyntax>,
+    },
 }
 ```
 
-Equivalent names are allowed.
+Exact names are flexible.
 
-Provide checked helpers for at least:
+Semantic distinctions are not.
 
-```text
-u16 index: max logical index 65535
-u16 count: max logical count 65535
-u8 count:  max logical count 255
-i32 relative offset: full signed i32 range
-```
+### 10.2 Statement category
 
-Do not apply one blanket bound to indices and counts.
+Final semantic AST should have one runtime/type-only algebraic declaration path.
 
-#### B. Constant pool
-
-Change `Chunk::add_constant` so representability is checked **before** push.
-
-Target flow:
-
-```text
-index = constants.len()
-checked_u16_index(index)?
-constants.push(value)
-return encoded_index
-```
-
-A `u16` index permits 65,536 addressable entries (`0..=65535`). Entry 65,537 must fail before mutation.
-
-Propagate fallibility through the compiler's constant helper and callers. Mechanical `?` propagation is expected and does not require consultation.
-
-#### C. Locals/scratch
-
-Make `Compiler::add_local` the canonical proof seam.
-
-Preferred shape:
+Preferred endpoint:
 
 ```rust
-fn add_local(...) -> Result<u16, CompilerError>
+Statement::Data(AlgebraicDef)
 ```
 
-where the returned slot is checked from the pre-increment `num_locals`.
+with `phase` distinguishing `data` and `type data`.
 
-Callers that need the slot consume the returned `u16`; callers that do not may discard it.
+A separate `Statement::TypeData` is mechanically acceptable only if both lower immediately to the same `AlgebraicDef` and no semantic consumer branches on distinct declaration categories.
 
-This permits slot index `65535` where the surrounding frame representation can support 65,536 locals. Do not copy class-field count limits into local-slot semantics.
-
-Scratch allocators must reuse the same local-slot proof.
-
-#### D. Upvalues
-
-Search every `UpvalueDescriptor`, `GetUpvalue`, `SetUpvalue`, capture-index producer.
-
-Check the index at the capture/upvalue descriptor owner. Once encoded, bytecode emission may trust it.
-
-#### E. Linked reads
-
-Remove:
-
-```rust
-binding.0 as u16
-```
-
-and:
-
-```rust
-u16::try_from(index).unwrap_or(u16::MAX)
-```
-
-If a canonical binding index is already guaranteed narrower by its creating type, make that proof explicit. Otherwise reject at the insertion/encoding boundary.
-
-Never saturate to a valid unrelated entry.
-
-#### F. Fields
-
-Perform inherited-count arithmetic in `usize` (or wider), then check.
-
-Important distinction:
+Final C3 must not retain:
 
 ```text
-field_count: u16
+Statement::Enum -> one semantic world
+Statement::Data -> another semantic world
 ```
 
-cannot represent a count of 65,536, even though an isolated `u16` index can represent 65,535.
+### 10.3 Legacy `enum`
+
+P1 may retain compatibility parsing:
+
+```phalcom
+enum Option<T> { ... }
+```
+
+but it must lower to:
+
+```text
+AlgebraicPhase::Runtime
+AlgebraicShape::Sum
+```
+
+using exactly the same case identities and products as:
+
+```phalcom
+data Option<T> { ... }
+```
+
+The legacy keyword span may be retained only for migration diagnostics/presentation.
+
+It may not enter:
+
+- declaration identity;
+- type identity;
+- fingerprints;
+- metadata;
+- lowering decisions.
+
+P3 removes compatibility acceptance after corpus/Universe migration unless a user-visible compatibility policy explicitly extends it.
+
+---
+
+## 11. Product/sum discrimination
+
+Braced `data`/`type data` bodies must be syntactically classified without semantic lookup.
+
+Required interpretations:
+
+```phalcom
+data Person {
+    name: String
+    age: Int
+}
+```
+
+→ record product.
+
+```phalcom
+data State {
+    Ready
+    Failed(_ reason: Error)
+}
+```
+
+→ sum.
+
+```phalcom
+data Impossible {}
+```
+
+→ empty sum.
+
+```phalcom
+data UnitLike()
+```
+
+→ zero-component product.
+
+Mixed root body:
+
+```phalcom
+data Invalid {
+    value: Int
+    None
+}
+```
+
+must produce a dedicated mixed-algebraic-body diagnostic.
+
+Do not choose meaning by first member encountered.
+
+---
+
+## 12. Runtime case syntax
+
+P1 must preserve the semantic distinction:
+
+```phalcom
+data Example {
+    Singleton
+    Constructed()
+}
+```
+
+Meaning:
+
+```text
+Singleton
+    associated singleton value
+
+Constructed()
+    zero-argument constructor family
+```
+
+They are not interchangeable merely because both carry zero payload fields.
+
+Record-payload cases are new required surface:
+
+```phalcom
+data Message {
+    Request {
+        method: Method
+        path: String
+    }
+
+    Closed
+}
+```
+
+The existing tuple-payload/GADT machinery should be generalized to consume a neutral case payload abstraction.
+
+---
+
+## 13. Semantic declaration authority
+
+Introduce one authoritative semantic product or facade:
+
+```rust
+pub struct AlgebraicDeclarationInfo {
+    pub owner: DeclarationId,
+    pub phase: AlgebraicPhase,
+    pub implementation: ImplementationKind,
+    pub generic_signature: Option<GenericSignature>,
+    pub representation: AlgebraicRepresentation,
+    pub source: Option<SemanticSourceSpan>,
+}
+
+pub enum AlgebraicRepresentation {
+    Product(AlgebraicProductInfo),
+    Sum(AlgebraicSumInfo),
+}
+```
+
+### 13.1 Product branch
+
+Product info derives the current facts:
+
+```text
+DataShape
+components
+DataConstructorSignature
+constructor visibility
+result type template
+```
+
+### 13.2 Runtime sum branch
+
+Sum info derives/reuses:
+
+```text
+EnumInfo
+VariantInfo
+VariantConstructorSignature
+CaseTypeEnvironment
+exact-case templates
+requirements/default behavior
+```
+
+### 13.3 Type-only branch
+
+Type-only product/sum uses the same declaration/case identities but produces static constructor terms rather than runtime constructors/exact runtime values.
+
+### 13.4 Transitional adapters
+
+To keep P1 implementable, existing tables may remain as compatibility projections:
+
+```text
+DataSemanticTable
+EnumSemanticTable
+```
+
+but they must be populated from the authoritative algebraic product.
+
+Forbidden:
+
+```text
+build AlgebraicDeclarationInfo
+and separately rebuild EnumInfo from AST
+and separately rebuild DataInfo from AST
+```
+
+There must be one semantic parse/lowering truth.
+
+---
+
+## 14. Case identity migration
+
+Current `VariantId` is already declaration-owned and selector-based.
+
+C3 does not need a second independent case identity.
+
+Recommended migration:
+
+```rust
+pub struct AlgebraicCaseId {
+    owner: DeclarationId,
+    selector: Selector,
+}
+
+// compatibility alias during migration
+pub type VariantId = AlgebraicCaseId;
+```
+
+or an equivalent neutral facade preserving existing stable identity.
+
+This has two benefits:
+
+1. runtime exact-case machinery continues to refer to the same identity;
+2. type-data cases can use the neutral case identity without implying runtime callability.
+
+Runtime-only products may continue to use names such as `VariantConstructorId` temporarily.
+
+New stable metadata and new source-facing APIs should use `case`, not `enum variant`, unless referring to legacy compatibility.
+
+---
+
+# Part IV — Static domains and canonical terms
+
+## 15. Static-domain classifier architecture
+
+### 15.1 Built-in domains
+
+Existing:
+
+```text
+Type
+RecordRow
+TypePack
+LabeledTypePack
+CompleteTypePack
+```
+
+remain current optimized `KindData` variants.
+
+### 15.2 Nominal domains
+
+Add one open-ended classifier:
+
+```rust
+KindData::StaticDomain(StaticDomainId)
+```
+
+A different `type data` declaration receives a different `StaticDomainId`, hence a different `KindId`.
+
+Example:
+
+```phalcom
+type data Width(_ value: Int)
+type data Height(_ value: Int)
+```
+
+must produce:
+
+```text
+domain(Width) != domain(Height)
+```
+
+even though constructor structures match.
+
+### 15.3 Associated domains
+
+P2 extends `StaticDomainData` to include owner specialization.
+
+For:
+
+```phalcom
+class Container<T: Type> {
+    type data State {
+        Empty
+        Present(_ value: T)
+    }
+}
+```
+
+the domain family declaration identity is:
+
+```text
+Container::State
+```
+
+while concrete domains include:
+
+```text
+Container<Int>::State
+Container<String>::State
+```
+
+These are distinct domain specializations sharing one declaration identity.
+
+The owner environment must be canonical semantic data, not source text.
+
+---
+
+## 16. Canonical static terms
+
+### 16.1 Compile-time constants
+
+C3 should normalize supported compile-time constants into the same canonical term graph used by generic application.
+
+Initial required primitive:
+
+```text
+Int
+```
+
+Conceptual form:
+
+```rust
+TypeData::ConstInt(i64)
+```
+
+with a non-`Type` static-domain kind.
+
+This does not turn runtime integer values into type-level terms automatically.
+
+Only syntax/contexts accepted by the static language form these terms.
+
+### 16.2 Type-data terms
+
+Conceptual representation:
+
+```rust
+pub struct AlgebraicStaticTerm {
+    pub domain: StaticDomainId,
+    pub constructor: AlgebraicStaticConstructorId,
+    pub arguments: Box<[StaticArgument]>,
+}
+
+TypeData::StaticData(AlgebraicStaticTerm)
+```
+
+A product-shaped `type data` has one primary static constructor identity.
+
+A sum-shaped `type data` has one case constructor/singleton identity per declared case.
+
+Canonical identity includes:
+
+```text
+domain declaration identity
+constructor/case identity
+owner specialization when associated
+canonical static arguments
+```
+
+Runtime equality/hashing/method dispatch does not participate.
+
+### 16.3 Symbolic terms
+
+A well-formed static term containing a parameter remains canonical/symbolic:
+
+```text
+Shape::Vector(N)
+```
+
+where `N` is a parameter of the compile-time Int domain.
+
+It must not become:
+
+```text
+Dynamic
+Never
+unknown proper Type
+```
+
+merely because `N` is unresolved.
+
+---
+
+## 17. `ProperTypeId` boundary
+
+This boundary is mandatory.
+
+For:
+
+```phalcom
+Shape::Vector(3)
+```
+
+the canonical term may use a `TypeId` handle internally, but:
+
+```rust
+store.proper_type(shape_vector_3)
+```
+
+must fail because its kind/domain is not `Type`.
+
+Every API that publishes ordinary value-type knowledge must continue to require or validate `ProperTypeId`.
+
+This prevents the implementation mistake:
+
+```text
+"stored in TypeId"
+    therefore
+"is a runtime type"
+```
+
+which is false already for packs and becomes even more important in C3.
+
+---
+
+## 18. Heterogeneous generic/static arguments
+
+### 18.1 Target representation
+
+Generalize canonical application:
+
+```rust
+pub enum StaticArgument {
+    Term(TypeId),
+    RecordRow(RecordRowId),
+}
+```
+
+Conceptually:
+
+```text
+StaticArgument::Term
+    Type
+    type constructor
+    const Int
+    type-data term
+    TypePack
+    LabeledTypePack
+    CompleteTypePack / TupleEntries
+    other TypeStore-kind terms
+
+StaticArgument::RecordRow
+    canonical row-domain term
+```
+
+### 18.2 `TypeData::Applied`
+
+Target:
+
+```rust
+TypeData::Applied {
+    origin: TypeId,
+    arguments: Box<[StaticArgument]>,
+}
+```
+
+The result remains a `TypeId` because an application itself is a canonical kinded/static term.
+
+`TypeStore::apply_*` computes each argument's classifier:
+
+```text
+Term(t)      -> kind_of(t)
+RecordRow(r) -> KindId::RECORD_ROW
+```
+
+and applies the origin's arrow domain contract.
+
+### 18.3 Compatibility helpers
+
+Preserve narrow helpers for common type-only callers:
+
+```rust
+apply_type_form(origin, &[TypeId])
+```
+
+may wrap each argument as `StaticArgument::Term`.
+
+Introduce a canonical generalized API such as:
+
+```rust
+apply_static_form(origin, &[StaticArgument])
+```
+
+or equivalent.
+
+Do not force every existing type-only caller to manually construct the envelope.
+
+### 18.4 Scoped/lambda representation
+
+P2 must provide an equivalent scoped argument form so aliases/type lambdas can preserve heterogeneous arguments:
+
+```rust
+ScopedStaticArgument::Term(ScopedTypeId)
+ScopedStaticArgument::RecordRow(ScopedRecordRowTerm)
+```
+
+Exact row-scoped representation should reuse existing `ScopedRecordTail` / row machinery.
+
+Do not stringify or lower rows into fake TypeIds.
+
+---
+
+## 19. Generic parameter contracts
+
+### 19.1 Domain remains separate from mode
+
+For:
+
+```phalcom
+P: TypePack
+```
+
+the domain is TypePack and mode is Single.
+
+For:
+
+```phalcom
+*Ts
+```
+
+the domain is TypePack and mode is PositionalPack.
+
+C2 law remains:
+
+```text
+domain != binder mode
+```
+
+### 19.2 Reuse `KindId`
+
+Because nominal static domains are representable as dynamic `KindData::StaticDomain`, current generic parameter products may continue using:
+
+```text
+TypeParameterData.kind
+GenericBinderHeader.parameter_kinds
+GenericSignature.parameter_kinds
+```
+
+as the canonical compact classifier.
+
+Do not add an independent `parameter_domain` field carrying the same identity unless `kind` becomes explicitly derived and non-authoritative.
+
+One source of truth is required.
+
+### 19.3 Variance
+
+Pack binder invariance remains.
+
+User type-data/static constant parameters should initially be invariant unless an existing variance rule demonstrably applies.
+
+C3 does not introduce a variance theory for arbitrary static domains.
+
+---
+
+## 20. Static generic argument syntax
+
+Current generic application syntax accepts type annotations plus C2 pack expansion.
+
+P2 must generalize the *single argument* grammar to a static argument expression category.
+
+Conceptual AST:
+
+```rust
+pub enum GenericArgumentSyntax {
+    Single(StaticArgumentSyntax),
+    Expansion(TypePackExpansionSyntax),
+}
+
+pub enum StaticArgumentSyntax {
+    TypeForm(TypeAnnotation),
+    IntLiteral { value, range },
+    StaticConstructor(StaticTermSyntax),
+    // row syntax uses the existing row/type annotation representation
+}
+```
+
+The exact factoring may instead make `TypeAnnotation` a broader static-term syntax tree.
+
+Requirement:
+
+```text
+Tensor<Float, Shape::Vector(3)>
+Integer<32, Endian::Big>
+```
+
+must parse without treating `3`, `32`, or `Endian::Big` as runtime expressions.
+
+Do not reuse arbitrary runtime `Expr` as the static argument grammar; doing so would accidentally authorize compile-time execution.
+
+---
+
+# Part V — Type data
+
+## 21. `type data` declaration semantics
+
+A `type data` declaration:
+
+- has nominal declaration identity;
+- has a `StaticDomainId`;
+- may be product or sum;
+- has canonical constructor/case identities;
+- has no runtime constructor target;
+- has no runtime values;
+- has no VM class/object requirement;
+- may appear as a generic/static parameter domain;
+- participates in substitution, inference, metadata, imports, source index, and associated lookup;
+- is closed;
+- uses compiler-defined structural identity.
+
+### 21.1 Static payload validity
+
+Every type-data payload component must have a supported static domain.
+
+Valid examples:
+
+```phalcom
+type data Shape {
+    Scalar
+    Vector(_ size: Int)
+}
+
+type data TypeShape {
+    One(_ element: Type)
+    Many(_ elements: TypePack)
+}
+```
+
+A payload requiring an ordinary runtime value with no static-term semantics is invalid.
+
+### 21.2 Product term
+
+```phalcom
+type data Coordinate(
+    _ x: Int,
+    _ y: Int
+)
+```
+
+forms canonical static terms only in static contexts:
+
+```phalcom
+Coordinate(3, 4)
+```
+
+### 21.3 Sum term
+
+```phalcom
+type data Endian {
+    Little
+    Big
+}
+```
+
+forms:
+
+```text
+Endian::Little
+Endian::Big
+```
+
+### 21.4 No runtime construction
+
+A runtime binding:
+
+```phalcom
+let x: Endian = Endian::Little
+```
+
+is invalid because `Endian` is not a runtime value type.
+
+The compiler must reject it before lowering.
+
+---
+
+## 22. Type-data GADTs
+
+C3 includes type-data GADT syntax/identity where payloads/results remain in the supported static language.
+
+Example:
+
+```phalcom
+type data StaticExpr<T: Type> {
+    Int(_ value: Int) -> StaticExpr<Int>
+    Bool(_ value: Bool) -> StaticExpr<Bool>
+}
+```
+
+Required semantics:
+
+- same-declaration result specialization;
+- case-local equalities;
+- constructor applicability;
+- structural static-term inference;
+- stable metadata.
+
+Not required:
+
+- arbitrary user-defined type-level match/evaluator;
+- recursive normalization functions over `StaticExpr`.
+
+---
+
+# Part VI — Inference and substitution
+
+## 23. Reuse `InferVarId`
+
+Current inference variables already carry:
+
+```text
+InferVarId
+kind: KindId
+solution: TypeId
+```
+
+With dynamic nominal static-domain kinds, P2 can reuse this architecture.
+
+For:
+
+```phalcom
+S: Shape
+```
+
+instantiate:
+
+```text
+InferVarId(kind = KindId(StaticDomain(Shape)))
+```
+
+No `StaticInferVarId` is needed.
+
+### 23.1 Row exception
+
+Row parameters continue through row inference.
+
+Do not force them into the non-row `InferVarId -> TypeId` solution map.
+
+---
+
+## 24. Type-data unification
+
+Required first-order laws:
+
+### Same constructor
+
+```text
+Shape::Vector(N)
+=
+Shape::Vector(3)
+
+=> N = 3
+```
+
+when `N` has the compile-time Int domain.
+
+### Different constructor
+
+```text
+Shape::Scalar
+=
+Shape::Vector(N)
+```
+
+fails structurally.
+
+### Different nominal domain
+
+```text
+Shape::Vector(3)
+=
+OtherShape::Vector(3)
+```
+
+fails even when selector/payload matches.
+
+### No user equality
+
+Never invoke:
+
+```text
+==
+hash
+runtime methods
+runtime reflection
+object identity
+```
+
+to solve static terms.
+
+---
+
+## 25. Substitution/materialization
+
+Checked substitution must recursively handle:
+
+- `StaticArgument`;
+- static constant terms;
+- type-data constructor terms;
+- associated-domain specialization;
+- heterogeneous `Applied`;
+- existing pack terms;
+- existing type-member projections;
+- row arguments.
+
+When substitution makes a term invalid, use the checked failure path.
+
+Examples:
+
+```text
+wrong type-data constructor argument domain
+invalid associated owner environment
+row mismatch
+pack duplicate exposed after substitution
+```
+
+must not leave malformed interned terms.
+
+---
+
+# Part VII — Associated domains and `::`
+
+## 26. Current associated namespace
+
+The live repository already has:
+
+```text
+AssociatedSurface
+AssociatedFamilyInfo
+AssociatedFamilyKind
+AssociatedMemberId
+AssociatedResolution
+AssociatedOwnerResolution
+```
+
+and declaration-owned variant/data-constructor families.
+
+This is the correct authority to extend.
+
+Do not create:
+
+```text
+AssociatedTypeDataTable
+with independent name lookup rules
+```
+
+that bypasses `AssociatedSurface`.
+
+---
+
+## 27. Target associated categories
+
+Generalize associated metadata conceptually:
+
+```rust
+enum AssociatedFamilyKind {
+    Case,
+    DataConstructor,
+    StaticDomain,
+    StaticMember,
+    // existing categories as needed
+}
+
+enum AssociatedMemberId {
+    Case(AlgebraicCaseId),
+    DataConstructor(DataConstructorId),
+    DataComponent(DataComponentId),
+    StaticDomain(AssociatedStaticDomainDeclarationId),
+    StaticMember(TypeMemberDeclarationId),
+}
+```
+
+Exact decomposition may use separate declaration/non-family entries.
+
+The invariant is one associated base namespace authority.
+
+---
+
+## 28. Associated `type data`
+
+Required P2 source:
+
+```phalcom
+class Parser {
+    type data State {
+        Start
+        InString
+        Done
+    }
+
+    type Initial: State
+}
+```
+
+Required identities:
+
+```text
+Parser::State
+Parser::State::Start
+Parser::Initial
+```
+
+For a generic owner:
+
+```phalcom
+class Container<T: Type> {
+    type data State {
+        Empty
+        Present(_ value: T)
+    }
+}
+```
+
+the declaration remains:
+
+```text
+Container::State
+```
+
+while concrete domain specializations carry the owner environment.
+
+### 28.1 Required owners
+
+C3 requires inherent associated type-data declarations at least on:
+
+```text
+class
+runtime data root (product or sum)
+```
+
+C3 does not require:
+
+```text
+trait type-data requirement
+exact-case-owned type-data domain
+arbitrary local/block-owned type-data
+```
+
+unless separately amended.
+
+---
+
+## 29. Trait-associated type boundary
+
+Existing trait-associated `type` requirements are evidence-bound conformance requirements.
+
+Associated `type data` is declaration-owned.
+
+They may share:
+
+```text
+::
+source indexing
+presentation helpers
+associated name collision machinery
+```
+
+They must not share semantic ownership.
+
+Do not make:
+
+```text
+class C { type data State { ... } }
+```
+
+produce a trait-associated-type requirement ID or conformance evidence slot.
+
+---
+
+## 30. Trait generic static-domain boundary
+
+C3 does not require arbitrary user-defined static-domain generic parameters on traits.
+
+Recommended bounded policy:
+
+```text
+classes/data/type aliases/type members
+    migrate to general static domains
+
+trait declarations / trait applications
+    retain currently supported parameter-domain set
+    and diagnose unsupported user `type data` domains
+    until the conformance/coherence representation is explicitly migrated
+```
+
+If live implementation work proves trait arguments already support generalized `StaticArgument` without changing coherence/evidence identity, a later P2 plan may broaden this boundary.
+
+That broadening must be explicit, tested, and must not be silently inferred from storage compatibility.
+
+---
+
+# Part VIII — Metadata, persistence, and incremental semantics
+
+## 31. Stable metadata requirements
+
+Stable metadata must represent at least:
+
+```text
+AlgebraicPhase
+AlgebraicShape
+algebraic declaration identity
+case identity
+product component identity/shape
+type-data static-domain identity
+type-data static constructor/case term
+associated static-domain declaration
+associated domain specialization
+StaticArgument
+generic parameter domain
+heterogeneous Applied arguments
+```
+
+Stable identities use declaration/module/project references.
+
+Never serialize:
+
+```text
+raw StaticDomainId
+raw TypeId
+raw InferVarId
+source spelling as identity
+```
+
+---
+
+## 32. Schema migration
+
+C2 ended at metadata schema v4.
+
+C3 introduces persistent semantic categories.
 
 Therefore:
 
-```text
-max total field_count = 65,535
-max valid field slot under that count = 65,534
-```
+- the first P1 metadata landing requires an explicit monotonic schema transition;
+- if P2 changes the already-published application argument encoding or adds associated-domain representation not reserved by P1, P2 must make another explicit schema transition;
+- P3 must not silently mutate an earlier C3 schema version;
+- compatibility decoding may map old enum-shaped metadata into runtime sum algebraic metadata during a bounded window;
+- new metadata must not re-export `Enum` as an independent canonical declaration category.
 
-unless live `ClassObject` representation has changed.
+Do not pre-select exact numeric versions beyond the rule that v4 is the baseline and every incompatible/additive public-format transition is explicit.
 
-Check instance and static fields symmetrically.
-
-#### G. Rest layout / u8 counts
-
-For parameter/rest metadata stored in `u8`, either:
-
-- rely on a verified earlier 255-argument declaration limit and use an explicit dominated conversion; or
-- perform the check at `RestLayout` construction.
-
-Do not leave unexplained raw narrowing.
-
-#### H. Jumps
-
-Compute relative offsets in a wide signed type first.
-
-STRUCTURAL:
-
-```rust
-fn checked_relative_offset(
-    from_next_ip: usize,
-    target: usize,
-    span: SourceRange,
-) -> Result<i32, CompilerError>
-```
-
-Use it for forward jumps and loops.
-
-Do not cast both endpoints to `i32` and subtract.
-
-### Migration / deletion evidence
-
-After implementation:
-
-```sh
-rg -n 'unwrap_or\(u16::MAX\)' phalcom-core/src/compiler phalcom-core/src/chunk.rs
-```
-
-Expected: zero production hits.
-
-For raw `as u16/u8/i32`, every remaining executable conversion must be documented as dominated by an earlier checked bound or mechanically unrelated.
-
-### Forbidden approaches
-
-- widening all operands to `usize`;
-- constant deduplication as the fix;
-- VM bounds checks as primary correction;
-- saturating indices;
-- wrapping indices;
-- relying on debug overflow;
-- per-syntax ad-hoc limits;
-- a full bytecode verifier in this task.
-
-### Test changes required
-
-1. Replace/promote the ignored constant-pool audit probe into a regression that expects controlled overflow rather than aliased execution.
-2. Add boundary-unit tests for checked index/count/offset helpers.
-3. Add one compiler/source-level regression proving a source program exceeding the constant pool fails compilation instead of executing an aliased value.
-4. Add targeted helper-level boundary tests for fields/locals/jumps where constructing enormous source programs adds no information.
-
-Coverage: `CV-OP-01..03`.
-
-### Tests to run now
-
-During BUILD:
-
-```sh
-cargo test -p phalcom-core chunk_constant_pool
-cargo test -p phalcom-core --test core compiler_operand
-cargo check -p phalcom-core --lib
-```
-
-Adapt filters to actual new test names.
-
-`cargo check` is useful here because fallible `add_constant/add_local` signature fanout is large.
-
-Do not run the full core target yet.
-
-### Acceptance
-
-- first unrepresentable constant/field/count/offset is a controlled compiler error;
-- no producer publishes a truncated/saturated executable reference;
-- compact operand representation is unchanged;
-- existing argument-limit semantics are preserved.
-
-### Local STOP / CONSULT triggers
-
-- fixing one conversion requires changing a language-visible maximum rather than enforcing current representation;
-- one executable producer bypasses all plausible shared ownership seams;
-- checked construction requires a new serialized bytecode version.
-
-### Checkpoint update
-
-After G1, record `INV-01` as implemented and the checked-producer interface map.
+A P1 patch plan should lock the exact version after auditing live serialization compatibility policy.
 
 ---
 
-## T3 — Replace name-based `super` with stable lexical behavior identity (`AUD-RUNTIME-002`)
+## 33. Fingerprints
 
-### Purpose
-
-Make lexical `super` depend on the Method definition's stable runtime behavior identity, then remove the mutable defining-name operand from both exact and packed super bytecodes.
-
-### Risk
-
-- Semantic: HIGH
-- Implementation fanout: compiler + bytecode + VM + disassembly/spec
-
-### Preconditions
-
-- T2 is complete enough that new bytecode constants/operands use checked insertion.
-- callable dispatch specification remains stable-anchor authority.
-
-### Consumes
-
-- `INV-02`, `INV-03`;
-- Method install holder/metaclass identity.
-
-### Produces
-
-- `ClosureObject.super_anchor`;
-- simplified exact and packed super bytecodes;
-- no runtime class-name reconstruction for lexical super.
-
-### Files and symbols
+Interface/structural fingerprints must change for semantic changes to:
 
 ```text
-phalcom-core/src/heap/closure.rs                 ClosureObject
-phalcom-core/src/bytecode.rs                     SuperSend / SuperSendPack
-phalcom-core/src/compiler/lib/scope.rs            compile_super_send
-phalcom-core/src/vm/dispatch.rs                  Bytecode::Method / Closure / SuperSend*
-phalcom-core/src/vm/data.rs                      generated closure construction if present
-phalcom-core/src/vm/adt.rs                       generated closure construction if present
-phalcom-core/src/method/object.rs                Method holder semantics
-phalcom-core/src/diagnostics/disassembly*        bytecode display if applicable
-phalcom-core/tests/core/repl/session.rs
-phalcom-core/tests/core/observability/super_disassembly.rs
-phalcom-core/tests/core/collections/outgoing_packs_completion.rs
-docs/specs/vm/bytecodes.md
+Runtime <-> TypeOnly phase
+Product <-> Sum
+case set
+case payload structure
+singleton <-> explicit zero-arg constructor
+GADT result specialization
+type-data static domain identity
+static constructor argument
+associated domain ownership
+owner specialization
+generic parameter domain
+StaticArgument value
+intrinsic provenance when semantically relevant
 ```
 
-Search all:
-
-```sh
-rg -n 'ClosureObject \{' phalcom-core/src
-rg -n 'SuperSend|SuperSendPack|defining_class' phalcom-core/src phalcom-core/tests docs/specs/vm
-```
-
-### Source of truth
-
-`ClosureObject.super_anchor` is the executable lexical lookup authority.
-
-### Required implementation shape
-
-#### A. Add the independent anchor
-
-STRUCTURAL:
-
-```rust
-pub struct ClosureObject {
-    ...
-    pub lexical_class: Option<ClassId>,
-    pub super_anchor: Option<ClassId>,
-    pub(crate) foreign_receiver_guard: Option<ForeignReceiverGuard>,
-}
-```
-
-Do not replace `lexical_class`.
-
-#### B. Stamp at Method installation
-
-At `Bytecode::Method`:
+They must not change solely because:
 
 ```text
-instance:
-    holder        = defining instance class
-    access_owner  = defining instance class
-    lexical_class = defining instance class
-    super_anchor  = defining instance class
-
-static:
-    holder        = defining metaclass
-    access_owner  = defining instance class   # preserve current access rule
-    lexical_class = defining instance class   # preserve current access rule
-    super_anchor  = defining metaclass
+legacy `enum` vs canonical `data` spelling
+source range movement
+private helper name
+runtime physical representation choice
 ```
-
-This difference is load-bearing.
-
-Generated class/ADT closure Methods that are installed outside `Bytecode::Method` must receive the same anchor if their source semantics permit `super`.
-
-Do not assign a class anchor to non-class callables that cannot legally contain `super`.
-
-#### C. Nested closures
-
-At `Bytecode::Closure` materialization, inherit the lexical super anchor from the template when already stamped, otherwise from the currently executing enclosing closure in the same way lexical authority is inherited.
-
-Do not recover it from a source name.
-
-#### D. Simplify bytecode
-
-Target:
-
-```rust
-SuperSend(u8, u16)
-SuperSendPack { base_name: u16 }
-```
-
-Delete the defining-class constant from compiler lowering and VM decode.
-
-`compile_super_send` must still reject `super` outside a class Method, but no longer synthesize `"<Name>.class"`.
-
-#### E. Dispatch
-
-Exact and packed paths:
-
-```text
-anchor = executing_closure.super_anchor
-parent = heap.class(anchor).superclass
-lookup selector from parent
-```
-
-If no parent: ordinary terminal miss / DNU path.
-
-If trusted bytecode contains `super` while the executing closure has no anchor: return a controlled internal invariant error; do not fall back to receiver class or name lookup.
-
-Read `anchor.superclass` at each send. Do not bake the parent into closure metadata.
-
-#### F. Transplant/binding
-
-Search Method exact-invocation/binding/transplant paths.
-
-They may change receiver and/or installation holder depending on current feature semantics, but must not rewrite closure `super_anchor`.
-
-If a current production path intentionally clones a Method closure, clone the anchor.
-
-### Required documentation change
-
-Update `docs/specs/vm/bytecodes.md` to describe anchor-carried super.
-
-Only update `vm-execution-model.md` if it explicitly retains the old defining-name operand.
-
-Do not weaken `callables/dispatch.md`.
-
-### Forbidden approaches
-
-- start at `receiver.class.superclass`;
-- retain a versioned name lookup;
-- use `lexical_class` as the sole super anchor;
-- bake the current superclass into metadata;
-- rewrite the anchor when a Method is bound to a new receiver;
-- leave exact and pack paths with different authority sources.
-
-### Test changes required
-
-Coverage `CV-SUP-01..05`.
-
-Required source/runtime tests:
-
-1. **REPL class redefinition hostile case**:
-   - cell 1 defines `A₁`, `B₁ < A₁` using `super`, retains `B₁` instance;
-   - cell 2 redefines same names with different behavior;
-   - old instance still executes through `B₁ -> A₁`;
-   - new instance executes through new chain.
-2. class-side/static super uses metaclass anchor.
-3. nested block containing `super` preserves enclosing Method anchor.
-4. packed/rest super path uses the same anchor.
-5. where current Method binding/exact invocation surface permits a source Method to execute on another receiver, verify anchor remains source definition.
-
-Update disassembly expectations for operand removal.
-
-### Tests to run now
-
-```sh
-cargo test -p phalcom-core --test core repl_session
-cargo test -p phalcom-core --test core observability_super_disassembly
-cargo test -p phalcom-core --test core outgoing_packs_completion
-```
-
-Use exact new test filters during BUILD; run these module filters only at the end of T3.
-
-### Acceptance
-
-- no production super path reconstructs defining behavior via `ClassKey` + source name;
-- class-side and instance-side anchors are correct;
-- nested blocks inherit identity;
-- current superclass mutation of the **same retained behavior**, if supported, remains observable.
-
-### Local STOP / CONSULT triggers
-
-- current accepted semantics intentionally move lexical super during Method transplantation;
-- legal `super` is discovered in executable code with no class behavior identity;
-- static super cannot be represented as metaclass anchoring without changing public class-side dispatch semantics.
-
-### Checkpoint update
-
-Do not mark G2 complete yet; T4 must add lifetime correctness for all new/existing identity edges.
 
 ---
 
-## T4 — Complete GC tracing for runtime authority identities (`AUD-RUNTIME-003`)
+## 34. Incremental invalidation
 
-### Purpose
-
-Trace every strong lexical/access/layout identity retained by a live closure, Method, or frame, including the new super anchor, and make future payload-field additions harder to omit silently.
-
-### Risk
-
-- Semantic: HIGH
-- Implementation fanout: local heap/frame tracing + tests
-
-### Preconditions
-
-- T3's final closure metadata shape exists.
-
-### Consumes
-
-- `INV-03`, `INV-04`;
-- closure/Method/frame authority fields.
-
-### Produces
-
-- complete strong-edge tracing;
-- compile-visible payload classification pressure.
-
-### Files and symbols
+Required edit matrix:
 
 ```text
-phalcom-core/src/heap/trace.rs                   Object::Closure / Object::Method / trace_frame
-phalcom-core/src/heap/closure.rs                 ClosureObject fields
-phalcom-core/src/method/object.rs                MethodObject fields
-phalcom-core/src/frame.rs                        CallFrame / ForeignReceiverGuard
-phalcom-core/tests/core/memory/gc.rs
-phalcom-core/tests/core/audit_probes/runtime_invariants.rs
+data product -> data sum
+data -> type data
+type data -> data
+case add/remove/rename
+case payload edit
+case generic edit
+GADT result edit
+static domain parameter edit
+static argument edit
+associated type-data owner/member edit
+associated namespace collision introduced/removed
+intrinsic declaration surface edit
+legacy enum source migrated to equivalent data spelling
 ```
 
-Private-field GC tests may be added inside `heap/trace.rs` or another in-crate `#[cfg(test)]` module.
+Cold and incremental final semantic state must agree.
 
-### Source of truth
-
-Owning runtime payload fields define strong edges; tracing enumerates them explicitly.
-
-### Required implementation shape
-
-Trace at minimum:
+The last migration case is especially important:
 
 ```text
-ClosureObject:
-    module
-    upvalues
-    constant Value edges
-    lexical_class
-    super_anchor
-    foreign_receiver_guard.layout_owner
-
-MethodObject:
-    closure, if bytecode-backed
-    holder
-    access_owner
-    contract Values
-    attribute Values
-
-CallFrame:
-    closure
-    receiver/context roots already required
-    foreign_receiver_guard.layout_owner
+enum X { A }
+->
+data X { A }
 ```
 
-#### Mechanical hardening
+must not invent a new declaration/case semantic identity solely because source keyword changed.
 
-Where practical, destructure handle-bearing payloads exhaustively in tracer code without `..`.
+---
+
+# Part IX — Runtime/compiler boundary
+
+## 35. Runtime `data`
+
+Runtime products/sums continue using specialized lowering.
+
+Allowed representations remain:
+
+```text
+DataObject
+AdtCaseObject
+singleton/immediate case
+TupleObject
+RecordObject
+scalar replacement
+other existing optimized form
+```
+
+Unified source semantics do not imply unified storage.
+
+---
+
+## 36. `type data`
+
+Type-data inhabitants produce no runtime construction.
+
+Forbidden:
+
+```text
+TypeDataObject
+TypeDataCaseObject
+VM opcode for static constructor formation
+VM static-term comparison
+runtime type-data case lookup
+runtime static inference
+```
+
+Compiler/LSP/reflection may expose descriptors.
+
+Descriptors are not inhabitants of the static domain.
+
+---
+
+## 37. Intrinsic structural declarations
+
+P3 maps source-visible intrinsic declarations onto existing semantic/runtime authorities.
 
 Conceptual:
 
-```rust
-let ClosureObject {
-    callable,
-    module,
-    upvalues,
-    lexical_class,
-    super_anchor,
-    foreign_receiver_guard,
-} = closure;
-```
-
-Then explicitly classify every field.
-
-Use a small `trace_foreign_receiver_guard` helper if it removes duplication.
-
-Do **not** create a large generic tracing framework in this checkpoint.
-
-### Strong/weak rule
-
-Only identities required for later correct execution become strong roots.
-
-Do not extend this task into unresolved typing/cache registry ownership.
-
-### Forbidden approaches
-
-- root all classes forever through `VM::classes`;
-- convert strong identity to weak lookup plus `try_get`;
-- make the receiver dynamic class stand in for access/layout authority;
-- speculative tracing of every cache in the VM.
-
-### Test changes required
-
-Coverage `CV-GC-01..04`.
-
-Each edge test should isolate the field as the only strong route:
-
-```text
-allocate owner O
-allocate holder H containing only tested edge to O
-root H
-remove alternative roots/registry paths
-force GC
-assert O survives
-exercise semantic behavior if practical
-
-drop H
-force GC
-assert O can be reclaimed
-```
-
-Promote/replace the ignored audit probe for `lexical_class`.
-
-Add distinct evidence for `super_anchor`, `MethodObject.access_owner`, closure foreign guard, and frame foreign guard. Use in-crate unit tests where private fields make an integration test artificial.
-
-### Tests to run now
-
-```sh
-cargo test -p phalcom-core --test core memory_gc
-cargo test -p phalcom-core gc_lexical_owner
-cargo test -p phalcom-core super_anchor_gc
-```
-
-Adapt filters to actual test names.
-
-### Acceptance
-
-Every live execution authority identity has a documented strong-edge owner and a tracer edge; sole-retainer tests pass; dropping the owner does not create a permanent global root.
-
-### Local STOP / CONSULT triggers
-
-- any audited authority edge is proven intentionally weak;
-- correct tracing creates a cycle that violates an established weak-cache contract;
-- parked fiber ownership requires a new GC root architecture rather than tracing the frame field.
-
-### Checkpoint update
-
-After G2, record stable `super_anchor` ownership and the strong-edge tracing invariant.
-
----
-
-## T5 — Validate public sends before mutation and add a native activation budget (`AUD-RUNTIME-004`)
-
-### Purpose
-
-Make public call admission atomic and bound actual nested Rust native activations without corrupting the established re-entry/fiber model.
-
-### Risk
-
-- Semantic: HIGH
-- Implementation fanout: VM send/activation
-
-### Preconditions
-
-- T3/T4 may be complete or mechanically independent.
-- `native_reentry_depth` semantics remain as verified.
-
-### Consumes
-
-- `INV-05`, `INV-06`;
-- `invocation_layout_for_selector`;
-- both primitive ABI activation seams.
-
-### Produces
-
-- pre-mutation public call validation;
-- `native_activation_depth`;
-- `MAX_NATIVE_ACTIVATION_DEPTH`;
-- parity across legacy/shape native activation.
-
-### Files and symbols
-
-```text
-phalcom-core/src/vm/mod.rs                    VM fields, NativeMethodContext, constants
-phalcom-core/src/vm/send.rs                   send_dynamic, call_method_legacy, shape activation
-phalcom-core/src/vm/api.rs                    check_native_reentry + new activation check helper
-phalcom-core/tests/core/execution/send_arity.rs
-phalcom-core/tests/core/execution/depth_limits.rs
-phalcom-core/tests/core/audit_probes/runtime_invariants.rs
-```
-
-### Source of truth
-
-- selector/argument shape: canonical invocation-layout derivation;
-- native Rust recursion: `native_activation_depth`;
-- recursive interpreter/fiber floor: existing `native_reentry_depth`.
-
-### Required implementation shape
-
-#### A. Public `send_dynamic` admission
-
-Before mutating execution stack/frame state:
-
-```text
-derive/validate invocation layout
-then module/export forwarding as permitted by live architecture
-then push receiver/arguments
-then dispatch
-```
-
-If module-export dispatch needs a distinct internal route, still ensure the public selector/argument shape is admitted before guest execution state is changed.
-
-Wrong public input should return a controlled arity/call-shape failure, not panic and not be described as an impossible internal error.
-
-Compiler-produced bytecode paths do not need duplicate host-boundary validation if their compiler invariants already prove shape.
-
-#### B. Native activation counter
-
-Add:
-
-```rust
-pub const MAX_NATIVE_ACTIVATION_DEPTH: usize = 32;
-pub(crate) native_activation_depth: usize;
-```
-
-or mechanically equivalent private state.
-
-Add a check that returns:
-
-```rust
-RuntimeError::DepthExceeded {
-    what: "native activation depth",
-    limit: MAX_NATIVE_ACTIVATION_DEPTH,
-}
-```
-
-before recursing into another Rust primitive body.
-
-#### C. Activation lifecycle
-
-For each primitive ABI:
-
-```text
-check
-increment native_activation_depth
-push NativeMethodContext
-call native body
-capture result/error origin as T7 will require
-pop context
-decrement native_activation_depth
-reconcile result
-```
-
-During T5, it is acceptable for T7's provenance hook to be a no-op/placeholder helper only if the intermediate tree compiles; do not invent a temporary singleton mechanism.
-
-Do not use an RAII guard that holds `&mut VM` across the primitive call and forces unsafe workarounds. Straight-line increment/call/decrement with explicit cleanup on every `PhResult` path is acceptable.
-
-#### D. Preserve re-entry
-
-Do not move the existing `native_reentry_depth` increment/check merely to catch native-only recursion.
-
-Its existing placement/lifetime protects `run_until` and fiber switch restrictions.
-
-### Forbidden approaches
-
-- repurpose `native_reentry_depth`;
-- primitive-local defensive `args.get(0)` as primary fix;
-- mutate stack then rollback after shape failure;
-- `catch_unwind` for public contract validation;
-- recursively run interpreter for shape-aware `EnteredFrame`;
-- tie native activation count to bytecode call-frame count.
-
-### Test changes required
-
-Coverage `CV-NAT-01..05`.
-
-1. Rewrite the ignored arity audit probe to expect controlled error instead of panic.
-2. Assert stack length, frame length, native-context depth, activation depth are unchanged on invalid public call. Prefer private unit test access over widening production API.
-3. Convert native recursion audit probe into expected `DepthExceeded("native activation depth")`.
-4. Preserve existing `native_reentry_is_bounded`.
-5. Run existing fiber-yield/re-entry floor regressions affected by the counter distinction.
-
-### Tests to run now
-
-```sh
-cargo test -p phalcom-core --test core execution_send_arity
-cargo test -p phalcom-core --test core execution_depth_limits
-```
-
-Add one exact private activation test if integration visibility cannot prove state restoration.
-
-### Acceptance
-
-Malformed public sends are state-atomic; native-only recursion has a real independent ceiling; existing native re-entry and fiber-floor tests retain their semantics.
-
-### Local STOP / CONSULT triggers
-
-- module-export public sends require a materially different shape contract;
-- a third primitive activation ABI exists outside the planned seams;
-- activation accounting changes legal fiber behavior.
-
-### Checkpoint update
-
-Record the two-counter distinction as a durable invariant after the focused tests pass.
-
----
-
-## T6 — Replace raw fresh-run clearing with canonical unwind (`AUD-RUNTIME-005 §4`)
-
-### Purpose
-
-Prevent stale open upvalues from aliasing future raw module runs while preserving post-failure diagnostic frames until the next fresh-entry transition.
-
-### Risk
-
-- Semantic: MEDIUM
-- Implementation fanout: local VM entry point
-
-### Preconditions
-
-- `VM::unwind_to(0, 0)` still closes live-fiber upvalues before truncation.
-
-### Consumes
-
-- `INV-07`;
-- existing REPL `unwind_cell` precedent.
-
-### Produces
-
-- safe fresh-run entry cleanup.
-
-### Files and symbols
-
-```text
-phalcom-core/src/interpret.rs                    VM::run_in_module
-phalcom-core/src/vm/dispatch.rs                  VM::unwind_to
-phalcom-core/src/vm/api.rs                       unwind_cell comments
-phalcom-core/tests/core/execution/repair_regressions.rs
-phalcom-core/tests/core/repl/session.rs
-```
-
-### Required implementation shape
-
-EXACT semantic change:
-
-```rust
-// old entry cleanup
-self.frames.clear();
-self.stack.clear();
-
-// target entry cleanup
-self.unwind_to(0, 0);
-```
-
-Do **not** automatically unwind immediately after `run()` returns an error.
-
-Current reporting paths rely on failed-run frames remaining available until `report_runtime_error` / caller observation. The next fresh `run_in_module` invocation performs safe cleanup before storage reuse.
-
-Use the current frame-construction helper if live code has since standardized entry frame generation; do not broaden this task solely to refactor frame construction.
-
-### Forbidden approaches
-
-- raw `frames.clear()` / `stack.clear()` as fresh-execution reset;
-- closing only open upvalues but leaving another index-coupled structure stale;
-- erasing error frames before report/capture;
-- changing REPL cell behavior that already uses canonical unwind.
-
-### Test changes required
-
-Coverage `CV-UNW-01`.
-
-Construct a raw-run analogue of the existing REPL test:
-
-```text
-run A:
-    create local secret
-    escape closure into durable module/global state
-    raise before normal completion
-
-observe/report failure if needed
-
-run B:
-    force stack slot reuse with unrelated locals
-    invoke escaped closure
-
-expected:
-    old closure sees A's closed secret
-    never B's reused value
-```
-
-Also assert existing traceback behavior for an uncaught raw-run failure remains present.
-
-### Tests to run now
-
-```sh
-cargo test -p phalcom-core --test core repair_regressions raw_run
-cargo test -p phalcom-core --test core repl_session open_upvalue_hygiene
-```
-
-### Acceptance
-
-No raw-run fresh entry can reuse a stack slot beneath an open upvalue; existing error reporting remains intact.
-
-### Local STOP / CONSULT triggers
-
-- `unwind_to(0,0)` has side effects that are invalid at file/module entry;
-- bootstrap/module initialization intentionally depends on retaining frames across separate `run_in_module` calls.
-
-### Checkpoint update
-
-No durable checkpoint update is necessary until G3 unless this reveals a new cross-run state invariant.
-
----
-
-## T7 — Make native error provenance scoped and error-associated (`AUD-RUNTIME-005 §6`)
-
-### Purpose
-
-Remove singleton native diagnostic state and make nested native traceback identity follow the failure that actually escaped.
-
-### Risk
-
-- Semantic: HIGH
-- Implementation fanout: VM activation + error/control + rendering
-
-### Preconditions
-
-- T5 activation/context lifecycle is stable.
-- accepted TDR-0062 frame-record capture model remains in force.
-
-### Consumes
-
-- `INV-08`;
-- `NativeMethodContext`;
-- `FrameRecord`;
-- `RuntimeError::Raise.traceback`;
-- first-`on` capture flow.
-
-### Produces
-
-- scoped active native diagnostic identity;
-- transparent error-associated native-origin transport;
-- `FrameRecord::Native`;
-- removal of `native_selector/native_class` ambient singleton fields.
-
-### Files and symbols
-
-```text
-phalcom-core/src/vm/mod.rs                        NativeMethodContext / VM fields
-phalcom-core/src/vm/send.rs                       legacy + shape primitive exits
-phalcom-core/src/error.rs                         PhError / FrameRecord
-phalcom-core/src/vm/control.rs                    first on-boundary capture
-phalcom-core/src/vm/dispatch.rs                   fiber-floor/root failure conversion
-phalcom-core/src/vm/api.rs                        capture helpers if appropriate
-phalcom-core/src/diagnostics/traceback.rs          human + JSON rendering
-phalcom-core/tests/core/observability/traceback.rs
-phalcom-core/tests/core/execution/depth_limits.rs  ABI/re-entry interactions as needed
-```
-
-### Inspect before editing
-
-Trace these paths on current HEAD:
-
-```text
-legacy primitive Err
-shape primitive Err
-    ↓
-run_until / control transfer
-    ↓
-first on-boundary capture
-    ↓
-fiber-floor/root failure conversion
-    ↓
-human/json render
-```
-
-Also locate every pattern match on `PhError` that assumes only the current variants.
-
-### Source of truth
-
-- active native authority: `NativeMethodContext`;
-- escaping native origin: error-associated Symbol-only transport;
-- caught durable trace: `FrameRecord`.
-
-### Required implementation shape
-
-#### A. Active diagnostic identity
-
-Extend `NativeMethodContext`:
-
-```rust
-// STRUCTURAL
-diagnostic: NativeFrameIdentity {
-    class: Symbol,
-    selector: Symbol,
-}
-```
-
-Use stable Symbols; do not retain `ClassId`/ObjRef in off-VM error transport.
-
-#### B. Error-associated transport
-
-Preferred structural shape:
-
-```rust
-// STRUCTURAL
-PhError::NativeOrigin {
-    source: Box<PhError>,
-    class: Symbol,
-    selector: Symbol,
-}
-```
-
-Derive/display it transparently so user-visible message remains the underlying error.
-
-Provide helpers conceptually equivalent to:
-
-```text
-with_native_origin(identity)
-native_origin()
-into_underlying()
-```
-
-`with_native_origin` rule:
-
-```text
-if error already carries a native origin:
-    preserve it unchanged       # innermost producer wins
-else:
-    attach current native identity
-```
-
-Do not accumulate every native wrapper in a chain; this finding requires the producing native origin, not a synthetic native call stack.
-
-#### C. Primitive boundaries
-
-Before popping active native context:
-
-```text
-native result Ok -> no error transport
-native result Err(e) -> e.with_native_origin(current diagnostic)
-```
-
-Then pop access context and decrement activation depth regardless of result.
-
-#### D. First `on` boundary
-
-At the existing first-boundary capture point:
-
-1. extract any `NativeOrigin`;
-2. use the underlying error for current surface-error wrapping/matching semantics;
-3. capture normal guest frames as today;
-4. append/insert exactly one `FrameRecord::Native { class, selector }` in correct innermost order;
-5. store the combined records in `RuntimeError::Raise.traceback`;
-6. do not leave the transport wrapper exposed to user `on(Error)` matching.
-
-This preserves TDR-0062's rule that the durable traceback is captured at the first boundary rather than eagerly walking frames at raise.
-
-#### E. Uncaught root/fiber path
-
-If no `on` captures the error, the uncaught renderer/fiber-floor conversion must read the error-associated origin directly and render/capture it before the wrapper is discarded.
-
-A propagated inner native failure remains inner.
-
-#### F. Remove ambient singleton
-
-Delete VM fields:
-
-```text
-native_selector
-native_class
-```
-
-and all renderer dependence on them.
-
-Do not replace them with `last_native_*`.
-
-### FrameRecord
-
-Add:
-
-```rust
-FrameRecord::Native {
-    class: Symbol,
-    selector: Symbol,
-}
-```
-
-Update:
-
-- human renderer;
-- JSON renderer;
-- grouping/partition logic;
-- exhaustive matches;
-- fiber/caught trace composition.
-
-No `ObjRef` in the record.
-
-### Forbidden approaches
-
-- save/restore the singleton fields;
-- leave outer native identity ambient on inner propagation;
-- keep access authority alive just for rendering;
-- VM-global `last_native_error`;
-- store class ObjRef/ClassId in an error traveling the Rust stack;
-- convert every native `PhError` to generic `RuntimeError::Raise` merely to carry provenance;
-- duplicate native frame once in error transport and again from ambient renderer state.
-
-### Test changes required
-
-Coverage `CV-TRC-01..05`.
-
-Required matrix:
-
-| Scenario | Expected native frame |
-|---|---|
-| direct native failure | current native |
-| outer native -> inner native success -> outer failure | outer |
-| outer native -> inner native failure propagated unchanged | inner |
-| outer native catches/drops inner failure -> creates later failure | outer |
-| caught inner failure followed by later success | no stale native frame |
-| legacy primitive path | same rule |
-| shape-aware primitive path | same rule |
-| native returns `EnteredFrame` successfully | no phantom native context |
-
-Test both human and JSON rendering for at least one nested case.
-
-### Tests to run now
-
-```sh
-cargo test -p phalcom-core --test core observability_traceback native
-cargo test -p phalcom-core --test core execution_depth_limits
-```
-
-Add an exact unit/control test for transport preservation if CLI rendering alone would not distinguish propagated vs replaced failures.
-
-### Acceptance
-
-- singleton fields have zero production references;
-- nested provenance matrix passes;
-- caught errors expose ordinary underlying surface error semantics;
-- no native authority context leaks past Rust body return.
-
-### Local STOP / CONSULT triggers
-
-- adding transparent `PhError` transport breaks accepted catch/GC semantics in a way not repairable locally;
-- a non-`PhError` native failure route reaches the renderer;
-- accepted TDR-0062 forbids even cheap Symbol-only origin attachment at the primitive boundary;
-- correct provenance requires a general cause-chain redesign.
-
-### Checkpoint update
-
-After G3, record:
-- separate activation/re-entry counters;
-- fresh-run unwind;
-- native-origin transport/FrameRecord design;
-- exact focused evidence.
-
----
-
-## T8 — Implement exact `~/` and Float floor remainder (`AUD-RUNTIME-006`)
-
-### Purpose
-
-Replace lossy convenience promotion in the audited operations with operation-specific exact arithmetic while preserving ordinary Float-domain conversion where the specification requires it.
-
-### Risk
-
-- Semantic: HIGH
-- Implementation fanout: local numeric runtime + tests
-
-### Preconditions
-
-- current numeric specification still matches §5.
-- `float_to_rational` remains exact and tested/usable.
-
-### Consumes
-
-- `INV-09`;
-- `BigInt`;
-- `float_to_rational`;
-- existing numeric policy/normalization.
-
-### Produces
-
-- exact represented-value floor division;
-- specified Float-domain remainder;
-- one canonical checked Int->Float conversion helper if missing;
-- one canonical exact dyadic->binary64 rounding helper if missing.
-
-### Files and symbols
-
-```text
-phalcom-core/src/primitive/number.rs            promote_pair / number_floor_div / number_mod
-phalcom-core/src/primitive/float.rs             float_to_rational + exact rounding helper
-phalcom-core/src/value/*                        inspect only for normalization/policy
-phalcom-core/tests/core/language/numeric_values.rs
-phalcom-core/tests/core/language/numeric_diagnostics.rs
-```
-
-### Source of truth
-
-- exact finite Float: `float_to_rational`;
-- Int exact value: existing BigInt extraction;
-- result physical normalization: existing `normalize_bigint`;
-- numeric resource ceiling: existing `numeric_policy`.
-
-### Required implementation shape
-
-#### A. Do not delete useful ordinary Float promotion
-
-`promote_pair` or equivalent may remain for operations whose contract is Float-domain arithmetic.
-
-Do not force exact rational machinery into `+`, `-`, `*`, `/` unless already required by their spec.
-
-#### B. Exact `~/`
-
-Represent operands:
-
-```text
-Int i        -> i / 1
-finite Float -> exact numerator / denominator from float_to_rational
-```
-
-For nonzero divisor:
-
-```text
-q = floor((a_num * b_den) / (a_den * b_num))
-```
-
-Return exact normalized Int.
-
-Errors:
-
-```text
-zero divisor         -> divideByZero
-NaN/infinity operand -> nonFiniteNumber
-result bit limit     -> numericLimit
-```
-
-No Int operand is first rounded to Float.
-
-Use `num_integer::Integer::div_floor` / `div_mod_floor` or current equivalent.
-
-Avoid unnecessary guest allocation. Temporary `BigInt`s are Rust implementation details.
-
-#### C. Canonical Int->Float conversion
-
-For operations that **do** require Float-domain conversion (`%` when either operand is Float), factor/reuse one helper implementing the normative rule:
-
-```text
-round Int to nearest binary64, ties-to-even
-if mathematical Int converts to infinity -> numericOverflow
-```
-
-Do not use `unwrap_or(NaN)`.
-
-This helper may also improve existing Float-result arithmetic mechanically if it is currently the same incorrect conversion path; do not expand semantics beyond fixing the canonical conversion primitive.
-
-#### D. Float-domain `%`
-
-If either input is Float:
-
-1. convert any Int operand through canonical Int->Float conversion;
-2. handle NaN/Infinity/zero special cases exactly as numeric spec;
-3. decode the resulting finite binary64 operands with `float_to_rational`;
-4. compute:
-   ```text
-   q = floor(exact a / exact b)
-   r_exact = exact a - q * exact b
-   ```
-5. round `r_exact` once to binary64, ties-to-even;
-6. if result is zero, apply divisor's sign.
-
-A host `%`/`fmod` plus sign patch is not the implementation authority.
-
-#### E. Exact dyadic rounding helper
-
-All finite Float operands are dyadic rationals. The exact remainder remains dyadic.
-
-If no helper already exists, add a private helper that correctly rounds a signed dyadic rational to binary64 by:
-
-- normalizing sign;
-- locating the binary exponent from BigInt bit length and denominator power-of-two scale;
-- selecting significand bits plus guard/sticky/remainder information;
-- applying round-to-nearest, ties-to-even;
-- carrying on significand overflow;
-- handling normal/subnormal boundary;
-- producing signed zero;
-- producing infinity only where the operation's specified Float result overflow permits it.
-
-Do not use an approximate intermediate that causes double rounding.
-
-The exact helper signature is mechanically flexible; its correctness is not.
-
-### Forbidden approaches
-
-- `BigInt -> f64 -> exact Int quotient` for `~/`;
-- host `%` plus a sign-only fix as normative `%`;
-- decimal string conversion as arithmetic authority;
-- guest Rational allocation;
-- bypassing numeric bit-limit checks.
-
-### Test changes required
-
-Coverage `CV-NUM-01..04`.
-
-Add to `numeric_values.rs`:
-
-```text
-2^53-1, 2^53, 2^53+1 mixed ~/
-both signs / divisor signs
-finite fractional Float exact ratios
--5.0 % 3.0 == 1.0
- 5.0 % -3.0 == -1.0
--5.0 % -3.0 == -2.0
-signed zero result follows divisor sign
-subnormal operand cases
-```
-
-Add special-value/diagnostic assertions:
-
-```text
-~/ zero
-~/ NaN / +/-Infinity
-% +/-0.0 divisor -> NaN
-% finite % Infinity -> NaN
-% Infinity % finite -> NaN
-% NaN -> NaN
-numeric result limit
-```
-
-Add pure rounding-helper bit-pattern tests around:
-- largest subnormal / smallest normal;
-- halfway ties with even/odd low bit;
-- signed zero.
-
-### Tests to run now
-
-```sh
-cargo test -p phalcom-core --test core numeric_values
-cargo test -p phalcom-core --test core numeric_diagnostics
-cargo test -p phalcom-core dyadic
-```
-
-Adapt the last filter to the helper test name.
-
-### Acceptance
-
-The original audit probes produce specified results; 2^53 neighbors remain exact for `~/`; Float `%` sign/special/rounding behavior matches the numeric specification; ordinary numeric error kinds remain intact.
-
-### Local STOP / CONSULT triggers
-
-- numeric spec has changed;
-- exact rounding requires a new external dependency with material policy consequences;
-- canonical Int->Float conversion would materially change other operations beyond the accepted numeric spec;
-- numeric resource-policy semantics conflict with exact temporary arithmetic.
-
-### Checkpoint update
-
-After G4, record operation-specific numeric-domain ownership and focused evidence.
-
----
-
-## T9 — Rebuild managed Resource handle/table semantics around an exact bounded domain (`AUD-RUNTIME-008`, runtime half)
-
-### Purpose
-
-Replace lossy 64-bit numeric transport and wrapping table reuse with exact managed-handle encoding and non-wrapping lifecycle state.
-
-### Risk
-
-- Semantic: HIGH
-- Implementation fanout: resource module + primitive consumers
-
-### Preconditions
-
-- accepted Resource remains deterministic/non-finalized managed ownership.
-- no external native Resource kind currently depends on the old `ResourceEntry` layout.
-
-### Consumes
-
-- `INV-11`;
-- selected Resource-v2 architecture.
-
-### Produces
-
-- exact pack/decode helpers;
-- bounded table allocator;
-- explicit lifecycle state;
-- non-wrapping generation;
-- deterministic stale/closed semantics.
-
-### Files and symbols
-
-```text
-phalcom-core/src/resource.rs                 ResourceHandle / ResourceTable / ResourceKind
-phalcom-core/src/primitive/resource.rs       consumers in preparation for T10
-```
-
-Inspect all `ResourceKind`, `ResourceTable::{open,resolve,close,is_closed,drain,leaks*}` consumers before editing.
-
-### Source of truth
-
-`ResourceTable` owns resource identity and generation. The hidden language-object slot stores only the validated handle carrier.
-
-### Required implementation shape
-
-#### A. Constants and exact encoding
-
-Implement the fixed 21/32 domain.
-
-Preferred pure helpers:
-
-```rust
-fn pack(handle: ResourceHandle) -> Result<f64, ResourceTableError>;
-fn unpack(value: f64) -> Result<ResourceHandle, ResourceHandleDecodeError>;
-```
-
-Equivalent associated-function shapes are acceptable.
-
-Pack validates `index <= RESOURCE_MAX_INDEX`.
-
-Unpack rejects:
-
-```text
-NaN
-+/-Infinity
-negative
-fractional
-> 2^53 - 1
-non-exact integer conversion
-```
-
-No truncation/rounding/modulo.
-
-#### B. Table states
-
-Use an explicit state model equivalent to:
-
-```rust
-enum ResourceState {
-    Vacant,
-    Open(OpenResource),
-    Closed(ClosedResource),
-    Retired(ClosedResource),
-}
-```
-
-with generation stored on the slot.
-
-The exact payload split is flexible. Preserve Rust-owned kind/open-site/leak data.
-
-No `Value` or `ObjRef` in the table.
-
-#### C. Generation transitions
-
-```text
-new slot -> Open(g=0 or established canonical initial generation)
-
-Open(g < MAX) --close--> Closed(g)
-Closed(g < MAX) --reuse--> Open(g+1)
-
-Open(MAX) --close--> Retired(MAX)
-Retired(MAX) --reuse--> never
-```
-
-Generation does not change on close.
-
-Never use `wrapping_add`.
-
-Matching closed/retired handle remains idempotently closed.
-
-A stale generation never resolves to a new occupant.
-
-#### D. Capacity
-
-When no reusable slot exists and table length reaches `RESOURCE_MAX_SLOTS`, acquisition returns a controlled resource-allocation failure through current runtime error machinery.
-
-Never `entries.len() as u32` without proof.
-
-#### E. Narrow table API
-
-Prefer operations with explicit semantics:
-
-```text
-open_managed
-close
-is_closed
-ensure_open
-leak_snapshot / current equivalent
-drain
-```
-
-Avoid one overloaded mutable `resolve` becoming the public lifecycle authority.
-
-#### F. Leak ordering
-
-If current leak APIs are observable and slot reuse can reorder them, adopt the Resource-v2 allocation serial so snapshots remain deterministic across reuse.
-
-Serial increment must be checked; no wrap.
-
-Do not turn C2 into a shutdown-report redesign beyond what is required to preserve current leak behavior.
-
-### Forbidden approaches
-
-- full 32/32 `u64 -> f64`;
-- merely changing carrier to unchecked Int;
-- generation increment on close;
-- generation wrap;
-- unbounded stale-handle history;
-- GC finalizers;
-- heap references in ResourceTable;
-- external descriptor/socket variants.
-
-### Test changes required
-
-Coverage `CV-RES-01..04`.
-
-Replace the false `u32::MAX/u32::MAX` endpoint test.
-
-White-box resource unit tests must cover:
-
-```text
-index 0 / generation 0
-max valid 21-bit index / u32::MAX generation
-2^53-1 exact endpoint
-interior around 2^53 precision boundary
-all malformed Float classes
-close idempotence
-reuse increments generation
-stale old handle
-MAX generation retirement
-capacity boundary via helper/test-sized allocator seam if allocating 2^21 rows is wasteful
-serial non-wrap/error if serial added
-```
-
-A test-only smaller capacity/generation helper is acceptable if production constants are separately asserted.
-
-### Tests to run now
-
-```sh
-cargo test -p phalcom-core resource::tests
-```
-
-Do not run stream corpus yet; T10/T11 have intentionally incomplete integration.
-
-### Acceptance
-
-Pure handle domain is mathematically exact, malformed values fail closed, table reuse cannot revive stale identity, and no counter wraps.
-
-### Local STOP / CONSULT triggers
-
-- a live external ResourceKind owns OS/reactor state and depends on current table layout;
-- current public API exposes raw index/generation numerically;
-- capacity > 2^21 is an accepted requirement;
-- deterministic leak ordering would require redesign outside the resource module.
-
-### Checkpoint update
-
-Wait for T10/G5 before recording Resource-v2 as integrated.
-
----
-
-## T10 — Move managed Resource instances to hidden transactional attachment (`AUD-RUNTIME-008`, object/bootstrap half)
-
-### Purpose
-
-Make Resource identity runtime infrastructure rather than a source-managed `_handle`, then migrate all current managed Resource subclasses to the canonical lifecycle guard.
-
-### Risk
-
-- Semantic: HIGH
-- Implementation fanout: bootstrap + primitives + Universe source + invariants
-
-### Preconditions
-
-- T9 ResourceTable APIs are stable.
-- bootstrap still reserves Resource inherited slot 0.
-
-### Consumes
-
-- `INV-11`;
-- exact table operations from T9.
-
-### Produces
-
-- hidden slot 0;
-- `Resource#attach` internal primitive;
-- `Resource#ensureOpen` internal primitive;
-- removal of `Resource.register`;
-- managed constructors attach transactionally;
-- operational methods use canonical guard.
-
-### Files and symbols
-
-```text
-phalcom-core/src/vm/bootstrap.rs
-phalcom-core/src/primitive/resource.rs
-phalcom-core/src/universe/invariants.rs
-phalcom-core/src/native/* or descriptor census owner
-phalcom-core/core/universe/src/collections/bytes.ph
-phalcom-core/tests/core/object_model/invariants.rs
-phalcom-core/tests/fixtures/language/streams/
-```
-
-### Source of truth
-
-Hidden Resource slot 0 + ResourceTable.
-
-### Required implementation shape
-
-#### A. Keep inherited layout, hide symbol
-
-Current bootstrap:
-
-```text
-field_slots["_handle"] = 0
-field_count = 1
-```
-
-Target:
-
-```text
-field_count = 1
-no source-visible `_handle` field slot
-```
-
-The slot remains physically present so subclass-declared fields continue to start at offset 1.
-
-Add/strengthen bootstrap invariant asserting `Resource.field_count == 1`.
-
-If reflective field enumeration derives from `field_slots`, verify `_handle` disappears rather than becoming a new public field.
-
-#### B. Replace `register` with instance `attach`
-
-Primitive responsibilities:
-
-```text
-validate receiver is Resource instance/subclass
-validate diagnostic kind String
-validate receiver is unattached
-allocate/copy all fallible Rust metadata
-allocate ResourceTable row
-pack exact handle
-write slot 0
-return Unit/None per internal convention
-```
-
-No fallible guest-language work may occur between committed row allocation and slot write.
-
-If an internal failure can still occur after row allocation, rollback the row in the same primitive before returning; do not leak an orphan row.
-
-Selector spelling should follow current native descriptor conventions (`attach(_)` vs historical prose `attach_(_)`). The semantic operation is fixed; spelling is mechanical.
-
-#### C. Slot extraction
-
-Primitive handle decode:
-
-- reads slot 0 directly by index;
-- treats internal allocator-uninitialized/`None` state as unattached;
-- decodes only through T9's validated helper;
-- does not accept an arbitrary Int by first converting it through `f64`;
-- distinguishes malformed/stale/closed as required by the operation.
-
-#### D. `isClosed`
-
-Remain total:
-
-```text
-unattached -> true
-Open -> false
-Closed/Retired -> true
-stale -> true
-malformed -> true
-```
-
-Do not use it as an operational guard.
-
-#### E. `ensureOpen`
-
-Add internal primitive:
-
-```text
-Open -> success
-closed/retired -> UseAfterClose
-stale -> UseAfterClose(stale)
-malformed -> UseAfterClose(malformed)
-unattached -> UseAfterClose
-```
-
-Use current Error `kind` convention.
-
-#### F. Managed constructors
-
-For all current managed stream Resource subclasses:
-
-```text
-validate args
-initialize/copy ordinary managed state
-attach as final potentially failing acquisition action
-return
-```
-
-No source assignment to `_handle`.
-
-This task performs constructor/guard migration sufficient for current classes; T11 completes BufferedWriter behavior.
-
-#### G. Primitive authority / census
-
-Current native installation is descriptor-driven. Update the actual descriptor authority and its invariant/census tests.
-
-Do **not** resurrect a stale hand-written `NEW_RESOURCE` constant merely because an older implementation spec mentioned it.
-
-### Deletion gates
-
-```sh
-rg -n 'Resource\.register|resource_register|_handle\s*=' \
-  phalcom-core/src phalcom-core/core/universe/src phalcom-core/tests
-```
-
-Expected: no production managed Resource acquisition through old mechanism. Test text may mention old spelling only if explicitly asserting rejection/removal.
-
-```sh
-rg -n 'wrapping_add' phalcom-core/src/resource.rs
-```
-
-Expected: zero.
-
-### Forbidden approaches
-
-- keep both `register` and `attach`;
-- expose raw handle slot under another source name;
-- make `attach(kind)` select arbitrary native capability behavior;
-- use `isClosed` as the operational guard;
-- make close asynchronous;
-- external handle adoption.
-
-### Test changes required
-
-Coverage `CV-RES-05..06`.
-
-Add:
-
-1. Resource bootstrap hidden-layout invariant.
-2. subclass with ordinary fields proving offsets remain correct after hidden slot.
-3. constructor failure before attach leaves no live row.
-4. double attach fails transactionally.
-5. use-after-close operation goes through `ensureOpen`.
-6. `isClosed` is total for stale/malformed/unattached cases through unit/primitive boundary.
-7. existing leak report/strict resource behavior remains observationally compatible unless T9's deterministic ordering intentionally improves it.
-
-### Tests to run now
-
-```sh
-cargo test -p phalcom-core resource::tests
-cargo test -p phalcom-core --test core object_model_invariants
-cargo test -p phalcom-core --test core reflection_census
-```
-
-Use current exact invariant/census module names.
-
-Do not require the full stream corpus until T11.
-
-### Acceptance
-
-All managed Resources acquire identity only through transactional instance attachment; slot 0 is hidden runtime infrastructure; old `register` path cannot silently run.
-
-### Local STOP / CONSULT triggers
-
-- hiding `_handle` changes subclass field offsets despite `field_count = 1`;
-- source compiler requires a named inherited field to reserve the physical slot;
-- current native descriptor authority cannot remove `register` without a public compatibility promise;
-- a current Resource operation depends on source reading/writing `_handle`.
-
-### Checkpoint update
-
-After G5, record Resource-v2 managed identity/lifecycle and the retired `register` mechanism.
-
----
-
-## T11 — Make BufferedWriter short-write-safe, layered, and overlap-safe (`AUD-RUNTIME-007`)
-
-### Purpose
-
-Implement the selected Streams-v2 BufferedWriter state machine while preserving synchronous dirty-close semantics and current public Writer surface.
-
-### Risk
-
-- Semantic: HIGH
-- Implementation fanout: Universe `.ph` stream classes + fixtures
-
-### Preconditions
-
-- T10 Resource attachment/ensureOpen integration is complete.
-- current Future implementation supports continuation composition and rejection handling without internal `await`.
-
-### Consumes
-
-- `INV-10`, `INV-11`;
-- Resource-v2 managed guards;
-- Writer protocol allowing short writes.
-
-### Produces
-
-- `_busy` gate;
-- short-write-safe internal drain;
-- layered `flush`;
-- deterministic protocol errors;
-- exact pending-suffix recovery;
-- `finish` as one overlap-protected lifecycle operation.
-
-### Files and symbols
-
-```text
-phalcom-core/core/universe/src/collections/bytes.ph
-phalcom-core/tests/fixtures/language/streams/
-phalcom-core/tests/core/language/corpus.rs or current language-corpus registration
-```
-
-Inspect current `Future.then`, `Future.catch`, rejection constructors, and error propagation before editing. Reuse them; do not create native stream primitives.
-
-### Source of truth
-
-`BufferedWriter._buf[0.._len]` is the exact local set of accepted bytes not yet handed off to `_inner`.
-
-### Required implementation shape
-
-#### A. State
-
-Add:
-
 ```phalcom
-_busy = false
+intrinsic type data TypePack
+intrinsic type data LabeledTypePack
+intrinsic type data TupleEntries
+intrinsic type data RecordRow
+
+intrinsic data Unit()
+intrinsic data Tuple<***Es>
+intrinsic data Record<R: RecordRow>
 ```
 
-Constructor order:
+### 37.1 Mapping rules
 
 ```text
-validate inner ownership precondition required by current Resource wrapper contract
-_inner = inner
-_buf = Bytes.new(8192)
-_len = 0
-_busy = false
-self.attach("BufferedWriter")   # final potentially failing acquisition
+TypePack
+    existing KindId::TYPE_PACK / TypeData::TypePack authority
+
+LabeledTypePack
+    existing KindId::LABELED_TYPE_PACK / LabeledTypePack authority
+
+TupleEntries
+    existing KindId::COMPLETE_TYPE_PACK / CompleteTypePack authority
+
+RecordRow
+    existing KindId::RECORD_ROW / row authority
+
+Unit
+    existing Unit/zero Tuple authority
+
+Tuple<***Es>
+    existing Tuple specialization/structural runtime authority
+
+Record<R>
+    existing Record/RecordRow structural authority
 ```
 
-Capacity remains 8192 in one documented location.
-
-#### B. Entry guards
-
-For lifecycle-sensitive operations, use canonical `ensureOpen`.
-
-For state-mutating async operations:
-
-```text
-reject if _busy
-acquire gate before unresolved work starts
-release on fulfillment
-release on rejection
-release if synchronous start throws before Future chain is safely established
-```
-
-Do not wedge `_busy`.
-
-`pending` is observational local `_len` and may remain readable while busy if selected C4 architecture/current protocol permits; it is not recursive inner pending.
-
-#### C. Internal drain
-
-Implement a private/internal composition operation equivalent to `_drainBuffer`.
-
-If `_len == 0`, drain itself may fulfill immediately **without** calling inner flush.
-
-If nonempty:
-
-1. snapshot `_buf[0.._len]`;
-2. `accepted = 0`;
-3. call `_inner.write(remaining)`;
-4. validate settled count is integer `0 <= count <= remaining.size`;
-5. `count == 0` on nonempty remainder -> reject `WriteZeroError`;
-6. positive count -> advance and continue via Future composition;
-7. success -> `_len = 0`;
-8. rejection after prefix -> compact exactly `snapshot[accepted..]` into `_buf`, set `_len`, reject original error.
-
-Do not resend an accepted prefix.
-
-#### D. Structural Writer result validation
-
-Add pure `.ph` error classes if not already present:
-
-```phalcom
-class ConcurrentOperationError is Error {}
-class StreamProtocolError is Error {}
-class WriteZeroError is Error {}
-```
-
-`UnflushedError` remains.
-
-No native primitive delta.
-
-#### E. `write(src)`
-
-Entry:
-
-```text
-ensureOpen
-validate Bytes
-reject overlap
-zero length -> fulfilled 0
-```
-
-If source is copied only after an asynchronous drain would complete, snapshot `src` **before return**.
-
-Small writes that fit can settle immediately and need not leave `_busy` held after return.
-
-When local capacity requires draining:
-- drain existing accepted bytes;
-- then accept the owned snapshot;
-- do not use public `flush` merely to make room, because that would impose an inner durability barrier.
-
-Large direct writes must preserve previously accepted ordering and obey the same short-write/source-ownership rules. If the selected Streams-v2 design delegates large writes directly after draining, validate/report the direct Writer count according to public `write` semantics; do not secretly promise `writeAll` unless the wrapper has already accepted the full input.
-
-#### F. Public `flush`
-
-Exactly:
-
-```text
-acquire operation gate
-drain local buffer completely
-then call _inner.flush
-then fulfill None
-release gate
-```
-
-Even `_len == 0` still invokes `_inner.flush`.
-
-If local drain fails:
-- do not call inner flush;
-- retain exact unwritten suffix;
-- reject.
-
-If inner flush fails after local drain:
-- `_len == 0`;
-- do not recreate local bytes;
-- reject;
-- retrying public flush calls inner flush again.
-
-#### G. `close`
-
-Decision order:
-
-```text
-if wrapper already closed -> idempotent success
-if busy -> ConcurrentOperationError
-if _len > 0 -> UnflushedError, mutate nothing
-close owned inner Resource
-after inner close returns a Result, close wrapper Resource row
-return inner result per current Resource contract
-```
-
-Do not flush or block in `close`.
-
-Nested BufferedWriter case: if inner close raises dirty-close, outer remains open.
-
-#### H. `finish`
-
-One gate-owning operation:
-
-```text
-flush through inner layer
-then perform clean close sequence
-```
-
-No write/flush/close may interleave between successful flush and close.
-
-Release `_busy` on every success/failure path.
-
-### BufferedReader scope
-
-T10 migrates `BufferedReader` constructor/guard to Resource-v2.
-
-C2.P1 does **not** require the full Streams-v2 BufferedReader overlap/refill redesign unless current tests expose a correctness dependency. Do not expand into it merely for symmetry.
-
-### Forbidden approaches
-
-- make Writer full-write-only;
-- clear `_len` before acceptance;
-- retry zero forever;
-- call public `flush` just to make local room;
-- skip `inner.flush` when local buffer is empty;
-- implicit queue/serialization of overlapping operations;
-- internal blocking `await`;
-- asynchronous `close`;
-- retain caller-owned Bytes across unresolved work without snapshot.
-
-### Test changes required
-
-Coverage `CV-STR-01..07`.
-
-Build deterministic `.ph` test writers:
-
-1. **Scripted short writer** accepts counts `2, 1, 2` for `ABCDE`; final bytes exactly `ABCDE`.
-2. zero-progress writer returns 0 on nonempty write; flush rejects and pending bytes remain.
-3. partial-prefix then rejection; pending equals exact suffix.
-4. nested BufferedWriter where outer local buffer is empty but inner has pending bytes; outer flush reaches inner flush.
-5. inner flush rejection after local drain; retry invokes inner flush again.
-6. delayed write source snapshot: mutate caller Bytes immediately after `write` returns; output remains original bytes.
-7. unresolved operation followed by write/flush/finish/close raises overlap error.
-8. both success and rejection release `_busy`.
-9. existing dirty-close fixture remains loud and recoverable through `finish`.
-10. double close does not repeat inner close side effects.
-
-Extend existing fixtures rather than creating redundant parallel harnesses.
-
-### Tests to run now
-
-During BUILD, run exact new fixture filters if available.
-
-At the task boundary:
-
-```sh
-cargo test -p phalcom-core --test language-corpus streams
-```
-
-### Acceptance
-
-Legal short writes cannot lose/reorder bytes; zero progress terminates; partial failure preserves exact suffix; layered flush propagates; overlap is deterministic; dirty close semantics remain recoverable.
-
-### Local STOP / CONSULT triggers
-
-- Future API cannot express rejection cleanup without internal blocking;
-- accepted Writer protocol treats zero as a legitimate indefinitely retryable would-block signal;
-- wrapper ownership of inner Resource differs from selected stream contract;
-- fixing the writer requires reactor cancellation/backpressure policy.
-
-### Checkpoint update
-
-After G6, record BufferedWriter drain/gate/layered-flush architecture and stream evidence.
+No new parallel canonical term is introduced merely because Universe now declares the domain.
 
 ---
 
-## T12 — Stabilize, remove obsolete mechanisms, synchronize specs/state, and produce completion records
+# Part X — Tooling and specification migration
 
-### Purpose
+## 38. Source index
 
-Prove the integrated C2 correction, remove stale authority paths, update durable records, and create a compact next-session handoff.
-
-### Risk
-
-- Semantic: MEDIUM
-- Implementation fanout: integration/docs
-
-### Preconditions
-
-- T2–T11 implemented.
-- G1–G6 focused gates passed or all failures classified.
-
-### Consumes
-
-- all `INV-*`;
-- verification ledger;
-- consultation/deferred ledgers.
-
-### Produces
-
-- final negative/deletion evidence;
-- updated VM bytecode documentation;
-- current checkpoint/program state;
-- walkthrough;
-- handoff.
-
-### Files
+Required semantic targets:
 
 ```text
-docs/specs/vm/bytecodes.md
-docs/specs/vm/vm-execution-model.md             # only if affected
-docs/implementation/test/TEST002-baseline-stabilization/PROGRAM.md
-docs/implementation/test/TEST002-baseline-stabilization/C2-runtime-correctness-remediation/CHECKPOINT.md
-.../TEST002.C2.P1-runtime-correctness-remediation-walkthrough.md
-.../TEST002.C2.P1-runtime-correctness-remediation-handoff.md
+algebraic declaration
+product component
+case
+type-data domain
+type-data constructor/case
+associated type-data declaration
+generic static-domain reference
+static constructor reference
+associated lookup segment
 ```
 
-### Required implementation shape
+Rename/navigation must operate on canonical semantic identity.
 
-1. Run negative searches in §25.
-2. Update VM bytecode spec to the actual stable-anchor super representation.
-3. Do not rewrite numeric/stream specs that already state the target semantics.
-4. Record any mechanical divergence from proposed NATV001 C3/C4 in the C2 walkthrough; do not silently edit those other program records into "implemented".
-5. Run G7.
-6. Update checkpoint:
-   - P1 status/completion/verification;
-   - established invariants;
-   - stable interface map;
-   - verification evidence;
-   - deferred findings;
-   - consultations/amendments;
-   - next action.
-7. Create walkthrough following lifecycle convention.
-8. Create handoff:
-   - if a C2 corrective follow-up is required, point directly to it;
-   - otherwise state C2 is closed and identify remaining TEST002/C1/program certification state.
+Legacy `enum` spelling may have a migration diagnostic but must still target the same declaration during the compatibility window.
 
-### Deferred ledger entries required
+---
+
+## 39. LSP
+
+P3 required baseline:
+
+- hover: runtime `data` product/sum classification;
+- hover: `type data` and static domain;
+- definition: `Shape::Vector`;
+- definition: `Parser::State`;
+- definition: `Parser::State::Done`;
+- completion: associated type-data domains/cases;
+- rename: declaration/case semantic identity;
+- diagnostics: obsolete `enum`;
+- navigation: structural intrinsic member where already supported.
+
+LSP consumes semantic/index products.
+
+It does not reconstruct phase/shape/case identity from tokens.
+
+---
+
+## 40. Authoritative specification migration
+
+C3 must update the current owners.
+
+### `docs/specs/objects/data-objects.md`
+
+Generalize/split into unified runtime algebraic data semantics.
+
+Remove the statement that `data` is not a one-case enum.
+
+Preserve product transparency, construction, immutability, exactness, representation freedom.
+
+### `docs/specs/objects/enums.md`
+
+Migrate sum/exact-case/GADT semantics to the unified data owner.
+
+Retain as historical/redirect document only if repository documentation policy prefers that.
+
+### `docs/specs/type-level-domains.md`
+
+Generalize the static-domain model to nominal user-defined domains.
+
+Document `TypeId` implementation details only in implementation records, not normative language semantics.
+
+### `docs/specs/type-members.md`
+
+Permit user-defined static result domains and describe interaction with associated-domain lookup.
+
+### `docs/specs/associated-types.md`
+
+State explicitly:
+
+```text
+trait associated type requirement
+    !=
+inherent associated type-data declaration
+```
+
+### `docs/specs/objects/impl.md`
+
+Replace enum-root/exact-enum-case source terminology with runtime sum-data/exact-case semantics.
+
+Define static type-member `impl` legality for type-data domains.
+
+### Pattern/GADT owners
+
+Trigger closed-sum logic from algebraic shape, not `Statement::Enum`.
+
+### `docs/specs/universe.md`
+
+Migrate Option/Result/Ordering examples from `enum` to `data` and expose intrinsic structural declarations.
+
+---
+
+# Part XI — Plan decomposition
+
+## 41. Plan dependency graph
+
+```text
+C2 COMPLETE
+    ↓
+C3.P1
+Unified algebraic declarations + top-level type-data foundation
+    ↓
+C3.P2
+general static domains + heterogeneous application/inference
++ associated type data + persistence
+    ↓
+C3.P3
+Universe/intrinsic surface + corpus/tooling migration
++ full certification + C3 closure
+```
+
+P1 must not attempt to finish P2's heterogeneous generic application.
+
+P2 must not migrate Universe before its metadata/application semantics are stable.
+
+P3 must not invent new static-domain representation.
+
+---
+
+# Part XII — LANG007.C3.P1 requirements
+
+## 42. P1 title
+
+**LANG007.C3.P1 — Unified Algebraic Data Declarations and Type-Data Foundation**
+
+## 43. P1 objective
+
+Establish one canonical algebraic source/semantic declaration model, move runtime sums from `enum` semantic ownership to sum-shaped `data`, and land top-level `type data` declarations with canonical static-domain/case terms while preserving runtime ADT/GADT behavior.
+
+---
+
+## 44. P1 required scope
+
+### 44.1 Parser/AST
+
+Implement:
+
+- `data` tuple product;
+- `data` record product;
+- `data` singleton sum;
+- singleton comma shorthand;
+- tuple-payload cases;
+- record-payload cases;
+- explicit zero-arg constructor case;
+- case-local generics;
+- GADT result specialization;
+- empty product vs empty sum;
+- mixed-body rejection;
+- `type data` versions of supported algebraic shapes;
+- `intrinsic data`;
+- `intrinsic type data`;
+- legacy `enum` compatibility lowering to canonical algebraic AST.
+
+### 44.2 Unified semantic product
+
+Introduce authoritative:
+
+```text
+AlgebraicDeclarationInfo
+AlgebraicPhase
+AlgebraicRepresentation
+case identity abstraction
+```
+
+or exact equivalents.
+
+Current DataInfo/EnumInfo may remain adapters.
+
+### 44.3 Runtime sum migration
+
+Preserve:
+
+- `VariantId` identity (or neutral alias);
+- exact-case type identity;
+- case family lookup;
+- case-local generic environments;
+- GADT result checks;
+- exact-case impl targets;
+- root requirements/default behavior;
+- conformance on exact cases;
+- pattern/exhaustiveness/redundancy;
+- runtime lowering/reification;
+- current Option/Result native associations.
+
+### 44.4 Type-data foundation
+
+Land:
+
+- `StaticDomainId`;
+- `KindData::StaticDomain` or exact equivalent;
+- top-level type-data domain identity;
+- canonical static-data term representation;
+- initially required static literal term support for type-data payloads, especially Int;
+- static payload validation;
+- structural type-data term canonicalization;
+- runtime-use rejection;
+- no VM lowering for type-data inhabitants.
+
+### 44.5 Intrinsic legality
+
+Validate:
+
+```text
+intrinsic data
+intrinsic type data
+```
+
+as implementation provenance + declaration phase, not new declaration categories.
+
+### 44.6 Metadata foundation
+
+Publish stable metadata for:
+
+- algebraic phase;
+- product/sum shape;
+- top-level type-data declaration;
+- cases/constructors;
+- static-domain identity;
+- type-data static term if exposed in public signatures.
+
+P1 metadata is the first C3 schema transition.
+
+### 44.7 Specifications
+
+Update enough authoritative specs at P1 completion that newly enabled source syntax is not knowingly contradicted by current normative documentation.
 
 At minimum:
 
 ```text
-AUD-RUNTIME-005.1 — full executable chunk verifier
-Classification: deferred hardening
-Revisit: before externally supplied/cached executable chunks become trusted
-
-AUD-RUNTIME-005.2 — rest/native metadata optimization
-Classification: performance, unmeasured
-Revisit: profiling evidence
-
-AUD-RUNTIME-005.3 — sparse per-instruction metadata
-Classification: performance/memory, unmeasured
-Revisit: profiling/memory budget evidence
+data-objects
+enum/sum owner
+type-level-domains foundation
 ```
-
-Record any other retained but unexecuted leads explicitly rather than implying C2 fixed them.
-
-### Tests to run now
-
-Only G7 from §19.
-
-### Acceptance
-
-- all C2 required coverage is mapped to passing evidence;
-- no obsolete authority path remains unintentionally;
-- checkpoint state is truthful;
-- walkthrough/handoff exist;
-- no active incident remains.
-
-### Local STOP / CONSULT triggers
-
-- a required negative gate reveals two active competing authorities;
-- a final focused test contradicts a fixed invariant after one serious correction;
-- completing C2 would require claiming an unexecuted broad certification gate passed.
-
-### Checkpoint update
-
-This task performs final checkpoint synchronization.
 
 ---
 
-# 19. Verification gates
+## 45. P1 non-goals
 
-## G1 — Bounded executable construction
+P1 must not expand into:
 
-### Purpose
+- language-wide heterogeneous generic applications;
+- associated `type data`;
+- generic inference over type-data domains except minimal constructor-local correctness;
+- full static aliases over arbitrary domains;
+- Universe structural-domain exposure;
+- full LSP completion/hover migration;
+- corpus-wide enum removal;
+- arbitrary compile-time functions;
+- trait-owned type-data requirements;
+- trait generic migration;
+- runtime type-data objects.
 
-Prove `INV-01` before later runtime work depends on newly emitted bytecode.
+---
 
-Run the focused new tests from T2, then:
+## 46. P1 gate
 
-```sh
-cargo check -p phalcom-core --lib
-```
-
-and the targeted compiler/core regression module.
-
-Required proof:
+P1 is accepted when:
 
 ```text
-max representable operand succeeds
-first unrepresentable operand returns controlled compiler error
-no saturation alias
-fallible API fanout compiles
+runtime data products work
+
+runtime data sums work through the same canonical algebraic source/semantic declaration path
+
+existing ADT/GADT exactness remains green
+
+type data declarations have nominal domain/case identity
+
+type-data terms canonicalize structurally
+
+type-data terms cannot materialize as runtime values
+
+legacy enum compatibility (if retained) creates exactly the same semantic identity as data
+
+no second ADT/GADT implementation exists
+
+no VM static-term execution path exists
 ```
-
-Do not broaden after PASS.
-
-On failure: classify before editing.
 
 ---
 
-## G2 — Stable super identity and authority lifetime
+## 47. P1 highest-risk areas
 
-### Purpose
-
-Prove T3/T4 together; stable identity without lifetime is incomplete.
-
-Run:
-
-```sh
-cargo test -p phalcom-core --test core repl_session
-cargo test -p phalcom-core --test core observability_super_disassembly
-cargo test -p phalcom-core --test core outgoing_packs_completion
-cargo test -p phalcom-core --test core memory_gc
-cargo test -p phalcom-core super_anchor_gc
-```
-
-Adapt test filters to live module names.
-
-Required proof:
-
-- old/new same-name classes coexist correctly;
-- static/nested/pack super share stable anchor semantics;
-- sole-retainer GC edges survive;
-- dropping actual owner does not leak globally.
-
-Negative search:
-
-```sh
-rg -n 'defining_class|defining_idx|"<Name>\.class"|ClassKey' \
-  phalcom-core/src/compiler/lib/scope.rs \
-  phalcom-core/src/vm/dispatch.rs \
-  phalcom-core/src/bytecode.rs
-```
-
-Expected: no production name-reconstruction authority for `super`. `ClassKey` may remain for unrelated class registry behavior.
+1. AST convergence accidentally erasing exact-case selector/shape data.
+2. Product constructor visibility leaking into sum semantics.
+3. singleton and explicit `()` case collapsing.
+4. record product vs sum body ambiguity.
+5. runtime compiler still branching exclusively on `Statement::Enum`.
+6. duplicate semantic products from separate data/enum builders.
+7. type-data terms accidentally entering TypeKnowledge as proper types.
+8. static constructor syntax accidentally parsed as runtime call expression.
+9. metadata exporting source spellings instead of stable identities.
+10. compatibility `enum` producing a distinct declaration fingerprint.
 
 ---
 
-## G3 — Native boundary, raw-run hygiene, and diagnostic provenance
+# Part XIII — LANG007.C3.P2 requirements
 
-### Purpose
+## 48. P2 title
 
-Prove `INV-05..08` as one control-boundary gate.
+**LANG007.C3.P2 — Generalized Static Domains, Heterogeneous Application, and Associated Type Data**
 
-Run:
+## 49. P2 objective
 
-```sh
-cargo test -p phalcom-core --test core execution_send_arity
-cargo test -p phalcom-core --test core execution_depth_limits
-cargo test -p phalcom-core --test core repair_regressions raw_run
-cargo test -p phalcom-core --test core observability_traceback native
-```
-
-Also run directly affected fiber-floor/yield tests located during T5.
-
-Required proof:
-
-- invalid public call is state-atomic;
-- native-only recursion trips activation ceiling;
-- native→guest recursion retains re-entry ceiling;
-- stale upvalue cannot alias fresh raw run;
-- direct/nested/propagated/replaced native error provenance is correct;
-- native access context and counters restore on all controlled failure paths.
-
-Negative search:
-
-```sh
-rg -n 'native_selector|native_class' phalcom-core/src
-```
-
-Expected: zero production uses after T7.
+Make user-defined static domains first-class throughout generic application, substitution, first-order inference, aliases/type members, imports/metadata, and associated `::` lookup.
 
 ---
 
-## G4 — Numeric domain correctness
+## 50. P2 required scope
 
-### Purpose
+### 50.1 Heterogeneous generic application
 
-Prove `INV-09` against both value and diagnostic behavior.
+Generalize:
 
-Run:
-
-```sh
-cargo test -p phalcom-core --test core numeric_values
-cargo test -p phalcom-core --test core numeric_diagnostics
+```text
+TypeData::Applied
+TypeStore application APIs
+GenericInstantiation
+TypeSubstitution
+TypeLambdaData/scoped forms
+metadata TypeNode::Applied
+formatting/presentation
 ```
 
-Run the exact dyadic-rounding unit-test filter if it is not included.
+to use the canonical `StaticArgument` model.
 
-Required proof:
+### 50.2 Static argument syntax
 
-- mixed `~/` around 2^53 exact;
-- full sign matrix;
-- zero/NaN/Infinity cases;
-- signed zero;
-- numeric limit behavior;
-- no diagnostic regression.
+Support at least:
 
-Do not run unrelated arithmetic corpus merely for ceremony.
+```phalcom
+Tensor<Float, Shape::Vector(3)>
+Integer<32, Endian::Big>
+```
+
+plus existing type and pack application.
+
+### 50.3 Binder domains
+
+Resolve:
+
+```phalcom
+T: Type
+N: Int
+S: Shape
+P: TypePack
+L: LabeledTypePack
+E: TupleEntries
+R: RecordRow
+```
+
+through one domain-classification system.
+
+Mode remains orthogonal.
+
+### 50.4 Type-data inference
+
+Extend `InferenceTerm`/solver as required for:
+
+- canonical const/static-data terms;
+- recursive static-data constructor terms;
+- `InferVarId` with nominal static-domain `KindId`;
+- same-constructor first-order unification;
+- different-constructor/domain refutation;
+- materialization through canonical TypeStore constructors.
+
+No search/backtracking evaluator.
+
+### 50.5 Checked substitution
+
+Re-canonicalize all heterogeneous arguments and static terms.
+
+Preserve C2 checked pack behavior.
+
+### 50.6 Type aliases/static definitions
+
+Support accepted static-result syntax:
+
+```phalcom
+type DefaultShape: Shape = Shape::Scalar
+type P: TypePack = T::Positionals
+```
+
+while retaining existing unannotated alias meaning as proper-type alias where specified.
+
+### 50.7 Type members
+
+Generalize type-member parameter/result domains to the same canonical static-domain model.
+
+Do not maintain a separate ad hoc `ConstInt`/user-domain interpretation once the common static-term representation is established.
+
+Compatibility wrappers may survive internally.
+
+### 50.8 Associated `type data`
+
+Implement in class/runtime-data owners.
+
+Publish declaration-owned associated domain families/specializations.
+
+### 50.9 Unified `::`
+
+Extend `AssociatedSurface`/associated lookup to resolve:
+
+```text
+runtime case
+data constructor
+associated static domain
+associated static term/type member
+intrinsic type member
+```
+
+under one namespace collision authority.
+
+### 50.10 Metadata/imports
+
+Stable round trip for:
+
+- nominal static domain;
+- associated domain declaration/specialization;
+- heterogeneous `Applied`;
+- static arguments;
+- static aliases;
+- static generic signatures.
+
+### 50.11 Incremental/source index
+
+Cold/incremental parity for domain and term edits.
+
+Index all static-domain references/associated paths.
+
+### 50.12 Trait boundary
+
+Reject unsupported user static-domain trait generic parameters unless a focused migration demonstrates conformance/coherence safety.
+
+Do not fake support by storing terms in existing trait argument slots without auditing matching/evidence.
 
 ---
 
-## G5 — Managed Resource-v2
+## 51. P2 non-goals
 
-### Purpose
-
-Prove `INV-11` before BufferedWriter relies on the new lifecycle.
-
-Run:
-
-```sh
-cargo test -p phalcom-core resource::tests
-cargo test -p phalcom-core --test core object_model_invariants
-cargo test -p phalcom-core --test core reflection_census
-```
-
-Use the current census module filter if mechanically renamed.
-
-Required proof:
-
-- exact 21/32 packing;
-- malformed decode;
-- stale/retired generation;
-- hidden inherited slot;
-- transactional attach;
-- canonical ensureOpen;
-- old acquisition seam deleted.
-
-Negative searches from T10 must pass.
+- general trait-associated type-data requirements;
+- GAT expansion;
+- theorem proving;
+- arbitrary static functions;
+- type-level runtime method execution;
+- generalized static pattern matching;
+- automatic runtime-value lifting into static terms;
+- pack sequence decomposition;
+- Universe/corpus final migration;
+- VM static solver.
 
 ---
 
-## G6 — Stream transactional output
+## 52. P2 gate
 
-### Purpose
+The following must have complete canonical semantics across source, checking, inference, metadata, imports, and incremental analysis:
 
-Prove `INV-10` over the integrated Resource-v2 surface.
+```phalcom
+type data Shape {
+    Scalar
+    Vector(_ size: Int)
+}
 
-Run:
+data Tensor<Element: Type, S: Shape>()
 
-```sh
-cargo test -p phalcom-core --test language-corpus streams
+type V: Type = Tensor<Float, Shape::Vector(3)>
+
+class Parser {
+    type data State {
+        Start
+        Done
+    }
+
+    type Initial: State = State::Start
+}
 ```
 
-If new stream tests are core integration rather than corpus fixtures, add only their focused target.
+Additionally:
 
-Required proof:
+```text
+Parser::State
+Parser::State::Done
+specialized generic-owner associated domains
+```
 
-- repeated short writes;
-- zero progress;
-- partial rejection;
-- layered/nested flush;
-- retry after inner flush rejection;
-- overlap;
-- `_busy` release;
-- source snapshot;
-- dirty close/finish recovery.
-
-Do not run filesystem/reactor suites; they are out of scope.
+must use canonical declaration/environment identity.
 
 ---
 
-## G7 — Final focused C2 acceptance
+## 53. P2 highest-risk areas
 
-### Purpose
+1. widening `TypeId` APIs without preserving `ProperTypeId`;
+2. duplicating KindId with a second generic-domain registry;
+3. forcing RecordRow into TypeId and breaking row invariants;
+4. changing `Applied` without updating scoped aliases/substitution/fingerprints;
+5. trait/conformance consumers assuming all arguments are proper types;
+6. inference variable solving wrong nominal static domain;
+7. associated domain lookup bypassing `AssociatedSurface`;
+8. associated domain specialization encoded by rendered owner string;
+9. type member subsystem retaining a contradictory second domain model;
+10. metadata v4/vNext compatibility silently losing new argument categories;
+11. runtime compiler seeing static-data terms as executable calls.
 
-Prove package-level compatibility after all runtime corrections without automatically escalating to workspace release certification.
+---
 
-Run:
+# Part XIV — LANG007.C3.P3 requirements
 
-```sh
-cargo fmt -p phalcom-core -- --check
-cargo check -p phalcom-core --all-targets
-cargo test -p phalcom-core --lib
-cargo test -p phalcom-core --test core
-cargo test -p phalcom-core --test language-corpus streams
+## 54. P3 title
+
+**LANG007.C3.P3 — Intrinsic Structural Domain Surface, Universe Migration, Tooling, and Certification**
+
+## 55. P3 objective
+
+Expose the completed C3 model through canonical Universe declarations, migrate built-in/runtime algebraic source and public terminology, complete tooling/corpus coverage, and certify C3 end to end.
+
+---
+
+## 56. P3 required scope
+
+### 56.1 Intrinsic static domains
+
+Canonical Universe surface equivalent to:
+
+```phalcom
+intrinsic type data TypePack
+intrinsic type data LabeledTypePack
+intrinsic type data TupleEntries
+intrinsic type data RecordRow
 ```
 
-If `cargo fmt -p` is unsupported by the live toolchain, use the repository's narrow equivalent. Do not auto-format unrelated modified files.
+### 56.2 Intrinsic structural runtime data
 
-Optional only if Resource shutdown/CLI code was actually changed:
+Equivalent to:
 
-```sh
-cargo test -p phalcom-core --test cli-smoke
+```phalcom
+intrinsic data Unit()
+intrinsic data Tuple<***Es>
+intrinsic data Record<R: RecordRow>
 ```
 
-Do **not** automatically run workspace test/clippy. Those are CERTIFY-mode gates.
+### 56.3 Tuple static members
 
-Expected classification on complete success:
+Equivalent to:
+
+```phalcom
+impl Tuple<***Es> {
+    intrinsic type Entries: TupleEntries
+    intrinsic type Positionals: TypePack
+    intrinsic type Labeled: LabeledTypePack
+    intrinsic type At<I: Int>: Type
+    intrinsic type Map<F: Type -> Type>: Type
+}
+```
+
+### 56.4 TupleEntries bridge
+
+Prove:
+
+```text
+TupleEntries public domain
+    ==
+C2 CompleteTypePack canonical semantic domain
+```
+
+without a second term representation.
+
+### 56.5 Pack equivalence
+
+Certify:
+
+```text
+*T   == T::Positionals
+**T  == T::Labeled
+***T == T::Entries
+```
+
+where valid.
+
+### 56.6 Core sum migration
+
+Migrate:
+
+```text
+Option
+Result
+Ordering
+other canonical closed sums
+```
+
+from legacy `enum` syntax to `data`.
+
+No identity change caused solely by source keyword migration.
+
+### 56.7 Legacy enum removal
+
+After source/corpus migration:
+
+- reject or obsolete `enum` according to the final compatibility decision;
+- remove canonical formatter/docs generation of `enum`;
+- ensure new metadata/reflection says data/sum/case.
+
+### 56.8 LSP/tooling
+
+Complete hover/definition/completion/rename/diagnostics baseline.
+
+### 56.9 Corpus migration
+
+Migrate repository-owned source fixtures, Universe, examples, tests, and active docs.
+
+Historical implementation records remain historical.
+
+### 56.10 Certification
+
+Prove:
+
+- metadata stable round trip;
+- cold/incremental parity;
+- exact-case/GADT behavior;
+- product behavior;
+- generic static argument behavior;
+- associated domain identity;
+- packs/rows/TupleEntries;
+- LSP/source index;
+- runtime-negative type-data boundary;
+- representation freedom;
+- bounded normalization.
+
+---
+
+## 57. P3 non-goals
+
+- release-wide refactors unrelated to C3;
+- renaming every historical Rust enum-related private helper;
+- type-data runtime reification as values;
+- arbitrary static evaluation;
+- trait-owned type-data requirements;
+- new pack features;
+- new Tuple/Record runtime representation.
+
+---
+
+## 58. P3 gate
+
+C3 can close only when all checkpoint acceptance criteria in §1 pass.
+
+Expected final lifecycle:
+
+```yaml
+LANG007.C3.P1:
+  status: COMPLETE
+  completion: IMPLEMENTED
+  verification: FOCUSED_TESTED
+
+LANG007.C3.P2:
+  status: COMPLETE
+  completion: IMPLEMENTED
+  verification: FOCUSED_TESTED
+
+LANG007.C3.P3:
+  status: COMPLETE
+  completion: IMPLEMENTED
+  verification: FOCUSED_TESTED
+
+LANG007.C3:
+  status: COMPLETE
+  completion: IMPLEMENTED
+  verification: FOCUSED_TESTED
+```
+
+`RELEASE_COMPLETE` requires separate evidence and must not be inferred from checkpoint closure.
+
+---
+
+# Part XV — Cross-plan invariants
+
+## 59. Global C3 invariants
+
+```text
+INV-C3-01 — `data` is the sole canonical runtime algebraic declaration keyword.
+INV-C3-02 — `type data` is a semantic TypeOnly phase with no runtime inhabitants.
+INV-C3-03 — phase, shape, provenance, and ownership are orthogonal.
+INV-C3-04 — product versus sum is determined by algebraic shape, not a separate declaration category.
+INV-C3-05 — runtime sum case sets remain closed and declaration-owned.
+INV-C3-06 — runtime exact-case identity remains canonical and nominal.
+INV-C3-07 — GADT result specialization/evidence survives the syntax migration.
+INV-C3-08 — representation-bearing algebra lives in declarations; behavior lives in impls.
+INV-C3-09 — source unification does not require runtime storage unification.
+INV-C3-10 — TypeId remains a canonical handle for kinded non-row static terms.
+INV-C3-11 — ProperTypeId remains the proof of the Type domain.
+INV-C3-12 — user static domains are open-ended nominal identities, not per-domain compiler enum variants.
+INV-C3-13 — GenericParameterMode remains orthogonal to static domain.
+INV-C3-14 — RecordRow remains a distinct static domain with its existing dedicated canonical/solver machinery.
+INV-C3-15 — LabeledTypePack remains distinct from RecordRow.
+INV-C3-16 — TupleEntries maps to C2 CompleteTypePack and is not a proper Tuple type.
+INV-C3-17 — StaticArgument is the canonical heterogeneous application envelope.
+INV-C3-18 — no static term is encoded as a fake ProperTypeId.
+INV-C3-19 — non-row static inference reuses InferVarId classified by canonical domain KindId.
+INV-C3-20 — type-data unification is structural/first-order and invokes no user/runtime equality.
+INV-C3-21 — unresolved valid static terms remain symbolic.
+INV-C3-22 — checked substitution re-canonicalizes static terms and fails closed on invalidity.
+INV-C3-23 — associated type-data declarations are inherent declaration-owned entities, not trait evidence requirements.
+INV-C3-24 — one associated namespace authority owns case/domain/static-member collision semantics.
+INV-C3-25 — associated domain specialization contains canonical owner environment identity.
+INV-C3-26 — legacy enum compatibility cannot create a second declaration/case identity.
+INV-C3-27 — metadata uses stable declaration/domain/argument structure, never source strings as identity.
+INV-C3-28 — query-local inference IDs never enter durable metadata.
+INV-C3-29 — incremental and cold final semantic products converge.
+INV-C3-30 — TypePack/LabeledTypePack/CompleteTypePack/RecordRow C1/C2 authorities are reused.
+INV-C3-31 — *, **, *** retain C2 meanings; ... is not pack syntax.
+INV-C3-32 — intrinsic source declarations are facades over canonical compiler semantics, not duplicate semantic owners.
+INV-C3-33 — type-data term formation requires no runtime object/opcode/solver.
+INV-C3-34 — runtime products/sums preserve representation freedom and exact runtime identity rules.
+INV-C3-35 — authoritative specs must be migrated before C3 closes.
+INV-C3-36 — tooling consumes semantic identity rather than token/string reconstruction.
+INV-C3-37 — trait-associated type requirements remain semantically distinct.
+INV-C3-38 — unsupported trait static-domain generics fail explicitly rather than being partially encoded.
+INV-C3-39 — normal declaration/static-term operations remain approximately linear in reachable structure.
+INV-C3-40 — C3 must not expand into unrestricted compile-time execution.
+```
+
+---
+
+# Part XVI — Testing requirements
+
+## 60. Coverage matrix
+
+### Syntax / shape
+
+- tuple product;
+- record product;
+- singleton sum;
+- comma singleton shorthand;
+- tuple-payload sum;
+- record-payload sum;
+- zero-arg constructor distinct from singleton;
+- GADT sum;
+- empty product;
+- empty sum;
+- mixed-body rejection;
+- type-data equivalents;
+- intrinsic data/type-data;
+- legacy enum migration.
+
+### Identity
+
+- structurally equal runtime declarations remain nominally distinct;
+- structurally equal type-data declarations remain distinct domains;
+- equal static terms canonicalize;
+- unequal cases/constructors do not;
+- legacy enum/data spellings during compatibility share identity;
+- associated domain specialization includes owner environment.
+
+### Generic/static application
+
+- `Tensor<Float, Shape::Vector(3)>`;
+- `Integer<32, Endian::Big>`;
+- wrong static domain;
+- fixed TypePack argument still distinct from `*Ts`;
+- RecordRow argument via `StaticArgument`;
+- partial generic application;
+- alias through heterogeneous arguments;
+- cross-module static argument.
+
+### Inference
+
+- same type-data constructor selects payload inference variable;
+- different constructor refutes;
+- different domain refutes;
+- nominal static domain `InferVarId` kind mismatch;
+- symbolic static term stays symbolic;
+- no runtime equality hook;
+- C2 pack inference remains unchanged.
+
+### Associated
+
+- `Parser::State`;
+- `Parser::State::Done`;
+- associated static term;
+- generic-owner specialization;
+- unspecialized family where concrete domain required;
+- collision with type member/case/callable family;
+- trait associated type remains separate.
+
+### ADT/GADT preservation
+
+- exact-case construction;
+- exact-case impl;
+- case conformance;
+- GADT branch refinement;
+- exhaustive match;
+- non-exhaustive match;
+- redundant branch;
+- root default/requirement completeness;
+- singleton/private visibility.
+
+### Persistence/incremental
+
+- phase edit;
+- shape edit;
+- case add/remove;
+- payload edit;
+- GADT result edit;
+- static-domain binder edit;
+- static-argument edit;
+- associated domain edit;
+- metadata round trip;
+- imported/cold equality;
+- no raw IDs;
+- equivalent enum->data migration avoids semantic identity churn.
+
+### Runtime boundary
+
+- type-data term emits no construction bytecode;
+- no type-data VM object;
+- no static solver opcode;
+- runtime data product/sum behavior unchanged;
+- Tuple/Record representation stays specialized.
+
+### Tooling
+
+- definition;
+- hover;
+- completion;
+- rename;
+- obsolete enum diagnostic;
+- associated path segment indexing.
+
+---
+
+## 61. Verification strategy by plan
+
+### P1
+
+Primary suites:
+
+```text
+phalcom-ast parser/algebraic syntax
+phalcom-semantic ADT/data declaration suites
+exact-case/GADT focused suites
+phalcom-core algebraic-data focused suites
+metadata focused tests
+```
+
+Do not run workspace-wide suites after each AST migration step.
+
+### P2
+
+Primary suites:
+
+```text
+type annotations/generic application
+type model/substitution
+inference
+type members
+associated resolution
+metadata
+imported resolution
+incremental
+source index
+```
+
+Keep trait/conformance suites focused on proving the explicit unsupported/supported boundary.
+
+### P3
+
+Primary suites:
+
+```text
+Universe
+core algebraic data
+pack/type-member closure
+source/LSP integration
+corpus migration
+metadata/incremental parity
+runtime-negative audit
+```
+
+P3 is the checkpoint certification plan and may deliberately execute broader C3-specific corpus gates.
+
+---
+
+# Part XVII — Performance and resource requirements
+
+## 62. Complexity targets
+
+Ordinary operations should be approximately linear in reachable input size.
+
+Required:
+
+```text
+case duplicate detection
+    expected O(n)
+
+static constructor interning
+    hash-consed
+
+StaticArgument application
+    O(argument count + child canonicalization)
+
+substitution
+    proportional to reachable static-term graph
+
+associated lookup
+    indexed by owner/base, not whole-program scan
+
+metadata
+    graph encoding, not stringify/reparse
+
+pack structures
+    retain C2 flatness guarantees
+```
+
+C3 does not introduce a general evaluator and therefore must not create a new unbounded compile-time execution budget.
+
+---
+
+# Part XVIII — Failure modes
+
+## 63. Plausible but architecturally wrong implementations
+
+### FM-01 — every type-data domain becomes a new `KindData` Rust variant
+
+Why wrong:
+
+```text
+closed compiler enum
+    would become source declaration registry
+```
+
+Correct:
+
+```text
+one dynamic nominal StaticDomain kind form
+```
+
+### FM-02 — add a second all-purpose `StaticTermId` arena
+
+Why wrong:
+
+duplicates TypeStore/C2 canonicalization.
+
+Correct:
+
+extend the TypeId kinded term universe; preserve row specialization.
+
+### FM-03 — store `Shape::Vector(3)` with `KindId::TYPE`
+
+Why wrong:
+
+it becomes a fake proper type.
+
+Correct:
+
+nominal static-domain kind; `ProperTypeId` rejects it.
+
+### FM-04 — put RecordRow into TypeId just to simplify `Applied`
+
+Why wrong:
+
+undoes accepted row ownership.
+
+Correct:
+
+`StaticArgument` row variant.
+
+### FM-05 — implement sums again under DataInfo
+
+Why wrong:
+
+duplicates mature ADT/GADT authority.
+
+Correct:
+
+one algebraic authority with existing runtime-sum products as derived adapters.
+
+### FM-06 — keep `enum` and `data` as separate semantic categories sharing syntax
+
+Why wrong:
+
+violates C3's central model.
+
+### FM-07 — parse static generic arguments as arbitrary runtime expressions
+
+Why wrong:
+
+implicitly creates compile-time execution.
+
+### FM-08 — associated type data uses trait associated-type evidence IDs
+
+Why wrong:
+
+different ownership semantics.
+
+### FM-09 — create a second associated-domain name lookup table
+
+Why wrong:
+
+duplicates `AssociatedSurface`.
+
+### FM-10 — represent associated specialization by `"Container<Int>::State"` string
+
+Why wrong:
+
+unstable spelling-based identity.
+
+### FM-11 — expose TupleEntries with a new term type
+
+Why wrong:
+
+duplicates CompleteTypePack.
+
+### FM-12 — make intrinsic Tuple use general data-object storage
+
+Why wrong:
+
+semantic declaration surface does not constrain representation.
+
+### FM-13 — migrate enum keyword and accidentally churn VariantId/stable identity
+
+Why wrong:
+
+source keyword is not semantic identity.
+
+### FM-14 — silently accept trait static-domain generics because storage happens to fit
+
+Why wrong:
+
+conformance/coherence semantics may not.
+
+---
+
+# Part XIX — Escalation conditions
+
+## 64. Mandatory STOP / CONSULT triggers
+
+Stop architecture work and consult if any of the following becomes true:
+
+1. `TypeId` + dynamic nominal `KindData` cannot represent type-data terms without making them proper types.
+2. Heterogeneous `Applied` cannot preserve row arguments without replacing the row solver/identity architecture.
+3. Runtime Data/Enum semantic convergence would erase exact-case or GADT evidence.
+4. Legacy enum/data compatibility cannot share declaration/case identity.
+5. Generalized generic application requires a mandatory trait/conformance representation redesign larger than this checkpoint boundary.
+6. Associated `type data` cannot use `AssociatedSurface` without redefining trait-associated evidence.
+7. Associated domain specialization cannot be represented structurally without source strings.
+8. CompleteTypePack observably differs from required TupleEntries semantics.
+9. Static metadata cannot be versioned without leaking raw session/store IDs.
+10. A type-data implementation requires VM execution to establish semantic identity.
+11. Parser/AST phase is the only place distinguishing runtime data from type data.
+12. ProperTypeId enforcement would need weakening.
+13. RecordRow would need to become LabeledTypePack or vice versa.
+14. C2 pack inference/decomposition invariants would need weakening.
+15. `enum` compatibility produces a second semantic product or fingerprint.
+16. P2 requires arbitrary static-function evaluation to make the specified examples work.
+17. Two plausible static-domain inference designs have materially different identity/soundness consequences.
+18. A focused semantic failure survives one serious correction.
+19. Passing tests requires weakening any `INV-C3-*`.
+20. Implementation scope enters an unplanned major subsystem with new semantic authority.
+
+---
+
+# Part XX — Repository impact map
+
+## 65. P1 primary areas
+
+Expected:
+
+```text
+phalcom-ast/src/{ast,parser,lexer,error}.rs
+phalcom-modules interface/declaration extraction
+phalcom-semantic/src/{data_semantics,enum_semantics,identity}.rs
+phalcom-semantic/src/checker/{data_declaration,enum_declaration,...}.rs
+phalcom-semantic/src/{associated,impls,match_semantics,...}.rs
+phalcom-semantic/src/types/{id,kind,store}.rs
+phalcom-semantic/src/db/{product,query,fingerprint}.rs
+phalcom-semantic/src/metadata/export.rs
+phalcom-type-meta
+phalcom-core/src/compiler/lib/{data_decl,enum_decl,...}.rs
+authoritative specs
+```
+
+## 66. P2 primary areas
+
+Expected:
+
+```text
+phalcom-semantic/src/types/{store,application,annotation,parameter,instantiation,substitution,type_lambda,type_member}.rs
+phalcom-semantic/src/checker/{inference,associated,...}.rs
+phalcom-semantic/src/{associated,type_alias,session,source_index}.rs
+phalcom-semantic/src/metadata/export.rs
+phalcom-type-meta
+phalcom-modules interface metadata as needed
+phalcom-lsp source/navigation paths
+```
+
+## 67. P3 primary areas
+
+Expected:
+
+```text
+Universe sources/catalog
+core_surface/native/source associations
+compiler semantic lowering
+phalcom-core structural runtime mappings
+phalcom-lsp
+repository source corpus/examples/tests
+docs/specs
+LANG007 lifecycle docs
+```
+
+This is a requirements impact map, not authorization to edit every listed file in every plan.
+
+Each P1/P2/P3 patch-grade plan must re-audit exact live ownership and narrow the edit set.
+
+---
+
+# Part XXI — Baseline and compatibility
+
+## 68. Inherited baselines
+
+C2 handed off two unrelated trait/default-body failures:
+
+```text
+BASELINE-001
+semantic::capabilities::traits::
+trait_default_replays_external_nominal_callable_dependencies
+
+BASELINE-002
+semantic::capabilities::traits::
+trait_defaults_reject_unknown_members_storage_and_super_without_concrete_capabilities
+```
+
+C3 plans must not opportunistically repair them unless a C3 change causally interacts with them and blocks acceptance.
+
+Use repository failure classification:
+
+```text
+A — definitely caused by active plan
+B — probably caused
+C — unclear; one bounded classification pass
+D — unrelated/baseline
+```
+
+---
+
+# Part XXII — Plan-specific prerequisites
+
+## 69. P1 prerequisites
+
+- C2 complete.
+- C2 pack/static type-member invariants frozen.
+- C3 source semantics accepted for planning.
+- current data/enum exact-case implementation available.
+
+## 70. P2 prerequisites
+
+P1 must have established:
+
+- one algebraic declaration identity model;
+- top-level type-data static-domain identity;
+- canonical static-data terms;
+- phase/shape metadata;
+- no runtime type-data inhabitants.
+
+P2 must not begin by designing these again.
+
+## 71. P3 prerequisites
+
+P2 must have established:
+
+- heterogeneous generic application;
+- user static-domain binder classification;
+- static inference/substitution;
+- associated type-data;
+- stable metadata/import/incremental identity.
+
+P3 must not use Universe migration as a laboratory for unresolved P2 architecture.
+
+---
+
+# Part XXIII — Checkpoint-level acceptance matrix
+
+## 72. P1 evidence required before P2
+
+```text
+[ ] one canonical algebraic AST/semantic input path
+[ ] data product
+[ ] data sum
+[ ] GADT sum
+[ ] type data top-level domain
+[ ] canonical type-data terms
+[ ] proper-type boundary
+[ ] enum compatibility shares identity
+[ ] metadata stable identity
+[ ] runtime ADT behavior preserved
+[ ] no VM type-data execution
+```
+
+## 73. P2 evidence required before P3
+
+```text
+[ ] StaticArgument canonical envelope
+[ ] heterogeneous Applied identity
+[ ] Int static terms in generic application
+[ ] user type-data terms in generic application
+[ ] row application uses row authority
+[ ] domain-directed InferVarId
+[ ] first-order static constructor unification
+[ ] checked substitution
+[ ] static aliases/result domains
+[ ] associated type data
+[ ] one :: namespace authority
+[ ] metadata round trip
+[ ] imported/cold parity
+[ ] incremental parity
+[ ] source index identity
+[ ] trait boundary explicit
+```
+
+## 74. P3 evidence required for C3 closure
+
+```text
+[ ] intrinsic structural domain declarations
+[ ] TupleEntries == CompleteTypePack
+[ ] pack/member equivalences
+[ ] Unit/Tuple/Record intrinsic data surface
+[ ] Option/Result/Ordering migrated
+[ ] enum compatibility removed/finalized
+[ ] LSP/source tooling complete
+[ ] corpus migrated
+[ ] authoritative specs coherent
+[ ] runtime representation unchanged where required
+[ ] metadata/interface fingerprints stable
+[ ] cold/incremental parity
+[ ] performance/resource checks
+[ ] no VM static-domain solver
+[ ] C3 checkpoint/walkthrough/handoff truthful
+```
+
+---
+
+# Part XXIV — Final recommendation
+
+## 75. Recommended C3 architecture in one diagram
+
+```text
+SOURCE
+│
+├─ data
+│   └─ AlgebraicDef(phase = Runtime)
+│       ├─ Product
+│       └─ Sum
+│
+└─ type data
+    └─ AlgebraicDef(phase = TypeOnly)
+        ├─ Product
+        └─ Sum
+            │
+            ▼
+SEMANTIC ALGEBRAIC AUTHORITY
+AlgebraicDeclarationInfo
+├─ declaration identity
+├─ phase
+├─ generic contract
+├─ ProductInfo
+└─ SumInfo / CaseInfo
+    │
+    ├─ Runtime branch
+    │   ├─ existing DataInfo adapter
+    │   ├─ existing EnumInfo/VariantInfo adapter
+    │   ├─ ExactCase / GADT / match
+    │   └─ existing specialized lowering
+    │
+    └─ TypeOnly branch
+        ├─ StaticDomainId
+        ├─ KindData::StaticDomain(domain)
+        └─ TypeData::StaticData(...)
+            │
+            ▼
+CANONICAL STATIC TERM SYSTEM
+TypeId -------------------- ProperTypeId
+│                            only when kind == Type
+├─ proper types
+├─ packs
+├─ type lambdas
+├─ projections
+├─ const static terms
+└─ type-data terms
+
+RecordRowId
+└─ remains separate
+
+GENERIC APPLICATION
+StaticArgument
+├─ Term(TypeId)
+└─ RecordRow(RecordRowId)
+
+INFERENCE
+InferVarId(KindId)
+├─ Type
+├─ packs
+├─ const domain
+└─ nominal StaticDomain
++
+existing row solver for RecordRow
+
+ASSOCIATED LOOKUP
+AssociatedSurface
+├─ cases
+├─ constructors
+├─ static domains
+└─ static/type members
+
+PERSISTENCE
+stable declaration/domain/case/static-argument graph
+(no raw store/query IDs)
+
+RUNTIME
+only Runtime data lowers to values
+TypeOnly terms never become VM inhabitants
+```
+
+This architecture extends the already-proven C1/C2 semantic tower rather than starting a parallel compile-time language.
+
+That is the central requirement for all three C3 plans.
+''').lstrip()
+
+checkpoint = dedent(r'''
+---
+id: LANG007.C3
+category: LANG
+program: LANG007
+checkpoint: LANG007.C3
+kind: checkpoint-record
+title: "Type Data and Unified Algebraic Static Domains"
+status: PROPOSED
+completion: NOT_STARTED
+verification: UNVERIFIED
+requires:
+  - LANG007.C1
+  - LANG007.C2
+prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
+prepared: 2026-09-22
+active_plan: null
+latest_completed_plan: null
+next_plan: LANG007.C3.P1
+---
+
+# LANG007.C3 — Checkpoint Record
+
+## Type Data and Unified Algebraic Static Domains
+
+## 0. Checkpoint state
+
+```yaml
+program: LANG007
+checkpoint: LANG007.C3
+status: PROPOSED
+completion: NOT_STARTED
+verification: UNVERIFIED
+active_plan: null
+latest_completed_plan: null
+next_plan: LANG007.C3.P1
+blockers: none known at planning time
+```
+
+This checkpoint record is the single durable state authority for C3 once implementation begins.
+
+The checkpoint must be changed to `IN_PROGRESS` when P1 starts, not merely because planning documents exist.
+
+---
+
+## 1. Objective
+
+Establish one coherent algebraic declaration and static-domain system in which:
+
+```text
+data
+    defines runtime closed algebraic domains
+    including products, sums, ADTs, and GADTs
+
+type data
+    defines type-system-only closed algebraic/static domains
+
+associated type data
+    participates in the declaration-owned :: namespace
+
+intrinsic data / intrinsic type data
+    expose compiler-owned structural domains through ordinary language semantics
+```
+
+while preserving:
+
+- exact-case/GADT behavior;
+- C1/C2 pack and type-member identity;
+- generic binder-mode semantics;
+- row separation;
+- metadata stability;
+- incremental correctness;
+- runtime representation freedom;
+- the no-runtime-static-solver boundary.
+
+---
+
+## 2. Bounded acceptance statement
+
+C3 is complete only when this statement is true:
+
+> Runtime products and closed sums use one canonical `data` algebraic declaration model; `type data` provides nominal canonical static domains and terms; generic/static application, inference, substitution, aliases, associated lookup, metadata, imports, and incremental analysis preserve user static-domain identity; compiler intrinsic structural domains are exposed through that same model without duplicating C1/C2 terms; tooling and canonical source have migrated from `enum`; and no VM static-term execution authority has been introduced.
+
+---
+
+## 3. Ownership boundary
+
+### 3.1 C3 owns
+
+- unified runtime algebraic declaration syntax/semantic identity;
+- `enum` source migration/removal;
+- product/sum shape classification;
+- runtime case syntax under `data`;
+- `type data`;
+- nominal static-domain identity;
+- canonical type-data static terms;
+- compile-time static Int term integration needed by C3;
+- heterogeneous generic/static argument application;
+- domain-directed non-row inference over user static domains;
+- associated `type data`;
+- associated static-domain lookup through `::`;
+- stable metadata for C3 domains/terms/applications;
+- cross-module/incremental identity;
+- intrinsic structural domain source surface;
+- Universe/corpus migration;
+- C3 LSP/source-index closure;
+- specification migration;
+- checkpoint certification.
+
+### 3.2 C3 does not own
+
+- arbitrary compile-time execution;
+- a macro system;
+- a theorem prover;
+- user-defined primitive kinds;
+- user-defined static equality hooks;
+- arbitrary type-level pattern functions;
+- trait requirements that bind whole `type data` domains;
+- GAT expansion beyond existing accepted semantics;
+- a general trait static-domain generic redesign unless separately amended;
+- automatic lifting of runtime values into static terms;
+- new pack decomposition/backtracking;
+- runtime ArgumentPack ABI redesign;
+- runtime type-data values;
+- VM static-domain solving;
+- forced unification of Tuple/Record/data runtime storage;
+- release-wide unrelated cleanup.
+
+---
+
+## 4. Plans ledger
+
+| Plan | Scope | Status | Completion | Verification | Outcome |
+|---|---|---|---|---|---|
+| `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | PROPOSED | NOT_STARTED | UNVERIFIED | next |
+| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P1 |
+| `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P2 |
+
+No additional P4 is planned.
+
+If implementation reveals a bounded corrective closure needed for C3 acceptance, add a new plan in this checkpoint rather than falsely closing P3.
+
+---
+
+## 5. Predecessor state
+
+### 5.1 LANG007.C1
+
+C1 established the type-level domain/member substrate C3 relies on.
+
+C3 must preserve:
+
+- canonical `TypeId`/`KindId`;
+- `ProperTypeId`;
+- parameterized type-member identity;
+- structural Tuple/Record operations;
+- RecordRow separation;
+- compiler-owned closed normalization.
+
+### 5.2 LANG007.C2
+
+C2 is:
 
 ```yaml
 status: COMPLETE
@@ -3686,432 +3392,2124 @@ completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 ```
 
-If a broad unrelated failure occurs, apply §17 rather than expanding scope.
+Inherited C2 facts:
+
+```text
+*   positional
+**  labeled
+*** complete
+
+TypePack
+LabeledTypePack
+CompleteTypePack
+TypePackConcat
+LabeledTypePackConcat
+TupleFromPacks
+CallableFromPacks
+
+GenericParameterMode
+GenericBinderHeader
+checked substitution/materialization
+whole-pack InferVarId(KindId) inference
+metadata schema v4 scoped packs
+cold/incremental parity
+no runtime pack solver
+```
+
+Do not redesign these.
 
 ---
 
-## 20. Final focused acceptance mapping
+## 6. Repository baseline
 
-At completion, the walkthrough must contain a concrete table like:
+Planning baseline:
 
-| Coverage | Test/evidence | Result |
+```text
+repository: aureat/phalcom-lang
+branch:     main
+revision:   62a6082ab463387c812d558e5561508267ecc63c
+```
+
+Relevant post-C2 observation:
+
+- C2 checkpoint records are complete.
+- Future-facing `PROGRAM.md` / `STATUS.md` contain some stale C2 next-action wording.
+- P1 start must rebaseline active program state to C3.
+
+This planning document does not rewrite historical C2 records.
+
+---
+
+## 7. Inherited established invariants
+
+These are already established before C3 begins.
+
+### 7.1 Canonical type/static substrate
+
+```text
+C2-I01 — TypeId is a store-relative canonical type-level term handle.
+C2-I02 — ProperTypeId proves the Type domain.
+C2-I03 — KindId classifies canonical TypeId terms.
+C2-I04 — RecordRow remains a separate row-domain representation/solver.
+C2-I05 — LabeledTypePack is not RecordRow.
+C2-I06 — CompleteTypePack is not Tuple.
+```
+
+### 7.2 Packs
+
+```text
+C2-I07 — * means positional lane.
+C2-I08 — ** means labeled lane.
+C2-I09 — *** means complete lane.
+C2-I10 — ... is not pack syntax.
+C2-I11 — GenericParameterMode is independent from KindId.
+C2-I12 — Single(TypePack) != PositionalPack(TypePack).
+C2-I13 — whole-pack inference uses ordinary InferVarId(KindId).
+C2-I14 — no pack partition/decomposition solver exists.
+C2-I15 — C2 materialization re-enters canonical TypeStore constructors.
+```
+
+### 7.3 Persistence/runtime
+
+```text
+C2-I16 — stable metadata is structural, not source-string identity.
+C2-I17 — query-local inference IDs do not enter durable products.
+C2-I18 — cold and incremental pack semantics converge.
+C2-I19 — no runtime pack object/opcode/solver exists.
+```
+
+---
+
+## 8. Required C3 acceptance invariants
+
+These are requirements, not yet implementation facts.
+
+They become "established" in this checkpoint only after the owning plan implements and verifies them.
+
+```text
+C3-I01 — `data` is the sole canonical runtime algebraic declaration category.
+C3-I02 — `type data` is semantic phase TypeOnly with no runtime inhabitants.
+C3-I03 — phase, shape, implementation provenance, and ownership are orthogonal.
+C3-I04 — Product/Sum shape, not keyword category, triggers algebraic semantics.
+C3-I05 — runtime sum exact-case and GADT semantics are preserved.
+C3-I06 — one algebraic semantic authority owns product/case structure.
+C3-I07 — TypeId remains canonical carrier for non-row kinded static terms.
+C3-I08 — ProperTypeId remains the proper-Type proof boundary.
+C3-I09 — user static domains use nominal StaticDomain identity, not per-domain Rust enum cases.
+C3-I10 — StaticArgument is the heterogeneous application envelope.
+C3-I11 — RecordRow remains row-owned under heterogeneous applications.
+C3-I12 — GenericParameterMode stays orthogonal to static domain.
+C3-I13 — non-row static inference reuses InferVarId classified by canonical domain.
+C3-I14 — type-data unification is closed structural first-order unification.
+C3-I15 — runtime equality/dispatch never defines static identity.
+C3-I16 — valid unresolved static terms remain symbolic.
+C3-I17 — associated type-data is declaration-owned, not trait-evidence-owned.
+C3-I18 — one associated namespace authority owns collision/lookup semantics.
+C3-I19 — associated domain specialization preserves owner environment.
+C3-I20 — legacy enum compatibility never creates distinct semantic identity.
+C3-I21 — TupleEntries is the public surface over C2 CompleteTypePack.
+C3-I22 — intrinsic declarations do not replace existing C1/C2 canonical term owners.
+C3-I23 — metadata stores stable declaration/domain/static-argument structure.
+C3-I24 — incremental and cold results converge for C3 edits.
+C3-I25 — type-data inhabitants require no VM value/object/opcode/solver.
+C3-I26 — runtime algebraic storage remains representation-independent.
+C3-I27 — LSP/source tools consume semantic products, not rendered-name reconstruction.
+C3-I28 — current authoritative specs are coherent before checkpoint closure.
+```
+
+---
+
+## 9. Stable takeover map
+
+| Concept | Live owner | C3 rule |
 |---|---|---|
-| `CV-OP-01..03` | compiler operand boundary tests + G1 | PASS/FAIL |
-| `CV-SUP-01..05` | redefinition/static/nested/pack/binding regressions | PASS/FAIL |
-| `CV-GC-01..04` | sole-retainer GC tests | PASS/FAIL |
-| `CV-NAT-01..05` | send admission + depth/fiber tests | PASS/FAIL |
-| `CV-UNW-01` | raw-run capture reuse regression | PASS/FAIL |
-| `CV-TRC-01..05` | native provenance matrix | PASS/FAIL |
-| `CV-NUM-01..04` | numeric values/diagnostics + rounding unit tests | PASS/FAIL |
-| `CV-RES-01..06` | resource unit/bootstrap/primitive tests | PASS/FAIL |
-| `CV-STR-01..07` | stream corpus scripted-writer tests | PASS/FAIL |
-
-Do not pre-fill PASS before tests execute.
-
----
-
-## 21. Performance / resource evidence
-
-This is a correctness plan, not a performance project.
-
-No benchmark is required merely because:
-
-- a constant insertion became checked;
-- `super` lost one constant/name lookup;
-- native activation gains one counter;
-- exact numeric paths use BigInt;
-- Resource table state becomes explicit;
-- BufferedWriter uses continuation composition.
-
-However, prevent obvious accidental pathological behavior:
-
-- do not make ordinary `super` perform a registry scan;
-- do not allocate a guest Rational;
-- do not copy already-owned buffered data once per byte;
-- do not build an implicit unbounded Future queue;
-- do not allocate historical Resource generations.
-
-If a focused test shows a severe performance regression plausibly caused by C2, classify it. Do not launch general optimization work without evidence.
+| canonical type-level term | `TypeStore` / `TypeId` | extend; do not duplicate |
+| proper type proof | `ProperTypeId` | preserve strictly |
+| kind/domain classifier | `KindId` / `KindData` | extend with nominal static-domain form |
+| row term | `RecordRowId` / row subsystem | preserve separate |
+| generic binder mode | `GenericParameterMode` | preserve orthogonal |
+| generic early contract | `GenericBinderHeader` | extend domain support |
+| generic signature | `GenericSignature` | extend domain support |
+| non-row inference var | `InferVarId(KindId)` | reuse |
+| runtime product | `DataInfo` / `DataSemanticTable` | derive from unified algebraic authority |
+| runtime sum | `EnumInfo` / `VariantInfo` | derive/reuse under unified algebraic authority |
+| exact case | `VariantId` + `TypeData::ExactCase` | preserve identity; neutral terminology may wrap |
+| GADT environment | `CaseTypeEnvironment` | preserve |
+| associated lookup | `AssociatedSurface` / checker associated resolver | extend |
+| type-member projection | type-member subsystem | integrate with common static domains |
+| packs | C1/C2 TypeStore constructors | preserve |
+| complete Tuple entries | `CompleteTypePack` | expose as `TupleEntries` |
+| metadata | `phalcom-type-meta`, schema v4 baseline | version explicitly for C3 |
+| Universe identity | canonical Universe modules | migrate source surface; keep identity |
+| runtime data/sum lowering | `phalcom-core` specialized lowering | preserve representation freedom |
 
 ---
 
-## 22. Checkpoint bookkeeping
+## 10. Architecture decisions adopted for planning
 
-### At plan start
+### A. Canonical term carrier
 
-- create/normalize C2 checkpoint record;
-- add P1 ledger entry;
-- record local starting revision;
-- mark plan `IN_PROGRESS`, `PARTIAL`, `UNVERIFIED`;
-- record inherited C1.P2 state without claiming C1 certification.
-
-### During plan
-
-Update C2 only at meaningful events:
-
-- G1 establishes checked executable producer contract;
-- G2 establishes super/lifetime identity;
-- G3 establishes native/control/diagnostic contracts;
-- G4 establishes numeric exactness;
-- G5 establishes Resource-v2 managed lifecycle;
-- G6 establishes BufferedWriter state machine;
-- any consultation/amendment;
-- any significant deferred/baseline failure.
-
-Do not write chronological test spam.
-
-### At plan completion
-
-Record:
-
-- final P1 status/completion/verification;
-- implemented invariants;
-- stable interface/takeover map;
-- gate evidence;
-- deferred findings;
-- consultations;
-- residual risks;
-- next action.
-
-A clean Git tree does not imply completion.
-
----
-
-## 23. Walkthrough deliverable
-
-Create:
+Use:
 
 ```text
-TEST002.C2.P1-runtime-correctness-remediation-walkthrough.md
+TypeId + KindId
 ```
 
-Required content:
+for all non-row canonical static terms, including new const/type-data terms.
 
-1. plan identity and final lifecycle state;
-2. objective and actual outcome;
-3. architecture actually implemented;
-4. important files/components changed;
-5. durable interfaces/invariants established;
-6. deliberate deviations from this plan;
-7. consultation decisions/amendments;
-8. tests added;
-9. tests actually executed;
-10. tests deliberately deferred;
-11. performance/resource evidence only if relevant;
-12. residual/baseline failures;
-13. verification classification;
-14. follow-up work.
+Do not introduce a second general static-term arena.
 
-Never claim unexecuted gates passed.
+### B. User static domain classifier
 
----
+Use one dynamic nominal classifier equivalent to:
 
-## 24. Handoff deliverable
+```rust
+KindData::StaticDomain(StaticDomainId)
+```
 
-Create:
+Do not add one compiler enum variant per source declaration.
+
+### C. Heterogeneous application
+
+Use a canonical envelope equivalent to:
+
+```rust
+StaticArgument::Term(TypeId)
+StaticArgument::RecordRow(RecordRowId)
+```
+
+and migrate `Applied`, scoped application, substitution, metadata, and formatting.
+
+### D. Inference
+
+Reuse:
 
 ```text
-TEST002.C2.P1-runtime-correctness-remediation-handoff.md
+InferVarId(kind)
 ```
 
-Required content:
+for non-row user static domains.
 
-1. current repository revision/state anchor;
-2. completed prerequisites;
-3. stable interface/takeover map;
-4. inherited architecture;
-5. invariants not to redesign;
-6. known repository drift;
-7. deferred failures;
-8. must-read files;
-9. next objective:
-   - C2 corrective plan if an accepted bounded remainder exists; or
-   - program/checkpoint certification/next TEST002 action if C2 is closed;
-10. high-risk areas;
-11. first recommended commands/tests;
-12. explicit do-not-reexplore guidance.
+Keep row inference separate.
 
-If C2 is terminal and no successor exists, the handoff may be compact but should still make closure state unambiguous.
+### E. Algebraic declarations
 
----
-
-## 25. Final negative / deletion gates
-
-Run after T12 changes.
-
-### 25.1 No saturation in compiler executable producers
-
-```sh
-rg -n 'unwrap_or\(u16::MAX\)' phalcom-core/src/compiler phalcom-core/src/chunk.rs
-```
-
-Expected: zero.
-
-### 25.2 Class-name-based super authority removed
-
-```sh
-rg -n 'defining_class|defining_idx' \
-  phalcom-core/src/bytecode.rs \
-  phalcom-core/src/compiler \
-  phalcom-core/src/vm/dispatch.rs \
-  docs/specs/vm/bytecodes.md
-```
-
-Expected: zero references representing lexical super authority.
-
-Any unrelated historical identifier must be justified in walkthrough.
-
-### 25.3 Ambient native singleton removed
-
-```sh
-rg -n 'native_selector|native_class' phalcom-core/src
-```
-
-Expected: zero production references.
-
-### 25.4 Raw fresh-run clear removed
-
-```sh
-rg -n 'frames\.clear\(\)|stack\.clear\(\)' phalcom-core/src/interpret.rs
-```
-
-Expected: no raw clear in `run_in_module`.
-
-### 25.5 Old Resource acquisition removed
-
-```sh
-rg -n 'Resource\.register|resource_register|_handle\s*=' \
-  phalcom-core/src \
-  phalcom-core/core/universe/src
-```
-
-Expected: zero production acquisition/source-handle assignments.
-
-### 25.6 Resource generation does not wrap
-
-```sh
-rg -n 'wrapping_add' phalcom-core/src/resource.rs
-```
-
-Expected: zero generation/serial wrap.
-
-### 25.7 No host Float remainder in audited path
-
-Inspect `number_mod` directly. A broad `%` search will legitimately find BigInt/parity operations, so do not use a naive zero-hit oracle.
-
-### 25.8 Remaining narrow casts classified
-
-```sh
-rg -n 'as u16|as u8|as i32' phalcom-core/src/chunk.rs phalcom-core/src/compiler
-```
-
-Expected: every executable-semantic hit is either:
-- removed;
-- checked at that line; or
-- dominated by a documented earlier bound.
-
-Do not demand zero raw casts when a proven mechanical conversion is legitimate.
-
----
-
-## 26. Suggested coherent commit groups
-
-Only create commits if commit authorization exists.
-
-Prefer these durable milestones; combine adjacent ones if the diff is small and coherent.
-
-1. `test002: enforce bounded executable operands`
-   - T2 implementation/tests
-   - C2 checkpoint G1 update
-
-2. `test002: preserve lexical super identity and runtime authority`
-   - T3 + T4
-   - super/GC tests
-   - bytecode spec update if complete at this point
-   - C2 G2 state
-
-3. `test002: harden native activation and execution reuse`
-   - T5 + T6
-   - admission/depth/raw-run tests
-   - C2 partial G3 state
-
-4. `test002: preserve native diagnostic provenance`
-   - T7
-   - traceback tests
-   - complete G3 state
-
-5. `test002: implement exact floor division and remainder`
-   - T8 + numeric tests
-   - G4 state
-
-6. `test002: migrate managed resources to exact v2 handles`
-   - T9 + T10 + tests
-   - G5 state
-
-7. `test002: make buffered writer short-write safe`
-   - T11 + stream fixtures
-   - G6 state
-
-8. `test002: complete C2 runtime remediation records`
-   - final spec synchronization if not already committed;
-   - G7 checkpoint state;
-   - walkthrough/handoff.
-
-Before every authorized commit:
-
-```sh
-git status --short
-git diff -- <scoped paths>
-```
-
-Stage only the coherent work unit and its tests/checkpoint update.
-
-Do not commit a materially advanced implementation while leaving `CHECKPOINT.md` stale.
-
-Push only after coherent successful commits and only when separately authorized.
-
----
-
-## 27. Deferred-evidence audit
-
-Before final response, verify every deferred item has one of:
+Use one semantic declaration product/facade with:
 
 ```text
-executed successfully
-explicitly removed from C2 scope with reason
-recorded as known blocker/follow-up in C2 checkpoint
+phase
+shape
+generic contract
+product/case structure
 ```
 
-No silent deferred gate.
+DataInfo/EnumInfo may remain compatibility projections.
 
-Explicit C2 deferrals:
+### F. Associated domains
 
-| Item | Destination |
-|---|---|
-| full executable verifier | future trusted-bytecode hardening |
-| native/rest metadata performance optimization | profiling-driven runtime plan |
-| sparse per-instruction metadata/cache memory | profiling/memory plan |
-| external Resource adoption | FS/reactor ownership plan |
-| full BufferedReader v2 overlap redesign | Streams follow-up if independently required |
-| workspace/release test+clippy | explicit TEST002 release certification |
+Extend `AssociatedSurface`.
+
+Do not create an independent static-domain namespace.
+
+### G. Trait boundary
+
+Whole associated `type data` requirements are out of scope.
+
+User static-domain trait generics are explicitly unsupported until a plan proves safe conformance/coherence migration.
+
+### H. Runtime boundary
+
+Only Runtime algebraic data lower to runtime inhabitants.
+
+TypeOnly terms never do.
 
 ---
 
-## 28. Completion truth table
+## 11. P1 acceptance contract
 
-Do not conflate:
+`LANG007.C3.P1` must establish:
 
 ```text
-source edited
-tests written
-targeted regression passed
-owning suite passed
-P1 administratively complete
-C2 checkpoint accepted
-TEST002 program complete
-release certified
+source:
+    canonical data Product/Sum
+    type data Product/Sum
+    legacy enum -> same algebraic AST during compatibility
+
+semantics:
+    one algebraic declaration authority
+    preserved DataInfo/EnumInfo derived behavior
+    top-level nominal StaticDomainId
+    canonical type-data terms
+
+soundness:
+    ProperTypeId boundary
+    static payload validity
+    no runtime type-data inhabitants
+
+runtime:
+    exact-case/GADT/match/impl behavior preserved
+
+persistence:
+    first stable C3 algebraic/static-domain metadata
 ```
 
-A valid P1/C2 result is:
+P1 must not complete heterogeneous generic application or associated type data.
 
-```yaml
-P1:
-  status: COMPLETE
-  completion: IMPLEMENTED
-  verification: FOCUSED_TESTED
+---
 
-C2:
-  status: COMPLETE
-  completion: IMPLEMENTED
-  verification: FOCUSED_TESTED
+## 12. P2 acceptance contract
+
+`LANG007.C3.P2` must establish:
+
+```text
+StaticArgument
+heterogeneous Applied
+generic/static binder domains
+type-data/const static arguments
+domain-directed inference
+checked substitution/materialization
+static aliases/result domains
+associated type data
+unified :: lookup
+metadata/import round trip
+cold/incremental parity
+source-index identity
+explicit trait boundary
 ```
 
-only when all required C2 coverage and G1–G7 evidence have actually passed.
+Representative source must work:
 
-`TEST002` remains `IN_PROGRESS` if C1 or program-wide certification remains outstanding.
+```phalcom
+type data Shape {
+    Scalar
+    Vector(_ size: Int)
+}
 
----
+data Tensor<Element: Type, S: Shape>()
 
-## 29. Failure protocol
+type V: Type = Tensor<Float, Shape::Vector(3)>
 
-For any unexpected required-test failure:
+class Parser {
+    type data State {
+        Start
+        Done
+    }
 
-1. record exact command;
-2. record exact failure/assertion;
-3. trace direct path from test to failure;
-4. find one passing comparator;
-5. classify:
-   ```text
-   PRODUCT
-   FIXTURE
-   DEPENDENCY/PUBLICATION
-   BACKEND/HARNESS
-   BASELINE
-   PLAN DRIFT
-   ```
-6. state the narrow permitted repair boundary;
-7. reject broad fixes explicitly;
-8. make at most one serious semantic correction;
-9. rerun the smallest discriminator.
-
-If required evidence still fails, mark the gate as an incident. Later dependent tasks must not treat its semantic contract as established.
-
-Independent tasks may proceed only when their dependency graph genuinely does not consume the failed invariant.
+    type Initial: State = State::Start
+}
+```
 
 ---
 
-## 30. Residual risks to report explicitly
+## 13. P3 acceptance contract
 
-The walkthrough must explicitly state final status of these risks:
+`LANG007.C3.P3` must establish and certify:
 
-- whether any executable narrow conversion remains justified only by a nonlocal invariant;
-- whether any Method construction path could execute `super` without a `super_anchor`;
-- whether any authority edge remains intentionally weak;
-- whether any native failure route bypasses `PhError` origin transport;
-- whether exact Float remainder has untested rounding regions;
-- whether Resource capacity/retirement has operational implications not covered by current managed resources;
-- whether any Stream Future rejection path can leave `_busy` wedged;
-- whether C1 or TEST002 broad certification remains outstanding.
+```phalcom
+intrinsic type data TypePack
+intrinsic type data LabeledTypePack
+intrinsic type data TupleEntries
+intrinsic type data RecordRow
+
+intrinsic data Unit()
+intrinsic data Tuple<***Es>
+intrinsic data Record<R: RecordRow>
+```
+
+and:
+
+```text
+TupleEntries == CompleteTypePack semantic domain
+
+*T   == T::Positionals
+**T  == T::Labeled
+***T == T::Entries
+```
+
+where valid.
+
+P3 also owns:
+
+- Option/Result/Ordering migration to `data`;
+- final enum compatibility removal/finalization;
+- LSP tooling;
+- corpus/examples/active docs migration;
+- authoritative spec closure;
+- metadata/interface fingerprint certification;
+- cold/incremental parity;
+- performance/resource evidence;
+- runtime-negative audit;
+- C3 checkpoint closure.
 
 ---
 
-## 31. Plan self-review
+## 14. Verification ledger
+
+No C3 implementation verification has run yet.
+
+| Gate | Scope | Result | Meaning |
+|---|---|---|---|
+| predecessor C2.P3 G1–G5 | C2 substrate | PASS | C3 starts from verified packs/inference/metadata/runtime boundary |
+| C3 gates | none | NOT RUN | checkpoint remains UNVERIFIED |
+
+Do not copy predecessor PASS status into C3 verification.
+
+---
+
+## 15. Deferred / baseline issue ledger
+
+### BASELINE-001
+
+```text
+Observed:
+    semantic::capabilities::traits::
+    trait_default_replays_external_nominal_callable_dependencies
+
+Classification:
+    inherited baseline / unrelated unless C3 proves causal interaction
+
+Why nonblocking at C3 start:
+    C2 explicitly deferred it; C3 architecture does not require trait-default repair.
+
+When to revisit:
+    only if a C3 focused trait-boundary test is blocked by the same cause.
+```
+
+### BASELINE-002
+
+```text
+Observed:
+    semantic::capabilities::traits::
+    trait_defaults_reject_unknown_members_storage_and_super_without_concrete_capabilities
+
+Classification:
+    inherited baseline / unrelated unless C3 proves causal interaction
+
+Why nonblocking at C3 start:
+    C2 explicitly deferred it.
+
+When to revisit:
+    only if a required C3 trait/conformance compatibility gate depends on it.
+```
+
+---
+
+## 16. Known planning risks
+
+| Risk | Severity | Owner plan |
+|---|---|---|
+| AST data/enum convergence loses GADT/case precision | critical | P1 |
+| duplicate DataInfo/EnumInfo authority survives | high | P1 |
+| type-data term accidentally considered ProperType | critical | P1/P2 |
+| static-domain classifier becomes per-declaration compiler enum | high | P1 |
+| heterogeneous `Applied` breaks row architecture | critical | P2 |
+| trait/conformance assumes TypeId args are proper types | high | P2 |
+| associated domain becomes second namespace | critical | P2 |
+| associated specialization uses source strings | critical | P2 |
+| metadata silently changes schema semantics | high | P1/P2 |
+| TupleEntries duplicates CompleteTypePack | critical | P3 |
+| intrinsic Tuple forces general data storage | high | P3 |
+| enum keyword migration churns identity | high | P1/P3 |
+| static syntax accidentally authorizes runtime expression execution | critical | P1/P2 |
+| C3 grows into general compile-time evaluation | critical | all |
+
+---
+
+## 17. Consultation / amendment ledger
+
+No C3 consultation incidents yet.
+
+Use entries:
+
+```text
+INC-C3-<n>
+Plan/task:
+Trigger:
+Observed:
+Decision:
+Architecture impact:
+Plan amendment:
+Verification required:
+Status:
+```
+
+Material changes to:
+
+- canonical term carrier;
+- ProperTypeId boundary;
+- row ownership;
+- generic application representation;
+- exact-case identity;
+- associated namespace ownership;
+- runtime/static execution boundary;
+
+require a principal-architect amendment, not local implementer improvisation.
+
+---
+
+## 18. Mandatory checkpoint STOP conditions
+
+Implementation must stop and consult if:
+
+1. TypeId cannot represent new non-row static terms without weakening ProperTypeId.
+2. RecordRow must be collapsed into TypeId to implement heterogeneous applications.
+3. Data/Enum convergence breaks exact-case/GADT identity.
+4. associated type-data requires trait evidence ownership.
+5. one associated namespace cannot cover the required categories without duplicate lookup authority.
+6. metadata requires source strings for identity.
+7. CompleteTypePack cannot faithfully implement TupleEntries.
+8. the VM must execute type-data constructors for semantic correctness.
+9. enum/data compatibility produces different declaration or case identity.
+10. C3 requires arbitrary static functions/evaluation to satisfy its accepted examples.
+11. trait static-domain support becomes mandatory and requires coherence architecture changes.
+12. any C2 pack/row invariant must be weakened.
+
+---
+
+## 19. Checkpoint verification strategy
+
+### P1 evidence
+
+Focus:
+
+```text
+parser/AST
+algebraic semantic declaration
+runtime ADT/GADT preservation
+type-data canonical identity
+metadata foundation
+runtime-negative type-data boundary
+```
+
+### P2 evidence
+
+Focus:
+
+```text
+generic/static application
+inference
+substitution
+associated lookup
+metadata/imports
+incremental
+source index
+```
+
+### P3 evidence
+
+Focus:
+
+```text
+Universe/intrinsic structural domains
+core algebraic data
+TupleEntries/pack equivalence
+LSP
+corpus migration
+spec consistency
+cold/incremental certification
+runtime-negative audit
+```
+
+Workspace/release-wide certification is not implied by `FOCUSED_TESTED`.
+
+---
+
+## 20. Active plan and next action
+
+Current:
+
+```text
+active plan:
+    null
+
+next plan:
+    LANG007.C3.P1
+
+next action:
+    create the patch-grade P1 implementation plan from:
+      - LANG007.C3-requirements-analysis.md
+      - LANG007.C3-CHECKPOINT.md
+      - LANG007.C3-GUIDANCE.md
+      - C2.P3 handoff/walkthrough
+      - live repository
+```
+
+At P1 start:
+
+1. verify local revision/worktree;
+2. re-read live C3 target paths;
+3. update `PROGRAM.md` / `STATUS.md` active lifecycle state;
+4. mark checkpoint `IN_PROGRESS / PARTIAL / UNVERIFIED`;
+5. mark P1 active;
+6. do not begin P2 representation work opportunistically.
+
+---
+
+## 21. C3 completion truth table
+
+C3 may be marked `COMPLETE` only when:
+
+```text
+[ ] P1 complete
+[ ] P2 complete
+[ ] P3 complete
+[ ] unified algebraic source/semantic model implemented
+[ ] type-data static domains implemented
+[ ] heterogeneous static application implemented
+[ ] associated type data implemented
+[ ] intrinsic structural domains exposed
+[ ] enum canonical source migrated/finalized
+[ ] exact-case/GADT behavior preserved
+[ ] metadata/import/incremental identity certified
+[ ] LSP/source-index baseline certified
+[ ] authoritative specifications coherent
+[ ] runtime-negative type-data boundary certified
+[ ] deferred failures classified
+[ ] checkpoint state truthful
+[ ] successor action explicit
+```
+
+Do not infer `RELEASE_COMPLETE` from this truth table.
+''').lstrip()
+
+guidance = dedent(r'''
+---
+id: LANG007.C3.guidance
+category: LANG
+program: LANG007
+checkpoint: LANG007.C3
+kind: checkpoint-guidance
+title: "Type Data and Unified Algebraic Static Domains"
+status: PROPOSED
+prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
+prepared: 2026-09-22
+---
+
+# LANG007.C3 — Implementation Guidance
+
+## Type Data and Unified Algebraic Static Domains
+
+## 0. Purpose
+
+This document is the compact architectural guidance for all `LANG007.C3` implementation plans.
+
+Use it with:
+
+```text
+LANG007.C3-requirements-analysis.md
+LANG007.C3-CHECKPOINT.md
+the active P1/P2/P3 patch-grade plan
+predecessor walkthrough/handoff
+live repository
+current authoritative specs
+```
+
+This guidance is not a replacement for the active numbered plan.
+
+It fixes the architectural direction that later plans must preserve.
+
+---
+
+# 1. C3 in one sentence
+
+Unify runtime products and sums under `data`, add nominal type-system-only `type data` domains, generalize static generic application and associated lookup around those domains, then expose the compiler's existing structural domains through the same public language without duplicating C1/C2 semantics or introducing runtime static evaluation.
+
+---
+
+# 2. Read this first
+
+C3 is **semantic unification**, not physical representation unification.
+
+Correct:
+
+```text
+one source declaration model
+one semantic algebraic identity model
+one static-domain classification model
+one associated namespace authority
+one generic application model
+
+multiple optimized internal/runtime representations
+    are still allowed
+```
+
+Incorrect:
+
+```text
+"everything is data"
+therefore
+"everything must use DataObject storage"
+```
+
+Incorrect:
+
+```text
+"type data looks like values"
+therefore
+"create runtime objects for it"
+```
+
+Incorrect:
+
+```text
+"user static domains are new"
+therefore
+"build a second type/static-term engine"
+```
+
+---
+
+# 3. Non-negotiable inherited C2 rules
+
+Do not redesign:
+
+```text
+*
+    positional pack
+
+**
+    labeled pack
+
+***
+    complete pack
+
+...
+    NOT pack syntax
+```
+
+Do not redesign:
+
+```text
+TypePack
+LabeledTypePack
+CompleteTypePack
+TypePackConcat
+LabeledTypePackConcat
+TupleFromPacks
+CallableFromPacks
+GenericParameterMode
+GenericBinderHeader
+whole-pack InferVarId(KindId)
+checked pack substitution/materialization
+schema-v4 scoped pack metadata
+```
+
+Keep:
+
+```text
+LabeledTypePack != RecordRow
+CompleteTypePack != Tuple
+Single(TypePack) != PositionalPack(TypePack)
+no pack partition solver
+no runtime pack solver
+```
+
+If C3 appears to require weakening one of these, STOP AND CONSULT.
+
+---
+
+# 4. Primary architecture decision
+
+## 4.1 Do not create a second static-term universe
+
+The live repository already uses `TypeId` for many non-proper static/type-level terms.
+
+Therefore C3 should extend the current canonical term graph.
+
+Target:
+
+```text
+TypeId
+    canonical handle for non-row kinded static terms
+
+ProperTypeId
+    proof that one TypeId specifically denotes a proper Type
+
+RecordRowId
+    canonical row-domain handle, retained separately
+```
+
+New type-data/const terms may be represented by `TypeId`.
+
+That does **not** make them proper types.
+
+---
+
+## 4.2 User-defined static domains
+
+Add one dynamic classifier, conceptually:
+
+```rust
+KindData::StaticDomain(StaticDomainId)
+```
+
+Do not add:
+
+```rust
+KindData::Shape
+KindData::Endian
+KindData::ParserState
+...
+```
+
+User declarations are data in a domain registry, not Rust enum variants.
+
+---
+
+## 4.3 Heterogeneous application
+
+General canonical envelope:
+
+```rust
+enum StaticArgument {
+    Term(TypeId),
+    RecordRow(RecordRowId),
+}
+```
+
+Why:
+
+```text
+TypeId
+    already works for Type, packs, type lambdas, projections,
+    and can work for const/type-data terms
+
+RecordRow
+    deliberately has separate identity and inference machinery
+```
+
+Do not solve this by forcing rows into TypeId.
+
+---
+
+## 4.4 Generic parameter classification
+
+Prefer preserving:
+
+```text
+TypeParameterData.kind: KindId
+GenericBinderHeader.parameter_kinds
+GenericSignature.parameter_kinds
+InferenceVariable.kind
+```
+
+with dynamic nominal static-domain `KindId`s.
+
+Do not maintain both:
+
+```text
+kind
+and
+domain
+```
+
+as independent authorities for the same parameter.
+
+If the implementation introduces a `StaticDomainRef` helper, one representation must be derived from the other.
+
+---
+
+# 5. Unified algebraic declaration model
+
+## 5.1 Four independent axes
+
+Every algebraic declaration has:
+
+```text
+phase
+    Runtime | TypeOnly
+
+shape
+    Product | Sum
+
+implementation provenance
+    Phalcom | Native | Intrinsic | ...
+
+ownership
+    module | associated nominal owner
+```
+
+Never infer one axis from another.
+
+Examples:
+
+```phalcom
+data Point(_ x: Int, _ y: Int)
+```
+
+```text
+phase          Runtime
+shape          Product
+implementation Phalcom
+ownership      module
+```
+
+```phalcom
+intrinsic type data TypePack
+```
+
+```text
+phase          TypeOnly
+shape          compiler-defined algebraic/static domain
+implementation Intrinsic
+ownership      Universe module
+```
+
+---
+
+## 5.2 Target AST
+
+Prefer one canonical AST shape:
+
+```rust
+AlgebraicDef {
+    phase,
+    shape,
+    implementation,
+    ...
+}
+```
+
+Final semantic consumers must not branch:
+
+```text
+Statement::Data => product semantics
+Statement::Enum => sum semantics
+```
+
+P1 may retain a compatibility source flag/span for `enum`.
+
+That flag is presentation/diagnostic state only.
+
+---
+
+# 6. Parser guidance
+
+## 6.1 Braced body discrimination
+
+These are different:
+
+```phalcom
+data Person {
+    name: String
+}
+```
+
+record product.
+
+```phalcom
+data State {
+    Ready
+}
+```
+
+sum.
+
+Use syntactic shape.
+
+Do not use name resolution.
+
+---
+
+## 6.2 Empty forms
+
+Keep:
+
+```phalcom
+data Token()
+```
+
+zero-component product, one semantic value per exact runtime specialization.
+
+Keep:
+
+```phalcom
+data Impossible {}
+```
+
+empty sum, zero inhabitants.
+
+Same algebraic distinction for `type data`.
+
+---
+
+## 6.3 Singleton vs zero-arg constructor
+
+Never collapse:
+
+```phalcom
+data X {
+    A
+    B()
+}
+```
+
+`A` is singleton associated value.
+
+`B()` is constructor family.
+
+Existing runtime exact-case behavior must continue to observe the distinction.
+
+---
+
+## 6.4 Legacy `enum`
+
+Compatibility route, if P1 keeps one:
+
+```text
+parse enum
+    ↓
+produce canonical Runtime + Sum AlgebraicDef
+    ↓
+emit migration diagnostic
+```
+
+Forbidden:
+
+```text
+parse enum
+    ↓
+EnumDef semantic product
+    ↓
+later convert to Data
+```
+
+if that path creates a separate semantic identity.
+
+P3 removes/finalizes compatibility only after the repository corpus has migrated.
+
+---
+
+# 7. Preserve ADT/GADT machinery
+
+The current enum subsystem is not throwaway code.
+
+Reuse:
+
+```text
+VariantId
+VariantInfo
+VariantConstructorSignature
+CaseTypeEnvironment
+ExactCase TypeData
+enum requirement/default semantics
+match exhaustiveness
+GADT refinement
+exact-case impl/conformance
+runtime case lowering
+reflection/reification
+```
+
+Neutralize ownership gradually.
+
+A safe compatibility technique is a neutral case ID/facade backed by the same owner+selector identity.
+
+Do not mass-rewrite exact-case machinery solely to remove the word `Variant`.
+
+New public APIs and stable metadata should prefer `case`.
+
+---
+
+# 8. One algebraic semantic authority
+
+The target is one authoritative product/facade:
+
+```text
+AlgebraicDeclarationInfo
+    owner
+    phase
+    generics
+    representation
+      Product
+      Sum
+```
+
+Compatibility views may project:
+
+```text
+DataInfo
+EnumInfo
+VariantInfo
+```
+
+for current consumers.
+
+The forbidden architecture is:
+
+```text
+AST
+├─ independently build AlgebraicInfo
+├─ independently build DataInfo
+└─ independently build EnumInfo
+```
+
+That creates divergent truth.
+
+Derive all adapters from one authoritative declaration product.
+
+---
+
+# 9. Type-data canonical identity
+
+## 9.1 Domain
+
+Every `type data` introduces one nominal static domain.
+
+```phalcom
+type data Width(_ value: Int)
+type data Height(_ value: Int)
+```
+
+must remain distinct.
+
+## 9.2 Term
+
+Canonical term identity is:
+
+```text
+domain identity
++ constructor/case identity
++ owner specialization if associated
++ canonical arguments
+```
+
+No runtime equality.
+
+No object address.
+
+No user hash.
+
+No runtime method dispatch.
+
+---
+
+# 10. Const/static literal guidance
+
+C3 needs at least compile-time `Int` because accepted source includes:
+
+```phalcom
+Shape::Vector(3)
+Integer<32, Endian::Big>
+```
+
+Do not parse these literals as runtime expression evaluation.
+
+Represent supported static constants canonically in the static term system.
+
+Conceptually:
+
+```rust
+TypeData::ConstInt(3)
+```
+
+classified by the compiler-supported static Int domain.
+
+Do not automatically lift arbitrary runtime `Int` expressions.
+
+---
+
+# 11. ProperTypeId is sacred
+
+Any C3 patch that makes this legal internally:
+
+```text
+Shape::Vector(3)
+    accepted where API requires ProperTypeId
+```
+
+is unsound.
+
+The fact that both are stored behind `TypeId` is an implementation detail.
+
+Always preserve:
+
+```text
+kind/domain == Type
+    required for ProperTypeId
+```
+
+C3 tests must contain negative proper-type boundary cases.
+
+---
+
+# 12. StaticArgument guidance
+
+## 12.1 Canonical representation
+
+```rust
+StaticArgument::Term(TypeId)
+StaticArgument::RecordRow(RecordRowId)
+```
+
+or exact equivalent.
+
+## 12.2 `Applied`
+
+Generalize:
+
+```rust
+TypeData::Applied {
+    origin,
+    arguments: Box<[StaticArgument]>,
+}
+```
+
+## 12.3 Compatibility API
+
+Retain a convenient type-only helper.
+
+Example:
+
+```rust
+apply_type_form(origin, &[TypeId])
+```
+
+may internally wrap:
+
+```rust
+StaticArgument::Term
+```
+
+Use a generalized canonical helper for heterogeneous application.
+
+Do not force every current caller into noisy migration if an adapter is safe.
+
+---
+
+# 13. RecordRow guidance
+
+RecordRow remains:
+
+```text
+unordered/keyed row identity
+open-tail semantics
+row-specific solver
+```
+
+It is not:
+
+```text
+LabeledTypePack
+```
+
+and it is not to be rewritten as a fake TypeId term merely for C3 application storage.
+
+If heterogeneous application needs a row parameter:
+
+- use the existing canonical row representation;
+- preserve row-tail parameter/projection identity;
+- let `StaticArgument` carry it.
+
+---
+
+# 14. Scoped aliases/type lambdas
+
+When `Applied` becomes heterogeneous, remember that aliases/type lambdas are a separate representation layer.
+
+Audit:
+
+```text
+ScopedTypeData::Applied
+TypeLambdaData
+beta reduction
+scoped substitution
+stable ScopedTypeNode
+metadata export
+```
+
+A P2 implementation that changes only global `TypeData::Applied` is incomplete.
+
+Do not wait until metadata tests to discover this.
+
+---
+
+# 15. Generic binder guidance
+
+## 15.1 Domain vs mode
+
+Keep:
+
+```text
+P: TypePack
+    domain = TypePack
+    mode = Single
+
+*Ts
+    domain = TypePack
+    mode = PositionalPack
+```
+
+Likewise:
+
+```text
+S: Shape
+    domain = Shape
+    mode = Single
+```
+
+## 15.2 Variance
+
+Do not invent user static-domain variance semantics in C3.
+
+Default/invariant unless an existing rule already applies safely.
+
+---
+
+# 16. Inference guidance
+
+## 16.1 Reuse InferVarId
+
+For user domain:
+
+```text
+Shape
+```
+
+create ordinary query-local:
+
+```text
+InferVarId(kind = StaticDomain(Shape))
+```
+
+No new static-var ID family.
+
+## 16.2 First-order structural rules
+
+Same constructor:
+
+```text
+Vector(N) = Vector(3)
+    => N = 3
+```
+
+Different constructor:
+
+```text
+Scalar != Vector(N)
+```
+
+Different domain:
+
+```text
+Shape::Vector(3) != Other::Vector(3)
+```
+
+## 16.3 No evaluator
+
+Do not implement:
+
+```text
+if static term has method, call method
+run user function
+execute match
+evaluate arbitrary closure
+```
+
+C3 terms are closed canonical algebra, not general compile-time programs.
+
+---
+
+# 17. Type members
+
+The existing type-member subsystem already demonstrates heterogeneous domains.
+
+P2 should converge it toward the common static-domain model.
+
+Do not leave:
+
+```text
+generic application domain model A
+type-member domain model B
+```
+
+as independent sources of truth.
+
+Compatibility enums/wrappers are acceptable during migration if they translate to the canonical domain/argument model.
+
+---
+
+# 18. Associated `type data`
+
+## 18.1 Required semantics
+
+```phalcom
+class Parser {
+    type data State {
+        Start
+        Done
+    }
+
+    type Initial: State = State::Start
+}
+```
+
+One associated namespace:
+
+```text
+Parser::State
+Parser::State::Start
+Parser::Initial
+```
+
+## 18.2 Generic owner
+
+```phalcom
+class C<T: Type> {
+    type data State {
+        Empty
+        Present(_ value: T)
+    }
+}
+```
+
+Keep:
+
+```text
+declaration identity:
+    C::State
+
+specialization:
+    C<Int>::State
+    C<String>::State
+```
+
+Do not duplicate the declaration per specialization.
+
+---
+
+# 19. AssociatedSurface is the lookup owner
+
+Current:
+
+```text
+AssociatedSurface
+AssociatedFamilyInfo
+AssociatedFamilyKind
+AssociatedMemberId
+AssociatedResolution
+```
+
+Extend this system.
+
+Do not create a second lookup pipeline solely for static domains.
+
+Namespace collision diagnostics must cover:
+
+```text
+case family
+data constructor
+associated static domain
+type/static member
+associated callable family
+other declaration-owned associated base
+```
+
+No source-order winner.
+
+---
+
+# 20. Trait-associated types are different
+
+Keep this distinction explicit in code and docs:
+
+```text
+trait associated type
+    evidence-bound requirement
+    supplied/specialized by conformance
+
+associated type data
+    inherent declaration-owned static domain
+    specialized by owner environment
+```
+
+Shared syntax/lookup helper does not imply shared evidence ownership.
+
+C3 does not add:
+
+```phalcom
+trait X {
+    type data State
+}
+```
+
+as a requirement form.
+
+---
+
+# 21. Trait generic boundary
+
+Do not let storage capability define language semantics.
+
+If a generalized `TypeId` can physically contain a type-data term, that does not prove trait coherence/evidence knows how to reason about it.
+
+Default C3 policy:
+
+```text
+reject unsupported user type-data domains on trait generic parameters
+```
+
+until explicitly migrated.
+
+If a P2 plan decides to support them:
+
+- audit TraitRef;
+- conformance head identity;
+- coherence;
+- substitution;
+- evidence environment;
+- metadata;
+- inference;
+- diagnostics;
+- incremental fingerprints.
+
+That becomes a deliberate P2 architecture item, not a side effect.
+
+---
+
+# 22. Metadata guidance
+
+## 22.1 Stable facts
+
+Metadata must encode:
+
+```text
+phase
+shape
+declaration
+case
+static domain
+static term
+StaticArgument
+associated static domain
+owner specialization
+generic parameter domain
+```
+
+## 22.2 Identity
+
+Never encode identity by:
+
+```text
+"Shape::Vector(3)" string
+rendered type name
+source path text without stable module identity
+raw TypeId
+raw StaticDomainId
+raw InferVarId
+```
+
+## 22.3 Schema
+
+Baseline is C2 schema v4.
+
+Every public encoding change is explicitly versioned.
+
+Do not silently add meaning to v4.
+
+Do not rewrite historical fixtures merely to avoid compatibility handling.
+
+---
+
+# 23. Incremental guidance
+
+Fingerprint semantic facts, not syntax accidents.
+
+Should change:
+
+```text
+data -> type data
+Product -> Sum
+case set
+payload domain
+GADT result
+static-domain binder
+static argument
+associated domain owner/environment
+```
+
+Should not change solely for:
+
+```text
+equivalent legacy enum -> data migration
+source range movement
+runtime representation selection
+private helper rename
+```
+
+Cold and incremental final states must agree.
+
+---
+
+# 24. Runtime guidance
+
+## 24.1 Runtime data
+
+Keep specialized runtime paths.
+
+No requirement to merge:
+
+```text
+DataObject
+AdtCaseObject
+TupleObject
+RecordObject
+immediates
+```
+
+## 24.2 Type data
+
+Never add runtime inhabitants.
+
+Static term formation stops in semantic/compiler metadata.
+
+## 24.3 Intrinsic data
+
+`intrinsic data Tuple<***Es>` means:
+
+```text
+source-visible semantic declaration
+backed by compiler/runtime-owned specialized representation
+```
+
+It does not mean:
+
+```text
+construct a generic DataObject tuple
+```
+
+---
+
+# 25. TupleEntries guidance
+
+`TupleEntries` is the public static-domain name for the complete two-lane tuple entry shape.
+
+Canonical internal authority stays:
+
+```text
+KindId::COMPLETE_TYPE_PACK
+TypeData::CompleteTypePack
+project_complete
+project_positionals
+project_labeled
+```
+
+Required public equivalences:
+
+```text
+T::Entries == ***T
+T::Positionals == *T
+T::Labeled == **T
+```
+
+Do not introduce:
+
+```text
+TypeData::TupleEntries
+```
+
+if it would be a second representation of the same semantic term.
+
+A source declaration descriptor/facade is fine.
+
+---
+
+# 26. Universe migration guidance
+
+Do not migrate Universe before P2 static-domain semantics are stable.
+
+P3 migration order should be:
+
+```text
+1. intrinsic static-domain declarations
+2. intrinsic Unit/Tuple/Record declaration facades
+3. structural type members
+4. core closed sums Option/Result/Ordering -> data
+5. remaining repository-owned enum source
+6. tooling/presentation terminology
+7. remove/finalize enum compatibility parser
+```
+
+Every migration preserves canonical declaration/module identity.
+
+---
+
+# 27. Specification migration guidance
+
+The implementation must not end C3 with source behavior contradicting `docs/specs`.
+
+P1 should begin semantic-owner updates.
+
+P3 finishes cleanup.
+
+Do not rewrite historical implementation records.
+
+Primary owners:
+
+```text
+docs/specs/objects/data-objects.md
+docs/specs/objects/enums.md
+docs/specs/type-level-domains.md
+docs/specs/type-members.md
+docs/specs/associated-types.md
+docs/specs/objects/impl.md
+docs/specs/universe.md
+pattern/GADT owning specs
+```
+
+---
+
+# 28. P1 boundaries
+
+P1 owns:
+
+```text
+canonical algebraic AST
+data Product/Sum
+runtime sum migration
+type data top-level
+StaticDomainId foundation
+canonical static-data terms
+proper-type rejection
+metadata foundation
+```
+
+P1 does not own:
+
+```text
+general heterogeneous Applied
+associated type data
+full static generic inference
+Universe migration
+LSP completion
+corpus removal of enum
+```
+
+If P1 starts changing `TraitRef` or associated domain specialization, it is drifting into P2.
+
+---
+
+# 29. P2 boundaries
+
+P2 owns:
+
+```text
+StaticArgument
+heterogeneous Applied
+generic domain resolution
+static argument grammar
+domain inference
+checked substitution
+static aliases
+type-member domain convergence
+associated type data
+:: lookup
+metadata/import/incremental/source-index
+```
+
+P2 does not own:
+
+```text
+Universe final migration
+enum final removal
+general static evaluator
+trait type-data requirements
+```
+
+---
+
+# 30. P3 boundaries
+
+P3 owns:
+
+```text
+intrinsic source surface
+TupleEntries bridge
+Universe migration
+core sum migration
+enum final compatibility decision
+tooling
+corpus
+spec closure
+certification
+```
+
+P3 should mostly consume P1/P2 architecture.
+
+If P3 requires a new static-term carrier or new associated-domain identity model, P2 was incomplete: STOP AND CONSULT rather than inventing it in P3.
+
+---
+
+# 31. Recommended P1 planning emphasis
+
+A P1 patch-grade plan should pre-decide:
+
+1. exact AlgebraicDef AST shape;
+2. exact compatibility handling for legacy enum;
+3. product/sum braced-body parser discrimination;
+4. record-payload case representation;
+5. neutral case identity migration technique;
+6. authoritative semantic product and adapter strategy;
+7. exact static-domain store representation;
+8. exact type-data term TypeData variants;
+9. static Int term formation needed by type-data constructors;
+10. exact metadata schema transition;
+11. runtime compiler adapter path;
+12. focused ADT/GADT preservation gates.
+
+Do not leave these decisions to implementation improvisation.
+
+---
+
+# 32. Recommended P2 planning emphasis
+
+A P2 patch-grade plan should pre-decide:
+
+1. exact `StaticArgument` enum;
+2. `Applied` migration API;
+3. scoped heterogeneous argument representation;
+4. row symbolic argument representation;
+5. static argument syntax AST;
+6. generic binder-domain resolution;
+7. type-data inference term variants;
+8. materialization failures;
+9. type-member domain migration;
+10. associated-domain declaration IDs;
+11. owner specialization representation;
+12. AssociatedSurface categories;
+13. trait unsupported/supported boundary;
+14. metadata schema transition;
+15. incremental dependency keys;
+16. source-index/LSP semantic targets.
+
+---
+
+# 33. Recommended P3 planning emphasis
+
+A P3 patch-grade plan should pre-decide:
+
+1. exact Universe source files to migrate;
+2. intrinsic declaration-to-canonical-domain registration;
+3. TupleEntries mapping;
+4. static type-member source declarations;
+5. Option/Result/Ordering migration ordering;
+6. enum compatibility removal point;
+7. corpus migration scope;
+8. LSP required interactions;
+9. metadata/interface compatibility gates;
+10. performance/resource evidence;
+11. runtime-negative audit;
+12. C3 closure truth table.
+
+---
+
+# 34. Testing doctrine
+
+Testing is evidence gathering.
+
+During P1/P2 BUILD mode, do not run workspace tests reflexively.
+
+Use:
+
+```text
+T0 exact new regression
+T1 direct feature module
+T2 owning subsystem
+T3 adjacent integration
+T4 affected crate
+T5 workspace/release only at explicit certification
+```
+
+P3 may deliberately broaden because it is checkpoint closure.
+
+---
+
+# 35. Coverage dimensions that matter
+
+Prioritize:
+
+```text
+canonical identity
+negative domain behavior
+empty/singleton/zero-arg boundaries
+GADT preservation
+heterogeneous composition
+aliasing
+cross-module persistence
+cold/incremental equality
+source identity
+metadata compatibility
+runtime-negative behavior
+tooling identity
+```
+
+Do not add concurrency/GC testing merely because it exists elsewhere unless a C3 change actually affects those mechanisms.
+
+---
+
+# 36. Baseline failures
+
+Inherited:
+
+```text
+BASELINE-001
+trait_default_replays_external_nominal_callable_dependencies
+
+BASELINE-002
+trait_defaults_reject_unknown_members_storage_and_super_without_concrete_capabilities
+```
+
+Do not repair during C3 unless causal evidence shows a C3-owned regression.
+
+Classify:
+
+```text
+A caused -> fix
+B probably caused -> investigate/fix
+C unclear -> one bounded pass, then defer if nonblocking
+D unrelated -> record/defer
+```
+
+---
+
+# 37. Debugging budget
+
+Mechanical:
+
+```text
+up to ~3 coherent correction cycles with progress
+```
+
+Semantic:
+
+```text
+record:
+Observed
+Hypothesis
+Evidence
+Prediction
+Discriminating test
+
+allow one serious correction
+then STOP AND CONSULT
+```
 
 Architecture:
 
-- [x] every major state/fact has one named owner;
-- [x] lexical/access/layout identities are explicitly separated;
-- [x] no planned fix creates a name-based or ambient duplicate authority;
-- [x] Resource/stream architecture reuses existing forward-looking design instead of inventing a parallel model;
-- [x] performance findings remain separated from correctness.
+```text
+zero speculative redesign attempts
+STOP AND CONSULT immediately
+```
 
-Luna executability:
+---
 
-- [x] fixed/flexible/verify-first decisions are explicit;
-- [x] each task names files/symbols and forbidden shortcuts;
-- [x] STOP/CONSULT triggers are objective;
-- [x] semantic debugging is bounded;
-- [x] mechanical drift is permitted without architectural improvisation.
+# 38. Global STOP / CONSULT triggers
 
-Testing:
+Stop if any of these occur:
 
-- [x] coverage is organized around semantic risks, not task count;
-- [x] hostile cases defeat the obvious shortcuts;
-- [x] existing test homes are reused;
-- [x] broad workspace verification is explicitly deferred;
-- [x] each gate states what it proves.
+1. new static terms require weakening ProperTypeId;
+2. a second general static-term arena is about to be introduced;
+3. every user static domain would require a Rust enum variant;
+4. RecordRow must be collapsed into TypeId/LabeledTypePack;
+5. Data/Enum convergence loses exact-case/GADT evidence;
+6. legacy enum/data create different identity;
+7. sum behavior requires a second ADT implementation;
+8. generic application cannot become heterogeneous without wholesale trait-system redesign;
+9. unsupported trait static-domain behavior would be silently accepted;
+10. associated type data needs a separate name-resolution authority;
+11. associated domain identity requires rendered strings;
+12. trait associated-type evidence is being reused for inherent type data;
+13. TupleEntries cannot map directly to CompleteTypePack;
+14. intrinsic Tuple/Record would require replacing current runtime representation;
+15. static type-data correctness requires VM execution;
+16. arbitrary runtime `Expr` is being reused as compile-time evaluation;
+17. arbitrary static functions/pattern evaluation become necessary;
+18. metadata would serialize raw store/session IDs;
+19. cold/incremental equality cannot be restored without global invalidation;
+20. a C2 pack invariant needs weakening;
+21. the same semantic failure survives one serious correction;
+22. source/spec/test authorities materially conflict.
 
-Lifecycle:
+---
 
-- [x] canonical C2 checkpoint creation is part of execution;
-- [x] checkpoint updates occur at durable gates;
-- [x] walkthrough and handoff are required;
-- [x] commit groups are coherent and conditional on authorization;
-- [x] no plan-specific competing state file is introduced.
+# 39. Consultation packet
 
-No implementation or test result is claimed by this plan. All PASS/COMPLETE states must be established by the executing agent.
-'''
+Use:
 
-out = Path("TEST002/TEST002.C2/TEST002.C2.P1.md")
-out.write_text(plan, encoding="utf-8")
-print(f"Wrote {out} ({out.stat().st_size:,} bytes, {len(plan.splitlines()):,} lines)")
+```markdown
+# C3 IMPLEMENTATION INCIDENT
+
+## Identity
+Plan/task/gate/revision
+
+## Invariants
+Exact C3-I / INV-C3 IDs
+
+## Observed
+Concrete symptom
+
+## Minimal reproduction
+Exact source/test/command
+
+## Relevant path
+A -> B -> C
+
+## Evidence
+Code/product/test facts only
+
+## Hypothesis
+Best causal explanation
+
+## Serious correction already attempted
+If any
+
+## Architectural alternatives
+Only plausible alternatives
+
+## Decision requested
+One narrow question
+```
+
+---
+
+# 40. Checkpoint bookkeeping
+
+At P1 start:
+
+```text
+C3 status        -> IN_PROGRESS
+completion       -> PARTIAL
+verification     -> UNVERIFIED
+active plan      -> P1
+PROGRAM/STATUS   -> rebaseline C3
+```
+
+At each coherent plan gate:
+
+- record durable new architecture;
+- record actual verification;
+- record consultation decisions;
+- record deferred failures.
+
+Do not turn CHECKPOINT into an edit log.
+
+At P3 closure:
+
+```text
+P1/P2/P3
+    COMPLETE / IMPLEMENTED / FOCUSED_TESTED
+
+C3
+    COMPLETE / IMPLEMENTED / FOCUSED_TESTED
+```
+
+only if the checkpoint truth table passes.
+
+---
+
+# 41. Required plan completion artifacts
+
+Every P1/P2/P3 normally produces:
+
+```text
+LANG007.C3.P<n>-walkthrough.md
+LANG007.C3.P<n>-handoff.md
+```
+
+P3 handoff should summarize the frozen C3 substrate and the next accepted LANG007 roadmap action.
+
+---
+
+# 42. Do not re-explore
+
+Unless live evidence contradicts the baseline, do not spend implementation time re-deciding:
+
+```text
+whether data should replace enum
+whether type data has runtime values
+whether type-data equality calls user ==
+whether packs use * ** ***
+whether TupleEntries should replace CompleteTypePack
+whether RecordRow == LabeledTypePack
+whether GenericParameterMode == static domain
+whether the VM should solve type data
+whether associated type data is a trait requirement
+whether runtime Tuple must become DataObject
+```
+
+These are already decided for C3.
+
+---
+
+# 43. What still requires per-plan verification
+
+Verify against live source before each plan:
+
+```text
+exact AST/parser symbols
+exact DB query products
+exact adapter consumers
+exact metadata schema version
+exact trait/conformance argument assumptions
+exact associated namespace consumers
+exact Universe source locations
+exact LSP product APIs
+exact test module names
+```
+
+Mechanical drift is expected.
+
+Architectural drift is not.
+
+---
+
+# 44. Final architectural summary
+
+```text
+one algebraic language
+    data       -> runtime inhabitants
+    type data  -> static inhabitants
+
+one canonical static tower
+    KindId classifies
+    TypeId stores non-row static terms
+    ProperTypeId proves actual Type
+    RecordRow keeps dedicated authority
+
+one generic application model
+    StaticArgument
+
+one non-row inference identity
+    InferVarId(kind)
+
+one associated lookup authority
+    AssociatedSurface / ::
+
+one stable persistence model
+    declaration/domain/case/argument structure
+
+specialized runtime representations
+    remain free beneath the language model
+
+no general compile-time evaluator
+no VM static solver
+```
+
+If later implementation work remains inside these boundaries, C3 can be delivered without destabilizing C1/C2.
+''').lstrip()
+
+files = {
+    "LANG007.C3-requirements-analysis.md": req,
+    "LANG007.C3-CHECKPOINT.md": checkpoint,
+    "LANG007.C3-GUIDANCE.md": guidance,
+}
+
+for name, content in files.items():
+    p = outdir / name
+    p.write_text(content, encoding="utf-8")
+    print(f"{name}: {p.stat().st_size:,} bytes, {len(content.splitlines()):,} lines")
+
+# Also create the user's literal typo filename as a byte-identical convenience alias
+# without making it the canonical repository name.
+alias = outdir / "LANG007.3C3-GUIDANCE.md"
+alias.write_text(guidance, encoding="utf-8")
+print(f"{alias.name}: {alias.stat().st_size:,} bytes, {len(guidance.splitlines()):,} lines (alias)")

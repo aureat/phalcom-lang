@@ -1,4 +1,9 @@
-use phalcom_ast::{ast::Statement, error::SyntaxErrorKind, parse_source, selector::selector_from_variant};
+use phalcom_ast::{
+    ast::{AlgebraicPhase, Statement},
+    error::SyntaxErrorKind,
+    parse_source,
+    selector::selector_from_variant,
+};
 
 #[test]
 fn bare_singleton_vs_zero_arg_constructor_variant() {
@@ -8,24 +13,27 @@ fn bare_singleton_vs_zero_arg_constructor_variant() {
 }
 ";
     let program = parse_source(source, 0).expect("enum parses");
-    let Statement::Enum(enum_def) = &program.statements[0] else {
-        panic!("expected enum");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
     };
-    assert_eq!(enum_def.name, "Option");
-    assert_eq!(enum_def.variants.len(), 2);
+    assert_eq!(data_def.name, "Option");
+    assert_eq!(data_def.phase, AlgebraicPhase::Runtime);
+    assert!(data_def.legacy_enum_keyword_range.is_some());
+    let cases = data_def.cases().expect("expected cases");
+    assert_eq!(cases.len(), 2);
 
-    // 1. Bare singleton: @variant None -> payload is None, selector is #None
-    let none_singleton = &enum_def.variants[0];
+    // 1. Bare singleton: @variant None -> payload is Singleton, selector is #None
+    let none_singleton = &cases[0];
     assert_eq!(none_singleton.name, "None");
-    assert!(none_singleton.payload.is_none());
+    assert!(none_singleton.is_singleton());
     let selector_singleton = selector_from_variant(none_singleton);
     assert_eq!(selector_singleton.encode(), "None");
 
-    // 2. Zero-arg constructor: @variant None() -> payload is Some([]), selector is #None()
-    let none_nullary = &enum_def.variants[1];
+    // 2. Zero-arg constructor: @variant None() -> payload is Tuple with explicit_empty: true, selector is #None()
+    let none_nullary = &cases[1];
     assert_eq!(none_nullary.name, "None");
-    assert!(none_nullary.payload.is_some());
-    assert!(none_nullary.payload.as_ref().unwrap().parameters.is_empty());
+    assert!(none_nullary.is_explicit_empty());
+    assert_eq!(none_nullary.tuple_parameters().unwrap().len(), 0);
     let selector_nullary = selector_from_variant(none_nullary);
     assert_eq!(selector_nullary.encode(), "None()");
 }
@@ -38,16 +46,17 @@ fn variant_with_positional_and_labeled_payload() {
 }
 ";
     let program = parse_source(source, 0).expect("enum parses");
-    let Statement::Enum(enum_def) = &program.statements[0] else {
-        panic!("expected enum");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
     };
-    assert_eq!(enum_def.variants.len(), 2);
+    let cases = data_def.cases().expect("expected cases");
+    assert_eq!(cases.len(), 2);
 
-    let ok_variant = &enum_def.variants[0];
+    let ok_variant = &cases[0];
     assert_eq!(ok_variant.name, "Ok");
-    let payload = ok_variant.payload.as_ref().expect("payload exists");
-    assert_eq!(payload.parameters.len(), 1);
-    assert_eq!(payload.parameters[0].name, "value");
+    let params = ok_variant.tuple_parameters().expect("payload exists");
+    assert_eq!(params.len(), 1);
+    assert_eq!(params[0].name, "value");
 
     let sel = selector_from_variant(ok_variant);
     assert_eq!(sel.encode(), "Ok(value)");
@@ -61,12 +70,13 @@ fn gadt_syntax_with_return_type_annotation() {
 }
 ";
     let program = parse_source(source, 0).expect("GADT enum parses");
-    let Statement::Enum(enum_def) = &program.statements[0] else {
-        panic!("expected enum");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
     };
-    assert_eq!(enum_def.variants.len(), 2);
+    let cases = data_def.cases().expect("expected cases");
+    assert_eq!(cases.len(), 2);
 
-    let int_lit = &enum_def.variants[0];
+    let int_lit = &cases[0];
     assert!(int_lit.result_annotation.is_some());
 }
 
@@ -77,10 +87,11 @@ fn variant_local_generics_and_where_clause_are_preserved() {
 }
 ";
     let program = parse_source(source, 0).expect("variant generic syntax parses");
-    let Statement::Enum(enum_def) = &program.statements[0] else {
-        panic!("expected enum");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
     };
-    let pack = &enum_def.variants[0];
+    let cases = data_def.cases().expect("expected cases");
+    let pack = &cases[0];
 
     assert_eq!(pack.name, "Pack");
     assert_eq!(pack.generic_parameters.len(), 1);
@@ -181,11 +192,12 @@ enum Expression {
 }
 "#;
     let program = parse_source(source, 0).expect("bare variant enum parses");
-    let Statement::Enum(enum_def) = &program.statements[0] else { panic!() };
-    assert_eq!(enum_def.name, "Expression");
-    assert_eq!(enum_def.variants.len(), 2);
-    let lit = &enum_def.variants[0];
+    let Statement::Data(data_def) = &program.statements[0] else { panic!() };
+    assert_eq!(data_def.name, "Expression");
+    let cases = data_def.cases().expect("expected cases");
+    assert_eq!(cases.len(), 2);
+    let lit = &cases[0];
     assert_eq!(lit.name, "Literal");
-    let add = &enum_def.variants[1];
+    let add = &cases[1];
     assert_eq!(add.name, "Add");
 }

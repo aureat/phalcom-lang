@@ -218,3 +218,47 @@ impl InferVarId {
         Self(index as u32)
     }
 }
+
+/// Store/snapshot-local identity for a nominal static algebraic domain.
+///
+/// Each top-level `type data` declaration registers one `StaticDomainId` in the
+/// `TypeStore`. The identifier is valid only within the store that allocated it;
+/// stable cross-store identity uses declaration references, not this raw integer.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StaticDomainId(pub u32);
+
+impl StaticDomainId {
+    #[inline]
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub fn from_index(index: usize) -> Self {
+        Self(index as u32)
+    }
+}
+
+/// Store/snapshot-local identity for one static constructor or case within a
+/// nominal static domain.
+///
+/// Each product-shaped `type data` has one primary constructor; each case in a
+/// sum-shaped `type data` has its own constructor identity. The integer is valid
+/// only within the store that allocated it.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AlgebraicStaticConstructorId(pub u32);
+
+impl AlgebraicStaticConstructorId {
+    #[inline]
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub fn from_index(index: usize) -> Self {
+        Self(index as u32)
+    }
+}
+

@@ -194,13 +194,14 @@ impl TypeReferenceTargetCollector<'_> {
                     }
                 }
             }
-            Statement::Enum(enum_def) => self.enum_definition(enum_def, bound),
             Statement::Data(data_def) => {
-                let mut data_bound = bound.clone();
-                data_bound.extend(data_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
-                self.where_clause(data_def.where_clause.as_ref(), &data_bound);
-                match &data_def.shape {
-                    phalcom_ast::ast::DataShapeSyntax::Tuple { components, .. } | phalcom_ast::ast::DataShapeSyntax::Record { components, .. } => {
+                if data_def.is_sum() {
+                    self.enum_definition(data_def, bound);
+                } else {
+                    let mut data_bound = bound.clone();
+                    data_bound.extend(data_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    self.where_clause(data_def.where_clause.as_ref(), &data_bound);
+                    if let Some(components) = data_def.components() {
                         for comp in components {
                             self.annotation(&comp.annotation, &data_bound);
                         }
@@ -399,16 +400,24 @@ impl TypeReferenceTargetCollector<'_> {
         enum_bound.extend(enum_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
         self.where_clause(enum_def.where_clause.as_ref(), &enum_bound);
 
-        for variant in &enum_def.variants {
+        for variant in enum_def.cases().unwrap_or_default() {
             let mut variant_bound = enum_bound.clone();
             variant_bound.extend(variant.generic_parameters.iter().map(|parameter| parameter.name.clone()));
             self.where_clause(variant.where_clause.as_ref(), &variant_bound);
-            if let Some(payload) = &variant.payload {
-                for parameter in &payload.parameters {
-                    if let Some(annotation) = &parameter.annotation {
-                        self.annotation(annotation, &variant_bound);
+            match &variant.payload {
+                phalcom_ast::ast::CasePayloadSyntax::Tuple { parameters, .. } => {
+                    for parameter in parameters {
+                        if let Some(annotation) = &parameter.annotation {
+                            self.annotation(annotation, &variant_bound);
+                        }
                     }
                 }
+                phalcom_ast::ast::CasePayloadSyntax::Record { components, .. } => {
+                    for comp in components {
+                        self.annotation(&comp.annotation, &variant_bound);
+                    }
+                }
+                phalcom_ast::ast::CasePayloadSyntax::Singleton => {}
             }
             if let Some(annotation) = &variant.result_annotation {
                 self.annotation(annotation, &variant_bound);
@@ -543,9 +552,9 @@ pub fn build_source_scope_index(module: ModuleId, program: &Program, context: &S
         } else if let Statement::TypeAlias(alias) = statement {
             let declaration = DeclarationId::new(module.clone(), alias.name.clone().into());
             builder.index.register_class(alias.name.clone(), declaration);
-        } else if let Statement::Enum(enum_def) = statement {
-            let declaration = DeclarationId::new(module.clone(), enum_def.name.clone().into());
-            builder.index.register_class(enum_def.name.clone(), declaration);
+        } else if let Statement::Data(data_def) = statement {
+            let declaration = DeclarationId::new(module.clone(), data_def.name.clone().into());
+            builder.index.register_class(data_def.name.clone(), declaration);
         } else if let Statement::Trait(trait_def) = statement {
             let declaration = DeclarationId::new(module.clone(), trait_def.name.clone().into());
             builder.index.register_class(trait_def.name.clone(), declaration);
@@ -834,9 +843,14 @@ impl SourceScopeBuilder<'_> {
         for (statement_index, statement) in statements.iter().enumerate() {
             match statement {
                 Statement::Class(class) => self.visit_class(scope, class),
-                Statement::Enum(enum_def) => self.visit_enum(scope, enum_def),
                 Statement::TypeAlias(alias) => self.visit_type_alias(scope, alias),
-                Statement::Data(data_def) => self.visit_data(scope, data_def),
+                Statement::Data(data_def) => {
+                    if data_def.is_sum() {
+                        self.visit_enum(scope, data_def);
+                    } else {
+                        self.visit_data(scope, data_def);
+                    }
+                }
                 Statement::Trait(trait_def) => self.visit_trait(scope, trait_def),
                 Statement::Let(binding) => self.visit_let(scope, binding, top_level),
                 Statement::Return(return_statement) => {
@@ -1070,7 +1084,7 @@ impl SourceScopeBuilder<'_> {
             },
         );
 
-        for variant in &enum_def.variants {
+        for variant in enum_def.cases().unwrap_or_default() {
             let variant_id = VariantId::new(declaration.clone(), phalcom_ast::selector::selector_from_variant(variant));
             let variant_site = self.allocate_site(
                 SourceOwner::Module(self.index.module.clone()),
@@ -1086,16 +1100,30 @@ impl SourceScopeBuilder<'_> {
                 );
                 self.index.register_target(family_site, SemanticTargetId::VariantFamily(family));
             }
-            if let Some(payload) = &variant.payload {
-                for (index, parameter) in payload.parameters.iter().enumerate() {
-                    let field = VariantFieldId::new(variant_id.clone(), index as u32);
-                    let site = self.allocate_site(
-                        SourceOwner::Module(self.index.module.clone()),
-                        parameter.name_range,
-                        SourceSiteKind::VariantField(field.clone()),
-                    );
-                    self.index.register_target(site, SemanticTargetId::VariantField(field));
+            match &variant.payload {
+                phalcom_ast::ast::CasePayloadSyntax::Tuple { parameters, .. } => {
+                    for (index, parameter) in parameters.iter().enumerate() {
+                        let field = VariantFieldId::new(variant_id.clone(), index as u32);
+                        let site = self.allocate_site(
+                            SourceOwner::Module(self.index.module.clone()),
+                            parameter.name_range,
+                            SourceSiteKind::VariantField(field.clone()),
+                        );
+                        self.index.register_target(site, SemanticTargetId::VariantField(field));
+                    }
                 }
+                phalcom_ast::ast::CasePayloadSyntax::Record { components, .. } => {
+                    for (index, component) in components.iter().enumerate() {
+                        let field = VariantFieldId::new(variant_id.clone(), index as u32);
+                        let site = self.allocate_site(
+                            SourceOwner::Module(self.index.module.clone()),
+                            component.name_range,
+                            SourceSiteKind::VariantField(field.clone()),
+                        );
+                        self.index.register_target(site, SemanticTargetId::VariantField(field));
+                    }
+                }
+                phalcom_ast::ast::CasePayloadSyntax::Singleton => {}
             }
         }
     }
@@ -1121,9 +1149,7 @@ impl SourceScopeBuilder<'_> {
             },
         );
 
-        let components = match &data_def.shape {
-            phalcom_ast::ast::DataShapeSyntax::Tuple { components, .. } | phalcom_ast::ast::DataShapeSyntax::Record { components, .. } => components,
-        };
+        let components = data_def.components().unwrap_or_default();
         for (index, component) in components.iter().enumerate() {
             let component_id = DataComponentId::new(declaration.clone(), index as u32);
             let site = self.allocate_site(
@@ -1767,7 +1793,6 @@ fn statements_range(statements: &[Statement]) -> SourceRange {
 fn statement_range(statement: &Statement) -> SourceRange {
     match statement {
         Statement::Class(class) => class.range,
-        Statement::Enum(enum_def) => enum_def.range,
         Statement::Data(data_def) => data_def.range,
         Statement::Trait(trait_def) => trait_def.range,
         Statement::Let(binding) => binding.range,

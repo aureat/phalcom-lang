@@ -747,12 +747,16 @@ fn resolve_variant_pattern(
                 continue;
             };
             if !matches_variant_info(v_info, &variant_pat.base, &constraint, variant_pat) {
-                // Check what kind of mismatch occurred for diagnostic precision
+                // Detect *why* it didn't match to set precise diagnostic flags.
                 if let VariantPatternMode::ExactCall { arguments } = &variant_pat.mode {
-                    if arguments.len() != v_info.fields.len() {
-                        had_arity_mismatch = true;
-                    } else {
-                        had_field_mismatch = true;
+                    // Base name matched; selector kind must both be method to proceed.
+                    if matches!(v_info.id.selector.kind, SelectorKind::Method) {
+                        if arguments.len() != v_info.fields.len() {
+                            had_arity_mismatch = true;
+                        } else {
+                            // Arity matches but labels/selector doesn't — field mismatch.
+                            had_field_mismatch = true;
+                        }
                     }
                 }
                 continue;
@@ -761,6 +765,7 @@ fn resolve_variant_pattern(
 
             let Some(opened) = crate::checker::coverage::open_variant_case(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, subject, v_info)
             else {
+                eprintln!("DEBUG pattern: open_variant_case returned None for {:?}", variant_id);
                 continue;
             };
             matched_any_variant = true;

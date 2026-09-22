@@ -4513,6 +4513,34 @@ pub fn apply_covering_to_signature(store: &mut TypeStore, subst: &TypeSubstituti
         signature.declared_return.state = DeclaredTypeState::Known(TypeTerm::Canonical(new_ret_ty));
     }
 
+    if let Some(generics) = signature.generics.as_mut() {
+        let mut map_term = |term: &TypeTerm| match term {
+            TypeTerm::Canonical(ty) => TypeTerm::Canonical(subst.apply(store, *ty)),
+            other => other.clone(),
+        };
+        let mut new_constraints = Vec::with_capacity(generics.constraints.len());
+        for constraint in generics.constraints.iter() {
+            let new_c = match constraint {
+                crate::types::parameter::GenericConstraint::Subtype { lower, upper } => {
+                    let new_l = map_term(lower);
+                    let new_u = map_term(upper);
+                    crate::types::parameter::GenericConstraint::Subtype { lower: new_l, upper: new_u }
+                }
+                crate::types::parameter::GenericConstraint::Equivalent { left, right } => {
+                    let new_l = map_term(left);
+                    let new_r = map_term(right);
+                    crate::types::parameter::GenericConstraint::Equivalent { left: new_l, right: new_r }
+                }
+                crate::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
+                    let new_s = map_term(subject);
+                    crate::types::parameter::GenericConstraint::Conforms { subject: new_s, trait_ref: trait_ref.clone() }
+                }
+            };
+            new_constraints.push(new_c);
+        }
+        generics.constraints = new_constraints.into_boxed_slice();
+    }
+
     signature
 }
 

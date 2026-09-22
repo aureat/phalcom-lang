@@ -656,56 +656,7 @@ impl SemanticWorkspaceSession {
             // Phase 1: publish structural data/enum products for the complete
             // module before resolving any inherent impl target in that module.
             for stmt in &parsed.program.statements {
-                if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
-                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                    if base_declarations.get(&decl_id).is_some() {
-                        continue;
-                    }
-
-                    let mut parameter_ids = Vec::new();
-                    let mut parameter_kinds = Vec::new();
-                    for (index, parameter) in enum_def.generic_parameters.iter().enumerate() {
-                        let Some(kind) = ready_kind_for_predeclaration(&mut store, parameter.kind.as_ref()) else {
-                            parameter_ids.clear();
-                            break;
-                        };
-                        let parameter_id = store.intern_type_parameter(TypeParameterData::new(
-                            TypeParameterOwner::Declaration(decl_id.clone()),
-                            index as u32,
-                            parameter.name.clone(),
-                            kind,
-                        ));
-                        parameter_ids.push(parameter_id);
-                        parameter_kinds.push(kind);
-                    }
-
-                    if parameter_ids.len() != enum_def.generic_parameters.len() {
-                        continue;
-                    }
-
-                    let (form, kind, generic_signature) = if parameter_ids.is_empty() {
-                        (store.nominal_type(decl_id.clone()), KindId::TYPE, None)
-                    } else {
-                        let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
-                        let form = store.nominal_form(decl_id.clone(), kind);
-                        let signature =
-                            crate::types::parameter::GenericSignature::new(TypeParameterOwner::Declaration(decl_id.clone()), parameter_ids.into_boxed_slice());
-                        (form, kind, Some(signature))
-                    };
-
-                    base_declarations.insert(DeclarationTypeInfo {
-                        declaration: decl_id.clone(),
-                        form,
-                        class_object_type: store.class_object_type(decl_id.clone()),
-                        kind,
-                        generic_binder_header: generic_signature
-                            .as_ref()
-                            .map(|signature| GenericBinderHeader::from_signature(&store, signature)),
-                        generic_signature,
-                        supertype_template: None,
-                    });
-                    base_hierarchy.insert(decl_id, crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object));
-                } else if let phalcom_ast::ast::Statement::Data(data_def) = stmt {
+                if let phalcom_ast::ast::Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                     if base_declarations.get(&decl_id).is_some() {
                         continue;
@@ -898,29 +849,30 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed.program.statements {
                 if let phalcom_ast::ast::Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
-                    let Some(data_product) =
-                        crate::checker::data_declaration::build_data_semantics(&decl_id, data_def, &mut store, &base_declarations, &resolver, &module_id)
-                    else {
-                        continue;
-                    };
-                    base_data_semantics.insert_data(data_product.info.clone());
-                    base_data_products.push(Arc::new(data_product));
+                    if data_def.is_sum() {
+                        let Some(enum_product) =
+                            crate::checker::enum_declaration::build_enum_semantics(&decl_id, data_def, &mut store, &base_declarations, &resolver, &module_id)
+                        else {
+                            continue;
+                        };
+                        base_enum_semantics.insert_enum(enum_product.info.clone());
+                        for v in enum_product.variants.iter() {
+                            base_enum_semantics.insert_variant(Arc::new(v.clone()));
+                        }
+                        base_enum_products.push(Arc::new(enum_product));
+                    } else {
+                        let Some(data_product) =
+                            crate::checker::data_declaration::build_data_semantics(&decl_id, data_def, &mut store, &base_declarations, &resolver, &module_id)
+                        else {
+                            continue;
+                        };
+                        base_data_semantics.insert_data(data_product.info.clone());
+                        base_data_products.push(Arc::new(data_product));
 
-                    let assoc_surface = crate::associated::build_data_associated_surface(&decl_id);
-                    base_associated_surfaces.insert(decl_id.clone(), assoc_surface.clone());
-                    base_associated_surface_products.push(assoc_surface);
-                } else if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
-                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                    let Some(enum_product) =
-                        crate::checker::enum_declaration::build_enum_semantics(&decl_id, enum_def, &mut store, &base_declarations, &resolver, &module_id)
-                    else {
-                        continue;
-                    };
-                    base_enum_semantics.insert_enum(enum_product.info.clone());
-                    for v in enum_product.variants.iter() {
-                        base_enum_semantics.insert_variant(Arc::new(v.clone()));
+                        let assoc_surface = crate::associated::build_data_associated_surface(&decl_id);
+                        base_associated_surfaces.insert(decl_id.clone(), assoc_surface.clone());
+                        base_associated_surface_products.push(assoc_surface);
                     }
-                    base_enum_products.push(Arc::new(enum_product));
                 }
             }
 
@@ -963,9 +915,6 @@ impl SemanticWorkspaceSession {
                 }
             }
             for (target, contributions) in contributions_by_target {
-                let Some(data_info) = base_data_semantics.data_info(&target).map(AsRef::as_ref) else {
-                    continue;
-                };
                 let primary_surface = base_dispatch
                     .surface(&target)
                     .cloned()
@@ -980,7 +929,7 @@ impl SemanticWorkspaceSession {
                     &primary_surface,
                     &primary_signatures,
                     &contributions,
-                    Some(data_info),
+                    base_data_semantics.data_info(&target).map(AsRef::as_ref),
                     base_associated_surfaces.surfaces.get(&target).map(AsRef::as_ref),
                 );
                 base_dispatch.register_surface(target.clone(), (*effective.surface).clone());
@@ -999,7 +948,10 @@ impl SemanticWorkspaceSession {
             // surfaces from those semantic contributions. Enum syntax is
             // structural and supplies no callable fallback.
             for stmt in &parsed.program.statements {
-                if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
+                if let phalcom_ast::ast::Statement::Data(enum_def) = stmt {
+                    if !enum_def.is_sum() {
+                        continue;
+                    }
                     let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                     let enum_contributions = base_inherent_contributions
                         .iter()
@@ -1048,7 +1000,8 @@ impl SemanticWorkspaceSession {
                         &decl_id,
                         Some(
                             &enum_def
-                                .variants
+                                .cases()
+                                .unwrap_or_default()
                                 .iter()
                                 .map(|v| {
                                     let sel = phalcom_ast::selector::selector_from_variant(v);
@@ -1065,7 +1018,8 @@ impl SemanticWorkspaceSession {
                     base_associated_surface_products.push(assoc_surface);
 
                     let variants_info: Vec<VariantInfo> = enum_def
-                        .variants
+                        .cases()
+                        .unwrap_or_default()
                         .iter()
                         .filter_map(|v| {
                             let sel = phalcom_ast::selector::selector_from_variant(v);
@@ -2160,43 +2114,6 @@ impl SemanticWorkspaceSession {
                         generic_signature: None,
                         supertype_template: None,
                     });
-                } else if let Statement::Enum(enum_def) = stmt {
-                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                    let retain_previous_header = previous_snapshot
-                        .as_ref()
-                        .is_some_and(|previous| !generic_header_work.contains(&decl_id) && previous.declarations.get(&decl_id).is_some());
-                    if retain_previous_header {
-                        continue;
-                    }
-                    let generic_binder_header = predeclare_nominal_binder_header(
-                        Arc::make_mut(&mut self.store),
-                        module_id,
-                        &decl_id,
-                        &enum_def.generic_parameters,
-                        enum_def.where_clause.as_ref(),
-                    );
-                    if !enum_def.generic_parameters.is_empty() && generic_binder_header.is_none() {
-                        continue;
-                    }
-                    let kind = generic_binder_header.as_ref().map_or(KindId::TYPE, |header| {
-                        Arc::make_mut(&mut self.store).arrow_kind(header.parameter_kinds.clone(), KindId::TYPE)
-                    });
-
-                    let form = if kind == KindId::TYPE {
-                        Arc::make_mut(&mut self.store).nominal_type(decl_id.clone())
-                    } else {
-                        Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind)
-                    };
-                    let class_obj_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
-                    declarations.insert(DeclarationTypeInfo {
-                        declaration: decl_id,
-                        form,
-                        class_object_type: class_obj_type,
-                        kind,
-                        generic_binder_header,
-                        generic_signature: None,
-                        supertype_template: None,
-                    });
                 } else if let Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                     let retain_previous_header = previous_snapshot
@@ -2743,77 +2660,6 @@ impl SemanticWorkspaceSession {
                         hierarchy.insert_template(template);
                     }
                     declarations.insert(type_info);
-                } else if let Statement::Enum(enum_def) = stmt {
-                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                    if previous_snapshot.is_some() && !generic_header_work.contains(&decl_id) {
-                        continue;
-                    }
-                    let mut header_dependencies = BTreeSet::new();
-                    if let Some(where_clause) = &enum_def.where_clause {
-                        for constraint in &where_clause.constraints {
-                            match constraint {
-                                phalcom_ast::ast::GenericConstraintSyntax::Subtype { lower, upper, .. }
-                                | phalcom_ast::ast::GenericConstraintSyntax::Equivalent { left: lower, right: upper, .. } => {
-                                    collect_type_annotation_declarations(lower, &module_id, &resolver, &mut header_dependencies);
-                                    collect_type_annotation_declarations(upper, &module_id, &resolver, &mut header_dependencies);
-                                }
-                                phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
-                                    collect_type_annotation_declarations(subject, &module_id, &resolver, &mut header_dependencies);
-                                    for bound in bounds {
-                                        collect_type_annotation_declarations(&bound.trait_type, &module_id, &resolver, &mut header_dependencies);
-                                        for spec in &bound.associated_specializations {
-                                            collect_type_annotation_declarations(&spec.value, &module_id, &resolver, &mut header_dependencies);
-                                        }
-                                    }
-                                }
-                                phalcom_ast::ast::GenericConstraintSyntax::KindFact { .. } => {}
-                                phalcom_ast::ast::GenericConstraintSyntax::Invalid { .. } => {}
-                            }
-                        }
-                    }
-                    header_dependencies.remove(&decl_id);
-                    replace_reverse_dependencies(
-                        &mut next_generic_header_dependencies,
-                        &mut next_generic_header_reverse_dependencies,
-                        decl_id.clone(),
-                        header_dependencies,
-                    );
-                    let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
-                    let generic_signature = if !enum_def.generic_parameters.is_empty() {
-                        let outcome = resolve_generic_signature(
-                            Arc::make_mut(&mut self.store),
-                            &declarations,
-                            &resolver,
-                            &formation_site,
-                            TypeParameterOwner::Declaration(decl_id.clone()),
-                            GenericBinderSite::NominalDeclaration,
-                            &enum_def.generic_parameters,
-                            enum_def.where_clause.as_ref(),
-                            diags_by_module.entry(module_id.clone()).or_default(),
-                        );
-                        Some(retain_generic_signature(
-                            outcome,
-                            &module_id,
-                            enum_def.range,
-                            diags_by_module.entry(module_id.clone()).or_default(),
-                        ))
-                        .flatten()
-                    } else {
-                        None
-                    };
-
-                    if !enum_def.generic_parameters.is_empty() && generic_signature.is_none() {
-                        continue;
-                    }
-                    if let (Some(header), Some(signature)) = (declarations.generic_binder_header(&decl_id), generic_signature.as_ref()) {
-                        assert!(
-                            header.matches_signature(signature),
-                            "final enum signature must complete its predeclared binder header"
-                        );
-                    }
-                    let header = NominalDeclarationHeader::from_signature(Arc::make_mut(&mut self.store), decl_id.clone(), generic_signature);
-
-                    declarations.insert(header.into_type_info(None));
                 } else if let Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                     if previous_snapshot.is_some() && !generic_header_work.contains(&decl_id) {
@@ -3183,14 +3029,14 @@ impl SemanticWorkspaceSession {
                             super_ref.range,
                         ));
                     }
-                } else if let Statement::Enum(enum_def) = stmt {
-                    let enum_decl = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                    if blocked_declarations.contains(&enum_decl) || (previous_snapshot.is_some() && !hierarchy_query_work.contains(&enum_decl)) {
+                } else if let Statement::Data(data_def) = stmt {
+                    let decl = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                    if blocked_declarations.contains(&decl) || (previous_snapshot.is_some() && !hierarchy_query_work.contains(&decl)) {
                         continue;
                     }
                     let edge = match query_hierarchy_edge(
                         &mut self.db,
-                        enum_decl.clone(),
+                        decl.clone(),
                         parsed_unit.clone(),
                         HierarchyEdgeQueryInputs {
                             linked_interface: linked_interface.clone(),
@@ -3209,7 +3055,7 @@ impl SemanticWorkspaceSession {
                         QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                     };
                     if let Some(super_decl) = &edge.super_decl {
-                        hierarchy.insert(enum_decl, super_decl.clone());
+                        hierarchy.insert(decl, super_decl.clone());
                     }
                 }
             }
@@ -3458,69 +3304,70 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
-                    let Some(data_product) = crate::checker::data_declaration::build_data_semantics(
-                        &decl_id,
-                        data_def,
-                        Arc::make_mut(&mut self.store),
-                        &declarations,
-                        &resolver,
-                        module_id,
-                    ) else {
-                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
-                            module_id.clone(),
-                            DiagnosticCode::AnnotationUnresolved,
-                            format!("data `{}` has no published declaration type", data_def.name),
-                            data_def.range,
-                        ));
-                        continue;
-                    };
+                    if data_def.is_sum() {
+                        let Some(enum_product) = crate::checker::enum_declaration::build_enum_semantics(
+                            &decl_id,
+                            data_def,
+                            Arc::make_mut(&mut self.store),
+                            &declarations,
+                            &resolver,
+                            module_id,
+                        ) else {
+                            diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                module_id.clone(),
+                                DiagnosticCode::AnnotationUnresolved,
+                                format!("enum `{}` has no published declaration type", data_def.name),
+                                data_def.range,
+                            ));
+                            continue;
+                        };
 
-                    diags_by_module
-                        .entry(module_id.clone())
-                        .or_default()
-                        .extend(data_product.diagnostics.iter().cloned());
+                        diags_by_module
+                            .entry(module_id.clone())
+                            .or_default()
+                            .extend(enum_product.diagnostics.iter().cloned());
 
-                    data_semantics.insert_data(data_product.info.clone());
+                        enum_semantics.insert_enum(enum_product.info.clone());
+                        for v in enum_product.variants.iter() {
+                            enum_semantics.insert_variant(Arc::new(v.clone()));
+                        }
 
-                    let arc_data_product = Arc::new(data_product);
-                    let _ = query_data_declaration(&mut self.db, arc_data_product);
+                        let arc_enum_product = Arc::new(enum_product);
+                        let _ = query_enum_declaration(&mut self.db, arc_enum_product);
+                    } else {
+                        let Some(data_product) = crate::checker::data_declaration::build_data_semantics(
+                            &decl_id,
+                            data_def,
+                            Arc::make_mut(&mut self.store),
+                            &declarations,
+                            &resolver,
+                            module_id,
+                        ) else {
+                            diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                module_id.clone(),
+                                DiagnosticCode::AnnotationUnresolved,
+                                format!("data `{}` has no published declaration type", data_def.name),
+                                data_def.range,
+                            ));
+                            continue;
+                        };
 
-                    let surface = dispatch.surface(&decl_id).cloned().unwrap_or_default();
-                    dispatch.register_surface(decl_id.clone(), surface);
-                    if let Some(ty) = declarations.form(&decl_id) {
-                        dispatch.register_type(ty, decl_id.clone());
+                        diags_by_module
+                            .entry(module_id.clone())
+                            .or_default()
+                            .extend(data_product.diagnostics.iter().cloned());
+
+                        data_semantics.insert_data(data_product.info.clone());
+
+                        let arc_data_product = Arc::new(data_product);
+                        let _ = query_data_declaration(&mut self.db, arc_data_product);
+
+                        let surface = dispatch.surface(&decl_id).cloned().unwrap_or_default();
+                        dispatch.register_surface(decl_id.clone(), surface);
+                        if let Some(ty) = declarations.form(&decl_id) {
+                            dispatch.register_type(ty, decl_id.clone());
+                        }
                     }
-                } else if let Statement::Enum(enum_def) = stmt {
-                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                    let Some(enum_product) = crate::checker::enum_declaration::build_enum_semantics(
-                        &decl_id,
-                        enum_def,
-                        Arc::make_mut(&mut self.store),
-                        &declarations,
-                        &resolver,
-                        module_id,
-                    ) else {
-                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
-                            module_id.clone(),
-                            DiagnosticCode::AnnotationUnresolved,
-                            format!("enum `{}` has no published declaration type", enum_def.name),
-                            enum_def.range,
-                        ));
-                        continue;
-                    };
-
-                    diags_by_module
-                        .entry(module_id.clone())
-                        .or_default()
-                        .extend(enum_product.diagnostics.iter().cloned());
-
-                    enum_semantics.insert_enum(enum_product.info.clone());
-                    for v in enum_product.variants.iter() {
-                        enum_semantics.insert_variant(Arc::new(v.clone()));
-                    }
-
-                    let arc_enum_product = Arc::new(enum_product);
-                    let _ = query_enum_declaration(&mut self.db, arc_enum_product);
                 }
             }
         }
@@ -3951,7 +3798,10 @@ impl SemanticWorkspaceSession {
             };
             let parsed_unit = &shard.source;
             for stmt in &parsed_unit.program.statements {
-                if let Statement::Enum(enum_def) = stmt {
+                if let Statement::Data(enum_def) = stmt {
+                    if !enum_def.is_sum() {
+                        continue;
+                    }
                     let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                     let empty_contribs = Vec::new();
                     let module_contribs = inherent_contributions_by_module.get(module_id).unwrap_or(&empty_contribs);
@@ -4077,7 +3927,8 @@ impl SemanticWorkspaceSession {
                         &decl_id,
                         Some(
                             &enum_def
-                                .variants
+                                .cases()
+                                .unwrap_or_default()
                                 .iter()
                                 .map(|v| {
                                     let sel = phalcom_ast::selector::selector_from_variant(v);
@@ -4095,7 +3946,8 @@ impl SemanticWorkspaceSession {
                     let _ = query_associated_surface(&mut self.db, assoc_surface);
 
                     let variants_info: Vec<VariantInfo> = enum_def
-                        .variants
+                        .cases()
+                        .unwrap_or_default()
                         .iter()
                         .filter_map(|v| {
                             let sel = phalcom_ast::selector::selector_from_variant(v);
@@ -4224,15 +4076,18 @@ impl SemanticWorkspaceSession {
             for statement in &shard.source.program.statements {
                 let declaration = match statement {
                     Statement::Class(class_def) => DeclarationId::new(module_id.clone(), class_def.name.clone().into()),
-                    Statement::Enum(enum_def) => DeclarationId::new(module_id.clone(), enum_def.name.clone().into()),
                     Statement::Data(data_def) => {
                         let declaration = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
-                        if !associated_surfaces_table.surfaces.contains_key(&declaration) {
-                            let assoc_surface = crate::associated::build_data_associated_surface(&declaration);
-                            associated_surfaces_table.insert(declaration, assoc_surface.clone());
-                            let _ = query_associated_surface(&mut self.db, assoc_surface);
+                        if data_def.is_product() {
+                            if !associated_surfaces_table.surfaces.contains_key(&declaration) {
+                                let assoc_surface = crate::associated::build_data_associated_surface(&declaration);
+                                associated_surfaces_table.insert(declaration, assoc_surface.clone());
+                                let _ = query_associated_surface(&mut self.db, assoc_surface);
+                            }
+                            continue;
+                        } else {
+                            declaration
                         }
-                        continue;
                     }
                     _ => continue,
                 };
@@ -4672,8 +4527,8 @@ impl SemanticWorkspaceSession {
                                 }
                             }
                         }
-                    } else if let Statement::Enum(_enum_def) = stmt {
-                        // Enums are structural; their behavior is declared in Statement::Impl.
+                    } else if let Statement::Data(_data_def) = stmt {
+                        // Data and enums are structural; their behavior is declared in Statement::Impl.
                     } else if let Statement::Impl(impl_def) = stmt {
                         if constructors_only {
                             continue;
@@ -7195,7 +7050,6 @@ fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUni
                     };
                 }
             }
-            Statement::Enum(_) => {}
             Statement::Impl(impl_def) => {
                 for impl_member in &impl_def.members {
                     let Some(member) = impl_member.behavior() else {

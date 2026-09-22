@@ -1,3 +1,4 @@
+pub mod algebraic_declaration;
 pub mod analysis;
 pub mod associated;
 pub mod binding;

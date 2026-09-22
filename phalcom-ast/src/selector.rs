@@ -114,16 +114,44 @@ pub fn selector_from_member(member: &ClassMember) -> Selector {
     }
 }
 
-/// Constructs a structural [`Selector`] for an enum [`VariantDecl`].
+use crate::ast::CasePayloadSyntax;
+
+/// Constructs a structural [`Selector`] for an algebraic case / enum variant [`VariantDecl`].
 pub fn selector_from_variant(variant: &VariantDecl) -> Selector {
     match &variant.payload {
-        None => Selector::getter(&variant.name).unwrap_or_else(|_| Selector {
+        CasePayloadSyntax::Singleton => Selector::getter(&variant.name).unwrap_or_else(|_| Selector {
             base: SelectorBase::Named(variant.name.clone()),
             kind: SelectorKind::Getter,
             slots: Box::new([]),
         }),
-        Some(payload) => {
-            let slots = payload.parameters.iter().map(selector_slot_from_parameter).collect::<Vec<_>>();
+        CasePayloadSyntax::Tuple {
+            parameters,
+            explicit_empty,
+            ..
+        } => {
+            if parameters.is_empty() && *explicit_empty {
+                Selector::method(&variant.name, Vec::new()).unwrap_or_else(|_| Selector {
+                    base: SelectorBase::Named(variant.name.clone()),
+                    kind: SelectorKind::Method,
+                    slots: Box::new([]),
+                })
+            } else {
+                let slots = parameters.iter().map(selector_slot_from_parameter).collect::<Vec<_>>();
+                Selector::method(&variant.name, slots).unwrap_or_else(|_| Selector {
+                    base: SelectorBase::Named(variant.name.clone()),
+                    kind: SelectorKind::Method,
+                    slots: Box::new([]),
+                })
+            }
+        }
+        CasePayloadSyntax::Record { components, .. } => {
+            let slots = components
+                .iter()
+                .map(|c| match &c.external_label {
+                    Some(label) => SelectorSlot::Label(label.clone()),
+                    None => SelectorSlot::Label(c.local_name.clone()),
+                })
+                .collect::<Vec<_>>();
             Selector::method(&variant.name, slots).unwrap_or_else(|_| Selector {
                 base: SelectorBase::Named(variant.name.clone()),
                 kind: SelectorKind::Method,
@@ -132,6 +160,8 @@ pub fn selector_from_variant(variant: &VariantDecl) -> Selector {
         }
     }
 }
+
+pub use selector_from_variant as selector_from_case;
 
 /// Constructs a structural [`Selector`] for a [`BehaviorMember`].
 pub fn selector_from_behavior_member(member: &BehaviorMember) -> Selector {

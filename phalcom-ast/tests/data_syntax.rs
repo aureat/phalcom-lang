@@ -1,5 +1,7 @@
 use phalcom_ast::{
-    ast::{DataShapeSyntax, Expr, Statement, Visibility},
+    ast::{
+        AlgebraicPhase, Expr, ImplementationKind, ProductShapeSyntax, Statement, Visibility,
+    },
     error::SyntaxErrorKind,
     parse_source,
 };
@@ -12,10 +14,10 @@ fn data_positional_tuple_syntax() {
         panic!("expected data");
     };
     assert_eq!(data_def.name, "Pair");
-    assert_eq!(data_def.constructor_visibility, Visibility::Public);
-    assert!(data_def.constructor_visibility_range.is_none());
+    assert_eq!(data_def.constructor_visibility(), Visibility::Public);
+    assert!(data_def.constructor_visibility_range().is_none());
     assert_eq!(data_def.generic_parameters.len(), 2);
-    let DataShapeSyntax::Tuple { components, .. } = &data_def.shape else {
+    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
         panic!("expected tuple shape");
     };
     assert_eq!(components.len(), 2);
@@ -35,7 +37,7 @@ fn data_labeled_tuple_with_where_clause() {
     assert_eq!(data_def.name, "Point");
     assert_eq!(data_def.generic_parameters.len(), 1);
     assert!(data_def.where_clause.is_some());
-    let DataShapeSyntax::Tuple { components, .. } = &data_def.shape else {
+    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
         panic!("expected tuple shape");
     };
     assert_eq!(components.len(), 2);
@@ -59,8 +61,8 @@ fn data_constructor_visibility_forms_parse() {
         let Statement::Data(data_def) = &program.statements[0] else {
             panic!("expected data statement for {source:?}");
         };
-        assert_eq!(data_def.constructor_visibility, expected);
-        assert!(data_def.constructor_visibility_range.is_some());
+        assert_eq!(data_def.constructor_visibility(), expected);
+        assert!(data_def.constructor_visibility_range().is_some());
     }
 }
 
@@ -97,7 +99,7 @@ fn data_record_syntax() {
         panic!("expected data");
     };
     assert_eq!(data_def.name, "Person");
-    let DataShapeSyntax::Record { components, .. } = &data_def.shape else {
+    let Some(ProductShapeSyntax::Record { components, .. }) = data_def.product_shape() else {
         panic!("expected record shape");
     };
     assert_eq!(components.len(), 2);
@@ -116,10 +118,192 @@ fn data_nullary_tuple_syntax() {
     };
     assert_eq!(data_def.name, "Signal");
     assert_eq!(data_def.generic_parameters.len(), 1);
-    let DataShapeSyntax::Tuple { components, .. } = &data_def.shape else {
+    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
         panic!("expected tuple shape");
     };
     assert!(components.is_empty());
+}
+
+#[test]
+fn data_point_tuple_syntax() {
+    let source = "data Point(_ x: Int, _ y: Int)\n";
+    let program = parse_source(source, 0).expect("data parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
+    };
+    assert_eq!(data_def.name, "Point");
+    assert!(data_def.is_product());
+    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
+        panic!("expected tuple shape");
+    };
+    assert_eq!(components.len(), 2);
+    assert_eq!(components[0].local_name, "x");
+    assert_eq!(components[1].local_name, "y");
+}
+
+#[test]
+fn data_state_sum_syntax() {
+    let source = "data State {\n  Ready\n  Failed(_ error: Error)\n}\n";
+    let program = parse_source(source, 0).expect("data sum parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
+    };
+    assert_eq!(data_def.name, "State");
+    assert!(data_def.is_sum());
+    let cases = data_def.cases().expect("expected cases");
+    assert_eq!(cases.len(), 2);
+    assert_eq!(cases[0].name, "Ready");
+    assert!(cases[0].is_singleton());
+    assert_eq!(cases[1].name, "Failed");
+    let params = cases[1].tuple_parameters().expect("expected tuple params");
+    assert_eq!(params.len(), 1);
+    assert_eq!(params[0].name, "error");
+}
+
+#[test]
+fn data_weekday_comma_separated_singleton_shorthand() {
+    let source = "data Weekday {\n  Monday, Tuesday, Wednesday\n}\n";
+    let program = parse_source(source, 0).expect("data shorthand parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
+    };
+    assert_eq!(data_def.name, "Weekday");
+    assert!(data_def.is_sum());
+    let cases = data_def.cases().expect("expected cases");
+    assert_eq!(cases.len(), 3);
+    assert_eq!(cases[0].name, "Monday");
+    assert!(cases[0].is_singleton());
+    assert_eq!(cases[1].name, "Tuesday");
+    assert!(cases[1].is_singleton());
+    assert_eq!(cases[2].name, "Wednesday");
+    assert!(cases[2].is_singleton());
+}
+
+#[test]
+fn data_message_record_payload_sum() {
+    let source = "data Message {\n  Request {\n    method: Method,\n    path: String\n  }\n  Closed\n}\n";
+    let program = parse_source(source, 0).expect("data with record payload parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
+    };
+    assert_eq!(data_def.name, "Message");
+    assert!(data_def.is_sum());
+    let cases = data_def.cases().expect("expected cases");
+    assert_eq!(cases.len(), 2);
+    assert_eq!(cases[0].name, "Request");
+    let comps = cases[0].record_components().expect("expected record components");
+    assert_eq!(comps.len(), 2);
+    assert_eq!(comps[0].local_name, "method");
+    assert_eq!(comps[1].local_name, "path");
+    assert_eq!(cases[1].name, "Closed");
+    assert!(cases[1].is_singleton());
+}
+
+#[test]
+fn data_example_singleton_vs_constructed() {
+    let source = "data Example {\n  Singleton\n  Constructed()\n}\n";
+    let program = parse_source(source, 0).expect("data parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
+    };
+    assert_eq!(data_def.name, "Example");
+    assert!(data_def.is_sum());
+    let cases = data_def.cases().expect("expected cases");
+    assert_eq!(cases.len(), 2);
+    assert_eq!(cases[0].name, "Singleton");
+    assert!(cases[0].is_singleton());
+    assert_eq!(cases[1].name, "Constructed");
+    assert!(cases[1].is_explicit_empty());
+}
+
+#[test]
+fn data_impossible_empty_sum() {
+    let source = "data Impossible {}\n";
+    let program = parse_source(source, 0).expect("empty sum parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
+    };
+    assert_eq!(data_def.name, "Impossible");
+    assert!(data_def.is_sum());
+    let cases = data_def.cases().expect("expected cases");
+    assert!(cases.is_empty());
+}
+
+#[test]
+fn type_data_shape_syntax() {
+    let source = "type data Shape {\n  Scalar\n  Vector(_ size: Int)\n}\n";
+    let program = parse_source(source, 0).expect("type data parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
+    };
+    assert_eq!(data_def.name, "Shape");
+    assert_eq!(data_def.phase, AlgebraicPhase::TypeOnly);
+    assert!(data_def.is_sum());
+    let cases = data_def.cases().expect("expected cases");
+    assert_eq!(cases.len(), 2);
+    assert_eq!(cases[0].name, "Scalar");
+    assert_eq!(cases[1].name, "Vector");
+}
+
+#[test]
+fn intrinsic_data_unit_syntax() {
+    let source = "intrinsic data Unit()\n";
+    let program = parse_source(source, 0).expect("intrinsic data parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
+    };
+    assert_eq!(data_def.name, "Unit");
+    assert_eq!(data_def.phase, AlgebraicPhase::Runtime);
+    assert_eq!(data_def.implementation, ImplementationKind::Intrinsic);
+    assert!(data_def.is_product());
+    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
+        panic!("expected tuple shape");
+    };
+    assert!(components.is_empty());
+}
+
+#[test]
+fn intrinsic_type_data_syntax() {
+    let source = "intrinsic type data ShapeKind {\n  Dimension\n}\n";
+    let program = parse_source(source, 0).expect("intrinsic type data parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
+        panic!("expected data");
+    };
+    assert_eq!(data_def.name, "ShapeKind");
+    assert_eq!(data_def.phase, AlgebraicPhase::TypeOnly);
+    assert_eq!(data_def.implementation, ImplementationKind::Intrinsic);
+    assert!(data_def.is_sum());
+}
+
+#[test]
+fn legacy_enum_equivalent_canonicalizes_to_runtime_sum() {
+    let enum_source = "enum State {\n  Ready\n  Failed(_ error: Error)\n}\n";
+    let data_source = "data State {\n  Ready\n  Failed(_ error: Error)\n}\n";
+    let enum_prog = parse_source(enum_source, 0).expect("enum parses");
+    let data_prog = parse_source(data_source, 0).expect("data parses");
+
+    let Statement::Data(enum_def) = &enum_prog.statements[0] else {
+        panic!("expected data");
+    };
+    let Statement::Data(data_def) = &data_prog.statements[0] else {
+        panic!("expected data");
+    };
+
+    assert_eq!(enum_def.name, data_def.name);
+    assert_eq!(enum_def.phase, data_def.phase);
+    assert_eq!(enum_def.phase, AlgebraicPhase::Runtime);
+    assert!(enum_def.legacy_enum_keyword_range.is_some());
+    assert!(data_def.legacy_enum_keyword_range.is_none());
+    assert!(enum_def.is_sum());
+    assert!(data_def.is_sum());
+    assert_eq!(enum_def.cases().unwrap().len(), data_def.cases().unwrap().len());
+}
+
+#[test]
+fn mixed_field_case_body_rejects() {
+    let source = "data Invalid {\n  value: Int\n  None\n}\n";
+    let error = parse_source(source, 0).expect_err("mixed field/case body must fail");
+    assert_eq!(error.kind, SyntaxErrorKind::MixedAlgebraicBody);
 }
 
 #[test]

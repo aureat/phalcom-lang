@@ -242,6 +242,10 @@ pub enum SyntaxErrorKind {
     #[error("enum declarations may only contain variants; behavior must be declared in an `impl` block")]
     EnumBehaviorUnsupported,
 
+    /// An algebraic declaration body cannot mix product components and sum cases.
+    #[error("data.mixed_body: algebraic declaration body cannot mix product components and sum cases")]
+    MixedAlgebraicBody,
+
     /// A syntax error with no more specific classification.
     #[error("Unknown error")]
     Unknown,
@@ -282,6 +286,7 @@ impl SyntaxErrorKind {
             Self::VariantOutsideEnum => "syntax.enum.variant_outside_enum",
             Self::VariantRestParameterUnsupported => "syntax.enum.variant_rest_unsupported",
             Self::EnumBehaviorUnsupported => "syntax.enum.behavior_unsupported",
+            Self::MixedAlgebraicBody => "syntax.algebraic.mixed_body",
             Self::Unknown => "syntax.unknown",
             Self::Message(_) => "syntax.message",
         }

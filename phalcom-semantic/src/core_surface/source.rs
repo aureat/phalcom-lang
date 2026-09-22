@@ -154,12 +154,13 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                     doc_comment: None,
                 }));
             }
-            Statement::Enum(enum_def) => {
-                let enum_decl = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                let enum_binding_role = source_native_binding_role(&enum_def.attributes, enum_def.implementation);
+            Statement::Data(data_def) if data_def.is_sum() => {
+                let cases = data_def.cases().unwrap_or_default();
+                let enum_decl = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                let enum_binding_role = source_native_binding_role(&data_def.attributes, data_def.implementation);
                 let mut variants = Vec::new();
 
-                for v in &enum_def.variants {
+                for v in cases {
                     let sel = phalcom_ast::selector::selector_from_variant(v);
                     let v_binding_role = match source_native_binding_role(&v.attributes, ImplementationKind::Phalcom) {
                         SourceNativeBindingRole::None => enum_binding_role,
@@ -175,10 +176,10 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
 
                 declarations.push(SourceDeclarationRecord::Enum(SourceEnumRecord {
                     declaration_id: enum_decl,
-                    name: enum_def.name.clone(),
+                    name: data_def.name.clone(),
                     variants,
                     members: Vec::new(),
-                    range: enum_def.range,
+                    range: data_def.range,
                     doc_comment: None,
                     binding_role: enum_binding_role,
                 }));

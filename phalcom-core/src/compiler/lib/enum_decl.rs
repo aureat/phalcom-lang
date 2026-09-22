@@ -31,27 +31,43 @@ impl<'vm> Compiler<'vm> {
             let module_id = self.vm.heap.module(self.module).id.clone();
             let owner = DeclarationId::new(module_id, enum_def.name.clone().into_boxed_str());
             let mut variants = Vec::new();
-            for v in &enum_def.variants {
+            for v in enum_def.cases().unwrap_or_default() {
                 let selector = phalcom_ast::selector::selector_from_variant(v);
                 let vid = VariantId::new(owner.clone(), selector);
-                let shape = if v.payload.is_some() {
-                    VariantShape::Constructor
-                } else {
+                let shape = if v.is_singleton() {
                     VariantShape::Singleton
+                } else {
+                    VariantShape::Constructor
                 };
                 let mut fields = Vec::new();
-                if let Some(payload) = &v.payload {
-                    for (idx, p) in payload.parameters.iter().enumerate() {
-                        let field_name = p.name.clone();
-                        let field_index =
-                            u32::try_from(idx).map_err(|_| CompilerError::Message(format!("variant `{}` has too many payload fields", v.name)))?;
-                        let slot = u16::try_from(idx).map_err(|_| CompilerError::Message(format!("variant `{}` has too many payload slots", v.name)))?;
-                        fields.push(VariantFieldLoweringSpec {
-                            id: VariantFieldId::new(vid.clone(), field_index),
-                            local_name: field_name.into_boxed_str(),
-                            slot,
-                        });
+                match &v.payload {
+                    phalcom_ast::ast::CasePayloadSyntax::Tuple { parameters, .. } => {
+                        for (idx, p) in parameters.iter().enumerate() {
+                            let field_name = p.name.clone();
+                            let field_index =
+                                u32::try_from(idx).map_err(|_| CompilerError::Message(format!("variant `{}` has too many payload fields", v.name)))?;
+                            let slot = u16::try_from(idx).map_err(|_| CompilerError::Message(format!("variant `{}` has too many payload slots", v.name)))?;
+                            fields.push(VariantFieldLoweringSpec {
+                                id: VariantFieldId::new(vid.clone(), field_index),
+                                local_name: field_name.into_boxed_str(),
+                                slot,
+                            });
+                        }
                     }
+                    phalcom_ast::ast::CasePayloadSyntax::Record { components, .. } => {
+                        for (idx, p) in components.iter().enumerate() {
+                            let field_name = p.local_name.clone();
+                            let field_index =
+                                u32::try_from(idx).map_err(|_| CompilerError::Message(format!("variant `{}` has too many payload fields", v.name)))?;
+                            let slot = u16::try_from(idx).map_err(|_| CompilerError::Message(format!("variant `{}` has too many payload slots", v.name)))?;
+                            fields.push(VariantFieldLoweringSpec {
+                                id: VariantFieldId::new(vid.clone(), field_index),
+                                local_name: field_name.into_boxed_str(),
+                                slot,
+                            });
+                        }
+                    }
+                    phalcom_ast::ast::CasePayloadSyntax::Singleton => {}
                 }
                 variants.push(VariantLoweringSpec {
                     id: vid,

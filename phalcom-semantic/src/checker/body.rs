@@ -21,7 +21,6 @@ use std::sync::Arc;
 fn stmt_range(stmt: &Statement) -> SourceRange {
     match stmt {
         Statement::Class(c) => c.range,
-        Statement::Enum(e) => e.range,
         Statement::Data(d) => d.range,
         Statement::Trait(t) => t.range,
         Statement::TypeAlias(t) => t.range,

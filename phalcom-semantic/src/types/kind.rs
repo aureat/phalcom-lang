@@ -1,6 +1,6 @@
 //! Kind models distinguishing value types from type constructors.
 
-use super::id::KindId;
+use super::id::{KindId, StaticDomainId};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum KindData {
@@ -16,6 +16,13 @@ pub enum KindData {
     CompleteTypePack,
     /// Type constructor (`Kind -> Kind` or `(Kind, ...) -> Kind`).
     Arrow { parameters: Box<[KindId]>, result: KindId },
+    /// Nominal static algebraic domain (from a `type data` declaration).
+    ///
+    /// A `StaticDomain` kind has no runtime inhabitants and must never appear as
+    /// the declared type of a runtime value. The [`StaticDomainId`] identifies
+    /// the specific static domain within the owning `TypeStore`; use the
+    /// declaration reference for cross-store stable identity.
+    StaticDomain(StaticDomainId),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]

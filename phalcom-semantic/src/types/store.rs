@@ -2,7 +2,7 @@
 
 use super::application::TypeApplicationError;
 use super::family::{FamilyMemberType, FamilyMemberTypeKind, FamilyType, FamilyTypeError, FamilyTypeId};
-use super::id::{KindId, ProperTypeId, RecordRowId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
+use super::id::{AlgebraicStaticConstructorId, KindId, ProperTypeId, RecordRowId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
 use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 use super::row::{RecordRowData, RecordRowField, RecordRowTail};
@@ -163,6 +163,72 @@ pub enum TypeData {
     AssociatedProjection(AssociatedTypeProjection),
     /// Compiler-intrinsic or domain-native type-member projection.
     TypeMemberProjection(TypeLevelProjection),
+    /// Canonical compile-time integer constant (static term, not a proper type).
+    ///
+    /// `ConstInt(n)` has kind `KindData::StaticDomain(CONST_INT_DOMAIN_ID)` and
+    /// must never be accepted by `ProperTypeId`-guarded APIs.
+    ConstInt(i64),
+    /// Canonical structural static algebraic data term (static term, not a proper type).
+    ///
+    /// Represents one constructor application within a nominal `type data` static
+    /// domain. Has kind `KindData::StaticDomain(domain_id)` and must never be
+    /// accepted by `ProperTypeId`-guarded APIs.
+    StaticData(AlgebraicStaticTerm),
+}
+
+/// Semantic canonical data for a nominal static domain.
+///
+/// Two static domains are identical iff their `StaticDomainData` representations
+/// are structurally equal. Raw `StaticDomainId` integers must not be serialized
+/// as durable identity; use the `declaration` field or a `ConstInt` marker instead.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum StaticDomainData {
+    /// The built-in domain of compile-time integer constants.
+    ConstInt,
+    /// A nominal static domain introduced by a `type data` declaration.
+    Nominal { declaration: DeclarationId },
+}
+
+/// A canonical static algebraic term: one constructor application within a
+/// nominal `type data` static domain.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct AlgebraicStaticTerm {
+    /// The static domain this term belongs to.
+    pub domain: StaticDomainId,
+    /// The specific constructor or case within the domain.
+    pub constructor: AlgebraicStaticConstructorId,
+    /// Canonical static arguments to the constructor.
+    pub arguments: Box<[StaticArgument]>,
+}
+
+/// An argument to a static algebraic constructor.
+///
+/// Static constructors may accept static type-level terms or record-row terms.
+/// Arbitrary runtime expressions are not accepted; only terms whose identity
+/// is deterministic at compile time may appear here.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum StaticArgument {
+    /// A static term argument (itself a `TypeId` with a static-domain kind).
+    Term(TypeId),
+    /// A record-row argument (for future structural static row domains; P2).
+    RecordRow(RecordRowId),
+}
+
+/// Canonical semantic data for a registered static algebraic constructor.
+///
+/// One constructor corresponds to one product `type data` primary constructor,
+/// or to one case/variant within a sum `type data`.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct AlgebraicStaticConstructorData {
+    /// The domain this constructor belongs to.
+    pub domain: StaticDomainId,
+    /// Stable declaration reference for the owning `type data`.
+    pub declaration: DeclarationId,
+    /// Case name within a sum `type data`, or the type name for a product
+    /// `type data` primary constructor.
+    pub case_name: Box<str>,
+    /// Parameter arity for this constructor (number of static arguments).
+    pub arity: u32,
 }
 
 /// Central store for canonical type interning, hash-consing, and kind assignments.
@@ -408,8 +474,10 @@ impl TypeStore {
                 let parameters = parameters.iter().map(|&parameter| self.format_kind(parameter)).collect::<Vec<_>>().join(", ");
                 format!("({parameters}) -> {}", self.format_kind(*result))
             }
+            KindData::StaticDomain(_) => "StaticDomain".to_string(),
         }
     }
+
 
     pub fn arrow_kind(&mut self, parameters: Box<[KindId]>, result: KindId) -> KindId {
         if parameters.is_empty() {
@@ -439,9 +507,12 @@ impl TypeStore {
 
         let callee_data = self.get_kind(callee).clone();
         match callee_data {
-            KindData::Type | KindData::RecordRow | KindData::TypePack | KindData::LabeledTypePack | KindData::CompleteTypePack => {
-                Err(KindApplicationError::NotApplicable { kind: callee })
-            }
+            KindData::Type
+            | KindData::RecordRow
+            | KindData::TypePack
+            | KindData::LabeledTypePack
+            | KindData::CompleteTypePack
+            | KindData::StaticDomain(_) => Err(KindApplicationError::NotApplicable { kind: callee }),
             KindData::Arrow { parameters, result } => {
                 if arguments.len() > parameters.len() {
                     return Err(KindApplicationError::TooManyArguments {

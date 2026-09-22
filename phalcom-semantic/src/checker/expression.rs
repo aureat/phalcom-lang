@@ -4104,10 +4104,31 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
     }
 }
 
+fn apply_ambient_equalities(store: &mut crate::types::store::TypeStore, ambient_constraints: &[crate::types::parameter::GenericConstraint], ty: TypeId) -> TypeId {
+    let mut subst = crate::types::substitution::TypeSubstitution::new();
+    for c in ambient_constraints {
+        if let crate::types::parameter::GenericConstraint::Equivalent { left, right } = c {
+            if let (crate::types::parameter::TypeTerm::Canonical(left_ty), crate::types::parameter::TypeTerm::Canonical(right_ty)) = (left, right) {
+                if let TypeData::Parameter(p) = store.get(*left_ty) {
+                    subst.bind(*p, *right_ty);
+                } else if let TypeData::Parameter(p) = store.get(*right_ty) {
+                    subst.bind(*p, *left_ty);
+                }
+            }
+        }
+    }
+    if !subst.is_empty() {
+        subst.apply(store, ty)
+    } else {
+        ty
+    }
+}
+
 pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom_ast::ast::MatchExpr, expected: &ExpectedType) -> TypedExpression {
     let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
     let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
     let scrutinee_ty = scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
+    let scrutinee_ty = apply_ambient_equalities(ctx.store, &ctx.ambient_constraints, scrutinee_ty);
     let before_flow = ctx.flow.clone();
     let stable_scrutinee = match match_expr.value.as_ref() {
         Expr::Var { value, .. } => ctx.lookup_binding_info(value).map(|binding| binding.id),

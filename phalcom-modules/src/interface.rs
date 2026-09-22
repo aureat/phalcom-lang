@@ -181,11 +181,6 @@ impl InterfaceBuilder {
                     Self::validate_dunder(&class_def.name, DunderRole::Binding, range)?;
                     Self::collect_declaration(&class_def.name, true, range, &mut namespace, &mut declarations)?;
                 }
-                Statement::Enum(enum_def) => {
-                    let range = (enum_def.range.start..enum_def.name_range.end).into();
-                    Self::validate_dunder(&enum_def.name, DunderRole::Binding, range)?;
-                    Self::collect_declaration(&enum_def.name, true, range, &mut namespace, &mut declarations)?;
-                }
                 Statement::Data(data_def) => {
                     let range = (data_def.range.start..data_def.name_range.end).into();
                     Self::validate_dunder(&data_def.name, DunderRole::Binding, range)?;

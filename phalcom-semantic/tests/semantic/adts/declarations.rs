@@ -160,6 +160,7 @@ fn adt_req_01_02_04_requirements_report_satisfied_missing_and_incompatible_cases
             type_handle: VariantTypeId(1),
             family: circle_var.family(),
             shape: VariantShape::Singleton,
+            payload_kind: phalcom_semantic::enum_semantics::AlgebraicCasePayloadKind::Singleton,
             fields: Box::new([]),
             result_type_template: nominal_owner,
             exact_case_template: circle_exact,
@@ -173,6 +174,7 @@ fn adt_req_01_02_04_requirements_report_satisfied_missing_and_incompatible_cases
             type_handle: VariantTypeId(2),
             family: square_var.family(),
             shape: VariantShape::Singleton,
+            payload_kind: phalcom_semantic::enum_semantics::AlgebraicCasePayloadKind::Singleton,
             fields: Box::new([]),
             result_type_template: nominal_owner,
             exact_case_template: square_exact,
@@ -186,6 +188,7 @@ fn adt_req_01_02_04_requirements_report_satisfied_missing_and_incompatible_cases
             type_handle: VariantTypeId(3),
             family: bad_var.family(),
             shape: VariantShape::Singleton,
+            payload_kind: phalcom_semantic::enum_semantics::AlgebraicCasePayloadKind::Singleton,
             fields: Box::new([]),
             result_type_template: nominal_owner,
             exact_case_template: bad_exact,
@@ -503,4 +506,53 @@ fn adt_decl_08_source_ranges_cover_enum_and_variant_metadata() {
     let variant = case.variant("Status", Selector::method("Active", [SelectorSlot::Positional]).expect("Active selector"));
     assert!(variant.source.as_ref().is_some_and(|span| span.range.start < span.range.end));
     assert!(variant.fields[0].source.as_ref().is_some_and(|span| span.range.start < span.range.end));
+}
+
+#[test]
+fn equivalent_legacy_enum_and_data_produce_equal_semantic_facts() {
+    let enum_case = super::support::analyze_adt("enum State {\n  Ready\n  Failed(_ error: Int)\n}\n");
+    let data_case = super::support::analyze_adt("data State {\n  Ready\n  Failed(_ error: Int)\n}\n");
+
+    let enum_info = enum_case.enum_info("State");
+    let data_info = data_case.enum_info("State");
+
+    assert_eq!(enum_info.owner.name, data_info.owner.name);
+    assert_eq!(enum_info.variants.len(), data_info.variants.len());
+
+    let ready_sel = Selector::getter("Ready").expect("Ready getter");
+    let enum_ready = enum_case.variant("State", ready_sel.clone());
+    let data_ready = data_case.variant("State", ready_sel);
+    assert_eq!(enum_ready.shape, data_ready.shape);
+    assert_eq!(enum_ready.payload_kind, data_ready.payload_kind);
+    assert_eq!(enum_ready.fields.len(), data_ready.fields.len());
+
+    let failed_sel = Selector::method("Failed", [SelectorSlot::Positional]).expect("Failed method");
+    let enum_failed = enum_case.variant("State", failed_sel.clone());
+    let data_failed = data_case.variant("State", failed_sel);
+    assert_eq!(enum_failed.shape, data_failed.shape);
+    assert_eq!(enum_failed.payload_kind, data_failed.payload_kind);
+    assert_eq!(enum_failed.fields.len(), data_failed.fields.len());
+    assert_eq!(enum_failed.fields[0].local_name, data_failed.fields[0].local_name);
+}
+
+#[test]
+fn record_payload_case_produces_labeled_constructor_and_fields() {
+    let case = super::support::analyze_adt("data Message {\n  Request {\n    method: Int,\n    path: String\n  }\n  Closed\n}\n");
+    let info = case.enum_info("Message");
+    assert_eq!(info.variants.len(), 2);
+
+    let req_sel = Selector::method("Request", [SelectorSlot::Label("method".into()), SelectorSlot::Label("path".into())]).expect("Request selector");
+    let req_variant = case.variant("Message", req_sel);
+    assert_eq!(req_variant.shape, VariantShape::Constructor);
+    assert_eq!(req_variant.payload_kind, phalcom_semantic::enum_semantics::AlgebraicCasePayloadKind::Record);
+    assert_eq!(req_variant.fields.len(), 2);
+    assert_eq!(req_variant.fields[0].local_name.as_ref(), "method");
+    assert_eq!(req_variant.fields[0].external_label.as_deref(), Some("method"));
+    assert_eq!(req_variant.fields[1].local_name.as_ref(), "path");
+    assert_eq!(req_variant.fields[1].external_label.as_deref(), Some("path"));
+
+    let ctor = req_variant.constructor.as_ref().expect("constructor exists");
+    assert_eq!(ctor.parameters.len(), 2);
+    assert_eq!(ctor.parameters[0].external_label.as_deref(), Some("method"));
+    assert_eq!(ctor.parameters[1].external_label.as_deref(), Some("path"));
 }

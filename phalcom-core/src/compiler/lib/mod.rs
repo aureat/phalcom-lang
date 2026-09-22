@@ -880,11 +880,14 @@ impl<'vm> Compiler<'vm> {
             Statement::Class(class_def) => {
                 self.compile_class(class_def)?;
             }
-            Statement::Enum(enum_def) => {
-                self.compile_enum(&enum_def)?;
-            }
             Statement::Data(data_def) => {
-                self.compile_data(&data_def)?;
+                if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                    // TypeOnly declarations have no runtime inhabitants and are not compiled to runtime bytecode
+                } else if data_def.is_sum() {
+                    self.compile_enum(&data_def)?;
+                } else {
+                    self.compile_data(&data_def)?;
+                }
             }
             // Traits are compile-time contract declarations in C3. Their
             // members are not runtime class members and default lowering is

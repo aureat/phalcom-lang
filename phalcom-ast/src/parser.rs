@@ -1309,7 +1309,8 @@ impl<'source> Parser<'source> {
             || modifiers.implementation_range.is_some()
             || modifiers.visibility_range.is_some()
             || ((matches!(self.peek(), Token::Class | Token::Enum | Token::Data | Token::Trait) && matches!(self.peek_next(), Token::Identifier(_)))
-                || matches!(self.peek(), Token::Impl))
+                || matches!(self.peek(), Token::Impl)
+                || (matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data)))
         {
             if let Some(range) = modifiers.visibility_range {
                 return Err(SyntaxError {
@@ -1329,23 +1330,34 @@ impl<'source> Parser<'source> {
             let stmt = if matches!(self.peek(), Token::Enum) {
                 self.parse_enum(header_attrs, modifiers)?
             } else if matches!(self.peek(), Token::Data) {
-                if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+                if modifiers.implementation == ImplementationKind::Foreign {
                     let k = modifiers.implementation.as_str();
                     return Err(SyntaxError {
                         kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: 'data' declarations cannot be marked '{k}'")),
                         range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(0..0),
                     });
                 }
-                self.parse_data(header_attrs, modifiers)?
+                self.parse_data(header_attrs, modifiers, AlgebraicPhase::Runtime)?
             } else if matches!(self.peek(), Token::TypeKw) {
-                if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
-                    let k = modifiers.implementation.as_str();
-                    return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: 'type' alias declarations cannot be marked '{k}'")),
-                        range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(0..0),
-                    });
+                if matches!(self.peek_next(), Token::Data) {
+                    if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+                        let k = modifiers.implementation.as_str();
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: 'type data' declarations cannot be marked '{k}'")),
+                            range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(0..0),
+                        });
+                    }
+                    self.parse_type_data(header_attrs, modifiers)?
+                } else {
+                    if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
+                        let k = modifiers.implementation.as_str();
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: 'type' alias declarations cannot be marked '{k}'")),
+                            range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(0..0),
+                        });
+                    }
+                    self.parse_type_alias_with_modifiers(modifiers)?
                 }
-                self.parse_type_alias_with_modifiers(modifiers)?
             } else if matches!(self.peek(), Token::Impl) {
                 if let Some(range) = modifiers.implementation_range {
                     return Err(SyntaxError {
@@ -1433,7 +1445,15 @@ impl<'source> Parser<'source> {
     /// Propagates any error from the underlying statement parser.
     fn parse_small_statement(&mut self) -> ParserResult<Statement> {
         match self.peek() {
-            Token::TypeKw => self.parse_type_alias(),
+            Token::TypeKw => {
+                if matches!(self.peek_next(), Token::Data) {
+                    self.parse_type_data(Vec::new(), ParsedModifiers::default())
+                } else {
+                    self.parse_type_alias()
+                }
+            }
+            Token::Data => self.parse_data(Vec::new(), ParsedModifiers::default(), AlgebraicPhase::Runtime),
+            Token::Enum => self.parse_enum(Vec::new(), ParsedModifiers::default()),
             Token::Let => self.parse_binding(BindingKind::Let),
             Token::Const => self.parse_binding(BindingKind::Const),
             Token::Return => self.parse_return(),
@@ -3811,12 +3831,35 @@ impl<'source> Parser<'source> {
         Ok((members, class_attributes, class_invariants))
     }
 
-    fn parse_data(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers) -> ParserResult<Statement> {
+    fn parse_type_data(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers) -> ParserResult<Statement> {
         while matches!(self.peek(), Token::At) {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
         }
-        let start = modifiers.implementation_range.map(|r| r.start).unwrap_or_else(|| self.cur_start());
+        let kw_start = self.cur_start();
+        self.expect(&Token::TypeKw, &["\"type\""])?;
+        self.skip_newlines();
+        self.parse_data_inner(header_attrs, modifiers, AlgebraicPhase::TypeOnly, None, kw_start)
+    }
+
+    fn parse_data(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers, phase: AlgebraicPhase) -> ParserResult<Statement> {
+        while matches!(self.peek(), Token::At) {
+            header_attrs.push(self.parse_attribute()?);
+            self.skip_newlines();
+        }
+        let kw_start = self.cur_start();
+        self.parse_data_inner(header_attrs, modifiers, phase, None, kw_start)
+    }
+
+    fn parse_data_inner(
+        &mut self,
+        header_attrs: Vec<Attribute>,
+        modifiers: ParsedModifiers,
+        phase: AlgebraicPhase,
+        legacy_enum_keyword_range: Option<SourceRange>,
+        kw_start: usize,
+    ) -> ParserResult<Statement> {
+        let start = modifiers.implementation_range.map(|r| r.start).unwrap_or(kw_start);
         self.expect(&Token::Data, &["\"data\""])?;
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["identifier"])?;
@@ -3835,17 +3878,18 @@ impl<'source> Parser<'source> {
             None
         };
 
+        self.skip_newlines_if_followed_by(&Token::LParen);
         self.skip_newlines_if_followed_by(&Token::LBrace);
 
         let shape = if matches!(self.peek(), Token::LParen) {
-            let shape = self.parse_data_tuple_shape()?;
+            let shape = self.parse_data_tuple_shape(constructor_visibility, constructor_visibility_range)?;
             self.skip_newlines_if_followed_by(&Token::Where);
             if where_clause.is_none() && matches!(self.peek(), Token::Where) {
                 where_clause = Some(self.parse_where_clause()?);
             }
             shape
         } else if matches!(self.peek(), Token::LBrace) {
-            let shape = self.parse_data_record_shape()?;
+            let shape = self.parse_algebraic_braced_body(constructor_visibility, constructor_visibility_range)?;
             self.skip_newlines_if_followed_by(&Token::Where);
             if where_clause.is_none() && matches!(self.peek(), Token::Where) {
                 where_clause = Some(self.parse_where_clause()?);
@@ -3857,18 +3901,18 @@ impl<'source> Parser<'source> {
 
         let range = (start..self.prev_end).into();
 
-        Ok(Statement::Data(DataDef {
+        Ok(Statement::Data(AlgebraicDef {
             name,
             name_range,
+            phase,
+            implementation: modifiers.implementation,
+            implementation_range: modifiers.implementation_range,
             generic_parameters,
-            constructor_visibility,
-            constructor_visibility_range,
             where_clause,
             shape,
             attributes: header_attrs,
-            implementation: modifiers.implementation,
-            implementation_range: modifiers.implementation_range,
             range,
+            legacy_enum_keyword_range,
         }))
     }
 
@@ -4074,16 +4118,22 @@ impl<'source> Parser<'source> {
         }))
     }
 
-    fn parse_data_tuple_shape(&mut self) -> ParserResult<DataShapeSyntax> {
+    fn parse_data_tuple_shape(
+        &mut self,
+        constructor_visibility: Visibility,
+        constructor_visibility_range: Option<SourceRange>,
+    ) -> ParserResult<AlgebraicShapeSyntax> {
         let start = self.cur_start();
         self.expect(&Token::LParen, &["\"(\""])?;
         self.skip_newlines();
         let mut components = Vec::new();
         if self.eat(&Token::RParen) {
-            return Ok(DataShapeSyntax::Tuple {
+            return Ok(AlgebraicShapeSyntax::Product(ProductShapeSyntax::Tuple {
+                constructor_visibility,
+                constructor_visibility_range,
                 components,
                 range: (start..self.prev_end).into(),
-            });
+            }));
         }
         loop {
             self.skip_newlines();
@@ -4150,73 +4200,128 @@ impl<'source> Parser<'source> {
             }
         }
         let range = (start..self.prev_end).into();
-        Ok(DataShapeSyntax::Tuple { components, range })
+        Ok(AlgebraicShapeSyntax::Product(ProductShapeSyntax::Tuple {
+            constructor_visibility,
+            constructor_visibility_range,
+            components,
+            range,
+        }))
     }
 
-    fn parse_data_record_shape(&mut self) -> ParserResult<DataShapeSyntax> {
-        let start = self.cur_start();
-        self.expect(&Token::LBrace, &["\"{\""])?;
-        self.skip_newlines();
-        let mut components = Vec::new();
-        let mut labels = std::collections::HashMap::<String, SourceRange>::new();
-        loop {
-            self.skip_newlines();
-            if self.eat(&Token::RBrace) {
-                break;
+    fn is_record_field_start(&self) -> bool {
+        let mut i = 0;
+        while matches!(self.peek_at(i), Token::Newline) {
+            i += 1;
+        }
+        match self.peek_at(i) {
+            Token::Identifier(_) => {
+                let mut j = i + 1;
+                while matches!(self.peek_at(j), Token::Newline) {
+                    j += 1;
+                }
+                if matches!(self.peek_at(j), Token::Colon) {
+                    return true;
+                }
+                if matches!(self.peek_at(j), Token::Identifier(_)) {
+                    let mut k = j + 1;
+                    while matches!(self.peek_at(k), Token::Newline) {
+                        k += 1;
+                    }
+                    if matches!(self.peek_at(k), Token::Colon) {
+                        return true;
+                    }
+                }
+                false
             }
-            let comp_start = self.cur_start();
-
-            if matches!(self.peek(), Token::Fn | Token::Static | Token::Construct) {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("data declarations cannot contain methods or behavior members".to_string()),
-                    range: comp_start..self.tokens[self.pos].end,
-                });
+            Token::Underscore => {
+                let mut j = i + 1;
+                while matches!(self.peek_at(j), Token::Newline) {
+                    j += 1;
+                }
+                if matches!(self.peek_at(j), Token::Identifier(_)) {
+                    let mut k = j + 1;
+                    while matches!(self.peek_at(k), Token::Newline) {
+                        k += 1;
+                    }
+                    if matches!(self.peek_at(k), Token::Colon) {
+                        return true;
+                    }
+                }
+                false
             }
+            _ => false,
+        }
+    }
 
+    fn parse_record_field(
+        &mut self,
+        field_labels: &mut std::collections::HashMap<String, SourceRange>,
+        _pending_attrs: Vec<Attribute>,
+    ) -> ParserResult<DataComponentSyntax> {
+        let comp_start = self.cur_start();
+        if matches!(self.peek(), Token::Fn | Token::Static | Token::Construct) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("data declarations cannot contain methods or behavior members".to_string()),
+                range: comp_start..self.tokens[self.pos].end,
+            });
+        }
+
+        let (local_name, external_label, name_range) = if self.eat(&Token::Underscore) {
             let name_start = self.cur_start();
             let name = self.expect_identifier(&["component name"])?;
             let name_range: SourceRange = (name_start..self.prev_end).into();
-
-            if let Some(_prev) = labels.insert(name.clone(), name_range) {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message(format!("duplicate component `{name}` in data declaration")),
-                    range: name_range.start..name_range.end,
-                });
+            (name, None, name_range)
+        } else {
+            let first_ident = if let Some(name) = Self::label_name(self.peek()) {
+                let name = name.to_string();
+                let start_label = self.cur_start();
+                self.advance();
+                (name, (start_label..self.prev_end).into())
+            } else {
+                return Err(self.error_here(strs(&["component name", "_"])));
+            };
+            if matches!(self.peek(), Token::Identifier(_)) {
+                let name_start = self.cur_start();
+                let local_ident = self.expect_identifier(&["component name"])?;
+                let name_range: SourceRange = (name_start..self.prev_end).into();
+                (local_ident, Some(first_ident.0), name_range)
+            } else {
+                (first_ident.0.clone(), Some(first_ident.0), first_ident.1)
             }
+        };
 
-            self.skip_newlines();
-            if matches!(self.peek(), Token::LParen) {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("data declarations cannot contain methods".to_string()),
-                    range: comp_start..self.prev_end,
-                });
-            }
-
-            if !self.eat(&Token::Colon) {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message(format!("component `{name}` requires an explicit type annotation")),
-                    range: comp_start..self.prev_end,
-                });
-            }
-            self.skip_newlines();
-            let annotation = self.parse_type_annotation()?;
-            let comp_range = (comp_start..self.prev_end).into();
-
-            components.push(DataComponentSyntax {
-                local_name: name.clone(),
-                external_label: Some(name),
-                annotation,
-                name_range,
-                range: comp_range,
+        if let Some(_prev) = field_labels.insert(local_name.clone(), name_range) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message(format!("duplicate component `{local_name}` in data declaration")),
+                range: name_range.start..name_range.end,
             });
-
-            self.skip_newlines();
-            if self.eat(&Token::Comma) || self.eat(&Token::Semicolon) {
-                self.skip_newlines();
-            }
         }
-        let range = (start..self.prev_end).into();
-        Ok(DataShapeSyntax::Record { components, range })
+
+        self.skip_newlines();
+        if matches!(self.peek(), Token::LParen) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("data declarations cannot contain methods".to_string()),
+                range: comp_start..self.prev_end,
+            });
+        }
+
+        if !self.eat(&Token::Colon) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message(format!("component `{local_name}` requires an explicit type annotation")),
+                range: comp_start..self.prev_end,
+            });
+        }
+        self.skip_newlines();
+        let annotation = self.parse_type_annotation()?;
+        let comp_range = (comp_start..self.prev_end).into();
+
+        Ok(DataComponentSyntax {
+            local_name,
+            external_label,
+            annotation,
+            name_range,
+            range: comp_range,
+        })
     }
 
     fn parse_enum(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers) -> ParserResult<Statement> {
@@ -4225,7 +4330,9 @@ impl<'source> Parser<'source> {
             self.skip_newlines();
         }
         let start = modifiers.implementation_range.map(|r| r.start).unwrap_or_else(|| self.cur_start());
+        let enum_kw_start = self.cur_start();
         self.expect(&Token::Enum, &["\"enum\""])?;
+        let enum_kw_range = Some((enum_kw_start..self.prev_end).into());
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["identifier"])?;
         let name_range = (name_start..self.prev_end).into();
@@ -4245,59 +4352,36 @@ impl<'source> Parser<'source> {
 
         self.skip_newlines();
 
+        let body_start = self.cur_start();
         self.expect(&Token::LBrace, &["\"{\""])?;
-        let variants = self.parse_enum_body()?;
+        let cases = self.parse_sum_cases()?;
         self.expect(&Token::RBrace, &["\"}\""])?;
+        let body_range = (body_start..self.prev_end).into();
         let range = (start..self.prev_end).into();
 
-        Ok(Statement::Enum(EnumDef {
+        let shape = AlgebraicShapeSyntax::Sum(SumShapeSyntax {
+            cases,
+            range: body_range,
+        });
+
+        Ok(Statement::Data(AlgebraicDef {
             name,
             name_range,
-            generic_parameters,
-            where_clause,
-            variants,
-            attributes: header_attrs,
+            phase: AlgebraicPhase::Runtime,
             implementation: modifiers.implementation,
             implementation_range: modifiers.implementation_range,
+            generic_parameters,
+            where_clause,
+            shape,
+            attributes: header_attrs,
             range,
+            legacy_enum_keyword_range: enum_kw_range,
         }))
     }
 
-    fn parse_enum_body(&mut self) -> ParserResult<Vec<VariantDecl>> {
-        let mut variants = Vec::new();
-        let mut pending_attrs: Vec<Attribute> = Vec::new();
-        loop {
-            self.skip_newlines();
-            match self.peek() {
-                Token::RBrace if pending_attrs.is_empty() => break,
-                Token::RBrace => return Err(self.dangling_attribute_error(&pending_attrs)),
-                Token::Eof if !pending_attrs.is_empty() => return Err(self.dangling_attribute_error(&pending_attrs)),
-                Token::At => {
-                    let attr = self.parse_attribute()?;
-                    self.skip_newlines();
-                    pending_attrs.push(attr);
-                    continue;
-                }
-                Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
-                _ => {}
-            }
-
-            if pending_attrs.iter().any(|a| a.name == "class" || a.name == "static") || matches!(self.peek(), Token::LBracket) {
-                let start = pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start());
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::EnumBehaviorUnsupported,
-                    range: start..self.cur_start() + 1,
-                });
-            }
-
-            let variant = self.parse_enum_variant(std::mem::take(&mut pending_attrs))?;
-            variants.push(variant);
-        }
-        Ok(variants)
-    }
-
-    fn parse_enum_variant(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<VariantDecl> {
+    fn parse_sum_case(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<AlgebraicCaseSyntax> {
         let variant_attr = pending_attrs.iter().find(|a| a.name == "variant").cloned();
+        let variant_marker_range = variant_attr.as_ref().map(|a| a.range);
         let start = if let Some(ref attr) = variant_attr {
             attr.range.start
         } else {
@@ -4306,19 +4390,19 @@ impl<'source> Parser<'source> {
         let non_variant_attrs: Vec<Attribute> = pending_attrs.into_iter().filter(|a| a.name != "variant").collect();
 
         let name_start = self.cur_start();
-        let name = self.expect_identifier(&["variant name"])?;
+        let name = self.expect_identifier(&["case name"])?;
         let name_range = (name_start..self.prev_end).into();
-        let variant_marker_range = if let Some(ref attr) = variant_attr { attr.range } else { name_range };
 
         let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Callable)?;
 
         let payload = if matches!(self.peek(), Token::LParen) {
             let p_start = self.cur_start();
             self.advance(); // '('
-            let parameters = if matches!(self.peek(), Token::RParen) {
-                Vec::new()
+            let (parameters, explicit_empty) = if matches!(self.peek(), Token::RParen) {
+                (Vec::new(), true)
             } else {
-                self.parse_selector_params(Token::RParen)?
+                let params = self.parse_selector_params(Token::RParen)?;
+                (params, false)
             };
             self.expect(&Token::RParen, &["\")\""])?;
             let p_range = (p_start..self.prev_end).into();
@@ -4332,9 +4416,85 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            Some(VariantPayloadSyntax { parameters, range: p_range })
+            CasePayloadSyntax::Tuple {
+                parameters,
+                explicit_empty,
+                range: p_range,
+            }
+        } else if matches!(self.peek(), Token::LBrace) {
+            let r_start = self.cur_start();
+            self.advance(); // '{'
+            self.skip_newlines();
+            let mut components = Vec::new();
+            let mut labels = std::collections::HashMap::<String, SourceRange>::new();
+            loop {
+                self.skip_newlines();
+                if self.eat(&Token::RBrace) {
+                    break;
+                }
+                let comp_start = self.cur_start();
+                let (local_name, external_label, name_range) = if self.eat(&Token::Underscore) {
+                    let name_start = self.cur_start();
+                    let name = self.expect_identifier(&["component name"])?;
+                    let name_range: SourceRange = (name_start..self.prev_end).into();
+                    (name, None, name_range)
+                } else {
+                    let first_ident = if let Some(name) = Self::label_name(self.peek()) {
+                        let name = name.to_string();
+                        let start_label = self.cur_start();
+                        self.advance();
+                        (name, (start_label..self.prev_end).into())
+                    } else {
+                        return Err(self.error_here(strs(&["component name", "_"])));
+                    };
+                    if matches!(self.peek(), Token::Identifier(_)) {
+                        let name_start = self.cur_start();
+                        let local_ident = self.expect_identifier(&["component name"])?;
+                        let name_range: SourceRange = (name_start..self.prev_end).into();
+                        (local_ident, Some(first_ident.0), name_range)
+                    } else {
+                        (first_ident.0.clone(), Some(first_ident.0), first_ident.1)
+                    }
+                };
+
+                if let Some(_prev) = labels.insert(local_name.clone(), name_range) {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(format!("duplicate component `{local_name}` in record case payload")),
+                        range: name_range.start..name_range.end,
+                    });
+                }
+
+                self.skip_newlines();
+                if !self.eat(&Token::Colon) {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(format!("component `{local_name}` requires an explicit type annotation")),
+                        range: comp_start..self.prev_end,
+                    });
+                }
+                self.skip_newlines();
+                let annotation = self.parse_type_annotation()?;
+                let comp_range = (comp_start..self.prev_end).into();
+
+                components.push(DataComponentSyntax {
+                    local_name,
+                    external_label,
+                    annotation,
+                    name_range,
+                    range: comp_range,
+                });
+
+                self.skip_newlines();
+                if self.eat(&Token::Comma) || self.eat(&Token::Semicolon) {
+                    self.skip_newlines();
+                }
+            }
+            let r_range = (r_start..self.prev_end).into();
+            CasePayloadSyntax::Record {
+                components,
+                range: r_range,
+            }
         } else {
-            None
+            CasePayloadSyntax::Singleton
         };
 
         let result_annotation = if matches!(self.peek(), Token::Arrow) {
@@ -4362,7 +4522,7 @@ impl<'source> Parser<'source> {
         }
 
         let range = (start..self.prev_end).into();
-        Ok(VariantDecl {
+        Ok(AlgebraicCaseSyntax {
             name,
             name_range,
             variant_marker_range,
@@ -4373,6 +4533,130 @@ impl<'source> Parser<'source> {
             attributes: non_variant_attrs,
             range,
         })
+    }
+
+    fn parse_algebraic_braced_body(
+        &mut self,
+        constructor_visibility: Visibility,
+        constructor_visibility_range: Option<SourceRange>,
+    ) -> ParserResult<AlgebraicShapeSyntax> {
+        let start = self.cur_start();
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        self.skip_newlines();
+
+        let mut fields: Vec<DataComponentSyntax> = Vec::new();
+        let mut field_labels = std::collections::HashMap::<String, SourceRange>::new();
+        let mut cases: Vec<AlgebraicCaseSyntax> = Vec::new();
+        let mut pending_attrs: Vec<Attribute> = Vec::new();
+
+        loop {
+            self.skip_newlines();
+            match self.peek() {
+                Token::RBrace if pending_attrs.is_empty() => break,
+                Token::RBrace => return Err(self.dangling_attribute_error(&pending_attrs)),
+                Token::Eof if !pending_attrs.is_empty() => return Err(self.dangling_attribute_error(&pending_attrs)),
+                Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
+                Token::At => {
+                    let attr = self.parse_attribute()?;
+                    self.skip_newlines();
+                    pending_attrs.push(attr);
+                    continue;
+                }
+                _ => {}
+            }
+
+            if pending_attrs.iter().any(|a| a.name == "class" || a.name == "static")
+                || matches!(self.peek(), Token::LBracket | Token::Fn | Token::Construct | Token::Static | Token::Class)
+            {
+                let err_start = pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start());
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::EnumBehaviorUnsupported,
+                    range: err_start..self.cur_start() + 1,
+                });
+            }
+
+            let is_case = pending_attrs.iter().any(|a| a.name == "variant") || !self.is_record_field_start();
+
+            if is_case {
+                let case = self.parse_sum_case(std::mem::take(&mut pending_attrs))?;
+                cases.push(case);
+            } else {
+                let field = self.parse_record_field(&mut field_labels, std::mem::take(&mut pending_attrs))?;
+                fields.push(field);
+            }
+
+            self.skip_newlines();
+            if self.eat(&Token::Comma) || self.eat(&Token::Semicolon) {
+                self.skip_newlines();
+            }
+        }
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        let body_range = (start..self.prev_end).into();
+
+        if !fields.is_empty() && !cases.is_empty() {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::MixedAlgebraicBody,
+                range: start..self.prev_end,
+            });
+        }
+
+        if !fields.is_empty() {
+            Ok(AlgebraicShapeSyntax::Product(ProductShapeSyntax::Record {
+                constructor_visibility,
+                constructor_visibility_range,
+                components: fields,
+                range: body_range,
+            }))
+        } else {
+            if let Some(range) = constructor_visibility_range {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("data.constructor_visibility.sum: primary constructor visibility modifiers are not supported on sum declarations".to_string()),
+                    range: range.start..range.end,
+                });
+            }
+            Ok(AlgebraicShapeSyntax::Sum(SumShapeSyntax {
+                cases,
+                range: body_range,
+            }))
+        }
+    }
+
+    fn parse_sum_cases(&mut self) -> ParserResult<Vec<AlgebraicCaseSyntax>> {
+        let mut cases = Vec::new();
+        let mut pending_attrs: Vec<Attribute> = Vec::new();
+        loop {
+            self.skip_newlines();
+            match self.peek() {
+                Token::RBrace if pending_attrs.is_empty() => break,
+                Token::RBrace => return Err(self.dangling_attribute_error(&pending_attrs)),
+                Token::Eof if !pending_attrs.is_empty() => return Err(self.dangling_attribute_error(&pending_attrs)),
+                Token::At => {
+                    let attr = self.parse_attribute()?;
+                    self.skip_newlines();
+                    pending_attrs.push(attr);
+                    continue;
+                }
+                Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
+                _ => {}
+            }
+
+            if pending_attrs.iter().any(|a| a.name == "class" || a.name == "static") || matches!(self.peek(), Token::LBracket) {
+                let start = pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start());
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::EnumBehaviorUnsupported,
+                    range: start..self.cur_start() + 1,
+                });
+            }
+
+            let case = self.parse_sum_case(std::mem::take(&mut pending_attrs))?;
+            cases.push(case);
+
+            self.skip_newlines();
+            if self.eat(&Token::Comma) || self.eat(&Token::Semicolon) {
+                self.skip_newlines();
+            }
+        }
+        Ok(cases)
     }
 
     /// Returns whether the current token is the contextual word `word`.
@@ -5799,8 +6083,11 @@ impl<'source> Parser<'source> {
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
                 // class-declaration path.
-                Token::At | Token::Class | Token::Enum | Token::Data | Token::Trait | Token::Impl
-                    if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) || matches!(self.peek(), Token::Impl) =>
+                Token::At | Token::Class | Token::Enum | Token::Data | Token::Trait | Token::Impl | Token::TypeKw
+                    if matches!(self.peek(), Token::At)
+                        || matches!(self.peek_next(), Token::Identifier(_))
+                        || matches!(self.peek(), Token::Impl)
+                        || (matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data)) =>
                 {
                     let mut header_attrs = Vec::new();
                     while matches!(self.peek(), Token::At) {
@@ -5809,12 +6096,15 @@ impl<'source> Parser<'source> {
                     }
                     let is_enum = matches!(self.peek(), Token::Enum);
                     let is_data = matches!(self.peek(), Token::Data);
+                    let is_type_data = matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data);
                     let is_trait = matches!(self.peek(), Token::Trait);
                     let is_impl = matches!(self.peek(), Token::Impl);
                     let stmt = if is_enum {
                         self.parse_enum(header_attrs, ParsedModifiers::default())?
+                    } else if is_type_data {
+                        self.parse_type_data(header_attrs, ParsedModifiers::default())?
                     } else if is_data {
-                        self.parse_data(header_attrs, ParsedModifiers::default())?
+                        self.parse_data(header_attrs, ParsedModifiers::default(), AlgebraicPhase::Runtime)?
                     } else if is_impl {
                         self.parse_impl(header_attrs)?
                     } else if is_trait {
@@ -5824,8 +6114,15 @@ impl<'source> Parser<'source> {
                     };
                     let (keyword_start, kw_len, decl_kind) = match &stmt {
                         Statement::Class(class_def) => (class_def.range.start, "class".len(), "class"),
-                        Statement::Enum(enum_def) => (enum_def.range.start, "enum".len(), "enum"),
-                        Statement::Data(data_def) => (data_def.range.start, "data".len(), "data"),
+                        Statement::Data(data_def) => {
+                            if data_def.legacy_enum_keyword_range.is_some() {
+                                (data_def.range.start, "enum".len(), "enum")
+                            } else if data_def.phase == AlgebraicPhase::TypeOnly {
+                                (data_def.range.start, "type data".len(), "type data")
+                            } else {
+                                (data_def.range.start, "data".len(), "data")
+                            }
+                        }
                         Statement::Trait(trait_def) => (trait_def.range.start, "trait".len(), "trait"),
                         Statement::Impl(impl_def) => (impl_def.range.start, "impl".len(), "impl"),
                         _ => unreachable!(),
@@ -9961,8 +10258,8 @@ native enum NativeEnum {
         assert_eq!(cls.members[11].visibility(), Visibility::Private);
         assert_eq!(cls.members[12].visibility(), Visibility::Internal);
 
-        let Statement::Enum(enm) = &program.statements[1] else {
-            panic!("expected enum statement");
+        let Statement::Data(enm) = &program.statements[1] else {
+            panic!("expected data statement");
         };
         assert_eq!(enm.implementation, ImplementationKind::Native);
         assert!(enm.implementation_range.is_some());

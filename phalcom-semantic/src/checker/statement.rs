@@ -252,8 +252,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             super::declaration::check_class(ctx, class_def);
             StatementControl::FallsThrough
         }
-        Statement::Enum(_enum_def) => {
-            // ADT semantic checking lands in Part 2.
+        Statement::Data(_data_def) => {
             StatementControl::FallsThrough
         }
         Statement::For(for_stmt) => {

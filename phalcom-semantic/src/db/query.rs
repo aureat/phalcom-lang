@@ -154,7 +154,7 @@ fn enum_definition_for<'a>(unit: &'a ParsedModuleUnit, declaration: &Declaration
         return None;
     }
     unit.program.statements.iter().find_map(|statement| match statement {
-        Statement::Enum(enum_def) if enum_def.name == declaration.name.as_ref() => Some(enum_def),
+        Statement::Data(data_def) if data_def.is_sum() && data_def.name == declaration.name.as_ref() => Some(data_def),
         _ => None,
     })
 }
@@ -164,7 +164,7 @@ fn data_definition_for<'a>(unit: &'a ParsedModuleUnit, declaration: &Declaration
         return None;
     }
     unit.program.statements.iter().find_map(|statement| match statement {
-        Statement::Data(data_def) if data_def.name == declaration.name.as_ref() => Some(data_def),
+        Statement::Data(data_def) if data_def.is_product() && data_def.name == declaration.name.as_ref() => Some(data_def),
         _ => None,
     })
 }

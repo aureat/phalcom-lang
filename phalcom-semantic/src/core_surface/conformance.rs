@@ -57,12 +57,17 @@ fn source_nominal(provider: &UniverseSourceProvider, key: UniverseKey) -> Result
                     native: class_def.implementation == ImplementationKind::Native,
                 }));
             }
-            Statement::Enum(enum_def) if enum_def.name == key.name() => {
+            Statement::Data(data_def) if data_def.name == key.name() => {
+                let kind = if data_def.is_sum() {
+                    SourceNominalKind::Enum
+                } else {
+                    SourceNominalKind::Class
+                };
                 return Ok(Some(SourceNominal {
-                    kind: SourceNominalKind::Enum,
-                    arity: enum_def.generic_parameters.len(),
+                    kind,
+                    arity: data_def.generic_parameters.len(),
                     superclass: None,
-                    native: enum_def.implementation == ImplementationKind::Native,
+                    native: data_def.implementation == ImplementationKind::Native,
                 }));
             }
             _ => {}

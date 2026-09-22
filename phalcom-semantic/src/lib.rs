@@ -8,6 +8,7 @@
 
 pub mod access;
 pub mod advisory;
+pub mod algebraic_semantics;
 pub mod associated;
 pub mod checker;
 pub mod contracts;

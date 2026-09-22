@@ -101,8 +101,13 @@ pub fn export_kind(store: &TypeStore, kind: KindId) -> CompiledKindRef {
                 result: Box::new(r_kind),
             }
         }
+        // Static domains are nominal classifiers with no runtime inhabitants.
+        // Their exported kind is Type so consumers can treat them as proper types
+        // while the declaration reference carries stable static-domain identity.
+        KindData::StaticDomain(_) => CompiledKindRef::Type,
     }
 }
+
 
 /// Converts an interned [`TypeId`] into a stable [`CompiledTypeRef`].
 pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeRef, SemanticExportError> {

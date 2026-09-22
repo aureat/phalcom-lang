@@ -18,10 +18,41 @@ use std::sync::Arc;
 
 /// Declaration-surface query payload.
 ///
+use crate::algebraic_semantics::{AlgebraicDeclarationInfo, AlgebraicRepresentation};
 use crate::associated::AssociatedSurface;
 use crate::data_semantics::DataInfo;
 use crate::enum_requirements::{CaseRequirementResult, EnumRequirement};
 use crate::enum_semantics::{EnumInfo, VariantInfo};
+
+/// Product of compiling an algebraic declaration.
+#[derive(Clone, Debug)]
+pub struct AlgebraicDeclarationProduct {
+    pub info: Arc<AlgebraicDeclarationInfo>,
+    pub diagnostics: Arc<[SemanticDiagnostic]>,
+}
+
+impl AlgebraicDeclarationProduct {
+    pub fn to_data_declaration_product(&self) -> Option<DataDeclarationProduct> {
+        match &self.info.representation {
+            AlgebraicRepresentation::Product(data_info) => Some(DataDeclarationProduct {
+                info: data_info.clone(),
+                diagnostics: self.diagnostics.clone(),
+            }),
+            AlgebraicRepresentation::Sum(_) => None,
+        }
+    }
+
+    pub fn to_enum_declaration_product(&self) -> Option<EnumDeclarationProduct> {
+        match &self.info.representation {
+            AlgebraicRepresentation::Sum(sum_info) => Some(EnumDeclarationProduct {
+                info: sum_info.enum_info.clone(),
+                variants: sum_info.variants.clone(),
+                diagnostics: self.diagnostics.clone(),
+            }),
+            AlgebraicRepresentation::Product(_) => None,
+        }
+    }
+}
 
 /// The semantic surface is the dependency-visible product. Diagnostics are retained
 /// alongside it so the query that resolves member annotations also owns the resulting

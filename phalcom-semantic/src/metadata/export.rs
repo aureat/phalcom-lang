@@ -256,6 +256,9 @@ impl<'a> MetadataExporter<'a> {
                     result: r_node,
                 }
             }
+            // Static domains are proper-type-kinded in metadata; static-only
+            // semantics are carried by the declaration reference.
+            KindData::StaticDomain(_) => KindNode::Type,
         };
 
         let mut fp_b = FingerprintBuilder::new();

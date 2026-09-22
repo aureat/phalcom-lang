@@ -238,10 +238,10 @@ fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
 
     let source = "enum Shape {\n  @variant Circle(radius: Float)\n}\n";
     let program = parse_source(source, 0).expect("variant enum parses");
-    let Statement::Enum(enum_def) = &program.statements[0] else {
-        panic!("expected enum");
+    let Statement::Data(enum_def) = &program.statements[0] else {
+        panic!("expected data");
     };
-    let variant = &enum_def.variants[0];
+    let variant = &enum_def.cases().expect("cases")[0];
     assert_eq!(source_slice(source, variant.name_range), "Circle");
 }
 
@@ -1589,8 +1589,8 @@ fn generic_class_header_is_layout_insensitive() {
 fn enum_header_is_layout_insensitive() {
     let source = "enum Result\n\n<T>\n\nwhere\n\nT == Y\n\n{\n    Ok\n}\n";
     let program = parse_source(source, 0).expect("multiline enum header should parse");
-    let Statement::Enum(enumeration) = &program.statements[0] else {
-        panic!("expected enum");
+    let Statement::Data(enumeration) = &program.statements[0] else {
+        panic!("expected data");
     };
     assert_eq!(enumeration.generic_parameters.len(), 1);
     assert_eq!(enumeration.where_clause.as_ref().expect("where clause").constraints.len(), 1);

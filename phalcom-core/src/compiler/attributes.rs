@@ -2624,7 +2624,6 @@ fn self_send0(method: &str, range: SourceRange) -> Expr {
 fn statement_range(stmt: &Statement) -> SourceRange {
     match stmt {
         Statement::Class(c) => c.range,
-        Statement::Enum(e) => e.range,
         Statement::Let(l) => l.range,
         Statement::Return(r) => r.range,
         Statement::Expr { range, .. } => *range,

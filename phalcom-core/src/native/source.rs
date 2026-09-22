@@ -334,7 +334,7 @@ impl NativeSourceIndex {
         for stmt in &program.statements {
             match stmt {
                 Statement::Class(class_def) => self.index_class(module, class_def)?,
-                Statement::Enum(enum_def) => self.index_enum(module, enum_def)?,
+                Statement::Data(data_def) if data_def.is_sum() => self.index_enum(module, data_def)?,
                 Statement::Impl(impl_def) => self.index_impl(module, impl_def)?,
                 _ => {}
             }
@@ -437,7 +437,7 @@ impl NativeSourceIndex {
             return Ok(());
         };
 
-        for variant in &enum_def.variants {
+        for variant in enum_def.cases().unwrap_or_default() {
             // Only Native Option variants have support-class
             // presentations and implicit constructor descriptors.
             // Result and Ordering variants are semantic ADT variants,
@@ -466,7 +466,7 @@ impl NativeSourceIndex {
             // constructor surfaces on its support class. They are
             // generated descriptors, so retain matching source anchors
             // even though constructors are implicit in enum syntax.
-            if !has_native_modifier || variant.payload.is_none() {
+            if !has_native_modifier || variant.is_singleton() {
                 continue;
             }
             for selector in ["call(_)".to_owned(), "new(_)".to_owned()] {
