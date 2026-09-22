@@ -7,7 +7,7 @@ use phalcom_semantic::types::annotation::{
     SimpleTypeResolver, TypeFormResolution, TypeFormationInvalid, TypeFormationSite, resolve_type_annotation, resolve_type_form,
 };
 use phalcom_semantic::types::row::RecordRowField;
-use phalcom_semantic::types::store::{LabeledTypePackElement, TupleTypeElement, TypeStore};
+use phalcom_semantic::types::store::{LabeledTypePackElement, TupleTypeElement, TypeData, TypeStore};
 
 const RANGE: SourceRange = SourceRange { start: 0, end: 1 };
 
@@ -96,6 +96,26 @@ fn subscript_ann(subject: TypeAnnotation, index: i64) -> TypeAnnotation {
         },
         range: RANGE,
     }
+}
+
+#[test]
+fn integer_type_member_arguments_use_canonical_const_int_terms() {
+    let mut env = setup();
+    let ann = subscript_ann(ref_ann("Tuple"), 3);
+    let mut diags = Vec::new();
+    let projection = match resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &ann, &mut diags) {
+        TypeFormResolution::Ready(projection) => projection,
+        other => panic!("abstract Tuple subscript should resolve symbolically, got {other:?}"),
+    };
+
+    let TypeData::TypeMemberProjection(projection_data) = env.store.get(projection) else {
+        panic!("abstract Tuple subscript should remain a type-member projection");
+    };
+    let [phalcom_semantic::types::type_member::TypeMemberArgument::Type(argument)] = projection_data.arguments.as_ref() else {
+        panic!("integer subscript argument should be represented by a canonical type term");
+    };
+    assert!(matches!(env.store.get(*argument), TypeData::ConstInt(3)));
+    assert!(diags.is_empty());
 }
 
 fn setup() -> TestEnv {

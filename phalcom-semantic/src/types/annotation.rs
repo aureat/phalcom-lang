@@ -15,7 +15,7 @@ use super::type_lambda::{
     ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
 };
 use super::type_member::{
-    ConstTerm, IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
+    IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
 };
 use super::variance::Variance;
 use crate::declarations::DeclarationTypeTable;
@@ -2325,7 +2325,7 @@ fn resolve_type_member_projection(
                 canonical_args.push(TypeMemberArgument::Type(arg_ty));
             }
             phalcom_ast::ast::TypeMemberArgumentSyntax::IntLiteral { value, .. } => {
-                canonical_args.push(TypeMemberArgument::Const(ConstTerm::Int(*value)));
+                canonical_args.push(TypeMemberArgument::Type(store.const_int(*value)));
             }
             phalcom_ast::ast::TypeMemberArgumentSyntax::Name { name, range: arg_range } => {
                 let dummy_ann = TypeAnnotation {
@@ -2379,7 +2379,7 @@ fn resolve_type_member_projection(
         let expected_kind = store.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
         matches!(canonical_args.as_slice(), [TypeMemberArgument::Type(argument)] if store.kind_of(*argument) == expected_kind)
     } else if at_operation {
-        matches!(canonical_args.as_slice(), [TypeMemberArgument::Const(ConstTerm::Int(_))])
+        matches!(canonical_args.as_slice(), [TypeMemberArgument::Type(argument)] if matches!(store.get(*argument), TypeData::ConstInt(_)))
     } else {
         canonical_args.is_empty()
     };

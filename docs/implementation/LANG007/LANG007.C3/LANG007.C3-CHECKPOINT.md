@@ -132,7 +132,7 @@ C3 is complete only when this statement is true:
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
-| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | UNVERIFIED | active; started from completed P1 working tree |
+| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | active; started from completed P1 commit `79e67260` |
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P2 |
 
 No additional P4 is planned.
@@ -675,7 +675,25 @@ Evidence:
 
 ## 17. Consultation / amendment ledger
 
-No C3 consultation incidents yet.
+```text
+INC-C3-1
+Plan/task: LANG007.C3.P2 / T5.C — type-member user-domain parameters/results
+Trigger: T5's assumed source declaration semantic path is absent; choosing its
+  durable owner/index would establish semantic authority and affect T7 lookup.
+Observed: ClassMember::TypeMember is ignored by declaration checking and
+  excluded from declaration signatures; DeclarationTypeTable carries no
+  type-member product. TypeMemberSignature/TypeMemberId are currently unused.
+Decision requested: Should canonical type-member signatures be declaration
+  semantic products indexed by AssociatedSurface, with that surface remaining
+  the sole lookup/collision authority, or should AssociatedSurface itself own
+  those signatures? Specify the stable identity/owner seam before T5 resumes.
+Architecture impact: none made; no parallel registry or lookup path introduced.
+Plan amendment: none pending decision.
+Verification required: user-domain parameter/result formation, wrong-domain
+  rejection, projection identity, and T7 collision/lookup coverage.
+Status: AWAITING_ARCHITECTURAL_GUIDANCE; adviser consultation unavailable in
+  this runtime, so implementation is stopped at this seam.
+```
 
 Use entries:
 
@@ -786,7 +804,11 @@ T5 partial
     type aliases accept an optional declaration-backed result kind such as
     `type DefaultShape: Shape = ...`; the alias lowering path validates the
     body kind and preserves the historical Type-valued default. Source static
-    constructor paths still await T7 unified `::` lookup.
+    constructor paths still await T7 unified `::` lookup. Integer type-member
+    arguments now canonicalize to `TypeData::ConstInt` at projection formation;
+    normalization and intrinsic tuple indexing consume that canonical term.
+    Focused type-member tests pass. User-domain type-member declarations remain
+    unresolved pending the architecture decision in INC-C3-1.
 
 T8 partial
     durable applied metadata uses `StaticArgumentRef`, schema v6 is emitted,
@@ -807,6 +829,8 @@ type-meta schema compatibility                                     PASS (9)
 core language/algebraic_data                                      PASS (44; 19 ignored/gated)
 core and semantic crate checks                                     PASS
 semantic library static-data inference unit filter                 BASELINE_BLOCKED (BASELINE-003)
+semantic foundations/type_members                                 PASS (7)
+semantic integration/type_member_closure                           PASS (9)
 ```
 
 This is partial P2 evidence, not P2 acceptance. Remaining P2 implementation includes
@@ -846,16 +870,14 @@ next plan:
     LANG007.C3.P2
 
 next action:
-    continue P2 after the generalized application slice:
-      - finish first-order static-domain inference coverage and checked materialization;
-      - converge static type members and then associated `type data` lookup;
-      - complete metadata/import/incremental/source identity coverage;
-      - leave P3 intrinsic-surface/corpus/tooling migration untouched until P2 is accepted.
+    obtain architectural guidance for INC-C3-1 before implementing user-domain
+    type-member declarations or proceeding to dependent associated lookup.
 
-P2 started from the live working tree at `60a27f79d69aa3e79c22e3d19df221466c7db920`.
-The completed P1 implementation and its verification records are present as dirty
-working-tree changes; no commit or push is authorized for this task. Unrelated
-changes remain outside the P2 scope.
+P2 started from the completed P1 commit `79e6726093349d3269460a29a7c1c4c3035ec2cf`
+with a clean working tree; that revision was pushed to `origin/main` before P2
+implementation continued. The current T5 canonical-Int slice is focused-tested;
+P2 remains partial and is not complete. Do not enter dependent T6/T7 declaration
+and lookup work until the T5 architecture decision is recorded.
 ```
 
 At P1 start:

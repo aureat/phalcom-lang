@@ -451,6 +451,21 @@ impl TypeStore {
     }
 
     pub fn type_member_projection(&mut self, projection: TypeLevelProjection, kind: KindId) -> TypeId {
+        // `ConstTerm::Int` is retained as a compatibility input only.  Store
+        // projections in the same canonical term universe used by static
+        // applications and inference.
+        let arguments = projection
+            .arguments
+            .iter()
+            .map(|argument| match argument {
+                super::type_member::TypeMemberArgument::Const(super::type_member::ConstTerm::Int(value)) => {
+                    super::type_member::TypeMemberArgument::Type(self.const_int(*value))
+                }
+                other => other.clone(),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let projection = TypeLevelProjection { arguments, ..projection };
         self.intern_with_kind(TypeData::TypeMemberProjection(projection), kind)
     }
 

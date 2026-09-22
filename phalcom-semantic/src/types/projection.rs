@@ -13,7 +13,7 @@ use crate::impls::{AssociatedTypeBindingValue, ConformanceAssociatedTypePlan, Co
 use crate::traits::{TraitRef, TraitSurfaceTable};
 use crate::types::parameter::TypeTerm;
 use crate::types::type_member::{
-    ConstTerm, IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
+    IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
 };
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -765,7 +765,9 @@ fn normalize_type_member_projection(
                 let Some(norm_ty) = res.type_id() else { return res };
                 normalized_arguments.push(TypeMemberArgument::Type(norm_ty));
             }
-            TypeMemberArgument::Const(c) => normalized_arguments.push(TypeMemberArgument::Const(c.clone())),
+            TypeMemberArgument::Const(super::type_member::ConstTerm::Int(value)) => {
+                normalized_arguments.push(TypeMemberArgument::Type(store.const_int(*value)));
+            }
             TypeMemberArgument::RecordRow(r) => normalized_arguments.push(TypeMemberArgument::RecordRow(*r)),
         }
     }
@@ -840,7 +842,10 @@ fn normalize_intrinsic_projection(
         },
         IntrinsicTypeOperation::TupleAt => {
             let idx = match arguments.first()? {
-                TypeMemberArgument::Const(ConstTerm::Int(i)) => *i,
+                TypeMemberArgument::Type(argument) => match store.get(*argument) {
+                    TypeData::ConstInt(value) => *value,
+                    _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+                },
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
             let elems = match subject_data? {
