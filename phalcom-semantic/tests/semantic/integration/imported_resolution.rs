@@ -650,3 +650,97 @@ fn exported_global_and_top_level_binding_use_module_binding_target() {
         phalcom_semantic::SourceOwner::Module(module) if module == &provider
     ));
 }
+
+#[test]
+fn p3_cross_module_provider_pack_alias_survives_and_recomputes_cold_parity() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("package.ph"), "").unwrap();
+    let main_path = root.path().join("main.ph");
+    let provider_path = root.path().join("provider.ph");
+    let location = |path: &std::path::Path| phalcom_modules::SourceLocation {
+        source_id: phalcom_modules::SourceId(path.to_string_lossy().into()),
+        display_path: path.to_path_buf(),
+    };
+    let main_source = "from .provider import Wrap\ntype MyAlias<*Ts> = Wrap<*Ts>\n";
+
+    let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
+    let publication = session
+        .apply_module_mutations([
+            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&main_path),
+                text: Arc::from(main_source),
+                revision: phalcom_modules::SourceRevision(1),
+                recovered_program: None,
+            },
+            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&provider_path),
+                text: Arc::from("type Wrap<*Ts> = (*Ts,)\nexport Wrap\n"),
+                revision: phalcom_modules::SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("workspace publication should succeed");
+
+    let main_module = publication
+        .snapshot
+        .module_queries()
+        .module_for_display_path(&main_path)
+        .cloned()
+        .expect("main source must map to a canonical module");
+    let alias_id = DeclarationId::new(main_module.clone(), "MyAlias".into());
+    let initial_form = publication.snapshot.type_aliases.form(&alias_id).expect("initial MyAlias");
+
+    // Provider edit: change Wrap from (*Ts,) to (Int, *Ts)
+    let updated = session
+        .apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+            source: location(&provider_path),
+            text: Arc::from("type Wrap<*Ts> = (Int, *Ts)\nexport Wrap\n"),
+            revision: phalcom_modules::SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("update should publish");
+
+    let inc_form = updated.snapshot.type_aliases.form(&alias_id).expect("updated MyAlias");
+    assert_ne!(
+        publication
+            .snapshot
+            .store
+            .arena()
+            .get_lambda(match publication.snapshot.store.get(initial_form) {
+                phalcom_semantic::types::store::TypeData::Lambda(id) => *id,
+                _ => panic!("expected lambda"),
+            })
+            .body,
+        updated
+            .snapshot
+            .store
+            .arena()
+            .get_lambda(match updated.snapshot.store.get(inc_form) {
+                phalcom_semantic::types::store::TypeData::Lambda(id) => *id,
+                _ => panic!("expected lambda"),
+            })
+            .body,
+    );
+
+    // Cold parity check
+    let mut cold_session = phalcom_semantic::SemanticWorkspaceSession::new();
+    let cold_pub = cold_session
+        .apply_module_mutations([
+            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&main_path),
+                text: Arc::from(main_source),
+                revision: phalcom_modules::SourceRevision(1),
+                recovered_program: None,
+            },
+            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&provider_path),
+                text: Arc::from("type Wrap<*Ts> = (Int, *Ts)\nexport Wrap\n"),
+                revision: phalcom_modules::SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("cold publication should succeed");
+    let cold_form = cold_pub.snapshot.type_aliases.form(&alias_id).expect("cold MyAlias");
+
+    assert_eq!(updated.snapshot.store.format_type(inc_form), cold_pub.snapshot.store.format_type(cold_form));
+}

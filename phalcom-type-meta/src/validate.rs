@@ -165,6 +165,105 @@ fn validate_schema_v3_feature_floor(_bundle: &SemanticMetadataBundle) -> Result<
     Ok(())
 }
 
+fn validate_pre_v4_scoped_pack_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
+    if bundle.scoped_types.iter().any(|entry| {
+        matches!(
+            entry.form,
+            ScopedTypeNode::TypePack(_)
+                | ScopedTypeNode::LabeledTypePack(_)
+                | ScopedTypeNode::CompleteTypePack { .. }
+                | ScopedTypeNode::TypePackConcat(_)
+                | ScopedTypeNode::LabeledTypePackConcat(_)
+                | ScopedTypeNode::TupleFromPacks { .. }
+                | ScopedTypeNode::CallableFromPacks { .. }
+                | ScopedTypeNode::PackProjection { .. }
+                | ScopedTypeNode::Lambda { parameter_modes: Some(_), .. }
+        )
+    }) {
+        return Err(MetadataValidationError::Malformed(
+            "schema before v4 cannot contain C2 scoped pack nodes or explicit lambda parameter modes".to_string(),
+        ));
+    }
+    if bundle.types.iter().any(|entry| {
+        if let TypeNode::TypeLambda(lambda) = &entry.form {
+            lambda.parameter_modes.is_some()
+        } else {
+            false
+        }
+    }) {
+        return Err(MetadataValidationError::Malformed(
+            "schema before v4 cannot contain explicit type lambda parameter modes".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_schema_v4_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
+    // In schema v4, all emitted top-level lambdas and scoped lambdas must provide explicit parameter modes aligned with kinds
+    for entry in bundle.types.iter() {
+        if let TypeNode::TypeLambda(lambda) = &entry.form {
+            let Some(modes) = &lambda.parameter_modes else {
+                return Err(MetadataValidationError::Malformed(
+                    "schema v4 requires explicit parameter modes for type lambdas".to_string(),
+                ));
+            };
+            if modes.len() != lambda.parameter_kinds.len() {
+                return Err(MetadataValidationError::Malformed(
+                    "schema v4 lambda parameter modes length does not match parameter kinds length".to_string(),
+                ));
+            }
+            for (&kind_id, &mode) in lambda.parameter_kinds.iter().zip(modes.iter()) {
+                let kind_node = &bundle.kinds[kind_id.0 as usize].node;
+                let valid = match mode {
+                    GenericParameterModeRef::Single => true,
+                    GenericParameterModeRef::PositionalPack => matches!(kind_node, KindNode::TypePack),
+                    GenericParameterModeRef::LabeledPack => matches!(kind_node, KindNode::LabeledTypePack),
+                    GenericParameterModeRef::CompletePack => matches!(kind_node, KindNode::CompleteTypePack),
+                };
+                if !valid {
+                    return Err(MetadataValidationError::Malformed(
+                        "schema v4 lambda parameter mode does not match parameter kind".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+    for entry in bundle.scoped_types.iter() {
+        if let ScopedTypeNode::Lambda {
+            parameter_kinds,
+            parameter_modes,
+            ..
+        } = &entry.form
+        {
+            let Some(modes) = parameter_modes else {
+                return Err(MetadataValidationError::Malformed(
+                    "schema v4 requires explicit parameter modes for scoped lambdas".to_string(),
+                ));
+            };
+            if modes.len() != parameter_kinds.len() {
+                return Err(MetadataValidationError::Malformed(
+                    "schema v4 scoped lambda parameter modes length does not match parameter kinds length".to_string(),
+                ));
+            }
+            for (&kind_id, &mode) in parameter_kinds.iter().zip(modes.iter()) {
+                let kind_node = &bundle.kinds[kind_id.0 as usize].node;
+                let valid = match mode {
+                    GenericParameterModeRef::Single => true,
+                    GenericParameterModeRef::PositionalPack => matches!(kind_node, KindNode::TypePack),
+                    GenericParameterModeRef::LabeledPack => matches!(kind_node, KindNode::LabeledTypePack),
+                    GenericParameterModeRef::CompletePack => matches!(kind_node, KindNode::CompleteTypePack),
+                };
+                if !valid {
+                    return Err(MetadataValidationError::Malformed(
+                        "schema v4 scoped lambda parameter mode does not match parameter kind".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Iteratively validates a [`SemanticMetadataBundle`].
 pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &ValidationLimits) -> Result<(), MetadataValidationError> {
     if !supports_type_metadata_schema(bundle.header.schema_version) {
@@ -182,9 +281,17 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
         1 => {
             validate_schema_v1_feature_floor(bundle)?;
             validate_pre_v3_pack_floor(bundle)?;
+            validate_pre_v4_scoped_pack_floor(bundle)?;
         }
-        2 => validate_schema_v2_feature_floor(bundle)?,
-        3 => validate_schema_v3_feature_floor(bundle)?,
+        2 => {
+            validate_schema_v2_feature_floor(bundle)?;
+            validate_pre_v4_scoped_pack_floor(bundle)?;
+        }
+        3 => {
+            validate_schema_v3_feature_floor(bundle)?;
+            validate_pre_v4_scoped_pack_floor(bundle)?;
+        }
+        4 => validate_schema_v4_feature_floor(bundle)?,
         _ => unreachable!("version range checked above"),
     }
 
@@ -701,7 +808,11 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     });
                 }
             }
-            ScopedTypeNode::Lambda { parameter_kinds, body } => {
+            ScopedTypeNode::Lambda {
+                parameter_kinds,
+                parameter_modes: _,
+                body,
+            } => {
                 for &pk in parameter_kinds.iter() {
                     if pk.0 as usize >= bundle.kinds.len() {
                         return Err(MetadataValidationError::InvalidKindIndex {
@@ -717,6 +828,192 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     });
                 }
                 lambda_param_kinds.push(parameter_kinds.clone());
+            }
+            ScopedTypeNode::TypePack(elements) => {
+                for &el in elements.iter() {
+                    if el.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: el.0 });
+                    }
+                    let el_kind = &bundle.kinds[bundle.scoped_types[el.0 as usize].kind.0 as usize].node;
+                    if !matches!(el_kind, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("Scoped TypePack element must have kind Type".to_string()));
+                    }
+                }
+            }
+            ScopedTypeNode::LabeledTypePack(elements) => {
+                for el in elements.iter() {
+                    if el.element.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: el.element.0,
+                        });
+                    }
+                    let el_kind = &bundle.kinds[bundle.scoped_types[el.element.0 as usize].kind.0 as usize].node;
+                    if !matches!(el_kind, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed(
+                            "Scoped LabeledTypePack element must have kind Type".to_string(),
+                        ));
+                    }
+                }
+            }
+            ScopedTypeNode::CompleteTypePack { positionals, labeled } => {
+                if positionals.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: positionals.0,
+                    });
+                }
+                if labeled.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: labeled.0,
+                    });
+                }
+                let pos_kind = &bundle.kinds[bundle.scoped_types[positionals.0 as usize].kind.0 as usize].node;
+                if !matches!(pos_kind, KindNode::TypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "Scoped CompleteTypePack positionals must have kind TypePack".to_string(),
+                    ));
+                }
+                let lab_kind = &bundle.kinds[bundle.scoped_types[labeled.0 as usize].kind.0 as usize].node;
+                if !matches!(lab_kind, KindNode::LabeledTypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "Scoped CompleteTypePack labeled must have kind LabeledTypePack".to_string(),
+                    ));
+                }
+            }
+            ScopedTypeNode::TypePackConcat(segments) => {
+                for &seg in segments.iter() {
+                    if seg.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: seg.0,
+                        });
+                    }
+                    let seg_kind = &bundle.kinds[bundle.scoped_types[seg.0 as usize].kind.0 as usize].node;
+                    if !matches!(seg_kind, KindNode::TypePack) {
+                        return Err(MetadataValidationError::Malformed(
+                            "Scoped TypePackConcat segment must have kind TypePack".to_string(),
+                        ));
+                    }
+                }
+            }
+            ScopedTypeNode::LabeledTypePackConcat(segments) => {
+                for &seg in segments.iter() {
+                    if seg.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: seg.0,
+                        });
+                    }
+                    let seg_kind = &bundle.kinds[bundle.scoped_types[seg.0 as usize].kind.0 as usize].node;
+                    if !matches!(seg_kind, KindNode::LabeledTypePack) {
+                        return Err(MetadataValidationError::Malformed(
+                            "Scoped LabeledTypePackConcat segment must have kind LabeledTypePack".to_string(),
+                        ));
+                    }
+                }
+            }
+            ScopedTypeNode::TupleFromPacks { positionals, labeled } => {
+                if positionals.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: positionals.0,
+                    });
+                }
+                if labeled.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: labeled.0,
+                    });
+                }
+                let pos_kind = &bundle.kinds[bundle.scoped_types[positionals.0 as usize].kind.0 as usize].node;
+                if !matches!(pos_kind, KindNode::TypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "Scoped TupleFromPacks positionals must have kind TypePack".to_string(),
+                    ));
+                }
+                let lab_kind = &bundle.kinds[bundle.scoped_types[labeled.0 as usize].kind.0 as usize].node;
+                if !matches!(lab_kind, KindNode::LabeledTypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "Scoped TupleFromPacks labeled must have kind LabeledTypePack".to_string(),
+                    ));
+                }
+            }
+            ScopedTypeNode::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                if positionals.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: positionals.0,
+                    });
+                }
+                if labeled.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: labeled.0,
+                    });
+                }
+                if return_type.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: return_type.0,
+                    });
+                }
+                let pos_kind = &bundle.kinds[bundle.scoped_types[positionals.0 as usize].kind.0 as usize].node;
+                if !matches!(pos_kind, KindNode::TypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "Scoped CallableFromPacks positionals must have kind TypePack".to_string(),
+                    ));
+                }
+                let lab_kind = &bundle.kinds[bundle.scoped_types[labeled.0 as usize].kind.0 as usize].node;
+                if !matches!(lab_kind, KindNode::LabeledTypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "Scoped CallableFromPacks labeled must have kind LabeledTypePack".to_string(),
+                    ));
+                }
+                let ret_kind = &bundle.kinds[bundle.scoped_types[return_type.0 as usize].kind.0 as usize].node;
+                if !matches!(ret_kind, KindNode::Type) {
+                    return Err(MetadataValidationError::Malformed(
+                        "Scoped CallableFromPacks return_type must have kind Type".to_string(),
+                    ));
+                }
+            }
+            ScopedTypeNode::PackProjection { subject, lane } => {
+                if subject.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: subject.0,
+                    });
+                }
+                let subj_kind = &bundle.kinds[bundle.scoped_types[subject.0 as usize].kind.0 as usize].node;
+                let res_kind = &bundle.kinds[entry.kind.0 as usize].node;
+                match lane {
+                    crate::scoped_type::ScopedPackProjectionLaneRef::Positionals => {
+                        if !matches!(subj_kind, KindNode::CompleteTypePack) || !matches!(res_kind, KindNode::TypePack) {
+                            return Err(MetadataValidationError::Malformed(
+                                "Invalid scoped PackProjection Positionals lane kinds".to_string(),
+                            ));
+                        }
+                    }
+                    crate::scoped_type::ScopedPackProjectionLaneRef::Labeled => {
+                        if !matches!(subj_kind, KindNode::CompleteTypePack) || !matches!(res_kind, KindNode::LabeledTypePack) {
+                            return Err(MetadataValidationError::Malformed(
+                                "Invalid scoped PackProjection Labeled lane kinds".to_string(),
+                            ));
+                        }
+                    }
+                    crate::scoped_type::ScopedPackProjectionLaneRef::Complete => {
+                        if !matches!(subj_kind, KindNode::CompleteTypePack) || !matches!(res_kind, KindNode::CompleteTypePack) {
+                            return Err(MetadataValidationError::Malformed(
+                                "Invalid scoped PackProjection Complete lane kinds".to_string(),
+                            ));
+                        }
+                    }
+                }
             }
         }
     }

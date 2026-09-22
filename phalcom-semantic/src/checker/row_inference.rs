@@ -207,6 +207,17 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
         InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
             term_has_row_variables(subject) || trait_ref.arguments.iter().any(term_has_row_variables)
         }
+        InferenceTerm::TypePack(elements) => elements.iter().any(term_has_row_variables),
+        InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| term_has_row_variables(&elem.term)),
+        InferenceTerm::CompleteTypePack { positionals, labeled } => term_has_row_variables(positionals) || term_has_row_variables(labeled),
+        InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => segments.iter().any(term_has_row_variables),
+        InferenceTerm::TupleFromPacks { positionals, labeled } => term_has_row_variables(positionals) || term_has_row_variables(labeled),
+        InferenceTerm::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => term_has_row_variables(positionals) || term_has_row_variables(labeled) || term_has_row_variables(return_type),
+        InferenceTerm::PackProjection { subject, .. } => term_has_row_variables(subject),
         InferenceTerm::Canonical(_) | InferenceTerm::Var(_) | InferenceTerm::Rigid(_) => false,
     }
 }

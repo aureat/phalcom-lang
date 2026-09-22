@@ -269,3 +269,113 @@ fn materialization_recanonicalizes_labeled_pack_concat_and_surfaces_duplicates()
         Err(TypeMaterializationError::Pack(_))
     ));
 }
+
+#[test]
+fn p3_dense_positional_concat_remains_flat() {
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(ModuleId::universe_root(), "Dense".into()));
+
+    let mut segments = Vec::new();
+    for i in 0..256 {
+        let param = store.intern_type_parameter(TypeParameterData::new(owner.clone(), i, format!("P{i}"), KindId::TYPE_PACK));
+        segments.push(store.parameter_form(param));
+    }
+
+    let concat = store.type_pack_concat(&segments).expect("dense concat must succeed");
+    match store.get(concat) {
+        phalcom_semantic::types::store::TypeData::TypePackConcat(children) => {
+            assert_eq!(children.len(), 256);
+            for child in children.iter() {
+                assert!(!matches!(store.get(*child), phalcom_semantic::types::store::TypeData::TypePackConcat(_)));
+            }
+        }
+        other => panic!("expected TypePackConcat, got {other:?}"),
+    }
+}
+
+#[test]
+fn p3_dense_labeled_concat_remains_flat_and_ordered() {
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(ModuleId::universe_root(), "Dense".into()));
+
+    let mut segments = Vec::new();
+    for i in 0..256 {
+        let param = store.intern_type_parameter(TypeParameterData::new(owner.clone(), i, format!("L{i}"), KindId::LABELED_TYPE_PACK));
+        segments.push(store.parameter_form(param));
+    }
+
+    let concat = store.labeled_type_pack_concat(&segments).expect("dense labeled concat must succeed");
+    match store.get(concat) {
+        phalcom_semantic::types::store::TypeData::LabeledTypePackConcat(children) => {
+            assert_eq!(children.len(), 256);
+            for child in children.iter() {
+                assert!(!matches!(store.get(*child), phalcom_semantic::types::store::TypeData::LabeledTypePackConcat(_)));
+            }
+        }
+        other => panic!("expected LabeledTypePackConcat, got {other:?}"),
+    }
+}
+
+#[test]
+fn p3_symbolic_labeled_transition_to_disjoint_and_duplicate() {
+    use phalcom_semantic::types::instantiation::{GenericInstantiation, RowMaterializationMode, TypeMaterializationError, materialize_type};
+    use phalcom_semantic::types::store::LabeledTypePackElement;
+
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(ModuleId::universe_root(), "Packs".into()));
+    let p_left = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "L", KindId::LABELED_TYPE_PACK));
+    let p_right = store.intern_type_parameter(TypeParameterData::new(owner, 1, "R", KindId::LABELED_TYPE_PACK));
+
+    let f_left = store.parameter_form(p_left);
+    let f_right = store.parameter_form(p_right);
+    let concat = store.labeled_type_pack_concat(&[f_left, f_right]).unwrap();
+
+    let int = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+
+    // 1. Transition to disjoint: [a: Int] ++ [b: Int] -> [a: Int, b: Int]
+    let left_disjoint = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "a".into(),
+            element: int,
+        }]))
+        .unwrap();
+    let right_disjoint = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "b".into(),
+            element: int,
+        }]))
+        .unwrap();
+
+    let mut inst_disjoint = GenericInstantiation::default();
+    inst_disjoint.bind_type(p_left, left_disjoint);
+    inst_disjoint.bind_type(p_right, right_disjoint);
+
+    let res_disjoint = materialize_type(&mut store, concat, &inst_disjoint, RowMaterializationMode::PreserveUnboundStableTail);
+    assert!(res_disjoint.is_ok());
+    let materialized_ty = res_disjoint.unwrap();
+    assert!(matches!(
+        store.get(materialized_ty),
+        phalcom_semantic::types::store::TypeData::LabeledTypePack(_)
+    ));
+
+    // 2. Transition to duplicate: [dup: Int] ++ [dup: Int] -> Error
+    let left_dup = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "dup".into(),
+            element: int,
+        }]))
+        .unwrap();
+    let right_dup = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "dup".into(),
+            element: int,
+        }]))
+        .unwrap();
+
+    let mut inst_dup = GenericInstantiation::default();
+    inst_dup.bind_type(p_left, left_dup);
+    inst_dup.bind_type(p_right, right_dup);
+
+    let res_dup = materialize_type(&mut store, concat, &inst_dup, RowMaterializationMode::PreserveUnboundStableTail);
+    assert!(matches!(res_dup, Err(TypeMaterializationError::Pack(_))));
+}

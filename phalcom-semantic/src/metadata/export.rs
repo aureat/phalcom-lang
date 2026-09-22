@@ -325,6 +325,14 @@ impl<'a> MetadataExporter<'a> {
     }
 
     pub fn export_scoped_type(&mut self, scoped_id: ScopedTypeId) -> Result<ScopedTypeNodeId, MetadataExportError> {
+        self.export_scoped_type_with_binders(scoped_id, &[])
+    }
+
+    pub fn export_scoped_type_with_binders(
+        &mut self,
+        scoped_id: ScopedTypeId,
+        binder_kinds: &[Box<[KindId]>],
+    ) -> Result<ScopedTypeNodeId, MetadataExportError> {
         let scoped_data = self.store.arena().get_scoped(scoped_id).clone();
         let scoped_node = match scoped_data {
             ScopedTypeData::Bound { depth, index } => ScopedTypeNode::Bound { depth, index },
@@ -333,10 +341,10 @@ impl<'a> MetadataExporter<'a> {
                 ScopedTypeNode::Free(global_id)
             }
             ScopedTypeData::Applied { origin, ref arguments } => {
-                let o = self.export_scoped_type(origin)?;
+                let o = self.export_scoped_type_with_binders(origin, binder_kinds)?;
                 let mut args = Vec::new();
                 for &arg in arguments.iter() {
-                    args.push(self.export_scoped_type(arg)?);
+                    args.push(self.export_scoped_type_with_binders(arg, binder_kinds)?);
                 }
                 ScopedTypeNode::Applied {
                     origin: o,
@@ -346,14 +354,14 @@ impl<'a> MetadataExporter<'a> {
             ScopedTypeData::Union(ref members) => {
                 let mut m_nodes = Vec::new();
                 for &m in members.iter() {
-                    m_nodes.push(self.export_scoped_type(m)?);
+                    m_nodes.push(self.export_scoped_type_with_binders(m, binder_kinds)?);
                 }
                 ScopedTypeNode::Union(m_nodes.into_boxed_slice())
             }
             ScopedTypeData::Tuple(ref elements) => {
                 let mut elems = Vec::new();
                 for el in elements.iter() {
-                    let ty = self.export_scoped_type(el.ty)?;
+                    let ty = self.export_scoped_type_with_binders(el.ty, binder_kinds)?;
                     elems.push(ScopedTupleElementRef { label: el.label.clone(), ty });
                 }
                 ScopedTypeNode::Tuple(elems.into_boxed_slice())
@@ -361,7 +369,7 @@ impl<'a> MetadataExporter<'a> {
             ScopedTypeData::Record(ref fields) => {
                 let mut f_nodes = Vec::new();
                 for f in fields.iter() {
-                    let ty = self.export_scoped_type(f.ty)?;
+                    let ty = self.export_scoped_type_with_binders(f.ty, binder_kinds)?;
                     f_nodes.push(ScopedRecordFieldRef { name: f.name.clone(), ty });
                 }
                 ScopedTypeNode::Record(f_nodes.into_boxed_slice())
@@ -373,7 +381,7 @@ impl<'a> MetadataExporter<'a> {
                     .map(|field| {
                         Ok(ScopedRecordFieldRef {
                             name: field.name.clone(),
-                            ty: self.export_scoped_type(field.ty)?,
+                            ty: self.export_scoped_type_with_binders(field.ty, binder_kinds)?,
                         })
                     })
                     .collect::<Result<Vec<_>, MetadataExportError>>()?;
@@ -391,33 +399,97 @@ impl<'a> MetadataExporter<'a> {
             ScopedTypeData::Callable(ref call) => {
                 let mut params = Vec::new();
                 for p in call.parameters.iter() {
-                    let ty = self.export_scoped_type(p.ty)?;
+                    let ty = self.export_scoped_type_with_binders(p.ty, binder_kinds)?;
                     params.push(ScopedCallableParamRef {
                         label: p.label.clone(),
                         ty,
                         rest: p.rest,
                     });
                 }
-                let return_type = self.export_scoped_type(call.return_type)?;
+                let return_type = self.export_scoped_type_with_binders(call.return_type, binder_kinds)?;
                 ScopedTypeNode::Callable(ScopedCallableTypeRef {
                     parameters: params.into_boxed_slice(),
                     return_type,
                 })
             }
-            ScopedTypeData::TypePack(_)
-            | ScopedTypeData::LabeledTypePack(_)
-            | ScopedTypeData::CompleteTypePack { .. }
-            | ScopedTypeData::TypePackConcat(_)
-            | ScopedTypeData::LabeledTypePackConcat(_)
-            | ScopedTypeData::TupleFromPacks { .. }
-            | ScopedTypeData::CallableFromPacks { .. }
-            | ScopedTypeData::PackProjection { .. } => return Err(MetadataExportError::ScopedPackForm),
+            ScopedTypeData::TypePack(ref elements) => {
+                let mut el_nodes = Vec::new();
+                for &el in elements.iter() {
+                    el_nodes.push(self.export_scoped_type_with_binders(el, binder_kinds)?);
+                }
+                ScopedTypeNode::TypePack(el_nodes.into_boxed_slice())
+            }
+            ScopedTypeData::LabeledTypePack(ref elements) => {
+                let mut el_nodes = Vec::new();
+                for el in elements.iter() {
+                    let ty = self.export_scoped_type_with_binders(el.element, binder_kinds)?;
+                    el_nodes.push(phalcom_type_meta::scoped_type::ScopedLabeledTypePackElementRef {
+                        label: el.label.clone(),
+                        element: ty,
+                    });
+                }
+                ScopedTypeNode::LabeledTypePack(el_nodes.into_boxed_slice())
+            }
+            ScopedTypeData::CompleteTypePack { positionals, labeled } => ScopedTypeNode::CompleteTypePack {
+                positionals: self.export_scoped_type_with_binders(positionals, binder_kinds)?,
+                labeled: self.export_scoped_type_with_binders(labeled, binder_kinds)?,
+            },
+            ScopedTypeData::TypePackConcat(ref segments) => {
+                let mut s_nodes = Vec::new();
+                for &s in segments.iter() {
+                    s_nodes.push(self.export_scoped_type_with_binders(s, binder_kinds)?);
+                }
+                ScopedTypeNode::TypePackConcat(s_nodes.into_boxed_slice())
+            }
+            ScopedTypeData::LabeledTypePackConcat(ref segments) => {
+                let mut s_nodes = Vec::new();
+                for &s in segments.iter() {
+                    s_nodes.push(self.export_scoped_type_with_binders(s, binder_kinds)?);
+                }
+                ScopedTypeNode::LabeledTypePackConcat(s_nodes.into_boxed_slice())
+            }
+            ScopedTypeData::TupleFromPacks { positionals, labeled } => ScopedTypeNode::TupleFromPacks {
+                positionals: self.export_scoped_type_with_binders(positionals, binder_kinds)?,
+                labeled: self.export_scoped_type_with_binders(labeled, binder_kinds)?,
+            },
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => ScopedTypeNode::CallableFromPacks {
+                positionals: self.export_scoped_type_with_binders(positionals, binder_kinds)?,
+                labeled: self.export_scoped_type_with_binders(labeled, binder_kinds)?,
+                return_type: self.export_scoped_type_with_binders(return_type, binder_kinds)?,
+            },
+            ScopedTypeData::PackProjection { subject, lane } => ScopedTypeNode::PackProjection {
+                subject: self.export_scoped_type_with_binders(subject, binder_kinds)?,
+                lane: match lane {
+                    crate::types::type_lambda::ScopedPackProjectionLane::Positionals => {
+                        phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Positionals
+                    }
+                    crate::types::type_lambda::ScopedPackProjectionLane::Labeled => phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Labeled,
+                    crate::types::type_lambda::ScopedPackProjectionLane::Complete => phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Complete,
+                },
+            },
             ScopedTypeData::Lambda(lam_id) => {
                 let lam_data = self.store.arena().get_lambda(lam_id).clone();
                 let p_kinds: Vec<KindNodeId> = lam_data.parameter_kinds.iter().map(|&pk| self.export_kind(pk)).collect();
-                let body = self.export_scoped_type(lam_data.body)?;
+                let p_modes: Vec<GenericParameterModeRef> = lam_data
+                    .parameter_modes
+                    .iter()
+                    .map(|&mode| match mode {
+                        GenericParameterMode::Single => GenericParameterModeRef::Single,
+                        GenericParameterMode::PositionalPack => GenericParameterModeRef::PositionalPack,
+                        GenericParameterMode::LabeledPack => GenericParameterModeRef::LabeledPack,
+                        GenericParameterMode::CompletePack => GenericParameterModeRef::CompletePack,
+                    })
+                    .collect();
+                let mut nested_binders = binder_kinds.to_vec();
+                nested_binders.push(lam_data.parameter_kinds.clone());
+                let body = self.export_scoped_type_with_binders(lam_data.body, &nested_binders)?;
                 ScopedTypeNode::Lambda {
                     parameter_kinds: p_kinds.into_boxed_slice(),
+                    parameter_modes: Some(p_modes.into_boxed_slice()),
                     body,
                 }
             }
@@ -477,13 +549,89 @@ impl<'a> MetadataExporter<'a> {
                 }
                 fp_b.write_fingerprint(self.scoped_types[call.return_type.0 as usize].structural_fingerprint);
             }
-            ScopedTypeNode::Lambda { parameter_kinds, body } => {
+            ScopedTypeNode::Lambda {
+                parameter_kinds,
+                parameter_modes,
+                body,
+            } => {
                 fp_b.write_u8(8);
                 fp_b.write_u32(parameter_kinds.len() as u32);
                 for pk in parameter_kinds.iter() {
                     fp_b.write_fingerprint(self.kinds[pk.0 as usize].structural_fingerprint);
                 }
+                if let Some(modes) = parameter_modes {
+                    fp_b.write_u8(1);
+                    fp_b.write_u32(modes.len() as u32);
+                    for m in modes.iter() {
+                        fp_b.write_u8(match m {
+                            GenericParameterModeRef::Single => 0,
+                            GenericParameterModeRef::PositionalPack => 1,
+                            GenericParameterModeRef::LabeledPack => 2,
+                            GenericParameterModeRef::CompletePack => 3,
+                        });
+                    }
+                } else {
+                    fp_b.write_u8(0);
+                }
                 fp_b.write_fingerprint(self.scoped_types[body.0 as usize].structural_fingerprint);
+            }
+            ScopedTypeNode::TypePack(elements) => {
+                fp_b.write_u8(14);
+                fp_b.write_u32(elements.len() as u32);
+                for el in elements.iter() {
+                    fp_b.write_fingerprint(self.scoped_types[el.0 as usize].structural_fingerprint);
+                }
+            }
+            ScopedTypeNode::LabeledTypePack(elements) => {
+                fp_b.write_u8(15);
+                fp_b.write_u32(elements.len() as u32);
+                for el in elements.iter() {
+                    fp_b.write_str(&el.label);
+                    fp_b.write_fingerprint(self.scoped_types[el.element.0 as usize].structural_fingerprint);
+                }
+            }
+            ScopedTypeNode::CompleteTypePack { positionals, labeled } => {
+                fp_b.write_u8(18);
+                fp_b.write_fingerprint(self.scoped_types[positionals.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.scoped_types[labeled.0 as usize].structural_fingerprint);
+            }
+            ScopedTypeNode::TypePackConcat(segments) => {
+                fp_b.write_u8(19);
+                fp_b.write_u32(segments.len() as u32);
+                for segment in segments.iter() {
+                    fp_b.write_fingerprint(self.scoped_types[segment.0 as usize].structural_fingerprint);
+                }
+            }
+            ScopedTypeNode::LabeledTypePackConcat(segments) => {
+                fp_b.write_u8(20);
+                fp_b.write_u32(segments.len() as u32);
+                for segment in segments.iter() {
+                    fp_b.write_fingerprint(self.scoped_types[segment.0 as usize].structural_fingerprint);
+                }
+            }
+            ScopedTypeNode::TupleFromPacks { positionals, labeled } => {
+                fp_b.write_u8(16);
+                fp_b.write_fingerprint(self.scoped_types[positionals.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.scoped_types[labeled.0 as usize].structural_fingerprint);
+            }
+            ScopedTypeNode::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                fp_b.write_u8(21);
+                fp_b.write_fingerprint(self.scoped_types[positionals.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.scoped_types[labeled.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.scoped_types[return_type.0 as usize].structural_fingerprint);
+            }
+            ScopedTypeNode::PackProjection { subject, lane } => {
+                fp_b.write_u8(17);
+                fp_b.write_fingerprint(self.scoped_types[subject.0 as usize].structural_fingerprint);
+                fp_b.write_u8(match lane {
+                    phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Positionals => 0,
+                    phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Labeled => 1,
+                    phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Complete => 2,
+                });
             }
             ScopedTypeNode::OpenRecord(open_rec) => {
                 fp_b.write_u8(9);
@@ -506,7 +654,26 @@ impl<'a> MetadataExporter<'a> {
             }
         }
         let structural_fingerprint = fp_b.finish();
-        let kind_id = self.export_kind(self.store.kind_of(self.store.unit()));
+        let kind_id = match &scoped_node {
+            ScopedTypeNode::Bound { depth, index } => {
+                let inferred = binder_kinds
+                    .get(binder_kinds.len().saturating_sub(1).saturating_sub(*depth as usize))
+                    .and_then(|layer| layer.get(*index as usize))
+                    .copied()
+                    .unwrap_or(KindId::TYPE);
+                self.export_kind(inferred)
+            }
+            ScopedTypeNode::Free(t) => self.types[t.0 as usize].kind,
+            ScopedTypeNode::TypePack(_) | ScopedTypeNode::TypePackConcat(_) => self.export_kind(KindId::TYPE_PACK),
+            ScopedTypeNode::LabeledTypePack(_) | ScopedTypeNode::LabeledTypePackConcat(_) => self.export_kind(KindId::LABELED_TYPE_PACK),
+            ScopedTypeNode::CompleteTypePack { .. } => self.export_kind(KindId::COMPLETE_TYPE_PACK),
+            ScopedTypeNode::PackProjection { lane, .. } => self.export_kind(match lane {
+                phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Positionals => KindId::TYPE_PACK,
+                phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Labeled => KindId::LABELED_TYPE_PACK,
+                phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Complete => KindId::COMPLETE_TYPE_PACK,
+            }),
+            _ => self.export_kind(KindId::TYPE),
+        };
         let id = ScopedTypeNodeId(self.scoped_types.len() as u32);
         self.scoped_types.push(ScopedTypeNodeEntry {
             kind: kind_id,
@@ -635,9 +802,20 @@ impl<'a> MetadataExporter<'a> {
             TypeData::Lambda(lam_id) => {
                 let lam_data = self.store.arena().get_lambda(lam_id).clone();
                 let p_kinds: Vec<KindNodeId> = lam_data.parameter_kinds.iter().map(|&pk| self.export_kind(pk)).collect();
-                let body = self.export_scoped_type(lam_data.body)?;
+                let p_modes: Vec<GenericParameterModeRef> = lam_data
+                    .parameter_modes
+                    .iter()
+                    .map(|&mode| match mode {
+                        GenericParameterMode::Single => GenericParameterModeRef::Single,
+                        GenericParameterMode::PositionalPack => GenericParameterModeRef::PositionalPack,
+                        GenericParameterMode::LabeledPack => GenericParameterModeRef::LabeledPack,
+                        GenericParameterMode::CompletePack => GenericParameterModeRef::CompletePack,
+                    })
+                    .collect();
+                let body = self.export_scoped_type_with_binders(lam_data.body, &[lam_data.parameter_kinds.clone()])?;
                 TypeNode::TypeLambda(TypeLambdaRef {
                     parameter_kinds: p_kinds.into_boxed_slice(),
+                    parameter_modes: Some(p_modes.into_boxed_slice()),
                     body,
                 })
             }
@@ -799,6 +977,20 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u32(lambda.parameter_kinds.len() as u32);
                 for pk in lambda.parameter_kinds.iter() {
                     fp_b.write_fingerprint(self.kinds[pk.0 as usize].structural_fingerprint);
+                }
+                if let Some(modes) = &lambda.parameter_modes {
+                    fp_b.write_u8(1);
+                    fp_b.write_u32(modes.len() as u32);
+                    for m in modes.iter() {
+                        fp_b.write_u8(match m {
+                            GenericParameterModeRef::Single => 0,
+                            GenericParameterModeRef::PositionalPack => 1,
+                            GenericParameterModeRef::LabeledPack => 2,
+                            GenericParameterModeRef::CompletePack => 3,
+                        });
+                    }
+                } else {
+                    fp_b.write_u8(0);
                 }
                 fp_b.write_fingerprint(self.scoped_types[lambda.body.0 as usize].structural_fingerprint);
             }

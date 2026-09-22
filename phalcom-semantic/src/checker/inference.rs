@@ -52,6 +52,42 @@ pub enum InferenceTerm {
         trait_ref: InferenceTraitRef,
         requirement: AssociatedTypeRequirementId,
     },
+    TypePack(Box<[InferenceTerm]>),
+    LabeledTypePack(Box<[InferenceLabeledTypePackElement]>),
+    CompleteTypePack {
+        positionals: Box<InferenceTerm>,
+        labeled: Box<InferenceTerm>,
+    },
+    TypePackConcat(Box<[InferenceTerm]>),
+    LabeledTypePackConcat(Box<[InferenceTerm]>),
+    TupleFromPacks {
+        positionals: Box<InferenceTerm>,
+        labeled: Box<InferenceTerm>,
+    },
+    CallableFromPacks {
+        positionals: Box<InferenceTerm>,
+        labeled: Box<InferenceTerm>,
+        return_type: Box<InferenceTerm>,
+    },
+    PackProjection {
+        subject: Box<InferenceTerm>,
+        lane: InferencePackProjectionLane,
+    },
+}
+
+/// A labeled element inside a solver-local labeled type pack.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InferenceLabeledTypePackElement {
+    pub label: Box<str>,
+    pub term: InferenceTerm,
+}
+
+/// Lane selector for a solver-local pack projection.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum InferencePackProjectionLane {
+    Positionals,
+    Labeled,
+    Complete,
 }
 
 /// Query-local owner for solver variables shared by nested generic applications.
@@ -279,6 +315,7 @@ pub enum InferenceMaterializationFailure {
     TypeApplication(TypeApplicationError),
     InvalidExactCase,
     UnsupportedDomain,
+    Pack(crate::types::store::PackFormationError),
     InternalInvariant,
 }
 
@@ -761,6 +798,73 @@ impl InferenceSession {
                 },
                 requirement: proj.requirement.clone(),
             },
+            TypeData::TypePack(elements) => InferenceTerm::TypePack(
+                elements
+                    .iter()
+                    .map(|&elem| self.type_id_to_inference(elem, subst, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::LabeledTypePack(elements) => InferenceTerm::LabeledTypePack(
+                elements
+                    .iter()
+                    .map(|elem| InferenceLabeledTypePackElement {
+                        label: elem.label.clone(),
+                        term: self.type_id_to_inference(elem.element, subst, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::CompleteTypePack { positionals, labeled } => InferenceTerm::CompleteTypePack {
+                positionals: Box::new(self.type_id_to_inference(*positionals, subst, store)),
+                labeled: Box::new(self.type_id_to_inference(*labeled, subst, store)),
+            },
+            TypeData::TypePackConcat(segments) => InferenceTerm::TypePackConcat(
+                segments
+                    .iter()
+                    .map(|&seg| self.type_id_to_inference(seg, subst, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::LabeledTypePackConcat(segments) => InferenceTerm::LabeledTypePackConcat(
+                segments
+                    .iter()
+                    .map(|&seg| self.type_id_to_inference(seg, subst, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::TupleFromPacks { positionals, labeled } => InferenceTerm::TupleFromPacks {
+                positionals: Box::new(self.type_id_to_inference(*positionals, subst, store)),
+                labeled: Box::new(self.type_id_to_inference(*labeled, subst, store)),
+            },
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => InferenceTerm::CallableFromPacks {
+                positionals: Box::new(self.type_id_to_inference(*positionals, subst, store)),
+                labeled: Box::new(self.type_id_to_inference(*labeled, subst, store)),
+                return_type: Box::new(self.type_id_to_inference(*return_type, subst, store)),
+            },
+            TypeData::TypeMemberProjection(proj) => {
+                if let crate::types::type_member::ProjectionSubject::Type(subj_ty) = proj.subject {
+                    if store.kind_of(subj_ty) == KindId::COMPLETE_TYPE_PACK && proj.arguments.is_empty() {
+                        let lane = match proj.selector.name() {
+                            "Positionals" => Some(InferencePackProjectionLane::Positionals),
+                            "Labeled" => Some(InferencePackProjectionLane::Labeled),
+                            "Complete" => Some(InferencePackProjectionLane::Complete),
+                            _ => None,
+                        };
+                        if let Some(lane) = lane {
+                            return InferenceTerm::PackProjection {
+                                subject: Box::new(self.type_id_to_inference(subj_ty, subst, store)),
+                                lane,
+                            };
+                        }
+                    }
+                }
+                InferenceTerm::Canonical(ty)
+            }
             _ => InferenceTerm::Canonical(ty),
         }
     }
@@ -867,6 +971,73 @@ impl InferenceSession {
                 },
                 requirement: proj.requirement.clone(),
             },
+            TypeData::TypePack(elements) => InferenceTerm::TypePack(
+                elements
+                    .iter()
+                    .map(|&elem| self.type_id_to_inference_with_rows(elem, subst, row_subst, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::LabeledTypePack(elements) => InferenceTerm::LabeledTypePack(
+                elements
+                    .iter()
+                    .map(|elem| InferenceLabeledTypePackElement {
+                        label: elem.label.clone(),
+                        term: self.type_id_to_inference_with_rows(elem.element, subst, row_subst, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::CompleteTypePack { positionals, labeled } => InferenceTerm::CompleteTypePack {
+                positionals: Box::new(self.type_id_to_inference_with_rows(*positionals, subst, row_subst, store)),
+                labeled: Box::new(self.type_id_to_inference_with_rows(*labeled, subst, row_subst, store)),
+            },
+            TypeData::TypePackConcat(segments) => InferenceTerm::TypePackConcat(
+                segments
+                    .iter()
+                    .map(|&seg| self.type_id_to_inference_with_rows(seg, subst, row_subst, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::LabeledTypePackConcat(segments) => InferenceTerm::LabeledTypePackConcat(
+                segments
+                    .iter()
+                    .map(|&seg| self.type_id_to_inference_with_rows(seg, subst, row_subst, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::TupleFromPacks { positionals, labeled } => InferenceTerm::TupleFromPacks {
+                positionals: Box::new(self.type_id_to_inference_with_rows(*positionals, subst, row_subst, store)),
+                labeled: Box::new(self.type_id_to_inference_with_rows(*labeled, subst, row_subst, store)),
+            },
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => InferenceTerm::CallableFromPacks {
+                positionals: Box::new(self.type_id_to_inference_with_rows(*positionals, subst, row_subst, store)),
+                labeled: Box::new(self.type_id_to_inference_with_rows(*labeled, subst, row_subst, store)),
+                return_type: Box::new(self.type_id_to_inference_with_rows(*return_type, subst, row_subst, store)),
+            },
+            TypeData::TypeMemberProjection(proj) => {
+                if let crate::types::type_member::ProjectionSubject::Type(subj_ty) = proj.subject {
+                    if store.kind_of(subj_ty) == KindId::COMPLETE_TYPE_PACK && proj.arguments.is_empty() {
+                        let lane = match proj.selector.name() {
+                            "Positionals" => Some(InferencePackProjectionLane::Positionals),
+                            "Labeled" => Some(InferencePackProjectionLane::Labeled),
+                            "Complete" => Some(InferencePackProjectionLane::Complete),
+                            _ => None,
+                        };
+                        if let Some(lane) = lane {
+                            return InferenceTerm::PackProjection {
+                                subject: Box::new(self.type_id_to_inference_with_rows(subj_ty, subst, row_subst, store)),
+                                lane,
+                            };
+                        }
+                    }
+                }
+                InferenceTerm::Canonical(ty)
+            }
             _ => InferenceTerm::Canonical(ty),
         }
     }
@@ -981,6 +1152,68 @@ impl InferenceSession {
                 let trait_ref = crate::traits::TraitRef::new(trait_ref.declaration.clone(), args);
                 Some(store.associated_projection(subject_ty, trait_ref, requirement.clone()))
             }
+            InferenceTerm::TypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|elem| self.materialize_for_expected(elem, store))
+                    .collect::<Option<Vec<_>>>()?;
+                store.type_pack(elements.into_boxed_slice()).ok()
+            }
+            InferenceTerm::LabeledTypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|elem| {
+                        Some(crate::types::store::LabeledTypePackElement {
+                            label: elem.label.clone(),
+                            element: self.materialize_for_expected(&elem.term, store)?,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                store.labeled_type_pack(elements.into_boxed_slice()).ok()
+            }
+            InferenceTerm::CompleteTypePack { positionals, labeled } => {
+                let pos = self.materialize_for_expected(positionals, store)?;
+                let lab = self.materialize_for_expected(labeled, store)?;
+                store.complete_type_pack(pos, lab).ok()
+            }
+            InferenceTerm::TypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|seg| self.materialize_for_expected(seg, store))
+                    .collect::<Option<Vec<_>>>()?;
+                store.type_pack_concat(&segments).ok()
+            }
+            InferenceTerm::LabeledTypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|seg| self.materialize_for_expected(seg, store))
+                    .collect::<Option<Vec<_>>>()?;
+                store.labeled_type_pack_concat(&segments).ok()
+            }
+            InferenceTerm::TupleFromPacks { positionals, labeled } => {
+                let pos = self.materialize_for_expected(positionals, store)?;
+                let lab = self.materialize_for_expected(labeled, store)?;
+                store.tuple_from_packs(pos, lab).ok()
+            }
+            InferenceTerm::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                let pos = self.materialize_for_expected(positionals, store)?;
+                let lab = self.materialize_for_expected(labeled, store)?;
+                let ret = self.materialize_for_expected(return_type, store)?;
+                store.callable_from_packs(pos, lab, ret).ok()
+            }
+            InferenceTerm::PackProjection { subject, lane } => {
+                let subj = self.materialize_for_expected(subject, store)?;
+                match lane {
+                    InferencePackProjectionLane::Positionals => store.project_positionals(subj),
+                    InferencePackProjectionLane::Labeled => store.project_labeled(subj),
+                    InferencePackProjectionLane::Complete => store.project_complete(subj),
+                }
+                .ok()
+            }
         }
     }
 
@@ -990,7 +1223,7 @@ impl InferenceSession {
     /// application, however, the argument may still be a solver variable. The
     /// symbolic form must survive until that variable receives its value so
     /// fixed constructors such as `Either<E, X>` can still constrain `X`.
-    fn symbolic_beta_reduce(&self, term: &InferenceTerm, store: &TypeStore) -> Option<InferenceTerm> {
+    pub fn symbolic_beta_reduce(&self, term: &InferenceTerm, store: &TypeStore) -> Option<InferenceTerm> {
         let InferenceTerm::Applied { origin, arguments } = term else { return None };
         let InferenceTerm::Canonical(origin_ty) = origin.as_ref() else { return None };
         let TypeData::Lambda(lambda_id) = store.get(*origin_ty) else { return None };
@@ -1084,18 +1317,68 @@ impl InferenceSession {
                     .into_boxed_slice(),
                 return_type: Box::new(self.scoped_to_inference(callable.return_type, depth, arguments, store)?),
             })),
+            ScopedTypeData::TypePack(elements) => Some(InferenceTerm::TypePack(
+                elements
+                    .iter()
+                    .map(|&elem| self.scoped_to_inference(elem, depth, arguments, store))
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
+            )),
+            ScopedTypeData::LabeledTypePack(elements) => Some(InferenceTerm::LabeledTypePack(
+                elements
+                    .iter()
+                    .map(|elem| {
+                        Some(InferenceLabeledTypePackElement {
+                            label: elem.label.clone(),
+                            term: self.scoped_to_inference(elem.element, depth, arguments, store)?,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
+            )),
+            ScopedTypeData::CompleteTypePack { positionals, labeled } => Some(InferenceTerm::CompleteTypePack {
+                positionals: Box::new(self.scoped_to_inference(positionals, depth, arguments, store)?),
+                labeled: Box::new(self.scoped_to_inference(labeled, depth, arguments, store)?),
+            }),
+            ScopedTypeData::TypePackConcat(segments) => Some(InferenceTerm::TypePackConcat(
+                segments
+                    .iter()
+                    .map(|&seg| self.scoped_to_inference(seg, depth, arguments, store))
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
+            )),
+            ScopedTypeData::LabeledTypePackConcat(segments) => Some(InferenceTerm::LabeledTypePackConcat(
+                segments
+                    .iter()
+                    .map(|&seg| self.scoped_to_inference(seg, depth, arguments, store))
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
+            )),
+            ScopedTypeData::TupleFromPacks { positionals, labeled } => Some(InferenceTerm::TupleFromPacks {
+                positionals: Box::new(self.scoped_to_inference(positionals, depth, arguments, store)?),
+                labeled: Box::new(self.scoped_to_inference(labeled, depth, arguments, store)?),
+            }),
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => Some(InferenceTerm::CallableFromPacks {
+                positionals: Box::new(self.scoped_to_inference(positionals, depth, arguments, store)?),
+                labeled: Box::new(self.scoped_to_inference(labeled, depth, arguments, store)?),
+                return_type: Box::new(self.scoped_to_inference(return_type, depth, arguments, store)?),
+            }),
+            ScopedTypeData::PackProjection { subject, lane } => Some(InferenceTerm::PackProjection {
+                subject: Box::new(self.scoped_to_inference(subject, depth, arguments, store)?),
+                lane: match lane {
+                    crate::types::type_lambda::ScopedPackProjectionLane::Positionals => InferencePackProjectionLane::Positionals,
+                    crate::types::type_lambda::ScopedPackProjectionLane::Labeled => InferencePackProjectionLane::Labeled,
+                    crate::types::type_lambda::ScopedPackProjectionLane::Complete => InferencePackProjectionLane::Complete,
+                },
+            }),
             // Nested lambdas need their own bound-depth shifting. No current
             // generic-call boundary requires lowering one, so retain it as an
             // unavailable symbolic form rather than inventing a canonical type.
-            ScopedTypeData::Lambda(_)
-            | ScopedTypeData::TypePack(_)
-            | ScopedTypeData::LabeledTypePack(_)
-            | ScopedTypeData::CompleteTypePack { .. }
-            | ScopedTypeData::TypePackConcat(_)
-            | ScopedTypeData::LabeledTypePackConcat(_)
-            | ScopedTypeData::TupleFromPacks { .. }
-            | ScopedTypeData::CallableFromPacks { .. }
-            | ScopedTypeData::PackProjection { .. } => None,
+            ScopedTypeData::Lambda(_) => None,
         }
     }
 
@@ -1392,6 +1675,46 @@ impl InferenceSession {
                         .into_boxed_slice(),
                 },
                 requirement: requirement.clone(),
+            },
+            InferenceTerm::TypePack(elements) => {
+                InferenceTerm::TypePack(elements.iter().map(|elem| self.term_for_expected(elem)).collect::<Vec<_>>().into_boxed_slice())
+            }
+            InferenceTerm::LabeledTypePack(elements) => InferenceTerm::LabeledTypePack(
+                elements
+                    .iter()
+                    .map(|elem| InferenceLabeledTypePackElement {
+                        label: elem.label.clone(),
+                        term: self.term_for_expected(&elem.term),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            InferenceTerm::CompleteTypePack { positionals, labeled } => InferenceTerm::CompleteTypePack {
+                positionals: Box::new(self.term_for_expected(positionals)),
+                labeled: Box::new(self.term_for_expected(labeled)),
+            },
+            InferenceTerm::TypePackConcat(segments) => {
+                InferenceTerm::TypePackConcat(segments.iter().map(|seg| self.term_for_expected(seg)).collect::<Vec<_>>().into_boxed_slice())
+            }
+            InferenceTerm::LabeledTypePackConcat(segments) => {
+                InferenceTerm::LabeledTypePackConcat(segments.iter().map(|seg| self.term_for_expected(seg)).collect::<Vec<_>>().into_boxed_slice())
+            }
+            InferenceTerm::TupleFromPacks { positionals, labeled } => InferenceTerm::TupleFromPacks {
+                positionals: Box::new(self.term_for_expected(positionals)),
+                labeled: Box::new(self.term_for_expected(labeled)),
+            },
+            InferenceTerm::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => InferenceTerm::CallableFromPacks {
+                positionals: Box::new(self.term_for_expected(positionals)),
+                labeled: Box::new(self.term_for_expected(labeled)),
+                return_type: Box::new(self.term_for_expected(return_type)),
+            },
+            InferenceTerm::PackProjection { subject, lane } => InferenceTerm::PackProjection {
+                subject: Box::new(self.term_for_expected(subject)),
+                lane: *lane,
             },
         }
     }
@@ -1939,6 +2262,27 @@ impl InferenceSession {
             InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
                 self.term_has_unresolved_variables(subject) || trait_ref.arguments.iter().any(|arg| self.term_has_unresolved_variables(arg))
             }
+            InferenceTerm::TypePack(elements) => elements.iter().any(|elem| self.term_has_unresolved_variables(elem)),
+            InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| self.term_has_unresolved_variables(&elem.term)),
+            InferenceTerm::CompleteTypePack { positionals, labeled } => {
+                self.term_has_unresolved_variables(positionals) || self.term_has_unresolved_variables(labeled)
+            }
+            InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => {
+                segments.iter().any(|seg| self.term_has_unresolved_variables(seg))
+            }
+            InferenceTerm::TupleFromPacks { positionals, labeled } => {
+                self.term_has_unresolved_variables(positionals) || self.term_has_unresolved_variables(labeled)
+            }
+            InferenceTerm::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.term_has_unresolved_variables(positionals)
+                    || self.term_has_unresolved_variables(labeled)
+                    || self.term_has_unresolved_variables(return_type)
+            }
+            InferenceTerm::PackProjection { subject, .. } => self.term_has_unresolved_variables(subject),
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => false,
         }
     }
@@ -2014,6 +2358,41 @@ impl InferenceSession {
                     self.collect_term_variables(arg, variables);
                 }
             }
+            InferenceTerm::TypePack(elements) => {
+                for elem in elements.iter() {
+                    self.collect_term_variables(elem, variables);
+                }
+            }
+            InferenceTerm::LabeledTypePack(elements) => {
+                for elem in elements.iter() {
+                    self.collect_term_variables(&elem.term, variables);
+                }
+            }
+            InferenceTerm::CompleteTypePack { positionals, labeled } => {
+                self.collect_term_variables(positionals, variables);
+                self.collect_term_variables(labeled, variables);
+            }
+            InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => {
+                for seg in segments.iter() {
+                    self.collect_term_variables(seg, variables);
+                }
+            }
+            InferenceTerm::TupleFromPacks { positionals, labeled } => {
+                self.collect_term_variables(positionals, variables);
+                self.collect_term_variables(labeled, variables);
+            }
+            InferenceTerm::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.collect_term_variables(positionals, variables);
+                self.collect_term_variables(labeled, variables);
+                self.collect_term_variables(return_type, variables);
+            }
+            InferenceTerm::PackProjection { subject, .. } => {
+                self.collect_term_variables(subject, variables);
+            }
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => {}
         }
     }
@@ -2071,6 +2450,41 @@ impl InferenceSession {
                     self.record_term_proof_state(arg, proof.clone());
                 }
             }
+            InferenceTerm::TypePack(elements) => {
+                for elem in elements.iter() {
+                    self.record_term_proof_state(elem, proof.clone());
+                }
+            }
+            InferenceTerm::LabeledTypePack(elements) => {
+                for elem in elements.iter() {
+                    self.record_term_proof_state(&elem.term, proof.clone());
+                }
+            }
+            InferenceTerm::CompleteTypePack { positionals, labeled } => {
+                self.record_term_proof_state(positionals, proof.clone());
+                self.record_term_proof_state(labeled, proof);
+            }
+            InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => {
+                for seg in segments.iter() {
+                    self.record_term_proof_state(seg, proof.clone());
+                }
+            }
+            InferenceTerm::TupleFromPacks { positionals, labeled } => {
+                self.record_term_proof_state(positionals, proof.clone());
+                self.record_term_proof_state(labeled, proof);
+            }
+            InferenceTerm::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.record_term_proof_state(positionals, proof.clone());
+                self.record_term_proof_state(labeled, proof.clone());
+                self.record_term_proof_state(return_type, proof);
+            }
+            InferenceTerm::PackProjection { subject, .. } => {
+                self.record_term_proof_state(subject, proof);
+            }
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => {}
         }
     }
@@ -2118,6 +2532,41 @@ impl InferenceSession {
                 for arg in trait_ref.arguments.iter() {
                     self.record_term_support(arg, support);
                 }
+            }
+            InferenceTerm::TypePack(elements) => {
+                for elem in elements.iter() {
+                    self.record_term_support(elem, support);
+                }
+            }
+            InferenceTerm::LabeledTypePack(elements) => {
+                for elem in elements.iter() {
+                    self.record_term_support(&elem.term, support);
+                }
+            }
+            InferenceTerm::CompleteTypePack { positionals, labeled } => {
+                self.record_term_support(positionals, support);
+                self.record_term_support(labeled, support);
+            }
+            InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => {
+                for seg in segments.iter() {
+                    self.record_term_support(seg, support);
+                }
+            }
+            InferenceTerm::TupleFromPacks { positionals, labeled } => {
+                self.record_term_support(positionals, support);
+                self.record_term_support(labeled, support);
+            }
+            InferenceTerm::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.record_term_support(positionals, support);
+                self.record_term_support(labeled, support);
+                self.record_term_support(return_type, support);
+            }
+            InferenceTerm::PackProjection { subject, .. } => {
+                self.record_term_support(subject, support);
             }
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => {}
         }
@@ -2226,6 +2675,19 @@ impl InferenceSession {
             InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
                 self.occurs_in_term(rep, subject) || trait_ref.arguments.iter().any(|arg| self.occurs_in_term(rep, arg))
             }
+            InferenceTerm::TypePack(elements) => elements.iter().any(|elem| self.occurs_in_term(rep, elem)),
+            InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| self.occurs_in_term(rep, &elem.term)),
+            InferenceTerm::CompleteTypePack { positionals, labeled } => self.occurs_in_term(rep, positionals) || self.occurs_in_term(rep, labeled),
+            InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => {
+                segments.iter().any(|seg| self.occurs_in_term(rep, seg))
+            }
+            InferenceTerm::TupleFromPacks { positionals, labeled } => self.occurs_in_term(rep, positionals) || self.occurs_in_term(rep, labeled),
+            InferenceTerm::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => self.occurs_in_term(rep, positionals) || self.occurs_in_term(rep, labeled) || self.occurs_in_term(rep, return_type),
+            InferenceTerm::PackProjection { subject, .. } => self.occurs_in_term(rep, subject),
         }
     }
 
@@ -2255,8 +2717,64 @@ impl InferenceSession {
             }
             InferenceTerm::Record(record) => record.fields.iter().any(|field| self.term_has_projection(&field.term, store)),
             InferenceTerm::Family(family) => family.iter().any(|member| self.term_has_projection(&member.term, store)),
+            InferenceTerm::TypePack(elements) => elements.iter().any(|elem| self.term_has_projection(elem, store)),
+            InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| self.term_has_projection(&elem.term, store)),
+            InferenceTerm::CompleteTypePack { positionals, labeled } => {
+                self.term_has_projection(positionals, store) || self.term_has_projection(labeled, store)
+            }
+            InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => {
+                segments.iter().any(|seg| self.term_has_projection(seg, store))
+            }
+            InferenceTerm::TupleFromPacks { positionals, labeled } => self.term_has_projection(positionals, store) || self.term_has_projection(labeled, store),
+            InferenceTerm::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => self.term_has_projection(positionals, store) || self.term_has_projection(labeled, store) || self.term_has_projection(return_type, store),
+            InferenceTerm::PackProjection { .. } => true,
             InferenceTerm::Rigid(_) => false,
         }
+    }
+
+    fn inference_tuple_lanes(elements: &[InferenceTupleElement]) -> (InferenceTerm, InferenceTerm) {
+        let mut pos = Vec::new();
+        let mut lab = Vec::new();
+        for elem in elements {
+            if let Some(label) = &elem.label {
+                lab.push(InferenceLabeledTypePackElement {
+                    label: label.clone(),
+                    term: elem.term.clone(),
+                });
+            } else {
+                pos.push(elem.term.clone());
+            }
+        }
+        (
+            InferenceTerm::TypePack(pos.into_boxed_slice()),
+            InferenceTerm::LabeledTypePack(lab.into_boxed_slice()),
+        )
+    }
+
+    fn inference_callable_lanes(callable: &InferenceCallable) -> Option<(InferenceTerm, InferenceTerm)> {
+        let mut pos = Vec::new();
+        let mut lab = Vec::new();
+        for param in callable.parameters.iter() {
+            if param.rest != RestMode::None {
+                return None;
+            }
+            if let Some(label) = &param.label {
+                lab.push(InferenceLabeledTypePackElement {
+                    label: label.clone(),
+                    term: param.term.clone(),
+                });
+            } else {
+                pos.push(param.term.clone());
+            }
+        }
+        Some((
+            InferenceTerm::TypePack(pos.into_boxed_slice()),
+            InferenceTerm::LabeledTypePack(lab.into_boxed_slice()),
+        ))
     }
 
     fn unify_terms(&mut self, left: &InferenceTerm, right: &InferenceTerm, store: &mut TypeStore) -> Result<SolveEffect, InferenceFailureReason> {
@@ -2624,11 +3142,37 @@ impl InferenceSession {
                 }
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
-            (InferenceTerm::Canonical(ty), other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_) | InferenceTerm::AssociatedProjection { .. }))
-            | (other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_) | InferenceTerm::AssociatedProjection { .. }), InferenceTerm::Canonical(ty)) => {
+            (
+                InferenceTerm::Canonical(ty),
+                other @ (InferenceTerm::Record(_)
+                | InferenceTerm::Family(_)
+                | InferenceTerm::AssociatedProjection { .. }
+                | InferenceTerm::TypePack(_)
+                | InferenceTerm::LabeledTypePack(_)
+                | InferenceTerm::CompleteTypePack { .. }
+                | InferenceTerm::TypePackConcat(_)
+                | InferenceTerm::LabeledTypePackConcat(_)
+                | InferenceTerm::TupleFromPacks { .. }
+                | InferenceTerm::CallableFromPacks { .. }
+                | InferenceTerm::PackProjection { .. }),
+            )
+            | (
+                other @ (InferenceTerm::Record(_)
+                | InferenceTerm::Family(_)
+                | InferenceTerm::AssociatedProjection { .. }
+                | InferenceTerm::TypePack(_)
+                | InferenceTerm::LabeledTypePack(_)
+                | InferenceTerm::CompleteTypePack { .. }
+                | InferenceTerm::TypePackConcat(_)
+                | InferenceTerm::LabeledTypePackConcat(_)
+                | InferenceTerm::TupleFromPacks { .. }
+                | InferenceTerm::CallableFromPacks { .. }
+                | InferenceTerm::PackProjection { .. }),
+                InferenceTerm::Canonical(ty),
+            ) => {
                 let canonical = self.type_id_to_inference(*ty, &HashMap::new(), store);
                 if canonical == InferenceTerm::Canonical(*ty) {
-                    if matches!(other, InferenceTerm::AssociatedProjection { .. }) {
+                    if matches!(other, InferenceTerm::AssociatedProjection { .. } | InferenceTerm::PackProjection { .. }) {
                         return Ok(SolveEffect::Unchanged);
                     }
                     return Err(InferenceFailureReason::StructuralMismatch {
@@ -2637,6 +3181,178 @@ impl InferenceSession {
                     });
                 }
                 self.unify_terms(&canonical, other, store)
+            }
+            (InferenceTerm::TypePack(left_elems), InferenceTerm::TypePack(right_elems)) => {
+                if left_elems.len() != right_elems.len() {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                let mut changed = false;
+                for (left_elem, right_elem) in left_elems.iter().zip(right_elems.iter()) {
+                    changed |= self.unify_terms(left_elem, right_elem, store)?.is_changed();
+                }
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (InferenceTerm::LabeledTypePack(left_elems), InferenceTerm::LabeledTypePack(right_elems)) => {
+                if left_elems.len() != right_elems.len() {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                let mut changed = false;
+                for (left_elem, right_elem) in left_elems.iter().zip(right_elems.iter()) {
+                    if left_elem.label != right_elem.label {
+                        return Err(InferenceFailureReason::StructuralMismatch {
+                            left: Box::new(left.clone()),
+                            right: Box::new(right.clone()),
+                        });
+                    }
+                    changed |= self.unify_terms(&left_elem.term, &right_elem.term, store)?.is_changed();
+                }
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::CompleteTypePack {
+                    positionals: left_pos,
+                    labeled: left_lab,
+                },
+                InferenceTerm::CompleteTypePack {
+                    positionals: right_pos,
+                    labeled: right_lab,
+                },
+            ) => {
+                let mut changed = self.unify_terms(left_pos, right_pos, store)?.is_changed();
+                changed |= self.unify_terms(left_lab, right_lab, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (InferenceTerm::TypePackConcat(left_segs), InferenceTerm::TypePackConcat(right_segs)) => {
+                if left_segs.len() != right_segs.len() {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                let mut changed = false;
+                for (left_seg, right_seg) in left_segs.iter().zip(right_segs.iter()) {
+                    changed |= self.unify_terms(left_seg, right_seg, store)?.is_changed();
+                }
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (InferenceTerm::LabeledTypePackConcat(left_segs), InferenceTerm::LabeledTypePackConcat(right_segs)) => {
+                if left_segs.len() != right_segs.len() {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                let mut changed = false;
+                for (left_seg, right_seg) in left_segs.iter().zip(right_segs.iter()) {
+                    changed |= self.unify_terms(left_seg, right_seg, store)?.is_changed();
+                }
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::TupleFromPacks {
+                    positionals: left_pos,
+                    labeled: left_lab,
+                },
+                InferenceTerm::TupleFromPacks {
+                    positionals: right_pos,
+                    labeled: right_lab,
+                },
+            ) => {
+                let mut changed = self.unify_terms(left_pos, right_pos, store)?.is_changed();
+                changed |= self.unify_terms(left_lab, right_lab, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (InferenceTerm::TupleFromPacks { positionals, labeled }, InferenceTerm::Tuple(elements))
+            | (InferenceTerm::Tuple(elements), InferenceTerm::TupleFromPacks { positionals, labeled }) => {
+                let (tuple_pos, tuple_lab) = Self::inference_tuple_lanes(elements);
+                let mut changed = self.unify_terms(positionals, &tuple_pos, store)?.is_changed();
+                changed |= self.unify_terms(labeled, &tuple_lab, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::CallableFromPacks {
+                    positionals: left_pos,
+                    labeled: left_lab,
+                    return_type: left_ret,
+                },
+                InferenceTerm::CallableFromPacks {
+                    positionals: right_pos,
+                    labeled: right_lab,
+                    return_type: right_ret,
+                },
+            ) => {
+                let mut changed = self.unify_terms(left_pos, right_pos, store)?.is_changed();
+                changed |= self.unify_terms(left_lab, right_lab, store)?.is_changed();
+                changed |= self.unify_terms(left_ret, right_ret, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::CallableFromPacks {
+                    positionals,
+                    labeled,
+                    return_type,
+                },
+                InferenceTerm::Callable(callable),
+            )
+            | (
+                InferenceTerm::Callable(callable),
+                InferenceTerm::CallableFromPacks {
+                    positionals,
+                    labeled,
+                    return_type,
+                },
+            ) => {
+                let Some((call_pos, call_lab)) = Self::inference_callable_lanes(callable) else {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                };
+                let mut changed = self.unify_terms(positionals, &call_pos, store)?.is_changed();
+                changed |= self.unify_terms(labeled, &call_lab, store)?.is_changed();
+                changed |= self.unify_terms(return_type, &callable.return_type, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::PackProjection {
+                    subject: left_subject,
+                    lane: left_lane,
+                },
+                InferenceTerm::PackProjection {
+                    subject: right_subject,
+                    lane: right_lane,
+                },
+            ) => {
+                if left_lane != right_lane {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                self.unify_terms(left_subject, right_subject, store)
+            }
+            (InferenceTerm::PackProjection { subject, lane }, other) | (other, InferenceTerm::PackProjection { subject, lane }) => {
+                if let Ok(subj_ty) = self.materialize(subject, store) {
+                    let projected = match lane {
+                        InferencePackProjectionLane::Positionals => store.project_positionals(subj_ty),
+                        InferencePackProjectionLane::Labeled => store.project_labeled(subj_ty),
+                        InferencePackProjectionLane::Complete => store.project_complete(subj_ty),
+                    }
+                    .map_err(InferenceMaterializationFailure::Pack)
+                    .map_err(|_| InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    })?;
+                    self.unify_terms(&InferenceTerm::Canonical(projected), other, store)
+                } else {
+                    Ok(SolveEffect::Unchanged)
+                }
             }
             _ => Err(InferenceFailureReason::StructuralMismatch {
                 left: Box::new(left.clone()),
@@ -2939,6 +3655,99 @@ impl InferenceSession {
                 }
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
+            (
+                InferenceTerm::TupleFromPacks {
+                    positionals: sub_pos,
+                    labeled: sub_lab,
+                },
+                InferenceTerm::Tuple(elements),
+            ) => {
+                let (tuple_pos, tuple_lab) = Self::inference_tuple_lanes(elements);
+                let mut changed = self.unify_terms(sub_pos, &tuple_pos, store)?.is_changed();
+                changed |= self.unify_terms(sub_lab, &tuple_lab, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::Tuple(sub_elements),
+                InferenceTerm::TupleFromPacks {
+                    positionals: sup_pos,
+                    labeled: sup_lab,
+                },
+            ) => {
+                let (tuple_pos, tuple_lab) = Self::inference_tuple_lanes(sub_elements);
+                let mut changed = self.unify_terms(&tuple_pos, sup_pos, store)?.is_changed();
+                changed |= self.unify_terms(&tuple_lab, sup_lab, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::CallableFromPacks {
+                    positionals: sub_pos,
+                    labeled: sub_lab,
+                    return_type: sub_ret,
+                },
+                InferenceTerm::Callable(sup_callable),
+            ) => {
+                let Some((call_pos, call_lab)) = Self::inference_callable_lanes(sup_callable) else {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(sub.clone()),
+                        right: Box::new(sup.clone()),
+                    });
+                };
+                let mut changed = self.unify_terms(sub_pos, &call_pos, store)?.is_changed();
+                changed |= self.unify_terms(sub_lab, &call_lab, store)?.is_changed();
+                changed |= self.subtype_terms(sub_ret, &sup_callable.return_type, store, hier)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::Callable(sub_callable),
+                InferenceTerm::CallableFromPacks {
+                    positionals: sup_pos,
+                    labeled: sup_lab,
+                    return_type: sup_ret,
+                },
+            ) => {
+                let Some((call_pos, call_lab)) = Self::inference_callable_lanes(sub_callable) else {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(sub.clone()),
+                        right: Box::new(sup.clone()),
+                    });
+                };
+                let mut changed = self.unify_terms(&call_pos, sup_pos, store)?.is_changed();
+                changed |= self.unify_terms(&call_lab, sup_lab, store)?.is_changed();
+                changed |= self.subtype_terms(&sub_callable.return_type, sup_ret, store, hier)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::TupleFromPacks {
+                    positionals: sub_pos,
+                    labeled: sub_lab,
+                },
+                InferenceTerm::TupleFromPacks {
+                    positionals: sup_pos,
+                    labeled: sup_lab,
+                },
+            ) => {
+                let mut changed = self.unify_terms(sub_pos, sup_pos, store)?.is_changed();
+                changed |= self.unify_terms(sub_lab, sup_lab, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::CallableFromPacks {
+                    positionals: sub_pos,
+                    labeled: sub_lab,
+                    return_type: sub_ret,
+                },
+                InferenceTerm::CallableFromPacks {
+                    positionals: sup_pos,
+                    labeled: sup_lab,
+                    return_type: sup_ret,
+                },
+            ) => {
+                let mut changed = self.unify_terms(sub_pos, sup_pos, store)?.is_changed();
+                changed |= self.unify_terms(sub_lab, sup_lab, store)?.is_changed();
+                changed |= self.subtype_terms(sub_ret, sup_ret, store, hier)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
             _ => {
                 if self.term_has_projection(sub, store) || self.term_has_projection(sup, store) {
                     Ok(SolveEffect::Unchanged)
@@ -3063,6 +3872,68 @@ impl InferenceSession {
                 }
                 let trait_ref = crate::traits::TraitRef::new(trait_ref.declaration.clone(), arg_tys);
                 Ok(store.associated_projection(subject_ty, trait_ref, requirement.clone()))
+            }
+            InferenceTerm::TypePack(elements) => {
+                let mut elem_tys = Vec::with_capacity(elements.len());
+                for e in elements.iter() {
+                    elem_tys.push(self.materialize(e, store)?);
+                }
+                store.type_pack(elem_tys.into_boxed_slice()).map_err(InferenceMaterializationFailure::Pack)
+            }
+            InferenceTerm::LabeledTypePack(elements) => {
+                let mut elem_tys = Vec::with_capacity(elements.len());
+                for e in elements.iter() {
+                    elem_tys.push(crate::types::store::LabeledTypePackElement {
+                        label: e.label.clone(),
+                        element: self.materialize(&e.term, store)?,
+                    });
+                }
+                store
+                    .labeled_type_pack(elem_tys.into_boxed_slice())
+                    .map_err(InferenceMaterializationFailure::Pack)
+            }
+            InferenceTerm::CompleteTypePack { positionals, labeled } => {
+                let pos = self.materialize(positionals, store)?;
+                let lab = self.materialize(labeled, store)?;
+                store.complete_type_pack(pos, lab).map_err(InferenceMaterializationFailure::Pack)
+            }
+            InferenceTerm::TypePackConcat(segments) => {
+                let mut seg_tys = Vec::with_capacity(segments.len());
+                for s in segments.iter() {
+                    seg_tys.push(self.materialize(s, store)?);
+                }
+                store.type_pack_concat(&seg_tys).map_err(InferenceMaterializationFailure::Pack)
+            }
+            InferenceTerm::LabeledTypePackConcat(segments) => {
+                let mut seg_tys = Vec::with_capacity(segments.len());
+                for s in segments.iter() {
+                    seg_tys.push(self.materialize(s, store)?);
+                }
+                store.labeled_type_pack_concat(&seg_tys).map_err(InferenceMaterializationFailure::Pack)
+            }
+            InferenceTerm::TupleFromPacks { positionals, labeled } => {
+                let pos = self.materialize(positionals, store)?;
+                let lab = self.materialize(labeled, store)?;
+                store.tuple_from_packs(pos, lab).map_err(InferenceMaterializationFailure::Pack)
+            }
+            InferenceTerm::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                let pos = self.materialize(positionals, store)?;
+                let lab = self.materialize(labeled, store)?;
+                let ret = self.materialize(return_type, store)?;
+                store.callable_from_packs(pos, lab, ret).map_err(InferenceMaterializationFailure::Pack)
+            }
+            InferenceTerm::PackProjection { subject, lane } => {
+                let subj = self.materialize(subject, store)?;
+                match lane {
+                    InferencePackProjectionLane::Positionals => store.project_positionals(subj),
+                    InferencePackProjectionLane::Labeled => store.project_labeled(subj),
+                    InferencePackProjectionLane::Complete => store.project_complete(subj),
+                }
+                .map_err(InferenceMaterializationFailure::Pack)
             }
         }
     }

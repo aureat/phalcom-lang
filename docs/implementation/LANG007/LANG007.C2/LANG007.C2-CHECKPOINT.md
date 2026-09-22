@@ -4,8 +4,8 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C2
 kind: checkpoint-record
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 repository: aureat/phalcom-lang
 branch: main
@@ -14,7 +14,7 @@ requirements_baseline_subject: "feat(lang007): continue C2 universe implementati
 previous_checkpoint: LANG007.C1
 previous_checkpoint_status: COMPLETE
 active_plan: null
-next_plan: LANG007.C2.P3
+next_plan: null
 prepared: 2026-09-22
 requires:
   - docs/implementation/LANG007/PROGRAM.md
@@ -54,6 +54,7 @@ next_plan: LANG007.C2.P2
 |---|---|---|---|---|---|
 | `LANG007.C2.P1` | canonical pack composition and variadic binder semantics | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | exact complete-pack kind and term, flat concat, mode-sensitive signatures, checked rewrite, and schema-v3 persistence established |
 | `LANG007.C2.P2` | source variadic generic binding and structural/callable type expansion | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | source AST/binder/application, Tuple expansion, callable-domain pack expansion with CallableFromPacks, and metadata integration completed |
+| `LANG007.C2.P3` | whole-pack inference, persistence, incremental certification, checkpoint closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | whole-pack inference, schema v4 scoped pack metadata, cross-module parity, density/flatness, and runtime boundary certified |
 
 ### Durable P1 interfaces
 
@@ -115,7 +116,41 @@ P2 must elaborate source `*` / `**` / `***` directly into P1 canonical terms. It
 - `semantic::foundations::type_annotations::callable_domain_symbolic_pack_expansion_produces_callable_from_packs`: PASS.
 - `semantic::capabilities::aliases::variadic_callable_alias_lowers_and_beta_reduces`: PASS.
 
-### P2 completion summary
+### G4 hostile normalization, density, fixed-generic compatibility, and C1 closure established (LANG007.C2.P3)
+
+- Hostile no-decomposition boundaries proven: suffix subtraction and pack partition attempts remain non-solving / underconstrained.
+- Checked duplicate transitions proven: symbolic labeled composition transitions to concrete duplicate error or concrete disjoint pack upon materialization.
+- Concat density proven: large symbolic inputs (256 segments) yield flat canonical concat nodes with linear structural node growth and no recursive nesting.
+- Fixed generics compatibility verified: ordinary generics (`Box<T>`), single pack parameters (`Holder<P: TypePack>`), and empty specialization rules remain fully sound.
+- C1 structural type-member suite green: Positionals, Labeled, At, Map, RecordRow distinction, and zero-product identity fully preserved.
+- Gate G4 verified: `foundations::inference` (41 tests), `generic_application` (11 tests), `type_model` (17 tests), `substitution` (7 tests), `type_members` (6 tests), `capabilities::aliases` (7 tests), and `integration::type_member_closure` (9 tests) PASS.
+
+### G3 cross-module persistence, incremental invalidation, cold parity, and source identity established (LANG007.C2.P3)
+
+- Mode-only declaration edits (`Single(TypePack) <-> PositionalPack(TypePack)`) invalidate dependent generic applications and achieve cold build parity.
+- Provider pack alias edits propagate across module boundaries to consumers, recomputing aliases to structural and kind equality with cold analysis.
+- Concat, Tuple, and `CallableFromPacks` alias edits incrementally preserve canonical forms identical to cold builds.
+- Source-index parameter targets and occurrences survive incremental edits.
+- Gate G3 verified: `incremental::type_store_revisions::p3_` (4 tests), `integration::imported_resolution::p3_` (1 test), and predecessor `nominal_binder_contract_edit_recomputes_variadic_alias_to_cold_parity` PASS.
+
+### G2 durable scoped pack persistence and schema v4 established (LANG007.C2.P3)
+
+- Schema version advanced to 4 (`TYPE_METADATA_SCHEMA_VERSION = 4`), with minimum supported version remaining 1.
+- Stable scoped C2 pack nodes established: `ScopedTypeNode::{TypePack, LabeledTypePack, CompleteTypePack, TypePackConcat, LabeledTypePackConcat, TupleFromPacks, CallableFromPacks, PackProjection}`.
+- Lambda parameter modes are durable semantic properties on both `TypeLambdaRef` and `ScopedTypeNode::Lambda`, using `Option<Box<[GenericParameterModeRef]>>` with default serde mapping for backward compatibility.
+- Schema v4 requires explicit aligned parameter modes for emitted lambdas; schema v1-v3 bundles interpret missing mode vectors as all `Single` and reject v4 scoped pack/mode features.
+- Public variadic aliases (such as `type AddHead<*Ts> = (Int, *Ts)`) encode, decode, and validate structurally without loss of lane or mode identity.
+- Structural and interface fingerprints are proven sensitive to lambda parameter modes.
+- Gate G2 verified: `phalcom-type-meta` (`schema_compat`: 8 tests) and `phalcom-semantic` (`integration::metadata`: 18 tests) PASS.
+
+### G1 whole-pack inference closure established (LANG007.C2.P3)
+
+- Solver-local C2 terms established: `InferenceTerm::{TypePack, LabeledTypePack, CompleteTypePack, TypePackConcat, LabeledTypePackConcat, TupleFromPacks, CallableFromPacks, PackProjection}`.
+- Ordinary `InferVarId(exact KindId)` proven as the sole pack inference unknown; no `PackVarId` or separate pack solver introduced.
+- Whole-pack and lane inference proven: `InferVarId(TypePack)` binds concrete `TypePack`, `TupleFromPacks` extracts whole positional lane, `CallableFromPacks` extracts whole finite callable domains, and complete pack projections reduce once subject variable is solved.
+- No-decomposition boundary verified: suffix subtraction, split search, and labeled partition remain non-solving / underconstrained.
+- Structured pack materialization failure surfaces `PackFormationError::DuplicateLabel` without collapsing into internal invariants.
+- Gate G1 verified: `foundations::inference` (41 tests) and `foundations::generic_application::p3_` PASS.
 
 P2 is complete at the `FOCUSED_TESTED` level:
 1. Variadic generic binders `*`, `**`, `***` parse and derive `GenericParameterMode` and domain kinds across declarations.

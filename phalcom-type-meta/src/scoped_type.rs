@@ -5,7 +5,7 @@ use crate::kind::KindNodeId;
 use crate::type_node::TypeNodeId;
 use serde::{Deserialize, Serialize};
 
-use crate::generic::StableTypeParameterRef;
+use crate::generic::{GenericParameterModeRef, StableTypeParameterRef};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
@@ -15,6 +15,19 @@ pub struct ScopedTypeNodeId(pub u32);
 pub struct ScopedTupleElementRef {
     pub label: Option<Box<str>>,
     pub ty: ScopedTypeNodeId,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct ScopedLabeledTypePackElementRef {
+    pub label: Box<str>,
+    pub element: ScopedTypeNodeId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub enum ScopedPackProjectionLaneRef {
+    Positionals,
+    Labeled,
+    Complete,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -68,9 +81,32 @@ pub enum ScopedTypeNode {
     /// Nested lambda.
     Lambda {
         parameter_kinds: Box<[KindNodeId]>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parameter_modes: Option<Box<[GenericParameterModeRef]>>,
         body: ScopedTypeNodeId,
     },
     OpenRecord(ScopedOpenRecordTypeRef),
+    TypePack(Box<[ScopedTypeNodeId]>),
+    LabeledTypePack(Box<[ScopedLabeledTypePackElementRef]>),
+    CompleteTypePack {
+        positionals: ScopedTypeNodeId,
+        labeled: ScopedTypeNodeId,
+    },
+    TypePackConcat(Box<[ScopedTypeNodeId]>),
+    LabeledTypePackConcat(Box<[ScopedTypeNodeId]>),
+    TupleFromPacks {
+        positionals: ScopedTypeNodeId,
+        labeled: ScopedTypeNodeId,
+    },
+    CallableFromPacks {
+        positionals: ScopedTypeNodeId,
+        labeled: ScopedTypeNodeId,
+        return_type: ScopedTypeNodeId,
+    },
+    PackProjection {
+        subject: ScopedTypeNodeId,
+        lane: ScopedPackProjectionLaneRef,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -83,5 +119,7 @@ pub struct ScopedTypeNodeEntry {
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct TypeLambdaRef {
     pub parameter_kinds: Box<[KindNodeId]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter_modes: Option<Box<[GenericParameterModeRef]>>,
     pub body: ScopedTypeNodeId,
 }

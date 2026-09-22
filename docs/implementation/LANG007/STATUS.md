@@ -14,7 +14,7 @@ prepared: 2026-09-21
 | Checkpoint | State | Active / next plan | Next action |
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
-| `LANG007.C2` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | next: `LANG007.C2.P3` | whole-pack inference, metadata persistence, and C2 closure |
+| `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | closed | variadic generic binding and structural type expansion |
 
 ## Current program state
 
@@ -58,6 +58,9 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 | `LANG007.C1.P1` | semantic domains and compiler-intrinsic structural type operations | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C1.P2` | authoritative specification and `intrinsic` keyword convergence | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C1.P3` | architecture baseline, cross-layer certification, roadmap re-baseline, and C1 closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C2.P1` | canonical pack composition and variadic binder semantics | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C2.P2` | source variadic generic binding and structural/callable type expansion | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C2.P3` | whole-pack inference, persistence, incremental certification, checkpoint closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 
 P1 lifecycle records:
 

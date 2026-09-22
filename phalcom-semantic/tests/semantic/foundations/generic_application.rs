@@ -254,3 +254,45 @@ fn complete_pack_generic_parameter_uses_an_ordinary_kind_aware_inference_variabl
 
     assert!(matches!(session.parameter_bindings.get(&parameter), Some(GenericInferenceBinding::Type(_))));
 }
+
+#[test]
+fn p3_generic_application_with_pack_parameters_solves_whole_pack() {
+    use phalcom_modules::identity::ModuleId;
+    use phalcom_semantic::checker::context::CheckerControl;
+    use phalcom_semantic::checker::inference::{ConstraintOrigin, InferenceOutcome, InferenceRelation, InferenceTerm};
+    use phalcom_semantic::checker::row_inference::{GenericApplicationSession, GenericInferenceBinding};
+    use phalcom_semantic::identity::DeclarationId;
+    use phalcom_semantic::types::relation::MapTypeHierarchy;
+
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let control = CheckerControl::default();
+
+    let int_ty = store.nominal(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+    let str_ty = store.nominal(DeclarationId::new(ModuleId::universe_root(), "String".into()));
+    let concrete_p = store.type_pack(vec![int_ty, str_ty].into_boxed_slice()).unwrap();
+
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(ModuleId::universe_root(), "BoxPack".into()));
+    let param_p = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK).with_mode(GenericParameterMode::PositionalPack));
+    let signature = GenericSignature::new(owner, Box::new([param_p])).with_parameter_modes(Box::new([GenericParameterMode::PositionalPack]));
+
+    let mut session = GenericApplicationSession::new(&signature, &store);
+    let var_p = match session.parameter_bindings.get(&param_p).unwrap() {
+        GenericInferenceBinding::Type(v) => *v,
+        _ => panic!("expected Type binding"),
+    };
+
+    session.types.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_p), InferenceTerm::Canonical(concrete_p)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let res = session.types.propagate_with_control(&mut store, &hier, &control);
+    assert!(res.is_ok());
+    let outcome = session.types.finish_root();
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = outcome {
+        assert_eq!(session.types.solved_type_for(&solution, var_p), Some(concrete_p));
+    }
+}

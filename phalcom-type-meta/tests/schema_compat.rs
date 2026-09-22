@@ -85,13 +85,13 @@ fn test_unsupported_schema_versions_rejected() {
         }
     );
 
-    // Version 4 (future)
-    let b3 = sample_bundle(4, false);
-    let err3 = validate_metadata_bundle(&b3, &limits).unwrap_err();
+    // Version 5 (future)
+    let b5 = sample_bundle(5, false);
+    let err5 = validate_metadata_bundle(&b5, &limits).unwrap_err();
     assert_eq!(
-        err3,
+        err5,
         MetadataValidationError::UnsupportedSchemaVersion {
-            found: 4,
+            found: 5,
             minimum: MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION,
             maximum: TYPE_METADATA_SCHEMA_VERSION,
         }
@@ -300,6 +300,7 @@ fn test_scoped_open_record_validation() {
             kind: KindNodeId(0),
             form: ScopedTypeNode::Lambda {
                 parameter_kinds: Box::new([KindNodeId(1)]), // RecordRow binder
+                parameter_modes: None,
                 body: ScopedTypeNodeId(0),
             },
             structural_fingerprint: Fingerprint128::ZERO,
@@ -394,4 +395,168 @@ fn schema_v3_validates_complete_and_concat_pack_nodes_and_rejects_them_in_v2() {
         source: None,
     }]);
     assert!(validate_metadata_bundle(&invalid_mode, &limits).is_err());
+}
+
+#[test]
+fn p3_schema_v4_scoped_pack_nodes_validate_and_reject_in_v3() {
+    use phalcom_type_meta::scoped_type::{ScopedPackProjectionLaneRef, TypeLambdaRef};
+
+    let limits = ValidationLimits::default();
+    let mut bundle = sample_bundle(4, false);
+    bundle.kinds = Box::new([
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::TypePack,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::LabeledTypePack,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::CompleteTypePack,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle.types = Box::new([
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Unit,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::TypeLambda(TypeLambdaRef {
+                parameter_kinds: Box::new([KindNodeId(1)]),
+                parameter_modes: Some(Box::new([GenericParameterModeRef::PositionalPack])),
+                body: ScopedTypeNodeId(0),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle.scoped_types = Box::new([
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(1),
+            form: ScopedTypeNode::TypePack(Box::new([])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(2),
+            form: ScopedTypeNode::LabeledTypePack(Box::new([])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(3),
+            form: ScopedTypeNode::CompleteTypePack {
+                positionals: ScopedTypeNodeId(0),
+                labeled: ScopedTypeNodeId(1),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(1),
+            form: ScopedTypeNode::TypePackConcat(Box::new([ScopedTypeNodeId(0)])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(2),
+            form: ScopedTypeNode::LabeledTypePackConcat(Box::new([ScopedTypeNodeId(1)])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::TupleFromPacks {
+                positionals: ScopedTypeNodeId(0),
+                labeled: ScopedTypeNodeId(1),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::CallableFromPacks {
+                positionals: ScopedTypeNodeId(0),
+                labeled: ScopedTypeNodeId(1),
+                return_type: ScopedTypeNodeId(5), // Unit
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(1),
+            form: ScopedTypeNode::PackProjection {
+                subject: ScopedTypeNodeId(2),
+                lane: ScopedPackProjectionLaneRef::Positionals,
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::Lambda {
+                parameter_kinds: Box::new([KindNodeId(1)]),
+                parameter_modes: Some(Box::new([GenericParameterModeRef::PositionalPack])),
+                body: ScopedTypeNodeId(0),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+
+    validate_metadata_bundle(&bundle, &limits).expect("schema v4 scoped pack bundle should validate");
+
+    // V3 rejects scoped pack forms or explicit lambda modes
+    let mut v3_bundle = bundle.clone();
+    v3_bundle.header.schema_version = 3;
+    assert!(validate_metadata_bundle(&v3_bundle, &limits).is_err());
+}
+
+#[test]
+fn p3_schema_v4_rejects_malformed_lambda_modes() {
+    use phalcom_type_meta::scoped_type::TypeLambdaRef;
+
+    let limits = ValidationLimits::default();
+    let mut bundle = sample_bundle(4, false);
+    bundle.kinds = Box::new([
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::TypePack,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+
+    // Missing parameter_modes in v4
+    bundle.types = Box::new([TypeNodeEntry {
+        kind: KindNodeId(0),
+        form: TypeNode::TypeLambda(TypeLambdaRef {
+            parameter_kinds: Box::new([KindNodeId(1)]),
+            parameter_modes: None,
+            body: ScopedTypeNodeId(0),
+        }),
+        structural_fingerprint: Fingerprint128::ZERO,
+    }]);
+    bundle.scoped_types = Box::new([ScopedTypeNodeEntry {
+        kind: KindNodeId(0),
+        form: ScopedTypeNode::Bound { depth: 0, index: 0 },
+        structural_fingerprint: Fingerprint128::ZERO,
+    }]);
+    assert!(validate_metadata_bundle(&bundle, &limits).is_err());
+
+    // Mismatched length
+    bundle.types[0].form = TypeNode::TypeLambda(TypeLambdaRef {
+        parameter_kinds: Box::new([KindNodeId(1)]),
+        parameter_modes: Some(Box::new([])),
+        body: ScopedTypeNodeId(0),
+    });
+    assert!(validate_metadata_bundle(&bundle, &limits).is_err());
+
+    // Mismatched mode to kind (PositionalPack mode with Type kind)
+    bundle.types[0].form = TypeNode::TypeLambda(TypeLambdaRef {
+        parameter_kinds: Box::new([KindNodeId(0)]),
+        parameter_modes: Some(Box::new([GenericParameterModeRef::PositionalPack])),
+        body: ScopedTypeNodeId(0),
+    });
+    assert!(validate_metadata_bundle(&bundle, &limits).is_err());
 }

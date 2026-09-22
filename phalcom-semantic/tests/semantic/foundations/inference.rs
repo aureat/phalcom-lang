@@ -2,8 +2,8 @@ use phalcom_modules::DeclarationId;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::checker::context::CheckerControl;
 use phalcom_semantic::checker::inference::{
-    ConstraintOrigin, InferenceFailureReason, InferenceOutcome, InferenceProofState, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm,
-    InferenceTupleElement,
+    ConstraintOrigin, InferenceFailureReason, InferenceLabeledTypePackElement, InferenceOutcome, InferencePackProjectionLane, InferenceProofState,
+    InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm, InferenceTupleElement,
 };
 use phalcom_semantic::db::{CancellationToken, QueryBudget};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
@@ -946,4 +946,550 @@ fn test_frame_completion_with_ancestor_allocated_first() {
     if let InferenceOutcome::Solved(solution) = child_outcome {
         assert_eq!(session.solved_type_for(&solution, child_var), Some(int_ty));
     }
+}
+
+#[test]
+fn p3_c2_type_forms_lift_pack_parameters_into_inference_terms() {
+    let mut store = TypeStore::new();
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+    let var_l = session.fresh_variable(KindId::LABELED_TYPE_PACK);
+    let var_c = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+    let var_t = session.fresh_variable(KindId::TYPE);
+
+    let owner = TypeParameterOwner::Declaration(test_decl("Owner"));
+    let param_p = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK));
+    let param_l = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 1, "L", KindId::LABELED_TYPE_PACK));
+    let param_c = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 2, "C", KindId::COMPLETE_TYPE_PACK));
+    let param_t = store.intern_type_parameter(TypeParameterData::new(owner, 3, "T", KindId::TYPE));
+
+    let ty_p = store.parameter_form(param_p);
+    let ty_l = store.parameter_form(param_l);
+    let ty_c = store.parameter_form(param_c);
+    let ty_t = store.parameter_form(param_t);
+
+    let mut subst = std::collections::HashMap::new();
+    subst.insert(param_p, InferenceTerm::Var(var_p));
+    subst.insert(param_l, InferenceTerm::Var(var_l));
+    subst.insert(param_c, InferenceTerm::Var(var_c));
+    subst.insert(param_t, InferenceTerm::Var(var_t));
+
+    // TypePack
+    let canon_pack = store.type_pack(vec![ty_t].into_boxed_slice()).unwrap();
+    let infer_pack = session.type_id_to_inference(canon_pack, &subst, &store);
+    assert_eq!(infer_pack, InferenceTerm::TypePack(vec![InferenceTerm::Var(var_t)].into_boxed_slice()));
+
+    // LabeledTypePack
+    let canon_lab = store
+        .labeled_type_pack(
+            vec![phalcom_semantic::types::store::LabeledTypePackElement {
+                label: "field".into(),
+                element: ty_t,
+            }]
+            .into_boxed_slice(),
+        )
+        .unwrap();
+    let infer_lab = session.type_id_to_inference(canon_lab, &subst, &store);
+    assert_eq!(
+        infer_lab,
+        InferenceTerm::LabeledTypePack(
+            vec![InferenceLabeledTypePackElement {
+                label: "field".into(),
+                term: InferenceTerm::Var(var_t),
+            }]
+            .into_boxed_slice()
+        )
+    );
+
+    // CompleteTypePack
+    let canon_comp = store.complete_type_pack(ty_p, ty_l).unwrap();
+    let infer_comp = session.type_id_to_inference(canon_comp, &subst, &store);
+    assert_eq!(
+        infer_comp,
+        InferenceTerm::CompleteTypePack {
+            positionals: Box::new(InferenceTerm::Var(var_p)),
+            labeled: Box::new(InferenceTerm::Var(var_l)),
+        }
+    );
+
+    // Concat forms
+    let canon_p_concat = store.type_pack_concat(&[ty_p, ty_p]).unwrap();
+    let infer_p_concat = session.type_id_to_inference(canon_p_concat, &subst, &store);
+    assert_eq!(
+        infer_p_concat,
+        InferenceTerm::TypePackConcat(vec![InferenceTerm::Var(var_p), InferenceTerm::Var(var_p)].into_boxed_slice())
+    );
+
+    let canon_l_concat = store.labeled_type_pack_concat(&[ty_l, ty_l]).unwrap();
+    let infer_l_concat = session.type_id_to_inference(canon_l_concat, &subst, &store);
+    assert_eq!(
+        infer_l_concat,
+        InferenceTerm::LabeledTypePackConcat(vec![InferenceTerm::Var(var_l), InferenceTerm::Var(var_l)].into_boxed_slice())
+    );
+
+    // TupleFromPacks
+    let canon_tuple = store.tuple_from_packs(ty_p, ty_l).unwrap();
+    let infer_tuple = session.type_id_to_inference(canon_tuple, &subst, &store);
+    assert_eq!(
+        infer_tuple,
+        InferenceTerm::TupleFromPacks {
+            positionals: Box::new(InferenceTerm::Var(var_p)),
+            labeled: Box::new(InferenceTerm::Var(var_l)),
+        }
+    );
+
+    // CallableFromPacks
+    let canon_callable = store.callable_from_packs(ty_p, ty_l, ty_t).unwrap();
+    let infer_callable = session.type_id_to_inference(canon_callable, &subst, &store);
+    assert_eq!(
+        infer_callable,
+        InferenceTerm::CallableFromPacks {
+            positionals: Box::new(InferenceTerm::Var(var_p)),
+            labeled: Box::new(InferenceTerm::Var(var_l)),
+            return_type: Box::new(InferenceTerm::Var(var_t)),
+        }
+    );
+
+    // Complete pack lane projection residual
+    let pos_proj = store.project_positionals(ty_c).unwrap();
+    let infer_pos_proj = session.type_id_to_inference(pos_proj, &subst, &store);
+    assert_eq!(
+        infer_pos_proj,
+        InferenceTerm::PackProjection {
+            subject: Box::new(InferenceTerm::Var(var_c)),
+            lane: InferencePackProjectionLane::Positionals,
+        }
+    );
+}
+
+#[test]
+fn p3_c2_inference_traversals_keep_nested_pack_variables_visible() {
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+    let term = InferenceTerm::TupleFromPacks {
+        positionals: Box::new(InferenceTerm::Var(var_p)),
+        labeled: Box::new(InferenceTerm::TypePack(Box::new([]))),
+    };
+
+    assert!(session.term_has_variables(&term));
+    assert!(session.occurs_in_term(var_p, &term));
+
+    let other_var = session.fresh_variable(KindId::TYPE);
+    assert!(!session.occurs_in_term(other_var, &term));
+}
+
+#[test]
+fn p3_scoped_pack_lambda_lowers_to_inference_terms() {
+    use phalcom_semantic::types::type_lambda::ScopedTypeData;
+
+    let mut store = TypeStore::new();
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+
+    // Build scoped lambda: \(*Ts). TupleFromPacks(Bound(0, 0), LabeledTypePack([]))
+    let bound_0 = store.arena_mut().intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+    let empty_lab = store.arena_mut().intern_scoped(ScopedTypeData::LabeledTypePack(Box::new([])));
+    let body = store.arena_mut().intern_scoped(ScopedTypeData::TupleFromPacks {
+        positionals: bound_0,
+        labeled: empty_lab,
+    });
+
+    let lambda_id = store.arena_mut().intern_lambda_with_modes(
+        vec![KindId::TYPE_PACK].into_boxed_slice(),
+        vec![phalcom_semantic::types::parameter::GenericParameterMode::PositionalPack].into_boxed_slice(),
+        body,
+        KindId::TYPE,
+        None,
+    );
+    let lambda_ty = store.intern_with_kind(TypeData::Lambda(lambda_id), KindId::TYPE);
+
+    let applied_term = InferenceTerm::Applied {
+        origin: Box::new(InferenceTerm::Canonical(lambda_ty)),
+        arguments: Box::new([InferenceTerm::Var(var_p)]),
+    };
+
+    let reduced = session.symbolic_beta_reduce(&applied_term, &store);
+    assert!(reduced.is_some());
+    let reduced_term = reduced.unwrap();
+    assert_eq!(
+        reduced_term,
+        InferenceTerm::TupleFromPacks {
+            positionals: Box::new(InferenceTerm::Var(var_p)),
+            labeled: Box::new(InferenceTerm::LabeledTypePack(Box::new([]))),
+        }
+    );
+}
+
+#[test]
+fn p3_complete_pack_lane_projection_keeps_inference_subject() {
+    let mut store = TypeStore::new();
+    let mut session = InferenceSession::new();
+    let var_c = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+
+    let owner = TypeParameterOwner::Declaration(test_decl("Owner"));
+    let param_c = store.intern_type_parameter(TypeParameterData::new(owner, 0, "C", KindId::COMPLETE_TYPE_PACK));
+    let ty_c = store.parameter_form(param_c);
+
+    let mut subst = std::collections::HashMap::new();
+    subst.insert(param_c, InferenceTerm::Var(var_c));
+
+    let proj_lab = store.project_labeled(ty_c).unwrap();
+    let term = session.type_id_to_inference(proj_lab, &subst, &store);
+    assert_eq!(
+        term,
+        InferenceTerm::PackProjection {
+            subject: Box::new(InferenceTerm::Var(var_c)),
+            lane: InferencePackProjectionLane::Labeled,
+        }
+    );
+}
+
+#[test]
+fn p3_whole_pack_inference_binds_exact_pack_kinds() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let control = CheckerControl::default();
+
+    let int_ty = store.nominal(test_decl("Int"));
+    let str_ty = store.nominal(test_decl("String"));
+
+    // 1. TypePack var binds concrete TypePack
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+    let concrete_p = store.type_pack(vec![int_ty, str_ty].into_boxed_slice()).unwrap();
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_p), InferenceTerm::Canonical(concrete_p)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.propagate_with_control(&mut store, &hier, &control).unwrap();
+    let outcome = session.finish_root();
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = outcome {
+        assert_eq!(session.solved_type_for(&solution, var_p), Some(concrete_p));
+    }
+
+    // 2. LabeledTypePack var binds concrete LabeledTypePack
+    let mut session = InferenceSession::new();
+    let var_l = session.fresh_variable(KindId::LABELED_TYPE_PACK);
+    let concrete_l = store
+        .labeled_type_pack(
+            vec![phalcom_semantic::types::store::LabeledTypePackElement {
+                label: "x".into(),
+                element: int_ty,
+            }]
+            .into_boxed_slice(),
+        )
+        .unwrap();
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_l), InferenceTerm::Canonical(concrete_l)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.propagate_with_control(&mut store, &hier, &control).unwrap();
+    let outcome = session.finish_root();
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = outcome {
+        assert_eq!(session.solved_type_for(&solution, var_l), Some(concrete_l));
+    }
+
+    // 3. CompleteTypePack var binds concrete CompleteTypePack
+    let mut session = InferenceSession::new();
+    let var_c = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+    let concrete_c = store.complete_type_pack(concrete_p, concrete_l).unwrap();
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_c), InferenceTerm::Canonical(concrete_c)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.propagate_with_control(&mut store, &hier, &control).unwrap();
+    let outcome = session.finish_root();
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = outcome {
+        assert_eq!(session.solved_type_for(&solution, var_c), Some(concrete_c));
+    }
+
+    // 4. Negative: TypePack var rejects LabeledTypePack or Tuple
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_p), InferenceTerm::Canonical(concrete_l)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    let err = session.propagate_with_control(&mut store, &hier, &control);
+    assert!(err.is_err());
+}
+
+#[test]
+fn p3_tuple_from_packs_infers_one_whole_positional_lane() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let control = CheckerControl::default();
+
+    let int_ty = store.nominal(test_decl("Int"));
+    let str_ty = store.nominal(test_decl("String"));
+    let concrete_p = store.type_pack(vec![int_ty, str_ty].into_boxed_slice()).unwrap();
+    let empty_l = store.labeled_type_pack(Box::new([])).unwrap();
+    let concrete_tuple = store.tuple_from_packs(concrete_p, empty_l).unwrap();
+
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+    let var_l = session.fresh_variable(KindId::LABELED_TYPE_PACK);
+
+    let pattern = InferenceTerm::TupleFromPacks {
+        positionals: Box::new(InferenceTerm::Var(var_p)),
+        labeled: Box::new(InferenceTerm::Var(var_l)),
+    };
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(pattern, InferenceTerm::Canonical(concrete_tuple)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.propagate_with_control(&mut store, &hier, &control).unwrap();
+    let outcome = session.finish_root();
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = outcome {
+        assert_eq!(session.solved_type_for(&solution, var_p), Some(concrete_p));
+        assert_eq!(session.solved_type_for(&solution, var_l), Some(empty_l));
+    }
+}
+
+#[test]
+fn p3_callable_from_packs_infers_finite_whole_domain_lane() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let control = CheckerControl::default();
+
+    let int_ty = store.nominal(test_decl("Int"));
+    let str_ty = store.nominal(test_decl("String"));
+    let bool_ty = store.nominal(test_decl("Bool"));
+
+    let concrete_p = store.type_pack(vec![int_ty, str_ty].into_boxed_slice()).unwrap();
+    let empty_l = store.labeled_type_pack(Box::new([])).unwrap();
+    let concrete_callable = store.callable_from_packs(concrete_p, empty_l, bool_ty).unwrap();
+
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+    let var_l = session.fresh_variable(KindId::LABELED_TYPE_PACK);
+    let var_r = session.fresh_variable(KindId::TYPE);
+
+    let pattern = InferenceTerm::CallableFromPacks {
+        positionals: Box::new(InferenceTerm::Var(var_p)),
+        labeled: Box::new(InferenceTerm::Var(var_l)),
+        return_type: Box::new(InferenceTerm::Var(var_r)),
+    };
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(pattern, InferenceTerm::Canonical(concrete_callable)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.propagate_with_control(&mut store, &hier, &control).unwrap();
+    let outcome = session.finish_root();
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = outcome {
+        assert_eq!(session.solved_type_for(&solution, var_p), Some(concrete_p));
+        assert_eq!(session.solved_type_for(&solution, var_l), Some(empty_l));
+        assert_eq!(session.solved_type_for(&solution, var_r), Some(bool_ty));
+    }
+}
+
+#[test]
+fn p3_complete_pack_projection_reduces_after_subject_solution() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let control = CheckerControl::default();
+
+    let int_ty = store.nominal(test_decl("Int"));
+    let concrete_p = store.type_pack(vec![int_ty].into_boxed_slice()).unwrap();
+    let concrete_l = store.labeled_type_pack(Box::new([])).unwrap();
+    let concrete_c = store.complete_type_pack(concrete_p, concrete_l).unwrap();
+
+    let mut session = InferenceSession::new();
+    let var_c = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+    let var_res = session.fresh_variable(KindId::TYPE_PACK);
+
+    let proj_term = InferenceTerm::PackProjection {
+        subject: Box::new(InferenceTerm::Var(var_c)),
+        lane: InferencePackProjectionLane::Positionals,
+    };
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_res), proj_term),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    // Initially var_c is unsolved, so projection cannot materialize or solve yet
+    session.propagate_with_control(&mut store, &hier, &control).unwrap();
+    assert!(!session.finish_root().is_solved());
+
+    // Now solve var_c
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_c), InferenceTerm::Canonical(concrete_c)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.propagate_with_control(&mut store, &hier, &control).unwrap();
+    let outcome = session.finish_root();
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = outcome {
+        assert_eq!(session.solved_type_for(&solution, var_res), Some(concrete_p));
+    }
+}
+
+#[test]
+fn p3_pack_concat_inference_does_not_subtract_concrete_suffix() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let control = CheckerControl::default();
+
+    let int_ty = store.nominal(test_decl("Int"));
+    let str_ty = store.nominal(test_decl("String"));
+    let concrete_full = store.type_pack(vec![int_ty, str_ty].into_boxed_slice()).unwrap();
+    let concrete_suffix = store.type_pack(vec![str_ty].into_boxed_slice()).unwrap();
+
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+
+    // Concat(var_p, [String]) == [Int, String]
+    let concat_term = InferenceTerm::TypePackConcat(vec![InferenceTerm::Var(var_p), InferenceTerm::Canonical(concrete_suffix)].into_boxed_slice());
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(concat_term, InferenceTerm::Canonical(concrete_full)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    // Must NOT infer var_p = [Int]
+    let _ = session.propagate_with_control(&mut store, &hier, &control);
+    let outcome = session.finish_root();
+    assert!(!outcome.is_solved(), "forbidden sequence subtraction must not solve var_p");
+}
+
+#[test]
+fn p3_two_unknown_pack_concat_does_not_partition_concrete_pack() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let control = CheckerControl::default();
+
+    let int_ty = store.nominal(test_decl("Int"));
+    let concrete_full = store.type_pack(vec![int_ty, int_ty].into_boxed_slice()).unwrap();
+
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+    let var_q = session.fresh_variable(KindId::TYPE_PACK);
+
+    // Concat(var_p, var_q) == [Int, Int]
+    let concat_term = InferenceTerm::TypePackConcat(vec![InferenceTerm::Var(var_p), InferenceTerm::Var(var_q)].into_boxed_slice());
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(concat_term, InferenceTerm::Canonical(concrete_full)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    let _ = session.propagate_with_control(&mut store, &hier, &control);
+    let outcome = session.finish_root();
+    assert!(!outcome.is_solved(), "forbidden partition search must not solve Concat(P, Q)");
+}
+
+#[test]
+fn p3_labeled_pack_concat_does_not_partition_labels() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let control = CheckerControl::default();
+
+    let int_ty = store.nominal(test_decl("Int"));
+    let concrete_lab = store
+        .labeled_type_pack(
+            vec![
+                phalcom_semantic::types::store::LabeledTypePackElement {
+                    label: "a".into(),
+                    element: int_ty,
+                },
+                phalcom_semantic::types::store::LabeledTypePackElement {
+                    label: "b".into(),
+                    element: int_ty,
+                },
+            ]
+            .into_boxed_slice(),
+        )
+        .unwrap();
+
+    let mut session = InferenceSession::new();
+    let var_l1 = session.fresh_variable(KindId::LABELED_TYPE_PACK);
+    let var_l2 = session.fresh_variable(KindId::LABELED_TYPE_PACK);
+
+    let concat_term = InferenceTerm::LabeledTypePackConcat(vec![InferenceTerm::Var(var_l1), InferenceTerm::Var(var_l2)].into_boxed_slice());
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(concat_term, InferenceTerm::Canonical(concrete_lab)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    let _ = session.propagate_with_control(&mut store, &hier, &control);
+    let outcome = session.finish_root();
+    assert!(!outcome.is_solved(), "labeled pack concat must not partition labels");
+}
+
+#[test]
+fn p3_inference_materialization_surfaces_duplicate_label_pack_error() {
+    let mut store = TypeStore::new();
+    let session = InferenceSession::new();
+
+    let int_ty = store.nominal(test_decl("Int"));
+
+    // Labeled pack with duplicate label "dup"
+    let term = InferenceTerm::LabeledTypePack(
+        vec![
+            InferenceLabeledTypePackElement {
+                label: "dup".into(),
+                term: InferenceTerm::Canonical(int_ty),
+            },
+            InferenceLabeledTypePackElement {
+                label: "dup".into(),
+                term: InferenceTerm::Canonical(int_ty),
+            },
+        ]
+        .into_boxed_slice(),
+    );
+
+    let res = session.materialize(&term, &mut store);
+    assert!(
+        matches!(res, Err(phalcom_semantic::checker::inference::InferenceMaterializationFailure::Pack(_))),
+        "materializing duplicate label must return Pack error, got {res:?}"
+    );
+}
+
+#[test]
+fn p3_open_callable_rest_is_not_coerced_to_callable_from_packs() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let control = CheckerControl::default();
+
+    let int_ty = store.nominal(test_decl("Int"));
+    let callable_with_rest = InferenceTerm::Callable(phalcom_semantic::checker::inference::InferenceCallable {
+        parameters: vec![phalcom_semantic::checker::inference::InferenceCallableParameter {
+            label: None,
+            term: InferenceTerm::Canonical(int_ty),
+            rest: phalcom_ast::ast::RestMode::Positional,
+        }]
+        .into_boxed_slice(),
+        return_type: Box::new(InferenceTerm::Canonical(int_ty)),
+    });
+
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+    let var_l = session.fresh_variable(KindId::LABELED_TYPE_PACK);
+    let var_r = session.fresh_variable(KindId::TYPE);
+
+    let pattern = InferenceTerm::CallableFromPacks {
+        positionals: Box::new(InferenceTerm::Var(var_p)),
+        labeled: Box::new(InferenceTerm::Var(var_l)),
+        return_type: Box::new(InferenceTerm::Var(var_r)),
+    };
+
+    session.add_constraint(InferenceRelation::Equivalent(pattern, callable_with_rest), ConstraintOrigin::Explicit, None);
+    let err = session.propagate_with_control(&mut store, &hier, &control);
+    assert!(err.is_err(), "open rest callable must not match CallableFromPacks");
 }

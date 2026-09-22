@@ -38,6 +38,18 @@ LANG007 does not own ordinary runtime collection iteration, general VM dispatch,
 
 C1 is complete and focused-tested across all three numbered plans (P1, P2, P3).
 
+### C2 — Variadic Generic Pack Binding and Type-Level Pack Expansion
+
+**State:** `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`
+
+C2 is complete and focused-tested across all three numbered plans (P1, P2, P3). It establishes variadic generic binding (`*`, `**`, `***`), flat canonical pack compositions (`TypePackConcat`, `LabeledTypePackConcat`, `CompleteTypePack`), Tuple/callable structural expansions, whole-pack inference, durable scoped metadata persistence under schema v4, and incremental parity.
+
+Current numbered plans for C2:
+
+- `LANG007.C2.P1` — canonical pack composition and variadic binder semantics — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+- `LANG007.C2.P2` — source variadic generic binding and structural/callable type expansion — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+- `LANG007.C2.P3` — whole-pack inference, persistence, incremental certification, and checkpoint closure — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+
 C1 is the first implementation checkpoint. It establishes the canonical domains, type-member identity/projection machinery, structural operations, persistence/inference integration, and runtime boundary required for:
 
 ```phalcom

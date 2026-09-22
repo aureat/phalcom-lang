@@ -534,7 +534,7 @@ fn metadata_exports_complete_and_concat_pack_terms_with_binder_modes() {
     exporter.export_generic_signature(&signature).unwrap();
     let bundle = exporter.build_bundle(&[]).unwrap();
 
-    assert_eq!(bundle.header.schema_version, 3);
+    assert_eq!(bundle.header.schema_version, 4);
     assert!(matches!(
         bundle.types[complete_id.0 as usize].form,
         phalcom_type_meta::type_node::TypeNode::CompleteTypePack { .. }
@@ -562,4 +562,91 @@ fn binder_mode_changes_metadata_interface_fingerprint() {
     let single = bundle_for_mode(GenericParameterMode::Single);
     let positional = bundle_for_mode(GenericParameterMode::PositionalPack);
     assert_ne!(single.header.interface_fingerprint, positional.header.interface_fingerprint);
+}
+
+#[test]
+fn p3_metadata_exports_scoped_pack_aliases_under_schema_v4() {
+    use phalcom_semantic::types::type_lambda::ScopedTypeData;
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+
+    let mut store = TypeStore::new();
+
+    // 1. type AddHead<*Ts> = (Int, *Ts)
+    let int_ty = store.nominal(dummy_decl("Int"));
+    let bound_ts = store.arena_mut().intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+    let free_int = store.arena_mut().intern_scoped(ScopedTypeData::Free(int_ty));
+    let int_pack = store.arena_mut().intern_scoped(ScopedTypeData::TypePack(vec![free_int].into_boxed_slice()));
+    let concat_p = store
+        .arena_mut()
+        .intern_scoped(ScopedTypeData::TypePackConcat(vec![int_pack, bound_ts].into_boxed_slice()));
+    let empty_lab = store.arena_mut().intern_scoped(ScopedTypeData::LabeledTypePack(Box::new([])));
+    let tuple_body = store.arena_mut().intern_scoped(ScopedTypeData::TupleFromPacks {
+        positionals: concat_p,
+        labeled: empty_lab,
+    });
+
+    let lambda_id = store.arena_mut().intern_lambda_with_modes(
+        vec![KindId::TYPE_PACK].into_boxed_slice(),
+        vec![GenericParameterMode::PositionalPack].into_boxed_slice(),
+        tuple_body,
+        KindId::TYPE,
+        None,
+    );
+    let lambda_ty = store.intern_with_kind(phalcom_semantic::types::store::TypeData::Lambda(lambda_id), KindId::TYPE);
+
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let exported_id = exporter.export_type_form(lambda_ty).unwrap();
+    let bundle = exporter.build_bundle(&[]).unwrap();
+
+    assert_eq!(bundle.header.schema_version, 4);
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+
+    // JSON round trip
+    let json = encode_metadata_json(&bundle).unwrap();
+    let decoded = decode_metadata_json(&json, &ValidationLimits::default()).unwrap();
+    assert_eq!(decoded.header.schema_version, 4);
+    assert_eq!(decoded.header.interface_fingerprint, bundle.header.interface_fingerprint);
+
+    let exported_node = &decoded.types[exported_id.0 as usize].form;
+    assert!(matches!(
+        exported_node,
+        phalcom_type_meta::type_node::TypeNode::TypeLambda(lam)
+            if lam.parameter_modes == Some(Box::new([phalcom_type_meta::generic::GenericParameterModeRef::PositionalPack]))
+    ));
+}
+
+#[test]
+fn p3_lambda_mode_only_changes_structural_and_interface_fingerprints() {
+    use phalcom_semantic::types::type_lambda::ScopedTypeData;
+
+    let mut store = TypeStore::new();
+    let bound_0 = store.arena_mut().intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+
+    let lam_single = store.arena_mut().intern_lambda_with_modes(
+        vec![KindId::TYPE_PACK].into_boxed_slice(),
+        vec![GenericParameterMode::Single].into_boxed_slice(),
+        bound_0,
+        KindId::TYPE_PACK,
+        None,
+    );
+    let ty_single = store.intern_with_kind(phalcom_semantic::types::store::TypeData::Lambda(lam_single), KindId::TYPE_PACK);
+
+    let lam_pack = store.arena_mut().intern_lambda_with_modes(
+        vec![KindId::TYPE_PACK].into_boxed_slice(),
+        vec![GenericParameterMode::PositionalPack].into_boxed_slice(),
+        bound_0,
+        KindId::TYPE_PACK,
+        None,
+    );
+    let ty_pack = store.intern_with_kind(phalcom_semantic::types::store::TypeData::Lambda(lam_pack), KindId::TYPE_PACK);
+
+    let mut exporter1 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let id1 = exporter1.export_type_form(ty_single).unwrap();
+    let b1 = exporter1.build_bundle(&[]).unwrap();
+
+    let mut exporter2 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let id2 = exporter2.export_type_form(ty_pack).unwrap();
+    let b2 = exporter2.build_bundle(&[]).unwrap();
+
+    assert_ne!(b1.types[id1.0 as usize].structural_fingerprint, b2.types[id2.0 as usize].structural_fingerprint);
 }

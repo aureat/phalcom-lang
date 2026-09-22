@@ -672,3 +672,140 @@ class Probe {
         "generic getter status must match cold analysis"
     );
 }
+
+#[test]
+fn p3_mode_only_pack_binder_edit_invalidates_dependents_to_cold_parity() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(103),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("mode_only_pack_binder").unwrap()]),
+    );
+
+    let initial = r#"
+class C<P: TypePack> {}
+class Consumer {
+  @class use(_ v: C<Int>) {}
+}
+"#;
+    let final_source = r#"
+class C<*P> {}
+class Consumer {
+  @class use(_ v: C<Int>) {}
+}
+"#;
+
+    let mut incremental = SemanticWorkspaceSession::new();
+    let initial_update = incremental.update(single_module_input(module.clone(), initial, 1));
+    // C<Int> with Single(TypePack) is an arity/kind mismatch because Int is Type, not TypePack
+    assert!(initial_update.snapshot.has_errors(), "C<Int> must fail when P: TypePack is Single");
+
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    assert!(
+        !incremental_final.snapshot.has_errors(),
+        "diagnostics: {:?}",
+        incremental_final.snapshot.diagnostics
+    );
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    assert!(!cold_final.snapshot.has_errors(), "diagnostics: {:?}", cold_final.snapshot.diagnostics);
+
+    assert_eq!(
+        incremental_final.snapshot.diagnostics.len(),
+        cold_final.snapshot.diagnostics.len(),
+        "incremental and cold diagnostics count must match"
+    );
+}
+
+#[test]
+fn p3_pack_concat_and_tuple_edit_matches_cold_canonical_form() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(104),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("pack_concat_tuple").unwrap()]),
+    );
+
+    let initial = r#"
+type AddOne<*Ts> = (Int, *Ts)
+"#;
+    let final_source = r#"
+type AddOne<*Ts> = (String, *Ts)
+"#;
+
+    let mut incremental = SemanticWorkspaceSession::new();
+    let _ = incremental.update(single_module_input(module.clone(), initial, 1));
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    assert!(!incremental_final.snapshot.has_errors(), "{:?}", incremental_final.snapshot.diagnostics);
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    assert!(!cold_final.snapshot.has_errors(), "{:?}", cold_final.snapshot.diagnostics);
+
+    let add_one = DeclarationId::new(module, "AddOne".into());
+    let inc_form = incremental_final.snapshot.type_aliases.form(&add_one).expect("inc AddOne");
+    let cold_form = cold_final.snapshot.type_aliases.form(&add_one).expect("cold AddOne");
+
+    assert_eq!(
+        incremental_final.snapshot.store.format_type(inc_form),
+        cold_final.snapshot.store.format_type(cold_form)
+    );
+}
+
+#[test]
+fn p3_callable_from_packs_edit_matches_cold_metadata() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(105),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("callable_from_packs_edit").unwrap()]),
+    );
+
+    let initial = r#"
+type Fn<*Ts> = (*Ts,) -> Int
+"#;
+    let final_source = r#"
+type Fn<*Ts> = (*Ts,) -> String
+"#;
+
+    let mut incremental = SemanticWorkspaceSession::new();
+    let _ = incremental.update(single_module_input(module.clone(), initial, 1));
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    assert!(!incremental_final.snapshot.has_errors(), "{:?}", incremental_final.snapshot.diagnostics);
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    assert!(!cold_final.snapshot.has_errors(), "{:?}", cold_final.snapshot.diagnostics);
+
+    let fn_decl = DeclarationId::new(module, "Fn".into());
+    let inc_form = incremental_final.snapshot.type_aliases.form(&fn_decl).expect("inc Fn");
+    let cold_form = cold_final.snapshot.type_aliases.form(&fn_decl).expect("cold Fn");
+
+    assert_eq!(
+        incremental_final.snapshot.store.format_type(inc_form),
+        cold_final.snapshot.store.format_type(cold_form)
+    );
+}
+
+#[test]
+fn p3_pack_expansion_source_targets_survive_incremental_edit() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(106),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("expansion_source_target").unwrap()]),
+    );
+
+    let initial = r#"
+type Wrap<*Ts> = (*Ts,)
+"#;
+    let final_source = r#"
+type Wrap<*Ts> = (Int, *Ts)
+"#;
+
+    let mut incremental = SemanticWorkspaceSession::new();
+    let _ = incremental.update(single_module_input(module.clone(), initial, 1));
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    assert!(!incremental_final.snapshot.has_errors(), "{:?}", incremental_final.snapshot.diagnostics);
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    assert!(!cold_final.snapshot.has_errors(), "{:?}", cold_final.snapshot.diagnostics);
+
+    let module_idx_inc = incremental_final.snapshot.source_index.module(&module).expect("inc module idx");
+    let module_idx_cold = cold_final.snapshot.source_index.module(&module).expect("cold module idx");
+    assert_eq!(module_idx_inc.occurrences.len(), module_idx_cold.occurrences.len());
+}
