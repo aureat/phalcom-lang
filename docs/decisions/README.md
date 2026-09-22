@@ -10,7 +10,7 @@ This is Phalcom's single decision registry. A Telos Decision Record (TDR) record
 - Status, supersession, amendment, and related-decision edges remain in each record's metadata and body. The legacy source identifier is listed below for lookup.
 - `docs/design/` is outside this registry. Proposals and research there cannot override the specification or an accepted TDR.
 
-The consolidation contains 82 accepted TDRs, 9 proposed records, and 9 retired records. Accepted numbering excludes every proposed and retired record, including legacy files that were stored in the wrong status directory.
+The consolidation contains 89 accepted TDRs, 9 proposed records, and 9 retired records. Accepted numbering excludes every proposed and retired record, including legacy files that were stored in the wrong status directory.
 
 A `*` date was inferred because the source lacked an explicit ratification date. A `†` date uses the explicit ratification date because it conflicts with the source's older `Date` field.
 
@@ -100,6 +100,13 @@ A `*` date was inferred because the source lacked an explicit ratification date.
 | [TDR-0080](./accepted/0080-data-is-a-nominal-transparent-immutable-value-product.md) | 2026-09-12 | `data` is a nominal transparent immutable value product | PDR-0035 | Accepted |
 | [TDR-0081](./accepted/0081-tuple-and-record-are-transparent-structural-value-products.md) | 2026-09-13 | Tuple and Record Are Transparent Structural Value Products | PDR-0036 | Accepted |
 | [TDR-0082](./accepted/0082-declaration-modifiers-and-identity-based-access-domains.md) | 2026-09-18 | Declaration Modifiers and Identity-Based Access Domains | PDR-0037 | Accepted |
+| [TDR-0083](./accepted/0083-type-level-domains-and-typed-compile-time-parameters.md) | 2026-09-21 | Type-level structure has distinct domains; compile-time values are typed values, not kinds | - | Accepted |
+| [TDR-0084](./accepted/0084-canonical-type-level-terms-and-inference-lifetimes.md) | 2026-09-21 | Canonical type-level terms are stable kinded identities; inference variables are ephemeral | - | Accepted |
+| [TDR-0085](./accepted/0085-parameterized-type-members-and-symbolic-projections.md) | 2026-09-21 | Type members are parameterized, domain-aware projections with symbolic residuals | - | Accepted |
+| [TDR-0086](./accepted/0086-type-level-subscript-is-tuple-at.md) | 2026-09-21 | Tuple type subscript and `At<I>` are one compile-time member identity | - | Accepted |
+| [TDR-0087](./accepted/0087-structural-map-is-shape-preserving.md) | 2026-09-21 | Structural `Map<F>` preserves shape and transforms payload types | - | Accepted |
+| [TDR-0088](./accepted/0088-native-type-operations-use-closed-compiler-normalization.md) | 2026-09-21 | Native type operations use a closed compiler-normalized calculus, not VM execution | - | Accepted |
+| [TDR-0089](./accepted/0089-intrinsic-is-a-first-class-implementation-keyword.md) | 2026-09-22 | `intrinsic` Is a First-Class Implementation-Kind Keyword and `@intrinsic` Is Retired | - | Accepted |
 
 ## Proposed registry
 

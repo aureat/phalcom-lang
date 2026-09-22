@@ -666,7 +666,6 @@ pub enum BuiltinAttr {
     Ignore,
     Total,
     Primitive,
-    Intrinsic,
 }
 
 impl BuiltinAttr {
@@ -686,7 +685,6 @@ impl BuiltinAttr {
         BuiltinAttr::Ignore,
         BuiltinAttr::Total,
         BuiltinAttr::Primitive,
-        BuiltinAttr::Intrinsic,
     ];
 
     pub fn name(&self) -> &'static str {
@@ -706,7 +704,6 @@ impl BuiltinAttr {
             BuiltinAttr::Ignore => "ignore",
             BuiltinAttr::Total => "total",
             BuiltinAttr::Primitive => "primitive",
-            BuiltinAttr::Intrinsic => "intrinsic",
         }
     }
 
@@ -727,7 +724,6 @@ impl BuiltinAttr {
             "ignore" => Some(BuiltinAttr::Ignore),
             "total" => Some(BuiltinAttr::Total),
             "primitive" => Some(BuiltinAttr::Primitive),
-            "intrinsic" => Some(BuiltinAttr::Intrinsic),
             _ => None,
         }
     }

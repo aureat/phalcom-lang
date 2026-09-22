@@ -887,7 +887,6 @@ impl Default for AttributeRegistry {
         expanders[BuiltinAttr::On as usize] = Some(Box::new(OnExpander));
         expanders[BuiltinAttr::Ignore as usize] = Some(Box::new(IgnoreExpander));
         expanders[BuiltinAttr::Primitive as usize] = Some(Box::new(MetadataExpander { name: "primitive" }));
-        expanders[BuiltinAttr::Intrinsic as usize] = Some(Box::new(MetadataExpander { name: "intrinsic" }));
         Self { expanders }
     }
 }
@@ -2260,7 +2259,6 @@ pub fn expand_class_attributes(
                     | BuiltinAttr::On
                     | BuiltinAttr::Ignore
                     | BuiltinAttr::Primitive
-                    | BuiltinAttr::Intrinsic
                     | BuiltinAttr::Total => {}
                 },
                 AttrKind::User(_) => {}

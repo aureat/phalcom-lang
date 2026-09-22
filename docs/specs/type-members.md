@@ -27,7 +27,8 @@ axis:
 ```text
 Requirement   supplied by conformance evidence
 Alias         defined by another type-level expression
-Native        supplied by the host Phalcom implementation
+Intrinsic     supplied directly by canonical compiler/semantic normalization
+Native        supplied by the host Phalcom runtime/primitive subsystem
 ```
 
 An inherent type member is owned by a nominal declaration. An associated type
@@ -54,19 +55,20 @@ type members, but the semantic requirements are fixed:
 - omitted result-domain syntax defaults to `Type` only where the owning
   declaration form specifies that default.
 
-The initial compiler-native structural declaration surface is:
+The initial compiler-intrinsic structural declaration surface is:
 
 ```phalcom
-native type Positionals: TypePack
-native type Labeled: LabeledTypePack
-native type At<I: Int>: Type
-native type Map<F: Type -> Type>: Type
+intrinsic type Positionals: TypePack
+intrinsic type Labeled: LabeledTypePack
+intrinsic type At<I: Int>: Type
+intrinsic type Map<F: Type -> Type>: Type
 ```
 
 These declarations may be authored on canonical Universe anchors for discovery,
 documentation, and reflection while remaining semantically owned by the
-structural domain. `At<I>` is the canonical named member; type subscript is a
-presentation alias of the same identity, not a second declaration.
+structural domain. The canonical semantic member for integer indexing is the
+type-level Subscript member; `T[I]` is its direct presentation and `At<I>` is
+the canonical named presentation alias.
 
 ## 3. Identity
 
@@ -132,8 +134,9 @@ T[I] ≡ T::At<I>
 ```
 
 This is semantic identity, not merely coincidental equality after normalization.
-The two spellings must not declare independent members. A language surface may
-provide both presentations as aliases of one declaration identity.
+The two spellings must not declare independent members. The canonical semantic
+identity is the type-level Subscript member; `At` is a standardized named
+presentation alias for that same member identity.
 
 ## 7. Projection states
 
@@ -156,24 +159,24 @@ runtime VM dispatch, materialize runtime values, or execute arbitrary source
 code. Internal cancellation, cycle, and budget states may exist, but they must
 not change the language meaning of a valid symbolic projection.
 
-## 8. Native type members
+## 8. Intrinsic type members
 
-`native` identifies implementation origin, not a particular runtime subsystem:
+`intrinsic` identifies declarations whose implementation is provided directly
+by the compiler/semantic normalizer:
 
-> A native declaration is implemented by the host Phalcom implementation
-> rather than by a Phalcom source body. The host subsystem depends on the
-> declaration category.
+> An intrinsic declaration is implemented by canonical compiler/semantic
+> normalization rather than by a Phalcom source body or host native binding.
 
-For an executable member, the host implementation may be the VM/native runtime.
-For a native type member, the host implementation is the compiler/semantic type
-normalizer. A native type member does not execute a VM frame, materialize a
-Tuple or Record value, send a runtime message, or enter ordinary native-call
-dispatch.
+An intrinsic type member does not execute a VM frame, materialize a Tuple or
+Record value, send a runtime message, or enter native-call dispatch.
 
-`@intrinsic` remains metadata identifying or describing a builtin declaration;
-it is not an alternate implementation-origin keyword and does not itself
-define executable semantics. Native declarations remain subject to visibility,
-owner, and canonical declaration identity rules.
+The source attribute `@intrinsic` is retired and must not be used to declare
+implementation kind. Internal `NativeIntrinsicId` metadata (used for compiler/runtime
+optimizations on selected native primitives) is separate from source implementation
+kind and does not alter type-member semantics.
+
+Intrinsic type declarations remain subject to visibility, owner, and canonical
+declaration identity rules.
 
 ## 9. Trait specialization
 
@@ -187,8 +190,8 @@ remains unparameterized; member-local parameters are initially required for
 compiler/domain-native members.
 
 An associated requirement being bodyless means that it is a requirement. It is
-not thereby a native declaration. A bodyless `native type` is bodyless because
-its host implementation supplies the result.
+not thereby an intrinsic or native declaration. A bodyless `intrinsic type` is
+bodyless because its compiler/semantic normalizer supplies the result.
 
 ## 10. Structural domain members
 
@@ -216,6 +219,6 @@ competing semantic member database.
 | **TM-PARAMETERS-LOCAL** | Member-local parameters belong to the member application. |
 | **TM-PROJECTION-SYMBOLIC** | A valid unreduced projection remains symbolic. |
 | **TM-INVALID-DISTINCT-FROM-STUCK** | Concrete invalidity and lack of reduction information are distinct outcomes. |
-| **TM-SUBSCRIPT-AT-IDENTITY** | `T[I]` and `T::At<I>` are one semantic operation. |
-| **TM-NATIVE-NO-VM** | Native type-member normalization is compiler/semantic work and never runtime VM dispatch. |
+| **TM-SUBSCRIPT-AT-IDENTITY** | `T[I]` and `T::At<I>` are one semantic operation with Subscript as canonical identity and `At` as presentation alias. |
+| **TM-INTRINSIC-NO-VM** | Intrinsic type-member normalization is compiler/semantic work and never runtime VM dispatch. |
 | **TM-CLOSED-CALCULUS** | Domain-native operations do not introduce arbitrary user-defined type families or arbitrary compile-time execution. |

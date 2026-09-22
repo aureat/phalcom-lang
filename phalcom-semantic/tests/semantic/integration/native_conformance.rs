@@ -46,12 +46,12 @@ fn test_presentation_ir_and_virtual_source() {
 
     let md = presentation.render_markdown();
     assert!(md.contains("## class Bool"));
-    assert!(md.contains("- not · `native · intrinsic · pure`"));
+    assert!(md.contains("- not · `native · intrinsic-id:BoolNot · pure`"));
 
     let virt = presentation.render_virtual_source();
     assert!(virt.contains("class Bool {"));
     assert!(virt.contains("native "));
-    assert!(virt.contains("@intrinsic(BoolNot)"));
+    assert!(!virt.contains("@intrinsic"));
     assert!(virt.contains("@pure"));
 }
 

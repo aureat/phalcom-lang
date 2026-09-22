@@ -189,18 +189,21 @@ impl ClassPresentation {
                 DispatchSide::Instance => "",
                 DispatchSide::Class => "*(static)* ",
             };
-            let mut badges = Vec::new();
-            if m.implementation_kind == ImplementationKind::Native {
-                badges.push("native");
+            let mut badges: Vec<String> = Vec::new();
+            match m.implementation_kind {
+                ImplementationKind::Native => badges.push("native".to_string()),
+                ImplementationKind::Intrinsic => badges.push("intrinsic".to_string()),
+                ImplementationKind::Foreign => badges.push("foreign".to_string()),
+                ImplementationKind::Phalcom => {}
             }
             if m.implementation_provenance == ImplementationProvenance::Generated {
-                badges.push("generated");
+                badges.push("generated".to_string());
             }
-            if let Some(_intrin) = m.intrinsic {
-                badges.push("intrinsic");
+            if let Some(intrin) = m.intrinsic {
+                badges.push(format!("intrinsic-id:{:?}", intrin));
             }
             if let Some(ref eff) = m.effects {
-                badges.push(eff.as_str());
+                badges.push(eff.clone());
             }
             let badge_str = if badges.is_empty() {
                 String::new()
@@ -223,15 +226,17 @@ impl ClassPresentation {
         let sup = self.superclass.as_deref().map(|s| format!(" is {s}")).unwrap_or_default();
         out.push_str(&format!("class {}{} {{\n", self.name, sup));
         for m in &self.members {
-            if let Some(intrin) = m.intrinsic {
-                out.push_str(&format!("  @intrinsic({:?})\n", intrin));
-            }
             if let Some(ref eff) = m.effects {
                 out.push_str(&format!("  @{}\n", eff));
             }
             let static_kw = if m.side == DispatchSide::Class { "static " } else { "" };
-            let native_kw = if m.implementation_kind == ImplementationKind::Native { "native " } else { "" };
-            out.push_str(&format!("  {}{}{}\n\n", native_kw, static_kw, m.selector));
+            let impl_kw = match m.implementation_kind {
+                ImplementationKind::Phalcom => "",
+                ImplementationKind::Native => "native ",
+                ImplementationKind::Foreign => "foreign ",
+                ImplementationKind::Intrinsic => "intrinsic ",
+            };
+            out.push_str(&format!("  {}{}{}\n\n", impl_kw, static_kw, m.selector));
         }
         out.push_str("}\n");
         out

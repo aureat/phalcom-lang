@@ -57,11 +57,11 @@ Current state:
 
 ```yaml
 checkpoint: LANG007.C1
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 active plan: none
-next plan: LANG007.C1.P1
+next plan: LANG007.C1.P3
 planning baseline: 5b63ade8073d13d6b528af4774181665c30cbd47
 ```
 
@@ -843,9 +843,9 @@ intrinsic binding point
 
 They do not create ordinary runtime methods.
 
-`phalcom-core/src/native/source.rs` must not register a type-member declaration as a `NativeMemberKey` or runtime callable merely because it has `native` implementation origin.
+`phalcom-core/src/native/source.rs` must not register a type-member declaration as a `NativeMemberKey` or runtime callable merely because it has `native` or `intrinsic` implementation origin.
 
-`@intrinsic` association should be explicit and identity-based.
+Intrinsic type-member association is explicit and identity-based. `@intrinsic` is retired as a source attribute.
 
 Do not infer semantic intrinsic operation from presentation spelling after member resolution.
 
@@ -1294,7 +1294,10 @@ row inference remains separate
 query-local IDs never become canonical
 trait associated semantics remain authoritative
 type-member normalization stays out of VM
-source native type members are not runtime native callables
+intrinsic is a first-class keyword and ImplementationKind
+@intrinsic source attribute is retired
+NativeIntrinsicId is internal metadata distinct from source implementation kind
+source intrinsic type members are not runtime native callables
 ```
 
 ---

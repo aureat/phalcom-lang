@@ -13,11 +13,11 @@ prepared: 2026-09-21
 
 | Checkpoint | State | Active / next plan | Next action |
 |---|---|---|---|
-| `LANG007.C1` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | active: `LANG007.C1.P2` | begin P2 T0 authority census |
+| `LANG007.C1` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | next: `LANG007.C1.P3` | begin P3 architecture baseline and acceptance matrix |
 
 ## Current program state
 
-LANG007 has a focused-tested P1 implementation and is now active on P2 specification/source convergence. C1 is not yet release-complete.
+LANG007 has focused-tested P1 and P2 implementations and is now preparing for P3. C1 is not yet release-complete.
 
 Current truth:
 
@@ -27,9 +27,9 @@ completion: PARTIAL
 verification: FOCUSED_TESTED
 ```
 
-P1 implementation and focused verification are recorded in the checkpoint,
-walkthrough, and handoff. The program remains partial because P2 is active and
-workspace-wide/release certification is intentionally deferred.
+P1 and P2 implementation and focused verification are recorded in the checkpoint,
+walkthroughs, and handoffs. The program remains partial because further checkpoint
+plans remain and workspace-wide/release certification is intentionally deferred.
 
 Implementation, focused testing, and release certification are separate evidence states.
 
@@ -57,12 +57,17 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 | Plan | Scope | Status | Completion | Verification |
 |---|---|---|---|---|
 | `LANG007.C1.P1` | semantic domains and compiler-intrinsic structural type operations | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
-| `LANG007.C1.P2` | authoritative specification and `intrinsic` keyword convergence | `IN_PROGRESS` | `PARTIAL` | `UNVERIFIED` |
+| `LANG007.C1.P2` | authoritative specification and `intrinsic` keyword convergence | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 
 P1 lifecycle records:
 
 - `LANG007.C1/LANG007.C1.P1-walkthrough.md`
 - `LANG007.C1/LANG007.C1.P1-handoff.md`
+
+P2 lifecycle records:
+
+- `LANG007.C1/LANG007.C1.P2-walkthrough.md`
+- `LANG007.C1/LANG007.C1.P2-handoff.md`
 
 ## Administrative amendment
 
@@ -77,17 +82,13 @@ LANG007.C1-CHECKPOINT.md
 LANG007.C1-GUIDANCE.md
 ```
 
-C1 implementation should therefore follow the normal lifecycle convention for checkpoint updates and P1/P2 walkthrough and handoff creation.
-
-This amendment does **not** authorize opportunistic normative specification rewrites during P1. The accepted specifications remain read-only language authority unless the user separately requests a specification change.
+C1 implementation follows the normal lifecycle convention for checkpoint updates and P1/P2/P3 walkthrough and handoff creation.
 
 ## Verification state
 
-P1 focused verification has passed. The checkpoint records the semantic,
-metadata/parser, affected-crate, and hygiene evidence and classifies two
-trait-suite failures as pre-existing baseline failures.
-
-P2 is active but has not yet produced verification evidence.
+P1 and P2 focused verification have passed. The checkpoint records the semantic,
+metadata/parser, native conformance, affected-crate, decision/specification audit,
+and hygiene evidence. Two trait-suite failures are classified as pre-existing baseline failures.
 
 Deferred beyond focused acceptance:
 
@@ -99,28 +100,19 @@ broad performance suites
 release certification
 ```
 
-Workspace-wide test/clippy certification is not required by P1's focused acceptance unless later requested.
+Workspace-wide test/clippy certification is not required by P1/P2 focused acceptance unless later requested.
 
 ## Known blockers
 
 No implementation blocker is currently recorded.
 
-If the local implementation checkout lacks the accepted LANG007 specifications assumed by P1, or materially contradicts the P1 architectural premises, C1 must STOP AND CONSULT before production edits.
-
 ## Next action
 
-Execute `LANG007.C1.P2`:
+Execute `LANG007.C1.P3`:
 
 ```text
-T0  consume P1 walkthrough/handoff and verify authority census
-T1  ratify intrinsic keyword and record the amendment TDR
-T2  retire the obsolete @intrinsic source/presentation surface
-T3  converge normative specifications and neighboring ownership
-T4  focused contradiction/deletion searches and acceptance tests
-G1  P2 focused acceptance
+T0  consume P2 walkthrough/handoff and verify synchronized decision/specification corpus
+T1  architecture baseline verification
+T2  acceptance matrix validation
+G1  C1 acceptance gate
 ```
-
-The P2 start lock is satisfied: P1 is `COMPLETE / IMPLEMENTED /
-FOCUSED_TESTED`, the checkpoint records P1 completion and gate evidence, and
-both required P1 lifecycle files exist. The final scoped P1 semantic/test
-changes remain intentionally uncommitted and are listed in the handoff.

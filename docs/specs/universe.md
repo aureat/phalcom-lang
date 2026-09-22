@@ -198,12 +198,12 @@ UniverseKey::Result
     -> universe.errors.result::Result
 ```
 
-Native metadata may enrich canonical declarations with implementation
-information; it must not create competing semantic ownership. The host
-implementation may be the runtime/VM for executable declarations or the
-compiler/semantic normalizer for native type members. A native type-member
-registry is an implementation association with the canonical declaration, not
-a second declaration database.
+Native and intrinsic metadata may enrich canonical declarations with
+implementation information; it must not create competing semantic ownership.
+The host implementation may be the runtime/VM for executable native declarations
+or the compiler/semantic normalizer for intrinsic type members. An intrinsic
+type-member registry is an implementation association with the canonical
+declaration, not a second declaration database.
 
 ---
 
@@ -523,9 +523,9 @@ Their semantic forms retain the same information as user declarations:
 
 Native implementation does not justify weakening public signatures to `Dynamic` when the formal type system can express the real contract.
 
-Source-owned native type members likewise use the formal type-level domain and
-type-member contracts. For example, a compiler-native structural `Map<F>` is
-not a runtime message send and does not make anonymous structural types legal
+Source-owned intrinsic type members likewise use the formal type-level domain
+and type-member contracts. For example, a compiler-intrinsic structural `Map<F>`
+is not a runtime message send and does not make anonymous structural types legal
 ordinary inherent-`impl` targets.
 
 A native body exemption is not a signature-soundness exemption. Source-owned Universe declarations must themselves be semantically valid.

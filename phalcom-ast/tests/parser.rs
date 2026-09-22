@@ -1900,3 +1900,9 @@ class BuiltinBox {
     assert_eq!(m1.implementation, ImplementationKind::Intrinsic);
     assert!(!m1.is_static);
 }
+
+#[test]
+fn intrinsic_attribute_is_not_builtin() {
+    assert_eq!(phalcom_ast::ast::BuiltinAttr::parse("intrinsic"), None);
+    assert!(!phalcom_ast::ast::BuiltinAttr::ALL.iter().any(|b| b.name() == "intrinsic"));
+}

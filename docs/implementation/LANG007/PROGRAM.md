@@ -60,7 +60,7 @@ and the corresponding abstract/symbolic operations over accepted pack/row domain
 Current numbered plans:
 
 - `LANG007.C1.P1` — semantic domains and compiler-intrinsic structural type operations — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
-- `LANG007.C1.P2` — authoritative specification and `intrinsic` keyword convergence — `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+- `LANG007.C1.P2` — authoritative specification and `intrinsic` keyword convergence — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 
 C1 is not release certification for all future type-level programming.
 

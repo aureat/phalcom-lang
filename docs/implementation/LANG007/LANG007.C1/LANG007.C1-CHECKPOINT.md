@@ -13,7 +13,7 @@ planning_baseline_subject: "fix(core): restore standalone semantic universe"
 prepared: 2026-09-21
 p1_implementation_revision: 479f8fb82fa58730fb2c40c2652b5e07016549ec
 p1_implementation_subject: "feat(semantic): add intrinsic type-level structural operations"
-active_plan: LANG007.C1.P2
+active_plan: null
 requires:
   - accepted LANG007 type-level domain semantics
   - accepted LANG007 type-member semantics
@@ -49,8 +49,8 @@ completion: PARTIAL
 verification: FOCUSED_TESTED
 ```
 
-P1 is complete and focused-tested. C1 remains in progress because P2 is the
-active specification/source convergence plan.
+P1 and P2 are complete and focused-tested. C1 remains in progress pending
+subsequent checkpoint plans (such as P3).
 
 ---
 
@@ -159,21 +159,23 @@ If P1 appears to require one of these to satisfy a C1 requirement, that is archi
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
 | `LANG007.C1.P1` | semantic domains, type-member identity/projection, structural operations, inference/persistence, Universe/runtime boundary | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | completed at `479f8fb8`; final scoped validation remains uncommitted |
-| `LANG007.C1.P2` | authoritative specification and `intrinsic` keyword convergence | `IN_PROGRESS` | `PARTIAL` | `UNVERIFIED` | activated after P1 closure; begin P2 T0 authority census |
+| `LANG007.C1.P2` | authoritative specification and `intrinsic` keyword convergence | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | completed; TDR-0089 accepted, @intrinsic retired, intrinsic keyword preserved, normative specs converged |
 
 P1 lifecycle closure is recorded by:
 
 - `LANG007.C1.P1-walkthrough.md`
 - `LANG007.C1.P1-handoff.md`
 
-Latest completed plan: **`LANG007.C1.P1`**.
+P2 lifecycle closure is recorded by:
 
-Active plan: **`LANG007.C1.P2`**.
+- `LANG007.C1.P2-walkthrough.md`
+- `LANG007.C1.P2-handoff.md`
 
-Next action: `LANG007.C1.P2` T0.
+Latest completed plan: **`LANG007.C1.P2`**.
 
-P2 is a planned specification/source convergence slice of this checkpoint, not
-a corrective reopening of P1's semantic architecture.
+Active plan: **none**.
+
+Next action: `LANG007.C1.P3`.
 
 ---
 
@@ -240,7 +242,7 @@ code path; P2 must converge the authority corpus on these facts.
 35. C1 introduces no type-member VM bytecode.
 36. C1 introduces no runtime type-member message send or conformance/projection solver.
 37. Canonical Universe source may anchor intrinsic members for source identity/navigation without making them runtime native callables.
-38. `native` implementation origin and `@intrinsic` semantic identity remain distinct concepts.
+38. Native and Intrinsic are distinct `ImplementationKind` values. `@intrinsic` is retired as a source/builtin attribute. `NativeIntrinsicId` is separate internal operation metadata and does not determine source `ImplementationKind`.
 
 ---
 
@@ -305,6 +307,11 @@ transcript remains in the P1 walkthrough.
 | P1 metadata and parser focus | `phalcom-semantic` / `phalcom-ast` | `integration::metadata` (14), parser kind/projection/intrinsic tests (1 + 1 + 1) | `PASS` | stable metadata and accepted source forms |
 | P1 affected-crate and hygiene checks | `phalcom-ast`, `phalcom-type-meta`, `phalcom-semantic`, `phalcom-core` | `cargo check`, `cargo fmt --all -- --check`, `git diff --check` | `PASS` | affected crate compilation and patch hygiene |
 | focused trait suite residuals | `phalcom-semantic` semantic integration target | 36 passed, 2 baseline failures reproduced at predecessor `5b63ade8` | `BASELINE_DEFERRED` | unrelated semantic dependency/evidence baseline; see §9 and P1 walkthrough |
+| P2 AST integration focus | `phalcom-ast` integration test target | `parser::intrinsic_attribute_is_not_builtin`, `parser::parses_intrinsic_declarations`, `parser::parses_intrinsic_fields_and_methods` (3 tests) | `PASS` | `intrinsic` keyword parsing preserved; `@intrinsic` retired as builtin attribute |
+| P2 native presentation focus | `phalcom-semantic` integration test target | `integration::native_conformance` (3 tests) | `PASS` | virtual source has no `@intrinsic`; internal `NativeIntrinsicId` structured |
+| P2 type members regression | `phalcom-semantic` foundations test target | `foundations::type_members` (6 tests) | `PASS` | regression proof for all P1 type-member operations |
+| P2 affected-crate compilation | `phalcom-ast`, `phalcom-semantic`, `phalcom-core` | `cargo check` for each crate | `PASS` | all affected crates compile cleanly |
+| P2 specification & audit searches | `docs/specs`, `docs/decisions`, `phalcom-*` | G1, G2, G3, T5 audit queries and `git diff --check` | `PASS` | zero live `@intrinsic` in current authority, singular ownership, no diff warnings |
 
 Current checkpoint verification:
 
@@ -420,7 +427,22 @@ Do not silently repair unrelated failures during P1.
 
 **Scope limit:** This does not authorize opportunistic normative specification changes. Specs remain read-only implementation authority unless separately requested.
 
-No architectural consultation has occurred yet.
+## AMEND-002 — `intrinsic` keyword ratified and `@intrinsic` attribute retired
+
+**Date:** 2026-09-22
+
+**Plan:** `LANG007.C1.P2`
+
+**Trigger:** Explicit user ruling establishing that `intrinsic` is a source keyword and declaration modifier mapped to `ImplementationKind::Intrinsic`, and that `@intrinsic` is retired as a source/builtin attribute.
+
+**Decision:**
+- Ratified and recorded in `docs/decisions/accepted/0089-intrinsic-is-a-first-class-implementation-keyword.md` (TDR-0089), amending TDR-0082 and TDR-0088.
+- Synchronized accepted decision registry in `docs/decisions/README.md`.
+- Removed `BuiltinAttr::Intrinsic` and compiler expander; updated virtual source rendering.
+- Preserved internal `NativeIntrinsicId` metadata for compiler/runtime optimization.
+- Converged normative specifications (`source-declarations.md`, `type-members.md`, `universe.md`, `type-level-domains.md`, `structural-products.md`, `generic-constraints.md`, `associated-types.md`, `objects/traits.md`, `objects/impl.md`).
+
+**Architectural consequence:** Pure compiler/semantic normalization model with clean implementation-kind separation, zero-VM type-member execution, and single-source-of-truth type theory.
 
 ---
 
@@ -454,19 +476,19 @@ Planning/specification completion is not code completion.
 Current:
 
 ```text
-active plan: LANG007.C1.P2
-latest completed C1 plan: LANG007.C1.P1
-next plan: LANG007.C1.P2
+active plan: none
+latest completed C1 plan: LANG007.C1.P2
+next plan: LANG007.C1.P3
 blockers: none recorded; two unrelated baseline trait failures deferred
 ```
 
 Next action:
 
-> Execute `LANG007.C1.P2` from T0. Consume the P1 walkthrough/handoff, verify
-> the live decision/specification authority, and perform the named
-> `@intrinsic`/`intrinsic` census before substantive edits.
+> Execute `LANG007.C1.P3`. Consume the P2 walkthrough and handoff, verify the
+> synchronized decision and specification corpus, and proceed with the
+> architecture baseline and acceptance matrix.
 
-P1 closure and P2 activation state:
+P1 and P2 closure state:
 
 ```yaml
 checkpoint status: IN_PROGRESS
@@ -475,14 +497,10 @@ checkpoint verification: FOCUSED_TESTED
 P1 status: COMPLETE
 P1 completion: IMPLEMENTED
 P1 verification: FOCUSED_TESTED
-P2 status: IN_PROGRESS
-P2 completion: PARTIAL
-P2 verification: UNVERIFIED
+P2 status: COMPLETE
+P2 completion: IMPLEMENTED
+P2 verification: FOCUSED_TESTED
 ```
-
-Use the actual local repository state, not the planning revision, as the
-execution anchor. The final P1 semantic/test changes remain intentionally
-uncommitted and are listed in the P1 handoff.
 
 ---
 
