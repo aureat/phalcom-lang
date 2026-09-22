@@ -851,7 +851,14 @@ semantic library static-data inference unit filter                 BASELINE_BLOC
 semantic foundations/type_members                                 PASS (7)
 semantic integration/type_member_closure                           PASS (9)
 semantic incremental/type_members                                  PASS (7)
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic      PASS (post-amendment)
+repo-wide cargo fmt --all -- --check                               FAIL (D; pre-existing formatting drift outside this slice)
 ```
+
+The type-member publication slice is committed and pushed as
+`f2a6e3d8 lang007: publish checked type-member declarations`. The repository-wide
+formatter check reports differences in untouched AST/core/checker files; no formatting
+changes from that check were retained.
 
 This is partial P2 evidence, not P2 acceptance. Remaining P2 implementation includes
 full first-order inference coverage and row-aware solver terms, static type-member
