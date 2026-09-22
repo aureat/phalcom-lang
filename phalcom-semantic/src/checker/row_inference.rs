@@ -154,6 +154,15 @@ fn collect_stable_record_row_lacks_inner(
             collect_stable_record_row_lacks_inner(store, *positionals, visited, emitted, lacks);
             collect_stable_record_row_lacks_inner(store, *labeled, visited, emitted, lacks);
         }
+        TypeData::CompleteTypePack { positionals, labeled } => {
+            collect_stable_record_row_lacks_inner(store, *positionals, visited, emitted, lacks);
+            collect_stable_record_row_lacks_inner(store, *labeled, visited, emitted, lacks);
+        }
+        TypeData::TypePackConcat(segments) | TypeData::LabeledTypePackConcat(segments) => {
+            for &segment in segments.iter() {
+                collect_stable_record_row_lacks_inner(store, segment, visited, emitted, lacks);
+            }
+        }
         TypeData::Never
         | TypeData::Unit
         | TypeData::ClassObject { .. }

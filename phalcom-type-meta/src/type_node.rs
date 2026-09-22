@@ -106,6 +106,12 @@ pub enum TypeNode {
     },
     TypePack(Box<[TypeNodeId]>),
     LabeledTypePack(Box<[LabeledTypePackElementRef]>),
+    CompleteTypePack {
+        positionals: TypeNodeId,
+        labeled: TypeNodeId,
+    },
+    TypePackConcat(Box<[TypeNodeId]>),
+    LabeledTypePackConcat(Box<[TypeNodeId]>),
     TupleFromPacks {
         positionals: TypeNodeId,
         labeled: TypeNodeId,

@@ -11,7 +11,9 @@ use phalcom_semantic::signature::{CallableParameterSemantic, CallableSemanticSig
 use phalcom_semantic::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_semantic::type_alias::{TypeAliasInfo, TypeAliasTable};
 use phalcom_semantic::types::id::KindId;
-use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::parameter::{
+    GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm,
+};
 use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_semantic::types::variance::Variance;
@@ -503,4 +505,60 @@ fn test_metadata_preserves_owner_relative_self_terms() {
         phalcom_type_meta::type_node::TypeNode::SelfType(self_ref)
             if matches!(self_ref.side, phalcom_type_meta::identity::StableDispatchSide::Class)
     ));
+}
+
+#[test]
+fn metadata_exports_complete_and_concat_pack_terms_with_binder_modes() {
+    let mut store = TypeStore::new();
+    let int = store.nominal(dummy_decl("Int"));
+    let str_ty = store.nominal(dummy_decl("String"));
+    let positionals = store.type_pack(Box::new([int])).unwrap();
+    let labeled = store
+        .labeled_type_pack(Box::new([phalcom_semantic::types::store::LabeledTypePackElement {
+            label: "name".into(),
+            element: str_ty,
+        }]))
+        .unwrap();
+    let complete = store.complete_type_pack(positionals, labeled).unwrap();
+    let owner = TypeParameterOwner::Declaration(dummy_decl("Variadic"));
+    let parameter =
+        store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK).with_mode(GenericParameterMode::PositionalPack));
+    let symbolic = store.parameter_form(parameter);
+    let concat = store.type_pack_concat(&[positionals, symbolic]).unwrap();
+    let signature = GenericSignature::new(owner, Box::new([parameter])).with_parameter_modes(Box::new([GenericParameterMode::PositionalPack]));
+
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let complete_id = exporter.export_type_form(complete).unwrap();
+    let concat_id = exporter.export_type_form(concat).unwrap();
+    exporter.export_generic_signature(&signature).unwrap();
+    let bundle = exporter.build_bundle(&[]).unwrap();
+
+    assert_eq!(bundle.header.schema_version, 3);
+    assert!(matches!(
+        bundle.types[complete_id.0 as usize].form,
+        phalcom_type_meta::type_node::TypeNode::CompleteTypePack { .. }
+    ));
+    assert!(matches!(
+        bundle.types[concat_id.0 as usize].form,
+        phalcom_type_meta::type_node::TypeNode::TypePackConcat(_)
+    ));
+    assert_eq!(bundle.parameters[0].mode, phalcom_type_meta::generic::GenericParameterModeRef::PositionalPack);
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+}
+
+#[test]
+fn binder_mode_changes_metadata_interface_fingerprint() {
+    fn bundle_for_mode(mode: GenericParameterMode) -> phalcom_type_meta::bundle::SemanticMetadataBundle {
+        let mut store = TypeStore::new();
+        let owner = TypeParameterOwner::Declaration(dummy_decl("VariadicApi"));
+        let parameter = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK).with_mode(mode));
+        let signature = GenericSignature::new(owner, Box::new([parameter])).with_parameter_modes(Box::new([mode]));
+        let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        exporter.export_generic_signature(&signature).unwrap();
+        exporter.build_bundle(&[]).unwrap()
+    }
+
+    let single = bundle_for_mode(GenericParameterMode::Single);
+    let positional = bundle_for_mode(GenericParameterMode::PositionalPack);
+    assert_ne!(single.header.interface_fingerprint, positional.header.interface_fingerprint);
 }

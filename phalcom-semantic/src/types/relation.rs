@@ -490,6 +490,22 @@ fn check_subtype_impl(
                     RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
                 }
             }
+            (
+                TypeData::CompleteTypePack {
+                    positionals: sub_p,
+                    labeled: sub_l,
+                },
+                TypeData::CompleteTypePack {
+                    positionals: sup_p,
+                    labeled: sup_l,
+                },
+            ) => {
+                if sub_p == sup_p && sub_l == sup_l {
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
+                }
+            }
             (TypeData::Callable(sub_call), TypeData::Callable(sup_call)) => {
                 if sub_call.parameters.len() == sup_call.parameters.len() {
                     for (sub_p, sup_p) in sub_call.parameters.iter().zip(sup_call.parameters.iter()) {

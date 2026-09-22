@@ -13,6 +13,7 @@ pub enum CompiledKindRef {
     RecordRow,
     TypePack,
     LabeledTypePack,
+    CompleteTypePack,
     Arrow {
         parameters: Box<[CompiledKindRef]>,
         result: Box<CompiledKindRef>,
@@ -91,6 +92,7 @@ pub fn export_kind(store: &TypeStore, kind: KindId) -> CompiledKindRef {
         KindData::RecordRow => CompiledKindRef::RecordRow,
         KindData::TypePack => CompiledKindRef::TypePack,
         KindData::LabeledTypePack => CompiledKindRef::LabeledTypePack,
+        KindData::CompleteTypePack => CompiledKindRef::CompleteTypePack,
         KindData::Arrow { parameters, result } => {
             let p_kinds: Vec<CompiledKindRef> = parameters.iter().map(|&p| export_kind(store, p)).collect();
             let r_kind = export_kind(store, *result);
@@ -168,6 +170,9 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
         | TypeData::AssociatedProjection(_)
         | TypeData::TypePack(_)
         | TypeData::LabeledTypePack(_)
+        | TypeData::CompleteTypePack { .. }
+        | TypeData::TypePackConcat(_)
+        | TypeData::LabeledTypePackConcat(_)
         | TypeData::TupleFromPacks { .. }
         | TypeData::TypeMemberProjection(_) => Err(SemanticExportError::NonExportableTypeForm { form }),
     }

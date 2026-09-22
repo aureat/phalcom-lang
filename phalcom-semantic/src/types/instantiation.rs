@@ -2,7 +2,7 @@
 
 use super::id::{RecordRowId, TypeId, TypeParameterId};
 use super::row::{RecordRowField, RecordRowFormationError, RecordRowTail};
-use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
+use super::store::{CallableParameterType, CallableType, PackFormationError, TupleTypeElement, TypeData, TypeStore};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -53,6 +53,8 @@ pub enum TypeMaterializationError {
     RecordRow(#[from] RecordRowFormationError),
     #[error("type application failed while materializing a generic type")]
     TypeApplication,
+    #[error("pack formation failed while materializing a generic type: {0}")]
+    Pack(#[from] PackFormationError),
 }
 
 pub fn materialize_type(
@@ -215,7 +217,26 @@ fn materialize_type_inner(
         TypeData::TupleFromPacks { positionals, labeled } => {
             let pos = materialize_type_inner(store, positionals, instantiation, row_mode, visiting_rows)?;
             let lab = materialize_type_inner(store, labeled, instantiation, row_mode, visiting_rows)?;
-            store.tuple_from_packs(pos, lab).map_err(|_| TypeMaterializationError::TypeApplication)
+            Ok(store.tuple_from_packs(pos, lab)?)
+        }
+        TypeData::CompleteTypePack { positionals, labeled } => {
+            let positionals = materialize_type_inner(store, positionals, instantiation, row_mode, visiting_rows)?;
+            let labeled = materialize_type_inner(store, labeled, instantiation, row_mode, visiting_rows)?;
+            Ok(store.complete_type_pack(positionals, labeled)?)
+        }
+        TypeData::TypePackConcat(segments) => {
+            let segments = segments
+                .iter()
+                .map(|&segment| materialize_type_inner(store, segment, instantiation, row_mode, visiting_rows))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(store.type_pack_concat(&segments)?)
+        }
+        TypeData::LabeledTypePackConcat(segments) => {
+            let segments = segments
+                .iter()
+                .map(|&segment| materialize_type_inner(store, segment, instantiation, row_mode, visiting_rows))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(store.labeled_type_pack_concat(&segments)?)
         }
         TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => Ok(ty),
     }

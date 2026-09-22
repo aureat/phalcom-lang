@@ -297,6 +297,27 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
+                TypeNode::CompleteTypePack { positionals, labeled } => format!(
+                    "CompleteTypePack({}, {})",
+                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *positionals }, depth + 1),
+                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *labeled }, depth + 1)
+                ),
+                TypeNode::TypePackConcat(segments) => format!(
+                    "TypePackConcat({})",
+                    segments
+                        .iter()
+                        .map(|segment| display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *segment }, depth + 1))
+                        .collect::<Vec<_>>()
+                        .join(" ++ ")
+                ),
+                TypeNode::LabeledTypePackConcat(segments) => format!(
+                    "LabeledTypePackConcat({})",
+                    segments
+                        .iter()
+                        .map(|segment| display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *segment }, depth + 1))
+                        .collect::<Vec<_>>()
+                        .join(" ++ ")
+                ),
                 TypeNode::TupleFromPacks { positionals, labeled } => format!(
                     "TupleFromPacks({}, {})",
                     display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *positionals }, depth + 1),
@@ -396,7 +417,8 @@ pub fn kind_children(context: &TypingContextData, registry: &RuntimeTypingRegist
             phalcom_type_meta::kind::KindNode::Type
             | phalcom_type_meta::kind::KindNode::RecordRow
             | phalcom_type_meta::kind::KindNode::TypePack
-            | phalcom_type_meta::kind::KindNode::LabeledTypePack => Some(Vec::new()),
+            | phalcom_type_meta::kind::KindNode::LabeledTypePack
+            | phalcom_type_meta::kind::KindNode::CompleteTypePack => Some(Vec::new()),
             phalcom_type_meta::kind::KindNode::Arrow { parameters, .. } => {
                 Some(parameters.iter().map(|node| RuntimeKindRef::Base { pool, node: *node }).collect())
             }
@@ -414,7 +436,8 @@ pub fn kind_result(context: &TypingContextData, registry: &RuntimeTypingRegistry
             phalcom_type_meta::kind::KindNode::Type
             | phalcom_type_meta::kind::KindNode::RecordRow
             | phalcom_type_meta::kind::KindNode::TypePack
-            | phalcom_type_meta::kind::KindNode::LabeledTypePack => None,
+            | phalcom_type_meta::kind::KindNode::LabeledTypePack
+            | phalcom_type_meta::kind::KindNode::CompleteTypePack => None,
             phalcom_type_meta::kind::KindNode::Arrow { result, .. } => Some(RuntimeKindRef::Base { pool, node: *result }),
         },
     }
@@ -440,6 +463,7 @@ pub fn kind_display(context: &TypingContextData, registry: &RuntimeTypingRegistr
                 phalcom_type_meta::kind::KindNode::RecordRow => "RecordRow".to_string(),
                 phalcom_type_meta::kind::KindNode::TypePack => "TypePack".to_string(),
                 phalcom_type_meta::kind::KindNode::LabeledTypePack => "LabeledTypePack".to_string(),
+                phalcom_type_meta::kind::KindNode::CompleteTypePack => "CompleteTypePack".to_string(),
                 phalcom_type_meta::kind::KindNode::Arrow { parameters, result } => {
                     let parameters = parameters
                         .iter()

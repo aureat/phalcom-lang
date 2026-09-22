@@ -132,6 +132,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
         name: "T".into(),
         kind: KindNodeId(0),
         variance: VarianceRef::Covariant,
+        mode: Default::default(),
         source: None,
     };
 

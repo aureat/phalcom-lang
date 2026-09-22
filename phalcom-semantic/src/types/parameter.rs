@@ -13,6 +13,19 @@ pub enum TypeParameterOwner {
     Impl(crate::identity::ImplId),
 }
 
+/// Source binding shape for a generic parameter.
+///
+/// The mode is intentionally independent from the parameter kind: a single
+/// parameter may itself accept a pack value, while a pack binder captures a
+/// variable-length source lane into one pack value.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum GenericParameterMode {
+    Single,
+    PositionalPack,
+    LabeledPack,
+    CompletePack,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeParameterData {
     pub owner: TypeParameterOwner,
@@ -20,6 +33,7 @@ pub struct TypeParameterData {
     pub name: Box<str>,
     pub kind: KindId,
     pub variance: Variance,
+    pub mode: GenericParameterMode,
     pub source: Option<SemanticSourceSpan>,
 }
 
@@ -31,12 +45,18 @@ impl TypeParameterData {
             name: name.into(),
             kind,
             variance: Variance::Invariant,
+            mode: GenericParameterMode::Single,
             source: None,
         }
     }
 
     pub fn with_variance(mut self, variance: Variance) -> Self {
         self.variance = variance;
+        self
+    }
+
+    pub fn with_mode(mut self, mode: GenericParameterMode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -92,40 +112,79 @@ pub struct GenericSignature {
     pub parameter_kinds: Box<[KindId]>,
     pub parameter_kind_shapes: Box<[Box<str>]>,
     pub parameter_variances: Box<[Variance]>,
+    pub parameter_modes: Box<[GenericParameterMode]>,
     pub constraint_shapes: Box<[Box<str>]>,
     pub constraints: Box<[GenericConstraint]>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GenericSignaturePublicationError {
-    MissingParameter { index: u32, parameter: TypeParameterId },
-    OwnerMismatch { parameter: TypeParameterId },
-    NonContiguousParameter { parameter: TypeParameterId, expected: u32, actual: u32 },
-    RecordRowParameterForm { parameter: TypeParameterId },
-    InvalidCanonicalType { ty: TypeId },
-    InferenceVariable { variable: InferVarId },
+    MissingParameter {
+        index: u32,
+        parameter: TypeParameterId,
+    },
+    OwnerMismatch {
+        parameter: TypeParameterId,
+    },
+    NonContiguousParameter {
+        parameter: TypeParameterId,
+        expected: u32,
+        actual: u32,
+    },
+    RecordRowParameterForm {
+        parameter: TypeParameterId,
+    },
+    InvalidCanonicalType {
+        ty: TypeId,
+    },
+    InferenceVariable {
+        variable: InferVarId,
+    },
+    ParameterModeCount {
+        expected: usize,
+        actual: usize,
+    },
+    ParameterModeKindMismatch {
+        parameter: TypeParameterId,
+        mode: GenericParameterMode,
+        kind: KindId,
+    },
+    ParameterModeMismatch {
+        parameter: TypeParameterId,
+        parameter_mode: GenericParameterMode,
+        signature_mode: GenericParameterMode,
+    },
+    PackParameterVariance {
+        parameter: TypeParameterId,
+        mode: GenericParameterMode,
+        variance: Variance,
+    },
 }
 
 impl GenericSignature {
     pub fn new(owner: TypeParameterOwner, parameters: Box<[TypeParameterId]>) -> Self {
+        let parameter_count = parameters.len();
         Self {
             owner,
             parameters,
             parameter_kinds: Box::new([]),
             parameter_kind_shapes: Box::new([]),
             parameter_variances: Box::new([]),
+            parameter_modes: vec![GenericParameterMode::Single; parameter_count].into_boxed_slice(),
             constraint_shapes: Box::new([]),
             constraints: Box::new([]),
         }
     }
 
     pub fn with_constraints(owner: TypeParameterOwner, parameters: Box<[TypeParameterId]>, constraints: Box<[GenericConstraint]>) -> Self {
+        let parameter_count = parameters.len();
         Self {
             owner,
             parameters,
             parameter_kinds: Box::new([]),
             parameter_kind_shapes: Box::new([]),
             parameter_variances: Box::new([]),
+            parameter_modes: vec![GenericParameterMode::Single; parameter_count].into_boxed_slice(),
             constraint_shapes: Box::new([]),
             constraints,
         }
@@ -134,6 +193,11 @@ impl GenericSignature {
     pub fn with_parameter_metadata(mut self, kinds: Box<[KindId]>, variances: Box<[Variance]>) -> Self {
         self.parameter_kinds = kinds;
         self.parameter_variances = variances;
+        self
+    }
+
+    pub fn with_parameter_modes(mut self, modes: Box<[GenericParameterMode]>) -> Self {
+        self.parameter_modes = modes;
         self
     }
 
@@ -164,6 +228,12 @@ impl GenericSignature {
     }
 
     pub fn validate_publishable(&self, store: &TypeStore) -> Result<(), GenericSignaturePublicationError> {
+        if self.parameter_modes.len() != self.parameters.len() {
+            return Err(GenericSignaturePublicationError::ParameterModeCount {
+                expected: self.parameters.len(),
+                actual: self.parameter_modes.len(),
+            });
+        }
         for (index, &parameter) in self.parameters.iter().enumerate() {
             let expected = index as u32;
             let Some(found) = store.find_type_parameter_id(&self.owner, expected) else {
@@ -185,6 +255,36 @@ impl GenericSignature {
             }
             if data.kind == KindId::RECORD_ROW && store.contains_parameter_type(parameter) {
                 return Err(GenericSignaturePublicationError::RecordRowParameterForm { parameter });
+            }
+            let mode = self.parameter_modes[index];
+            if data.mode != mode {
+                return Err(GenericSignaturePublicationError::ParameterModeMismatch {
+                    parameter,
+                    parameter_mode: data.mode,
+                    signature_mode: mode,
+                });
+            }
+            let expected_kind = match mode {
+                GenericParameterMode::Single => None,
+                GenericParameterMode::PositionalPack => Some(KindId::TYPE_PACK),
+                GenericParameterMode::LabeledPack => Some(KindId::LABELED_TYPE_PACK),
+                GenericParameterMode::CompletePack => Some(KindId::COMPLETE_TYPE_PACK),
+            };
+            if let Some(expected_kind) = expected_kind {
+                if data.kind != expected_kind {
+                    return Err(GenericSignaturePublicationError::ParameterModeKindMismatch {
+                        parameter,
+                        mode,
+                        kind: data.kind,
+                    });
+                }
+                if data.variance != Variance::Invariant {
+                    return Err(GenericSignaturePublicationError::PackParameterVariance {
+                        parameter,
+                        mode,
+                        variance: data.variance,
+                    });
+                }
             }
         }
 

@@ -5,6 +5,9 @@ use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::{EvidenceOrigin, EvidenceStatus, UnknownReason};
+use phalcom_semantic::types::id::KindId;
+use phalcom_semantic::types::parameter::{GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner};
+use phalcom_semantic::types::store::TypeStore;
 
 #[test]
 fn result_only_generic_uses_expected_context_as_assumed_selection() {
@@ -212,6 +215,7 @@ class Probe {
     let result: Box<Int> = Box.new(1, "metadata")
   }
 }
+
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
@@ -233,4 +237,20 @@ class Probe {
         generic_signature.owner,
         phalcom_semantic::types::parameter::TypeParameterOwner::Callable(_)
     ));
+}
+
+#[test]
+fn complete_pack_generic_parameter_uses_an_ordinary_kind_aware_inference_variable() {
+    use phalcom_modules::identity::ModuleId;
+    use phalcom_semantic::checker::row_inference::{GenericApplicationSession, GenericInferenceBinding};
+    use phalcom_semantic::identity::DeclarationId;
+
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(ModuleId::universe_root(), "Complete".into()));
+    let parameter =
+        store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::COMPLETE_TYPE_PACK).with_mode(GenericParameterMode::CompletePack));
+    let signature = GenericSignature::new(owner, Box::new([parameter])).with_parameter_modes(Box::new([GenericParameterMode::CompletePack]));
+    let session = GenericApplicationSession::new(&signature, &store);
+
+    assert!(matches!(session.parameter_bindings.get(&parameter), Some(GenericInferenceBinding::Type(_))));
 }

@@ -254,6 +254,19 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
             let subst_lab = materialize_view(store, labeled, env);
             store.tuple_from_packs(subst_pos, subst_lab).unwrap_or(ty)
         }
+        TypeData::CompleteTypePack { positionals, labeled } => {
+            let positionals = materialize_view(store, positionals, env);
+            let labeled = materialize_view(store, labeled, env);
+            store.complete_type_pack(positionals, labeled).unwrap_or(ty)
+        }
+        TypeData::TypePackConcat(segments) => {
+            let segments = segments.iter().map(|&segment| materialize_view(store, segment, env)).collect::<Vec<_>>();
+            store.type_pack_concat(&segments).unwrap_or(ty)
+        }
+        TypeData::LabeledTypePackConcat(segments) => {
+            let segments = segments.iter().map(|&segment| materialize_view(store, segment, env)).collect::<Vec<_>>();
+            store.labeled_type_pack_concat(&segments).unwrap_or(ty)
+        }
         TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
     }
 }

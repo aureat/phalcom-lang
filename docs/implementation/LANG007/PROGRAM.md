@@ -135,13 +135,13 @@ program: LANG007
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active checkpoint: null
+active checkpoint: LANG007.C2
 active_plan: null
 next checkpoint: LANG007.C2
-next plan: null
+next plan: LANG007.C2.P2
 ```
 
-The program is `IN_PROGRESS` with `LANG007.C1` fully complete at the `FOCUSED_TESTED` level. Follow-on roadmap checkpoints remain for future definition.
+The program is `IN_PROGRESS` with `LANG007.C1` fully complete at the `FOCUSED_TESTED` level. `LANG007.C2.P1` is complete and focused-tested; C2 source elaboration remains for P2/P3.
 
 ## Canonical records
 
@@ -177,4 +177,4 @@ Numbered plans describe intended work; they do not replace checkpoint state.
 
 ## Next action
 
-`LANG007.C1` is complete. Next action is to define and plan follow-on checkpoint `LANG007.C2` (variadic generic parameters and pack expansion syntax).
+Execute `LANG007.C2.P2` source variadic generic binding and structural/callable type expansion using the established P1 substrate.

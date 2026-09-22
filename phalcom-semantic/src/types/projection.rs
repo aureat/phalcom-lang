@@ -319,8 +319,57 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 ProjectionNormalizationResult::Normalized(normalized)
             }
         }
+        TypeData::CompleteTypePack { positionals, labeled } => {
+            let positionals = match normalize_type(store, positionals, context) {
+                result @ (ProjectionNormalizationResult::Normalized(_) | ProjectionNormalizationResult::Symbolic(_)) => result,
+                result => return result,
+            };
+            let labeled = match normalize_type(store, labeled, context) {
+                result @ (ProjectionNormalizationResult::Normalized(_) | ProjectionNormalizationResult::Symbolic(_)) => result,
+                result => return result,
+            };
+            let symbolic = positionals.is_symbolic() || labeled.is_symbolic();
+            let positionals = positionals.type_id().expect("successful normalization has a type");
+            let labeled = labeled.type_id().expect("successful normalization has a type");
+            match store.complete_type_pack(positionals, labeled) {
+                Ok(normalized) if symbolic => ProjectionNormalizationResult::Symbolic(normalized),
+                Ok(normalized) => ProjectionNormalizationResult::Normalized(normalized),
+                Err(error) => ProjectionNormalizationResult::InternalFailure(format!("complete pack rebuilding failed: {error:?}").into_boxed_str()),
+            }
+        }
+        TypeData::TypePackConcat(segments) => normalize_pack_concat(store, ty, &segments, true, context),
+        TypeData::LabeledTypePackConcat(segments) => normalize_pack_concat(store, ty, &segments, false, context),
         TypeData::TypeMemberProjection(projection) => normalize_type_member_projection(store, ty, projection, context),
         _ => ProjectionNormalizationResult::Normalized(ty),
+    }
+}
+
+fn normalize_pack_concat(
+    store: &mut TypeStore,
+    _original: TypeId,
+    segments: &[TypeId],
+    positional: bool,
+    context: &mut ProjectionNormalizationContext<'_>,
+) -> ProjectionNormalizationResult {
+    let mut normalized_segments = Vec::with_capacity(segments.len());
+    let mut symbolic = false;
+    for &segment in segments {
+        let result = match normalize_type(store, segment, context) {
+            result @ (ProjectionNormalizationResult::Normalized(_) | ProjectionNormalizationResult::Symbolic(_)) => result,
+            result => return result,
+        };
+        symbolic |= result.is_symbolic();
+        normalized_segments.push(result.type_id().expect("successful normalization has a type"));
+    }
+    let normalized = if positional {
+        store.type_pack_concat(&normalized_segments)
+    } else {
+        store.labeled_type_pack_concat(&normalized_segments)
+    };
+    match normalized {
+        Ok(type_id) if symbolic => ProjectionNormalizationResult::Symbolic(type_id),
+        Ok(type_id) => ProjectionNormalizationResult::Normalized(type_id),
+        Err(error) => ProjectionNormalizationResult::InternalFailure(format!("pack concat rebuilding failed: {error:?}").into_boxed_str()),
     }
 }
 
@@ -751,31 +800,19 @@ fn normalize_intrinsic_projection(
     let intrinsic = lookup_intrinsic_type_operation(target_domain, selector)?;
 
     match intrinsic {
-        IntrinsicTypeOperation::TuplePositionals => match subject_data? {
-            TypeData::Tuple(elems) => {
-                let pos: Vec<TypeId> = elems.iter().filter(|e| e.label.is_none()).map(|e| e.ty).collect();
-                let pack = store.type_pack(pos.into_boxed_slice()).ok()?;
-                Some(ProjectionNormalizationResult::Normalized(pack))
-            }
-            TypeData::TupleFromPacks { positionals, .. } => Some(ProjectionNormalizationResult::Normalized(positionals)),
-            _ => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+        IntrinsicTypeOperation::TuplePositionals => match subject {
+            ProjectionSubject::Type(subject_ty) => match store.project_positionals(*subject_ty) {
+                Ok(pack) => Some(ProjectionNormalizationResult::Normalized(pack)),
+                Err(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            },
+            ProjectionSubject::RecordRow(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
         },
-        IntrinsicTypeOperation::TupleLabeled => match subject_data? {
-            TypeData::Tuple(elems) => {
-                let lab: Vec<super::store::LabeledTypePackElement> = elems
-                    .iter()
-                    .filter_map(|e| {
-                        e.label.as_ref().map(|l| super::store::LabeledTypePackElement {
-                            label: l.clone(),
-                            element: e.ty,
-                        })
-                    })
-                    .collect();
-                let pack = store.labeled_type_pack(lab.into_boxed_slice()).ok()?;
-                Some(ProjectionNormalizationResult::Normalized(pack))
-            }
-            TypeData::TupleFromPacks { labeled, .. } => Some(ProjectionNormalizationResult::Normalized(labeled)),
-            _ => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+        IntrinsicTypeOperation::TupleLabeled => match subject {
+            ProjectionSubject::Type(subject_ty) => match store.project_labeled(*subject_ty) {
+                Ok(pack) => Some(ProjectionNormalizationResult::Normalized(pack)),
+                Err(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            },
+            ProjectionSubject::RecordRow(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
         },
         IntrinsicTypeOperation::TupleAt => {
             let idx = match arguments.first()? {

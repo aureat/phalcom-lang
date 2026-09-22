@@ -231,3 +231,39 @@ fn applied_generic_subtyping_is_invariant_and_class_object_is_hierarchical() {
     let super_class_obj = store.class_object_type(decl_super);
     assert!(is_subtype(&mut store, &hierarchy, sub_class_obj, super_class_obj));
 }
+
+#[test]
+fn materialization_recanonicalizes_labeled_pack_concat_and_surfaces_duplicates() {
+    use phalcom_semantic::types::instantiation::{GenericInstantiation, RowMaterializationMode, TypeMaterializationError, materialize_type};
+    use phalcom_semantic::types::store::LabeledTypePackElement;
+
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(ModuleId::universe_root(), "Packs".into()));
+    let left_parameter = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "L", KindId::LABELED_TYPE_PACK));
+    let right_parameter = store.intern_type_parameter(TypeParameterData::new(owner, 1, "R", KindId::LABELED_TYPE_PACK));
+    let left_form = store.parameter_form(left_parameter);
+    let right_form = store.parameter_form(right_parameter);
+    let concat = store.labeled_type_pack_concat(&[left_form, right_form]).unwrap();
+    let int = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+    let str_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
+    let left = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "name".into(),
+            element: int,
+        }]))
+        .unwrap();
+    let right = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "name".into(),
+            element: str_ty,
+        }]))
+        .unwrap();
+    let mut instantiation = GenericInstantiation::default();
+    instantiation.bind_type(left_parameter, left);
+    instantiation.bind_type(right_parameter, right);
+
+    assert!(matches!(
+        materialize_type(&mut store, concat, &instantiation, RowMaterializationMode::PreserveUnboundStableTail),
+        Err(TypeMaterializationError::Pack(_))
+    ));
+}

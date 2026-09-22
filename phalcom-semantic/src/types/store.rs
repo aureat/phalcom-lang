@@ -94,6 +94,12 @@ pub enum PackFormationError {
     DuplicateLabel(String),
     #[error("invalid tuple pack component {ty:?} with kind {kind:?}")]
     InvalidTuplePackComponent { ty: TypeId, kind: KindId },
+    #[error("invalid complete pack component {ty:?} with kind {kind:?}")]
+    InvalidCompletePackComponent { ty: TypeId, kind: KindId },
+    #[error("invalid pack concat component {ty:?} with kind {kind:?}, expected {expected:?}")]
+    InvalidPackConcatComponent { ty: TypeId, kind: KindId, expected: KindId },
+    #[error("cannot project {lane} lane from {ty:?} with kind {kind:?}")]
+    InvalidPackProjection { ty: TypeId, kind: KindId, lane: &'static str },
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -127,6 +133,12 @@ pub enum TypeData {
     TypePack(Box<[TypeId]>),
     /// Flat, ordered pack of labeled types (kind LabeledTypePack).
     LabeledTypePack(Box<[LabeledTypePackElement]>),
+    /// Exact type-level product of positional and labeled pack lanes.
+    CompleteTypePack { positionals: TypeId, labeled: TypeId },
+    /// Flat ordered composition of positional pack contributions.
+    TypePackConcat(Box<[TypeId]>),
+    /// Flat ordered composition of labeled pack contributions.
+    LabeledTypePackConcat(Box<[TypeId]>),
     /// Tuple type formed from symbolic positional and labeled packs.
     TupleFromPacks { positionals: TypeId, labeled: TypeId },
     /// Callable / block signature.
@@ -207,6 +219,8 @@ impl TypeStore {
         assert_eq!(type_pack_kind, KindId::TYPE_PACK);
         let labeled_type_pack_kind = store.intern_kind(KindData::LabeledTypePack);
         assert_eq!(labeled_type_pack_kind, KindId::LABELED_TYPE_PACK);
+        let complete_type_pack_kind = store.intern_kind(KindData::CompleteTypePack);
+        assert_eq!(complete_type_pack_kind, KindId::COMPLETE_TYPE_PACK);
 
         store.never_id = store.intern_with_kind(TypeData::Never, KindId::TYPE);
         store.unit_id = store.intern_with_kind(TypeData::Unit, KindId::TYPE);
@@ -235,7 +249,7 @@ impl TypeStore {
 
         if let Some(&id) = self.parameter_to_id.get(&key) {
             let existing = &self.type_parameters[id.index()];
-            let same_semantics = existing.name == data.name && existing.kind == data.kind && existing.variance == data.variance;
+            let same_semantics = existing.name == data.name && existing.kind == data.kind && existing.variance == data.variance && existing.mode == data.mode;
 
             if same_semantics {
                 // Source provenance is revision-local presentation data, not semantic
@@ -381,6 +395,7 @@ impl TypeStore {
             KindData::RecordRow => "RecordRow".to_string(),
             KindData::TypePack => "TypePack".to_string(),
             KindData::LabeledTypePack => "LabeledTypePack".to_string(),
+            KindData::CompleteTypePack => "CompleteTypePack".to_string(),
             KindData::Arrow { parameters, result } => {
                 let parameters = parameters.iter().map(|&parameter| self.format_kind(parameter)).collect::<Vec<_>>().join(", ");
                 format!("({parameters}) -> {}", self.format_kind(*result))
@@ -416,7 +431,9 @@ impl TypeStore {
 
         let callee_data = self.get_kind(callee).clone();
         match callee_data {
-            KindData::Type | KindData::RecordRow | KindData::TypePack | KindData::LabeledTypePack => Err(KindApplicationError::NotApplicable { kind: callee }),
+            KindData::Type | KindData::RecordRow | KindData::TypePack | KindData::LabeledTypePack | KindData::CompleteTypePack => {
+                Err(KindApplicationError::NotApplicable { kind: callee })
+            }
             KindData::Arrow { parameters, result } => {
                 if arguments.len() > parameters.len() {
                     return Err(KindApplicationError::TooManyArguments {
@@ -628,6 +645,198 @@ impl TypeStore {
             }
         }
         Ok(self.intern_with_kind(TypeData::LabeledTypePack(elements), KindId::LABELED_TYPE_PACK))
+    }
+
+    /// Interns the exact two-lane type-level pack product.
+    pub fn complete_type_pack(&mut self, positionals: TypeId, labeled: TypeId) -> Result<TypeId, PackFormationError> {
+        let positional_kind = self.kind_of(positionals);
+        if positional_kind != KindId::TYPE_PACK {
+            return Err(PackFormationError::InvalidCompletePackComponent {
+                ty: positionals,
+                kind: positional_kind,
+            });
+        }
+        let labeled_kind = self.kind_of(labeled);
+        if labeled_kind != KindId::LABELED_TYPE_PACK {
+            return Err(PackFormationError::InvalidCompletePackComponent {
+                ty: labeled,
+                kind: labeled_kind,
+            });
+        }
+        Ok(self.intern_with_kind(TypeData::CompleteTypePack { positionals, labeled }, KindId::COMPLETE_TYPE_PACK))
+    }
+
+    /// Returns the positional lane of a complete pack or Tuple-shaped type.
+    pub fn project_positionals(&mut self, ty: TypeId) -> Result<TypeId, PackFormationError> {
+        match self.get(ty).clone() {
+            TypeData::TypePack(_) => Ok(ty),
+            TypeData::CompleteTypePack { positionals, .. } | TypeData::TupleFromPacks { positionals, .. } => Ok(positionals),
+            TypeData::Tuple(elements) => self.type_pack(
+                elements
+                    .iter()
+                    .filter(|element| element.label.is_none())
+                    .map(|element| element.ty)
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::Unit => self.type_pack(Box::new([])),
+            _ => Err(PackFormationError::InvalidPackProjection {
+                ty,
+                kind: self.kind_of(ty),
+                lane: "positional",
+            }),
+        }
+    }
+
+    /// Returns the labeled lane of a complete pack or Tuple-shaped type.
+    pub fn project_labeled(&mut self, ty: TypeId) -> Result<TypeId, PackFormationError> {
+        match self.get(ty).clone() {
+            TypeData::LabeledTypePack(_) => Ok(ty),
+            TypeData::CompleteTypePack { labeled, .. } | TypeData::TupleFromPacks { labeled, .. } => Ok(labeled),
+            TypeData::Tuple(elements) => self.labeled_type_pack(
+                elements
+                    .iter()
+                    .filter_map(|element| {
+                        element.label.as_ref().map(|label| LabeledTypePackElement {
+                            label: label.clone(),
+                            element: element.ty,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::Unit => self.labeled_type_pack(Box::new([])),
+            _ => Err(PackFormationError::InvalidPackProjection {
+                ty,
+                kind: self.kind_of(ty),
+                lane: "labeled",
+            }),
+        }
+    }
+
+    /// Returns a complete pack only from a complete pack or Tuple-shaped type.
+    pub fn project_complete(&mut self, ty: TypeId) -> Result<TypeId, PackFormationError> {
+        match self.get(ty) {
+            TypeData::CompleteTypePack { .. } => Ok(ty),
+            TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => {
+                let positionals = self.project_positionals(ty)?;
+                let labeled = self.project_labeled(ty)?;
+                self.complete_type_pack(positionals, labeled)
+            }
+            _ => Err(PackFormationError::InvalidPackProjection {
+                ty,
+                kind: self.kind_of(ty),
+                lane: "complete",
+            }),
+        }
+    }
+
+    /// Canonically composes positional pack contributions into one flat term.
+    pub fn type_pack_concat(&mut self, segments: &[TypeId]) -> Result<TypeId, PackFormationError> {
+        let mut flattened = Vec::new();
+        for &segment in segments {
+            self.collect_type_pack_concat_segments(segment, &mut flattened)?;
+        }
+        let mut normalized = Vec::new();
+        let mut concrete = Vec::new();
+        for segment in flattened {
+            match self.get(segment).clone() {
+                TypeData::TypePack(elements) => concrete.extend(elements.iter().copied()),
+                _ => {
+                    if !concrete.is_empty() {
+                        normalized.push(self.type_pack(std::mem::take(&mut concrete).into_boxed_slice())?);
+                    }
+                    normalized.push(segment);
+                }
+            }
+        }
+        if !concrete.is_empty() {
+            normalized.push(self.type_pack(concrete.into_boxed_slice())?);
+        }
+        match normalized.len() {
+            0 => self.type_pack(Box::new([])),
+            1 => Ok(normalized[0]),
+            _ => Ok(self.intern_with_kind(TypeData::TypePackConcat(normalized.into_boxed_slice()), KindId::TYPE_PACK)),
+        }
+    }
+
+    fn collect_type_pack_concat_segments(&self, segment: TypeId, output: &mut Vec<TypeId>) -> Result<(), PackFormationError> {
+        let kind = self.kind_of(segment);
+        if kind != KindId::TYPE_PACK {
+            return Err(PackFormationError::InvalidPackConcatComponent {
+                ty: segment,
+                kind,
+                expected: KindId::TYPE_PACK,
+            });
+        }
+        match self.get(segment) {
+            TypeData::TypePackConcat(children) => {
+                for &child in children.iter() {
+                    self.collect_type_pack_concat_segments(child, output)?;
+                }
+            }
+            TypeData::TypePack(elements) if elements.is_empty() => {}
+            _ => output.push(segment),
+        }
+        Ok(())
+    }
+
+    /// Canonically composes labeled pack contributions while preserving unresolved overlap.
+    pub fn labeled_type_pack_concat(&mut self, segments: &[TypeId]) -> Result<TypeId, PackFormationError> {
+        let mut flattened = Vec::new();
+        for &segment in segments {
+            self.collect_labeled_type_pack_concat_segments(segment, &mut flattened)?;
+        }
+        let mut normalized = Vec::new();
+        let mut concrete = Vec::new();
+        let mut labels = std::collections::HashSet::new();
+        for segment in flattened {
+            match self.get(segment).clone() {
+                TypeData::LabeledTypePack(elements) => {
+                    for element in elements.iter() {
+                        if !labels.insert(element.label.clone()) {
+                            return Err(PackFormationError::DuplicateLabel(element.label.to_string()));
+                        }
+                    }
+                    concrete.extend(elements.iter().cloned());
+                }
+                _ => {
+                    if !concrete.is_empty() {
+                        normalized.push(self.labeled_type_pack(std::mem::take(&mut concrete).into_boxed_slice())?);
+                    }
+                    normalized.push(segment);
+                }
+            }
+        }
+        if !concrete.is_empty() {
+            normalized.push(self.labeled_type_pack(concrete.into_boxed_slice())?);
+        }
+        match normalized.len() {
+            0 => self.labeled_type_pack(Box::new([])),
+            1 => Ok(normalized[0]),
+            _ => Ok(self.intern_with_kind(TypeData::LabeledTypePackConcat(normalized.into_boxed_slice()), KindId::LABELED_TYPE_PACK)),
+        }
+    }
+
+    fn collect_labeled_type_pack_concat_segments(&self, segment: TypeId, output: &mut Vec<TypeId>) -> Result<(), PackFormationError> {
+        let kind = self.kind_of(segment);
+        if kind != KindId::LABELED_TYPE_PACK {
+            return Err(PackFormationError::InvalidPackConcatComponent {
+                ty: segment,
+                kind,
+                expected: KindId::LABELED_TYPE_PACK,
+            });
+        }
+        match self.get(segment) {
+            TypeData::LabeledTypePackConcat(children) => {
+                for &child in children.iter() {
+                    self.collect_labeled_type_pack_concat_segments(child, output)?;
+                }
+            }
+            TypeData::LabeledTypePack(elements) if elements.is_empty() => {}
+            _ => output.push(segment),
+        }
+        Ok(())
     }
 
     /// Interns a tuple formed from symbolic positional and labeled packs.
@@ -979,6 +1188,17 @@ impl TypeStore {
                     .join(", ");
                 format!("[{elems}]")
             }
+            TypeData::CompleteTypePack { positionals, labeled } => {
+                format!("CompleteTypePack({}, {})", self.format_type(*positionals), self.format_type(*labeled))
+            }
+            TypeData::TypePackConcat(segments) => {
+                let segments = segments.iter().map(|&segment| self.format_type(segment)).collect::<Vec<_>>().join(" ++ ");
+                format!("TypePackConcat({segments})")
+            }
+            TypeData::LabeledTypePackConcat(segments) => {
+                let segments = segments.iter().map(|&segment| self.format_type(segment)).collect::<Vec<_>>().join(" ++ ");
+                format!("LabeledTypePackConcat({segments})")
+            }
             TypeData::TupleFromPacks { positionals, labeled } => {
                 format!("TupleFromPacks({}, {})", self.format_type(*positionals), self.format_type(*labeled))
             }
@@ -1126,6 +1346,12 @@ impl TypeStore {
                         }
                         super::type_member::TypeMemberArgument::Const(_) => false,
                     })
+            }
+            TypeData::CompleteTypePack { positionals, labeled } => {
+                self.contains_type_parameter(*positionals, target) || self.contains_type_parameter(*labeled, target)
+            }
+            TypeData::TypePackConcat(segments) | TypeData::LabeledTypePackConcat(segments) => {
+                segments.iter().any(|&segment| self.contains_type_parameter(segment, target))
             }
             _ => false,
         }

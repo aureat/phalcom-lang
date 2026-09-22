@@ -616,6 +616,25 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                 let labeled = normalize(store, substitution, labeled, states);
                 store.tuple_from_packs(positionals, labeled).unwrap_or(ty)
             }
+            TypeData::CompleteTypePack { positionals, labeled } => {
+                let positionals = normalize(store, substitution, positionals, states);
+                let labeled = normalize(store, substitution, labeled, states);
+                store.complete_type_pack(positionals, labeled).unwrap_or(ty)
+            }
+            TypeData::TypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|&segment| normalize(store, substitution, segment, states))
+                    .collect::<Vec<_>>();
+                store.type_pack_concat(&segments).unwrap_or(ty)
+            }
+            TypeData::LabeledTypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|&segment| normalize(store, substitution, segment, states))
+                    .collect::<Vec<_>>();
+                store.labeled_type_pack_concat(&segments).unwrap_or(ty)
+            }
             TypeData::Never | TypeData::Unit | TypeData::ClassObject { .. } | TypeData::Nominal { .. } | TypeData::Lambda(_) | TypeData::SelfType(_) => ty,
         };
         states.insert(ty, VisitState::Resolved(normalized));
@@ -695,6 +714,15 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
         TypeData::TupleFromPacks { positionals, labeled } => {
             collect_type_parameters(store, *positionals, output);
             collect_type_parameters(store, *labeled, output);
+        }
+        TypeData::CompleteTypePack { positionals, labeled } => {
+            collect_type_parameters(store, *positionals, output);
+            collect_type_parameters(store, *labeled, output);
+        }
+        TypeData::TypePackConcat(segments) | TypeData::LabeledTypePackConcat(segments) => {
+            for &segment in segments.iter() {
+                collect_type_parameters(store, segment, output);
+            }
         }
         TypeData::Never
         | TypeData::Unit

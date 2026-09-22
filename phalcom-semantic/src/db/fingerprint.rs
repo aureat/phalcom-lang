@@ -298,9 +298,13 @@ fn hash_type_knowledge(knowledge: &TypeKnowledge, include_provenance: bool, hash
 
 fn hash_generic_signature(signature: &GenericSignature, hasher: &mut impl Hasher) {
     signature.owner.hash(hasher);
-    if signature.parameter_kind_shapes.len() == signature.parameters.len() && signature.parameter_variances.len() == signature.parameters.len() {
+    if signature.parameter_kind_shapes.len() == signature.parameters.len()
+        && signature.parameter_variances.len() == signature.parameters.len()
+        && signature.parameter_modes.len() == signature.parameters.len()
+    {
         signature.parameter_kind_shapes.hash(hasher);
         signature.parameter_variances.hash(hasher);
+        signature.parameter_modes.hash(hasher);
     } else {
         "legacy-generic-parameter-metadata-absent".hash(hasher);
     }

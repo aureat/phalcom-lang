@@ -25,12 +25,23 @@ pub enum VarianceRef {
     Invariant,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum GenericParameterModeRef {
+    #[default]
+    Single,
+    PositionalPack,
+    LabeledPack,
+    CompletePack,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct TypeParameterRecord {
     pub id: StableTypeParameterRef,
     pub name: Box<str>,
     pub kind: KindNodeId,
     pub variance: VarianceRef,
+    #[serde(default)]
+    pub mode: GenericParameterModeRef,
     pub source: Option<SourceSpanRef>,
 }
 

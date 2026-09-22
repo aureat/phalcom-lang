@@ -8,7 +8,9 @@ use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::type_alias::TypeAliasTable;
 use crate::types::id::{KindId, ScopedTypeId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
-use crate::types::parameter::{GenericConstraint, GenericSignature, GenericSignaturePublicationError, SelfRole, TypeParameterOwner, TypeTerm};
+use crate::types::parameter::{
+    GenericConstraint, GenericParameterMode, GenericSignature, GenericSignaturePublicationError, SelfRole, TypeParameterOwner, TypeTerm,
+};
 use crate::types::rigid::LocalType;
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::type_lambda::ScopedTypeData;
@@ -20,8 +22,8 @@ use phalcom_type_meta::declaration::{
 };
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::generic::{
-    GenericConstraintRef, GenericSignatureRecord, GenericSignatureRecordId, StableAssociatedTypeRequirementRef, StableTraitApplicationRef,
-    StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef,
+    GenericConstraintRef, GenericParameterModeRef, GenericSignatureRecord, GenericSignatureRecordId, StableAssociatedTypeRequirementRef,
+    StableTraitApplicationRef, StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef,
 };
 use phalcom_type_meta::header::{
     ArtifactIdentityScheme, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity, SEMANTIC_MODEL_VERSION, SemanticMetadataHeader,
@@ -243,6 +245,7 @@ impl<'a> MetadataExporter<'a> {
             KindData::RecordRow => KindNode::RecordRow,
             KindData::TypePack => KindNode::TypePack,
             KindData::LabeledTypePack => KindNode::LabeledTypePack,
+            KindData::CompleteTypePack => KindNode::CompleteTypePack,
             KindData::Arrow { ref parameters, result } => {
                 let p_nodes: Vec<KindNodeId> = parameters.iter().map(|&p| self.export_kind(p)).collect();
                 let r_node = self.export_kind(result);
@@ -259,6 +262,7 @@ impl<'a> MetadataExporter<'a> {
             KindNode::RecordRow => fp_b.write_u8(3),
             KindNode::TypePack => fp_b.write_u8(4),
             KindNode::LabeledTypePack => fp_b.write_u8(5),
+            KindNode::CompleteTypePack => fp_b.write_u8(6),
             KindNode::Arrow { parameters, result } => {
                 fp_b.write_u8(2);
                 fp_b.write_u32(parameters.len() as u32);
@@ -300,11 +304,18 @@ impl<'a> MetadataExporter<'a> {
             start: s.range.start as u32,
             end: s.range.end as u32,
         });
+        let mode = match data.mode {
+            GenericParameterMode::Single => GenericParameterModeRef::Single,
+            GenericParameterMode::PositionalPack => GenericParameterModeRef::PositionalPack,
+            GenericParameterMode::LabeledPack => GenericParameterModeRef::LabeledPack,
+            GenericParameterMode::CompletePack => GenericParameterModeRef::CompletePack,
+        };
         self.parameters.push(TypeParameterRecord {
             id: param_ref.clone(),
             name: data.name.clone(),
             kind: kind_id,
             variance: variance_ref,
+            mode,
             source: source_span,
         });
         self.param_map.insert(param, param_ref.clone());
@@ -636,6 +647,18 @@ impl<'a> MetadataExporter<'a> {
                     .collect::<Result<Vec<_>, _>>()?;
                 TypeNode::LabeledTypePack(exported.into_boxed_slice())
             }
+            TypeData::CompleteTypePack { positionals, labeled } => TypeNode::CompleteTypePack {
+                positionals: self.export_type_form(positionals)?,
+                labeled: self.export_type_form(labeled)?,
+            },
+            TypeData::TypePackConcat(segments) => {
+                let exported = segments.iter().map(|&segment| self.export_type_form(segment)).collect::<Result<Vec<_>, _>>()?;
+                TypeNode::TypePackConcat(exported.into_boxed_slice())
+            }
+            TypeData::LabeledTypePackConcat(segments) => {
+                let exported = segments.iter().map(|&segment| self.export_type_form(segment)).collect::<Result<Vec<_>, _>>()?;
+                TypeNode::LabeledTypePackConcat(exported.into_boxed_slice())
+            }
             TypeData::TupleFromPacks { positionals, labeled } => {
                 let pos = self.export_type_form(positionals)?;
                 let lab = self.export_type_form(labeled)?;
@@ -787,6 +810,25 @@ impl<'a> MetadataExporter<'a> {
                 for el in elements.iter() {
                     fp_b.write_str(&el.label);
                     fp_b.write_fingerprint(self.types[el.element.0 as usize].structural_fingerprint);
+                }
+            }
+            TypeNode::CompleteTypePack { positionals, labeled } => {
+                fp_b.write_u8(18);
+                fp_b.write_fingerprint(self.types[positionals.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.types[labeled.0 as usize].structural_fingerprint);
+            }
+            TypeNode::TypePackConcat(segments) => {
+                fp_b.write_u8(19);
+                fp_b.write_u32(segments.len() as u32);
+                for segment in segments.iter() {
+                    fp_b.write_fingerprint(self.types[segment.0 as usize].structural_fingerprint);
+                }
+            }
+            TypeNode::LabeledTypePackConcat(segments) => {
+                fp_b.write_u8(20);
+                fp_b.write_u32(segments.len() as u32);
+                for segment in segments.iter() {
+                    fp_b.write_fingerprint(self.types[segment.0 as usize].structural_fingerprint);
                 }
             }
             TypeNode::TupleFromPacks { positionals, labeled } => {
@@ -1178,6 +1220,26 @@ impl<'a> MetadataExporter<'a> {
                 builder.finish()
             },
         );
+        let mut interface_builder = FingerprintBuilder::new();
+        interface_builder.write_fingerprint(revision_fingerprint);
+        interface_builder.write_u32(self.parameters.len() as u32);
+        for parameter in &self.parameters {
+            self.write_stable_parameter_fingerprint(&mut interface_builder, &parameter.id);
+            interface_builder.write_str(&parameter.name);
+            interface_builder.write_fingerprint(self.kinds[parameter.kind.0 as usize].structural_fingerprint);
+            interface_builder.write_u8(match parameter.variance {
+                VarianceRef::Covariant => 1,
+                VarianceRef::Contravariant => 2,
+                VarianceRef::Invariant => 3,
+            });
+            interface_builder.write_u8(match parameter.mode {
+                GenericParameterModeRef::Single => 1,
+                GenericParameterModeRef::PositionalPack => 2,
+                GenericParameterModeRef::LabeledPack => 3,
+                GenericParameterModeRef::CompletePack => 4,
+            });
+        }
+        let interface_fingerprint = interface_builder.finish();
         let header = SemanticMetadataHeader {
             schema_version: TYPE_METADATA_SCHEMA_VERSION,
             semantic_model_version: SEMANTIC_MODEL_VERSION,
@@ -1194,7 +1256,7 @@ impl<'a> MetadataExporter<'a> {
             },
             identity_scheme: ArtifactIdentityScheme::V1Standard,
             source_fingerprint: revision_fingerprint,
-            interface_fingerprint: revision_fingerprint,
+            interface_fingerprint,
         };
 
         Ok(SemanticMetadataBundle {

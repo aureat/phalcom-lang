@@ -1877,6 +1877,12 @@ fn record_generic_return_materialization_failure(ctx: &mut CheckingContext<'_>, 
             "generic return materialization failed with an invalid type application".into(),
             range,
         ),
+        TypeMaterializationError::Pack(error) => record_internal_row_failure(
+            ctx,
+            "generic return type could not be materialized after inference",
+            format!("generic return materialization produced an invalid pack: {error}"),
+            range,
+        ),
     }
     TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)
 }

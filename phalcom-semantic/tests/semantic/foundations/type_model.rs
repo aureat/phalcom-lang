@@ -346,6 +346,7 @@ fn structural_family_substitution_rewrites_member_types() {
         name: "T".into(),
         kind: KindId::TYPE,
         variance: phalcom_semantic::types::Variance::Invariant,
+        mode: phalcom_semantic::types::parameter::GenericParameterMode::Single,
         source: None,
     });
     let param_ty = store.parameter_form(param_id);
@@ -434,4 +435,162 @@ fn tuple_from_packs_and_canonical_tuple_equivalence() {
     let direct_tuple = store.tuple(Box::new([TupleTypeElement::unlabeled(int_ty), TupleTypeElement::labeled("key", str_ty)]));
 
     assert_eq!(from_packs, direct_tuple);
+}
+
+#[test]
+fn complete_type_pack_is_exact_and_projects_its_lanes() {
+    use phalcom_semantic::types::store::{LabeledTypePackElement, TypeData};
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal_type(decl("Int"));
+    let str_ty = store.nominal_type(decl("String"));
+    let positionals = store.type_pack(Box::new([int_ty])).unwrap();
+    let labeled = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "name".into(),
+            element: str_ty,
+        }]))
+        .unwrap();
+
+    let complete = store.complete_type_pack(positionals, labeled).unwrap();
+    assert_eq!(store.kind_of(complete), KindId::COMPLETE_TYPE_PACK);
+    assert!(store.proper_type(complete).is_err());
+    assert_eq!(store.project_positionals(complete).unwrap(), positionals);
+    assert_eq!(store.project_labeled(complete).unwrap(), labeled);
+    assert_eq!(store.project_complete(complete).unwrap(), complete);
+    assert!(store.project_complete(positionals).is_err());
+    assert!(store.complete_type_pack(labeled, positionals).is_err());
+
+    let empty_positionals = store.type_pack(Box::new([])).unwrap();
+    let empty_labeled = store.labeled_type_pack(Box::new([])).unwrap();
+    let empty = store.complete_type_pack(empty_positionals, empty_labeled).unwrap();
+    assert!(matches!(store.get(empty), TypeData::CompleteTypePack { .. }));
+    assert_ne!(empty, store.unit());
+    assert_eq!(store.project_complete(store.unit()).unwrap(), empty);
+}
+
+#[test]
+fn pack_concat_is_flat_canonical_and_preserves_labeled_uncertainty() {
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use phalcom_semantic::types::store::{LabeledTypePackElement, TypeData};
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal_type(decl("Int"));
+    let str_ty = store.nominal_type(decl("String"));
+    let first = store.type_pack(Box::new([int_ty])).unwrap();
+    let second = store.type_pack(Box::new([str_ty])).unwrap();
+    let parameter = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(decl("Packs")),
+        0,
+        "P",
+        KindId::TYPE_PACK,
+    ));
+    let symbolic = store.parameter_form(parameter);
+
+    let nested = store.type_pack_concat(&[first, symbolic]).unwrap();
+    let concat = store.type_pack_concat(&[nested, second]).unwrap();
+    let TypeData::TypePackConcat(segments) = store.get(concat) else {
+        panic!("expected flat positional concat");
+    };
+    assert_eq!(&**segments, &[first, symbolic, second]);
+    assert_eq!(
+        store.type_pack_concat(&[first, second]).unwrap(),
+        store.type_pack(Box::new([int_ty, str_ty])).unwrap()
+    );
+
+    let left = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "left".into(),
+            element: int_ty,
+        }]))
+        .unwrap();
+    let right = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "right".into(),
+            element: str_ty,
+        }]))
+        .unwrap();
+    let labeled_parameter = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(decl("LabeledPacks")),
+        0,
+        "L",
+        KindId::LABELED_TYPE_PACK,
+    ));
+    let symbolic_labeled = store.parameter_form(labeled_parameter);
+    let labeled_concat = store.labeled_type_pack_concat(&[left, symbolic_labeled, right]).unwrap();
+    assert!(matches!(store.get(labeled_concat), TypeData::LabeledTypePackConcat(_)));
+    assert!(store.labeled_type_pack_concat(&[left, left]).is_err());
+
+    let mut dense_segments = Vec::new();
+    for index in 0..64 {
+        dense_segments.push(first);
+        let parameter = store.intern_type_parameter(TypeParameterData::new(
+            TypeParameterOwner::Declaration(decl("DensePacks")),
+            index,
+            format!("P{index}"),
+            KindId::TYPE_PACK,
+        ));
+        dense_segments.push(store.parameter_form(parameter));
+    }
+    let dense = store.type_pack_concat(&dense_segments).unwrap();
+    let TypeData::TypePackConcat(segments) = store.get(dense) else {
+        panic!("expected one flat dense positional concat");
+    };
+    assert_eq!(segments.len(), 128);
+}
+
+#[test]
+fn checked_substitution_recognizes_newly_concrete_labeled_duplicates() {
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use phalcom_semantic::types::store::LabeledTypePackElement;
+    use phalcom_semantic::types::substitution::TypeSubstitution;
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal_type(decl("Int"));
+    let str_ty = store.nominal_type(decl("String"));
+    let left_parameter = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(decl("Concat")),
+        0,
+        "Left",
+        KindId::LABELED_TYPE_PACK,
+    ));
+    let right_parameter = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(decl("Concat")),
+        1,
+        "Right",
+        KindId::LABELED_TYPE_PACK,
+    ));
+    let left_form = store.parameter_form(left_parameter);
+    let right_form = store.parameter_form(right_parameter);
+    let concat = store.labeled_type_pack_concat(&[left_form, right_form]).unwrap();
+    let left = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "name".into(),
+            element: int_ty,
+        }]))
+        .unwrap();
+    let right = store
+        .labeled_type_pack(Box::new([LabeledTypePackElement {
+            label: "name".into(),
+            element: str_ty,
+        }]))
+        .unwrap();
+
+    let mut substitution = TypeSubstitution::new();
+    substitution.bind(left_parameter, left);
+    substitution.bind(right_parameter, right);
+    assert!(substitution.try_apply(&mut store, concat).is_err());
+
+    let positional_parameter = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(decl("PositionalConcat")),
+        0,
+        "P",
+        KindId::TYPE_PACK,
+    ));
+    let positional_form = store.parameter_form(positional_parameter);
+    let positional_concat = store.type_pack_concat(&[positional_form]).unwrap();
+    let concrete = store.type_pack(Box::new([int_ty, str_ty])).unwrap();
+    let mut valid_substitution = TypeSubstitution::new();
+    valid_substitution.bind(positional_parameter, concrete);
+    assert_eq!(valid_substitution.try_apply(&mut store, positional_concat).unwrap(), concrete);
 }

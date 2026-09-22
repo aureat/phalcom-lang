@@ -2538,6 +2538,12 @@ fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, 
         TypeData::TupleFromPacks { positionals, labeled } => {
             occurs_in_conformance_binding(store, parameter, *positionals, bindings) || occurs_in_conformance_binding(store, parameter, *labeled, bindings)
         }
+        TypeData::CompleteTypePack { positionals, labeled } => {
+            occurs_in_conformance_binding(store, parameter, *positionals, bindings) || occurs_in_conformance_binding(store, parameter, *labeled, bindings)
+        }
+        TypeData::TypePackConcat(segments) | TypeData::LabeledTypePackConcat(segments) => segments
+            .iter()
+            .any(|&segment| occurs_in_conformance_binding(store, parameter, segment, bindings)),
         TypeData::Callable(callable) => {
             callable
                 .parameters
@@ -2631,6 +2637,23 @@ fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindin
                 labeled: right_lab,
             },
         ) => unify_conformance_head(store, *left_pos, *right_pos, bindings) && unify_conformance_head(store, *left_lab, *right_lab, bindings),
+        (
+            TypeData::CompleteTypePack {
+                positionals: left_pos,
+                labeled: left_lab,
+            },
+            TypeData::CompleteTypePack {
+                positionals: right_pos,
+                labeled: right_lab,
+            },
+        ) => unify_conformance_head(store, *left_pos, *right_pos, bindings) && unify_conformance_head(store, *left_lab, *right_lab, bindings),
+        (TypeData::TypePackConcat(left), TypeData::TypePackConcat(right)) | (TypeData::LabeledTypePackConcat(left), TypeData::LabeledTypePackConcat(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(&left, &right)| unify_conformance_head(store, left, right, bindings))
+        }
         (TypeData::Record(left), TypeData::Record(right)) => {
             let left = store.record_row(*left);
             let right = store.record_row(*right);

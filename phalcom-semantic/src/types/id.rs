@@ -90,6 +90,7 @@ impl KindId {
     pub const RECORD_ROW: Self = Self(1);
     pub const TYPE_PACK: Self = Self(2);
     pub const LABELED_TYPE_PACK: Self = Self(3);
+    pub const COMPLETE_TYPE_PACK: Self = Self(4);
 
     #[inline]
     pub fn index(self) -> usize {

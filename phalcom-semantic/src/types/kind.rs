@@ -12,6 +12,8 @@ pub enum KindData {
     TypePack,
     /// Ordered sequence of labeled types (`LabeledTypePack`).
     LabeledTypePack,
+    /// Exact product of positional and labeled type-pack lanes.
+    CompleteTypePack,
     /// Type constructor (`Kind -> Kind` or `(Kind, ...) -> Kind`).
     Arrow { parameters: Box<[KindId]>, result: KindId },
 }

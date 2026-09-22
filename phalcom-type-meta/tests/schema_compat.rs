@@ -1,7 +1,7 @@
 use phalcom_type_meta::bundle::SemanticMetadataBundle;
 use phalcom_type_meta::encode::decode_metadata_json;
 use phalcom_type_meta::fingerprint::Fingerprint128;
-use phalcom_type_meta::generic::{StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef};
+use phalcom_type_meta::generic::{GenericParameterModeRef, StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef};
 use phalcom_type_meta::header::{
     ArtifactIdentityScheme, MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
     SEMANTIC_MODEL_VERSION, SemanticMetadataHeader, TYPE_METADATA_SCHEMA_VERSION,
@@ -85,13 +85,13 @@ fn test_unsupported_schema_versions_rejected() {
         }
     );
 
-    // Version 3 (future)
-    let b3 = sample_bundle(3, false);
+    // Version 4 (future)
+    let b3 = sample_bundle(4, false);
     let err3 = validate_metadata_bundle(&b3, &limits).unwrap_err();
     assert_eq!(
         err3,
         MetadataValidationError::UnsupportedSchemaVersion {
-            found: 3,
+            found: 4,
             minimum: MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION,
             maximum: TYPE_METADATA_SCHEMA_VERSION,
         }
@@ -152,6 +152,7 @@ fn test_schema_v2_open_record_validation() {
         name: "R".into(),
         kind: KindNodeId(1), // RecordRow
         variance: VarianceRef::Invariant,
+        mode: Default::default(),
         source: None,
     }]);
 
@@ -252,6 +253,7 @@ fn test_schema_v2_open_record_validation() {
         name: "T".into(),
         kind: KindNodeId(0), // Type instead of RecordRow
         variance: VarianceRef::Invariant,
+        mode: Default::default(),
         source: None,
     }]);
     assert!(matches!(
@@ -305,4 +307,91 @@ fn test_scoped_open_record_validation() {
     ]);
 
     validate_metadata_bundle(&b, &limits).expect("scoped open record with row binder should validate");
+}
+
+#[test]
+fn schema_v3_validates_complete_and_concat_pack_nodes_and_rejects_them_in_v2() {
+    let limits = ValidationLimits::default();
+    let mut bundle = sample_bundle(3, false);
+    bundle.kinds = Box::new([
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::TypePack,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::LabeledTypePack,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::CompleteTypePack,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle.types = Box::new([
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Unit,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(1),
+            form: TypeNode::TypePack(Box::new([])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(2),
+            form: TypeNode::LabeledTypePack(Box::new([])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(3),
+            form: TypeNode::CompleteTypePack {
+                positionals: TypeNodeId(1),
+                labeled: TypeNodeId(2),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(1),
+            form: TypeNode::TypePackConcat(Box::new([TypeNodeId(1)])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(2),
+            form: TypeNode::LabeledTypePackConcat(Box::new([TypeNodeId(2)])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    validate_metadata_bundle(&bundle, &limits).expect("schema v3 C2 pack nodes should validate");
+
+    let mut old_schema = bundle.clone();
+    old_schema.header.schema_version = 2;
+    assert!(validate_metadata_bundle(&old_schema, &limits).is_err());
+
+    let mut invalid_mode = sample_bundle(3, false);
+    invalid_mode.parameters = Box::new([TypeParameterRecord {
+        id: StableTypeParameterRef {
+            owner: StableTypeParameterOwnerRef::Declaration(StableDeclarationRef {
+                module: StableModuleRef {
+                    project: StableProjectRef::Builtin {
+                        namespace: "test".into(),
+                        version: "0.1.0".into(),
+                    },
+                    path: Box::new(["mod".into()]),
+                },
+                path: Box::new(["C".into()]),
+            }),
+            index: 0,
+        },
+        name: "P".into(),
+        kind: KindNodeId(0),
+        variance: VarianceRef::Invariant,
+        mode: GenericParameterModeRef::PositionalPack,
+        source: None,
+    }]);
+    assert!(validate_metadata_bundle(&invalid_mode, &limits).is_err());
 }

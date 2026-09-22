@@ -6,7 +6,7 @@ use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, 
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
 use phalcom_semantic::types::id::KindId;
-use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::parameter::{GenericConstraint, GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
 use phalcom_semantic::types::store::{RecordTypeField, TypeStore};
 use phalcom_semantic::types::type_lambda::{BetaResult, ScopedTypeData, TypeLambdaArena, TypeLambdaProvenance};
@@ -302,4 +302,41 @@ fn gate_01_5_f_variance_occurrence_algebra() {
     assert_eq!(polarity, Variance::Contravariant, "Parameter position flips polarity to contravariant (-)");
     assert_eq!(steps.len(), 1);
     assert!(matches!(steps[0], VarianceStep::CallableParameter { index: 0, .. }));
+}
+
+#[test]
+fn generic_parameter_mode_is_distinct_from_kind_and_versions_parameter_identity() {
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(core_decl("Variadic"));
+    let single = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK));
+    let positional =
+        store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK).with_mode(GenericParameterMode::PositionalPack));
+
+    assert_ne!(single, positional);
+    assert_eq!(store.type_parameter(single).mode, GenericParameterMode::Single);
+    assert_eq!(store.type_parameter(positional).mode, GenericParameterMode::PositionalPack);
+}
+
+#[test]
+fn generic_signature_requires_pack_mode_kind_and_invariant_variance() {
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(core_decl("Variadic"));
+    let positional =
+        store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK).with_mode(GenericParameterMode::PositionalPack));
+    let valid = GenericSignature::new(owner.clone(), Box::new([positional]))
+        .with_parameter_metadata(Box::new([KindId::TYPE_PACK]), Box::new([Variance::Invariant]))
+        .with_parameter_modes(Box::new([GenericParameterMode::PositionalPack]));
+    assert!(valid.validate_publishable(&store).is_ok());
+
+    let wrong_mode = GenericSignature::new(owner.clone(), Box::new([positional])).with_parameter_modes(Box::new([GenericParameterMode::LabeledPack]));
+    assert!(wrong_mode.validate_publishable(&store).is_err());
+
+    let covariant = store.intern_type_parameter(
+        TypeParameterData::new(owner.clone(), 1, "Q", KindId::TYPE_PACK)
+            .with_mode(GenericParameterMode::PositionalPack)
+            .with_variance(Variance::Covariant),
+    );
+    let invalid_variance = GenericSignature::new(owner, Box::new([positional, covariant]))
+        .with_parameter_modes(Box::new([GenericParameterMode::PositionalPack, GenericParameterMode::PositionalPack]));
+    assert!(invalid_variance.validate_publishable(&store).is_err());
 }

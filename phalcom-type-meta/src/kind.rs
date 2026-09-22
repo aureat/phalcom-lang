@@ -13,6 +13,7 @@ pub enum KindNode {
     RecordRow,
     TypePack,
     LabeledTypePack,
+    CompleteTypePack,
     Arrow { parameters: Box<[KindNodeId]>, result: KindNodeId },
 }
 

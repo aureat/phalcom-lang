@@ -1,5 +1,6 @@
 use crate::bundle::SemanticMetadataBundle;
 use crate::declaration::PublishedTypeSlot;
+use crate::generic::{GenericParameterModeRef, VarianceRef};
 use crate::header::{MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION, supports_type_metadata_schema};
 use crate::kind::{KindNode, KindNodeId};
 use crate::scoped_type::{ScopedRecordTailRef, ScopedTypeNode};
@@ -133,6 +134,34 @@ fn validate_schema_v2_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(
         return Err(MetadataValidationError::RecordRowFeatureRequired);
     }
 
+    validate_pre_v3_pack_floor(bundle)
+}
+
+fn validate_pre_v3_pack_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
+    if bundle.kinds.iter().any(|entry| matches!(entry.node, KindNode::CompleteTypePack)) {
+        return Err(MetadataValidationError::Malformed(
+            "schema before v3 cannot contain KindNode::CompleteTypePack".to_string(),
+        ));
+    }
+    if bundle.types.iter().any(|entry| {
+        matches!(
+            entry.form,
+            TypeNode::CompleteTypePack { .. } | TypeNode::TypePackConcat(_) | TypeNode::LabeledTypePackConcat(_)
+        )
+    }) {
+        return Err(MetadataValidationError::Malformed(
+            "schema before v3 cannot contain C2 pack composition nodes".to_string(),
+        ));
+    }
+    if bundle.parameters.iter().any(|parameter| parameter.mode != GenericParameterModeRef::Single) {
+        return Err(MetadataValidationError::Malformed(
+            "schema before v3 cannot contain variadic generic parameter modes".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_schema_v3_feature_floor(_bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
     Ok(())
 }
 
@@ -150,8 +179,12 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
     }
 
     match bundle.header.schema_version {
-        1 => validate_schema_v1_feature_floor(bundle)?,
+        1 => {
+            validate_schema_v1_feature_floor(bundle)?;
+            validate_pre_v3_pack_floor(bundle)?;
+        }
         2 => validate_schema_v2_feature_floor(bundle)?,
+        3 => validate_schema_v3_feature_floor(bundle)?,
         _ => unreachable!("version range checked above"),
     }
 
@@ -180,7 +213,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
     // Validate kinds graph (strictly topologically sorted)
     for (i, entry) in bundle.kinds.iter().enumerate() {
         match &entry.node {
-            KindNode::Type | KindNode::RecordRow | KindNode::TypePack | KindNode::LabeledTypePack => {}
+            KindNode::Type | KindNode::RecordRow | KindNode::TypePack | KindNode::LabeledTypePack | KindNode::CompleteTypePack => {}
             KindNode::Arrow { parameters, result } => {
                 for &p in parameters.iter() {
                     if p.0 as usize >= i {
@@ -212,6 +245,23 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             return Err(MetadataValidationError::DuplicateParameterOwner(owner_key.clone(), param.id.index));
         }
         param_map.insert((owner_key, param.id.index), param);
+        let kind = &bundle.kinds[param.kind.0 as usize].node;
+        let mode_is_valid = match param.mode {
+            GenericParameterModeRef::Single => true,
+            GenericParameterModeRef::PositionalPack => matches!(kind, KindNode::TypePack),
+            GenericParameterModeRef::LabeledPack => matches!(kind, KindNode::LabeledTypePack),
+            GenericParameterModeRef::CompletePack => matches!(kind, KindNode::CompleteTypePack),
+        };
+        if param.mode != GenericParameterModeRef::Single {
+            if !mode_is_valid {
+                return Err(MetadataValidationError::Malformed(
+                    "generic parameter mode does not match parameter kind".to_string(),
+                ));
+            }
+            if param.variance != VarianceRef::Invariant {
+                return Err(MetadataValidationError::Malformed("pack generic parameters must be invariant".to_string()));
+            }
+        }
     }
 
     // Validate global types graph (strictly topologically sorted)
@@ -386,6 +436,52 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             index: i as u32,
                             target: el.element.0,
                         });
+                    }
+                }
+            }
+            TypeNode::CompleteTypePack { positionals, labeled } => {
+                for child in [positionals, labeled] {
+                    if child.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: child.0,
+                        });
+                    }
+                }
+                if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::CompleteTypePack) {
+                    return Err(MetadataValidationError::Malformed("complete type pack node has wrong entry kind".to_string()));
+                }
+                if !matches!(bundle.kinds[bundle.types[positionals.0 as usize].kind.0 as usize].node, KindNode::TypePack)
+                    || !matches!(bundle.kinds[bundle.types[labeled.0 as usize].kind.0 as usize].node, KindNode::LabeledTypePack)
+                {
+                    return Err(MetadataValidationError::Malformed("complete type pack children have wrong kinds".to_string()));
+                }
+            }
+            TypeNode::TypePackConcat(children) | TypeNode::LabeledTypePackConcat(children) => {
+                let positional = matches!(&entry.form, TypeNode::TypePackConcat(_));
+                let valid_entry_kind = if positional {
+                    matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::TypePack)
+                } else {
+                    matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::LabeledTypePack)
+                };
+                if !valid_entry_kind {
+                    return Err(MetadataValidationError::Malformed("pack concat node has wrong entry kind".to_string()));
+                }
+                for child in children.iter() {
+                    if child.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: child.0,
+                        });
+                    }
+                    let kind = &bundle.kinds[bundle.types[child.0 as usize].kind.0 as usize].node;
+                    let valid_child_kind = if positional {
+                        matches!(kind, KindNode::TypePack)
+                    } else {
+                        matches!(kind, KindNode::LabeledTypePack)
+                    };
+                    if !valid_child_kind {
+                        return Err(MetadataValidationError::Malformed("pack concat child has wrong kind".to_string()));
                     }
                 }
             }

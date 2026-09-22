@@ -2,7 +2,7 @@
 
 use super::id::{KindId, TypeId, TypeParameterId};
 use super::row::{RecordRowField, RecordRowTail};
-use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
+use super::store::{CallableParameterType, CallableType, PackFormationError, TupleTypeElement, TypeData, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use std::collections::HashMap;
 
@@ -10,6 +10,13 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TypeSubstitution {
     bindings: HashMap<TypeParameterId, TypeId>,
+}
+
+/// Errors made explicit when C2 pack terms are re-canonicalized after substitution.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum TypeSubstitutionError {
+    #[error("pack normalization failed after substitution: {0}")]
+    Pack(#[from] PackFormationError),
 }
 
 impl TypeSubstitution {
@@ -39,6 +46,36 @@ impl TypeSubstitution {
 
     pub fn len(&self) -> usize {
         self.bindings.len()
+    }
+
+    /// Applies substitution through C2 pack composition terms without hiding a
+    /// duplicate label that becomes concrete during re-canonicalization.
+    pub fn try_apply(&self, store: &mut TypeStore, ty: TypeId) -> Result<TypeId, TypeSubstitutionError> {
+        if self.is_empty() {
+            return Ok(ty);
+        }
+        match store.get(ty).clone() {
+            TypeData::Parameter(parameter) => Ok(self.bindings.get(&parameter).copied().unwrap_or(ty)),
+            TypeData::CompleteTypePack { positionals, labeled } => {
+                let positionals = self.try_apply(store, positionals)?;
+                let labeled = self.try_apply(store, labeled)?;
+                Ok(store.complete_type_pack(positionals, labeled)?)
+            }
+            TypeData::TypePackConcat(segments) => {
+                let segments = segments.iter().map(|&segment| self.try_apply(store, segment)).collect::<Result<Vec<_>, _>>()?;
+                Ok(store.type_pack_concat(&segments)?)
+            }
+            TypeData::LabeledTypePackConcat(segments) => {
+                let segments = segments.iter().map(|&segment| self.try_apply(store, segment)).collect::<Result<Vec<_>, _>>()?;
+                Ok(store.labeled_type_pack_concat(&segments)?)
+            }
+            TypeData::TupleFromPacks { positionals, labeled } => {
+                let positionals = self.try_apply(store, positionals)?;
+                let labeled = self.try_apply(store, labeled)?;
+                Ok(store.tuple_from_packs(positionals, labeled)?)
+            }
+            _ => Ok(self.apply(store, ty)),
+        }
     }
 
     /// Recursively applies this substitution to a `RecordRowId`.
@@ -210,6 +247,11 @@ impl TypeSubstitution {
                 let subst_pos = self.apply(store, positionals);
                 let subst_lab = self.apply(store, labeled);
                 store.tuple_from_packs(subst_pos, subst_lab).unwrap_or(ty)
+            }
+            TypeData::CompleteTypePack { .. } | TypeData::TypePackConcat(_) | TypeData::LabeledTypePackConcat(_) => {
+                // C2 source forms must use `try_apply`; legacy callers retain
+                // their existing infallible precondition until P2 migrates them.
+                self.try_apply(store, ty).unwrap_or(ty)
             }
             TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
         }
@@ -403,6 +445,25 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
             let subst_pos = specialize_self_type(store, declarations, receiver, positionals);
             let subst_lab = specialize_self_type(store, declarations, receiver, labeled);
             store.tuple_from_packs(subst_pos, subst_lab).unwrap_or(ty)
+        }
+        TypeData::CompleteTypePack { positionals, labeled } => {
+            let positionals = specialize_self_type(store, declarations, receiver, positionals);
+            let labeled = specialize_self_type(store, declarations, receiver, labeled);
+            store.complete_type_pack(positionals, labeled).unwrap_or(ty)
+        }
+        TypeData::TypePackConcat(segments) => {
+            let segments = segments
+                .iter()
+                .map(|&segment| specialize_self_type(store, declarations, receiver, segment))
+                .collect::<Vec<_>>();
+            store.type_pack_concat(&segments).unwrap_or(ty)
+        }
+        TypeData::LabeledTypePackConcat(segments) => {
+            let segments = segments
+                .iter()
+                .map(|&segment| specialize_self_type(store, declarations, receiver, segment))
+                .collect::<Vec<_>>();
+            store.labeled_type_pack_concat(&segments).unwrap_or(ty)
         }
         TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
     }
