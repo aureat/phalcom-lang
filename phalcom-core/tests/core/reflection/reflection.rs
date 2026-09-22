@@ -172,6 +172,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
         instance_fields: Box::new([]),
         class_fields: Box::new([]),
         flags: DeclarationTypeFlags::default(),
+        algebraic: None,
         source: None,
     };
 

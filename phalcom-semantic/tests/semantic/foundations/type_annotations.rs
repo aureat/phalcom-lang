@@ -141,7 +141,7 @@ fn empty_tuple_annotation_and_unit_share_nested_generic_identity() {
     let TypeData::Applied { arguments, .. } = env.store.get(empty_type.ty().expect("List<()> type")) else {
         panic!("expected applied List type");
     };
-    assert_eq!(arguments.as_ref(), &[env.store.unit()]);
+    assert_eq!(arguments.as_ref(), &[phalcom_semantic::types::store::StaticArgument::Term(env.store.unit())]);
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn lowers_list_and_map_applications() {
     assert_eq!(*origin, env.declarations.form(&DeclarationId::new(env.module.clone(), "List".into())).unwrap());
     assert_eq!(
         arguments.as_ref(),
-        &[env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap()]
+        &[phalcom_semantic::types::store::StaticArgument::Term(env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap())]
     );
 
     let map_string_int = resolve(&mut env, &application(reference("Map"), vec![reference("String"), reference("Int")])).0;
@@ -1176,7 +1176,7 @@ fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
     let TypeData::Applied { arguments, .. } = env.store.get(empty.ty().expect("V<> proper type")) else {
         panic!("expected binder-aligned application")
     };
-    assert!(matches!(env.store.get(arguments[0]), TypeData::TypePack(elements) if elements.is_empty()));
+    assert!(matches!(env.store.get(arguments[0].as_type_id().expect("type-only argument")), TypeData::TypePack(elements) if elements.is_empty()));
 
     let applied = application(reference("V"), vec![reference("Int"), reference("String")]);
     let (applied, diagnostics) = resolve(&mut env, &applied);
@@ -1184,7 +1184,7 @@ fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
     let TypeData::Applied { arguments, .. } = env.store.get(applied.ty().expect("V<Int, String> proper type")) else {
         panic!("expected binder-aligned application")
     };
-    assert!(matches!(env.store.get(arguments[0]), TypeData::TypePack(elements) if elements.len() == 2));
+    assert!(matches!(env.store.get(arguments[0].as_type_id().expect("type-only argument")), TypeData::TypePack(elements) if elements.len() == 2));
 }
 
 #[test]

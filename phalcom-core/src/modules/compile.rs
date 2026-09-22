@@ -804,6 +804,7 @@ impl ProgramCompiler {
             phalcom_type_meta::header::MetadataProfile::RuntimePublic,
         )
         .with_project_universe(&analyzed.project_universe)
+        .with_algebraic_semantics(&analyzed.semantic.data_semantics, &analyzed.semantic.enum_semantics)
         .with_aliases(analyzed.semantic.type_aliases.as_ref());
         let mut stable_call_root_specs = Vec::with_capacity(runtime_call_root_specs.len());
         let mut exporter = exporter;
@@ -817,7 +818,9 @@ impl ProgramCompiler {
                     &phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&analyzed.project_universe),
                 ),
                 *parameter,
-                exporter.export_type_parameter(*parameter),
+                exporter
+                    .export_type_parameter(*parameter)
+                    .map_err(|e| ProgramCompileError::Io(format!("metadata export error: {e}")))?,
                 *ty,
                 key.clone(),
             ));
@@ -829,7 +832,9 @@ impl ProgramCompiler {
                 *range,
                 source_impl.clone(),
                 requirement.clone(),
-                exporter.export_type_parameter(*parameter),
+                exporter
+                    .export_type_parameter(*parameter)
+                    .map_err(|e| ProgramCompileError::Io(format!("metadata export error: {e}")))?,
                 *ty,
                 key.clone(),
             ));

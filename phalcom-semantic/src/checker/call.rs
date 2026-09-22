@@ -741,7 +741,7 @@ pub(crate) fn structural_list_index_get_target(ctx: &mut CheckingContext<'_>, re
             "index",
             TypeKnowledge::established(int_ty, EvidenceOrigin::DeclarationSemantics),
         )],
-        TypeKnowledge::established(arguments[0], EvidenceOrigin::DeclarationSemantics),
+        TypeKnowledge::established(arguments[0].as_type_id()?, EvidenceOrigin::DeclarationSemantics),
     );
     Some(CallableApplicationTarget::structural(signature))
 }
@@ -764,9 +764,9 @@ pub(crate) fn structural_map_index_get_target(ctx: &mut CheckingContext<'_>, rec
         selector,
         vec![CallableParameter::new(
             "key",
-            TypeKnowledge::established(arguments[0], EvidenceOrigin::DeclarationSemantics),
+            TypeKnowledge::established(arguments[0].as_type_id()?, EvidenceOrigin::DeclarationSemantics),
         )],
-        TypeKnowledge::established(arguments[1], EvidenceOrigin::DeclarationSemantics),
+        TypeKnowledge::established(arguments[1].as_type_id()?, EvidenceOrigin::DeclarationSemantics),
     );
     Some(CallableApplicationTarget::structural(signature))
 }
@@ -791,9 +791,9 @@ pub(crate) fn structural_list_index_set_target(ctx: &mut CheckingContext<'_>, re
         selector,
         vec![
             CallableParameter::new("index", TypeKnowledge::established(int_ty, EvidenceOrigin::DeclarationSemantics)),
-            CallableParameter::new("value", TypeKnowledge::established(element_ty, EvidenceOrigin::DeclarationSemantics)),
+            CallableParameter::new("value", TypeKnowledge::established(element_ty.as_type_id()?, EvidenceOrigin::DeclarationSemantics)),
         ],
-        TypeKnowledge::established(element_ty, EvidenceOrigin::DeclarationSemantics),
+        TypeKnowledge::established(element_ty.as_type_id()?, EvidenceOrigin::DeclarationSemantics),
     );
     Some(CallableApplicationTarget::structural(signature))
 }
@@ -1646,7 +1646,9 @@ fn apply_generic_callable_in_context(
 fn expected_type_contains_callable_payload(store: &TypeStore, ty: TypeId) -> bool {
     match store.get(ty) {
         TypeData::Callable(_) => true,
-        TypeData::Applied { arguments, .. } => arguments.iter().any(|argument| expected_type_contains_callable_payload(store, *argument)),
+        TypeData::Applied { arguments, .. } => arguments
+            .iter()
+            .any(|argument| argument.as_type_id().is_some_and(|argument| expected_type_contains_callable_payload(store, argument))),
         TypeData::ExactCase { enum_type, .. } => expected_type_contains_callable_payload(store, *enum_type),
         _ => false,
     }
@@ -2058,7 +2060,9 @@ fn type_contains_any_parameter(store: &TypeStore, ty: TypeId, parameters: &[Type
         TypeData::Parameter(parameter) => parameters.contains(parameter),
         TypeData::Applied { origin, arguments } => {
             type_contains_any_parameter(store, *origin, parameters)
-                || arguments.iter().any(|&argument| type_contains_any_parameter(store, argument, parameters))
+                || arguments
+                    .iter()
+                    .any(|argument| argument.as_type_id().is_some_and(|argument| type_contains_any_parameter(store, argument, parameters)))
         }
         TypeData::Union(members) => members.iter().any(|&member| type_contains_any_parameter(store, member, parameters)),
         TypeData::Tuple(elements) => elements.iter().any(|element| type_contains_any_parameter(store, element.ty, parameters)),

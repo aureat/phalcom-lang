@@ -474,7 +474,7 @@ class GenericFutureProbe {
     let phalcom_semantic::types::TypeData::Applied { arguments, .. } = f.analysis.snapshot.store.get(unit) else {
         panic!("expected applied Future<Unit>");
     };
-    assert_eq!(arguments.as_ref(), &[f.analysis.snapshot.store.unit()]);
+    assert_eq!(arguments.as_ref(), &[phalcom_semantic::types::store::StaticArgument::Term(f.analysis.snapshot.store.unit())]);
     f.assert_no_error_diagnostics();
 }
 

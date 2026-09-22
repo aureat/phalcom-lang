@@ -141,6 +141,9 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
             let origin = origin.type_id().expect("successful normalization has a type");
             let mut normalized_arguments = Vec::with_capacity(arguments.len());
             for argument in arguments {
+                let Some(argument) = argument.as_type_id() else {
+                    return ProjectionNormalizationResult::Symbolic(ty);
+                };
                 let result = normalize_type(store, argument, context);
                 symbolic |= result.is_symbolic();
                 let Some(argument) = result.type_id() else { return result };

@@ -1193,6 +1193,8 @@ pub enum KindSyntax {
     RecordRow(SourceRange),
     TypePack(SourceRange),
     LabeledTypePack(SourceRange),
+    /// Declaration-backed static domain kind, e.g. `Shape` in `S: Shape`.
+    Named { name: String, range: SourceRange },
     Arrow {
         parameter: Box<KindSyntax>,
         result: Box<KindSyntax>,
@@ -1215,6 +1217,7 @@ impl KindSyntax {
             KindSyntax::RecordRow(r) => *r,
             KindSyntax::TypePack(r) => *r,
             KindSyntax::LabeledTypePack(r) => *r,
+            KindSyntax::Named { range, .. } => *range,
             KindSyntax::Arrow { range, .. } => *range,
             KindSyntax::Grouped { range, .. } => *range,
             KindSyntax::Invalid { range, .. } => *range,
@@ -1320,6 +1323,9 @@ pub struct TypeLambdaParameter {
 pub struct TypeAliasDef {
     pub name: String,
     pub name_range: SourceRange,
+    /// Optional result domain for a static alias, e.g. `type Shape0: Shape = ...`.
+    /// `None` preserves the historical Type-valued alias meaning.
+    pub result_kind: Option<KindSyntax>,
     pub generic_parameters: Vec<GenericParameterSyntax>,
     pub where_clause: Option<WhereClauseSyntax>,
     pub body: TypeAnnotation,

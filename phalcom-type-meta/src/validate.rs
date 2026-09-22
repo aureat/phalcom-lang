@@ -4,7 +4,7 @@ use crate::generic::{GenericParameterModeRef, VarianceRef};
 use crate::header::{MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION, supports_type_metadata_schema};
 use crate::kind::{KindNode, KindNodeId};
 use crate::scoped_type::{ScopedRecordTailRef, ScopedTypeNode};
-use crate::type_node::TypeNode;
+use crate::type_node::{StaticArgumentRef, TypeNode};
 use std::collections::HashSet;
 use thiserror::Error;
 
@@ -264,6 +264,28 @@ fn validate_schema_v4_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(
     Ok(())
 }
 
+fn validate_pre_v5_static_domain_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
+    if bundle.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(_)))
+        || bundle.types.iter().any(|entry| matches!(entry.form, TypeNode::ConstInt(_) | TypeNode::StaticData(_)))
+    {
+        return Err(MetadataValidationError::Malformed(
+            "schema before v5 cannot contain static-domain or type-data nodes".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_schema_v5_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
+    let has_static_nodes = bundle.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(_)))
+        || bundle.types.iter().any(|entry| matches!(entry.form, TypeNode::ConstInt(_) | TypeNode::StaticData(_)));
+    if has_static_nodes && !bundle.header.features.static_domains {
+        return Err(MetadataValidationError::Malformed(
+            "schema v5 static-domain nodes require the static_domains feature".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Iteratively validates a [`SemanticMetadataBundle`].
 pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &ValidationLimits) -> Result<(), MetadataValidationError> {
     if !supports_type_metadata_schema(bundle.header.schema_version) {
@@ -282,16 +304,23 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             validate_schema_v1_feature_floor(bundle)?;
             validate_pre_v3_pack_floor(bundle)?;
             validate_pre_v4_scoped_pack_floor(bundle)?;
+            validate_pre_v5_static_domain_floor(bundle)?;
         }
         2 => {
             validate_schema_v2_feature_floor(bundle)?;
             validate_pre_v4_scoped_pack_floor(bundle)?;
+            validate_pre_v5_static_domain_floor(bundle)?;
         }
         3 => {
             validate_schema_v3_feature_floor(bundle)?;
             validate_pre_v4_scoped_pack_floor(bundle)?;
+            validate_pre_v5_static_domain_floor(bundle)?;
         }
-        4 => validate_schema_v4_feature_floor(bundle)?,
+        4 => {
+            validate_schema_v4_feature_floor(bundle)?;
+            validate_pre_v5_static_domain_floor(bundle)?;
+        }
+        5 | 6 => validate_schema_v5_feature_floor(bundle)?,
         _ => unreachable!("version range checked above"),
     }
 
@@ -320,7 +349,12 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
     // Validate kinds graph (strictly topologically sorted)
     for (i, entry) in bundle.kinds.iter().enumerate() {
         match &entry.node {
-            KindNode::Type | KindNode::RecordRow | KindNode::TypePack | KindNode::LabeledTypePack | KindNode::CompleteTypePack => {}
+            KindNode::Type
+            | KindNode::RecordRow
+            | KindNode::TypePack
+            | KindNode::LabeledTypePack
+            | KindNode::CompleteTypePack
+            | KindNode::StaticDomain(_) => {}
             KindNode::Arrow { parameters, result } => {
                 for &p in parameters.iter() {
                     if p.0 as usize >= i {
@@ -381,6 +415,49 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
         }
         match &entry.form {
             TypeNode::Never | TypeNode::Unit | TypeNode::Nominal { .. } | TypeNode::Parameter(_) | TypeNode::SelfType(_) => {}
+            TypeNode::ConstInt(_) => {
+                if !matches!(
+                    &bundle.kinds[entry.kind.0 as usize].node,
+                    KindNode::StaticDomain(crate::kind::StaticDomainRef::ConstInt)
+                ) {
+                    return Err(MetadataValidationError::Malformed(
+                        "const-int node must have the built-in const-int static domain kind".to_string(),
+                    ));
+                }
+            }
+            TypeNode::StaticData(static_data) => {
+                match &static_data.domain {
+                    crate::kind::StaticDomainRef::ConstInt => {
+                        return Err(MetadataValidationError::Malformed(
+                            "static-data node cannot use the built-in const-int domain".to_string(),
+                        ));
+                    }
+                    crate::kind::StaticDomainRef::Nominal { declaration } => {
+                        if &static_data.constructor.declaration != declaration {
+                            return Err(MetadataValidationError::Malformed(
+                                "static-data constructor owner does not match its nominal domain".to_string(),
+                            ));
+                        }
+                    }
+                }
+                if !matches!(
+                    &bundle.kinds[entry.kind.0 as usize].node,
+                    KindNode::StaticDomain(domain) if domain == &static_data.domain
+                ) {
+                    return Err(MetadataValidationError::Malformed(
+                        "static-data node kind does not match its domain".to_string(),
+                    ));
+                }
+                for argument in static_data.arguments.iter() {
+                    let StaticArgumentRef::Term(term) = argument;
+                    if term.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: term.0,
+                        });
+                    }
+                }
+            }
             TypeNode::Applied { origin, arguments } => {
                 if origin.0 as usize >= i {
                     return Err(MetadataValidationError::TopologicalOrderViolation {
@@ -388,12 +465,10 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         target: origin.0,
                     });
                 }
-                for &arg in arguments.iter() {
+                for arg in arguments.iter() {
+                    let StaticArgumentRef::Term(arg) = arg;
                     if arg.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation {
-                            index: i as u32,
-                            target: arg.0,
-                        });
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: arg.0 });
                     }
                 }
             }

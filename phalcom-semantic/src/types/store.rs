@@ -104,6 +104,18 @@ pub enum PackFormationError {
     InvalidPackProjection { ty: TypeId, kind: KindId, lane: &'static str },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum StaticDataFormationError {
+    #[error("unknown static constructor {constructor:?}")]
+    UnknownConstructor { constructor: AlgebraicStaticConstructorId },
+    #[error("static constructor domain mismatch: expected {expected:?}, got {actual:?}")]
+    DomainMismatch { expected: StaticDomainId, actual: StaticDomainId },
+    #[error("static constructor arity mismatch: expected {expected}, got {actual}")]
+    ArityMismatch { expected: usize, actual: usize },
+    #[error("static constructor argument {index} has kind {actual:?}, expected {expected:?}")]
+    ArgumentKindMismatch { index: usize, expected: KindId, actual: KindId },
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct LabeledTypePackElement {
     pub label: Box<str>,
@@ -121,8 +133,12 @@ pub enum TypeData {
     ClassObject { declaration: DeclarationId },
     /// Canonical nominal class declaration type or constructor form.
     Nominal { declaration: DeclarationId },
-    /// Generic type application (e.g. `List<Int>`).
-    Applied { origin: TypeId, arguments: Box<[TypeId]> },
+    /// Heterogeneous generic/static application (e.g. `List<Int>` or
+    /// `Tensor<Float, Shape::Vector(3)>`).
+    ///
+    /// Record rows remain outside the `TypeId` domain, so they travel through
+    /// the same application envelope as static terms without becoming types.
+    Applied { origin: TypeId, arguments: Box<[StaticArgument]> },
     /// Exact static enum case type (e.g. `ExactCase<Option::Some(_), Option<Int>>`).
     ExactCase { variant: VariantTypeId, enum_type: TypeId },
     /// Flat, deduplicated, sorted union of two or more distinct types.
@@ -206,12 +222,22 @@ pub struct AlgebraicStaticTerm {
 /// Static constructors may accept static type-level terms or record-row terms.
 /// Arbitrary runtime expressions are not accepted; only terms whose identity
 /// is deterministic at compile time may appear here.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum StaticArgument {
     /// A static term argument (itself a `TypeId` with a static-domain kind).
     Term(TypeId),
     /// A record-row argument (for future structural static row domains; P2).
     RecordRow(RecordRowId),
+}
+
+impl StaticArgument {
+    #[inline]
+    pub fn as_type_id(self) -> Option<TypeId> {
+        match self {
+            Self::Term(ty) => Some(ty),
+            Self::RecordRow(_) => None,
+        }
+    }
 }
 
 /// Canonical semantic data for a registered static algebraic constructor.
@@ -227,8 +253,8 @@ pub struct AlgebraicStaticConstructorData {
     /// Case name within a sum `type data`, or the type name for a product
     /// `type data` primary constructor.
     pub case_name: Box<str>,
-    /// Parameter arity for this constructor (number of static arguments).
-    pub arity: u32,
+    /// Canonical kinds accepted by this constructor's static arguments.
+    pub parameter_kinds: Box<[KindId]>,
 }
 
 /// Central store for canonical type interning, hash-consing, and kind assignments.
@@ -250,6 +276,11 @@ pub struct TypeStore {
     family_interner: HashMap<FamilyType, FamilyTypeId>,
     variant_identities: Vec<VariantId>,
     variant_identity_to_id: HashMap<VariantId, VariantTypeId>,
+    static_domains: Vec<StaticDomainData>,
+    static_domain_to_id: HashMap<StaticDomainData, StaticDomainId>,
+    static_constructors: Vec<AlgebraicStaticConstructorData>,
+    static_constructor_to_id: HashMap<AlgebraicStaticConstructorData, AlgebraicStaticConstructorId>,
+    const_int_domain: StaticDomainId,
 
     never_id: TypeId,
     unit_id: TypeId,
@@ -280,6 +311,11 @@ impl TypeStore {
             family_interner: HashMap::new(),
             variant_identities: Vec::new(),
             variant_identity_to_id: HashMap::new(),
+            static_domains: Vec::new(),
+            static_domain_to_id: HashMap::new(),
+            static_constructors: Vec::new(),
+            static_constructor_to_id: HashMap::new(),
+            const_int_domain: StaticDomainId::from_index(0),
             never_id: TypeId::DUMMY,
             unit_id: TypeId::DUMMY,
         };
@@ -295,6 +331,8 @@ impl TypeStore {
         assert_eq!(labeled_type_pack_kind, KindId::LABELED_TYPE_PACK);
         let complete_type_pack_kind = store.intern_kind(KindData::CompleteTypePack);
         assert_eq!(complete_type_pack_kind, KindId::COMPLETE_TYPE_PACK);
+
+        store.const_int_domain = store.intern_static_domain(StaticDomainData::ConstInt);
 
         store.never_id = store.intern_with_kind(TypeData::Never, KindId::TYPE);
         store.unit_id = store.intern_with_kind(TypeData::Unit, KindId::TYPE);
@@ -577,6 +615,115 @@ impl TypeStore {
         self.types.is_empty()
     }
 
+    /// Interns one nominal or built-in static domain in this type store.
+    pub fn intern_static_domain(&mut self, data: StaticDomainData) -> StaticDomainId {
+        if let Some(&id) = self.static_domain_to_id.get(&data) {
+            return id;
+        }
+        let id = StaticDomainId::from_index(self.static_domains.len());
+        self.static_domains.push(data.clone());
+        self.static_domain_to_id.insert(data, id);
+        id
+    }
+
+    /// Returns the built-in compile-time integer domain.
+    pub fn const_int_domain(&self) -> StaticDomainId {
+        self.const_int_domain
+    }
+
+    pub fn static_domain(&self, id: StaticDomainId) -> Option<&StaticDomainData> {
+        self.static_domains.get(id.index())
+    }
+
+    pub fn static_constructor_count(&self) -> usize {
+        self.static_constructors.len()
+    }
+
+    /// Returns the canonical static kind for a domain.
+    pub fn static_domain_kind(&mut self, domain: StaticDomainId) -> KindId {
+        self.intern_kind(KindData::StaticDomain(domain))
+    }
+
+    /// Interns the nominal static domain owned by one declaration.
+    pub fn nominal_static_domain(&mut self, declaration: DeclarationId) -> StaticDomainId {
+        self.intern_static_domain(StaticDomainData::Nominal { declaration })
+    }
+
+    /// Registers one static constructor or case and returns its store-local identity.
+    pub fn intern_static_constructor(
+        &mut self,
+        domain: StaticDomainId,
+        declaration: DeclarationId,
+        case_name: impl Into<Box<str>>,
+        parameter_kinds: Box<[KindId]>,
+    ) -> AlgebraicStaticConstructorId {
+        let data = AlgebraicStaticConstructorData {
+            domain,
+            declaration,
+            case_name: case_name.into(),
+            parameter_kinds,
+        };
+        if let Some(&id) = self.static_constructor_to_id.get(&data) {
+            return id;
+        }
+        let id = AlgebraicStaticConstructorId::from_index(self.static_constructors.len());
+        self.static_constructors.push(data.clone());
+        self.static_constructor_to_id.insert(data, id);
+        id
+    }
+
+    pub fn static_constructor(&self, id: AlgebraicStaticConstructorId) -> Option<&AlgebraicStaticConstructorData> {
+        self.static_constructors.get(id.index())
+    }
+
+    /// Forms a canonical compile-time integer term.
+    pub fn const_int(&mut self, value: i64) -> TypeId {
+        let kind = self.static_domain_kind(self.const_int_domain);
+        self.intern_with_kind(TypeData::ConstInt(value), kind)
+    }
+
+    /// Forms and validates a canonical type-data constructor/case term.
+    pub fn static_data(
+        &mut self,
+        domain: StaticDomainId,
+        constructor: AlgebraicStaticConstructorId,
+        arguments: Box<[StaticArgument]>,
+    ) -> Result<TypeId, StaticDataFormationError> {
+        let Some(metadata) = self.static_constructor(constructor).cloned() else {
+            return Err(StaticDataFormationError::UnknownConstructor { constructor });
+        };
+        if metadata.domain != domain {
+            return Err(StaticDataFormationError::DomainMismatch {
+                expected: metadata.domain,
+                actual: domain,
+            });
+        }
+        if metadata.parameter_kinds.len() != arguments.len() {
+            return Err(StaticDataFormationError::ArityMismatch {
+                expected: metadata.parameter_kinds.len(),
+                actual: arguments.len(),
+            });
+        }
+        for (index, (argument, &expected)) in arguments.iter().zip(metadata.parameter_kinds.iter()).enumerate() {
+            let actual = match argument {
+                StaticArgument::Term(ty) => self.kind_of(*ty),
+                StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+            };
+            if actual != expected {
+                return Err(StaticDataFormationError::ArgumentKindMismatch { index, expected, actual });
+            }
+        }
+        let kind = self.static_domain_kind(domain);
+        Ok(self.intern_with_kind(
+            TypeData::StaticData(AlgebraicStaticTerm {
+                domain,
+                constructor,
+                arguments,
+            }),
+            kind,
+        ))
+    }
+
     #[inline]
     pub fn get(&self, id: TypeId) -> &TypeData {
         &self.types[id.index()]
@@ -599,16 +746,24 @@ impl TypeStore {
         self.nominal_type(declaration)
     }
 
-    /// Interns a generic applied type with checked kinding and beta-reduction for type lambdas.
-    pub fn apply_type_form(&mut self, origin: TypeId, arguments: &[TypeId]) -> Result<TypeId, TypeApplicationError> {
+    /// Interns a heterogeneous generic/static application with checked kinding
+    /// and beta-reduction for type lambdas.
+    pub fn apply_static_form(&mut self, origin: TypeId, arguments: &[StaticArgument]) -> Result<TypeId, TypeApplicationError> {
         if arguments.is_empty() {
             return Ok(origin);
         }
 
         // If origin is a TypeLambda, perform beta-reduction directly
         if let TypeData::Lambda(lambda_id) = self.get(origin).clone() {
+            let mut type_arguments = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                let StaticArgument::Term(argument) = argument else {
+                    return Err(TypeApplicationError::MalformedLambda);
+                };
+                type_arguments.push(*argument);
+            }
             let mut arena = self.lambda_arena.clone();
-            let res = arena.beta_reduce(lambda_id, arguments, self);
+            let res = arena.beta_reduce(lambda_id, &type_arguments, self);
             self.lambda_arena = arena;
             match res {
                 Ok(BetaResult::Canonical(can)) => return Ok(can),
@@ -641,7 +796,13 @@ impl TypeStore {
         }
 
         let origin_kind = self.kind_of(origin);
-        let arg_kinds: Vec<KindId> = arguments.iter().map(|&a| self.kind_of(a)).collect();
+        let arg_kinds: Vec<KindId> = arguments
+            .iter()
+            .map(|argument| match argument {
+                StaticArgument::Term(argument) => self.kind_of(*argument),
+                StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+            })
+            .collect();
 
         let residual_kind = match self.apply_kind(origin_kind, &arg_kinds) {
             Ok(k) => k,
@@ -675,6 +836,13 @@ impl TypeStore {
             },
             residual_kind,
         ))
+    }
+
+    /// Type-only compatibility wrapper for callers whose arguments are all
+    /// proper/static `TypeId` terms rather than record-row terms.
+    pub fn apply_type_form(&mut self, origin: TypeId, arguments: &[TypeId]) -> Result<TypeId, TypeApplicationError> {
+        let arguments = arguments.iter().copied().map(StaticArgument::Term).collect::<Vec<_>>();
+        self.apply_static_form(origin, &arguments)
     }
 
     /// Interns a tuple type with full validation.
@@ -1212,11 +1380,20 @@ impl TypeStore {
         match self.get(ty) {
             TypeData::Never => "Never".to_string(),
             TypeData::Unit => "Unit".to_string(),
+            TypeData::ConstInt(value) => format!("{value}#const"),
+            TypeData::StaticData(term) => format!("StaticData({:?}, {:?})", term.domain, term.constructor),
             TypeData::ClassObject { declaration } => format!("class {}", declaration.name),
             TypeData::Nominal { declaration } => declaration.name.to_string(),
             TypeData::Applied { origin, arguments } => {
                 let orig_str = self.format_type(*origin);
-                let args_str = arguments.iter().map(|&arg| self.format_type(arg)).collect::<Vec<_>>().join(", ");
+                let args_str = arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        StaticArgument::Term(argument) => self.format_type(*argument),
+                        StaticArgument::RecordRow(row) => format!("{row:?}"),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 format!("{orig_str}<{args_str}>")
             }
             TypeData::Union(types) => types.iter().map(|&t| self.format_type(t)).collect::<Vec<_>>().join(" | "),
@@ -1427,7 +1604,8 @@ impl TypeStore {
             TypeData::Nominal { declaration } => Some((declaration.clone(), Vec::new())),
             TypeData::Applied { origin, arguments } => {
                 let decl = self.nominal_origin_declaration(*origin)?;
-                Some((decl.clone(), arguments.to_vec()))
+                let arguments = arguments.iter().map(|argument| argument.as_type_id()).collect::<Option<Vec<_>>>()?;
+                Some((decl.clone(), arguments))
             }
             TypeData::ExactCase { enum_type, .. } => self.applied_nominal_parts(*enum_type),
             _ => None,
@@ -1467,7 +1645,8 @@ impl TypeStore {
         match self.get(ty) {
             TypeData::Parameter(p) => *p == target,
             TypeData::Applied { origin, arguments } => {
-                self.contains_type_parameter(*origin, target) || arguments.iter().any(|&a| self.contains_type_parameter(a, target))
+                self.contains_type_parameter(*origin, target)
+                    || arguments.iter().any(|argument| argument.as_type_id().is_some_and(|a| self.contains_type_parameter(a, target)))
             }
             TypeData::Union(members) => members.iter().any(|&m| self.contains_type_parameter(m, target)),
             TypeData::Tuple(elems) => elems.iter().any(|e| self.contains_type_parameter(e.ty, target)),
@@ -1629,5 +1808,59 @@ mod tests {
         };
         assert_eq!(projected.subject, subject);
         assert_eq!(projected.requirement, requirement);
+    }
+
+    #[test]
+    fn const_int_is_canonical_static_data_and_not_a_proper_type() {
+        let mut store = TypeStore::new();
+
+        let first = store.const_int(7);
+        let second = store.const_int(7);
+        assert_eq!(first, second);
+        assert_eq!(store.kind_of(first), store.static_domain_kind(store.const_int_domain()));
+        assert!(matches!(store.get_kind(store.kind_of(first)), KindData::StaticDomain(_)));
+        assert_eq!(store.proper_type(first), Err(store.kind_of(first)));
+    }
+
+    #[test]
+    fn nominal_static_domains_and_constructors_are_canonical_and_validated() {
+        let mut store = TypeStore::new();
+        let declaration = test_decl("Shape");
+        let other_declaration = test_decl("OtherShape");
+        let domain = store.nominal_static_domain(declaration.clone());
+        let same_domain = store.nominal_static_domain(declaration.clone());
+        let other_domain = store.nominal_static_domain(other_declaration);
+        assert_eq!(domain, same_domain);
+        assert_ne!(domain, other_domain);
+
+        let const_int = store.const_int(3);
+        let parameter_kinds = vec![store.kind_of(const_int)].into_boxed_slice();
+        let constructor = store.intern_static_constructor(domain, declaration, "Point", parameter_kinds);
+        let same_constructor = store.intern_static_constructor(domain, test_decl("Shape"), "Point", vec![store.kind_of(const_int)].into_boxed_slice());
+        assert_eq!(constructor, same_constructor);
+
+        let formed = store
+            .static_data(domain, constructor, vec![StaticArgument::Term(const_int)].into_boxed_slice())
+            .expect("matching static constructor arguments should form");
+        let formed_again = store
+            .static_data(domain, constructor, vec![StaticArgument::Term(const_int)].into_boxed_slice())
+            .expect("matching static constructor arguments should be canonical");
+        assert_eq!(formed, formed_again);
+        assert!(matches!(store.get(formed), TypeData::StaticData(_)));
+        assert!(matches!(store.get_kind(store.kind_of(formed)), KindData::StaticDomain(_)));
+
+        assert!(matches!(
+            store.static_data(domain, constructor, Box::new([])),
+            Err(StaticDataFormationError::ArityMismatch { expected: 1, actual: 0 })
+        ));
+        assert!(matches!(
+            store.static_data(other_domain, constructor, vec![StaticArgument::Term(const_int)].into_boxed_slice()),
+            Err(StaticDataFormationError::DomainMismatch { .. })
+        ));
+        let runtime_type = store.nominal_type(test_decl("Runtime"));
+        assert!(matches!(
+            store.static_data(domain, constructor, vec![StaticArgument::Term(runtime_type)].into_boxed_slice()),
+            Err(StaticDataFormationError::ArgumentKindMismatch { index: 0, .. })
+        ));
     }
 }

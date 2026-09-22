@@ -54,7 +54,7 @@ class Probe {
     match f.analysis.snapshot.store.get(xs_ty) {
         phalcom_semantic::types::store::TypeData::Applied { arguments, .. } => {
             assert_eq!(arguments.len(), 1);
-            f.assert_union_members(arguments[0], &[cat, dog]);
+            f.assert_union_members(arguments[0].as_type_id().expect("type-only collection argument"), &[cat, dog]);
         }
         phalcom_semantic::types::store::TypeData::Union(members) => {
             assert_eq!(members.len(), 2, "alternative normalization should retain both collection branches");

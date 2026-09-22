@@ -52,13 +52,13 @@ Current numbered plans for C2:
 
 ### C3 — Type Data and Unified Algebraic Static Domains
 
-**State:** `IN_PROGRESS / PARTIAL / UNVERIFIED`
+**State:** `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`
 
 C3 establishes unified algebraic declarations (`data` for runtime products and sums, `type data` for type-level static domains), nominal static domain identity, canonical static terms, heterogeneous static applications, and intrinsic structural domain exposure.
 
 Current numbered plans for C3:
 
-- `LANG007.C3.P1` — unified algebraic data declarations and type-data foundation — `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+- `LANG007.C3.P1` — unified algebraic data declarations and type-data foundation — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C3.P2` — general static domains, heterogeneous application/inference, associated type data — `PROPOSED / NOT_STARTED / UNVERIFIED`.
 - `LANG007.C3.P3` — intrinsic structural surface, Universe/corpus migration, certification and closure — `PROPOSED / NOT_STARTED / UNVERIFIED`.
 

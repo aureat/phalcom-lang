@@ -108,7 +108,10 @@ pub fn compute_variance_occurrence(
         }
         TypeData::Applied { origin, arguments } => {
             let mut result_variance = None;
-            for (idx, &arg) in arguments.iter().enumerate() {
+            for (idx, argument) in arguments.iter().enumerate() {
+                let Some(arg) = argument.as_type_id() else {
+                    continue;
+                };
                 // If origin is a nominal declaration, look up parameter variance; default to invariant
                 let param_var = if let TypeData::Nominal { declaration } = store.get(*origin) {
                     store.get_parameter_variance(declaration, idx as u32).unwrap_or(Variance::Invariant)

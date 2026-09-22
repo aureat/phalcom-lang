@@ -1,5 +1,15 @@
 # Phalcom Language Specification — Enumerated Types and Variants
 
+## Compatibility status
+
+The canonical runtime algebraic declaration form is `data`. A `data` declaration
+may define either a product or a closed sum. The legacy `enum` keyword remains
+accepted as compatibility syntax for a sum-shaped `data` declaration and is
+lowered to the same semantic declaration and case identities as equivalent
+`data` source. Consequently, the rules below describe closed-sum behavior and
+exact-case semantics; they do not define a second canonical algebraic
+declaration category.
+
 ## Overview
 
 An `enum` declaration introduces a **nominal closed sum type**. The declaration defines the complete set of variants that constitute the sum. Each variant has its own semantic identity and may carry a payload whose components form the variant's case-specific product state.

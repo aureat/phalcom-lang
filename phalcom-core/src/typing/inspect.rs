@@ -44,7 +44,10 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
                 TypeNode::Applied { origin, arguments } => {
                     let mut children = Vec::with_capacity(arguments.len() + 1);
                     children.push(RuntimeTypeRef::Base { pool, node: *origin });
-                    children.extend(arguments.iter().map(|node| RuntimeTypeRef::Base { pool, node: *node }));
+                    children.extend(arguments.iter().map(|argument| {
+                        let phalcom_type_meta::type_node::StaticArgumentRef::Term(node) = argument;
+                        RuntimeTypeRef::Base { pool, node: *node }
+                    }));
                     Some(children)
                 }
                 TypeNode::Union(members) => Some(members.iter().map(|node| RuntimeTypeRef::Base { pool, node: *node }).collect()),
@@ -66,7 +69,15 @@ pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
             RuntimeOverlayTypeNode::TypeLambda { .. } | RuntimeOverlayTypeNode::Special(_) | RuntimeOverlayTypeNode::SelfType(_) => Some(Vec::new()),
         },
         RuntimeTypeRef::Base { pool, node } => match &registry.get_pool(pool)?.bundle.types.get(node.0 as usize)?.form {
-            TypeNode::Applied { arguments, .. } => Some(arguments.iter().map(|node| RuntimeTypeRef::Base { pool, node: *node }).collect()),
+            TypeNode::Applied { arguments, .. } => Some(
+                arguments
+                    .iter()
+                    .map(|argument| {
+                        let phalcom_type_meta::type_node::StaticArgumentRef::Term(node) = argument;
+                        RuntimeTypeRef::Base { pool, node: *node }
+                    })
+                    .collect(),
+            ),
             TypeNode::Union(members) => Some(members.iter().map(|node| RuntimeTypeRef::Base { pool, node: *node }).collect()),
             _ => Some(Vec::new()),
         },
@@ -197,12 +208,17 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
             Some(entry) => match &entry.form {
                 TypeNode::Never => "Never".to_string(),
                 TypeNode::Unit => "()".to_string(),
+                TypeNode::ConstInt(value) => value.to_string(),
+                TypeNode::StaticData(data) => format!("StaticData::{}", data.constructor.case_name),
                 TypeNode::Nominal { declaration } => declaration.path.last().map_or_else(|| "<nominal>".to_string(), |name| name.to_string()),
                 TypeNode::Applied { origin, arguments } => {
                     let origin = RuntimeTypeRef::Base { pool, node: *origin };
                     let args = arguments
                         .iter()
-                        .map(|arg| display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *arg }, depth + 1))
+                        .map(|arg| {
+                            let phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) = arg;
+                            display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *arg }, depth + 1)
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
                     format!("{}<{}>", display_inner(context, registry, heap, origin, depth + 1), args)
@@ -428,7 +444,8 @@ pub fn kind_children(context: &TypingContextData, registry: &RuntimeTypingRegist
             | phalcom_type_meta::kind::KindNode::RecordRow
             | phalcom_type_meta::kind::KindNode::TypePack
             | phalcom_type_meta::kind::KindNode::LabeledTypePack
-            | phalcom_type_meta::kind::KindNode::CompleteTypePack => Some(Vec::new()),
+            | phalcom_type_meta::kind::KindNode::CompleteTypePack
+            | phalcom_type_meta::kind::KindNode::StaticDomain(_) => Some(Vec::new()),
             phalcom_type_meta::kind::KindNode::Arrow { parameters, .. } => {
                 Some(parameters.iter().map(|node| RuntimeKindRef::Base { pool, node: *node }).collect())
             }
@@ -447,7 +464,8 @@ pub fn kind_result(context: &TypingContextData, registry: &RuntimeTypingRegistry
             | phalcom_type_meta::kind::KindNode::RecordRow
             | phalcom_type_meta::kind::KindNode::TypePack
             | phalcom_type_meta::kind::KindNode::LabeledTypePack
-            | phalcom_type_meta::kind::KindNode::CompleteTypePack => None,
+            | phalcom_type_meta::kind::KindNode::CompleteTypePack
+            | phalcom_type_meta::kind::KindNode::StaticDomain(_) => None,
             phalcom_type_meta::kind::KindNode::Arrow { result, .. } => Some(RuntimeKindRef::Base { pool, node: *result }),
         },
     }
@@ -474,6 +492,7 @@ pub fn kind_display(context: &TypingContextData, registry: &RuntimeTypingRegistr
                 phalcom_type_meta::kind::KindNode::TypePack => "TypePack".to_string(),
                 phalcom_type_meta::kind::KindNode::LabeledTypePack => "LabeledTypePack".to_string(),
                 phalcom_type_meta::kind::KindNode::CompleteTypePack => "CompleteTypePack".to_string(),
+                phalcom_type_meta::kind::KindNode::StaticDomain(_) => "StaticDomain".to_string(),
                 phalcom_type_meta::kind::KindNode::Arrow { parameters, result } => {
                     let parameters = parameters
                         .iter()

@@ -1,9 +1,14 @@
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::analyze_single_module;
+use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::types::application::TypeApplicationError;
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::kind::KindData;
-use phalcom_semantic::types::store::TypeStore;
+use phalcom_semantic::types::store::{StaticArgument, StaticDataFormationError, TypeData, TypeStore};
+use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+use phalcom_semantic::types::substitution::{TypeSubstitution, TypeSubstitutionError};
+use std::sync::Arc;
 
 fn test_decl(name: &str) -> DeclarationId {
     DeclarationId::new(ModuleId::universe_root(), name.into())
@@ -43,6 +48,79 @@ fn nested_type_application_canonicalizes() {
 
     assert_eq!(nested, direct);
     assert_eq!(store.kind_of(direct), KindId::TYPE);
+}
+
+#[test]
+fn heterogeneous_static_application_preserves_domain_terms_and_flattens() {
+    let mut store = TypeStore::new();
+    let shape_decl = test_decl("Shape");
+    let shape_domain = store.nominal_static_domain(shape_decl.clone());
+    let shape_kind = store.static_domain_kind(shape_domain);
+    let width = store.const_int(3);
+    let vector = store.intern_static_constructor(shape_domain, shape_decl, "Vector", vec![store.kind_of(width)].into_boxed_slice());
+    let shape_vector = store
+        .static_data(shape_domain, vector, vec![StaticArgument::Term(width)].into_boxed_slice())
+        .expect("Shape::Vector(3)");
+
+    let tensor_kind = store.arrow_kind(vec![KindId::TYPE, shape_kind].into_boxed_slice(), KindId::TYPE);
+    let tensor = store.nominal_form(test_decl("Tensor"), tensor_kind);
+    let float = store.nominal_type(test_decl("Float"));
+
+    let partial = store
+        .apply_static_form(tensor, &[StaticArgument::Term(float)])
+        .expect("Tensor<Float, _>");
+    let nested = store
+        .apply_static_form(partial, &[StaticArgument::Term(shape_vector)])
+        .expect("Tensor<Float, Shape::Vector(3)>");
+    let direct = store
+        .apply_static_form(tensor, &[StaticArgument::Term(float), StaticArgument::Term(shape_vector)])
+        .expect("direct heterogeneous application");
+
+    assert_eq!(nested, direct);
+    assert!(matches!(store.get(direct), TypeData::Applied { arguments, .. } if arguments.as_ref() == [
+        StaticArgument::Term(float),
+        StaticArgument::Term(shape_vector),
+    ]));
+    assert_eq!(store.kind_of(direct), KindId::TYPE);
+}
+
+#[test]
+fn heterogeneous_static_application_rejects_wrong_domain_without_coercion() {
+    let mut store = TypeStore::new();
+    let shape = store.nominal_static_domain(test_decl("Shape"));
+    let endian = store.nominal_static_domain(test_decl("Endian"));
+    let shape_kind = store.static_domain_kind(shape);
+    let endian_kind = store.static_domain_kind(endian);
+    let integer_kind = store.arrow_kind(vec![KindId::TYPE, shape_kind].into_boxed_slice(), KindId::TYPE);
+    let integer = store.nominal_form(test_decl("Integer"), integer_kind);
+    let bits = store.nominal_type(test_decl("Bits"));
+    let endian_term = store.intern_static_constructor(endian, test_decl("Endian"), "Big", Box::new([]));
+    let endian_big = store
+        .static_data(endian, endian_term, Box::new([]))
+        .expect("Endian::Big");
+
+    assert!(matches!(
+        store.apply_static_form(integer, &[StaticArgument::Term(bits), StaticArgument::Term(endian_big)]),
+        Err(TypeApplicationError::ArgumentKindMismatch { index: 1, expected, actual }) if expected == shape_kind && actual == endian_kind
+    ));
+}
+
+#[test]
+fn checked_substitution_reports_invalid_heterogeneous_application() {
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(test_decl("Owner"));
+    let parameter = store.intern_type_parameter(TypeParameterData::new(owner, 0, "T", KindId::TYPE));
+    let parameter_form = store.parameter_form(parameter);
+    let list_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let list = store.nominal_form(test_decl("List"), list_kind);
+    let applied = store.apply_type_form(list, &[parameter_form]).expect("List<T>");
+    let mut substitution = TypeSubstitution::new();
+    substitution.bind(parameter, list);
+
+    assert!(matches!(
+        substitution.try_apply(&mut store, applied),
+        Err(TypeSubstitutionError::Application(TypeApplicationError::ArgumentKindMismatch { index: 0, .. }))
+    ));
 }
 
 #[test]
@@ -120,4 +198,108 @@ fn every_interned_type_has_explicit_kind() {
     assert_eq!(store.kind_of(store.unit()), KindId::TYPE);
     assert!(store.is_proper_type(store.never()));
     assert!(store.is_proper_type(store.unit()));
+}
+
+#[test]
+fn static_domains_and_const_ints_are_distinct_from_proper_types() {
+    let mut store = TypeStore::new();
+    let width = store.nominal_static_domain(test_decl("Width"));
+    let height = store.nominal_static_domain(test_decl("Height"));
+    assert_ne!(width, height);
+
+    let width_kind = store.static_domain_kind(width);
+    let const_int = store.const_int(3);
+    assert_eq!(store.kind_of(const_int), store.static_domain_kind(store.const_int_domain()));
+    assert!(matches!(store.get_kind(width_kind), KindData::StaticDomain(_)));
+    assert_eq!(store.proper_type(const_int), Err(store.kind_of(const_int)));
+}
+
+#[test]
+fn static_data_is_canonical_and_rejects_wrong_domain_or_payload_kind() {
+    let mut store = TypeStore::new();
+    let owner = test_decl("Shape");
+    let domain = store.nominal_static_domain(owner.clone());
+    let other_domain = store.nominal_static_domain(test_decl("OtherShape"));
+    let const_int = store.const_int(3);
+    let const_kind = store.kind_of(const_int);
+    let constructor = store.intern_static_constructor(
+        domain,
+        owner,
+        "Vector",
+        vec![const_kind].into_boxed_slice(),
+    );
+
+    let first = store
+        .static_data(domain, constructor, vec![StaticArgument::Term(const_int)].into_boxed_slice())
+        .expect("valid static constructor application");
+    let second = store
+        .static_data(domain, constructor, vec![StaticArgument::Term(const_int)].into_boxed_slice())
+        .expect("same static constructor application");
+    assert_eq!(first, second);
+    assert!(matches!(store.get(first), TypeData::StaticData(_)));
+    assert_eq!(store.proper_type(first), Err(store.kind_of(first)));
+
+    assert!(matches!(
+        store.static_data(other_domain, constructor, vec![StaticArgument::Term(const_int)].into_boxed_slice()),
+        Err(StaticDataFormationError::DomainMismatch { .. })
+    ));
+    let runtime_type = store.nominal_type(test_decl("Runtime"));
+    assert!(matches!(
+        store.static_data(domain, constructor, vec![StaticArgument::Term(runtime_type)].into_boxed_slice()),
+        Err(StaticDataFormationError::ArgumentKindMismatch { index: 0, .. })
+    ));
+}
+
+#[test]
+fn source_type_data_publishes_a_static_domain_kind() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from("type data Width(_ value: Int)\n");
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
+
+    let declaration = DeclarationId::new(module, "Width".into());
+    let form = analysis.snapshot.declarations.form(&declaration).expect("type data declaration form");
+    assert!(matches!(analysis.snapshot.store.get_kind(analysis.snapshot.store.kind_of(form)), KindData::StaticDomain(_)));
+    assert!(!analysis.snapshot.store.is_proper_type(form));
+    assert_eq!(analysis.snapshot.store.static_constructor_count(), 1);
+}
+
+#[test]
+fn source_generic_binder_resolves_named_static_domain_kind() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from("type data Shape { Scalar }\ndata Tensor<T: Type, S: Shape>()\n");
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
+    let tensor = DeclarationId::new(module, "Tensor".into());
+    let signature = analysis.snapshot.declarations.generic_signature(&tensor).expect("Tensor generic signature");
+    assert_eq!(analysis.snapshot.store.type_parameter(signature.parameters[0]).kind, KindId::TYPE);
+    assert!(matches!(analysis.snapshot.store.get_kind(analysis.snapshot.store.type_parameter(signature.parameters[1]).kind), KindData::StaticDomain(_)));
+}
+
+#[test]
+fn type_data_case_cannot_be_used_as_a_runtime_value() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        "type data Shape { Scalar }\n\
+         class Probe {\n\
+           @class run() {\n\
+             let value = Shape::Scalar\n\
+             value\n\
+           }\n\
+         }\n",
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    assert!(
+        analysis.snapshot.all_diagnostics().any(|diagnostic| matches!(diagnostic.code, DiagnosticCode::TypeOnlyRuntimeValue)),
+        "type-data case must be rejected in runtime value position: {:?}",
+        analysis.snapshot.diagnostics
+    );
 }

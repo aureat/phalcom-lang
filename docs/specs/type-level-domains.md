@@ -25,13 +25,16 @@ The initial kind grammar is:
     | RecordRow
     | TypePack
     | LabeledTypePack
+    | StaticDomain(D)
     | (κ₁, ..., κₙ) -> κ
 ```
 
 The domains `TypePack` and `LabeledTypePack` are type-level domains. They are
 not runtime classes, proper Tuple/Record types, or aliases for those types.
-`RecordRow` is a separate unordered field domain. A form classified in one
-domain is not implicitly reinterpreted as a form in another domain.
+`RecordRow` is a separate unordered field domain. `StaticDomain(D)` is the
+domain of canonical static terms belonging to the nominal type-data domain
+`D`. A form classified in one domain is not implicitly reinterpreted as a form
+in another domain.
 
 Examples:
 
@@ -41,6 +44,7 @@ Examples:
 Γ ⊢ P : TypePack
 Γ ⊢ L : LabeledTypePack
 Γ ⊢ R : RecordRow
+Γ ⊢ Shape::Scalar : StaticDomain(Shape)
 ```
 
 `Option` in the second example is a type-level form of function kind. It is not
@@ -60,6 +64,10 @@ Kind application and partial application are governed by ordinary type
 formation. This specification does not make runtime class identity the source
 of kind identity, and it does not require a distinct runtime object for any
 kinded form.
+
+`Shape::Scalar : StaticDomain(Shape)` is a static term, not a proper runtime
+type and not a runtime value. Static domains and their terms remain compiler-
+owned semantic forms.
 
 ## 3. Compile-time value domains
 
@@ -90,7 +98,9 @@ Examples:
 ```
 
 `Int` remains a proper type of kind `Type`; it is not a kind merely because it
-appears in a parameter-domain annotation.
+appears in a parameter-domain annotation. A static term may have a non-`Type`
+kind such as `StaticDomain(Shape)` and therefore cannot be wrapped in
+`ProperTypeId` or materialized through the runtime object model.
 
 ## 4. Generic parameter domains
 
@@ -167,6 +177,8 @@ preserve this semantic distinction.
 | **TL-DOMAIN-SEPARATION** | `Type`, `RecordRow`, `TypePack`, and `LabeledTypePack` are distinct domains. |
 | **TL-CONST-NOT-KIND** | `I: Int` classifies `I` in `Const(Int)`; `Int` does not become a kind. |
 | **TL-PROPER-TYPE** | A proper type has kind `Type`; higher-kinded forms are not proper types until saturated. |
+| **TL-STATIC-DOMAIN** | A `type data` declaration owns one nominal `StaticDomain(D)` and its canonical case/constructor terms. Distinct declarations have distinct domains. |
+| **TL-STATIC-RUNTIME-SEPARATION** | Static-domain terms are compiler-owned type-level forms; they are not ordinary runtime values and do not require VM static-term execution. |
 | **TL-SYMBOLIC-DOMAIN** | Valid abstract packs, rows, constants, and operations remain symbolic rather than being approximated as unrelated types. |
 | **TL-CLOSED-ARGUMENTS** | Initial heterogeneous non-`Type` source arguments are required for type-member and structural applications, not for all nominal applications. |
 

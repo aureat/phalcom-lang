@@ -237,8 +237,9 @@ type User = Consumer<Fn<Int, String>>;
         panic!("expected applied type, got {:?}", store.get(user_alias.form));
     };
     assert_eq!(arguments.len(), 1);
-    let TypeData::Callable(call) = store.get(arguments[0]) else {
-        panic!("expected beta-reduced callable type, got {:?}", store.get(arguments[0]));
+    let argument = arguments[0].as_type_id().expect("type-only alias argument");
+    let TypeData::Callable(call) = store.get(argument) else {
+        panic!("expected beta-reduced callable type, got {:?}", store.get(argument));
     };
     assert_eq!(call.parameters.len(), 2);
     let int_decl = fixture.decl("Int");

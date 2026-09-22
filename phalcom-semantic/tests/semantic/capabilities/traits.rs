@@ -758,7 +758,8 @@ fn trait_associated_projection_formation_is_source_order_independent_and_nested(
             panic!("expected nested Option application");
         };
         assert_eq!(arguments.len(), 1);
-        let phalcom_semantic::TypeData::AssociatedProjection(projection) = fixture.analysis.snapshot.store.get(arguments[0]) else {
+        let argument = arguments[0].as_type_id().expect("type-only Option argument");
+        let phalcom_semantic::TypeData::AssociatedProjection(projection) = fixture.analysis.snapshot.store.get(argument) else {
             panic!("expected nested associated projection");
         };
         assert_eq!(projection.trait_ref.declaration, declaration);
@@ -926,7 +927,7 @@ impl<T> Sequence for List<T> {
     };
     assert_eq!(arguments.len(), 1);
     assert_eq!(
-        fixture.analysis.snapshot.store.get(arguments[0]),
+        fixture.analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only Collection argument")),
         fixture.analysis.snapshot.store.get(*element_type)
     );
 
@@ -942,7 +943,7 @@ impl<T> Sequence for List<T> {
     };
     assert_eq!(arguments.len(), 1);
     assert_eq!(
-        fixture.analysis.snapshot.store.get(arguments[0]),
+        fixture.analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only Option argument")),
         fixture.analysis.snapshot.store.get(*element_type)
     );
     assert_eq!(plan.associated_type_plan.failures.len(), 0);
@@ -1094,7 +1095,7 @@ impl<T> Iterable for Box<T> {
     let phalcom_semantic::TypeData::Applied { arguments, .. } = store.get(nested) else {
         panic!("expected normalized Option application, got {:?}", store.get(nested));
     };
-    assert_eq!(arguments.as_ref(), &[int]);
+    assert_eq!(arguments.as_ref(), &[phalcom_semantic::types::store::StaticArgument::Term(int)]);
 }
 
 #[test]
@@ -1184,7 +1185,7 @@ impl<T> Iterator for List<T> {
     let phalcom_semantic::TypeData::Applied { arguments, .. } = store.get(next_return) else {
         panic!("expected normalized Option<Int>, got {:?}", store.get(next_return));
     };
-    assert_eq!(arguments.as_ref(), &[int]);
+    assert_eq!(arguments.as_ref(), &[phalcom_semantic::types::store::StaticArgument::Term(int)]);
     assert_eq!(
         evidence.requirement_views.get(&accept).expect("accept view").signature.parameters[0]
             .declared_type

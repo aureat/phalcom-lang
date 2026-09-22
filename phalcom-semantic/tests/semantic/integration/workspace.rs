@@ -1053,7 +1053,7 @@ fn workspace_generic_class_and_callable_signature_publication() {
         panic!("Box superclass should be applied Container<U>");
     };
     assert_eq!(*origin, container_info.form);
-    assert!(matches!(analysis.snapshot.store.get(arguments[0]), TypeData::Parameter(parameter) if *parameter == box_parameter));
+    assert!(matches!(analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only superclass argument")), TypeData::Parameter(parameter) if *parameter == box_parameter));
     let int = analysis
         .snapshot
         .declarations
@@ -1066,7 +1066,7 @@ fn workspace_generic_class_and_callable_signature_publication() {
     let TypeData::Applied { arguments, .. } = store.get(specialized) else {
         panic!("specialized superclass should remain applied");
     };
-    assert_eq!(arguments[0], int);
+    assert_eq!(arguments[0], phalcom_semantic::types::store::StaticArgument::Term(int));
 
     let sel = phalcom_common::selector::Selector::method("value", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap();
     let callable_id = phalcom_semantic::identity::CallableId::new(container_id, sel, phalcom_semantic::identity::DispatchSide::Instance);

@@ -69,6 +69,15 @@ pub struct NominalDeclarationHeader {
 
 impl NominalDeclarationHeader {
     pub fn from_signature(store: &mut TypeStore, declaration: DeclarationId, generic_signature: Option<GenericSignature>) -> Self {
+        Self::from_signature_with_result_kind(store, declaration, generic_signature, KindId::TYPE)
+    }
+
+    pub fn from_signature_with_result_kind(
+        store: &mut TypeStore,
+        declaration: DeclarationId,
+        generic_signature: Option<GenericSignature>,
+        result_kind: KindId,
+    ) -> Self {
         let generic_binder_header = generic_signature
             .as_ref()
             .map(|signature| GenericBinderHeader::from_signature(store, signature));
@@ -78,8 +87,9 @@ impl NominalDeclarationHeader {
                 .iter()
                 .map(|&parameter| store.type_parameter(parameter).kind)
                 .collect::<Vec<_>>();
-            store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE)
+            store.arrow_kind(parameter_kinds.into_boxed_slice(), result_kind)
         });
+        let kind = if generic_signature.is_some() { kind } else { result_kind };
         let form = store.nominal_form(declaration.clone(), kind);
         let class_object_type = store.class_object_type(declaration.clone());
         Self {

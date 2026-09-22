@@ -669,7 +669,8 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
     match store.get(ty) {
         TypeData::Parameter(_) => true,
         TypeData::Applied { origin, arguments } => {
-            contains_any_type_parameter(store, *origin) || arguments.iter().any(|&a| contains_any_type_parameter(store, a))
+            contains_any_type_parameter(store, *origin)
+                || arguments.iter().any(|argument| argument.as_type_id().is_some_and(|a| contains_any_type_parameter(store, a)))
         }
         TypeData::Union(members) => members.iter().any(|&m| contains_any_type_parameter(store, m)),
         TypeData::Tuple(elems) => elems.iter().any(|e| contains_any_type_parameter(store, e.ty)),
@@ -709,7 +710,12 @@ pub fn contains_only_variant_constructor_parameters(store: &TypeStore, ty: TypeI
                         if matches!(callable.owner, crate::identity::CallableOwnerId::Variant(_))
                 )
             }
-            TypeData::Applied { origin, arguments } => visit(store, *origin, found) && arguments.iter().all(|&argument| visit(store, argument, found)),
+            TypeData::Applied { origin, arguments } => {
+                visit(store, *origin, found)
+                    && arguments
+                        .iter()
+                        .all(|argument| argument.as_type_id().is_some_and(|argument| visit(store, argument, found)))
+            }
             TypeData::ExactCase { enum_type, .. } => visit(store, *enum_type, found),
             TypeData::Union(members) => members.iter().all(|&member| visit(store, member, found)),
             TypeData::Tuple(elements) => elements.iter().all(|element| visit(store, element.ty, found)),
@@ -753,8 +759,10 @@ pub fn check_reification_underconstrained(
             {
                 if val_orig == exp_orig && val_args.len() == exp_args.len() {
                     for (v, e) in val_args.iter().zip(exp_args.iter()) {
-                        if let TypeData::Parameter(param_id) = ctx.store.get(*v) {
-                            env.bind_param(*param_id, *e);
+                        if let (Some(v), Some(e)) = (v.as_type_id(), e.as_type_id()) {
+                            if let TypeData::Parameter(param_id) = ctx.store.get(v) {
+                                env.bind_param(*param_id, e);
+                            }
                         }
                     }
                 }
@@ -791,8 +799,10 @@ pub fn check_reification_underconstrained(
                     if val_orig == exp_orig && val_args.len() == exp_args.len() {
                         let mut env = crate::types::environment::TypeEnvironment::new();
                         for (v, e) in val_args.iter().zip(exp_args.iter()) {
-                            if let TypeData::Parameter(param_id) = ctx.store.get(*v) {
-                                env.bind_param(*param_id, *e);
+                            if let (Some(v), Some(e)) = (v.as_type_id(), e.as_type_id()) {
+                                if let TypeData::Parameter(param_id) = ctx.store.get(v) {
+                                    env.bind_param(*param_id, e);
+                                }
                             }
                         }
                         resolved_type = TypeView::new(value_type, env).materialize(ctx.store);

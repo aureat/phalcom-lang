@@ -188,7 +188,10 @@ class ConstructorInferenceProbe {
         panic!("expected Either<String, Bool>, got {:?}", store.get(applied))
     };
     assert_eq!(*origin, f.ty("Either"));
-    assert_eq!(arguments.as_ref(), [f.ty("String"), f.ty("Bool")]);
+    assert_eq!(arguments.as_ref(), [
+        phalcom_semantic::types::store::StaticArgument::Term(f.ty("String")),
+        phalcom_semantic::types::store::StaticArgument::Term(f.ty("Bool")),
+    ]);
 }
 
 /// MON-SOLVE-07: the same direct constructor inference works for an ordinary

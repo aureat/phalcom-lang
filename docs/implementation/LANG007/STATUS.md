@@ -15,7 +15,7 @@ prepared: 2026-09-21
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
 | `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C3` | frozen C2 substrate |
-| `LANG007.C3` | `IN_PROGRESS / PARTIAL / UNVERIFIED` | active: `LANG007.C3.P1` | unified algebraic data declarations and type-data foundation |
+| `LANG007.C3` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | active: `LANG007.C3.P2` | generalized static domains and associated type-data application |
 
 ## Current program state
 
@@ -28,7 +28,7 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
 active_checkpoint: LANG007.C3
-active_plan: LANG007.C3.P1
+active_plan: LANG007.C3.P2
 ```
 
 `LANG007.C1` is complete. The program remains `IN_PROGRESS` because future roadmap topics (such as variadic pack expansion and bounded pack inference) remain for subsequent checkpoints.
@@ -64,6 +64,7 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 | `LANG007.C2.P1` | canonical pack composition and variadic binder semantics | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C2.P2` | source variadic generic binding and structural/callable type expansion | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C2.P3` | whole-pack inference, persistence, incremental certification, checkpoint closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C3.P1` | unified algebraic data declarations and type-data foundation | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 
 P1 lifecycle records:
 
@@ -119,4 +120,9 @@ No implementation blocker is currently recorded.
 
 ## Next action
 
-`LANG007.C2.P2` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Source variadic generic binders, application assembly, Tuple expansion, and callable-domain pack expansion via `CallableFromPacks` are fully established and verified. Next is `LANG007.C2.P3`.
+`LANG007.C3.P1` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Canonical runtime
+algebraic `data` products/sums, legacy enum identity convergence, nominal
+type-data static domains, canonical static-term metadata, runtime-negative
+rejection, and focused cold/incremental parity are established. C3 remains
+active because P2 still owns generalized heterogeneous static application,
+inference, and associated type-data lookup.

@@ -117,7 +117,11 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
         TypeData::Nominal { declaration } => Ok(CompiledTypeRef::Nominal(declaration.clone())),
         TypeData::Applied { origin, arguments } => {
             let orig = export_type_form(store, *origin)?;
-            let args = arguments.iter().map(|&a| export_type_form(store, a)).collect::<Result<Vec<_>, _>>()?;
+            let args = arguments
+                .iter()
+                .map(|argument| argument.as_type_id().ok_or(SemanticExportError::NonExportableTypeForm { form }))
+                .map(|argument| argument.and_then(|argument| export_type_form(store, argument)))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(CompiledTypeRef::Applied {
                 origin: Box::new(orig),
                 arguments: args.into_boxed_slice(),
@@ -180,6 +184,8 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
         | TypeData::LabeledTypePackConcat(_)
         | TypeData::TupleFromPacks { .. }
         | TypeData::CallableFromPacks { .. }
-        | TypeData::TypeMemberProjection(_) => Err(SemanticExportError::NonExportableTypeForm { form }),
+        | TypeData::TypeMemberProjection(_)
+        | TypeData::ConstInt(_)
+        | TypeData::StaticData(_) => Err(SemanticExportError::NonExportableTypeForm { form }),
     }
 }

@@ -1520,6 +1520,11 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["type alias name"])?;
         let name_range = (name_start..self.prev_end).into();
+        let result_kind = if self.eat(&Token::Colon) {
+            Some(self.parse_kind_expression()?)
+        } else {
+            None
+        };
         let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Alias)?;
         self.skip_newlines_if_followed_by(&Token::Where);
         let where_clause = if matches!(self.peek(), Token::Where) {
@@ -1534,6 +1539,7 @@ impl<'source> Parser<'source> {
         Ok(Statement::TypeAlias(TypeAliasDef {
             name,
             name_range,
+            result_kind,
             generic_parameters,
             where_clause,
             body,
@@ -2449,19 +2455,21 @@ impl<'source> Parser<'source> {
             self.advance();
             let range = (start..self.prev_end).into();
             KindSyntax::LabeledTypePack(range)
+        } else if let Token::Identifier(name) = self.peek().clone() {
+            self.advance();
+            let range = (start..self.prev_end).into();
+            KindSyntax::Named { name, range }
         } else {
             let err = self.error_here(vec![
                 "\"Type\"".to_string(),
                 "\"RecordRow\"".to_string(),
                 "\"TypePack\"".to_string(),
                 "\"LabeledTypePack\"".to_string(),
+                "static domain name".to_string(),
             ]);
             self.advance();
             let range = (start..self.prev_end).into();
-            return Ok(KindSyntax::Invalid {
-                message: format!("{:?}", err.kind),
-                range,
-            });
+            return Ok(KindSyntax::Invalid { message: format!("{:?}", err.kind), range });
         };
 
         if self.eat(&Token::Arrow) {

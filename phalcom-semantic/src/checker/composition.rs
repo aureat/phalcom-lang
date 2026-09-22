@@ -72,7 +72,7 @@ pub(crate) fn project_applied_argument(store: &TypeStore, knowledge: &TypeKnowle
             };
             match store.get(source_ty) {
                 TypeData::Applied { origin, arguments } if *origin == expected_origin => {
-                    let Some(argument) = arguments.get(argument_index).copied() else {
+                    let Some(argument) = arguments.get(argument_index).and_then(|argument| argument.as_type_id()) else {
                         return TypeKnowledge::Unknown(UnknownReason::UncheckedExpression);
                     };
                     knowledge.derive_known_type(argument, EvidenceOrigin::PatternDecomposition)

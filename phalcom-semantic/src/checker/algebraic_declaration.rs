@@ -1,6 +1,6 @@
 //! Semantic analysis and product construction for unified algebraic declarations.
 
-use crate::algebraic_semantics::{AlgebraicDeclarationInfo, AlgebraicRepresentation, AlgebraicSumInfo};
+use crate::algebraic_semantics::{AlgebraicDeclarationInfo, AlgebraicRepresentation, AlgebraicSumInfo, StaticAlgebraicDeclarationInfo};
 use crate::data_semantics::{DataComponentSemantic, DataConstructorParameter, DataConstructorSignature, DataInfo, DataShape};
 use crate::db::product::AlgebraicDeclarationProduct;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
@@ -22,8 +22,9 @@ use crate::types::annotation::{
 use crate::types::case_environment::{CaseEnvironmentError, CaseTypeEnvironment, derive_case_environment};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
-use crate::types::store::TypeStore;
-use phalcom_ast::ast::{AlgebraicDef, CasePayloadSyntax, ProductShapeSyntax};
+use crate::types::kind::KindData;
+use crate::types::store::{TypeData, TypeStore};
+use phalcom_ast::ast::{AlgebraicDef, AlgebraicPhase, CasePayloadSyntax, ProductShapeSyntax};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -508,12 +509,19 @@ pub fn build_algebraic_semantics(
         return None;
     };
 
+    let static_data = if def.phase == AlgebraicPhase::TypeOnly {
+        Some(register_static_declaration(owner, &representation, def, store, module_id, &mut diagnostics))
+    } else {
+        None
+    };
+
     let decl_info = AlgebraicDeclarationInfo {
         owner: owner.clone(),
         phase: def.phase,
         implementation: def.implementation,
         generic_signature: generic_sig,
         representation,
+        static_data,
         source: Some(SemanticSourceSpan::new(module_id.clone(), def.range)),
     };
 
@@ -521,4 +529,93 @@ pub fn build_algebraic_semantics(
         info: Arc::new(decl_info),
         diagnostics: Arc::from(diagnostics.into_boxed_slice()),
     })
+}
+
+fn register_static_declaration(
+    owner: &DeclarationId,
+    representation: &AlgebraicRepresentation,
+    def: &AlgebraicDef,
+    store: &mut TypeStore,
+    module_id: &ModuleId,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> StaticAlgebraicDeclarationInfo {
+    let domain = store.nominal_static_domain(owner.clone());
+    let constructors = match representation {
+        AlgebraicRepresentation::Product(info) => {
+            let kinds = info
+                .components
+                .iter()
+                .filter_map(|component| static_payload_kind(store, component.declared_type.canonical_type(), diagnostics, module_id, def.range))
+                .collect::<Vec<_>>();
+            if kinds.len() == info.components.len() {
+                vec![store.intern_static_constructor(
+                    domain,
+                    owner.clone(),
+                    owner.name.clone(),
+                    kinds.into_boxed_slice(),
+                )]
+            } else {
+                Vec::new()
+            }
+        }
+        AlgebraicRepresentation::Sum(info) => info
+            .variants
+            .iter()
+            .filter_map(|variant| {
+                let mut kinds = Vec::new();
+                for field in variant.fields.iter() {
+                    let Some(kind) = static_payload_kind(store, field.declared_type.canonical_type(), diagnostics, module_id, def.range) else {
+                        return None;
+                    };
+                    kinds.push(kind);
+                }
+                Some(store.intern_static_constructor(
+                    domain,
+                    owner.clone(),
+                    variant.id.selector.encode(),
+                    kinds.into_boxed_slice(),
+                ))
+            })
+            .collect(),
+    };
+    StaticAlgebraicDeclarationInfo {
+        domain,
+        constructors: constructors.into_boxed_slice(),
+    }
+}
+
+fn static_payload_kind(
+    store: &mut TypeStore,
+    payload: Option<TypeId>,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+    module_id: &ModuleId,
+    range: phalcom_ast::ast::SourceRange,
+) -> Option<KindId> {
+    let Some(payload) = payload else {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            module_id.clone(),
+            DiagnosticCode::KindExpectedType,
+            "type-data payload must have a supported static domain",
+            range,
+        ));
+        return None;
+    };
+    if let TypeData::Nominal { declaration } = store.get(payload) {
+        if declaration == &crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int) {
+            let domain = store.const_int_domain();
+            return Some(store.static_domain_kind(domain));
+        }
+    }
+    let kind = store.kind_of(payload);
+    if matches!(store.get_kind(kind), KindData::StaticDomain(_)) {
+        Some(kind)
+    } else {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            module_id.clone(),
+            DiagnosticCode::KindExpectedType,
+            "type-data payload must have a supported static domain",
+            range,
+        ));
+        None
+    }
 }

@@ -1,6 +1,17 @@
 # Data Objects
 
-A `data` declaration introduces a **data object type**: a nominal, transparent, shallowly immutable object type whose complete semantic instance state consists exactly of its declared **data components**.
+A `data` declaration introduces a **nominal closed algebraic domain**. Its body
+selects one of two semantic shapes:
+
+- a product-shaped declaration introduces a transparent, shallowly immutable
+  data object whose complete semantic instance state consists exactly of its
+  declared **data components**;
+- a sum-shaped declaration introduces a closed set of cases, with the same
+  exact-case, GADT, matching, and behavior-contract semantics specified for
+  runtime closed sums.
+
+The declaration keyword, semantic owner, and case identity are shared across
+both shapes. Physical representation remains an implementation choice.
 
 ```phalcom
 data Point(
@@ -38,7 +49,9 @@ A data object type is:
 - **representation-closed** — its semantic instance state is completely determined by its `data` declaration;
 - **behavior-extensible** — authorized `impl` declarations may contribute inherent behavior.
 
-A `data` declaration is not class sugar, a one-case enum, or an alias for an anonymous structural Record.
+A product-shaped `data` declaration is not class sugar, a one-case sum, or an
+alias for an anonymous structural Record. A sum-shaped declaration is not an
+open class hierarchy.
 
 ---
 
@@ -59,7 +72,10 @@ It introduces a new nominal data object type.
 
 ## Declaration forms
 
-A data declaration may use a parenthesized product form or a braced record-shaped form. Both forms introduce the same semantic category of nominal data object. They differ only in their declared component/constructor shape.
+A product-shaped data declaration may use a parenthesized product form or a
+braced record-shaped form. Both forms introduce the same semantic category of
+nominal data object. A sum-shaped data declaration uses a braced case body; its
+case constructors and exact-case behavior follow the closed-sum rules.
 
 ```phalcom
 data Point(
@@ -108,7 +124,9 @@ A component is not defined as an ordinary hidden field plus a synthesized getter
 
 ## Primary data constructors
 
-Every data declaration has a **primary data constructor** corresponding to its declared component structure.
+Every product-shaped data declaration has a **primary data constructor**
+corresponding to its declared component structure. Sum-shaped declarations
+instead have one constructor/case identity for each declared case.
 
 The constructor belongs directly to the declaration. It is not implicitly an ordinary method named `new`.
 
@@ -922,7 +940,13 @@ A virtualized, flattened, boxed, scalar-replaced, or rematerialized `Point<Int>`
 
 # Cross-Spec Ownership
 
-Data objects are nominal transparent products. Tuple and Record remain structural products; enums remain closed sums with variant identity; ordinary classes remain opaque nominal object abstractions. Reusing runtime layout or dispatch machinery does not collapse those semantic categories.
+Runtime `data` declarations are nominal algebraic domains: product-shaped data
+objects and sum-shaped data cases share declaration ownership while retaining
+their distinct semantic shapes. Tuple and Record remain structural products;
+ordinary classes remain opaque nominal object abstractions. The legacy `enum`
+surface is compatibility syntax for the sum-shaped `data` model, not a second
+canonical semantic category. Reusing runtime layout or dispatch machinery does
+not collapse these distinctions.
 
 Data objects may conform to traits, but conformance is neither inheritance nor representation extension. It cannot add components or hidden semantic instance state. Component/witness compatibility and conformance coherence remain owned by the trait specification.
 

@@ -192,13 +192,16 @@ fn canonical_collection_arguments<'a>(
     ty: TypeId,
     collection_decl: &DeclarationId,
     arity: usize,
-) -> Option<&'a [TypeId]> {
+) -> Option<Vec<TypeId>> {
     let (declaration, _) = store.applied_nominal_parts(ty)?;
     if &declaration != collection_decl {
         return None;
     }
     match store.get(ty) {
-        crate::types::store::TypeData::Applied { arguments, .. } if arguments.len() == arity => Some(arguments),
+        crate::types::store::TypeData::Applied { arguments, .. } if arguments.len() == arity => arguments
+            .iter()
+            .map(|argument| argument.as_type_id())
+            .collect(),
         _ => None,
     }
 }

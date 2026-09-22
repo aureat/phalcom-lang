@@ -142,7 +142,7 @@ class Probe {
     match f.analysis.snapshot.store.get(list_ty) {
         phalcom_semantic::types::store::TypeData::Applied { arguments, .. } => {
             assert_eq!(arguments.len(), 1);
-            f.assert_union_members(arguments[0], &[int_ty, string_ty]);
+            f.assert_union_members(arguments[0].as_type_id().expect("type-only collection argument"), &[int_ty, string_ty]);
         }
         other => panic!("expected List<...>, got {other:?}"),
     }

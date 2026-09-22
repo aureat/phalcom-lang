@@ -2051,6 +2051,23 @@ impl<'a> CheckingContext<'a> {
         self.declarations.get(declaration)
     }
 
+    /// Returns whether a declaration's canonical result kind is a TypeOnly
+    /// static domain. Generic algebraic declarations carry the domain in the
+    /// final result of their arrow kind.
+    pub fn declaration_is_type_only(&self, declaration: &DeclarationId) -> bool {
+        let Some(info) = self.declaration_info(declaration) else {
+            return false;
+        };
+        let mut kind = info.kind;
+        loop {
+            match self.store.get_kind(kind) {
+                crate::types::kind::KindData::StaticDomain(_) => return true,
+                crate::types::kind::KindData::Arrow { result, .. } => kind = *result,
+                _ => return false,
+            }
+        }
+    }
+
     /// Reads a declaration generic signature while recording the declaration-shell dependency.
     pub fn declaration_generic_signature(&self, declaration: &DeclarationId) -> Option<crate::types::parameter::GenericSignature> {
         record_declaration_shell_dependency(&self.semantic_dependencies, declaration);

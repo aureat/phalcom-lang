@@ -120,7 +120,7 @@ fn adt_gen_04_variant_local_generic_signature_owns_payload_and_result_scope() {
     assert!(matches!(
         case.type_data(pack.result_type_template),
         phalcom_semantic::types::store::TypeData::Applied { arguments, .. }
-            if arguments.iter().any(|argument| matches!(case.type_data(*argument), phalcom_semantic::types::store::TypeData::Parameter(found) if *found == parameter))
+            if arguments.iter().any(|argument| argument.as_type_id().is_some_and(|argument| matches!(case.type_data(argument), phalcom_semantic::types::store::TypeData::Parameter(found) if *found == parameter)))
     ));
 }
 

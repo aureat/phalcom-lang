@@ -139,7 +139,7 @@ class Probe { @class run() { let result = Box<Int>.new() } }
     let phalcom_semantic::types::store::TypeData::Applied { arguments, .. } = f.analysis.snapshot.store.get(result) else {
         panic!("expected applied result")
     };
-    assert_eq!(arguments.as_ref(), &[f.ty("Int")]);
+    assert_eq!(arguments.as_ref(), &[phalcom_semantic::types::store::StaticArgument::Term(f.ty("Int"))]);
 }
 
 #[test]

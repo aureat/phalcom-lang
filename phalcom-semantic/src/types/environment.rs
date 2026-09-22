@@ -160,7 +160,13 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
         }
         TypeData::Applied { origin, arguments } => {
             let subst_origin = materialize_view(store, origin, env);
-            let subst_args: Vec<TypeId> = arguments.iter().map(|&a| materialize_view(store, a, env)).collect();
+            let Some(subst_args) = arguments
+                .iter()
+                .map(|argument| argument.as_type_id().map(|argument| materialize_view(store, argument, env)))
+                .collect::<Option<Vec<_>>>()
+            else {
+                return ty;
+            };
             store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty)
         }
         TypeData::ExactCase { variant, enum_type } => {
@@ -277,6 +283,19 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
             let segments = segments.iter().map(|&segment| materialize_view(store, segment, env)).collect::<Vec<_>>();
             store.labeled_type_pack_concat(&segments).unwrap_or(ty)
         }
+        TypeData::StaticData(term) => {
+            let arguments = term
+                .arguments
+                .iter()
+                .map(|argument| match argument {
+                    super::store::StaticArgument::Term(argument) => super::store::StaticArgument::Term(materialize_view(store, *argument, env)),
+                    super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
+        }
+        TypeData::ConstInt(_) => ty,
         TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
     }
 }

@@ -59,11 +59,11 @@ class Probe {
     let producer_animal = applied_type(&fixture, &mut store, "Producer", &[animal]);
     assert!(matches!(
         store.get(producer_cat),
-        TypeData::Applied { arguments, .. } if arguments.as_ref() == [cat]
+        TypeData::Applied { arguments, .. } if arguments.as_ref() == [phalcom_semantic::types::store::StaticArgument::Term(cat)]
     ));
     assert!(matches!(
         store.get(producer_animal),
-        TypeData::Applied { arguments, .. } if arguments.as_ref() == [animal]
+        TypeData::Applied { arguments, .. } if arguments.as_ref() == [phalcom_semantic::types::store::StaticArgument::Term(animal)]
     ));
     assert_eq!(store.get_parameter_variance(&fixture.decl("Producer"), 0), Some(Variance::Covariant));
     assert!(relation(&mut store, hierarchy, producer_cat, producer_animal));
@@ -191,7 +191,7 @@ class Generic<T> {
     let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(*result) else {
         panic!("class-side Self must remain nested in Box");
     };
-    assert!(matches!(fixture.analysis.snapshot.store.get(arguments[0]), TypeData::SelfType(term) if term.side == DispatchSide::Class));
+    assert!(matches!(fixture.analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only argument")), TypeData::SelfType(term) if term.side == DispatchSide::Class));
 
     let class_generic = fixture
         .analysis

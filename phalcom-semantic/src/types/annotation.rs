@@ -3,7 +3,7 @@
 use super::application::TypeApplicationError;
 use super::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use super::id::{KindId, TypeId, TypeParameterId};
-use super::kind::KindApplicationError;
+use super::kind::{KindApplicationError, KindData};
 use super::outcome::{BlockReason, BudgetReport};
 use super::parameter::{
     GenericBinderHeader, GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm,
@@ -358,6 +358,7 @@ pub fn resolve_kind_syntax(store: &mut TypeStore, kind: &KindSyntax) -> KindReso
         KindSyntax::RecordRow(_) => KindResolution::Ready(KindId::RECORD_ROW),
         KindSyntax::TypePack(_) => KindResolution::Ready(KindId::TYPE_PACK),
         KindSyntax::LabeledTypePack(_) => KindResolution::Ready(KindId::LABELED_TYPE_PACK),
+        KindSyntax::Named { .. } => KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax),
         KindSyntax::Grouped { inner, .. } => resolve_kind_syntax(store, inner),
         KindSyntax::Arrow { parameter, result, .. } => {
             let p_kind = match resolve_kind_syntax(store, parameter) {
@@ -394,6 +395,39 @@ pub fn lower_variance(variance: VarianceSyntax) -> Variance {
         VarianceSyntax::Invariant => Variance::Invariant,
         VarianceSyntax::Covariant => Variance::Covariant,
         VarianceSyntax::Contravariant => Variance::Contravariant,
+    }
+}
+
+pub(crate) fn resolve_contextual_kind_syntax(
+    store: &mut TypeStore,
+    declarations: Option<&DeclarationTypeTable>,
+    resolver: Option<&dyn TypeResolver>,
+    site: &TypeFormationSite,
+    kind: &KindSyntax,
+) -> KindResolution {
+    match kind {
+        KindSyntax::Named { name, .. } => {
+            let (Some(declarations), Some(resolver)) = (declarations, resolver) else {
+                return KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax);
+            };
+            let Some(declaration) = resolver.resolve_type_name(&site.module, name, &[]) else {
+                return KindResolution::Unresolved(TypeFormationUnresolved::Name(name.clone().into_boxed_str()));
+            };
+            let Some(kind) = declarations.kind(&declaration) else {
+                return KindResolution::Missing(TypeFormationMissing::DeclarationProduct(declaration));
+            };
+            if matches!(store.get_kind(kind), KindData::StaticDomain(_)) {
+                KindResolution::Ready(kind)
+            } else {
+                KindResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: kind })
+            }
+        }
+        KindSyntax::Grouped { inner, .. } => resolve_contextual_kind_syntax(store, declarations, resolver, site, inner),
+        KindSyntax::Arrow { parameter, result, .. } => resolve_contextual_kind_syntax(store, declarations, resolver, site, parameter).and_then(|parameter| {
+            resolve_contextual_kind_syntax(store, declarations, resolver, site, result)
+                .map_ready(|result| store.arrow_kind(Box::new([parameter]), result))
+        }),
+        _ => resolve_kind_syntax(store, kind),
     }
 }
 
@@ -2521,6 +2555,26 @@ pub fn resolve_generic_binder_header(
     where_clause: Option<&WhereClauseSyntax>,
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> TypeFormationOutcome<GenericBinderHeader> {
+    resolve_generic_binder_header_with_context(store, site, owner, binder_site, params, where_clause, diagnostics, None, None)
+}
+
+/// Resolves generic binders with declaration-aware static-domain kinds.
+///
+/// The legacy wrapper above remains useful during predeclaration, where the
+/// declaration table is not available yet. Full signature formation supplies
+/// both the resolver and declaration table so `N: Int`/`S: Shape` can name a
+/// canonical static domain rather than being mistaken for `Type`.
+pub fn resolve_generic_binder_header_with_context(
+    store: &mut TypeStore,
+    site: &TypeFormationSite,
+    owner: TypeParameterOwner,
+    binder_site: GenericBinderSite,
+    params: &[GenericParameterSyntax],
+    where_clause: Option<&WhereClauseSyntax>,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+    declarations: Option<&DeclarationTypeTable>,
+    resolver: Option<&dyn TypeResolver>,
+) -> TypeFormationOutcome<GenericBinderHeader> {
     let current_module = &site.module;
 
     // Phase 1: Unify parameter kind facts from binder and where-clause KindFacts
@@ -2528,7 +2582,7 @@ pub fn resolve_generic_binder_header(
     if let Some(clause) = where_clause {
         for c in &clause.constraints {
             if let GenericConstraintSyntax::KindFact { subject, kind, range, .. } = c {
-                let resolved_kind = resolve_kind_syntax(store, kind);
+                let resolved_kind = resolve_contextual_kind_syntax(store, declarations, resolver, site, kind);
                 if let KindResolution::Invalid(reason) = &resolved_kind {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
@@ -2596,7 +2650,7 @@ pub fn resolve_generic_binder_header(
         let binder_kind = match p.kind.as_ref() {
             None => None,
             Some(syntax) => {
-                let res = resolve_kind_syntax(store, syntax);
+                let res = resolve_contextual_kind_syntax(store, declarations, resolver, site, syntax);
                 if let KindResolution::Invalid(reason) = &res {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
@@ -2688,7 +2742,7 @@ pub fn resolve_generic_signature(
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> TypeFormationOutcome<GenericSignature> {
     let current_module = &site.module;
-    let binders = scoped_ready_or_propagate!(resolve_generic_binder_header(
+    let binders = scoped_ready_or_propagate!(resolve_generic_binder_header_with_context(
         store,
         site,
         owner.clone(),
@@ -2696,6 +2750,8 @@ pub fn resolve_generic_signature(
         params,
         where_clause,
         diagnostics,
+        Some(declarations),
+        Some(resolver),
     ));
 
     let mut param_map = std::collections::HashMap::new();

@@ -2330,8 +2330,10 @@ fn bind_target_declaration_parameters(store: &mut TypeStore, declarations: &Decl
         return;
     };
     let substitution = environment.to_substitution();
-    for (&parameter, &argument) in signature.parameters.iter().zip(arguments.iter()) {
-        environment.bind_param(parameter, substitution.apply(store, argument));
+    for (&parameter, argument) in signature.parameters.iter().zip(arguments.iter()) {
+        if let Some(argument) = argument.as_type_id() {
+            environment.bind_param(parameter, substitution.apply(store, argument));
+        }
     }
 }
 
@@ -2519,7 +2521,7 @@ fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, 
             occurs_in_conformance_binding(store, parameter, *origin, bindings)
                 || arguments
                     .iter()
-                    .any(|&argument| occurs_in_conformance_binding(store, parameter, argument, bindings))
+                    .any(|argument| argument.as_type_id().is_some_and(|argument| occurs_in_conformance_binding(store, parameter, argument, bindings)))
         }
         TypeData::ExactCase { enum_type, .. } => occurs_in_conformance_binding(store, parameter, *enum_type, bindings),
         TypeData::Union(members) => members.iter().any(|&member| occurs_in_conformance_binding(store, parameter, member, bindings)),
@@ -2600,10 +2602,11 @@ fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindin
         ) => {
             left_args.len() == right_args.len()
                 && unify_conformance_head(store, *left_origin, *right_origin, bindings)
-                && left_args
-                    .iter()
-                    .zip(right_args.iter())
-                    .all(|(&left, &right)| unify_conformance_head(store, left, right, bindings))
+                && left_args.iter().zip(right_args.iter()).all(|(&left, &right)| match (left.as_type_id(), right.as_type_id()) {
+                    (Some(left), Some(right)) => unify_conformance_head(store, left, right, bindings),
+                    (None, None) => left == right,
+                    _ => false,
+                })
         }
         (
             TypeData::ExactCase {
@@ -3144,7 +3147,8 @@ fn type_id_mentions_param(store: &TypeStore, ty: TypeId, param: TypeParameterId)
     match store.get(ty) {
         TypeData::Parameter(p) => *p == param,
         TypeData::Applied { origin, arguments } => {
-            type_id_mentions_param(store, *origin, param) || arguments.iter().any(|&a| type_id_mentions_param(store, a, param))
+            type_id_mentions_param(store, *origin, param)
+                || arguments.iter().any(|a| a.as_type_id().is_some_and(|a| type_id_mentions_param(store, a, param)))
         }
         TypeData::AssociatedProjection(proj) => {
             type_id_mentions_param(store, proj.subject, param) || proj.trait_ref.arguments.iter().any(|&a| type_id_mentions_param(store, a, param))
@@ -3612,7 +3616,7 @@ pub fn collect_impl_params_in_type(store: &TypeStore, ty: TypeId, impl_id: &Impl
         }
         TypeData::Applied { origin, arguments } => {
             collect_impl_params_in_type(store, *origin, impl_id, out);
-            for &arg in arguments.iter() {
+            for arg in arguments.iter().filter_map(|argument| argument.as_type_id()) {
                 collect_impl_params_in_type(store, arg, impl_id, out);
             }
         }
@@ -3688,8 +3692,10 @@ pub fn match_impl_domain_head(
                 return false;
             }
             for (&arg1, &arg2) in a1.iter().zip(a2.iter()) {
-                if !match_impl_domain_head(store, arg1, arg2, impl_id, bindings) {
-                    return false;
+                match (arg1.as_type_id(), arg2.as_type_id()) {
+                    (Some(arg1), Some(arg2)) if match_impl_domain_head(store, arg1, arg2, impl_id, bindings) => {}
+                    (None, None) if arg1 == arg2 => {}
+                    _ => return false,
                 }
             }
             true
@@ -3759,7 +3765,10 @@ fn contains_unresolved_applicability_type(store: &TypeStore, ty: TypeId) -> bool
     match store.get(ty) {
         TypeData::Parameter(_) | TypeData::SelfType(_) | TypeData::Lambda(_) => true,
         TypeData::Applied { origin, arguments } => {
-            contains_unresolved_applicability_type(store, *origin) || arguments.iter().any(|&argument| contains_unresolved_applicability_type(store, argument))
+            contains_unresolved_applicability_type(store, *origin)
+                || arguments
+                    .iter()
+                    .any(|argument| argument.as_type_id().is_some_and(|argument| contains_unresolved_applicability_type(store, argument)))
         }
         TypeData::ExactCase { enum_type, .. } => contains_unresolved_applicability_type(store, *enum_type),
         TypeData::Union(members) => members.iter().any(|&member| contains_unresolved_applicability_type(store, member)),
@@ -4166,8 +4175,10 @@ pub fn resolve_inherent_impl_target(
 
         // Collect used impl params in target head
         let mut used_impl_params = HashSet::new();
-        for &arg_ty in &enum_args {
-            collect_impl_params_in_type(ctx.store, arg_ty, impl_id, &mut used_impl_params);
+        for arg_ty in &enum_args {
+            if let Some(arg_ty) = arg_ty.as_type_id() {
+                collect_impl_params_in_type(ctx.store, arg_ty, impl_id, &mut used_impl_params);
+            }
         }
 
         let mut var_arg_types = Vec::new();
@@ -4206,7 +4217,7 @@ pub fn resolve_inherent_impl_target(
         // Check if covering bijection or conditional
         let is_covering_bijection = constraints.is_empty()
             && total_target_params == impl_type_parameter_ids.len()
-            && enum_args.iter().all(|&a| matches!(ctx.store.get(a), TypeData::Parameter(p) if matches!(&ctx.store.type_parameter(*p).owner, TypeParameterOwner::Impl(id) if id == impl_id)))
+            && enum_args.iter().all(|a| a.as_type_id().is_some_and(|a| matches!(ctx.store.get(a), TypeData::Parameter(p) if matches!(&ctx.store.type_parameter(*p).owner, TypeParameterOwner::Impl(id) if id == impl_id))))
             && var_arg_types.iter().all(|&a| matches!(ctx.store.get(a), TypeData::Parameter(p) if matches!(&ctx.store.type_parameter(*p).owner, TypeParameterOwner::Impl(id) if id == impl_id)))
             && used_impl_params.len() == total_target_params;
 
@@ -4215,10 +4226,12 @@ pub fn resolve_inherent_impl_target(
         } else if is_covering_bijection {
             let mut impl_to_decl = HashMap::new();
             let mut decl_to_impl = HashMap::new();
-            for (i, &arg_ty) in enum_args.iter().enumerate() {
-                if let TypeData::Parameter(p_id) = ctx.store.get(arg_ty) {
+            for (i, arg_ty) in enum_args.iter().enumerate() {
+                if let Some(arg_ty) = arg_ty.as_type_id() {
+                    if let TypeData::Parameter(p_id) = ctx.store.get(arg_ty) {
                     impl_to_decl.insert(*p_id, decl_params[i]);
                     decl_to_impl.insert(decl_params[i], *p_id);
+                    }
                 }
             }
             for (i, &arg_ty) in var_arg_types.iter().enumerate() {
@@ -4414,7 +4427,7 @@ pub fn resolve_inherent_impl_target(
 
             // Collect used impl params across all arguments
             let mut used_impl_params = HashSet::new();
-            for &arg_ty in arguments.iter() {
+            for arg_ty in arguments.iter().filter_map(|argument| argument.as_type_id()) {
                 collect_impl_params_in_type(ctx.store, arg_ty, impl_id, &mut used_impl_params);
             }
 
@@ -4439,9 +4452,10 @@ pub fn resolve_inherent_impl_target(
             let mut seen_impl_params = HashSet::new();
 
             if is_covering_bijection {
-                for (i, &arg_ty) in arguments.iter().enumerate() {
+                for (i, arg_ty) in arguments.iter().enumerate() {
                     let decl_param = decl_params[i];
-                    if let TypeData::Parameter(p_id) = ctx.store.get(arg_ty) {
+                    if let Some(arg_ty) = arg_ty.as_type_id() {
+                        if let TypeData::Parameter(p_id) = ctx.store.get(arg_ty) {
                         let p_data = ctx.store.type_parameter(*p_id);
                         if let TypeParameterOwner::Impl(ref owner_impl) = p_data.owner {
                             if owner_impl == impl_id && seen_impl_params.insert(*p_id) {
@@ -4449,6 +4463,7 @@ pub fn resolve_inherent_impl_target(
                                 decl_to_impl.insert(decl_param, *p_id);
                                 continue;
                             }
+                        }
                         }
                     }
                     is_covering_bijection = false;
@@ -4552,7 +4567,8 @@ pub fn type_contains_impl_param(store: &TypeStore, ty: TypeId, impl_id: &ImplId)
             matches!(&data.owner, TypeParameterOwner::Impl(id) if id == impl_id)
         }
         TypeData::Applied { origin, arguments } => {
-            type_contains_impl_param(store, *origin, impl_id) || arguments.iter().any(|&arg| type_contains_impl_param(store, arg, impl_id))
+            type_contains_impl_param(store, *origin, impl_id)
+                || arguments.iter().any(|arg| arg.as_type_id().is_some_and(|arg| type_contains_impl_param(store, arg, impl_id)))
         }
         TypeData::ExactCase { enum_type, .. } => type_contains_impl_param(store, *enum_type, impl_id),
         TypeData::Union(members) => members.iter().any(|&m| type_contains_impl_param(store, m, impl_id)),

@@ -9,7 +9,7 @@ use crate::identity::{CallableId, DeclarationId, ExplanationId, ExpressionId, In
 use crate::traits::AssociatedTypeRequirementId;
 use crate::types::application::TypeApplicationError;
 use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
-use crate::types::id::{KindId, RigidTypeVariableId, TypeId, TypeParameterId, VariantTypeId};
+use crate::types::id::{AlgebraicStaticConstructorId, KindId, RigidTypeVariableId, StaticDomainId, TypeId, TypeParameterId, VariantTypeId};
 use crate::types::kind::KindData;
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::relation::{TypeHierarchy, is_subtype};
@@ -36,6 +36,14 @@ pub enum InferenceTerm {
     Rigid(RigidTypeVariableId),
     Applied {
         origin: Box<InferenceTerm>,
+        arguments: Box<[InferenceTerm]>,
+    },
+    /// Structural static-data constructor term. Concrete terms may remain
+    /// canonical, but symbolic children must stay visible to first-order
+    /// inference until they are materialized through `TypeStore`.
+    StaticData {
+        domain: StaticDomainId,
+        constructor: AlgebraicStaticConstructorId,
         arguments: Box<[InferenceTerm]>,
     },
     ExactCase {
@@ -709,10 +717,31 @@ impl InferenceSession {
             }
             TypeData::Applied { origin, arguments } => {
                 let orig_term = self.type_id_to_inference(*origin, subst, store);
-                let arg_terms: Vec<InferenceTerm> = arguments.iter().map(|&a| self.type_id_to_inference(a, subst, store)).collect();
+                let Some(arg_terms) = arguments
+                    .iter()
+                    .map(|argument| argument.as_type_id().map(|argument| self.type_id_to_inference(argument, subst, store)))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return InferenceTerm::Canonical(ty);
+                };
                 InferenceTerm::Applied {
                     origin: Box::new(orig_term),
                     arguments: arg_terms.into_boxed_slice(),
+                }
+            }
+            TypeData::StaticData(term) => {
+                let arguments = term
+                    .arguments
+                    .iter()
+                    .map(|argument| argument.as_type_id().map(|argument| self.type_id_to_inference(argument, subst, store)))
+                    .collect::<Option<Vec<_>>>();
+                match arguments {
+                    Some(arguments) => InferenceTerm::StaticData {
+                        domain: term.domain,
+                        constructor: term.constructor,
+                        arguments: arguments.into_boxed_slice(),
+                    },
+                    None => InferenceTerm::Canonical(ty),
                 }
             }
             TypeData::ExactCase { variant, enum_type } => {
@@ -880,14 +909,38 @@ impl InferenceSession {
     ) -> InferenceTerm {
         match store.get(ty) {
             TypeData::Parameter(parameter) => subst.get(parameter).cloned().unwrap_or(InferenceTerm::Canonical(ty)),
-            TypeData::Applied { origin, arguments } => InferenceTerm::Applied {
-                origin: Box::new(self.type_id_to_inference_with_rows(*origin, subst, row_subst, store)),
-                arguments: arguments
+            TypeData::Applied { origin, arguments } => {
+                let Some(arguments) = arguments
                     .iter()
-                    .map(|&argument| self.type_id_to_inference_with_rows(argument, subst, row_subst, store))
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            },
+                    .map(|argument| argument.as_type_id().map(|argument| self.type_id_to_inference_with_rows(argument, subst, row_subst, store)))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return InferenceTerm::Canonical(ty);
+                };
+                InferenceTerm::Applied {
+                    origin: Box::new(self.type_id_to_inference_with_rows(*origin, subst, row_subst, store)),
+                    arguments: arguments.into_boxed_slice(),
+                }
+            }
+            TypeData::StaticData(term) => {
+                let arguments = term
+                    .arguments
+                    .iter()
+                    .map(|argument| {
+                        argument
+                            .as_type_id()
+                            .map(|argument| self.type_id_to_inference_with_rows(argument, subst, row_subst, store))
+                    })
+                    .collect::<Option<Vec<_>>>();
+                match arguments {
+                    Some(arguments) => InferenceTerm::StaticData {
+                        domain: term.domain,
+                        constructor: term.constructor,
+                        arguments: arguments.into_boxed_slice(),
+                    },
+                    None => InferenceTerm::Canonical(ty),
+                }
+            }
             TypeData::ExactCase { variant, enum_type } => InferenceTerm::ExactCase {
                 variant: *variant,
                 enum_type: Box::new(self.type_id_to_inference_with_rows(*enum_type, subst, row_subst, store)),
@@ -1064,6 +1117,17 @@ impl InferenceSession {
                     .map(|argument| self.materialize_for_expected(argument, store))
                     .collect::<Option<Vec<_>>>()?;
                 store.apply_type_form(origin, &arguments).ok()
+            }
+            InferenceTerm::StaticData {
+                domain,
+                constructor,
+                arguments,
+            } => {
+                let arguments = arguments
+                    .iter()
+                    .map(|argument| self.materialize_for_expected(argument, store).map(crate::types::store::StaticArgument::Term))
+                    .collect::<Option<Vec<_>>>()?;
+                store.static_data(*domain, *constructor, arguments.into_boxed_slice()).ok()
             }
             InferenceTerm::ExactCase { variant, enum_type } => {
                 let enum_type = self.materialize_for_expected(enum_type, store)?;
@@ -1388,7 +1452,11 @@ impl InferenceSession {
             TypeData::Applied { origin, arguments } => Some(CanonicalConstructorView {
                 actual,
                 origin: *origin,
-                arguments: arguments.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| argument.as_type_id())
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
                 origin_kind: store.kind_of(*origin),
             }),
             TypeData::Nominal { .. } => Some(CanonicalConstructorView {
@@ -1596,6 +1664,19 @@ impl InferenceSession {
                 .unwrap_or_else(|| InferenceTerm::Var(self.find_var(*variable))),
             InferenceTerm::Applied { origin, arguments } => InferenceTerm::Applied {
                 origin: Box::new(self.term_for_expected(origin)),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| self.term_for_expected(argument))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            },
+            InferenceTerm::StaticData {
+                domain,
+                constructor,
+                arguments,
+            } => InferenceTerm::StaticData {
+                domain: *domain,
+                constructor: *constructor,
                 arguments: arguments
                     .iter()
                     .map(|argument| self.term_for_expected(argument))
@@ -2250,6 +2331,7 @@ impl InferenceSession {
             InferenceTerm::Applied { origin, arguments } => {
                 self.term_has_unresolved_variables(origin) || arguments.iter().any(|argument| self.term_has_unresolved_variables(argument))
             }
+            InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(|argument| self.term_has_unresolved_variables(argument)),
             InferenceTerm::ExactCase { enum_type, .. } => self.term_has_unresolved_variables(enum_type),
             InferenceTerm::Union(members) => members.iter().any(|member| self.term_has_unresolved_variables(member)),
             InferenceTerm::Tuple(elements) => elements.iter().any(|element| self.term_has_unresolved_variables(&element.term)),
@@ -2319,6 +2401,11 @@ impl InferenceSession {
             }
             InferenceTerm::Applied { origin, arguments } => {
                 self.collect_term_variables(origin, variables);
+                for argument in arguments.iter() {
+                    self.collect_term_variables(argument, variables);
+                }
+            }
+            InferenceTerm::StaticData { arguments, .. } => {
                 for argument in arguments.iter() {
                     self.collect_term_variables(argument, variables);
                 }
@@ -2415,6 +2502,11 @@ impl InferenceSession {
                     self.record_term_proof_state(argument, proof.clone());
                 }
             }
+            InferenceTerm::StaticData { arguments, .. } => {
+                for argument in arguments.iter() {
+                    self.record_term_proof_state(argument, proof.clone());
+                }
+            }
             InferenceTerm::ExactCase { enum_type, .. } => {
                 self.record_term_proof_state(enum_type, proof);
             }
@@ -2494,6 +2586,11 @@ impl InferenceSession {
             InferenceTerm::Var(variable) => self.record_variable_support(*variable, support),
             InferenceTerm::Applied { origin, arguments } => {
                 self.record_term_support(origin, support);
+                for argument in arguments.iter() {
+                    self.record_term_support(argument, support);
+                }
+            }
+            InferenceTerm::StaticData { arguments, .. } => {
                 for argument in arguments.iter() {
                     self.record_term_support(argument, support);
                 }
@@ -2643,7 +2740,8 @@ impl InferenceSession {
     pub fn occurs_in_type(&self, var: InferVarId, ty: TypeId, store: &TypeStore) -> bool {
         match store.get(ty) {
             TypeData::Applied { origin, arguments } => {
-                self.occurs_in_type(var, *origin, store) || arguments.iter().any(|&a| self.occurs_in_type(var, a, store))
+                self.occurs_in_type(var, *origin, store)
+                    || arguments.iter().any(|argument| argument.as_type_id().is_some_and(|a| self.occurs_in_type(var, a, store)))
             }
             TypeData::ExactCase { enum_type, .. } => self.occurs_in_type(var, *enum_type, store),
             TypeData::Union(members) => members.iter().any(|&m| self.occurs_in_type(var, m, store)),
@@ -2666,6 +2764,7 @@ impl InferenceSession {
             InferenceTerm::Rigid(_) => false,
             InferenceTerm::Var(v) => self.find_var(*v) == rep,
             InferenceTerm::Applied { origin, arguments } => self.occurs_in_term(rep, origin) || arguments.iter().any(|a| self.occurs_in_term(rep, a)),
+            InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(|argument| self.occurs_in_term(rep, argument)),
             InferenceTerm::ExactCase { enum_type, .. } => self.occurs_in_term(rep, enum_type),
             InferenceTerm::Union(members) => members.iter().any(|m| self.occurs_in_term(rep, m)),
             InferenceTerm::Tuple(elems) => elems.iter().any(|e| self.occurs_in_term(rep, &e.term)),
@@ -2709,6 +2808,7 @@ impl InferenceSession {
             InferenceTerm::Applied { origin, arguments } => {
                 self.term_has_projection(origin, store) || arguments.iter().any(|a| self.term_has_projection(a, store))
             }
+            InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(|argument| self.term_has_projection(argument, store)),
             InferenceTerm::ExactCase { enum_type, .. } => self.term_has_projection(enum_type, store),
             InferenceTerm::Union(members) => members.iter().any(|m| self.term_has_projection(m, store)),
             InferenceTerm::Tuple(elems) => elems.iter().any(|e| self.term_has_projection(&e.term, store)),
@@ -2965,6 +3065,58 @@ impl InferenceSession {
                 }
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
+            (
+                InferenceTerm::StaticData {
+                    domain: d1,
+                    constructor: c1,
+                    arguments: a1,
+                },
+                InferenceTerm::StaticData {
+                    domain: d2,
+                    constructor: c2,
+                    arguments: a2,
+                },
+            ) => {
+                if d1 != d2 || c1 != c2 || a1.len() != a2.len() {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                let mut changed = false;
+                for (left_argument, right_argument) in a1.iter().zip(a2.iter()) {
+                    changed |= self.unify_terms(left_argument, right_argument, store)?.is_changed();
+                }
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (InferenceTerm::Canonical(ty), InferenceTerm::StaticData { domain, constructor, arguments })
+            | (InferenceTerm::StaticData { domain, constructor, arguments }, InferenceTerm::Canonical(ty)) => {
+                let TypeData::StaticData(canonical) = store.get(*ty).clone() else {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                };
+                if canonical.domain != *domain || canonical.constructor != *constructor || canonical.arguments.len() != arguments.len() {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                let mut changed = false;
+                for (inferred, canonical_argument) in arguments.iter().zip(canonical.arguments.iter()) {
+                    let Some(canonical_argument) = canonical_argument.as_type_id() else {
+                        return Err(InferenceFailureReason::StructuralMismatch {
+                            left: Box::new(left.clone()),
+                            right: Box::new(right.clone()),
+                        });
+                    };
+                    changed |= self
+                        .unify_terms(inferred, &InferenceTerm::Canonical(canonical_argument), store)?
+                        .is_changed();
+                }
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
             (InferenceTerm::Canonical(ty), InferenceTerm::Applied { origin, arguments })
             | (InferenceTerm::Applied { origin, arguments }, InferenceTerm::Canonical(ty)) => {
                 if let TypeData::ExactCase { enum_type, .. } = store.get(*ty).clone() {
@@ -2979,7 +3131,16 @@ impl InferenceSession {
                     arguments: args_ty,
                 } = store.get(*ty).clone()
                 {
-                    let canonical_arguments = args_ty.iter().copied().map(InferenceTerm::Canonical).collect::<Vec<_>>();
+                    let Some(canonical_arguments) = args_ty
+                        .iter()
+                        .map(|argument| argument.as_type_id().map(InferenceTerm::Canonical))
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        return Err(InferenceFailureReason::StructuralMismatch {
+                            left: Box::new(left.clone()),
+                            right: Box::new(right.clone()),
+                        });
+                    };
                     let aligned = if matches!(left, InferenceTerm::Canonical(_)) {
                         self.match_applied_constructor_shapes(&InferenceTerm::Canonical(orig_ty), &canonical_arguments, origin, arguments, store)?
                     } else {
@@ -2996,7 +3157,7 @@ impl InferenceSession {
                     }
                     let orig_term = InferenceTerm::Canonical(orig_ty);
                     let mut changed = self.unify_terms(origin, &orig_term, store)?.is_changed();
-                    for (arg_term, &arg_ty) in arguments.iter().zip(args_ty.iter()) {
+                    for (arg_term, arg_ty) in arguments.iter().zip(args_ty.iter().filter_map(|argument| argument.as_type_id())) {
                         let canon = InferenceTerm::Canonical(arg_ty);
                         changed |= self.unify_terms(arg_term, &canon, store)?.is_changed();
                     }
@@ -3484,6 +3645,7 @@ impl InferenceSession {
                 // finite arm rule once the left term is materializable.
                 Ok(SolveEffect::Unchanged)
             }
+            (InferenceTerm::StaticData { .. }, InferenceTerm::StaticData { .. }) => self.unify_terms(sub, sup, store),
             (
                 InferenceTerm::Applied {
                     origin: left_origin,
@@ -3791,6 +3953,19 @@ impl InferenceSession {
                 store
                     .apply_type_form(orig_ty, &arg_tys)
                     .map_err(InferenceMaterializationFailure::TypeApplication)
+            }
+            InferenceTerm::StaticData {
+                domain,
+                constructor,
+                arguments,
+            } => {
+                let arguments = arguments
+                    .iter()
+                    .map(|argument| self.materialize(argument, store).map(crate::types::store::StaticArgument::Term))
+                    .collect::<Result<Vec<_>, _>>()?;
+                store
+                    .static_data(*domain, *constructor, arguments.into_boxed_slice())
+                    .map_err(|_| InferenceMaterializationFailure::InternalInvariant)
             }
             InferenceTerm::Union(members) => {
                 let mut member_tys = Vec::with_capacity(members.len());
@@ -4289,6 +4464,74 @@ mod tests {
             )
             .expect_err("proper type cannot be applied");
         assert!(matches!(error, super::InferenceMaterializationFailure::TypeApplication(_)));
+    }
+
+    #[test]
+    fn static_data_constructor_unification_solves_const_int_payload() {
+        let mut store = TypeStore::new();
+        let shape_decl = test_decl("Shape");
+        let shape_domain = store.nominal_static_domain(shape_decl.clone());
+        let width = store.const_int(3);
+        let constructor = store.intern_static_constructor(
+            shape_domain,
+            shape_decl,
+            "Vector",
+            vec![store.kind_of(width)].into_boxed_slice(),
+        );
+        let mut session = InferenceSession::new();
+        let width_var = session.fresh_variable(store.kind_of(width));
+        let symbolic = InferenceTerm::StaticData {
+            domain: shape_domain,
+            constructor,
+            arguments: vec![InferenceTerm::Var(width_var)].into_boxed_slice(),
+        };
+        let concrete = InferenceTerm::StaticData {
+            domain: shape_domain,
+            constructor,
+            arguments: vec![InferenceTerm::Canonical(width)].into_boxed_slice(),
+        };
+
+        session.add_constraint(InferenceRelation::Equivalent(symbolic, concrete), ConstraintOrigin::Explicit, None);
+        assert!(session.solve(&mut store, &crate::types::relation::MapTypeHierarchy::new()).is_solved());
+        assert_eq!(session.materialize(&InferenceTerm::Var(width_var), &mut store), Ok(width));
+    }
+
+    #[test]
+    fn static_data_constructor_unification_refutes_domain_and_constructor_mismatch() {
+        let mut store = TypeStore::new();
+        let shape_decl = test_decl("Shape");
+        let other_decl = test_decl("OtherShape");
+        let shape_domain = store.nominal_static_domain(shape_decl.clone());
+        let other_domain = store.nominal_static_domain(other_decl.clone());
+        let vector = store.intern_static_constructor(shape_domain, shape_decl, "Vector", Box::new([]));
+        let scalar = store.intern_static_constructor(shape_domain, test_decl("Shape"), "Scalar", Box::new([]));
+        let other_vector = store.intern_static_constructor(other_domain, other_decl, "Vector", Box::new([]));
+        let mut session = InferenceSession::new();
+
+        let vector_term = InferenceTerm::StaticData {
+            domain: shape_domain,
+            constructor: vector,
+            arguments: Box::new([]),
+        };
+        let scalar_term = InferenceTerm::StaticData {
+            domain: shape_domain,
+            constructor: scalar,
+            arguments: Box::new([]),
+        };
+        let other_term = InferenceTerm::StaticData {
+            domain: other_domain,
+            constructor: other_vector,
+            arguments: Box::new([]),
+        };
+
+        assert!(matches!(
+            session.unify_terms(&vector_term, &scalar_term, &mut store),
+            Err(InferenceFailureReason::StructuralMismatch { .. })
+        ));
+        assert!(matches!(
+            session.unify_terms(&vector_term, &other_term, &mut store),
+            Err(InferenceFailureReason::StructuralMismatch { .. })
+        ));
     }
 
     #[test]

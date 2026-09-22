@@ -517,7 +517,7 @@ fn test_protocol_derived_iteration_typing_no_name_matching() {
     assert!(matches!(
         ctx.store.get(list_int),
         phalcom_semantic::types::store::TypeData::Applied { arguments, .. }
-            if arguments.as_ref() == [int_ty]
+            if arguments.as_ref() == [phalcom_semantic::types::store::StaticArgument::Term(int_ty)]
     ));
 
     // 2. Program with for loop over List<String>

@@ -108,7 +108,7 @@ fn expression_monad_captures_effect_constructor_and_projects_hierarchy() {
         panic!("expected Expression<..., Int>, got {}", store.format_type(applied));
     };
     assert_eq!(*origin, f.ty("Expression"));
-    assert_eq!(arguments[1], f.ty("Int"));
+    assert_eq!(arguments[1], phalcom_semantic::types::store::StaticArgument::Term(f.ty("Int")));
 }
 
 /// INT-02: the existing generic traverse algorithm operates over the

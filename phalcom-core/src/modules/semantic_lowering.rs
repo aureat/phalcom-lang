@@ -610,7 +610,10 @@ fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -
     use phalcom_semantic::types::store::TypeData;
     match store.get(ty) {
         TypeData::ExactCase { .. } => true,
-        TypeData::Applied { origin, arguments } => contains_exact_case(store, *origin) || arguments.iter().any(|&a| contains_exact_case(store, a)),
+        TypeData::Applied { origin, arguments } => {
+            contains_exact_case(store, *origin)
+                || arguments.iter().any(|argument| argument.as_type_id().is_some_and(|argument| contains_exact_case(store, argument)))
+        }
         TypeData::Union(members) => members.iter().any(|&m| contains_exact_case(store, m)),
         TypeData::Tuple(elems) => elems.iter().any(|e| contains_exact_case(store, e.ty)),
         TypeData::Record(row_id) => {
@@ -649,7 +652,8 @@ fn build_data_construction_spec(
         .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
     let exporter =
         phalcom_semantic::metadata::MetadataExporter::new(&snapshot.store, None, None, None, phalcom_type_meta::header::MetadataProfile::RuntimePublic)
-            .with_project_universe(projects);
+            .with_project_universe(projects)
+            .with_algebraic_semantics(&snapshot.data_semantics, &snapshot.enum_semantics);
     let metadata = exporter
         .build_bundle(&[(&constructor.owner.module, "data", result_type)])
         .map_err(|error| ProjectionError::DataTypeMetadata(error.to_string()))?;

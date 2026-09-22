@@ -7,6 +7,7 @@ use phalcom_semantic::identity::{CallableId, DispatchSide};
 use phalcom_semantic::metadata::MetadataExportError;
 use phalcom_semantic::metadata::MetadataExporter;
 use phalcom_semantic::metadata::stable_identity::StableIdentityContext;
+use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::signature::{CallableParameterSemantic, CallableSemanticSignature, ReturnContractValidation};
 use phalcom_semantic::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_semantic::type_alias::{TypeAliasInfo, TypeAliasTable};
@@ -15,12 +16,16 @@ use phalcom_semantic::types::parameter::{
     GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm,
 };
 use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
-use phalcom_semantic::types::store::TypeStore;
+use phalcom_semantic::types::store::{StaticArgument, TypeStore};
 use phalcom_semantic::types::variance::Variance;
 use phalcom_type_meta::fingerprint::Fingerprint128;
+use phalcom_type_meta::declaration::{AlgebraicPhaseRef, AlgebraicShapeRef};
 use phalcom_type_meta::header::MetadataProfile;
 use phalcom_type_meta::identity::StableProjectRef;
+use phalcom_type_meta::kind::{KindNode, StaticDomainRef};
+use phalcom_type_meta::type_node::{StaticArgumentRef, TypeNode};
 use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
+use std::sync::Arc;
 
 fn dummy_module() -> ModuleId {
     ModuleId::universe(ModulePath::from_components(vec![
@@ -112,6 +117,132 @@ fn test_metadata_fresh_store_determinism() {
 
     assert_eq!(bundle1, bundle2);
     validate_metadata_bundle(&bundle1, &ValidationLimits::default()).unwrap();
+}
+
+#[test]
+fn metadata_exports_and_validates_static_domain_and_type_data_identity() {
+    let mut store = TypeStore::new();
+    let owner = dummy_decl("Shape");
+    let domain = store.nominal_static_domain(owner.clone());
+    let const_int = store.const_int(3);
+    let const_int_kind = store.kind_of(const_int);
+    let constructor = store.intern_static_constructor(domain, owner, "Point", vec![const_int_kind].into_boxed_slice());
+    let static_data = store
+        .static_data(domain, constructor, vec![StaticArgument::Term(const_int)].into_boxed_slice())
+        .expect("registered static constructor should accept matching static data");
+    let shape_kind = store.static_domain_kind(domain);
+    let tensor_kind = store.arrow_kind(vec![KindId::TYPE, shape_kind].into_boxed_slice(), KindId::TYPE);
+    let tensor = store.nominal_form(dummy_decl("Tensor"), tensor_kind);
+    let float = store.nominal_type(dummy_decl("Float"));
+    let tensor_value = store
+        .apply_static_form(tensor, &[StaticArgument::Term(float), StaticArgument::Term(static_data)])
+        .expect("heterogeneous Tensor application");
+
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let static_data_id = exporter.export_type_form(static_data).unwrap();
+    let const_int_id = exporter.export_type_form(const_int).unwrap();
+    let tensor_value_id = exporter.export_type_form(tensor_value).unwrap();
+    let bundle = exporter.build_bundle(&[]).unwrap();
+
+    assert!(bundle.header.features.static_domains);
+    assert!(bundle.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(StaticDomainRef::Nominal { .. }))));
+    assert!(bundle.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(StaticDomainRef::ConstInt))));
+    assert!(matches!(bundle.types[const_int_id.0 as usize].form, TypeNode::ConstInt(3)));
+    assert!(matches!(bundle.types[static_data_id.0 as usize].form, TypeNode::StaticData(_)));
+    assert!(matches!(&bundle.types[tensor_value_id.0 as usize].form, TypeNode::Applied { arguments, .. } if matches!(arguments.as_ref(), [StaticArgumentRef::Term(_), StaticArgumentRef::Term(_)])));
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+}
+
+#[test]
+fn metadata_publishes_stable_algebraic_phase_and_shape() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        "data MetaProduct(_ value: Int)\n\
+         data MetaSum { A; B(_ value: Int) }\n\
+         type data MetaShape { Scalar; Vector(_ size: Int) }\n",
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
+
+    let exporter = MetadataExporter::new(
+        &analysis.snapshot.store,
+        Some(&analysis.snapshot.declarations),
+        None,
+        None,
+        MetadataProfile::RuntimePublic,
+    )
+    .with_algebraic_semantics(&analysis.snapshot.data_semantics, &analysis.snapshot.enum_semantics);
+    let bundle = exporter.build_bundle(&[]).unwrap();
+    let record = |name: &str| {
+        bundle
+            .declarations
+            .iter()
+            .find(|record| record.declaration.path.last().is_some_and(|component| component.as_ref() == name))
+            .unwrap_or_else(|| panic!("missing metadata declaration {name}"))
+    };
+
+    assert_eq!(
+        record("MetaProduct").algebraic,
+        Some(phalcom_type_meta::declaration::AlgebraicDeclarationRecord {
+            phase: AlgebraicPhaseRef::Runtime,
+            shape: AlgebraicShapeRef::Product,
+        })
+    );
+    assert_eq!(
+        record("MetaSum").algebraic,
+        Some(phalcom_type_meta::declaration::AlgebraicDeclarationRecord {
+            phase: AlgebraicPhaseRef::Runtime,
+            shape: AlgebraicShapeRef::Sum,
+        })
+    );
+    assert_eq!(
+        record("MetaShape").algebraic,
+        Some(phalcom_type_meta::declaration::AlgebraicDeclarationRecord {
+            phase: AlgebraicPhaseRef::TypeOnly,
+            shape: AlgebraicShapeRef::Sum,
+        })
+    );
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+}
+
+#[test]
+fn metadata_keeps_legacy_enum_and_equivalent_data_identity_neutral() {
+    fn export(source: &str) -> phalcom_type_meta::bundle::SemanticMetadataBundle {
+        let module = ModuleId::universe_root();
+        let source: Arc<str> = Arc::from(source);
+        let parsed = phalcom_ast::parse(&source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+        assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
+        MetadataExporter::new(
+            &analysis.snapshot.store,
+            Some(&analysis.snapshot.declarations),
+            None,
+            None,
+            MetadataProfile::RuntimePublic,
+        )
+        .with_algebraic_semantics(&analysis.snapshot.data_semantics, &analysis.snapshot.enum_semantics)
+        .build_bundle(&[])
+        .unwrap()
+    }
+
+    let legacy = export("enum MetaCompat { A; B(_ value: Int) }\n");
+    let canonical = export("data MetaCompat { A; B(_ value: Int) }\n");
+    assert_eq!(legacy.header.interface_fingerprint, canonical.header.interface_fingerprint);
+    let legacy_record = legacy
+        .declarations
+        .iter()
+        .find(|record| record.declaration.path.last().is_some_and(|component| component.as_ref() == "MetaCompat"))
+        .expect("legacy metadata declaration");
+    let canonical_record = canonical
+        .declarations
+        .iter()
+        .find(|record| record.declaration.path.last().is_some_and(|component| component.as_ref() == "MetaCompat"))
+        .expect("canonical metadata declaration");
+    assert_eq!(legacy_record.algebraic, canonical_record.algebraic);
+    validate_metadata_bundle(&canonical, &ValidationLimits::default()).unwrap();
 }
 
 #[test]
@@ -534,7 +665,7 @@ fn metadata_exports_complete_and_concat_pack_terms_with_binder_modes() {
     exporter.export_generic_signature(&signature).unwrap();
     let bundle = exporter.build_bundle(&[]).unwrap();
 
-    assert_eq!(bundle.header.schema_version, 4);
+    assert_eq!(bundle.header.schema_version, phalcom_type_meta::header::TYPE_METADATA_SCHEMA_VERSION);
     assert!(matches!(
         bundle.types[complete_id.0 as usize].form,
         phalcom_type_meta::type_node::TypeNode::CompleteTypePack { .. }
@@ -598,13 +729,13 @@ fn p3_metadata_exports_scoped_pack_aliases_under_schema_v4() {
     let exported_id = exporter.export_type_form(lambda_ty).unwrap();
     let bundle = exporter.build_bundle(&[]).unwrap();
 
-    assert_eq!(bundle.header.schema_version, 4);
+    assert_eq!(bundle.header.schema_version, phalcom_type_meta::header::TYPE_METADATA_SCHEMA_VERSION);
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
 
     // JSON round trip
     let json = encode_metadata_json(&bundle).unwrap();
     let decoded = decode_metadata_json(&json, &ValidationLimits::default()).unwrap();
-    assert_eq!(decoded.header.schema_version, 4);
+    assert_eq!(decoded.header.schema_version, phalcom_type_meta::header::TYPE_METADATA_SCHEMA_VERSION);
     assert_eq!(decoded.header.interface_fingerprint, bundle.header.interface_fingerprint);
 
     let exported_node = &decoded.types[exported_id.0 as usize].form;

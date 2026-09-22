@@ -648,7 +648,8 @@ fn type_contains_self(store: &TypeStore, ty: TypeId) -> bool {
                 })
         }
         crate::types::store::TypeData::Applied { origin, arguments } => {
-            type_contains_self(store, *origin) || arguments.iter().any(|&arg| type_contains_self(store, arg))
+            type_contains_self(store, *origin)
+                || arguments.iter().any(|arg| arg.as_type_id().is_some_and(|arg| type_contains_self(store, arg)))
         }
         crate::types::store::TypeData::ExactCase { enum_type, .. } => type_contains_self(store, *enum_type),
         crate::types::store::TypeData::Union(types) => types.iter().any(|&t| type_contains_self(store, t)),
@@ -825,13 +826,14 @@ fn substitute_type_id_self_and_params(store: &mut TypeStore, ty: TypeId, subject
         crate::types::store::TypeData::Applied { origin, arguments } => {
             let origin_term = substitute_type_id_self_and_params(store, origin, subject, subst);
             let origin_ty = term_to_type_id(store, origin_term);
-            let args: Vec<TypeId> = arguments
-                .iter()
-                .map(|&a| {
-                    let term = substitute_type_id_self_and_params(store, a, subject, subst);
-                    term_to_type_id(store, term)
-                })
-                .collect();
+            let mut args = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                let Some(argument) = argument.as_type_id() else {
+                    return TypeTerm::Canonical(ty);
+                };
+                let substituted = substitute_type_id_self_and_params(store, argument, subject, subst);
+                args.push(term_to_type_id(store, substituted));
+            }
             TypeTerm::Canonical(store.apply_type_form(origin_ty, &args).unwrap_or(ty))
         }
         crate::types::store::TypeData::Tuple(elements) => {

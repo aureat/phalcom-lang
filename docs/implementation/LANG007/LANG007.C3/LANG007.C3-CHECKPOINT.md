@@ -7,14 +7,14 @@ kind: checkpoint-record
 title: "Type Data and Unified Algebraic Static Domains"
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 requires:
   - LANG007.C1
   - LANG007.C2
 prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
 prepared: 2026-09-22
-active_plan: LANG007.C3.P1
-latest_completed_plan: null
+active_plan: LANG007.C3.P2
+latest_completed_plan: LANG007.C3.P1
 next_plan: LANG007.C3.P2
 ---
 
@@ -29,9 +29,9 @@ program: LANG007
 checkpoint: LANG007.C3
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
-active_plan: LANG007.C3.P1
-latest_completed_plan: null
+verification: FOCUSED_TESTED
+active_plan: LANG007.C3.P2
+latest_completed_plan: LANG007.C3.P1
 next_plan: LANG007.C3.P2
 blockers: none known at planning time
 ```
@@ -131,8 +131,8 @@ C3 is complete only when this statement is true:
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
-| `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | active |
-| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P1 |
+| `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
+| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | UNVERIFIED | active; started from completed P1 working tree |
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P2 |
 
 No additional P4 is planned.
@@ -519,12 +519,23 @@ P3 also owns:
 
 ## 14. Verification ledger
 
-No C3 implementation verification has run yet.
+C3 remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED because P2/P3 still own
+generalized static application, associated type-data lookup, intrinsic surface
+exposure, corpus/tooling migration, and checkpoint closure.
 
 | Gate | Scope | Result | Meaning |
 |---|---|---|---|
 | predecessor C2.P3 G1–G5 | C2 substrate | PASS | C3 starts from verified packs/inference/metadata/runtime boundary |
-| C3 gates | none | NOT RUN | checkpoint remains UNVERIFIED |
+| P1 AST syntax filters | phalcom-ast integration data_syntax, enum_syntax | PASS | 25 + 12 parser/compatibility tests passed |
+| P1 semantic static-domain foundation | phalcom-semantic integration foundations::kinds static filters | PASS | canonical domains/ConstInt/StaticData, proper-type rejection, and source type-data kind publication passed |
+| P1 semantic crate check | cargo check -p phalcom-semantic | PASS | all new TypeData consumers compile |
+| P1 core compile boundary | cargo check -p phalcom-core | PASS | compiler/runtime consumers compile with static forms present |
+| P1 runtime algebraic preservation | semantic `adts::declarations`, `constructors`, `variants`, `exact_cases`, `vertical_gadt` | PASS | 16 + 13 + 12 (9 active, 3 gated) + 5 active (1 gated) + 1 tests passed; legacy enum/data semantic identity remains equivalent |
+| P1 metadata/static-term export | semantic `integration::metadata` and `foundations::kinds` | PASS | 21 metadata tests and 11 kind tests passed; schema-v5 static-domain, ConstInt, StaticData export/round-trip validation and runtime-negative coverage are covered |
+| P1 metadata compatibility | phalcom-type-meta schema_compat | PASS | 9 tests passed; v1 fixture and v2–v4 compatibility remain valid, v5 feature/kind floors reject malformed static nodes |
+| P1 ADT/static incremental parity | semantic `incremental::adts`, `incremental::fingerprints`, `incremental::type_store_revisions` | PASS | 13 active + 3 gated, 33, and 20 tests passed; runtime ADT and TypeOnly case-edit cold parity are green |
+| P1 runtime representation | phalcom-core `core language::algebraic_data` | PASS | 44 passed, 19 explicitly ignored/gated; native_adt_runtime is not a live Cargo test target |
+| P1 library unit-test binary | cargo test -p phalcom-semantic static_data | BASELINE_BLOCKED | pre-existing DeclarationTypeInfo test initializer omits generic_binder_header; outside the focused integration/G5 matrix |
 
 Do not copy predecessor PASS status into C3 verification.
 
@@ -564,6 +575,79 @@ Why nonblocking at C3 start:
 
 When to revisit:
     only if a required C3 trait/conformance compatibility gate depends on it.
+```
+
+### BASELINE-003
+
+```text
+Observed:
+    phalcom-semantic library test compilation fails in
+    checker/context.rs:3362 because a pre-existing DeclarationTypeInfo test
+    initializer omits generic_binder_header.
+
+Classification:
+    unrelated baseline compile failure; the C3 integration test binary does
+    not depend on this cfg(test) initializer and remains usable.
+
+Why nonblocking at this stage:
+    focused C3 integration tests and both affected crate checks pass.
+
+When to revisit:
+    before claiming a broader semantic crate unit-test gate; it does not block
+    the focused P1 G5 matrix.
+```
+
+### P1-RESOLVED-001 — stable algebraic phase/shape declaration records
+
+```text
+Observed:
+    schema v5 now persists stable static-domain kinds, ConstInt/StaticData
+    nodes, and declaration-owned algebraic phase/shape records. Runtime
+    Product versus Sum facts are projected from the canonical algebraic tables.
+
+Classification:
+    resolved P1 implementation and metadata gate.
+
+Evidence:
+    `metadata_publishes_stable_algebraic_phase_and_shape` and
+    `metadata_keeps_legacy_enum_and_equivalent_data_identity_neutral` pass;
+    the exporter records Runtime/TypeOnly and Product/Sum structurally and the
+    interface fingerprint includes those records.
+```
+
+### P1-RESOLVED-002 — type-data runtime-negative and incremental parity evidence
+
+```text
+Observed:
+    TypeStore proper-type rejection, TypeOnly compiler no-op behavior, and
+    source-level runtime-use rejection are implemented. TypeOnly case edits are
+    covered by a cold/incremental parity regression.
+
+Classification:
+    resolved P1 implementation and verification gate.
+
+Evidence:
+    `type_data_case_cannot_be_used_as_a_runtime_value` and
+    `type_data_case_edit_matches_cold_static_domain_analysis` pass. The latter
+    proves product-fingerprint invalidation, stable nominal domain kind, static
+    constructor-registry convergence, and cold/incremental semantic equality.
+```
+
+### P1-RESOLVED-003 — final lifecycle/specification closure
+
+```text
+Observed:
+    The effective data, enum, and type-level-domain specifications now describe
+    the shipped unified/static foundation, and the P1 walkthrough/handoff are
+    present.
+
+Classification:
+    resolved P1 lifecycle/specification closure.
+
+Evidence:
+    G5 focused suites are green; the plan is COMPLETE / IMPLEMENTED /
+    FOCUSED_TESTED. The live P1→P2 handoff records the remaining generalized
+    application, associated lookup, and P3 migration scope.
 ```
 
 ---
@@ -669,6 +753,68 @@ incremental
 source index
 ```
 
+### P2 in-progress implementation evidence
+
+The following bounded P2 slices are implemented in the live working tree:
+
+```text
+T1
+    P1 prerequisite rechecked with `cargo check -p phalcom-semantic`.
+    P2 activated from the P1-complete working tree at HEAD 60a27f79...;
+    no commit or push was authorized.
+
+T2
+    named static-domain kind syntax (`S: Shape`) parses and resolves through
+    declaration-backed `KindId::StaticDomain` classification.
+
+T3
+    `TypeData::Applied` uses heterogeneous `StaticArgument` entries;
+    `TypeStore::apply_static_form` performs checked kinding, flat canonical
+    application, and type-lambda compatibility reduction; type-only callers
+    delegate through `apply_type_form`; substitution preserves the envelope
+    and reports application failures instead of failing open.
+
+T4 partial
+    inference now lifts non-row `StaticData` constructor terms into a
+    solver-local structural form, recursively tracks their variables/support,
+    unifies only matching domain/constructor identities, and materializes
+    through `TypeStore::static_data`. The `InferVarId(KindId)` identity and
+    existing row solver remain unchanged. Library unit tests for the new
+    solver cases remain behind BASELINE-003.
+
+T5 partial
+    type aliases accept an optional declaration-backed result kind such as
+    `type DefaultShape: Shape = ...`; the alias lowering path validates the
+    body kind and preserves the historical Type-valued default. Source static
+    constructor paths still await T7 unified `::` lookup.
+
+T8 partial
+    durable applied metadata uses `StaticArgumentRef`, schema v6 is emitted,
+    and v1-v5 compatibility validation remains covered.
+```
+
+Focused evidence acquired during this P2 continuation:
+
+```text
+AST parser named static-domain binder test                         PASS (1)
+semantic foundations/kinds                                         PASS (15)
+AST parser static-alias result-domain test                          PASS (1)
+semantic foundations/generics_core                                 PASS (8)
+semantic foundations/type_annotations                               PASS (45)
+semantic adts                                                      PASS (281; 28 ignored/gated)
+semantic metadata integration                                     PASS (21)
+type-meta schema compatibility                                     PASS (9)
+core language/algebraic_data                                      PASS (44; 19 ignored/gated)
+core and semantic crate checks                                     PASS
+semantic library static-data inference unit filter                 BASELINE_BLOCKED (BASELINE-003)
+```
+
+This is partial P2 evidence, not P2 acceptance. Remaining P2 implementation includes
+full first-order inference coverage and row-aware solver terms, static type-member
+domain convergence, associated `type data` declaration/specialization and unified `::`
+lookup, lossless record-row application metadata/import handling, and
+cold/incremental/source identity certification.
+
 ### P3 evidence
 
 Focus:
@@ -694,18 +840,22 @@ Current:
 
 ```text
 active plan:
-    null
+    LANG007.C3.P2
 
 next plan:
-    LANG007.C3.P1
+    LANG007.C3.P2
 
 next action:
-    create the patch-grade P1 implementation plan from:
-      - LANG007.C3-requirements-analysis.md
-      - LANG007.C3-CHECKPOINT.md
-      - LANG007.C3-GUIDANCE.md
-      - C2.P3 handoff/walkthrough
-      - live repository
+    continue P2 after the generalized application slice:
+      - finish first-order static-domain inference coverage and checked materialization;
+      - converge static type members and then associated `type data` lookup;
+      - complete metadata/import/incremental/source identity coverage;
+      - leave P3 intrinsic-surface/corpus/tooling migration untouched until P2 is accepted.
+
+P2 started from the live working tree at `60a27f79d69aa3e79c22e3d19df221466c7db920`.
+The completed P1 implementation and its verification records are present as dirty
+working-tree changes; no commit or push is authorized for this task. Unrelated
+changes remain outside the P2 scope.
 ```
 
 At P1 start:

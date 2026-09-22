@@ -105,7 +105,7 @@ fn test_explicit_conformance_head_resolves_trait_and_target_separately() {
         phalcom_semantic::types::store::TypeData::Applied { arguments, .. } => arguments[0],
         other => panic!("expected applied target, got {other:?}"),
     };
-    assert_eq!(trait_argument, target_argument, "both heads must share the impl-owned parameter");
+    assert_eq!(trait_argument, target_argument.as_type_id().expect("type-only target argument"), "both heads must share the impl-owned parameter");
     assert!(matches!(ctx.store.get(trait_argument), phalcom_semantic::types::store::TypeData::Parameter(_)));
 }
 

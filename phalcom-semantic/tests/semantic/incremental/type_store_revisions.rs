@@ -495,6 +495,60 @@ fn alias_incremental_result_matches_cold_final_analysis() {
 }
 
 #[test]
+fn type_data_case_edit_matches_cold_static_domain_analysis() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(107),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("type_data_edit").unwrap()]),
+    );
+    let initial = "type data Shape { Scalar }\n";
+    let final_source = "type data Shape { Scalar; Vector(_ size: Int) }\n";
+
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental.update(single_module_input(module.clone(), initial, 1));
+    assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
+    let owner = DeclarationId::new(module.clone(), "Shape".into());
+    let enum_key = QueryKey::EnumDeclaration(owner.clone());
+    let first_fp = incremental
+        .db()
+        .ready_product_fingerprint(&enum_key)
+        .expect("initial type-data declaration fingerprint");
+    let first_form = first.snapshot.declarations.form(&owner).expect("initial Shape form");
+    let first_kind = first.snapshot.store.format_kind(first.snapshot.store.kind_of(first_form));
+    let first_constructor_count = first.snapshot.store.static_constructor_count();
+
+    let second = incremental.update(single_module_input(module.clone(), final_source, 2));
+    assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
+    let second_fp = incremental
+        .db()
+        .ready_product_fingerprint(&enum_key)
+        .expect("updated type-data declaration fingerprint");
+    let second_info = second.snapshot.enum_semantics.enum_info(&owner).expect("updated Shape semantics");
+    let second_form = second.snapshot.declarations.form(&owner).expect("updated Shape form");
+    let second_kind = second.snapshot.store.format_kind(second.snapshot.store.kind_of(second_form));
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    assert!(!cold_final.snapshot.has_errors(), "diagnostics: {:?}", cold_final.snapshot.diagnostics);
+    let cold_info = cold_final.snapshot.enum_semantics.enum_info(&owner).expect("cold Shape semantics");
+    let cold_form = cold_final.snapshot.declarations.form(&owner).expect("cold Shape form");
+    let cold_kind = cold_final.snapshot.store.format_kind(cold_final.snapshot.store.kind_of(cold_form));
+
+    assert_ne!(first_fp, second_fp, "adding a type-data case must change the declaration product");
+    assert_eq!(first_kind, second_kind, "case edits must preserve the nominal static-domain kind");
+    assert!(
+        first_constructor_count < second.snapshot.store.static_constructor_count(),
+        "adding a type-data case must extend the static constructor registry"
+    );
+    assert_eq!(second_info, cold_info, "incremental and cold type-data semantics must agree");
+    assert_eq!(second_kind, cold_kind, "incremental and cold static-domain kinds must agree");
+    assert_eq!(
+        second.snapshot.store.static_constructor_count(),
+        cold_final.snapshot.store.static_constructor_count(),
+        "incremental and cold static constructor registries must agree"
+    );
+}
+
+#[test]
 fn nominal_binder_contract_edit_recomputes_variadic_alias_to_cold_parity() {
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(102),

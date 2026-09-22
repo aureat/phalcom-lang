@@ -98,7 +98,7 @@ fn collect_stable_record_row_lacks_inner(
         }
         TypeData::Applied { origin, arguments } => {
             collect_stable_record_row_lacks_inner(store, *origin, visited, emitted, lacks);
-            for &argument in arguments.iter() {
+            for argument in arguments.iter().filter_map(|argument| argument.as_type_id()) {
                 collect_stable_record_row_lacks_inner(store, argument, visited, emitted, lacks);
             }
         }
@@ -172,6 +172,14 @@ fn collect_stable_record_row_lacks_inner(
                 collect_stable_record_row_lacks_inner(store, segment, visited, emitted, lacks);
             }
         }
+        TypeData::StaticData(term) => {
+            for argument in term.arguments.iter() {
+                if let crate::types::store::StaticArgument::Term(argument) = argument {
+                    collect_stable_record_row_lacks_inner(store, *argument, visited, emitted, lacks);
+                }
+            }
+        }
+        TypeData::ConstInt(_) => {}
         TypeData::Never
         | TypeData::Unit
         | TypeData::ClassObject { .. }
@@ -218,6 +226,7 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
             return_type,
         } => term_has_row_variables(positionals) || term_has_row_variables(labeled) || term_has_row_variables(return_type),
         InferenceTerm::PackProjection { subject, .. } => term_has_row_variables(subject),
+        InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(term_has_row_variables),
         InferenceTerm::Canonical(_) | InferenceTerm::Var(_) | InferenceTerm::Rigid(_) => false,
     }
 }

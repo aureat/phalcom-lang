@@ -79,9 +79,18 @@ fn materialize_type_inner(
             let origin = materialize_type_inner(store, origin, instantiation, row_mode, visiting_rows)?;
             let arguments = arguments
                 .iter()
-                .map(|&argument| materialize_type_inner(store, argument, instantiation, row_mode, visiting_rows))
-                .collect::<Result<Vec<_>, _>>()?;
-            store.apply_type_form(origin, &arguments).map_err(|_| TypeMaterializationError::TypeApplication)
+                .map(|argument| match argument {
+                    super::store::StaticArgument::Term(argument) => Ok(super::store::StaticArgument::Term(materialize_type_inner(
+                        store,
+                        *argument,
+                        instantiation,
+                        row_mode,
+                        visiting_rows,
+                    )?)),
+                    super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(*row)),
+                })
+                .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
+            store.apply_static_form(origin, &arguments).map_err(|_| TypeMaterializationError::TypeApplication)
         }
         TypeData::ExactCase { variant, enum_type } => {
             let enum_type = materialize_type_inner(store, enum_type, instantiation, row_mode, visiting_rows)?;
@@ -248,6 +257,27 @@ fn materialize_type_inner(
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(store.labeled_type_pack_concat(&segments)?)
         }
+        TypeData::StaticData(term) => {
+            let arguments = term
+                .arguments
+                .iter()
+                .map(|argument| match argument {
+                    super::store::StaticArgument::Term(argument) => Ok(super::store::StaticArgument::Term(materialize_type_inner(
+                        store,
+                        *argument,
+                        instantiation,
+                        row_mode,
+                        visiting_rows,
+                    )?)),
+                    super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(*row)),
+                })
+                .collect::<Result<Vec<_>, TypeMaterializationError>>()?
+                .into_boxed_slice();
+            store
+                .static_data(term.domain, term.constructor, arguments)
+                .map_err(|_| TypeMaterializationError::TypeApplication)
+        }
+        TypeData::ConstInt(_) => Ok(ty),
         TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => Ok(ty),
     }
 }

@@ -616,7 +616,7 @@ impl Fixture {
                 self.assert_type_expectation(*actual_origin, origin);
                 assert_eq!(actual_arguments.len(), arguments.len());
                 for (actual, expected) in actual_arguments.iter().zip(arguments) {
-                    self.assert_type_expectation(*actual, expected);
+                    self.assert_type_expectation(actual.as_type_id().expect("type-only applied argument"), expected);
                 }
             }
             TypeExpectation::Union(expected_members) => {
@@ -680,7 +680,7 @@ impl Fixture {
                     && arguments
                         .iter()
                         .zip(expected_arguments)
-                        .all(|(actual, expected)| self.type_matches(*actual, expected))
+                        .all(|(actual, expected)| actual.as_type_id().is_some_and(|actual| self.type_matches(actual, expected)))
             }
             TypeExpectation::Union(expected_members) => {
                 let actual_members = match self.analysis.snapshot.store.get(actual) {

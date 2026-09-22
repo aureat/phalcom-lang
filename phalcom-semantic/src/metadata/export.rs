@@ -3,22 +3,25 @@
 
 use super::stable_identity::*;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
+use crate::data_semantics::DataSemanticTable;
 use crate::declarations::DeclarationTypeTable;
+use crate::enum_semantics::EnumSemanticTable;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::type_alias::TypeAliasTable;
-use crate::types::id::{KindId, ScopedTypeId, TypeId, TypeParameterId};
+use crate::types::id::{AlgebraicStaticConstructorId, KindId, ScopedTypeId, StaticDomainId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
 use crate::types::parameter::{
     GenericConstraint, GenericParameterMode, GenericSignature, GenericSignaturePublicationError, SelfRole, TypeParameterOwner, TypeTerm,
 };
 use crate::types::rigid::LocalType;
-use crate::types::store::{TypeData, TypeStore};
+use crate::types::store::{StaticArgument, StaticDomainData, TypeData, TypeStore};
 use crate::types::type_lambda::ScopedTypeData;
 use crate::types::variance::Variance;
 use phalcom_type_meta::bundle::{RuntimeTypeFormKey, RuntimeTypeFormRoot, SemanticMetadataBundle};
 use phalcom_type_meta::declaration::{
-    CallableParameterRecord, CallableSemanticRecord, DeclarationTypeFlags, DeclarationTypeRecord, DynamicReasonRef, FieldMutabilityRef, FieldSemanticRecord,
-    MetadataUnavailableReason, PublishedTypeAuthority, PublishedTypeSlot, RestModeRef, UnknownReasonRef,
+    AlgebraicDeclarationRecord, AlgebraicPhaseRef, AlgebraicShapeRef, CallableParameterRecord, CallableSemanticRecord, DeclarationTypeFlags,
+    DeclarationTypeRecord, DynamicReasonRef, FieldMutabilityRef, FieldSemanticRecord, MetadataUnavailableReason, PublishedTypeAuthority,
+    PublishedTypeSlot, RestModeRef, UnknownReasonRef,
 };
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::generic::{
@@ -31,13 +34,14 @@ use phalcom_type_meta::header::{
 };
 use phalcom_type_meta::identity::SourceSpanRef;
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
-use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
+use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId, StaticDomainRef};
 use phalcom_type_meta::scoped_type::{
     ScopedCallableParamRef, ScopedCallableTypeRef, ScopedOpenRecordTypeRef, ScopedRecordFieldRef, ScopedRecordTailRef, ScopedTupleElementRef, ScopedTypeNode,
     ScopedTypeNodeEntry, ScopedTypeNodeId, TypeLambdaRef,
 };
 use phalcom_type_meta::type_node::{
-    CallableParamRef, CallableTypeRef, OpenRecordTypeRef, RecordFieldRef, SelfRoleRef, SelfTypeRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
+    CallableParamRef, CallableTypeRef, OpenRecordTypeRef, RecordFieldRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef,
+    TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
 use std::collections::HashMap;
 
@@ -59,6 +63,10 @@ pub enum MetadataExportError {
     MissingProjectIdentityContext,
     #[error("resolved project {0} is absent from ProjectUniverse")]
     MissingResolvedProject(phalcom_modules::ResolvedProjectId),
+    #[error("cannot export unknown static domain {0:?}")]
+    InvalidStaticDomain(StaticDomainId),
+    #[error("cannot export unknown static constructor {0:?}")]
+    InvalidStaticConstructor(AlgebraicStaticConstructorId),
 }
 
 fn write_stable_project_fingerprint(builder: &mut FingerprintBuilder, project: &StableProjectRef) {
@@ -118,6 +126,8 @@ fn write_stable_impl_fingerprint(builder: &mut FingerprintBuilder, r#impl: &phal
 pub struct MetadataExporter<'a> {
     store: &'a TypeStore,
     declarations: Option<&'a DeclarationTypeTable>,
+    algebraic_data: Option<&'a DataSemanticTable>,
+    algebraic_enums: Option<&'a EnumSemanticTable>,
     aliases: Option<&'a TypeAliasTable>,
     callables: Option<&'a CallableSignatureTable>,
     fields: Option<&'a FieldSignatureTable>,
@@ -206,6 +216,8 @@ impl<'a> MetadataExporter<'a> {
         Self {
             store,
             declarations,
+            algebraic_data: None,
+            algebraic_enums: None,
             aliases: None,
             callables,
             fields,
@@ -236,10 +248,49 @@ impl<'a> MetadataExporter<'a> {
         self
     }
 
-    pub fn export_kind(&mut self, kind: KindId) -> KindNodeId {
+    /// Attaches the canonical algebraic projections used to publish stable
+    /// phase/shape facts alongside declaration metadata.
+    pub fn with_algebraic_semantics(mut self, data: &'a DataSemanticTable, enums: &'a EnumSemanticTable) -> Self {
+        self.algebraic_data = Some(data);
+        self.algebraic_enums = Some(enums);
+        self
+    }
+
+    fn algebraic_shape(&self, declaration: &crate::identity::DeclarationId) -> Option<AlgebraicShapeRef> {
+        if self.algebraic_data.is_some_and(|table| table.data_info(declaration).is_some()) {
+            Some(AlgebraicShapeRef::Product)
+        } else if self.algebraic_enums.is_some_and(|table| table.enum_info(declaration).is_some()) {
+            Some(AlgebraicShapeRef::Sum)
+        } else {
+            None
+        }
+    }
+
+    fn algebraic_phase(&self, kind: KindId) -> AlgebraicPhaseRef {
+        let mut current = kind;
+        loop {
+            match self.store.get_kind(current) {
+                KindData::StaticDomain(_) => return AlgebraicPhaseRef::TypeOnly,
+                KindData::Arrow { result, .. } => current = *result,
+                _ => return AlgebraicPhaseRef::Runtime,
+            }
+        }
+    }
+
+    fn export_static_domain(&self, domain: StaticDomainId) -> Result<StaticDomainRef, MetadataExportError> {
+        match self.store.static_domain(domain) {
+            Some(StaticDomainData::ConstInt) => Ok(StaticDomainRef::ConstInt),
+            Some(StaticDomainData::Nominal { declaration }) => Ok(StaticDomainRef::Nominal {
+                declaration: self.stable_declaration(declaration),
+            }),
+            None => Err(MetadataExportError::InvalidStaticDomain(domain)),
+        }
+    }
+
+    pub fn export_kind(&mut self, kind: KindId) -> Result<KindNodeId, MetadataExportError> {
         let data = self.store.get_kind(kind).clone();
         if let Some(&id) = self.kind_map.get(&data) {
-            return id;
+            return Ok(id);
         }
 
         let node = match data {
@@ -249,16 +300,17 @@ impl<'a> MetadataExporter<'a> {
             KindData::LabeledTypePack => KindNode::LabeledTypePack,
             KindData::CompleteTypePack => KindNode::CompleteTypePack,
             KindData::Arrow { ref parameters, result } => {
-                let p_nodes: Vec<KindNodeId> = parameters.iter().map(|&p| self.export_kind(p)).collect();
-                let r_node = self.export_kind(result);
+                let p_nodes = parameters
+                    .iter()
+                    .map(|&p| self.export_kind(p))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let r_node = self.export_kind(result)?;
                 KindNode::Arrow {
                     parameters: p_nodes.into_boxed_slice(),
                     result: r_node,
                 }
             }
-            // Static domains are proper-type-kinded in metadata; static-only
-            // semantics are carried by the declaration reference.
-            KindData::StaticDomain(_) => KindNode::Type,
+            KindData::StaticDomain(domain) => KindNode::StaticDomain(self.export_static_domain(domain)?),
         };
 
         let mut fp_b = FingerprintBuilder::new();
@@ -268,6 +320,16 @@ impl<'a> MetadataExporter<'a> {
             KindNode::TypePack => fp_b.write_u8(4),
             KindNode::LabeledTypePack => fp_b.write_u8(5),
             KindNode::CompleteTypePack => fp_b.write_u8(6),
+            KindNode::StaticDomain(domain) => {
+                fp_b.write_u8(7);
+                match domain {
+                    StaticDomainRef::ConstInt => fp_b.write_u8(1),
+                    StaticDomainRef::Nominal { declaration } => {
+                        fp_b.write_u8(2);
+                        write_stable_declaration_fingerprint(&mut fp_b, declaration);
+                    }
+                }
+            }
             KindNode::Arrow { parameters, result } => {
                 fp_b.write_u8(2);
                 fp_b.write_u32(parameters.len() as u32);
@@ -282,12 +344,12 @@ impl<'a> MetadataExporter<'a> {
         let id = KindNodeId(self.kinds.len() as u32);
         self.kinds.push(KindNodeEntry { node, structural_fingerprint });
         self.kind_map.insert(data, id);
-        id
+        Ok(id)
     }
 
-    pub fn export_type_parameter(&mut self, param: TypeParameterId) -> StableTypeParameterRef {
+    pub fn export_type_parameter(&mut self, param: TypeParameterId) -> Result<StableTypeParameterRef, MetadataExportError> {
         if let Some(r) = self.param_map.get(&param) {
-            return r.clone();
+            return Ok(r.clone());
         }
         let data = self.store.type_parameter(param);
         let owner_ref = match &data.owner {
@@ -299,7 +361,7 @@ impl<'a> MetadataExporter<'a> {
             owner: owner_ref,
             index: data.index,
         };
-        let kind_id = self.export_kind(data.kind);
+        let kind_id = self.export_kind(data.kind)?;
         let variance_ref = match data.variance {
             Variance::Covariant => VarianceRef::Covariant,
             Variance::Contravariant => VarianceRef::Contravariant,
@@ -324,7 +386,7 @@ impl<'a> MetadataExporter<'a> {
             source: source_span,
         });
         self.param_map.insert(param, param_ref.clone());
-        param_ref
+        Ok(param_ref)
     }
 
     pub fn export_scoped_type(&mut self, scoped_id: ScopedTypeId) -> Result<ScopedTypeNodeId, MetadataExportError> {
@@ -391,7 +453,7 @@ impl<'a> MetadataExporter<'a> {
                 let tail = match record.tail {
                     crate::types::type_lambda::ScopedRecordTail::Bound { depth, index } => ScopedRecordTailRef::Bound { depth, index },
                     crate::types::type_lambda::ScopedRecordTail::FreeParameter(parameter) => {
-                        ScopedRecordTailRef::FreeParameter(self.export_type_parameter(parameter))
+                        ScopedRecordTailRef::FreeParameter(self.export_type_parameter(parameter)?)
                     }
                 };
                 ScopedTypeNode::OpenRecord(ScopedOpenRecordTypeRef {
@@ -476,7 +538,11 @@ impl<'a> MetadataExporter<'a> {
             },
             ScopedTypeData::Lambda(lam_id) => {
                 let lam_data = self.store.arena().get_lambda(lam_id).clone();
-                let p_kinds: Vec<KindNodeId> = lam_data.parameter_kinds.iter().map(|&pk| self.export_kind(pk)).collect();
+                let p_kinds = lam_data
+                    .parameter_kinds
+                    .iter()
+                    .map(|&pk| self.export_kind(pk))
+                    .collect::<Result<Vec<_>, _>>()?;
                 let p_modes: Vec<GenericParameterModeRef> = lam_data
                     .parameter_modes
                     .iter()
@@ -666,7 +732,7 @@ impl<'a> MetadataExporter<'a> {
                     .unwrap_or(KindId::TYPE);
                 self.export_kind(inferred)
             }
-            ScopedTypeNode::Free(t) => self.types[t.0 as usize].kind,
+            ScopedTypeNode::Free(t) => Ok(self.types[t.0 as usize].kind),
             ScopedTypeNode::TypePack(_) | ScopedTypeNode::TypePackConcat(_) => self.export_kind(KindId::TYPE_PACK),
             ScopedTypeNode::LabeledTypePack(_) | ScopedTypeNode::LabeledTypePackConcat(_) => self.export_kind(KindId::LABELED_TYPE_PACK),
             ScopedTypeNode::CompleteTypePack { .. } => self.export_kind(KindId::COMPLETE_TYPE_PACK),
@@ -676,7 +742,7 @@ impl<'a> MetadataExporter<'a> {
                 phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Complete => KindId::COMPLETE_TYPE_PACK,
             }),
             _ => self.export_kind(KindId::TYPE),
-        };
+        }?;
         let id = ScopedTypeNodeId(self.scoped_types.len() as u32);
         self.scoped_types.push(ScopedTypeNodeEntry {
             kind: kind_id,
@@ -703,8 +769,11 @@ impl<'a> MetadataExporter<'a> {
             TypeData::Applied { origin, ref arguments } => {
                 let origin_id = self.export_type_form(origin)?;
                 let mut arg_ids = Vec::new();
-                for &arg in arguments.iter() {
-                    arg_ids.push(self.export_type_form(arg)?);
+                for arg in arguments.iter() {
+                    let Some(arg) = arg.as_type_id() else {
+                        return Err(MetadataExportError::NonExportableForm(origin));
+                    };
+                    arg_ids.push(StaticArgumentRef::Term(self.export_type_form(arg)?));
                 }
                 TypeNode::Applied {
                     origin: origin_id,
@@ -747,7 +816,7 @@ impl<'a> MetadataExporter<'a> {
                     crate::types::row::RecordRowTail::Closed => TypeNode::Record(field_refs.into_boxed_slice()),
                     crate::types::row::RecordRowTail::Parameter(parameter) => TypeNode::OpenRecord(OpenRecordTypeRef {
                         fields: field_refs.into_boxed_slice(),
-                        tail: self.export_type_parameter(parameter),
+                        tail: self.export_type_parameter(parameter)?,
                     }),
                     crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableForm(ty)),
                 }
@@ -769,7 +838,7 @@ impl<'a> MetadataExporter<'a> {
                 })
             }
             TypeData::Parameter(param) => {
-                let stable_param = self.export_type_parameter(param);
+                let stable_param = self.export_type_parameter(param)?;
                 TypeNode::Parameter(stable_param)
             }
             TypeData::SelfType(s) => TypeNode::SelfType(SelfTypeRef {
@@ -804,7 +873,11 @@ impl<'a> MetadataExporter<'a> {
             }
             TypeData::Lambda(lam_id) => {
                 let lam_data = self.store.arena().get_lambda(lam_id).clone();
-                let p_kinds: Vec<KindNodeId> = lam_data.parameter_kinds.iter().map(|&pk| self.export_kind(pk)).collect();
+                let p_kinds = lam_data
+                    .parameter_kinds
+                    .iter()
+                    .map(|&pk| self.export_kind(pk))
+                    .collect::<Result<Vec<_>, _>>()?;
                 let p_modes: Vec<GenericParameterModeRef> = lam_data
                     .parameter_modes
                     .iter()
@@ -900,7 +973,32 @@ impl<'a> MetadataExporter<'a> {
                     arguments: arguments.into_boxed_slice(),
                 })
             }
-            TypeData::ClassObject { .. } | TypeData::Family(_) => return Err(MetadataExportError::NonExportableForm(ty)),
+            TypeData::ConstInt(value) => TypeNode::ConstInt(value),
+            TypeData::StaticData(term) => {
+                let domain = self.export_static_domain(term.domain)?;
+                let constructor = self
+                    .store
+                    .static_constructor(term.constructor)
+                    .ok_or(MetadataExportError::InvalidStaticConstructor(term.constructor))?;
+                let arguments = term
+                    .arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        StaticArgument::Term(argument) => Ok(StaticArgumentRef::Term(self.export_type_form(*argument)?)),
+                        StaticArgument::RecordRow(_) => Err(MetadataExportError::NonExportableForm(ty)),
+                    })
+                    .collect::<Result<Vec<_>, MetadataExportError>>()?;
+                TypeNode::StaticData(StaticDataRef {
+                    domain,
+                    constructor: StaticConstructorRef {
+                        declaration: self.stable_declaration(&constructor.declaration),
+                        case_name: constructor.case_name.clone(),
+                    },
+                    arguments: arguments.into_boxed_slice(),
+                })
+            }
+            TypeData::ClassObject { .. }
+            | TypeData::Family(_) => return Err(MetadataExportError::NonExportableForm(ty)),
         };
 
         if let Some(&id) = self.type_map.get(&form) {
@@ -911,6 +1009,31 @@ impl<'a> MetadataExporter<'a> {
         match &form {
             TypeNode::Never => fp_b.write_u8(1),
             TypeNode::Unit => fp_b.write_u8(2),
+            TypeNode::ConstInt(value) => {
+                fp_b.write_u8(22);
+                fp_b.write_u64(*value as u64);
+            }
+            TypeNode::StaticData(static_data) => {
+                fp_b.write_u8(23);
+                match &static_data.domain {
+                    StaticDomainRef::ConstInt => fp_b.write_u8(1),
+                    StaticDomainRef::Nominal { declaration } => {
+                        fp_b.write_u8(2);
+                        write_stable_declaration_fingerprint(&mut fp_b, declaration);
+                    }
+                }
+                write_stable_declaration_fingerprint(&mut fp_b, &static_data.constructor.declaration);
+                fp_b.write_str(&static_data.constructor.case_name);
+                fp_b.write_u32(static_data.arguments.len() as u32);
+                for argument in static_data.arguments.iter() {
+                    match argument {
+                        StaticArgumentRef::Term(argument) => {
+                            fp_b.write_u8(1);
+                            fp_b.write_fingerprint(self.types[argument.0 as usize].structural_fingerprint);
+                        }
+                    }
+                }
+            }
             TypeNode::Nominal { declaration } => {
                 fp_b.write_u8(3);
                 for c in declaration.path.iter() {
@@ -922,7 +1045,12 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_fingerprint(self.types[origin.0 as usize].structural_fingerprint);
                 fp_b.write_u32(arguments.len() as u32);
                 for arg in arguments.iter() {
-                    fp_b.write_fingerprint(self.types[arg.0 as usize].structural_fingerprint);
+                    match arg {
+                        StaticArgumentRef::Term(arg) => {
+                            fp_b.write_u8(1);
+                            fp_b.write_fingerprint(self.types[arg.0 as usize].structural_fingerprint);
+                        }
+                    }
                 }
             }
             TypeNode::Union(members) => {
@@ -1096,7 +1224,7 @@ impl<'a> MetadataExporter<'a> {
 
         let id = TypeNodeId(self.types.len() as u32);
         self.types.push(TypeNodeEntry {
-            kind: kind_id,
+            kind: kind_id?,
             form: form.clone(),
             structural_fingerprint,
         });
@@ -1119,7 +1247,7 @@ impl<'a> MetadataExporter<'a> {
                 if let Some(&id) = self.type_map.get(&self_node) {
                     return Ok(id);
                 }
-                let kind_id = self.export_kind(self.store.kind_of(self.store.unit()));
+                let kind_id = self.export_kind(self.store.kind_of(self.store.unit()))?;
                 let mut fp_b = FingerprintBuilder::new();
                 fp_b.write_u8(10);
                 let stable_owner = self.stable_declaration(&s.owner);
@@ -1176,7 +1304,7 @@ impl<'a> MetadataExporter<'a> {
 
         let mut param_refs = Vec::new();
         for &param in sig.parameters.iter() {
-            param_refs.push(self.export_type_parameter(param));
+            param_refs.push(self.export_type_parameter(param)?);
         }
 
         let mut constraint_refs = Vec::new();
@@ -1308,7 +1436,7 @@ impl<'a> MetadataExporter<'a> {
         if let Some(decls) = self.declarations {
             for (decl_id, info) in decls.iter() {
                 let form_id = self.export_type_form(info.form)?;
-                let kind_id = self.export_kind(info.kind);
+                let kind_id = self.export_kind(info.kind)?;
                 let sig_id = if let Some(ref sig) = info.generic_signature {
                     Some(self.export_generic_signature(sig)?)
                 } else {
@@ -1331,6 +1459,10 @@ impl<'a> MetadataExporter<'a> {
                     instance_fields: Box::new([]),
                     class_fields: Box::new([]),
                     flags: DeclarationTypeFlags::default(),
+                    algebraic: self.algebraic_shape(decl_id).map(|shape| AlgebraicDeclarationRecord {
+                        phase: self.algebraic_phase(info.kind),
+                        shape,
+                    }),
                     source: None,
                 });
             }
@@ -1424,6 +1556,10 @@ impl<'a> MetadataExporter<'a> {
             });
         }
 
+        self.parameters.sort_by(|left, right| left.id.cmp(&right.id));
+        let mut algebraic_declarations = out_declarations.iter().filter(|record| record.algebraic.is_some()).collect::<Vec<_>>();
+        algebraic_declarations.sort_by(|left, right| left.declaration.cmp(&right.declaration));
+
         let revision_fingerprint = self.identity_context.as_ref().map_or_else(
             || {
                 let mut builder = FingerprintBuilder::new();
@@ -1468,6 +1604,19 @@ impl<'a> MetadataExporter<'a> {
                 GenericParameterModeRef::CompletePack => 4,
             });
         }
+        interface_builder.write_u32(algebraic_declarations.len() as u32);
+        for declaration in algebraic_declarations {
+            write_stable_declaration_fingerprint(&mut interface_builder, &declaration.declaration);
+            let Some(algebraic) = declaration.algebraic else { continue };
+            interface_builder.write_u8(match algebraic.phase {
+                AlgebraicPhaseRef::Runtime => 1,
+                AlgebraicPhaseRef::TypeOnly => 2,
+            });
+            interface_builder.write_u8(match algebraic.shape {
+                AlgebraicShapeRef::Product => 1,
+                AlgebraicShapeRef::Sum => 2,
+            });
+        }
         let interface_fingerprint = interface_builder.finish();
         let header = SemanticMetadataHeader {
             schema_version: TYPE_METADATA_SCHEMA_VERSION,
@@ -1479,6 +1628,7 @@ impl<'a> MetadataExporter<'a> {
             features: MetadataFeatures {
                 type_lambdas: true,
                 record_rows: true,
+                static_domains: self.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(_))),
                 runtime_type_constants: !out_roots.is_empty(),
                 source_occurrences: false,
                 advanced_sections: Box::new([]),

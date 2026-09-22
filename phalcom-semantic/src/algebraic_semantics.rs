@@ -3,6 +3,7 @@
 use crate::data_semantics::DataInfo;
 use crate::enum_semantics::{EnumInfo, VariantInfo};
 use crate::identity::{DeclarationId, SemanticSourceSpan, VariantId};
+use crate::types::id::{AlgebraicStaticConstructorId, StaticDomainId};
 use crate::types::parameter::GenericSignature;
 use phalcom_ast::ast::{AlgebraicPhase, ImplementationKind};
 use std::sync::Arc;
@@ -24,6 +25,13 @@ pub struct AlgebraicSumInfo {
     pub variants: Arc<[VariantInfo]>,
 }
 
+/// Canonical static-domain registration for a type-only algebraic declaration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StaticAlgebraicDeclarationInfo {
+    pub domain: StaticDomainId,
+    pub constructors: Box<[AlgebraicStaticConstructorId]>,
+}
+
 /// Complete structural semantic metadata for one declared algebraic root.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AlgebraicDeclarationInfo {
@@ -32,6 +40,7 @@ pub struct AlgebraicDeclarationInfo {
     pub implementation: ImplementationKind,
     pub generic_signature: Option<GenericSignature>,
     pub representation: AlgebraicRepresentation,
+    pub static_data: Option<StaticAlgebraicDeclarationInfo>,
     pub source: Option<SemanticSourceSpan>,
 }
 

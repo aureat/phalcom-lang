@@ -683,10 +683,16 @@ impl SemanticWorkspaceSession {
                         continue;
                     }
 
-                    let (form, kind, generic_signature) = if parameter_ids.is_empty() {
-                        (store.nominal_type(decl_id.clone()), KindId::TYPE, None)
+                    let result_kind = if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                        let domain = store.nominal_static_domain(decl_id.clone());
+                        store.static_domain_kind(domain)
                     } else {
-                        let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
+                        KindId::TYPE
+                    };
+                    let (form, kind, generic_signature) = if parameter_ids.is_empty() {
+                        (store.nominal_form(decl_id.clone(), result_kind), result_kind, None)
+                    } else {
+                        let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), result_kind);
                         let form = store.nominal_form(decl_id.clone(), kind);
                         let signature =
                             crate::types::parameter::GenericSignature::new(TypeParameterOwner::Declaration(decl_id.clone()), parameter_ids.into_boxed_slice());
@@ -2099,11 +2105,7 @@ impl SemanticWorkspaceSession {
                         Arc::make_mut(&mut self.store).arrow_kind(header.parameter_kinds.clone(), KindId::TYPE)
                     });
 
-                    let form = if kind == KindId::TYPE {
-                        Arc::make_mut(&mut self.store).nominal_type(decl_id.clone())
-                    } else {
-                        Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind)
-                    };
+                    let form = Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind);
                     let class_obj_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
                     declarations.insert(DeclarationTypeInfo {
                         declaration: decl_id,
@@ -2132,15 +2134,17 @@ impl SemanticWorkspaceSession {
                     if !data_def.generic_parameters.is_empty() && generic_binder_header.is_none() {
                         continue;
                     }
-                    let kind = generic_binder_header.as_ref().map_or(KindId::TYPE, |header| {
-                        Arc::make_mut(&mut self.store).arrow_kind(header.parameter_kinds.clone(), KindId::TYPE)
+                    let result_kind = if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                        let domain = Arc::make_mut(&mut self.store).nominal_static_domain(decl_id.clone());
+                        Arc::make_mut(&mut self.store).static_domain_kind(domain)
+                    } else {
+                        KindId::TYPE
+                    };
+                    let kind = generic_binder_header.as_ref().map_or(result_kind, |header| {
+                        Arc::make_mut(&mut self.store).arrow_kind(header.parameter_kinds.clone(), result_kind)
                     });
 
-                    let form = if kind == KindId::TYPE {
-                        Arc::make_mut(&mut self.store).nominal_type(decl_id.clone())
-                    } else {
-                        Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind)
-                    };
+                    let form = Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind);
                     let class_object_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
                     declarations.insert(DeclarationTypeInfo {
                         declaration: decl_id,
@@ -2453,11 +2457,51 @@ impl SemanticWorkspaceSession {
                     crate::types::annotation::resolve_type_form(Arc::make_mut(&mut self.store), &declarations, &resolver, &site, &alias.body, &mut diagnostics)
                 }
             };
-            diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
             let TypeFormationOutcome::Ready(form) = form else {
+                diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
                 pending_aliases.remove(&declaration);
                 continue;
             };
+            if let Some(result_kind) = alias.result_kind.as_ref() {
+                let expected_kind = crate::types::annotation::resolve_contextual_kind_syntax(
+                    Arc::make_mut(&mut self.store),
+                    Some(&declarations),
+                    Some(&resolver),
+                    &site,
+                    result_kind,
+                );
+                let expected_kind = match expected_kind {
+                    crate::types::annotation::KindResolution::Ready(kind) => kind,
+                    other => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            module_id.clone(),
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("invalid type-alias result domain: {other:?}"),
+                            result_kind.range(),
+                        ));
+                        diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                        pending_aliases.remove(&declaration);
+                        continue;
+                    }
+                };
+                let actual_kind = self.store.kind_of(form);
+                if expected_kind != actual_kind {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        module_id.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!(
+                            "type-alias body has kind {}, expected {}",
+                            self.store.format_kind(actual_kind),
+                            self.store.format_kind(expected_kind)
+                        ),
+                        alias.body.range,
+                    ));
+                    diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                    pending_aliases.remove(&declaration);
+                    continue;
+                }
+            }
+            diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
             let dependencies = alias_dependencies.get(&declaration).cloned().unwrap_or_default();
             let info = TypeAliasInfo {
                 declaration: declaration.clone(),
@@ -2728,7 +2772,18 @@ impl SemanticWorkspaceSession {
                             "final data signature must complete its predeclared binder header"
                         );
                     }
-                    let header = NominalDeclarationHeader::from_signature(Arc::make_mut(&mut self.store), decl_id.clone(), generic_signature);
+                    let result_kind = if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                        let domain = Arc::make_mut(&mut self.store).nominal_static_domain(decl_id.clone());
+                        Arc::make_mut(&mut self.store).static_domain_kind(domain)
+                    } else {
+                        KindId::TYPE
+                    };
+                    let header = NominalDeclarationHeader::from_signature_with_result_kind(
+                        Arc::make_mut(&mut self.store),
+                        decl_id.clone(),
+                        generic_signature,
+                        result_kind,
+                    );
 
                     declarations.insert(header.into_type_info(None));
                 }

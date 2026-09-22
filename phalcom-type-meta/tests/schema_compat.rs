@@ -7,7 +7,7 @@ use phalcom_type_meta::header::{
     SEMANTIC_MODEL_VERSION, SemanticMetadataHeader, TYPE_METADATA_SCHEMA_VERSION,
 };
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
-use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
+use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId, StaticDomainRef};
 use phalcom_type_meta::scoped_type::{ScopedOpenRecordTypeRef, ScopedRecordTailRef, ScopedTypeNode, ScopedTypeNodeEntry, ScopedTypeNodeId};
 use phalcom_type_meta::type_node::{OpenRecordTypeRef, RecordFieldRef, TypeNode, TypeNodeEntry, TypeNodeId};
 use phalcom_type_meta::validate::{MetadataValidationError, ValidationLimits, validate_metadata_bundle};
@@ -23,6 +23,7 @@ fn sample_header(version: u32, record_rows: bool) -> SemanticMetadataHeader {
         features: MetadataFeatures {
             type_lambdas: true,
             record_rows,
+            static_domains: false,
             runtime_type_constants: false,
             source_occurrences: false,
             advanced_sections: Box::new([]),
@@ -85,13 +86,13 @@ fn test_unsupported_schema_versions_rejected() {
         }
     );
 
-    // Version 5 (future)
-    let b5 = sample_bundle(5, false);
-    let err5 = validate_metadata_bundle(&b5, &limits).unwrap_err();
+    // Version 7 (future)
+    let b7 = sample_bundle(7, false);
+    let err7 = validate_metadata_bundle(&b7, &limits).unwrap_err();
     assert_eq!(
-        err5,
+        err7,
         MetadataValidationError::UnsupportedSchemaVersion {
-            found: 5,
+            found: 7,
             minimum: MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION,
             maximum: TYPE_METADATA_SCHEMA_VERSION,
         }
@@ -113,6 +114,31 @@ fn test_schema_v1_cannot_contain_record_row_constructs() {
         structural_fingerprint: Fingerprint128::ZERO,
     }]);
     assert!(validate_metadata_bundle(&b_kind, &limits).is_err());
+}
+
+#[test]
+fn schema_v5_static_domain_nodes_require_the_feature_and_matching_kinds() {
+    let limits = ValidationLimits::default();
+
+    let mut missing_feature = sample_bundle(5, false);
+    missing_feature.kinds = Box::new([KindNodeEntry {
+        node: KindNode::StaticDomain(StaticDomainRef::ConstInt),
+        structural_fingerprint: Fingerprint128::ZERO,
+    }]);
+    missing_feature.types = Box::new([TypeNodeEntry {
+        kind: KindNodeId(0),
+        form: TypeNode::ConstInt(3),
+        structural_fingerprint: Fingerprint128::ZERO,
+    }]);
+    assert!(validate_metadata_bundle(&missing_feature, &limits).is_err());
+
+    let mut wrong_kind = missing_feature.clone();
+    wrong_kind.header.features.static_domains = true;
+    wrong_kind.kinds = Box::new([KindNodeEntry {
+        node: KindNode::Type,
+        structural_fingerprint: Fingerprint128::ZERO,
+    }]);
+    assert!(validate_metadata_bundle(&wrong_kind, &limits).is_err());
 }
 
 #[test]

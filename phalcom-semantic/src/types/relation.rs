@@ -331,6 +331,12 @@ fn check_subtype_impl(
                         };
 
                         for (idx, (&a_sub, &a_sup)) in sub_args.iter().zip(sup_args.iter()).enumerate() {
+                            let (Some(a_sub), Some(a_sup)) = (a_sub.as_type_id(), a_sup.as_type_id()) else {
+                                if a_sub == a_sup {
+                                    continue;
+                                }
+                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                            };
                             let variance = origin_decl
                                 .as_ref()
                                 .and_then(|decl| store.get_parameter_variance(decl, idx as u32))

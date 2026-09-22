@@ -1085,6 +1085,15 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
     let Ok(owner) = resolve_associated_owner(ctx, &receiver, lookup.range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
+    if ctx.declaration_is_type_only(&owner.lookup_owner) {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::TypeOnlyRuntimeValue,
+            "type-data cases are static terms and cannot be used as runtime values",
+            lookup.range,
+        ));
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    }
 
     match &lookup.member {
         AssociatedMemberSyntax::Named(member) => {
@@ -1259,6 +1268,15 @@ fn synthesize_associated_callable_reference(
     let Ok(owner) = resolve_associated_owner(ctx, &receiver, range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
+    if ctx.declaration_is_type_only(&owner.lookup_owner) {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::TypeOnlyRuntimeValue,
+            "type-data cases are static terms and cannot be used as runtime values",
+            range,
+        ));
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    }
     let (base, selector, display_name) = match member {
         phalcom_ast::ast::CallableReferenceMemberSyntax::Named { name, selector, .. } => (SelectorBase::Named(name.clone()), selector, name.as_str()),
         phalcom_ast::ast::CallableReferenceMemberSyntax::Operator(selector) => (SelectorBase::Named(selector.base().to_string()), selector, selector.base()),
@@ -1506,6 +1524,15 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
     let Ok(owner) = resolve_associated_owner(ctx, &receiver, invoke.range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
+    if ctx.declaration_is_type_only(&owner.lookup_owner) {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::TypeOnlyRuntimeValue,
+            "type-data cases are static terms and cannot be used as runtime values",
+            invoke.range,
+        ));
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    }
     let Ok(family) = resolve_effective_associated_family(ctx, &owner, &base, invoke.range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
@@ -3580,7 +3607,9 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
                     let mut instantiation = crate::types::instantiation::GenericInstantiation::default();
                     for (idx, &arg) in type_args.iter().enumerate() {
                         if let Some(&param_id) = sig.parameters.get(idx) {
-                            instantiation.bind_type(param_id, arg);
+                            if let Some(arg) = arg.as_type_id() {
+                                instantiation.bind_type(param_id, arg);
+                            }
                         }
                     }
                     crate::types::instantiation::materialize_type(

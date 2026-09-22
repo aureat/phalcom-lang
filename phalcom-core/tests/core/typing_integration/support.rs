@@ -264,7 +264,7 @@ impl Fixture {
         }
     }
 
-    pub fn assert_applied(&self, ty: TypeId, expected_origin: &str, expected_arity: usize) -> &[TypeId] {
+    pub fn assert_applied(&self, ty: TypeId, expected_origin: &str, expected_arity: usize) -> Vec<TypeId> {
         let TypeData::Applied { origin, arguments } = self.analysis.snapshot.store.get(ty) else {
             panic!(
                 "expected applied `{expected_origin}`, got {:?} ({})",
@@ -275,6 +275,9 @@ impl Fixture {
         self.assert_nominal(*origin, expected_origin);
         assert_eq!(arguments.len(), expected_arity, "wrong arity for `{expected_origin}`");
         arguments
+            .iter()
+            .map(|argument| argument.as_type_id().expect("runtime integration application must use type arguments"))
+            .collect()
     }
 
     pub fn assert_either(&self, ty: TypeId, left: TypeId, right: TypeId) {

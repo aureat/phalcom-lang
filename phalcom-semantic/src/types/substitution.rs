@@ -2,7 +2,8 @@
 
 use super::id::{KindId, TypeId, TypeParameterId};
 use super::row::{RecordRowField, RecordRowTail};
-use super::store::{CallableParameterType, CallableType, PackFormationError, TupleTypeElement, TypeData, TypeStore};
+use super::application::TypeApplicationError;
+use super::store::{CallableParameterType, CallableType, PackFormationError, StaticDataFormationError, TupleTypeElement, TypeData, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use std::collections::HashMap;
 
@@ -17,6 +18,10 @@ pub struct TypeSubstitution {
 pub enum TypeSubstitutionError {
     #[error("pack normalization failed after substitution: {0}")]
     Pack(#[from] PackFormationError),
+    #[error("heterogeneous application failed after substitution: {0}")]
+    Application(#[from] TypeApplicationError),
+    #[error("static data formation failed after substitution: {0}")]
+    StaticData(#[from] StaticDataFormationError),
 }
 
 impl TypeSubstitution {
@@ -69,6 +74,21 @@ impl TypeSubstitution {
                 let segments = segments.iter().map(|&segment| self.try_apply(store, segment)).collect::<Result<Vec<_>, _>>()?;
                 Ok(store.labeled_type_pack_concat(&segments)?)
             }
+            TypeData::StaticData(term) => {
+                let arguments = term
+                    .arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        super::store::StaticArgument::Term(argument) => {
+                            Ok(super::store::StaticArgument::Term(self.try_apply(store, *argument)?))
+                        }
+                        super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(*row)),
+                    })
+                    .collect::<Result<Vec<_>, TypeSubstitutionError>>()?
+                    .into_boxed_slice();
+                Ok(store.static_data(term.domain, term.constructor, arguments)?)
+            }
+            TypeData::ConstInt(_) => Ok(ty),
             TypeData::TupleFromPacks { positionals, labeled } => {
                 let positionals = self.try_apply(store, positionals)?;
                 let labeled = self.try_apply(store, labeled)?;
@@ -86,8 +106,14 @@ impl TypeSubstitution {
             }
             TypeData::Applied { origin, arguments } => {
                 let subst_origin = self.try_apply(store, origin)?;
-                let subst_args = arguments.iter().map(|&arg| self.try_apply(store, arg)).collect::<Result<Vec<_>, _>>()?;
-                Ok(store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty))
+                let subst_args = arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        super::store::StaticArgument::Term(argument) => Ok(super::store::StaticArgument::Term(self.try_apply(store, *argument)?)),
+                        super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(self.apply_record_row(store, *row))),
+                    })
+                    .collect::<Result<Vec<_>, TypeSubstitutionError>>()?;
+                Ok(store.apply_static_form(subst_origin, &subst_args)?)
             }
             TypeData::Tuple(elements) => {
                 let subst_elements = elements
@@ -178,8 +204,14 @@ impl TypeSubstitution {
             }
             TypeData::Applied { origin, arguments } => {
                 let subst_origin = self.apply(store, origin);
-                let subst_args: Vec<TypeId> = arguments.iter().map(|&arg| self.apply(store, arg)).collect();
-                store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty)
+                let subst_args = arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        super::store::StaticArgument::Term(argument) => super::store::StaticArgument::Term(self.apply(store, *argument)),
+                        super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(self.apply_record_row(store, *row)),
+                    })
+                    .collect::<Vec<_>>();
+                store.apply_static_form(subst_origin, &subst_args).unwrap_or(ty)
             }
             TypeData::ExactCase { variant, enum_type } => {
                 let subst_enum = self.apply(store, enum_type);
@@ -321,6 +353,21 @@ impl TypeSubstitution {
                 // their existing infallible precondition until P2 migrates them.
                 self.try_apply(store, ty).unwrap_or(ty)
             }
+            TypeData::StaticData(term) => {
+                let arguments = term
+                    .arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        super::store::StaticArgument::Term(argument) => {
+                            super::store::StaticArgument::Term(self.apply(store, *argument))
+                        }
+                        super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
+            }
+            TypeData::ConstInt(_) => ty,
             TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
         }
     }
@@ -346,8 +393,10 @@ pub fn substitution_for_applied(declarations: &DeclarationTypeTable, store: &Typ
         if let Some(info) = declarations.get(declaration) {
             if let Some(sig) = &info.generic_signature {
                 let mut subst = TypeSubstitution::new();
-                for (&param_id, &arg_ty) in sig.parameters.iter().zip(arguments.iter()) {
-                    subst.bind(param_id, arg_ty);
+                for (&param_id, argument) in sig.parameters.iter().zip(arguments.iter()) {
+                    if let Some(arg_ty) = argument.as_type_id() {
+                        subst.bind(param_id, arg_ty);
+                    }
                 }
                 return Some(subst);
             }
@@ -384,8 +433,16 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
         },
         TypeData::Applied { origin, arguments } => {
             let subst_origin = specialize_self_type(store, declarations, receiver, origin);
-            let subst_args: Vec<TypeId> = arguments.iter().map(|&arg| specialize_self_type(store, declarations, receiver, arg)).collect();
-            store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty)
+            let subst_args = arguments
+                .iter()
+                .map(|argument| match argument {
+                    super::store::StaticArgument::Term(argument) => {
+                        super::store::StaticArgument::Term(specialize_self_type(store, declarations, receiver, *argument))
+                    }
+                    super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                })
+                .collect::<Vec<_>>();
+            store.apply_static_form(subst_origin, &subst_args).unwrap_or(ty)
         }
         TypeData::ExactCase { variant, enum_type } => {
             let subst_enum = specialize_self_type(store, declarations, receiver, enum_type);
@@ -543,6 +600,21 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 .collect::<Vec<_>>();
             store.labeled_type_pack_concat(&segments).unwrap_or(ty)
         }
+        TypeData::StaticData(term) => {
+            let arguments = term
+                .arguments
+                .iter()
+                .map(|argument| match argument {
+                    super::store::StaticArgument::Term(argument) => {
+                        super::store::StaticArgument::Term(specialize_self_type(store, declarations, receiver, *argument))
+                    }
+                    super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
+        }
+        TypeData::ConstInt(_) => ty,
         TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
     }
 }

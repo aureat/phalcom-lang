@@ -4,9 +4,9 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C3
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on:
   - LANG007.C2
 follows: LANG007.C2.P3

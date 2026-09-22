@@ -9,7 +9,7 @@ use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::relation::TypeHierarchy;
 use crate::types::rigid::{LocalConstraint, LocalType};
 use crate::types::row::RecordRowTail;
-use crate::types::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
+use crate::types::store::{CallableParameterType, CallableType, StaticArgument, TupleTypeElement, TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -482,8 +482,9 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                 let origin = normalize(store, substitution, origin, states);
                 let arguments = arguments
                     .iter()
-                    .map(|&argument| normalize(store, substitution, argument, states))
-                    .collect::<Vec<_>>();
+                    .map(|argument| argument.as_type_id().map(|argument| normalize(store, substitution, argument, states)))
+                    .collect::<Option<Vec<_>>>();
+                let Some(arguments) = arguments else { return ty };
                 store.apply_type_form(origin, &arguments).unwrap_or(ty)
             }
             TypeData::ExactCase { variant, enum_type } => {
@@ -645,6 +646,19 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                     .collect::<Vec<_>>();
                 store.labeled_type_pack_concat(&segments).unwrap_or(ty)
             }
+            TypeData::StaticData(term) => {
+                let arguments = term
+                    .arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        StaticArgument::Term(argument) => StaticArgument::Term(normalize(store, substitution, *argument, states)),
+                        StaticArgument::RecordRow(row) => StaticArgument::RecordRow(*row),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
+            }
+            TypeData::ConstInt(_) => ty,
             TypeData::Never | TypeData::Unit | TypeData::ClassObject { .. } | TypeData::Nominal { .. } | TypeData::Lambda(_) | TypeData::SelfType(_) => ty,
         };
         states.insert(ty, VisitState::Resolved(normalized));
@@ -669,7 +683,7 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
         TypeData::Parameter(parameter) => output.push(*parameter),
         TypeData::Applied { origin, arguments } => {
             collect_type_parameters(store, *origin, output);
-            for &argument in arguments.iter() {
+            for argument in arguments.iter().filter_map(|argument| argument.as_type_id()) {
                 collect_type_parameters(store, argument, output);
             }
         }
@@ -743,6 +757,14 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
                 collect_type_parameters(store, segment, output);
             }
         }
+        TypeData::StaticData(term) => {
+            for argument in term.arguments.iter() {
+                if let StaticArgument::Term(argument) = argument {
+                    collect_type_parameters(store, *argument, output);
+                }
+            }
+        }
+        TypeData::ConstInt(_) => {}
         TypeData::Never
         | TypeData::Unit
         | TypeData::ClassObject { .. }
@@ -779,10 +801,11 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
         ) => {
             left_arguments.len() == right_arguments.len()
                 && unify_equality(store, substitution, left_origin, right_origin)
-                && left_arguments
-                    .iter()
-                    .zip(right_arguments.iter())
-                    .all(|(&left, &right)| unify_equality(store, substitution, left, right))
+                && left_arguments.iter().zip(right_arguments.iter()).all(|(&left, &right)| match (left.as_type_id(), right.as_type_id()) {
+                    (Some(left), Some(right)) => unify_equality(store, substitution, left, right),
+                    (None, None) => left == right,
+                    _ => false,
+                })
         }
         (
             TypeData::ExactCase {

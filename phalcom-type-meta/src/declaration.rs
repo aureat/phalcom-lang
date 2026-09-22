@@ -17,6 +17,27 @@ pub struct DeclarationTypeFlags {
     pub is_trait: bool,
 }
 
+/// Stable phase of a canonical algebraic declaration.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum AlgebraicPhaseRef {
+    Runtime,
+    TypeOnly,
+}
+
+/// Stable product/sum shape of a canonical algebraic declaration.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum AlgebraicShapeRef {
+    Product,
+    Sum,
+}
+
+/// Stable algebraic declaration facts retained alongside the nominal declaration.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct AlgebraicDeclarationRecord {
+    pub phase: AlgebraicPhaseRef,
+    pub shape: AlgebraicShapeRef,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct DeclarationTypeRecord {
     pub declaration: StableDeclarationRef,
@@ -29,6 +50,8 @@ pub struct DeclarationTypeRecord {
     pub instance_fields: Box<[StableFieldRef]>,
     pub class_fields: Box<[StableFieldRef]>,
     pub flags: DeclarationTypeFlags,
+    #[serde(default)]
+    pub algebraic: Option<AlgebraicDeclarationRecord>,
     pub source: Option<SourceSpanRef>,
 }
 

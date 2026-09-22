@@ -315,10 +315,15 @@ impl LocalType {
     pub fn from_canonical(store: &TypeStore, ty: TypeId, replacements: &HashMap<super::id::TypeParameterId, LocalType>) -> Self {
         match store.get(ty).clone() {
             TypeData::Parameter(parameter) => replacements.get(&parameter).cloned().unwrap_or(Self::Canonical(ty)),
-            TypeData::Applied { origin, arguments } => Self::Applied {
-                origin: Box::new(Self::from_canonical(store, origin, replacements)),
-                arguments: arguments.iter().map(|argument| Self::from_canonical(store, *argument, replacements)).collect(),
-            },
+            TypeData::Applied { origin, arguments } => {
+                let Some(arguments) = arguments.iter().map(|argument| argument.as_type_id()).collect::<Option<Vec<_>>>() else {
+                    return Self::Canonical(ty);
+                };
+                Self::Applied {
+                    origin: Box::new(Self::from_canonical(store, origin, replacements)),
+                    arguments: arguments.iter().map(|argument| Self::from_canonical(store, *argument, replacements)).collect(),
+                }
+            }
             TypeData::ExactCase { variant, enum_type } => Self::ExactCase {
                 variant: store.variant_identity(variant).clone(),
                 enum_type: Box::new(Self::from_canonical(store, enum_type, replacements)),
@@ -368,13 +373,18 @@ impl LocalType {
             return replacement.clone();
         }
         match store.get(ty).clone() {
-            TypeData::Applied { origin, arguments } => Self::Applied {
-                origin: Box::new(Self::from_canonical_types(store, origin, replacements)),
-                arguments: arguments
-                    .iter()
-                    .map(|argument| Self::from_canonical_types(store, *argument, replacements))
-                    .collect(),
-            },
+            TypeData::Applied { origin, arguments } => {
+                let Some(arguments) = arguments.iter().map(|argument| argument.as_type_id()).collect::<Option<Vec<_>>>() else {
+                    return Self::Canonical(ty);
+                };
+                Self::Applied {
+                    origin: Box::new(Self::from_canonical_types(store, origin, replacements)),
+                    arguments: arguments
+                        .iter()
+                        .map(|argument| Self::from_canonical_types(store, *argument, replacements))
+                        .collect(),
+                }
+            }
             TypeData::ExactCase { variant, enum_type } => Self::ExactCase {
                 variant: store.variant_identity(variant).clone(),
                 enum_type: Box::new(Self::from_canonical_types(store, enum_type, replacements)),

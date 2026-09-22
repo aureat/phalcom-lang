@@ -1179,6 +1179,13 @@ fn parse_type_alias_and_type_precedence() {
 }
 
 #[test]
+fn parse_static_alias_result_domain() {
+    let p = parse_source("type DefaultShape: Shape = Shape\n", 0).expect("static alias result domain should parse");
+    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
+    assert!(matches!(alias.result_kind, Some(KindSyntax::Named { ref name, .. }) if name == "Shape"));
+}
+
+#[test]
 fn parse_structural_record_types() {
     let p = parse_source("type UserRow<R> = #{ name: String, age: Int, | R }\n", 0).expect("structural record type with row tail should parse");
     let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
@@ -1206,6 +1213,13 @@ fn parse_kind_expressions_and_higher_kinded_binders() {
         }
         other => panic!("expected Arrow kind, got {other:?}"),
     }
+}
+
+#[test]
+fn parse_named_static_domain_binder_kind() {
+    let p = parse_source("data Tensor<T: Type, S: Shape>()\n", 0).expect("named static-domain binder should parse");
+    let Statement::Data(data) = &p.statements[0] else { panic!() };
+    assert!(matches!(data.generic_parameters[1].kind.as_ref(), Some(KindSyntax::Named { name, .. }) if name == "Shape"));
 }
 
 #[test]
