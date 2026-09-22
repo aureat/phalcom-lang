@@ -70,6 +70,7 @@ fn shape_from_type_for_receiver(store: &TypeStore, ty: TypeId, receiver: &ValueS
         | TypeData::TypePackConcat(_)
         | TypeData::LabeledTypePackConcat(_)
         | TypeData::TupleFromPacks { .. }
+        | TypeData::CallableFromPacks { .. }
         | TypeData::TypeMemberProjection(_) => ValueShape::Unknown,
     }
 }
@@ -126,6 +127,7 @@ fn shape_from_type(store: &TypeStore, ty: TypeId, depth: usize) -> ValueShape {
         | TypeData::TypePackConcat(_)
         | TypeData::LabeledTypePackConcat(_)
         | TypeData::TupleFromPacks { .. }
+        | TypeData::CallableFromPacks { .. }
         | TypeData::TypeMemberProjection(_) => ValueShape::Unknown,
     }
 }

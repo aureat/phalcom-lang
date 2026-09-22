@@ -73,6 +73,7 @@ fn declaration_shell_query_publishes_typed_product_and_reuses_it() {
         form: TypeId(1),
         class_object_type: TypeId(2),
         kind: KindId::TYPE,
+        generic_binder_header: None,
         generic_signature: None,
         supertype_template: None,
     });
@@ -105,6 +106,7 @@ fn purge_module_removes_last_known_good_products_and_edges() {
         form: TypeId(1),
         class_object_type: TypeId(2),
         kind: KindId::TYPE,
+        generic_binder_header: None,
         generic_signature: None,
         supertype_template: None,
     });

@@ -219,6 +219,16 @@ fn materialize_type_inner(
             let lab = materialize_type_inner(store, labeled, instantiation, row_mode, visiting_rows)?;
             Ok(store.tuple_from_packs(pos, lab)?)
         }
+        TypeData::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
+            let pos = materialize_type_inner(store, positionals, instantiation, row_mode, visiting_rows)?;
+            let lab = materialize_type_inner(store, labeled, instantiation, row_mode, visiting_rows)?;
+            let ret = materialize_type_inner(store, return_type, instantiation, row_mode, visiting_rows)?;
+            Ok(store.callable_from_packs(pos, lab, ret)?)
+        }
         TypeData::CompleteTypePack { positionals, labeled } => {
             let positionals = materialize_type_inner(store, positionals, instantiation, row_mode, visiting_rows)?;
             let labeled = materialize_type_inner(store, labeled, instantiation, row_mode, visiting_rows)?;

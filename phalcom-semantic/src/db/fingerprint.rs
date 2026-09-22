@@ -21,7 +21,7 @@ use crate::type_alias::TypeAliasInfo;
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::outcome::{BlockReason, BudgetReport};
-use crate::types::parameter::GenericSignature;
+use crate::types::parameter::{GenericBinderHeader, GenericSignature};
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::{ClassMember, IndexAccessor, ParameterDef, RestMode, Statement};
 use phalcom_common::range::SourceRange;
@@ -315,6 +315,13 @@ fn hash_generic_signature(signature: &GenericSignature, hasher: &mut impl Hasher
     }
 }
 
+fn hash_generic_binder_header(header: &GenericBinderHeader, hasher: &mut impl Hasher) {
+    header.owner.hash(hasher);
+    header.parameter_kinds.hash(hasher);
+    header.parameter_variances.hash(hasher);
+    header.parameter_modes.hash(hasher);
+}
+
 fn hash_generic_supertype_template(template: &GenericSupertypeTemplate, hasher: &mut impl Hasher) {
     template.declaration.hash(hasher);
     match &template.structural_form {
@@ -326,6 +333,13 @@ fn hash_generic_supertype_template(template: &GenericSupertypeTemplate, hasher: 
 fn hash_declaration_type_info(info: &DeclarationTypeInfo, hasher: &mut impl Hasher) {
     info.declaration.hash(hasher);
     info.kind.hash(hasher);
+    match &info.generic_binder_header {
+        Some(header) => {
+            1u8.hash(hasher);
+            hash_generic_binder_header(header, hasher);
+        }
+        None => 0u8.hash(hasher),
+    }
     match &info.generic_signature {
         Some(signature) => {
             1u8.hash(hasher);

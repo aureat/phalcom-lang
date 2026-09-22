@@ -616,6 +616,16 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                 let labeled = normalize(store, substitution, labeled, states);
                 store.tuple_from_packs(positionals, labeled).unwrap_or(ty)
             }
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                let positionals = normalize(store, substitution, positionals, states);
+                let labeled = normalize(store, substitution, labeled, states);
+                let return_type = normalize(store, substitution, return_type, states);
+                store.callable_from_packs(positionals, labeled, return_type).unwrap_or(ty)
+            }
             TypeData::CompleteTypePack { positionals, labeled } => {
                 let positionals = normalize(store, substitution, positionals, states);
                 let labeled = normalize(store, substitution, labeled, states);
@@ -714,6 +724,15 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
         TypeData::TupleFromPacks { positionals, labeled } => {
             collect_type_parameters(store, *positionals, output);
             collect_type_parameters(store, *labeled, output);
+        }
+        TypeData::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
+            collect_type_parameters(store, *positionals, output);
+            collect_type_parameters(store, *labeled, output);
+            collect_type_parameters(store, *return_type, output);
         }
         TypeData::CompleteTypePack { positionals, labeled } => {
             collect_type_parameters(store, *positionals, output);

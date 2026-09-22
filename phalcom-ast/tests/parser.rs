@@ -19,9 +19,9 @@
 
 use phalcom_ast::{
     ast::{
-        AssociatedMemberSyntax, ClassMember, Expr, GenericConstraintSyntax, ImplementationKind, KindSyntax, MemberBody, RecordLiteralEntry, ReturnStatement,
-        Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeMemberArgumentSyntax, TypeMemberParameterDomainSyntax, TypeMemberResultSyntax,
-        ExpansionMode, GenericArgumentSyntax, TypeCallableItem, TypeMemberSelectorSyntax, TypeTupleItem, VarianceSyntax,
+        AssociatedMemberSyntax, ClassMember, ExpansionMode, Expr, GenericArgumentSyntax, GenericConstraintSyntax, ImplementationKind, KindSyntax, MemberBody,
+        RecordLiteralEntry, ReturnStatement, Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeCallableItem, TypeMemberArgumentSyntax,
+        TypeMemberParameterDomainSyntax, TypeMemberResultSyntax, TypeMemberSelectorSyntax, TypeTupleItem, VarianceSyntax,
     },
     error::SyntaxErrorKind,
     parse as parse_with_recovery, parse_source,
@@ -1051,14 +1051,11 @@ type Fn<*Ps> = (*Ps,) -> Bool
 
     let program = parse_source(source, 0).expect("variadic generic binders and type pack expansions should parse");
 
-    for (statement, (expected_mode, expected_operator)) in program.statements[..3]
-        .iter()
-        .zip([
-            (ExpansionMode::Positional, "*"),
-            (ExpansionMode::Labeled, "**"),
-            (ExpansionMode::Complete, "***"),
-        ])
-    {
+    for (statement, (expected_mode, expected_operator)) in program.statements[..3].iter().zip([
+        (ExpansionMode::Positional, "*"),
+        (ExpansionMode::Labeled, "**"),
+        (ExpansionMode::Complete, "***"),
+    ]) {
         let Statement::Class(class) = statement else {
             panic!("expected class declaration")
         };
@@ -1125,7 +1122,10 @@ fn parse_compact_type_lambda_as_value_type_application() {
     let TypeAnnotationExpr::Application { arguments, .. } = &application.expr else {
         panic!("expected outer type application");
     };
-    assert!(matches!(arguments[0].as_single().expect("ordinary generic argument").expr, TypeAnnotationExpr::TypeLambda { .. }));
+    assert!(matches!(
+        arguments[0].as_single().expect("ordinary generic argument").expr,
+        TypeAnnotationExpr::TypeLambda { .. }
+    ));
 }
 
 #[test]
@@ -1527,7 +1527,15 @@ fn assert_generic_typed_fields(source: &str) {
         };
         assert_eq!(origin.origin_symbol_ref().expect("generic origin").root, "Option");
         assert_eq!(arguments.len(), 1);
-        assert_eq!(arguments[0].as_single().expect("ordinary generic argument").origin_symbol_ref().expect("generic argument").root, argument_name);
+        assert_eq!(
+            arguments[0]
+                .as_single()
+                .expect("ordinary generic argument")
+                .origin_symbol_ref()
+                .expect("generic argument")
+                .root,
+            argument_name
+        );
     }
 }
 

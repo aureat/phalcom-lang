@@ -61,7 +61,7 @@ pub use native::{
 pub use outcome::{
     BlockReason, BudgetKind, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationEvidence, RelationFailure, RelationOutcome,
 };
-pub use parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
+pub use parameter::{GenericBinderHeader, GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
 pub use projection::{ProjectionNormalizationContext, ProjectionNormalizationMode, ProjectionNormalizationResult, normalize_type};
 pub use relation::{
     Assignability, MapTypeHierarchy, RefutationReason, TypeHierarchy, check_assignability, check_assignability_bounded, check_knowledge_against_type,

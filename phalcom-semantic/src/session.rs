@@ -43,12 +43,12 @@ use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_
 use crate::traits::{TraitHeader, TraitRef, TraitSurfaceTable, build_trait_surface};
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::annotation::{
-    GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, lower_scoped_type_alias_form, resolve_generic_signature, resolve_kind_syntax,
-    type_level_binding_for_parameter,
+    GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, lower_scoped_type_alias_form, resolve_generic_binder_header,
+    resolve_generic_signature, resolve_kind_syntax, type_level_binding_for_parameter,
 };
 use crate::types::id::{KindId, TypeId};
 use crate::types::native::register_native_surfaces;
-use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
+use crate::types::parameter::{GenericBinderHeader, GenericSignature, TypeParameterData, TypeParameterOwner};
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
@@ -245,6 +245,31 @@ fn retain_generic_signature(
             ));
             None
         }
+    }
+}
+
+fn predeclare_nominal_binder_header(
+    store: &mut TypeStore,
+    module: &ModuleId,
+    declaration: &DeclarationId,
+    parameters: &[phalcom_ast::ast::GenericParameterSyntax],
+    where_clause: Option<&phalcom_ast::ast::WhereClauseSyntax>,
+) -> Option<GenericBinderHeader> {
+    if parameters.is_empty() {
+        return None;
+    }
+    let mut diagnostics = Vec::new();
+    match resolve_generic_binder_header(
+        store,
+        &TypeFormationSite::member(module.clone(), declaration.clone(), DispatchSide::Instance),
+        TypeParameterOwner::Declaration(declaration.clone()),
+        GenericBinderSite::NominalDeclaration,
+        parameters,
+        where_clause,
+        &mut diagnostics,
+    ) {
+        TypeFormationOutcome::Ready(header) => Some(header),
+        _ => None,
     }
 }
 
@@ -490,6 +515,8 @@ pub struct SemanticWorkspaceSession {
     alias_sources: BTreeMap<DeclarationId, (ModuleId, phalcom_ast::ast::TypeAliasDef)>,
     alias_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
     alias_reverse_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
+    alias_contract_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
+    alias_contract_reverse_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
     alias_forms: Arc<BTreeMap<DeclarationId, TypeId>>,
     module_diagnostics: BTreeMap<ModuleId, Vec<phalcom_modules::diagnostic::ModuleDiagnostic>>,
     canonical_native_diagnostics: BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
@@ -567,6 +594,7 @@ impl SemanticWorkspaceSession {
                 form,
                 class_object_type,
                 kind: KindId::TYPE,
+                generic_binder_header: None,
                 generic_signature: None,
                 supertype_template: None,
             });
@@ -670,6 +698,9 @@ impl SemanticWorkspaceSession {
                         form,
                         class_object_type: store.class_object_type(decl_id.clone()),
                         kind,
+                        generic_binder_header: generic_signature
+                            .as_ref()
+                            .map(|signature| GenericBinderHeader::from_signature(&store, signature)),
                         generic_signature,
                         supertype_template: None,
                     });
@@ -716,6 +747,9 @@ impl SemanticWorkspaceSession {
                         form,
                         class_object_type: store.class_object_type(decl_id.clone()),
                         kind,
+                        generic_binder_header: generic_signature
+                            .as_ref()
+                            .map(|signature| GenericBinderHeader::from_signature(&store, signature)),
                         generic_signature,
                         supertype_template: None,
                     });
@@ -1094,6 +1128,8 @@ impl SemanticWorkspaceSession {
             alias_sources: BTreeMap::new(),
             alias_dependencies: BTreeMap::new(),
             alias_reverse_dependencies: BTreeMap::new(),
+            alias_contract_dependencies: BTreeMap::new(),
+            alias_contract_reverse_dependencies: BTreeMap::new(),
             alias_forms: Arc::new(BTreeMap::new()),
             module_diagnostics: BTreeMap::new(),
             canonical_native_diagnostics,
@@ -1606,6 +1642,23 @@ impl SemanticWorkspaceSession {
         // a provider header edit must reach only headers whose bounds,
         // constraints, or superclass template mention that provider.
         let mut generic_header_work = contribution_delta.declarations.clone();
+        let mut alias_contract_work = BTreeSet::new();
+        let mut pending_contract_providers = contribution_delta
+            .declarations
+            .iter()
+            .chain(contribution_delta.declarations_removed.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        while let Some(provider) = pending_contract_providers.pop() {
+            let Some(consumers) = self.alias_contract_reverse_dependencies.get(&provider) else {
+                continue;
+            };
+            for consumer in consumers {
+                if alias_contract_work.insert(consumer.clone()) {
+                    pending_contract_providers.push(consumer.clone());
+                }
+            }
+        }
         let mut changed_header_dependencies = contribution_delta.declarations.clone();
         for module in contribution_delta.structural_modules.clone() {
             let imports_changed = match (self.semantic_structure_shards.get(&module), previous_structure_shards.get(&module)) {
@@ -2078,22 +2131,19 @@ impl SemanticWorkspaceSession {
                     if retain_previous_header {
                         continue;
                     }
-                    let kind = if !class_def.generic_parameters.is_empty() {
-                        let mut param_kinds = Vec::with_capacity(class_def.generic_parameters.len());
-                        for parameter in &class_def.generic_parameters {
-                            let Some(kind) = ready_kind_for_predeclaration(Arc::make_mut(&mut self.store), parameter.kind.as_ref()) else {
-                                param_kinds.clear();
-                                break;
-                            };
-                            param_kinds.push(kind);
-                        }
-                        if param_kinds.len() != class_def.generic_parameters.len() {
-                            continue;
-                        }
-                        Arc::make_mut(&mut self.store).arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
-                    } else {
-                        KindId::TYPE
-                    };
+                    let generic_binder_header = predeclare_nominal_binder_header(
+                        Arc::make_mut(&mut self.store),
+                        module_id,
+                        &decl_id,
+                        &class_def.generic_parameters,
+                        class_def.where_clause.as_ref(),
+                    );
+                    if !class_def.generic_parameters.is_empty() && generic_binder_header.is_none() {
+                        continue;
+                    }
+                    let kind = generic_binder_header.as_ref().map_or(KindId::TYPE, |header| {
+                        Arc::make_mut(&mut self.store).arrow_kind(header.parameter_kinds.clone(), KindId::TYPE)
+                    });
 
                     let form = if kind == KindId::TYPE {
                         Arc::make_mut(&mut self.store).nominal_type(decl_id.clone())
@@ -2106,6 +2156,7 @@ impl SemanticWorkspaceSession {
                         form,
                         class_object_type: class_obj_type,
                         kind,
+                        generic_binder_header,
                         generic_signature: None,
                         supertype_template: None,
                     });
@@ -2117,22 +2168,19 @@ impl SemanticWorkspaceSession {
                     if retain_previous_header {
                         continue;
                     }
-                    let kind = if !enum_def.generic_parameters.is_empty() {
-                        let mut param_kinds = Vec::with_capacity(enum_def.generic_parameters.len());
-                        for parameter in &enum_def.generic_parameters {
-                            let Some(kind) = ready_kind_for_predeclaration(Arc::make_mut(&mut self.store), parameter.kind.as_ref()) else {
-                                param_kinds.clear();
-                                break;
-                            };
-                            param_kinds.push(kind);
-                        }
-                        if param_kinds.len() != enum_def.generic_parameters.len() {
-                            continue;
-                        }
-                        Arc::make_mut(&mut self.store).arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
-                    } else {
-                        KindId::TYPE
-                    };
+                    let generic_binder_header = predeclare_nominal_binder_header(
+                        Arc::make_mut(&mut self.store),
+                        module_id,
+                        &decl_id,
+                        &enum_def.generic_parameters,
+                        enum_def.where_clause.as_ref(),
+                    );
+                    if !enum_def.generic_parameters.is_empty() && generic_binder_header.is_none() {
+                        continue;
+                    }
+                    let kind = generic_binder_header.as_ref().map_or(KindId::TYPE, |header| {
+                        Arc::make_mut(&mut self.store).arrow_kind(header.parameter_kinds.clone(), KindId::TYPE)
+                    });
 
                     let form = if kind == KindId::TYPE {
                         Arc::make_mut(&mut self.store).nominal_type(decl_id.clone())
@@ -2145,6 +2193,7 @@ impl SemanticWorkspaceSession {
                         form,
                         class_object_type: class_obj_type,
                         kind,
+                        generic_binder_header,
                         generic_signature: None,
                         supertype_template: None,
                     });
@@ -2156,22 +2205,19 @@ impl SemanticWorkspaceSession {
                     if retain_previous_header {
                         continue;
                     }
-                    let kind = if !data_def.generic_parameters.is_empty() {
-                        let mut param_kinds = Vec::with_capacity(data_def.generic_parameters.len());
-                        for parameter in &data_def.generic_parameters {
-                            let Some(kind) = ready_kind_for_predeclaration(Arc::make_mut(&mut self.store), parameter.kind.as_ref()) else {
-                                param_kinds.clear();
-                                break;
-                            };
-                            param_kinds.push(kind);
-                        }
-                        if param_kinds.len() != data_def.generic_parameters.len() {
-                            continue;
-                        }
-                        Arc::make_mut(&mut self.store).arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
-                    } else {
-                        KindId::TYPE
-                    };
+                    let generic_binder_header = predeclare_nominal_binder_header(
+                        Arc::make_mut(&mut self.store),
+                        module_id,
+                        &decl_id,
+                        &data_def.generic_parameters,
+                        data_def.where_clause.as_ref(),
+                    );
+                    if !data_def.generic_parameters.is_empty() && generic_binder_header.is_none() {
+                        continue;
+                    }
+                    let kind = generic_binder_header.as_ref().map_or(KindId::TYPE, |header| {
+                        Arc::make_mut(&mut self.store).arrow_kind(header.parameter_kinds.clone(), KindId::TYPE)
+                    });
 
                     let form = if kind == KindId::TYPE {
                         Arc::make_mut(&mut self.store).nominal_type(decl_id.clone())
@@ -2184,6 +2230,7 @@ impl SemanticWorkspaceSession {
                         form,
                         class_object_type,
                         kind,
+                        generic_binder_header,
                         generic_signature: None,
                         supertype_template: None,
                     });
@@ -2322,11 +2369,14 @@ impl SemanticWorkspaceSession {
             .map_or_else(TypeAliasTable::new, |snapshot| (*snapshot.type_aliases).clone());
         let mut alias_dependencies = self.alias_dependencies.clone();
         let mut alias_reverse_dependencies = self.alias_reverse_dependencies.clone();
+        let mut alias_contract_dependencies = self.alias_contract_dependencies.clone();
+        let mut alias_contract_reverse_dependencies = self.alias_contract_reverse_dependencies.clone();
         let mut alias_recomputed_declarations = declaration_shell_work
             .iter()
             .filter(|declaration| type_aliases.contains_key(declaration))
             .cloned()
             .collect::<BTreeSet<_>>();
+        alias_recomputed_declarations.extend(alias_contract_work);
         for module in &structural_recomputed_modules {
             alias_recomputed_declarations.extend(type_aliases.declarations_for_module(module).cloned());
             if let Some(shard) = self.semantic_structure_shards.get(module) {
@@ -2359,6 +2409,7 @@ impl SemanticWorkspaceSession {
         for declaration in &alias_recomputed_declarations {
             type_aliases.remove(declaration);
             remove_reverse_dependencies(&mut alias_dependencies, &mut alias_reverse_dependencies, declaration);
+            remove_reverse_dependencies(&mut alias_contract_dependencies, &mut alias_contract_reverse_dependencies, declaration);
         }
         if let Err(err) = shell_table.realize_semantic_graph(&semantic_graph) {
             match err {
@@ -2400,6 +2451,15 @@ impl SemanticWorkspaceSession {
             let mut dependencies = BTreeSet::new();
             collect_alias_dependencies(&alias.body, module_id, &resolver, &alias_declarations, &mut dependencies);
             replace_reverse_dependencies(&mut alias_dependencies, &mut alias_reverse_dependencies, declaration.clone(), dependencies);
+            let mut contract_dependencies = BTreeSet::new();
+            collect_type_annotation_declarations(&alias.body, module_id, &resolver, &mut contract_dependencies);
+            contract_dependencies.retain(|dependency| declarations.generic_binder_header(dependency).is_some());
+            replace_reverse_dependencies(
+                &mut alias_contract_dependencies,
+                &mut alias_contract_reverse_dependencies,
+                declaration.clone(),
+                contract_dependencies,
+            );
         }
         stats.alias_dependency_nodes_considered = alias_recomputed_declarations.len();
         let alias_cycle_seeds = if previous_snapshot.is_none() {
@@ -2595,6 +2655,12 @@ impl SemanticWorkspaceSession {
                     if !class_def.generic_parameters.is_empty() && generic_signature.is_none() {
                         continue;
                     }
+                    if let (Some(header), Some(signature)) = (declarations.generic_binder_header(&decl_id), generic_signature.as_ref()) {
+                        assert!(
+                            header.matches_signature(signature),
+                            "final class signature must complete its predeclared binder header"
+                        );
+                    }
                     let header = NominalDeclarationHeader::from_signature(Arc::make_mut(&mut self.store), decl_id.clone(), generic_signature);
 
                     let supertype_template = if let Some(super_ann) = &class_def.superclass {
@@ -2739,6 +2805,12 @@ impl SemanticWorkspaceSession {
                     if !enum_def.generic_parameters.is_empty() && generic_signature.is_none() {
                         continue;
                     }
+                    if let (Some(header), Some(signature)) = (declarations.generic_binder_header(&decl_id), generic_signature.as_ref()) {
+                        assert!(
+                            header.matches_signature(signature),
+                            "final enum signature must complete its predeclared binder header"
+                        );
+                    }
                     let header = NominalDeclarationHeader::from_signature(Arc::make_mut(&mut self.store), decl_id.clone(), generic_signature);
 
                     declarations.insert(header.into_type_info(None));
@@ -2803,6 +2875,12 @@ impl SemanticWorkspaceSession {
 
                     if !data_def.generic_parameters.is_empty() && generic_signature.is_none() {
                         continue;
+                    }
+                    if let (Some(header), Some(signature)) = (declarations.generic_binder_header(&decl_id), generic_signature.as_ref()) {
+                        assert!(
+                            header.matches_signature(signature),
+                            "final data signature must complete its predeclared binder header"
+                        );
                     }
                     let header = NominalDeclarationHeader::from_signature(Arc::make_mut(&mut self.store), decl_id.clone(), generic_signature);
 
@@ -5594,6 +5672,8 @@ impl SemanticWorkspaceSession {
         self.alias_sources = alias_sources;
         self.alias_dependencies = alias_dependencies;
         self.alias_reverse_dependencies = alias_reverse_dependencies;
+        self.alias_contract_dependencies = alias_contract_dependencies;
+        self.alias_contract_reverse_dependencies = alias_contract_reverse_dependencies;
         if !alias_form_updates.is_empty() {
             let mut next_alias_forms = (*self.alias_forms).clone();
             for (declaration, form) in alias_form_updates {

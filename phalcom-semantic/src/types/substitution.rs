@@ -74,6 +74,64 @@ impl TypeSubstitution {
                 let labeled = self.try_apply(store, labeled)?;
                 Ok(store.tuple_from_packs(positionals, labeled)?)
             }
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                let positionals = self.try_apply(store, positionals)?;
+                let labeled = self.try_apply(store, labeled)?;
+                let return_type = self.try_apply(store, return_type)?;
+                Ok(store.callable_from_packs(positionals, labeled, return_type)?)
+            }
+            TypeData::Applied { origin, arguments } => {
+                let subst_origin = self.try_apply(store, origin)?;
+                let subst_args = arguments.iter().map(|&arg| self.try_apply(store, arg)).collect::<Result<Vec<_>, _>>()?;
+                Ok(store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty))
+            }
+            TypeData::Tuple(elements) => {
+                let subst_elements = elements
+                    .iter()
+                    .map(|elem| {
+                        Ok(TupleTypeElement {
+                            label: elem.label.clone(),
+                            ty: self.try_apply(store, elem.ty)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, TypeSubstitutionError>>()?;
+                Ok(store.tuple(subst_elements.into_boxed_slice()))
+            }
+            TypeData::Callable(callable) => {
+                let params = callable
+                    .parameters
+                    .iter()
+                    .map(|p| {
+                        Ok(CallableParameterType {
+                            label: p.label.clone(),
+                            ty: self.try_apply(store, p.ty)?,
+                            rest: p.rest,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, TypeSubstitutionError>>()?;
+                let return_type = self.try_apply(store, callable.return_type)?;
+                Ok(store.callable(CallableType {
+                    parameters: params.into_boxed_slice(),
+                    return_type,
+                }))
+            }
+            TypeData::TypeMemberProjection(projection)
+                if projection.arguments.is_empty() && matches!(projection.subject, super::type_member::ProjectionSubject::Type(_)) =>
+            {
+                let super::type_member::ProjectionSubject::Type(subject) = projection.subject else {
+                    unreachable!()
+                };
+                let subject = self.try_apply(store, subject)?;
+                match projection.selector {
+                    super::type_member::TypeMemberSelector::Named(name) if name.as_ref() == "Positionals" => Ok(store.project_positionals(subject)?),
+                    super::type_member::TypeMemberSelector::Named(name) if name.as_ref() == "Labeled" => Ok(store.project_labeled(subject)?),
+                    _ => Ok(self.apply(store, ty)),
+                }
+            }
             _ => Ok(self.apply(store, ty)),
         }
     }
@@ -247,6 +305,16 @@ impl TypeSubstitution {
                 let subst_pos = self.apply(store, positionals);
                 let subst_lab = self.apply(store, labeled);
                 store.tuple_from_packs(subst_pos, subst_lab).unwrap_or(ty)
+            }
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                let subst_pos = self.apply(store, positionals);
+                let subst_lab = self.apply(store, labeled);
+                let subst_ret = self.apply(store, return_type);
+                store.callable_from_packs(subst_pos, subst_lab, subst_ret).unwrap_or(ty)
             }
             TypeData::CompleteTypePack { .. } | TypeData::TypePackConcat(_) | TypeData::LabeledTypePackConcat(_) => {
                 // C2 source forms must use `try_apply`; legacy callers retain
@@ -445,6 +513,16 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
             let subst_pos = specialize_self_type(store, declarations, receiver, positionals);
             let subst_lab = specialize_self_type(store, declarations, receiver, labeled);
             store.tuple_from_packs(subst_pos, subst_lab).unwrap_or(ty)
+        }
+        TypeData::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
+            let subst_pos = specialize_self_type(store, declarations, receiver, positionals);
+            let subst_lab = specialize_self_type(store, declarations, receiver, labeled);
+            let subst_ret = specialize_self_type(store, declarations, receiver, return_type);
+            store.callable_from_packs(subst_pos, subst_lab, subst_ret).unwrap_or(ty)
         }
         TypeData::CompleteTypePack { positionals, labeled } => {
             let positionals = specialize_self_type(store, declarations, receiver, positionals);

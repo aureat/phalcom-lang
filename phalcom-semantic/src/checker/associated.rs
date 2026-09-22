@@ -641,6 +641,24 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
                     .any(|parameter| scoped_contains_any_type_parameter(store, parameter.ty))
                     || scoped_contains_any_type_parameter(store, callable.return_type)
             }
+            ScopedTypeData::TypePack(elements) | ScopedTypeData::TypePackConcat(elements) => {
+                elements.iter().any(|&element| scoped_contains_any_type_parameter(store, element))
+            }
+            ScopedTypeData::LabeledTypePack(elements) => elements.iter().any(|element| scoped_contains_any_type_parameter(store, element.element)),
+            ScopedTypeData::LabeledTypePackConcat(segments) => segments.iter().any(|&segment| scoped_contains_any_type_parameter(store, segment)),
+            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+                scoped_contains_any_type_parameter(store, *positionals) || scoped_contains_any_type_parameter(store, *labeled)
+            }
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                scoped_contains_any_type_parameter(store, *positionals)
+                    || scoped_contains_any_type_parameter(store, *labeled)
+                    || scoped_contains_any_type_parameter(store, *return_type)
+            }
+            ScopedTypeData::PackProjection { subject, .. } => scoped_contains_any_type_parameter(store, *subject),
             ScopedTypeData::Lambda(lambda_id) => {
                 let lambda = store.arena().get_lambda(*lambda_id);
                 scoped_contains_any_type_parameter(store, lambda.body)

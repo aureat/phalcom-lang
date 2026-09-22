@@ -1,8 +1,9 @@
 //! Alpha-normalized Type Lambda calculus and scoped bound representation.
 
 use super::id::{KindId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId};
+use super::parameter::GenericParameterMode;
 use super::row::{RecordRowFormationError, RecordRowTail};
-use super::store::{TypeData, TypeStore};
+use super::store::{PackFormationError, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
 use crate::diagnostic::SemanticSourceSpan;
 use std::collections::HashMap;
@@ -26,6 +27,26 @@ pub enum ScopedTypeData {
     OpenRecord(ScopedOpenRecord),
     /// Scoped callable type.
     Callable(ScopedCallableType),
+    /// Ordered positional pack whose elements may mention bound lambda variables.
+    TypePack(Box<[ScopedTypeId]>),
+    /// Ordered labeled pack whose elements may mention bound lambda variables.
+    LabeledTypePack(Box<[ScopedLabeledTypePackElement]>),
+    /// Exact two-lane pack product in a scoped body.
+    CompleteTypePack { positionals: ScopedTypeId, labeled: ScopedTypeId },
+    /// Symbolic positional pack composition in a scoped body.
+    TypePackConcat(Box<[ScopedTypeId]>),
+    /// Symbolic labeled pack composition in a scoped body.
+    LabeledTypePackConcat(Box<[ScopedTypeId]>),
+    /// Tuple formation from scoped symbolic lanes.
+    TupleFromPacks { positionals: ScopedTypeId, labeled: ScopedTypeId },
+    /// Callable formation from scoped symbolic lanes and return type.
+    CallableFromPacks {
+        positionals: ScopedTypeId,
+        labeled: ScopedTypeId,
+        return_type: ScopedTypeId,
+    },
+    /// Lane projection retained while its complete-pack subject is bound.
+    PackProjection { subject: ScopedTypeId, lane: ScopedPackProjectionLane },
     /// Nested lambda reference.
     Lambda(TypeLambdaId),
 }
@@ -34,6 +55,19 @@ pub enum ScopedTypeData {
 pub struct ScopedTupleElement {
     pub label: Option<Box<str>>,
     pub ty: ScopedTypeId,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ScopedLabeledTypePackElement {
+    pub label: Box<str>,
+    pub element: ScopedTypeId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ScopedPackProjectionLane {
+    Positionals,
+    Labeled,
+    Complete,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -71,6 +105,7 @@ pub struct ScopedCallableType {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeLambdaData {
     pub parameter_kinds: Box<[KindId]>,
+    pub parameter_modes: Box<[GenericParameterMode]>,
     pub body: ScopedTypeId,
     pub result_kind: KindId,
 }
@@ -119,8 +154,27 @@ impl TypeLambdaArena {
         result_kind: KindId,
         prov: Option<TypeLambdaProvenance>,
     ) -> TypeLambdaId {
+        let parameter_modes = vec![GenericParameterMode::Single; parameter_kinds.len()].into_boxed_slice();
+        self.intern_lambda_with_modes(parameter_kinds, parameter_modes, body, result_kind, prov)
+    }
+
+    /// Interns a lambda while preserving each source binder's application mode.
+    pub fn intern_lambda_with_modes(
+        &mut self,
+        parameter_kinds: Box<[KindId]>,
+        parameter_modes: Box<[GenericParameterMode]>,
+        body: ScopedTypeId,
+        result_kind: KindId,
+        prov: Option<TypeLambdaProvenance>,
+    ) -> TypeLambdaId {
+        assert_eq!(
+            parameter_kinds.len(),
+            parameter_modes.len(),
+            "type-lambda parameter kinds and modes must remain aligned"
+        );
         let data = TypeLambdaData {
             parameter_kinds,
+            parameter_modes,
             body,
             result_kind,
         };
@@ -170,6 +224,24 @@ impl TypeLambdaArena {
             ScopedTypeData::Callable(call) => {
                 call.parameters.iter().any(|p| self.has_free_bound(p.ty, current_depth)) || self.has_free_bound(call.return_type, current_depth)
             }
+            ScopedTypeData::TypePack(elements) | ScopedTypeData::TypePackConcat(elements) => {
+                elements.iter().any(|&element| self.has_free_bound(element, current_depth))
+            }
+            ScopedTypeData::LabeledTypePack(elements) => elements.iter().any(|element| self.has_free_bound(element.element, current_depth)),
+            ScopedTypeData::LabeledTypePackConcat(segments) => segments.iter().any(|&segment| self.has_free_bound(segment, current_depth)),
+            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+                self.has_free_bound(*positionals, current_depth) || self.has_free_bound(*labeled, current_depth)
+            }
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.has_free_bound(*positionals, current_depth)
+                    || self.has_free_bound(*labeled, current_depth)
+                    || self.has_free_bound(*return_type, current_depth)
+            }
+            ScopedTypeData::PackProjection { subject, .. } => self.has_free_bound(*subject, current_depth),
             ScopedTypeData::Lambda(lid) => {
                 let inner = self.get_lambda(*lid);
                 self.has_free_bound(inner.body, current_depth + 1)
@@ -218,6 +290,35 @@ impl TypeLambdaArena {
                 }
                 self.collect_free_types(call.return_type, out);
             }
+            ScopedTypeData::TypePack(elements) | ScopedTypeData::TypePackConcat(elements) => {
+                for &element in elements.iter() {
+                    self.collect_free_types(element, out);
+                }
+            }
+            ScopedTypeData::LabeledTypePack(elements) => {
+                for element in elements.iter() {
+                    self.collect_free_types(element.element, out);
+                }
+            }
+            ScopedTypeData::LabeledTypePackConcat(segments) => {
+                for &segment in segments.iter() {
+                    self.collect_free_types(segment, out);
+                }
+            }
+            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+                self.collect_free_types(*positionals, out);
+                self.collect_free_types(*labeled, out);
+            }
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.collect_free_types(*positionals, out);
+                self.collect_free_types(*labeled, out);
+                self.collect_free_types(*return_type, out);
+            }
+            ScopedTypeData::PackProjection { subject, .. } => self.collect_free_types(*subject, out),
             ScopedTypeData::Lambda(lid) => {
                 let inner = self.get_lambda(*lid);
                 self.collect_free_types(inner.body, out);
@@ -254,8 +355,9 @@ impl TypeLambdaArena {
             Ok(BetaResult::Canonical(substituted))
         } else {
             let residual_kinds = lambda.parameter_kinds[args.len()..].to_vec().into_boxed_slice();
+            let residual_modes = lambda.parameter_modes[args.len()..].to_vec().into_boxed_slice();
             let shifted_body = self.subst_scoped_partial(lambda.body, 0, args, store);
-            let residual_id = self.intern_lambda(residual_kinds, shifted_body, lambda.result_kind, None);
+            let residual_id = self.intern_lambda_with_modes(residual_kinds, residual_modes, shifted_body, lambda.result_kind, None);
             Ok(BetaResult::ResidualLambda(residual_id))
         }
     }
@@ -267,7 +369,7 @@ impl TypeLambdaArena {
     pub fn substitute_free_types(&mut self, lambda_id: TypeLambdaId, substitution: &TypeSubstitution, store: &mut TypeStore) -> TypeLambdaId {
         let lambda = self.get_lambda(lambda_id).clone();
         let body = self.substitute_free_scoped(lambda.body, substitution, store);
-        self.intern_lambda(lambda.parameter_kinds, body, lambda.result_kind, None)
+        self.intern_lambda_with_modes(lambda.parameter_kinds, lambda.parameter_modes, body, lambda.result_kind, None)
     }
 
     fn substitute_free_scoped(&mut self, scoped: ScopedTypeId, substitution: &TypeSubstitution, store: &mut TypeStore) -> ScopedTypeId {
@@ -342,10 +444,73 @@ impl TypeLambdaArena {
                 let return_type = self.substitute_free_scoped(callable.return_type, substitution, store);
                 self.intern_scoped(ScopedTypeData::Callable(ScopedCallableType { parameters, return_type }))
             }
+            ScopedTypeData::TypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|&element| self.substitute_free_scoped(element, substitution, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::TypePack(elements))
+            }
+            ScopedTypeData::LabeledTypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|element| ScopedLabeledTypePackElement {
+                        label: element.label.clone(),
+                        element: self.substitute_free_scoped(element.element, substitution, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::LabeledTypePack(elements))
+            }
+            ScopedTypeData::CompleteTypePack { positionals, labeled } => {
+                let positionals = self.substitute_free_scoped(positionals, substitution, store);
+                let labeled = self.substitute_free_scoped(labeled, substitution, store);
+                self.intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled })
+            }
+            ScopedTypeData::TypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|&segment| self.substitute_free_scoped(segment, substitution, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::TypePackConcat(segments))
+            }
+            ScopedTypeData::LabeledTypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|&segment| self.substitute_free_scoped(segment, substitution, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::LabeledTypePackConcat(segments))
+            }
+            ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+                let positionals = self.substitute_free_scoped(positionals, substitution, store);
+                let labeled = self.substitute_free_scoped(labeled, substitution, store);
+                self.intern_scoped(ScopedTypeData::TupleFromPacks { positionals, labeled })
+            }
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                let positionals = self.substitute_free_scoped(positionals, substitution, store);
+                let labeled = self.substitute_free_scoped(labeled, substitution, store);
+                let return_type = self.substitute_free_scoped(return_type, substitution, store);
+                self.intern_scoped(ScopedTypeData::CallableFromPacks {
+                    positionals,
+                    labeled,
+                    return_type,
+                })
+            }
+            ScopedTypeData::PackProjection { subject, lane } => {
+                let subject = self.substitute_free_scoped(subject, substitution, store);
+                self.intern_scoped(ScopedTypeData::PackProjection { subject, lane })
+            }
             ScopedTypeData::Lambda(nested_id) => {
                 let nested = self.get_lambda(nested_id).clone();
                 let body = self.substitute_free_scoped(nested.body, substitution, store);
-                let nested_id = self.intern_lambda(nested.parameter_kinds, body, nested.result_kind, None);
+                let nested_id = self.intern_lambda_with_modes(nested.parameter_kinds, nested.parameter_modes, body, nested.result_kind, None);
                 self.intern_scoped(ScopedTypeData::Lambda(nested_id))
             }
         }
@@ -439,6 +604,70 @@ impl TypeLambdaArena {
                     return_type: can_ret,
                 }))
             }
+            ScopedTypeData::TypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|&element| self.subst_scoped_to_canonical(element, depth, args, store))
+                    .collect::<Result<Vec<_>, _>>()?;
+                store.type_pack(elements.into_boxed_slice()).map_err(BetaReductionError::PackFormation)
+            }
+            ScopedTypeData::LabeledTypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|element| {
+                        Ok(super::store::LabeledTypePackElement {
+                            label: element.label.clone(),
+                            element: self.subst_scoped_to_canonical(element.element, depth, args, store)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, BetaReductionError>>()?;
+                store.labeled_type_pack(elements.into_boxed_slice()).map_err(BetaReductionError::PackFormation)
+            }
+            ScopedTypeData::CompleteTypePack { positionals, labeled } => {
+                let positionals = self.subst_scoped_to_canonical(positionals, depth, args, store)?;
+                let labeled = self.subst_scoped_to_canonical(labeled, depth, args, store)?;
+                store.complete_type_pack(positionals, labeled).map_err(BetaReductionError::PackFormation)
+            }
+            ScopedTypeData::TypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|&segment| self.subst_scoped_to_canonical(segment, depth, args, store))
+                    .collect::<Result<Vec<_>, _>>()?;
+                store.type_pack_concat(&segments).map_err(BetaReductionError::PackFormation)
+            }
+            ScopedTypeData::LabeledTypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|&segment| self.subst_scoped_to_canonical(segment, depth, args, store))
+                    .collect::<Result<Vec<_>, _>>()?;
+                store.labeled_type_pack_concat(&segments).map_err(BetaReductionError::PackFormation)
+            }
+            ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+                let positionals = self.subst_scoped_to_canonical(positionals, depth, args, store)?;
+                let labeled = self.subst_scoped_to_canonical(labeled, depth, args, store)?;
+                store.tuple_from_packs(positionals, labeled).map_err(BetaReductionError::PackFormation)
+            }
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                let positionals = self.subst_scoped_to_canonical(positionals, depth, args, store)?;
+                let labeled = self.subst_scoped_to_canonical(labeled, depth, args, store)?;
+                let return_type = self.subst_scoped_to_canonical(return_type, depth, args, store)?;
+                store
+                    .callable_from_packs(positionals, labeled, return_type)
+                    .map_err(BetaReductionError::PackFormation)
+            }
+            ScopedTypeData::PackProjection { subject, lane } => {
+                let subject = self.subst_scoped_to_canonical(subject, depth, args, store)?;
+                match lane {
+                    ScopedPackProjectionLane::Positionals => store.project_positionals(subject),
+                    ScopedPackProjectionLane::Labeled => store.project_labeled(subject),
+                    ScopedPackProjectionLane::Complete => store.project_complete(subject),
+                }
+                .map_err(BetaReductionError::PackFormation)
+            }
             ScopedTypeData::Lambda(lid) => {
                 let nested = self.get_lambda(lid).clone();
                 // Inner binders remain scoped while outer arguments are
@@ -447,7 +676,7 @@ impl TypeLambdaArena {
                 // unbound once the enclosing lambda is saturated.
                 let scoped_body = self.subst_scoped_partial(nested.body, depth + 1, args, store);
                 let parameter_kinds = nested.parameter_kinds.clone();
-                let new_lid = self.intern_lambda(parameter_kinds.clone(), scoped_body, nested.result_kind, None);
+                let new_lid = self.intern_lambda_with_modes(parameter_kinds.clone(), nested.parameter_modes, scoped_body, nested.result_kind, None);
                 // `self` is the cloned arena used by `TypeStore::apply_type_form`.
                 // Intern the denotation against that arena's ID; calling
                 // `store.type_lambda` here would read the pre-clone arena and
@@ -540,10 +769,73 @@ impl TypeLambdaArena {
                     return_type: s_ret,
                 }))
             }
+            ScopedTypeData::TypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|&element| self.subst_scoped_partial(element, depth, args, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::TypePack(elements))
+            }
+            ScopedTypeData::LabeledTypePack(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|element| ScopedLabeledTypePackElement {
+                        label: element.label.clone(),
+                        element: self.subst_scoped_partial(element.element, depth, args, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::LabeledTypePack(elements))
+            }
+            ScopedTypeData::CompleteTypePack { positionals, labeled } => {
+                let positionals = self.subst_scoped_partial(positionals, depth, args, store);
+                let labeled = self.subst_scoped_partial(labeled, depth, args, store);
+                self.intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled })
+            }
+            ScopedTypeData::TypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|&segment| self.subst_scoped_partial(segment, depth, args, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::TypePackConcat(segments))
+            }
+            ScopedTypeData::LabeledTypePackConcat(segments) => {
+                let segments = segments
+                    .iter()
+                    .map(|&segment| self.subst_scoped_partial(segment, depth, args, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::LabeledTypePackConcat(segments))
+            }
+            ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+                let positionals = self.subst_scoped_partial(positionals, depth, args, store);
+                let labeled = self.subst_scoped_partial(labeled, depth, args, store);
+                self.intern_scoped(ScopedTypeData::TupleFromPacks { positionals, labeled })
+            }
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                let positionals = self.subst_scoped_partial(positionals, depth, args, store);
+                let labeled = self.subst_scoped_partial(labeled, depth, args, store);
+                let return_type = self.subst_scoped_partial(return_type, depth, args, store);
+                self.intern_scoped(ScopedTypeData::CallableFromPacks {
+                    positionals,
+                    labeled,
+                    return_type,
+                })
+            }
+            ScopedTypeData::PackProjection { subject, lane } => {
+                let subject = self.subst_scoped_partial(subject, depth, args, store);
+                self.intern_scoped(ScopedTypeData::PackProjection { subject, lane })
+            }
             ScopedTypeData::Lambda(lid) => {
                 let nested = self.get_lambda(lid).clone();
                 let s_body = self.subst_scoped_partial(nested.body, depth + 1, args, store);
-                let new_lid = self.intern_lambda(nested.parameter_kinds, s_body, nested.result_kind, None);
+                let new_lid = self.intern_lambda_with_modes(nested.parameter_kinds, nested.parameter_modes, s_body, nested.result_kind, None);
                 self.intern_scoped(ScopedTypeData::Lambda(new_lid))
             }
         }
@@ -568,6 +860,8 @@ pub enum BetaReductionError {
     UnsupportedRecordRowArgument,
     #[error(transparent)]
     RecordRowFormation(#[from] RecordRowFormationError),
+    #[error(transparent)]
+    PackFormation(#[from] PackFormationError),
     #[error(transparent)]
     Application(#[from] super::application::TypeApplicationError),
 }

@@ -319,6 +319,27 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 ProjectionNormalizationResult::Normalized(normalized)
             }
         }
+        TypeData::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
+            let res_pos = normalize_type(store, positionals, context);
+            let symbolic_pos = res_pos.is_symbolic();
+            let Some(pos) = res_pos.type_id() else { return res_pos };
+            let res_lab = normalize_type(store, labeled, context);
+            let symbolic_lab = res_lab.is_symbolic();
+            let Some(lab) = res_lab.type_id() else { return res_lab };
+            let res_ret = normalize_type(store, return_type, context);
+            let symbolic_ret = res_ret.is_symbolic();
+            let Some(ret) = res_ret.type_id() else { return res_ret };
+            let normalized = store.callable_from_packs(pos, lab, ret).unwrap_or(ty);
+            if symbolic_pos || symbolic_lab || symbolic_ret {
+                ProjectionNormalizationResult::Symbolic(normalized)
+            } else {
+                ProjectionNormalizationResult::Normalized(normalized)
+            }
+        }
         TypeData::CompleteTypePack { positionals, labeled } => {
             let positionals = match normalize_type(store, positionals, context) {
                 result @ (ProjectionNormalizationResult::Normalized(_) | ProjectionNormalizationResult::Symbolic(_)) => result,

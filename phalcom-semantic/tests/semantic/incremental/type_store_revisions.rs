@@ -495,6 +495,47 @@ fn alias_incremental_result_matches_cold_final_analysis() {
 }
 
 #[test]
+fn nominal_binder_contract_edit_recomputes_variadic_alias_to_cold_parity() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(102),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("variadic_alias_contract").unwrap()]),
+    );
+    let initial = r#"
+class Target<T> {}
+type Forward<*Ts> = Target<*Ts>
+"#;
+    let final_source = r#"
+class Target<*Ts> {}
+type Forward<*Ts> = Target<*Ts>
+"#;
+
+    let mut incremental = SemanticWorkspaceSession::new();
+    let initial_update = incremental.update(single_module_input(module.clone(), initial, 1));
+    assert!(initial_update.snapshot.has_errors(), "the fixed Target binder must reject *Ts forwarding");
+
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    assert!(!incremental_final.snapshot.has_errors(), "{:?}", incremental_final.snapshot.diagnostics);
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    assert!(!cold_final.snapshot.has_errors(), "{:?}", cold_final.snapshot.diagnostics);
+
+    let forward = DeclarationId::new(module, "Forward".into());
+    let incremental_form = incremental_final.snapshot.type_aliases.form(&forward).expect("incremental Forward form");
+    let cold_form = cold_final.snapshot.type_aliases.form(&forward).expect("cold Forward form");
+    assert_eq!(
+        incremental_final.snapshot.store.format_type(incremental_form),
+        cold_final.snapshot.store.format_type(cold_form),
+        "incremental and cold Forward forms must have equal structural meaning"
+    );
+    assert_eq!(
+        incremental_final.snapshot.store.kind_of(incremental_form),
+        cold_final.snapshot.store.kind_of(cold_form),
+        "incremental and cold Forward forms must have equal kinds"
+    );
+}
+
+#[test]
 fn generic_constraint_edit_recomputes_dependent_consumer_signature() {
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(96),

@@ -1084,19 +1084,17 @@ fn variadic_generic_binders_derive_modes_kinds_and_reject_ambiguous_order() {
         },
     ];
     let mut diagnostics = Vec::new();
-    let phalcom_semantic::types::annotation::TypeFormationOutcome::Ready(signature) =
-        phalcom_semantic::types::annotation::resolve_generic_signature(
-            &mut env.store,
-            &env.declarations,
-            &env.resolver,
-            &env.site,
-            owner,
-            phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
-            &params,
-            None,
-            &mut diagnostics,
-        )
-    else {
+    let phalcom_semantic::types::annotation::TypeFormationOutcome::Ready(signature) = phalcom_semantic::types::annotation::resolve_generic_signature(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        owner,
+        phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
+        &params,
+        None,
+        &mut diagnostics,
+    ) else {
         panic!("expected variadic signature")
     };
     assert!(diagnostics.is_empty());
@@ -1111,15 +1109,18 @@ fn variadic_generic_binders_derive_modes_kinds_and_reject_ambiguous_order() {
     assert_eq!(env.store.type_parameter(signature.parameters[1]).kind, KindId::LABELED_TYPE_PACK);
 
     let mut diagnostics = Vec::new();
-    let invalid = vec![params[0].clone(), phalcom_ast::ast::GenericParameterSyntax {
-        mode: None,
-        mode_range: None,
-        variance: phalcom_ast::ast::VarianceSyntax::Invariant,
-        name: "T".into(),
-        name_range: RANGE,
-        kind: None,
-        range: RANGE,
-    }];
+    let invalid = vec![
+        params[0].clone(),
+        phalcom_ast::ast::GenericParameterSyntax {
+            mode: None,
+            mode_range: None,
+            variance: phalcom_ast::ast::VarianceSyntax::Invariant,
+            name: "T".into(),
+            name_range: RANGE,
+            kind: None,
+            range: RANGE,
+        },
+    ];
     let result = phalcom_semantic::types::annotation::resolve_generic_signature(
         &mut env.store,
         &env.declarations,
@@ -1131,7 +1132,10 @@ fn variadic_generic_binders_derive_modes_kinds_and_reject_ambiguous_order() {
         None,
         &mut diagnostics,
     );
-    assert!(matches!(result, phalcom_semantic::types::annotation::TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax)));
+    assert!(matches!(
+        result,
+        phalcom_semantic::types::annotation::TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax)
+    ));
     assert!(!diagnostics.is_empty());
 }
 
@@ -1153,6 +1157,7 @@ fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
         form,
         class_object_type,
         kind,
+        generic_binder_header: Some(phalcom_semantic::types::parameter::GenericBinderHeader::from_signature(&env.store, &signature)),
         generic_signature: Some(signature),
         supertype_template: None,
     });
@@ -1180,6 +1185,35 @@ fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
         panic!("expected binder-aligned application")
     };
     assert!(matches!(env.store.get(arguments[0]), TypeData::TypePack(elements) if elements.len() == 2));
+}
+
+#[test]
+fn tuple_pack_expansion_preserves_an_abstract_positional_lane() {
+    let mut env = setup();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "TupleAlias".into()));
+    let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "P", KindId::TYPE_PACK));
+    let pack = env.store.parameter_form(parameter);
+    env.resolver.insert_type_form_binding("P", pack);
+    let tuple = TypeAnnotation {
+        expr: TypeAnnotationExpr::Tuple {
+            elements: vec![phalcom_ast::ast::TypeTupleItem::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Positional,
+                operator_range: RANGE,
+                operand: reference("P"),
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(tuple) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &tuple, &mut diagnostics)
+    else {
+        panic!("expected Tuple pack expansion to lower")
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert!(matches!(env.store.get(tuple), TypeData::TupleFromPacks { positionals, .. } if *positionals == pack));
 }
 
 #[test]
@@ -1365,4 +1399,124 @@ fn callable_generic_variance_is_rejected() {
         phalcom_semantic::types::annotation::TypeFormationOutcome::Invalid(TypeFormationInvalid::InvalidVariance)
     ));
     assert!(!diagnostics.is_empty());
+}
+
+#[test]
+fn callable_domain_pack_expansion_and_concrete_collapse() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+
+    // 1. Concrete expansion collapses to standard CallableType
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let string_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
+    let bool_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap();
+    let pack = env.store.type_pack(vec![int_ty, string_ty].into_boxed_slice()).unwrap();
+    let p_annot = reference("Pack");
+
+    let mut resolver = env.resolver.clone();
+    resolver.insert_parameter("Pack", pack);
+
+    let callable_expr = TypeAnnotation {
+        expr: TypeAnnotationExpr::Callable {
+            parameters: vec![
+                phalcom_ast::ast::TypeCallableItem::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                    mode: phalcom_ast::ast::ExpansionMode::Positional,
+                    operator_range: RANGE,
+                    operand: p_annot,
+                    range: RANGE,
+                }),
+                phalcom_ast::ast::TypeCallableItem::Parameter(phalcom_ast::ast::TypeCallableParameter {
+                    label: Some("flag".into()),
+                    ty: reference("Bool"),
+                    rest: false,
+                    range: RANGE,
+                }),
+            ],
+            result: Box::new(reference("Bool")),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+
+    let res = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &resolver, &env.site, &callable_expr, &mut diagnostics);
+
+    let TypeFormResolution::Ready(callable_ty) = res else {
+        panic!("expected callable resolution success, got {res:?}");
+    };
+    match env.store.get(callable_ty) {
+        TypeData::Callable(call) => {
+            assert_eq!(call.parameters.len(), 3);
+            assert_eq!(call.parameters[0].ty, int_ty);
+            assert_eq!(call.parameters[0].label, None);
+            assert_eq!(call.parameters[1].ty, string_ty);
+            assert_eq!(call.parameters[1].label, None);
+            assert_eq!(call.parameters[2].ty, bool_ty);
+            assert_eq!(call.parameters[2].label.as_deref(), Some("flag"));
+            assert_eq!(call.return_type, bool_ty);
+        }
+        other => panic!("expected TypeData::Callable, got {other:?}"),
+    }
+}
+
+#[test]
+fn callable_domain_symbolic_pack_expansion_produces_callable_from_packs() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+
+    let owner = phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "Owner".into()));
+    let param_data =
+        TypeParameterData::new(owner, 0, "Ts", KindId::TYPE_PACK).with_mode(phalcom_semantic::types::parameter::GenericParameterMode::PositionalPack);
+    let param_id = env.store.intern_type_parameter(param_data);
+    let param_ty = env.store.parameter_form(param_id);
+
+    let mut resolver = env.resolver.clone();
+    resolver.insert_parameter("Ts", param_ty);
+
+    let callable_expr = TypeAnnotation {
+        expr: TypeAnnotationExpr::Callable {
+            parameters: vec![phalcom_ast::ast::TypeCallableItem::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Positional,
+                operator_range: RANGE,
+                operand: reference("Ts"),
+                range: RANGE,
+            })],
+            result: Box::new(reference("Bool")),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+
+    let res = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &resolver, &env.site, &callable_expr, &mut diagnostics);
+
+    let TypeFormResolution::Ready(callable_ty) = res else {
+        panic!("expected callable resolution success, got {res:?}");
+    };
+    match env.store.get(callable_ty) {
+        TypeData::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
+            assert_eq!(*positionals, param_ty);
+            assert_eq!(env.store.kind_of(*positionals), KindId::TYPE_PACK);
+            assert_eq!(env.store.kind_of(*labeled), KindId::LABELED_TYPE_PACK);
+            let bool_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap();
+            assert_eq!(*return_type, bool_ty);
+        }
+        other => panic!("expected TypeData::CallableFromPacks, got {other:?}"),
+    }
+
+    // Now test try_apply substitution
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let concrete_pack = env.store.type_pack(vec![int_ty].into_boxed_slice()).unwrap();
+    let mut subst = TypeSubstitution::default();
+    subst.bind(param_id, concrete_pack);
+    let substituted = subst.try_apply(&mut env.store, callable_ty).unwrap();
+    match env.store.get(substituted) {
+        TypeData::Callable(call) => {
+            assert_eq!(call.parameters.len(), 1);
+            assert_eq!(call.parameters[0].ty, int_ty);
+        }
+        other => panic!("expected substitution to collapse to TypeData::Callable, got {other:?}"),
+    }
 }

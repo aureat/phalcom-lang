@@ -638,9 +638,7 @@ impl SourceScopeBuilder<'_> {
                 for argument in arguments {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.visit_annotation_projection_targets(annotation),
-                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
-                            self.visit_annotation_projection_targets(&expansion.operand)
-                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.visit_annotation_projection_targets(&expansion.operand),
                     }
                 }
             }
@@ -653,9 +651,7 @@ impl SourceScopeBuilder<'_> {
                 for element in elements {
                     match element {
                         phalcom_ast::ast::TypeTupleItem::Element(element) => self.visit_annotation_projection_targets(&element.ty),
-                        phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
-                            self.visit_annotation_projection_targets(&expansion.operand)
-                        }
+                        phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => self.visit_annotation_projection_targets(&expansion.operand),
                     }
                 }
             }
@@ -667,12 +663,8 @@ impl SourceScopeBuilder<'_> {
             TypeAnnotationExpr::Callable { parameters, result, .. } => {
                 for parameter in parameters {
                     match parameter {
-                        phalcom_ast::ast::TypeCallableItem::Parameter(parameter) => {
-                            self.visit_annotation_projection_targets(&parameter.ty)
-                        }
-                        phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
-                            self.visit_annotation_projection_targets(&expansion.operand)
-                        }
+                        phalcom_ast::ast::TypeCallableItem::Parameter(parameter) => self.visit_annotation_projection_targets(&parameter.ty),
+                        phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => self.visit_annotation_projection_targets(&expansion.operand),
                     }
                 }
                 self.visit_annotation_projection_targets(result);

@@ -53,6 +53,8 @@ pub enum MetadataExportError {
     InvalidGenericSignature(GenericSignaturePublicationError),
     #[error("non-exportable internal form: {0:?}")]
     NonExportableForm(TypeId),
+    #[error("cannot export scoped pack form before stable P2 metadata lowering")]
+    ScopedPackForm,
     #[error("resolved-project metadata requires ProjectUniverse identity context")]
     MissingProjectIdentityContext,
     #[error("resolved project {0} is absent from ProjectUniverse")]
@@ -402,6 +404,14 @@ impl<'a> MetadataExporter<'a> {
                     return_type,
                 })
             }
+            ScopedTypeData::TypePack(_)
+            | ScopedTypeData::LabeledTypePack(_)
+            | ScopedTypeData::CompleteTypePack { .. }
+            | ScopedTypeData::TypePackConcat(_)
+            | ScopedTypeData::LabeledTypePackConcat(_)
+            | ScopedTypeData::TupleFromPacks { .. }
+            | ScopedTypeData::CallableFromPacks { .. }
+            | ScopedTypeData::PackProjection { .. } => return Err(MetadataExportError::ScopedPackForm),
             ScopedTypeData::Lambda(lam_id) => {
                 let lam_data = self.store.arena().get_lambda(lam_id).clone();
                 let p_kinds: Vec<KindNodeId> = lam_data.parameter_kinds.iter().map(|&pk| self.export_kind(pk)).collect();
@@ -667,6 +677,20 @@ impl<'a> MetadataExporter<'a> {
                     labeled: lab,
                 }
             }
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                let pos = self.export_type_form(positionals)?;
+                let lab = self.export_type_form(labeled)?;
+                let ret = self.export_type_form(return_type)?;
+                TypeNode::CallableFromPacks {
+                    positionals: pos,
+                    labeled: lab,
+                    return_type: ret,
+                }
+            }
             TypeData::TypeMemberProjection(proj) => {
                 let subject = match &proj.subject {
                     crate::types::type_member::ProjectionSubject::Type(ty) => self.export_type_form(*ty)?,
@@ -835,6 +859,16 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(16);
                 fp_b.write_fingerprint(self.types[positionals.0 as usize].structural_fingerprint);
                 fp_b.write_fingerprint(self.types[labeled.0 as usize].structural_fingerprint);
+            }
+            TypeNode::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                fp_b.write_u8(21);
+                fp_b.write_fingerprint(self.types[positionals.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.types[labeled.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.types[return_type.0 as usize].structural_fingerprint);
             }
             TypeNode::TypeMemberProjection(proj) => {
                 fp_b.write_u8(17);

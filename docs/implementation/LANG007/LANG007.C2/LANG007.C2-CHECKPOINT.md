@@ -14,7 +14,7 @@ requirements_baseline_subject: "feat(lang007): continue C2 universe implementati
 previous_checkpoint: LANG007.C1
 previous_checkpoint_status: COMPLETE
 active_plan: null
-next_plan: LANG007.C2.P2
+next_plan: LANG007.C2.P3
 prepared: 2026-09-22
 requires:
   - docs/implementation/LANG007/PROGRAM.md
@@ -53,7 +53,7 @@ next_plan: LANG007.C2.P2
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
 | `LANG007.C2.P1` | canonical pack composition and variadic binder semantics | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | exact complete-pack kind and term, flat concat, mode-sensitive signatures, checked rewrite, and schema-v3 persistence established |
-| `LANG007.C2.P2` | source variadic generic binding and structural/callable type expansion | `PROPOSED` | `NOT_STARTED` | `UNVERIFIED` | next action |
+| `LANG007.C2.P2` | source variadic generic binding and structural/callable type expansion | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` | source AST/binder/application, Tuple expansion, callable-domain pack expansion with CallableFromPacks, and metadata integration completed |
 
 ### Durable P1 interfaces
 
@@ -82,9 +82,52 @@ next_plan: LANG007.C2.P2
 
 P2 must elaborate source `*` / `**` / `***` directly into P1 canonical terms. It must migrate all source-reachable C2 rewrite paths to `TypeSubstitution::try_apply` or the corresponding fallible materialization path before enabling syntax that can make symbolic labeled overlap concrete. It must not infer mode from kind, use `...` for packs, add pack decomposition, or introduce runtime pack ABI work.
 
+### P1 projection amendment
+
+**Incident:** `LANG007.C2.P2` exposed that `TypeStore` lane projection matched only concrete `TypeData` shapes, contrary to the accepted P1 abstraction contract.
+
+**Decision:** P1 projection is domain-driven. `TypePack` terms project positionally by identity, `LabeledTypePack` terms project labeled by identity, and `CompleteTypePack` terms project completely by identity. Opaque complete-pack terms project positionally/labeled through canonical `TypeMemberProjection` residuals using `Positionals` / `Labeled`; checked substitution re-enters the projection constructors so those residuals reduce when their subject becomes concrete.
+
+**Preserved boundaries:** No pack splitting solver, parallel pack representation, syntax-specific projection path, or runtime behavior is introduced. Concrete `CompleteTypePack`, Tuple, `TupleFromPacks`, Unit, and invalid cross-lane behavior remain canonical P1 behavior.
+
+**Evidence:** `semantic::foundations::type_model::lane_projections_accept_symbolic_terms_with_their_exact_pack_kind` proves exact-domain identity, invalid cross-lane rejection, opaque complete residual formation, non-bare TypePack-kind identity, and checked-substitution reduction. The P1 focused type-model (17) and substitution (4) suites passed after the amendment.
+
+### SC-04 staged generic declaration publication amendment
+
+**Incident:** Variadic alias lowering (`type Forward<*Ts> = Target<*Ts>`) was blocked because nominal declarations exposed their `GenericSignature` only after transparent aliases were lowered. Moving the entire signature pass ahead of aliases created an alias↔constraint cycle.
+
+**Decision:** Adopted staged generic declaration publication.
+1. `resolve_generic_binder_header` establishes canonical parameter identities, kinds, variances, and modes without constraint lowering.
+2. Nominal shells publish `GenericBinderHeader` during the existing predeclaration phase before alias lowering.
+3. Transparent alias lowering reads application contracts from canonical nominal binder headers or canonical `TypeLambdaData` parameter modes rather than maintaining a second signature store.
+4. Nominal declarations complete the finalized `GenericSignature` later from the same binder header after aliases are available for constraints.
+5. Alias-to-nominal declaration contract dependencies are tracked in a dedicated reverse index (`alias_contract_dependencies` / `alias_contract_reverse_dependencies`) for incremental invalidation without participating in alias-cycle detection.
+
+**Preserved boundaries:** No fake empty-constraint signatures are published, full generic signature realization remains after aliases, and nominal dependencies do not enter alias-cycle detection.
+
+**Evidence:**
+- `semantic::capabilities::aliases::variadic_aliases_forward_nominal_and_lambda_application_contracts`: PASS (forward nominal, reverse nominal, and alias-to-alias lambda forwarding).
+- `semantic::capabilities::aliases::single_type_pack_parameter_is_not_a_variadic_binder`: PASS.
+- `semantic::capabilities::aliases::nominal_binder_header_does_not_require_alias_dependent_constraints`: PASS.
+- `semantic::incremental::type_store_revisions::nominal_binder_contract_edit_recomputes_variadic_alias_to_cold_parity`: PASS.
+- `semantic::integration::imported_resolution::imported_nominal_binder_header_supports_variadic_alias_forwarding`: PASS (including provider-only invalidation).
+- `semantic::foundations::type_annotations::callable_domain_pack_expansion_and_concrete_collapse`: PASS.
+- `semantic::foundations::type_annotations::callable_domain_symbolic_pack_expansion_produces_callable_from_packs`: PASS.
+- `semantic::capabilities::aliases::variadic_callable_alias_lowers_and_beta_reduces`: PASS.
+
+### P2 completion summary
+
+P2 is complete at the `FOCUSED_TESTED` level:
+1. Variadic generic binders `*`, `**`, `***` parse and derive `GenericParameterMode` and domain kinds across declarations.
+2. Generic applications consume canonical binder contracts with binder-aligned argument assembly and empty `<>` specialization.
+3. Tuple types structurally expand `*`, `**`, `***` through `TupleFromPacks` and canonicalize to `Tuple` / `Unit`.
+4. Callable domains expand packs through `TypeData::CallableFromPacks` and `ScopedTypeData::CallableFromPacks`, collapsing concrete lanes into standard `CallableType`.
+5. `TypeSubstitution::try_apply` and materialization preserve fallibility and re-canonicalize `CallableFromPacks` and all C2 terms.
+6. Durable metadata and validators support `CallableFromPacks`.
+
 ### Next action
 
-Execute `LANG007.C2.P2` source binder/application elaboration against the P1 handoff. C2 remains open.
+Execute `LANG007.C2.P3`: whole-pack inference, cross-module metadata round-trip, persistence/incremental certification, and C2 checkpoint closure.
 
 Future implementers must re-read `PROGRAM.md`, `STATUS.md`, this checkpoint, the P1 handoff, and the current local Git state before starting P2.
 

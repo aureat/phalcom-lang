@@ -323,6 +323,16 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                     display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *positionals }, depth + 1),
                     display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *labeled }, depth + 1)
                 ),
+                TypeNode::CallableFromPacks {
+                    positionals,
+                    labeled,
+                    return_type,
+                } => format!(
+                    "CallableFromPacks({}, {}, {})",
+                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *positionals }, depth + 1),
+                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *labeled }, depth + 1),
+                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *return_type }, depth + 1)
+                ),
                 TypeNode::TypeMemberProjection(proj) => {
                     let subject_str = display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: proj.subject }, depth + 1);
                     format!(

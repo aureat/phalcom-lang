@@ -48,6 +48,7 @@ fn gate_01_5_a_canonical_declaration_model() {
         form: box_form,
         class_object_type: box_class_obj,
         kind: arrow,
+        generic_binder_header: None,
         generic_signature: Some(sig),
         supertype_template: None,
     });

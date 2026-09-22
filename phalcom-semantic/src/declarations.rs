@@ -4,7 +4,7 @@ use crate::identity::DeclarationId;
 use crate::type_alias::TypeAliasInfo;
 use crate::types::annotation::{KindResolution, resolve_kind_syntax};
 use crate::types::id::{KindId, TypeId};
-use crate::types::parameter::{GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner};
+use crate::types::parameter::{GenericBinderHeader, GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner};
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::{ExpansionMode, GenericParameterSyntax, Statement};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvider};
@@ -36,6 +36,7 @@ pub struct DeclarationTypeInfo {
     pub form: TypeId,
     pub class_object_type: TypeId,
     pub kind: KindId,
+    pub generic_binder_header: Option<GenericBinderHeader>,
     pub generic_signature: Option<GenericSignature>,
     pub supertype_template: Option<GenericSupertypeTemplate>,
 }
@@ -62,11 +63,15 @@ pub struct NominalDeclarationHeader {
     pub form: TypeId,
     pub class_object_type: TypeId,
     pub kind: KindId,
+    pub generic_binder_header: Option<GenericBinderHeader>,
     pub generic_signature: Option<GenericSignature>,
 }
 
 impl NominalDeclarationHeader {
     pub fn from_signature(store: &mut TypeStore, declaration: DeclarationId, generic_signature: Option<GenericSignature>) -> Self {
+        let generic_binder_header = generic_signature
+            .as_ref()
+            .map(|signature| GenericBinderHeader::from_signature(store, signature));
         let kind = generic_signature.as_ref().map_or(KindId::TYPE, |signature| {
             let parameter_kinds = signature
                 .parameters
@@ -82,6 +87,7 @@ impl NominalDeclarationHeader {
             form,
             class_object_type,
             kind,
+            generic_binder_header,
             generic_signature,
         }
     }
@@ -92,6 +98,7 @@ impl NominalDeclarationHeader {
             form: self.form,
             class_object_type: self.class_object_type,
             kind: self.kind,
+            generic_binder_header: self.generic_binder_header,
             generic_signature: self.generic_signature,
             supertype_template,
         }
@@ -138,6 +145,10 @@ impl DeclarationTypeTable {
 
     pub fn generic_signature(&self, declaration: &DeclarationId) -> Option<&GenericSignature> {
         self.entries.get(declaration).and_then(|info| info.generic_signature.as_ref())
+    }
+
+    pub fn generic_binder_header(&self, declaration: &DeclarationId) -> Option<&GenericBinderHeader> {
+        self.entries.get(declaration).and_then(|info| info.generic_binder_header.as_ref())
     }
 
     pub fn supertype_template(&self, declaration: &DeclarationId) -> Option<&GenericSupertypeTemplate> {
@@ -202,13 +213,9 @@ fn insert_source_nominal(table: &mut DeclarationTypeTable, store: &mut TypeStore
             Some(ExpansionMode::Labeled) => GenericParameterMode::LabeledPack,
             Some(ExpansionMode::Complete) => GenericParameterMode::CompletePack,
         };
-        let parameter_id = store.intern_type_parameter(TypeParameterData::new(
-            TypeParameterOwner::Declaration(declaration.clone()),
-            index as u32,
-            parameter.name.clone(),
-            kind,
-        )
-        .with_mode(mode));
+        let parameter_id = store.intern_type_parameter(
+            TypeParameterData::new(TypeParameterOwner::Declaration(declaration.clone()), index as u32, parameter.name.clone(), kind).with_mode(mode),
+        );
         parameter_ids.push(parameter_id);
         parameter_kinds.push(kind);
         parameter_modes.push(mode);
@@ -229,6 +236,9 @@ fn insert_source_nominal(table: &mut DeclarationTypeTable, store: &mut TypeStore
         declaration,
         form,
         kind,
+        generic_binder_header: generic_signature
+            .as_ref()
+            .map(|signature| GenericBinderHeader::from_signature(store, signature)),
         generic_signature,
         supertype_template: None,
     });

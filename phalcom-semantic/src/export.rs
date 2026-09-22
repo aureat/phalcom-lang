@@ -174,6 +174,7 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
         | TypeData::TypePackConcat(_)
         | TypeData::LabeledTypePackConcat(_)
         | TypeData::TupleFromPacks { .. }
+        | TypeData::CallableFromPacks { .. }
         | TypeData::TypeMemberProjection(_) => Err(SemanticExportError::NonExportableTypeForm { form }),
     }
 }

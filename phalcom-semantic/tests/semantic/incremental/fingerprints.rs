@@ -52,6 +52,7 @@ fn declaration_shell() -> DeclarationTypeInfo {
         form: TypeId(1),
         class_object_type: TypeId(2),
         kind: KindId::TYPE,
+        generic_binder_header: None,
         generic_signature: None,
         supertype_template: None,
     }

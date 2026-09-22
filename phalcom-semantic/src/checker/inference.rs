@@ -1087,7 +1087,15 @@ impl InferenceSession {
             // Nested lambdas need their own bound-depth shifting. No current
             // generic-call boundary requires lowering one, so retain it as an
             // unavailable symbolic form rather than inventing a canonical type.
-            ScopedTypeData::Lambda(_) => None,
+            ScopedTypeData::Lambda(_)
+            | ScopedTypeData::TypePack(_)
+            | ScopedTypeData::LabeledTypePack(_)
+            | ScopedTypeData::CompleteTypePack { .. }
+            | ScopedTypeData::TypePackConcat(_)
+            | ScopedTypeData::LabeledTypePackConcat(_)
+            | ScopedTypeData::TupleFromPacks { .. }
+            | ScopedTypeData::CallableFromPacks { .. }
+            | ScopedTypeData::PackProjection { .. } => None,
         }
     }
 

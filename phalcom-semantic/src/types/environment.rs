@@ -254,6 +254,16 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
             let subst_lab = materialize_view(store, labeled, env);
             store.tuple_from_packs(subst_pos, subst_lab).unwrap_or(ty)
         }
+        TypeData::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
+            let subst_pos = materialize_view(store, positionals, env);
+            let subst_lab = materialize_view(store, labeled, env);
+            let subst_ret = materialize_view(store, return_type, env);
+            store.callable_from_packs(subst_pos, subst_lab, subst_ret).unwrap_or(ty)
+        }
         TypeData::CompleteTypePack { positionals, labeled } => {
             let positionals = materialize_view(store, positionals, env);
             let labeled = materialize_view(store, labeled, env);

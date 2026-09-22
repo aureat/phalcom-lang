@@ -14,7 +14,7 @@ prepared: 2026-09-21
 | Checkpoint | State | Active / next plan | Next action |
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
-| `LANG007.C2` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | next: `LANG007.C2.P2` | elaborate source binders and expansions into the P1 substrate |
+| `LANG007.C2` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | next: `LANG007.C2.P3` | whole-pack inference, metadata persistence, and C2 closure |
 
 ## Current program state
 
@@ -113,4 +113,4 @@ No implementation blocker is currently recorded.
 
 ## Next action
 
-`LANG007.C2.P1` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Its semantic and metadata substrate is established; source variadic binder and expansion syntax remain P2 work.
+`LANG007.C2.P2` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Source variadic generic binders, application assembly, Tuple expansion, and callable-domain pack expansion via `CallableFromPacks` are fully established and verified. Next is `LANG007.C2.P3`.

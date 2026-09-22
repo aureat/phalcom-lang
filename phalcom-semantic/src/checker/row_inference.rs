@@ -154,6 +154,15 @@ fn collect_stable_record_row_lacks_inner(
             collect_stable_record_row_lacks_inner(store, *positionals, visited, emitted, lacks);
             collect_stable_record_row_lacks_inner(store, *labeled, visited, emitted, lacks);
         }
+        TypeData::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
+            collect_stable_record_row_lacks_inner(store, *positionals, visited, emitted, lacks);
+            collect_stable_record_row_lacks_inner(store, *labeled, visited, emitted, lacks);
+            collect_stable_record_row_lacks_inner(store, *return_type, visited, emitted, lacks);
+        }
         TypeData::CompleteTypePack { positionals, labeled } => {
             collect_stable_record_row_lacks_inner(store, *positionals, visited, emitted, lacks);
             collect_stable_record_row_lacks_inner(store, *labeled, visited, emitted, lacks);

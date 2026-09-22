@@ -7,7 +7,7 @@ use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 use super::row::{RecordRowData, RecordRowField, RecordRowTail};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
-use super::type_member::TypeLevelProjection;
+use super::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberSelector};
 use super::variance::Variance;
 use crate::identity::{DeclarationId, VariantId};
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
@@ -94,6 +94,8 @@ pub enum PackFormationError {
     DuplicateLabel(String),
     #[error("invalid tuple pack component {ty:?} with kind {kind:?}")]
     InvalidTuplePackComponent { ty: TypeId, kind: KindId },
+    #[error("invalid callable pack component {ty:?} with kind {kind:?}")]
+    InvalidCallablePackComponent { ty: TypeId, kind: KindId },
     #[error("invalid complete pack component {ty:?} with kind {kind:?}")]
     InvalidCompletePackComponent { ty: TypeId, kind: KindId },
     #[error("invalid pack concat component {ty:?} with kind {kind:?}, expected {expected:?}")]
@@ -141,6 +143,12 @@ pub enum TypeData {
     LabeledTypePackConcat(Box<[TypeId]>),
     /// Tuple type formed from symbolic positional and labeled packs.
     TupleFromPacks { positionals: TypeId, labeled: TypeId },
+    /// Callable type formed from symbolic positional and labeled packs with a return type.
+    CallableFromPacks {
+        positionals: TypeId,
+        labeled: TypeId,
+        return_type: TypeId,
+    },
     /// Callable / block signature.
     Callable(CallableType),
     /// First-class structural associated member family.
@@ -555,7 +563,7 @@ impl TypeStore {
                 }
                 Err(BetaReductionError::UnboundVariable { .. }) => return Err(TypeApplicationError::MalformedLambda),
                 Err(BetaReductionError::Application(error)) => return Err(error),
-                Err(BetaReductionError::UnsupportedRecordRowArgument | BetaReductionError::RecordRowFormation(_)) => {
+                Err(BetaReductionError::UnsupportedRecordRowArgument | BetaReductionError::RecordRowFormation(_) | BetaReductionError::PackFormation(_)) => {
                     return Err(TypeApplicationError::MalformedLambda);
                 }
             }
@@ -668,8 +676,10 @@ impl TypeStore {
 
     /// Returns the positional lane of a complete pack or Tuple-shaped type.
     pub fn project_positionals(&mut self, ty: TypeId) -> Result<TypeId, PackFormationError> {
+        if self.kind_of(ty) == KindId::TYPE_PACK {
+            return Ok(ty);
+        }
         match self.get(ty).clone() {
-            TypeData::TypePack(_) => Ok(ty),
             TypeData::CompleteTypePack { positionals, .. } | TypeData::TupleFromPacks { positionals, .. } => Ok(positionals),
             TypeData::Tuple(elements) => self.type_pack(
                 elements
@@ -680,6 +690,14 @@ impl TypeStore {
                     .into_boxed_slice(),
             ),
             TypeData::Unit => self.type_pack(Box::new([])),
+            _ if self.kind_of(ty) == KindId::COMPLETE_TYPE_PACK => Ok(self.type_member_projection(
+                TypeLevelProjection {
+                    subject: ProjectionSubject::Type(ty),
+                    selector: TypeMemberSelector::named("Positionals"),
+                    arguments: Box::new([]),
+                },
+                KindId::TYPE_PACK,
+            )),
             _ => Err(PackFormationError::InvalidPackProjection {
                 ty,
                 kind: self.kind_of(ty),
@@ -690,8 +708,10 @@ impl TypeStore {
 
     /// Returns the labeled lane of a complete pack or Tuple-shaped type.
     pub fn project_labeled(&mut self, ty: TypeId) -> Result<TypeId, PackFormationError> {
+        if self.kind_of(ty) == KindId::LABELED_TYPE_PACK {
+            return Ok(ty);
+        }
         match self.get(ty).clone() {
-            TypeData::LabeledTypePack(_) => Ok(ty),
             TypeData::CompleteTypePack { labeled, .. } | TypeData::TupleFromPacks { labeled, .. } => Ok(labeled),
             TypeData::Tuple(elements) => self.labeled_type_pack(
                 elements
@@ -706,6 +726,14 @@ impl TypeStore {
                     .into_boxed_slice(),
             ),
             TypeData::Unit => self.labeled_type_pack(Box::new([])),
+            _ if self.kind_of(ty) == KindId::COMPLETE_TYPE_PACK => Ok(self.type_member_projection(
+                TypeLevelProjection {
+                    subject: ProjectionSubject::Type(ty),
+                    selector: TypeMemberSelector::named("Labeled"),
+                    arguments: Box::new([]),
+                },
+                KindId::LABELED_TYPE_PACK,
+            )),
             _ => Err(PackFormationError::InvalidPackProjection {
                 ty,
                 kind: self.kind_of(ty),
@@ -716,8 +744,10 @@ impl TypeStore {
 
     /// Returns a complete pack only from a complete pack or Tuple-shaped type.
     pub fn project_complete(&mut self, ty: TypeId) -> Result<TypeId, PackFormationError> {
+        if self.kind_of(ty) == KindId::COMPLETE_TYPE_PACK {
+            return Ok(ty);
+        }
         match self.get(ty) {
-            TypeData::CompleteTypePack { .. } => Ok(ty),
             TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => {
                 let positionals = self.project_positionals(ty)?;
                 let labeled = self.project_labeled(ty)?;
@@ -873,6 +903,53 @@ impl TypeStore {
         }
 
         Ok(self.intern_with_kind(TypeData::TupleFromPacks { positionals, labeled }, KindId::TYPE))
+    }
+
+    /// Interns a callable type formed from symbolic positional and labeled packs and a return type.
+    pub fn callable_from_packs(&mut self, positionals: TypeId, labeled: TypeId, return_type: TypeId) -> Result<TypeId, PackFormationError> {
+        let pos_kind = self.kind_of(positionals);
+        if pos_kind != KindId::TYPE_PACK {
+            return Err(PackFormationError::InvalidCallablePackComponent {
+                ty: positionals,
+                kind: pos_kind,
+            });
+        }
+        let lab_kind = self.kind_of(labeled);
+        if lab_kind != KindId::LABELED_TYPE_PACK {
+            return Err(PackFormationError::InvalidCallablePackComponent { ty: labeled, kind: lab_kind });
+        }
+        let ret_kind = self.kind_of(return_type);
+        if ret_kind != KindId::TYPE {
+            return Err(PackFormationError::InvalidCallablePackComponent {
+                ty: return_type,
+                kind: ret_kind,
+            });
+        }
+
+        let pos_data = self.get(positionals).clone();
+        let lab_data = self.get(labeled).clone();
+        if let (TypeData::TypePack(pos_elems), TypeData::LabeledTypePack(lab_elems)) = (pos_data, lab_data) {
+            let mut parameters = Vec::with_capacity(pos_elems.len() + lab_elems.len());
+            for &elem in pos_elems.iter() {
+                parameters.push(CallableParameterType::new(elem));
+            }
+            for elem in lab_elems.iter() {
+                parameters.push(CallableParameterType::new(elem.element).with_label(elem.label.clone()));
+            }
+            return Ok(self.callable(CallableType {
+                parameters: parameters.into_boxed_slice(),
+                return_type,
+            }));
+        }
+
+        Ok(self.intern_with_kind(
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            },
+            KindId::TYPE,
+        ))
     }
 
     /// Interns a record row into the store.
@@ -1201,6 +1278,18 @@ impl TypeStore {
             }
             TypeData::TupleFromPacks { positionals, labeled } => {
                 format!("TupleFromPacks({}, {})", self.format_type(*positionals), self.format_type(*labeled))
+            }
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                format!(
+                    "CallableFromPacks({}, {}, {})",
+                    self.format_type(*positionals),
+                    self.format_type(*labeled),
+                    self.format_type(*return_type)
+                )
             }
             TypeData::AssociatedProjection(projection) => {
                 format!(

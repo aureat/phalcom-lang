@@ -156,6 +156,7 @@ fn test_generic_method_call_inference() {
         form: box_form,
         class_object_type: box_class_object,
         kind: KindId::TYPE,
+        generic_binder_header: None,
         generic_signature: None,
         supertype_template: None,
     });

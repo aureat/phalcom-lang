@@ -26,6 +26,55 @@ pub enum GenericParameterMode {
     CompletePack,
 }
 
+/// Constraint-free declaration binder product published with a nominal shell.
+///
+/// This is deliberately distinct from [`GenericSignature`]: it establishes
+/// binder identity and application shape before where-clause constraints can
+/// be resolved through transparent aliases.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GenericBinderHeader {
+    pub owner: TypeParameterOwner,
+    pub parameters: Box<[TypeParameterId]>,
+    pub parameter_kinds: Box<[KindId]>,
+    pub parameter_variances: Box<[Variance]>,
+    pub parameter_modes: Box<[GenericParameterMode]>,
+}
+
+impl GenericBinderHeader {
+    pub fn from_signature(store: &TypeStore, signature: &GenericSignature) -> Self {
+        let metadata_complete = signature.parameter_kinds.len() == signature.parameters.len()
+            && signature.parameter_variances.len() == signature.parameters.len()
+            && signature.parameter_modes.len() == signature.parameters.len();
+        Self {
+            owner: signature.owner.clone(),
+            parameters: signature.parameters.clone(),
+            parameter_kinds: if metadata_complete {
+                signature.parameter_kinds.clone()
+            } else {
+                signature.parameters.iter().map(|parameter| store.type_parameter(*parameter).kind).collect()
+            },
+            parameter_variances: if metadata_complete {
+                signature.parameter_variances.clone()
+            } else {
+                signature.parameters.iter().map(|parameter| store.type_parameter(*parameter).variance).collect()
+            },
+            parameter_modes: if metadata_complete {
+                signature.parameter_modes.clone()
+            } else {
+                signature.parameters.iter().map(|parameter| store.type_parameter(*parameter).mode).collect()
+            },
+        }
+    }
+
+    pub fn matches_signature(&self, signature: &GenericSignature) -> bool {
+        self.owner == signature.owner
+            && self.parameters == signature.parameters
+            && self.parameter_kinds == signature.parameter_kinds
+            && self.parameter_variances == signature.parameter_variances
+            && self.parameter_modes == signature.parameter_modes
+    }
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeParameterData {
     pub owner: TypeParameterOwner,

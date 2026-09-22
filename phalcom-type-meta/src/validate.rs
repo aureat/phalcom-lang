@@ -499,6 +499,30 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     });
                 }
             }
+            TypeNode::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                if positionals.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: positionals.0,
+                    });
+                }
+                if labeled.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: labeled.0,
+                    });
+                }
+                if return_type.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: return_type.0,
+                    });
+                }
+            }
             TypeNode::TypeMemberProjection(proj) => {
                 if proj.subject.0 as usize >= i {
                     return Err(MetadataValidationError::TopologicalOrderViolation {

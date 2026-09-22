@@ -116,6 +116,11 @@ pub enum TypeNode {
         positionals: TypeNodeId,
         labeled: TypeNodeId,
     },
+    CallableFromPacks {
+        positionals: TypeNodeId,
+        labeled: TypeNodeId,
+        return_type: TypeNodeId,
+    },
     TypeMemberProjection(TypeMemberProjectionRef),
 }
 

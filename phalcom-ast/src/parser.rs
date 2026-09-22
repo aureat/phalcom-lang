@@ -1970,17 +1970,19 @@ impl<'source> Parser<'source> {
             })
         } else {
             let range = (start..self.prev_end).into();
-            if items.iter().any(|item| matches!(item, TypeCallableItem::Parameter(parameter) if parameter.rest)) {
+            if items
+                .iter()
+                .any(|item| matches!(item, TypeCallableItem::Parameter(parameter) if parameter.rest))
+            {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message("rest parameter '...' only permitted in callable parameter list".to_string()),
                     range: start..self.prev_end,
                 });
             }
-            if items.len() == 1
-                && !trailing_comma
-                && matches!(&items[0], TypeCallableItem::Parameter(parameter) if parameter.label.is_none())
-            {
-                let TypeCallableItem::Parameter(parameter) = items.remove(0) else { unreachable!() };
+            if items.len() == 1 && !trailing_comma && matches!(&items[0], TypeCallableItem::Parameter(parameter) if parameter.label.is_none()) {
+                let TypeCallableItem::Parameter(parameter) = items.remove(0) else {
+                    unreachable!()
+                };
                 Ok(parameter.ty)
             } else {
                 let elements = items

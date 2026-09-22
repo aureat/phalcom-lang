@@ -314,6 +314,63 @@ fn editor_definition_sites_exclude_local_import_declaration_for_external_target(
 }
 
 #[test]
+fn imported_nominal_binder_header_supports_variadic_alias_forwarding() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("package.ph"), "").unwrap();
+    let main_path = root.path().join("main.ph");
+    let provider_path = root.path().join("provider.ph");
+    let location = |path: &std::path::Path| phalcom_modules::SourceLocation {
+        source_id: phalcom_modules::SourceId(path.to_string_lossy().into()),
+        display_path: path.to_path_buf(),
+    };
+    let main_source = "from .provider import Target\ntype Forward<*Ts> = Target<*Ts>\n";
+
+    let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
+    let publication = session
+        .apply_module_mutations([
+            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&main_path),
+                text: Arc::from(main_source),
+                revision: phalcom_modules::SourceRevision(1),
+                recovered_program: None,
+            },
+            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&provider_path),
+                text: Arc::from("class Target<*Ts> {}\nexport Target\n"),
+                revision: phalcom_modules::SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("workspace publication should succeed");
+
+    let main_module = publication
+        .snapshot
+        .module_queries()
+        .module_for_display_path(&main_path)
+        .cloned()
+        .expect("main source must map to a canonical module");
+    let forward = DeclarationId::new(main_module, "Forward".into());
+    assert!(
+        publication.snapshot.type_aliases.form(&forward).is_some(),
+        "{:?}",
+        publication.snapshot.diagnostics
+    );
+
+    let invalidated = session
+        .apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+            source: location(&provider_path),
+            text: Arc::from("class Target<T> {}\nexport Target\n"),
+            revision: phalcom_modules::SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("provider-only update should publish");
+    assert!(
+        invalidated.snapshot.type_aliases.form(&forward).is_none(),
+        "an unchanged alias must be recomputed when its imported nominal binder contract changes"
+    );
+}
+
+#[test]
 fn workspace_partial_snapshot_publishes_module_diagnostic_and_valid_product() {
     let project = ResolvedProjectId::from_raw(1);
     let valid_module = module(project, &["valid"]);

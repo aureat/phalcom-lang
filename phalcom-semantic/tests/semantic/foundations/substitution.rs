@@ -138,6 +138,7 @@ fn applied_member_views_on_box_int() {
         form: box_form,
         class_object_type: box_class_obj,
         kind: arrow_1,
+        generic_binder_header: None,
         generic_signature: Some(GenericSignature::new(
             TypeParameterOwner::Declaration(decl_box.clone()),
             vec![param_t_id].into_boxed_slice(),
@@ -149,6 +150,7 @@ fn applied_member_views_on_box_int() {
         form: int_ty,
         class_object_type: store.class_object_type(decl_int),
         kind: KindId::TYPE,
+        generic_binder_header: None,
         generic_signature: None,
         supertype_template: None,
     });

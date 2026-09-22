@@ -5,6 +5,8 @@ use phalcom_semantic::types::id::{KindId, TypeId};
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, check_assignability_bounded, check_subtype_bounded};
 use phalcom_semantic::types::store::TypeStore;
+use phalcom_semantic::types::substitution::TypeSubstitution;
+use phalcom_semantic::types::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberSelector};
 use phalcom_semantic::{SnapshotTypeRef, TypeHierarchy};
 
 fn decl(name: &str) -> DeclarationId {
@@ -50,9 +52,75 @@ fn lane_projections_accept_symbolic_terms_with_their_exact_pack_kind() {
     let labeled = store.parameter_form(labeled);
     let complete = store.parameter_form(complete);
 
-    assert_eq!(store.project_positionals(positional).expect("TypePack parameter projects positionally"), positional);
+    assert_eq!(
+        store.project_positionals(positional).expect("TypePack parameter projects positionally"),
+        positional
+    );
     assert_eq!(store.project_labeled(labeled).expect("LabeledTypePack parameter projects by label"), labeled);
-    assert_eq!(store.project_complete(complete).expect("CompleteTypePack parameter projects completely"), complete);
+    assert_eq!(
+        store.project_complete(complete).expect("CompleteTypePack parameter projects completely"),
+        complete
+    );
+    assert!(store.project_complete(positional).is_err());
+    assert!(store.project_complete(labeled).is_err());
+    assert!(store.project_labeled(positional).is_err());
+    assert!(store.project_positionals(labeled).is_err());
+
+    let complete_positionals = store
+        .project_positionals(complete)
+        .expect("CompleteTypePack parameter has a positional residual");
+    let complete_labeled = store.project_labeled(complete).expect("CompleteTypePack parameter has a labeled residual");
+    assert_eq!(store.kind_of(complete_positionals), KindId::TYPE_PACK);
+    assert_eq!(store.kind_of(complete_labeled), KindId::LABELED_TYPE_PACK);
+
+    let non_bare_pack_residual = store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(positional),
+            selector: TypeMemberSelector::named("Map"),
+            arguments: Box::new([]),
+        },
+        KindId::TYPE_PACK,
+    );
+    assert_eq!(
+        store
+            .project_positionals(non_bare_pack_residual)
+            .expect("TypePack-kinded residual projects positionally"),
+        non_bare_pack_residual
+    );
+
+    let int = store.nominal_type(decl("Int"));
+    let string = store.nominal_type(decl("String"));
+    let concrete_positionals = store.type_pack(vec![int].into_boxed_slice()).expect("concrete positional pack");
+    let concrete_labeled = store
+        .labeled_type_pack(
+            vec![phalcom_semantic::types::store::LabeledTypePackElement {
+                label: "name".into(),
+                element: string,
+            }]
+            .into_boxed_slice(),
+        )
+        .expect("concrete labeled pack");
+    let concrete_complete = store
+        .complete_type_pack(concrete_positionals, concrete_labeled)
+        .expect("concrete complete pack");
+    let mut substitution = TypeSubstitution::new();
+    let complete_parameter = match store.get(complete) {
+        phalcom_semantic::types::store::TypeData::Parameter(parameter) => *parameter,
+        _ => panic!("complete parameter form"),
+    };
+    substitution.bind(complete_parameter, concrete_complete);
+    assert_eq!(
+        substitution
+            .try_apply(&mut store, complete_positionals)
+            .expect("checked positional projection reduction"),
+        concrete_positionals
+    );
+    assert_eq!(
+        substitution
+            .try_apply(&mut store, complete_labeled)
+            .expect("checked labeled projection reduction"),
+        concrete_labeled
+    );
 }
 
 #[test]

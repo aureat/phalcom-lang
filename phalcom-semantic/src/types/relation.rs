@@ -491,6 +491,24 @@ fn check_subtype_impl(
                 }
             }
             (
+                TypeData::CallableFromPacks {
+                    positionals: sub_p,
+                    labeled: sub_l,
+                    return_type: sub_r,
+                },
+                TypeData::CallableFromPacks {
+                    positionals: sup_p,
+                    labeled: sup_l,
+                    return_type: sup_r,
+                },
+            ) => {
+                if sub_p == sup_p && sub_l == sup_l && sub_r == sup_r {
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
+                }
+            }
+            (
                 TypeData::CompleteTypePack {
                     positionals: sub_p,
                     labeled: sub_l,

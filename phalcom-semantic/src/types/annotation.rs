@@ -5,12 +5,14 @@ use super::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReaso
 use super::id::{KindId, TypeId, TypeParameterId};
 use super::kind::KindApplicationError;
 use super::outcome::{BlockReason, BudgetReport};
-use super::parameter::{GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
+use super::parameter::{
+    GenericBinderHeader, GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm,
+};
 use super::row::RecordRowTail;
 use super::store::{CallableParameterType, CallableType, RecordTypeField, TypeData, TypeStore};
 use super::type_lambda::{
-    ScopedCallableParameter, ScopedCallableType, ScopedOpenRecord, ScopedRecordField, ScopedRecordTail, ScopedTupleElement, ScopedTypeData,
-    TypeLambdaProvenance,
+    ScopedCallableParameter, ScopedCallableType, ScopedLabeledTypePackElement, ScopedOpenRecord, ScopedPackProjectionLane, ScopedRecordField, ScopedRecordTail,
+    ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
 };
 use super::type_member::{
     ConstTerm, IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
@@ -20,7 +22,9 @@ use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
-use phalcom_ast::ast::{ExpansionMode, GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax, WhereClauseSyntax};
+use phalcom_ast::ast::{
+    ExpansionMode, GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax, WhereClauseSyntax,
+};
 use std::collections::BTreeMap;
 
 /// Lexical type-level binding domain. Record-row binders cannot be represented as value type forms.
@@ -474,9 +478,21 @@ fn scoped_kind(store: &mut TypeStore, scoped: crate::types::id::ScopedTypeId, bi
                 Err(KindApplicationError::ArgumentKindMismatch { .. }) => KindResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
             }
         }
-        ScopedTypeData::Union(_) | ScopedTypeData::Tuple(_) | ScopedTypeData::Record(_) | ScopedTypeData::OpenRecord(_) | ScopedTypeData::Callable(_) => {
-            KindResolution::Ready(KindId::TYPE)
-        }
+        ScopedTypeData::Union(_)
+        | ScopedTypeData::Tuple(_)
+        | ScopedTypeData::Record(_)
+        | ScopedTypeData::OpenRecord(_)
+        | ScopedTypeData::Callable(_)
+        | ScopedTypeData::TupleFromPacks { .. }
+        | ScopedTypeData::CallableFromPacks { .. } => KindResolution::Ready(KindId::TYPE),
+        ScopedTypeData::TypePack(_) | ScopedTypeData::TypePackConcat(_) => KindResolution::Ready(KindId::TYPE_PACK),
+        ScopedTypeData::LabeledTypePack(_) | ScopedTypeData::LabeledTypePackConcat(_) => KindResolution::Ready(KindId::LABELED_TYPE_PACK),
+        ScopedTypeData::CompleteTypePack { .. } => KindResolution::Ready(KindId::COMPLETE_TYPE_PACK),
+        ScopedTypeData::PackProjection { lane, .. } => KindResolution::Ready(match lane {
+            ScopedPackProjectionLane::Positionals => KindId::TYPE_PACK,
+            ScopedPackProjectionLane::Labeled => KindId::LABELED_TYPE_PACK,
+            ScopedPackProjectionLane::Complete => KindId::COMPLETE_TYPE_PACK,
+        }),
         ScopedTypeData::Lambda(lambda_id) => {
             let lambda = store.arena().get_lambda(lambda_id).clone();
             if lambda.parameter_kinds.is_empty() {
@@ -486,6 +502,28 @@ fn scoped_kind(store: &mut TypeStore, scoped: crate::types::id::ScopedTypeId, bi
             }
         }
     }
+}
+
+fn scoped_pack_projection(
+    store: &mut TypeStore,
+    subject: crate::types::id::ScopedTypeId,
+    binders: &ScopedBinderStack,
+    lane: ScopedPackProjectionLane,
+) -> TypeFormationOutcome<crate::types::id::ScopedTypeId> {
+    let kind = scoped_ready_or_propagate!(scoped_kind(store, subject, binders));
+    let identity = matches!(
+        (kind, lane),
+        (KindId::TYPE_PACK, ScopedPackProjectionLane::Positionals)
+            | (KindId::LABELED_TYPE_PACK, ScopedPackProjectionLane::Labeled)
+            | (KindId::COMPLETE_TYPE_PACK, ScopedPackProjectionLane::Complete)
+    );
+    if identity {
+        return TypeFormationOutcome::Ready(subject);
+    }
+    if kind == KindId::COMPLETE_TYPE_PACK {
+        return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::PackProjection { subject, lane }));
+    }
+    TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax)
 }
 
 fn require_scoped_proper(
@@ -626,6 +664,114 @@ fn lower_scoped_type_form(
         }
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             let scoped_origin = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, origin, diagnostics));
+            if let Some(contract) = scoped_generic_application_contract(store, declarations, scoped_origin)
+                && contract.has_variadic_binder()
+            {
+                debug_assert_eq!(contract.parameter_kinds.len(), contract.parameter_modes.len());
+                let fixed_count = contract
+                    .parameter_modes
+                    .iter()
+                    .take_while(|mode| **mode == GenericParameterMode::Single)
+                    .count();
+                let mut lowered = Vec::with_capacity(contract.parameter_modes.len());
+                for argument in arguments.iter().take(fixed_count) {
+                    let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                    };
+                    lowered.push(scoped_ready_or_propagate!(lower_scoped_type_form(
+                        store,
+                        declarations,
+                        resolver,
+                        site,
+                        binders,
+                        argument,
+                        diagnostics,
+                    )));
+                }
+                if arguments.len() < fixed_count {
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::TooManyTypeArguments);
+                }
+                let mut positional_segments = Vec::new();
+                let mut labeled_segments = Vec::new();
+                for argument in arguments.iter().skip(fixed_count) {
+                    match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::Single(argument) => {
+                            let range = argument.range;
+                            let argument =
+                                scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, argument, diagnostics,));
+                            scoped_ready_or_propagate!(require_scoped_proper(store, argument, binders, current_module, range, diagnostics,));
+                            positional_segments.push(store.arena_mut().intern_scoped(ScopedTypeData::TypePack(vec![argument].into_boxed_slice())));
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                            let operand = scoped_ready_or_propagate!(lower_scoped_type_form(
+                                store,
+                                declarations,
+                                resolver,
+                                site,
+                                binders,
+                                &expansion.operand,
+                                diagnostics,
+                            ));
+                            match expansion.mode {
+                                ExpansionMode::Positional => positional_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                    store,
+                                    operand,
+                                    binders,
+                                    ScopedPackProjectionLane::Positionals,
+                                ))),
+                                ExpansionMode::Labeled => labeled_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                    store,
+                                    operand,
+                                    binders,
+                                    ScopedPackProjectionLane::Labeled,
+                                ))),
+                                ExpansionMode::Complete => {
+                                    positional_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                        store,
+                                        operand,
+                                        binders,
+                                        ScopedPackProjectionLane::Positionals,
+                                    )));
+                                    labeled_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                        store,
+                                        operand,
+                                        binders,
+                                        ScopedPackProjectionLane::Labeled,
+                                    )));
+                                }
+                            }
+                        }
+                    }
+                }
+                let positionals = store
+                    .arena_mut()
+                    .intern_scoped(ScopedTypeData::TypePackConcat(positional_segments.into_boxed_slice()));
+                let labeled = store
+                    .arena_mut()
+                    .intern_scoped(ScopedTypeData::LabeledTypePackConcat(labeled_segments.into_boxed_slice()));
+                for mode in contract.parameter_modes.iter().skip(fixed_count) {
+                    lowered.push(match mode {
+                        GenericParameterMode::PositionalPack => positionals,
+                        GenericParameterMode::LabeledPack => labeled,
+                        GenericParameterMode::CompletePack => store.arena_mut().intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled }),
+                        GenericParameterMode::Single => return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax),
+                    });
+                }
+                let origin_kind = scoped_ready_or_propagate!(scoped_kind(store, scoped_origin, binders));
+                let mut argument_kinds = Vec::with_capacity(lowered.len());
+                for &argument in &lowered {
+                    argument_kinds.push(scoped_ready_or_propagate!(scoped_kind(store, argument, binders)));
+                }
+                return match store.apply_kind(origin_kind, &argument_kinds) {
+                    Ok(_) => TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Applied {
+                        origin: scoped_origin,
+                        arguments: lowered.into_boxed_slice(),
+                    })),
+                    Err(KindApplicationError::NotApplicable { .. }) => TypeFormationOutcome::Invalid(TypeFormationInvalid::NotAConstructor),
+                    Err(KindApplicationError::TooManyArguments { .. }) => TypeFormationOutcome::Invalid(TypeFormationInvalid::TooManyTypeArguments),
+                    Err(KindApplicationError::ArgumentKindMismatch { .. }) => TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                };
+            }
             let mut scoped_arguments = Vec::with_capacity(arguments.len());
             for argument in arguments {
                 let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
@@ -663,25 +809,96 @@ fn lower_scoped_type_form(
             }
         }
         TypeAnnotationExpr::Tuple { elements, .. } => {
-            let mut scoped_elements = Vec::with_capacity(elements.len());
+            let mut positional_segments = Vec::new();
+            let mut labeled_segments = Vec::new();
+            let mut fixed_elements = Vec::with_capacity(elements.len());
+            let mut has_expansion = false;
+            let mut labeled_phase = false;
             for element in elements {
-                let phalcom_ast::ast::TypeTupleItem::Element(element) = element else {
-                    diagnostics.push(SemanticDiagnostic::error_in(
-                        current_module.clone(),
-                        DiagnosticCode::AnnotationUnsupported,
-                        "type-pack expansion is not available in this scoped Tuple form",
-                        element.range(),
-                    ));
-                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
-                };
-                let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &element.ty, diagnostics,));
-                scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, element.range, diagnostics));
-                scoped_elements.push(ScopedTupleElement {
-                    label: element.label.clone().map(Into::into),
-                    ty,
-                });
+                match element {
+                    phalcom_ast::ast::TypeTupleItem::Element(element) => {
+                        let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &element.ty, diagnostics,));
+                        scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, element.range, diagnostics));
+                        fixed_elements.push(ScopedTupleElement {
+                            label: element.label.clone().map(Into::into),
+                            ty,
+                        });
+                        if let Some(label) = &element.label {
+                            labeled_phase = true;
+                            labeled_segments.push(
+                                store.arena_mut().intern_scoped(ScopedTypeData::LabeledTypePack(
+                                    vec![ScopedLabeledTypePackElement {
+                                        label: label.clone().into(),
+                                        element: ty,
+                                    }]
+                                    .into_boxed_slice(),
+                                )),
+                            );
+                        } else {
+                            if labeled_phase {
+                                return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                            }
+                            positional_segments.push(store.arena_mut().intern_scoped(ScopedTypeData::TypePack(vec![ty].into_boxed_slice())));
+                        }
+                    }
+                    phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
+                        has_expansion = true;
+                        if labeled_phase && expansion.mode != ExpansionMode::Labeled {
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
+                        let operand = scoped_ready_or_propagate!(lower_scoped_type_form(
+                            store,
+                            declarations,
+                            resolver,
+                            site,
+                            binders,
+                            &expansion.operand,
+                            diagnostics,
+                        ));
+                        match expansion.mode {
+                            ExpansionMode::Positional => positional_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                store,
+                                operand,
+                                binders,
+                                ScopedPackProjectionLane::Positionals,
+                            ))),
+                            ExpansionMode::Labeled => {
+                                labeled_phase = true;
+                                labeled_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                    store,
+                                    operand,
+                                    binders,
+                                    ScopedPackProjectionLane::Labeled,
+                                )));
+                            }
+                            ExpansionMode::Complete => {
+                                positional_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                    store,
+                                    operand,
+                                    binders,
+                                    ScopedPackProjectionLane::Positionals,
+                                )));
+                                labeled_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                    store,
+                                    operand,
+                                    binders,
+                                    ScopedPackProjectionLane::Labeled,
+                                )));
+                            }
+                        }
+                    }
+                }
             }
-            TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Tuple(scoped_elements.into_boxed_slice())))
+            if !has_expansion {
+                return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Tuple(fixed_elements.into_boxed_slice())));
+            }
+            let positionals = store
+                .arena_mut()
+                .intern_scoped(ScopedTypeData::TypePackConcat(positional_segments.into_boxed_slice()));
+            let labeled = store
+                .arena_mut()
+                .intern_scoped(ScopedTypeData::LabeledTypePackConcat(labeled_segments.into_boxed_slice()));
+            TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::TupleFromPacks { positionals, labeled }))
         }
         TypeAnnotationExpr::Record { fields, tail, .. } => {
             let mut names = std::collections::HashSet::new();
@@ -742,31 +959,118 @@ fn lower_scoped_type_form(
             })))
         }
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
-            let mut scoped_parameters = Vec::with_capacity(parameters.len());
+            let mut positional_segments = Vec::new();
+            let mut labeled_segments = Vec::new();
+            let mut fixed_parameters = Vec::with_capacity(parameters.len());
+            let mut has_expansion = false;
+            let mut labeled_phase = false;
             for parameter in parameters {
-                let phalcom_ast::ast::TypeCallableItem::Parameter(parameter) = parameter else {
-                    diagnostics.push(SemanticDiagnostic::error_in(
-                        current_module.clone(),
-                        DiagnosticCode::AnnotationUnsupported,
-                        "type-pack expansion is not available in this scoped callable form",
-                        parameter.range(),
-                    ));
-                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
-                };
-                let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &parameter.ty, diagnostics,));
-                scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, parameter.range, diagnostics));
-                scoped_parameters.push(ScopedCallableParameter {
-                    label: parameter.label.clone().map(Into::into),
-                    ty,
-                    rest: parameter.rest,
-                });
+                match parameter {
+                    phalcom_ast::ast::TypeCallableItem::Parameter(param) => {
+                        let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &param.ty, diagnostics,));
+                        scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, param.range, diagnostics));
+                        fixed_parameters.push(ScopedCallableParameter {
+                            label: param.label.clone().map(Into::into),
+                            ty,
+                            rest: param.rest,
+                        });
+                        if let Some(label) = &param.label {
+                            labeled_phase = true;
+                            labeled_segments.push(
+                                store.arena_mut().intern_scoped(ScopedTypeData::LabeledTypePack(
+                                    vec![ScopedLabeledTypePackElement {
+                                        label: label.clone().into(),
+                                        element: ty,
+                                    }]
+                                    .into_boxed_slice(),
+                                )),
+                            );
+                        } else {
+                            if labeled_phase {
+                                diagnostics.push(SemanticDiagnostic::error_in(
+                                    current_module.clone(),
+                                    DiagnosticCode::AnnotationUnsupported,
+                                    "positional callable parameter cannot follow labeled parameter",
+                                    param.range,
+                                ));
+                                return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                            }
+                            positional_segments.push(store.arena_mut().intern_scoped(ScopedTypeData::TypePack(vec![ty].into_boxed_slice())));
+                        }
+                    }
+                    phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
+                        has_expansion = true;
+                        if labeled_phase && expansion.mode != ExpansionMode::Labeled {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "positional type-pack expansion cannot follow labeled callable parameters",
+                                expansion.range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
+                        let operand = scoped_ready_or_propagate!(lower_scoped_type_form(
+                            store,
+                            declarations,
+                            resolver,
+                            site,
+                            binders,
+                            &expansion.operand,
+                            diagnostics,
+                        ));
+                        match expansion.mode {
+                            ExpansionMode::Positional => positional_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                store,
+                                operand,
+                                binders,
+                                ScopedPackProjectionLane::Positionals,
+                            ))),
+                            ExpansionMode::Labeled => {
+                                labeled_phase = true;
+                                labeled_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                    store,
+                                    operand,
+                                    binders,
+                                    ScopedPackProjectionLane::Labeled,
+                                )));
+                            }
+                            ExpansionMode::Complete => {
+                                positional_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                    store,
+                                    operand,
+                                    binders,
+                                    ScopedPackProjectionLane::Positionals,
+                                )));
+                                labeled_segments.push(scoped_ready_or_propagate!(scoped_pack_projection(
+                                    store,
+                                    operand,
+                                    binders,
+                                    ScopedPackProjectionLane::Labeled,
+                                )));
+                            }
+                        }
+                    }
+                }
             }
             let scoped_return = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, result, diagnostics,));
             scoped_ready_or_propagate!(require_scoped_proper(store, scoped_return, binders, current_module, result.range, diagnostics));
-            TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Callable(ScopedCallableType {
-                parameters: scoped_parameters.into_boxed_slice(),
+            if !has_expansion {
+                return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Callable(ScopedCallableType {
+                    parameters: fixed_parameters.into_boxed_slice(),
+                    return_type: scoped_return,
+                })));
+            }
+            let positionals = store
+                .arena_mut()
+                .intern_scoped(ScopedTypeData::TypePackConcat(positional_segments.into_boxed_slice()));
+            let labeled = store
+                .arena_mut()
+                .intern_scoped(ScopedTypeData::LabeledTypePackConcat(labeled_segments.into_boxed_slice()));
+            TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
                 return_type: scoped_return,
-            })))
+            }))
         }
         TypeAnnotationExpr::Union { members, .. } => {
             let mut scoped_members = Vec::with_capacity(members.len());
@@ -875,9 +1179,13 @@ pub(crate) fn lower_scoped_type_alias_form(
                         .collect(),
                     lambda_source: None,
                 };
-                let lambda_id = store
-                    .arena_mut()
-                    .intern_lambda(parameter_kinds.into_boxed_slice(), scoped_body, result_kind, Some(provenance));
+                let lambda_id = store.arena_mut().intern_lambda_with_modes(
+                    parameter_kinds.into_boxed_slice(),
+                    signature.parameter_modes.clone(),
+                    scoped_body,
+                    result_kind,
+                    Some(provenance),
+                );
                 TypeFormationOutcome::Ready(store.type_lambda(lambda_id))
             }
             KindResolution::Dynamic => TypeFormationOutcome::Dynamic,
@@ -900,6 +1208,60 @@ pub(crate) fn lower_scoped_type_alias_form(
     };
     binders.pop();
     result
+}
+
+#[derive(Clone, Debug)]
+struct GenericApplicationContract {
+    parameter_kinds: Box<[KindId]>,
+    parameter_modes: Box<[GenericParameterMode]>,
+}
+
+impl GenericApplicationContract {
+    fn from_binder_header(header: &GenericBinderHeader, consumed: usize) -> Option<Self> {
+        (consumed <= header.parameters.len()).then(|| Self {
+            parameter_kinds: header.parameter_kinds[consumed..].to_vec().into_boxed_slice(),
+            parameter_modes: header.parameter_modes[consumed..].to_vec().into_boxed_slice(),
+        })
+    }
+
+    fn from_type_lambda(lambda: &super::type_lambda::TypeLambdaData) -> Self {
+        Self {
+            parameter_kinds: lambda.parameter_kinds.clone(),
+            parameter_modes: lambda.parameter_modes.clone(),
+        }
+    }
+
+    fn has_variadic_binder(&self) -> bool {
+        self.parameter_modes.iter().any(|mode| *mode != GenericParameterMode::Single)
+    }
+}
+
+fn generic_application_contract(store: &TypeStore, declarations: &DeclarationTypeTable, origin: TypeId) -> Option<GenericApplicationContract> {
+    match store.get(origin) {
+        TypeData::Nominal { declaration } => declarations
+            .generic_binder_header(declaration)
+            .and_then(|header| GenericApplicationContract::from_binder_header(header, 0)),
+        TypeData::Applied { origin, arguments } => {
+            let declaration = store.nominal_origin_declaration(*origin)?;
+            declarations
+                .generic_binder_header(declaration)
+                .and_then(|header| GenericApplicationContract::from_binder_header(header, arguments.len()))
+        }
+        TypeData::Lambda(lambda) => Some(GenericApplicationContract::from_type_lambda(store.arena().get_lambda(*lambda))),
+        _ => None,
+    }
+}
+
+fn scoped_generic_application_contract(
+    store: &TypeStore,
+    declarations: &DeclarationTypeTable,
+    origin: crate::types::id::ScopedTypeId,
+) -> Option<GenericApplicationContract> {
+    match store.arena().get_scoped(origin) {
+        ScopedTypeData::Free(origin) => generic_application_contract(store, declarations, *origin),
+        ScopedTypeData::Lambda(lambda) => Some(GenericApplicationContract::from_type_lambda(store.arena().get_lambda(*lambda))),
+        _ => None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1253,16 +1615,12 @@ pub fn resolve_type_form(
                 TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
             };
 
-            // Declaration signatures, unlike arrow kinds, retain source binder
-            // modes. Assemble every variadic source contribution before the
-            // canonical store sees the application.
-            let declaration = origin.origin_symbol_ref().and_then(|symbol| {
-                let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
-                resolver.resolve_type_name(current_module, &symbol.root, &members)
-            });
-            if let Some(signature) = declaration.and_then(|declaration| declarations.generic_signature(&declaration))
-                && signature.parameter_modes.iter().any(|mode| *mode != GenericParameterMode::Single)
+            // Canonical origins retain application mode independently from
+            // their arrow kind. This also covers residual alias lambdas.
+            if let Some(contract) = generic_application_contract(store, declarations, origin_ty)
+                && contract.has_variadic_binder()
             {
+                debug_assert_eq!(contract.parameter_kinds.len(), contract.parameter_modes.len());
                 enum Contribution {
                     Single(TypeId),
                     Positional(TypeId),
@@ -1291,13 +1649,16 @@ pub fn resolve_type_form(
                     let (mode, operand, range) = match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(operand) => {
                             contributions.push(Contribution::Single(ready_or_return!(resolve_type_form(
-                                store, declarations, resolver, site, operand, diagnostics,
+                                store,
+                                declarations,
+                                resolver,
+                                site,
+                                operand,
+                                diagnostics,
                             ))));
                             continue;
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
-                            (expansion.mode, &expansion.operand, expansion.range)
-                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => (expansion.mode, &expansion.operand, expansion.range),
                     };
                     let operand = ready_or_return!(resolve_type_form(store, declarations, resolver, site, operand, diagnostics));
                     let projected = match mode {
@@ -1319,7 +1680,7 @@ pub fn resolve_type_form(
                     }
                 }
 
-                let fixed_count = signature
+                let fixed_count = contract
                     .parameter_modes
                     .iter()
                     .take_while(|mode| **mode == GenericParameterMode::Single)
@@ -1344,7 +1705,7 @@ pub fn resolve_type_form(
                         return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                     }
                 } else {
-                    let mut canonical_arguments = Vec::with_capacity(signature.parameters.len());
+                    let mut canonical_arguments = Vec::with_capacity(contract.parameter_modes.len());
                     for contribution in contributions.iter().take(fixed_count) {
                         let Contribution::Single(ty) = contribution else {
                             diagnostics.push(SemanticDiagnostic::error_in(
@@ -1402,7 +1763,7 @@ pub fn resolve_type_form(
                         Ok(pack) => pack,
                         Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
                     };
-                    for mode in signature.parameter_modes.iter().skip(fixed_count) {
+                    for mode in contract.parameter_modes.iter().skip(fixed_count) {
                         match mode {
                             GenericParameterMode::PositionalPack => canonical_arguments.push(positionals),
                             GenericParameterMode::LabeledPack => canonical_arguments.push(labeled),
@@ -1490,10 +1851,13 @@ pub fn resolve_type_form(
                         }
                         if let Some(label) = &elem.label {
                             labeled_phase = true;
-                            match store.labeled_type_pack(vec![super::store::LabeledTypePackElement {
-                                label: label.clone().into(),
-                                element: ty,
-                            }].into_boxed_slice()) {
+                            match store.labeled_type_pack(
+                                vec![super::store::LabeledTypePackElement {
+                                    label: label.clone().into(),
+                                    element: ty,
+                                }]
+                                .into_boxed_slice(),
+                            ) {
                                 Ok(pack) => labeled_segments.push(pack),
                                 Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
                             }
@@ -1523,9 +1887,7 @@ pub fn resolve_type_form(
                             ));
                             return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                         }
-                        let operand = type_form_ready_or_return!(resolve_type_form(
-                            store, declarations, resolver, site, &expansion.operand, diagnostics,
-                        ));
+                        let operand = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, &expansion.operand, diagnostics,));
                         let result = match expansion.mode {
                             ExpansionMode::Positional => store.project_positionals(operand).map(|pack| {
                                 positional_segments.push(pack);
@@ -1648,49 +2010,111 @@ pub fn resolve_type_form(
             }
         }
         TypeAnnotationExpr::Callable { parameters, result, range: _ } => {
-            let mut param_types = Vec::with_capacity(parameters.len());
+            let mut positional_segments = Vec::new();
+            let mut labeled_segments = Vec::new();
+            let mut fixed_parameters = Vec::with_capacity(parameters.len());
+            let mut has_expansion = false;
+            let mut labeled_phase = false;
             for param in parameters {
-                let phalcom_ast::ast::TypeCallableItem::Parameter(param) = param else {
-                    diagnostics.push(SemanticDiagnostic::error_in(
-                        current_module.clone(),
-                        DiagnosticCode::AnnotationUnsupported,
-                        "type-pack expansion is not available in callable types yet",
-                        param.range(),
-                    ));
-                    return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
-                };
-                let param_res = resolve_type_form(store, declarations, resolver, site, &param.ty, diagnostics);
-                let ty = match param_res {
-                    TypeFormResolution::Ready(ty) => {
-                        if store.kind_of(ty) != KindId::TYPE {
+                match param {
+                    phalcom_ast::ast::TypeCallableItem::Parameter(param) => {
+                        let param_res = resolve_type_form(store, declarations, resolver, site, &param.ty, diagnostics);
+                        let ty = match param_res {
+                            TypeFormResolution::Ready(ty) => {
+                                if store.kind_of(ty) != KindId::TYPE {
+                                    diagnostics.push(SemanticDiagnostic::error_in(
+                                        current_module.clone(),
+                                        DiagnosticCode::KindExpectedType,
+                                        "callable parameter must be a proper type",
+                                        param.range,
+                                    ));
+                                    return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
+                                }
+                                ty
+                            }
+                            TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
+                            TypeFormResolution::Unresolved(reason) => return TypeFormResolution::Unresolved(reason),
+                            TypeFormResolution::Missing(reason) => return TypeFormResolution::Missing(reason),
+                            TypeFormResolution::Invalid(reason) => return TypeFormResolution::Invalid(reason),
+                            TypeFormResolution::Blocked(reason) => return TypeFormResolution::Blocked(reason),
+                            TypeFormResolution::Cancelled => return TypeFormResolution::Cancelled,
+                            TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
+                            TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
+                        };
+                        fixed_parameters.push(CallableParameterType {
+                            label: param.label.clone().map(Into::into),
+                            ty,
+                            rest: if param.rest {
+                                phalcom_ast::ast::RestMode::Positional
+                            } else {
+                                phalcom_ast::ast::RestMode::None
+                            },
+                        });
+                        if let Some(label) = &param.label {
+                            labeled_phase = true;
+                            match store.labeled_type_pack(
+                                vec![crate::types::store::LabeledTypePackElement {
+                                    label: label.clone().into(),
+                                    element: ty,
+                                }]
+                                .into_boxed_slice(),
+                            ) {
+                                Ok(pack) => labeled_segments.push(pack),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                            }
+                        } else {
+                            if labeled_phase {
+                                diagnostics.push(SemanticDiagnostic::error_in(
+                                    current_module.clone(),
+                                    DiagnosticCode::AnnotationUnsupported,
+                                    "positional callable parameter cannot follow labeled parameter",
+                                    param.range,
+                                ));
+                                return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                            }
+                            match store.type_pack(vec![ty].into_boxed_slice()) {
+                                Ok(pack) => positional_segments.push(pack),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                            }
+                        }
+                    }
+                    phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
+                        has_expansion = true;
+                        if labeled_phase && expansion.mode != ExpansionMode::Labeled {
                             diagnostics.push(SemanticDiagnostic::error_in(
                                 current_module.clone(),
-                                DiagnosticCode::KindExpectedType,
-                                "callable parameter must be a proper type",
-                                param.range,
+                                DiagnosticCode::AnnotationUnsupported,
+                                "positional type-pack expansion cannot follow labeled callable parameters",
+                                expansion.range,
                             ));
-                            return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                         }
-                        ty
+                        let operand = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, &expansion.operand, diagnostics,));
+                        let result = match expansion.mode {
+                            ExpansionMode::Positional => store.project_positionals(operand).map(|pack| {
+                                positional_segments.push(pack);
+                            }),
+                            ExpansionMode::Labeled => store.project_labeled(operand).map(|pack| {
+                                labeled_phase = true;
+                                labeled_segments.push(pack);
+                            }),
+                            ExpansionMode::Complete => store.project_complete(operand).and_then(|pack| {
+                                positional_segments.push(store.project_positionals(pack)?);
+                                labeled_segments.push(store.project_labeled(pack)?);
+                                Ok(())
+                            }),
+                        };
+                        if let Err(error) = result {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                format!("invalid callable type-pack expansion: {error}"),
+                                expansion.range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                        }
                     }
-                    TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
-                    TypeFormResolution::Unresolved(reason) => return TypeFormResolution::Unresolved(reason),
-                    TypeFormResolution::Missing(reason) => return TypeFormResolution::Missing(reason),
-                    TypeFormResolution::Invalid(reason) => return TypeFormResolution::Invalid(reason),
-                    TypeFormResolution::Blocked(reason) => return TypeFormResolution::Blocked(reason),
-                    TypeFormResolution::Cancelled => return TypeFormResolution::Cancelled,
-                    TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
-                    TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
-                };
-                param_types.push(CallableParameterType {
-                    label: param.label.clone().map(Into::into),
-                    ty,
-                    rest: if param.rest {
-                        phalcom_ast::ast::RestMode::Positional
-                    } else {
-                        phalcom_ast::ast::RestMode::None
-                    },
-                });
+                }
             }
 
             let result_res = resolve_type_form(store, declarations, resolver, site, result, diagnostics);
@@ -1717,11 +2141,26 @@ pub fn resolve_type_form(
                 TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
             };
 
-            let callable_ty = store.callable(CallableType {
-                parameters: param_types.into_boxed_slice(),
-                return_type,
-            });
-            TypeFormResolution::Ready(callable_ty)
+            if !has_expansion {
+                let callable_ty = store.callable(CallableType {
+                    parameters: fixed_parameters.into_boxed_slice(),
+                    return_type,
+                });
+                return TypeFormResolution::Ready(callable_ty);
+            }
+
+            let positionals = match store.type_pack_concat(&positional_segments) {
+                Ok(pack) => pack,
+                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+            };
+            let labeled = match store.labeled_type_pack_concat(&labeled_segments) {
+                Ok(pack) => pack,
+                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+            };
+            match store.callable_from_packs(positionals, labeled, return_type) {
+                Ok(callable) => TypeFormResolution::Ready(callable),
+                Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+            }
         }
         TypeAnnotationExpr::Union { members, .. } => {
             let mut resolved_tys = Vec::new();
@@ -2070,18 +2509,18 @@ fn resolve_trait_ref_for_conformance(
     TypeFormationOutcome::Ready(TraitRef::new(trait_declaration, arg_tys.into_boxed_slice()))
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn resolve_generic_signature(
+/// Resolves the constraint-free portion of a generic declaration. Nominal
+/// shells publish this result before alias lowering; full signatures later add
+/// constraints from the same canonical parameter identities.
+pub fn resolve_generic_binder_header(
     store: &mut TypeStore,
-    declarations: &DeclarationTypeTable,
-    resolver: &dyn TypeResolver,
     site: &TypeFormationSite,
     owner: TypeParameterOwner,
     binder_site: GenericBinderSite,
     params: &[GenericParameterSyntax],
     where_clause: Option<&WhereClauseSyntax>,
     diagnostics: &mut Vec<SemanticDiagnostic>,
-) -> TypeFormationOutcome<GenericSignature> {
+) -> TypeFormationOutcome<GenericBinderHeader> {
     let current_module = &site.module;
 
     // Phase 1: Unify parameter kind facts from binder and where-clause KindFacts
@@ -2216,7 +2655,7 @@ pub fn resolve_generic_signature(
         pending.push((p, kind, variance, mode));
     }
 
-    // Phase 2: Intern parameter identities
+    // Phase 2: Intern parameter identities.
     let mut param_ids = Vec::with_capacity(params.len());
     for (idx, (p, kind, variance, mode)) in pending.iter().enumerate() {
         let data = TypeParameterData::new(owner.clone(), idx as u32, p.name.clone(), *kind)
@@ -2227,8 +2666,40 @@ pub fn resolve_generic_signature(
         param_ids.push(param_id);
     }
 
+    TypeFormationOutcome::Ready(GenericBinderHeader {
+        owner,
+        parameters: param_ids.into_boxed_slice(),
+        parameter_kinds: pending.iter().map(|(_, kind, _, _)| *kind).collect::<Vec<_>>().into_boxed_slice(),
+        parameter_variances: pending.iter().map(|(_, _, variance, _)| *variance).collect::<Vec<_>>().into_boxed_slice(),
+        parameter_modes: pending.iter().map(|(_, _, _, mode)| *mode).collect::<Vec<_>>().into_boxed_slice(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_generic_signature(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn TypeResolver,
+    site: &TypeFormationSite,
+    owner: TypeParameterOwner,
+    binder_site: GenericBinderSite,
+    params: &[GenericParameterSyntax],
+    where_clause: Option<&WhereClauseSyntax>,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> TypeFormationOutcome<GenericSignature> {
+    let current_module = &site.module;
+    let binders = scoped_ready_or_propagate!(resolve_generic_binder_header(
+        store,
+        site,
+        owner.clone(),
+        binder_site,
+        params,
+        where_clause,
+        diagnostics,
+    ));
+
     let mut param_map = std::collections::HashMap::new();
-    for (p, &param_id) in params.iter().zip(param_ids.iter()) {
+    for (p, &param_id) in params.iter().zip(binders.parameters.iter()) {
         let binding = type_level_binding_for_parameter(store, param_id);
         param_map.insert(p.name.clone(), binding);
     }
@@ -2239,8 +2710,13 @@ pub fn resolve_generic_signature(
 
     let where_site = if let Some(context) = &site.associated_type_context {
         let mut updated_context = context.clone();
-        if updated_context.trait_ref.arguments.is_empty() && !param_ids.is_empty() {
-            updated_context.trait_ref.arguments = param_ids.iter().map(|&p| store.parameter_form(p)).collect::<Vec<_>>().into_boxed_slice();
+        if updated_context.trait_ref.arguments.is_empty() && !binders.parameters.is_empty() {
+            updated_context.trait_ref.arguments = binders
+                .parameters
+                .iter()
+                .map(|&p| store.parameter_form(p))
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
         }
         let mut site_clone = site.clone();
         site_clone.associated_type_context = Some(updated_context);
@@ -2381,19 +2857,21 @@ pub fn resolve_generic_signature(
         .map(|constraint| generic_constraint_shape(store, constraint))
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    let signature = GenericSignature::with_constraints(owner, param_ids.into_boxed_slice(), constraints.into_boxed_slice())
-        .with_parameter_metadata(
-            pending.iter().map(|(_, kind, _, _)| *kind).collect::<Vec<_>>().into_boxed_slice(),
-            pending.iter().map(|(_, _, variance, _)| *variance).collect::<Vec<_>>().into_boxed_slice(),
-        )
-        .with_parameter_modes(pending.iter().map(|(_, _, _, mode)| *mode).collect::<Vec<_>>().into_boxed_slice())
+    let signature = GenericSignature::with_constraints(owner, binders.parameters.clone(), constraints.into_boxed_slice())
+        .with_parameter_metadata(binders.parameter_kinds.clone(), binders.parameter_variances.clone())
+        .with_parameter_modes(binders.parameter_modes.clone())
         .with_constraint_shapes(constraint_shapes);
     let signature = signature.with_parameter_kind_shapes(
-        pending
+        binders
+            .parameter_kinds
             .iter()
-            .map(|(_, kind, _, _)| store.format_kind(*kind).into_boxed_str())
+            .map(|kind| store.format_kind(*kind).into_boxed_str())
             .collect::<Vec<_>>()
             .into_boxed_slice(),
+    );
+    assert!(
+        binders.matches_signature(&signature),
+        "generic signature must complete its published binder header"
     );
     if let Err(error) = signature.validate_publishable(store) {
         diagnostics.push(SemanticDiagnostic::error_in(

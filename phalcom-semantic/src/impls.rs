@@ -2538,6 +2538,15 @@ fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, 
         TypeData::TupleFromPacks { positionals, labeled } => {
             occurs_in_conformance_binding(store, parameter, *positionals, bindings) || occurs_in_conformance_binding(store, parameter, *labeled, bindings)
         }
+        TypeData::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
+            occurs_in_conformance_binding(store, parameter, *positionals, bindings)
+                || occurs_in_conformance_binding(store, parameter, *labeled, bindings)
+                || occurs_in_conformance_binding(store, parameter, *return_type, bindings)
+        }
         TypeData::CompleteTypePack { positionals, labeled } => {
             occurs_in_conformance_binding(store, parameter, *positionals, bindings) || occurs_in_conformance_binding(store, parameter, *labeled, bindings)
         }
@@ -2637,6 +2646,22 @@ fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindin
                 labeled: right_lab,
             },
         ) => unify_conformance_head(store, *left_pos, *right_pos, bindings) && unify_conformance_head(store, *left_lab, *right_lab, bindings),
+        (
+            TypeData::CallableFromPacks {
+                positionals: left_pos,
+                labeled: left_lab,
+                return_type: left_ret,
+            },
+            TypeData::CallableFromPacks {
+                positionals: right_pos,
+                labeled: right_lab,
+                return_type: right_ret,
+            },
+        ) => {
+            unify_conformance_head(store, *left_pos, *right_pos, bindings)
+                && unify_conformance_head(store, *left_lab, *right_lab, bindings)
+                && unify_conformance_head(store, *left_ret, *right_ret, bindings)
+        }
         (
             TypeData::CompleteTypePack {
                 positionals: left_pos,
