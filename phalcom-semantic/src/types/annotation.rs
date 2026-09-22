@@ -431,6 +431,21 @@ pub(crate) fn resolve_contextual_kind_syntax(
     }
 }
 
+/// Classifies a resolved source form in the canonical type-level domain model.
+///
+/// `Int` is the source spelling for the compile-time integer domain; all other forms retain
+/// their interned kind. This is shared by generic/static declarations and type-member
+/// signatures so they cannot invent separate domain identities.
+pub(crate) fn static_domain_kind_of_form(store: &mut TypeStore, form: TypeId) -> KindId {
+    if let TypeData::Nominal { declaration } = store.get(form) {
+        if declaration == &crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int) {
+            let domain = store.const_int_domain();
+            return store.static_domain_kind(domain);
+        }
+    }
+    store.kind_of(form)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GenericBinderSite {
     NominalDeclaration,

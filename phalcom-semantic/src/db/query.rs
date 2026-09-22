@@ -1023,12 +1023,44 @@ pub fn query_enum_requirements(
     QueryOutcome::Ready(product)
 }
 
+/// Publishes one checked source type-member signature under its stable declaration identity.
+pub fn query_type_member_declaration(
+    db: &mut SemanticDb,
+    unit: &ParsedModuleUnit,
+    product: Arc<crate::db::product::TypeMemberDeclarationProduct>,
+) -> QueryOutcome<Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+    let key = QueryKey::TypeMemberDeclaration(product.id.clone());
+    let input_fingerprint = crate::db::fingerprint::type_member_declaration_input_fingerprint(unit, &product);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_type_member_declaration()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::type_member_declaration_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::TypeMemberDeclaration(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
 pub fn query_associated_surface(
     db: &mut SemanticDb,
     surface: Arc<crate::associated::AssociatedSurface>,
 ) -> QueryOutcome<Arc<crate::associated::AssociatedSurface>> {
     let key = QueryKey::AssociatedSurface(surface.owner.clone());
-    let input_fingerprint = crate::db::fingerprint::associated_surface_input_fingerprint(&surface.owner);
+    let input_fingerprint = crate::db::fingerprint::associated_surface_input_fingerprint(&surface);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(cached) = db.product(&key).and_then(|p| p.as_associated_surface()) {
             db.metrics().record_hit();
@@ -1039,6 +1071,18 @@ pub fn query_associated_surface(
         db.discard_for_recompute(&key);
     }
     db.metrics().record_miss();
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    for family in surface.families.values() {
+        for member in family.members.iter() {
+            let crate::associated::AssociatedMemberId::TypeMember(member_id) = member else {
+                continue;
+            };
+            let dependency = QueryKey::TypeMemberDeclaration(member_id.clone());
+            if let Err(error) = db.record_dependency(&mut recorder, dependency) {
+                return query_failure(db, key, error);
+            }
+        }
+    }
     let product_fingerprint = crate::db::fingerprint::associated_surface_product_fingerprint(&surface);
     if let Err(error) = publish_current_product(
         db,
@@ -1046,7 +1090,7 @@ pub fn query_associated_surface(
         input_fingerprint,
         product_fingerprint,
         SemanticProduct::AssociatedSurface(surface.clone()),
-        Vec::new(),
+        recorder.finish(),
     ) {
         return query_failure(db, key, error);
     }

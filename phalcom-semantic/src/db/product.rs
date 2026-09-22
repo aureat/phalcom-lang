@@ -12,9 +12,22 @@ use crate::source::ParsedModuleUnit;
 use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
 use crate::traits::{TraitHeader, TraitSurface};
+use crate::types::type_member::{TypeMemberDeclarationId, TypeMemberSignature};
+use phalcom_common::range::SourceRange;
 use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::LinkedProgram;
 use std::sync::Arc;
+
+/// Checked semantic declaration product for one source type member.
+///
+/// The key is stable owner-plus-selector identity. Name admission and lookup remain owned
+/// by `AssociatedSurface`; this product owns only the validated signature.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypeMemberDeclarationProduct {
+    pub id: TypeMemberDeclarationId,
+    pub signature: TypeMemberSignature,
+    pub source_range: SourceRange,
+}
 
 /// Declaration-surface query payload.
 ///
@@ -152,6 +165,7 @@ pub enum SemanticProduct {
     DataDeclaration(Arc<DataDeclarationProduct>),
     EnumDeclaration(Arc<EnumDeclarationProduct>),
     EnumRequirements(Arc<EnumRequirementsProduct>),
+    TypeMemberDeclaration(Arc<TypeMemberDeclarationProduct>),
     AssociatedSurface(Arc<AssociatedSurface>),
     ResolvedImport(Arc<phalcom_modules::resolver::ImportResolutionProduct>),
     LinkedName(Arc<LinkedNameProduct>),
@@ -323,6 +337,13 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_type_member_declaration(&self) -> Option<&Arc<TypeMemberDeclarationProduct>> {
+        match self {
+            Self::TypeMemberDeclaration(product) => Some(product),
+            _ => None,
+        }
+    }
+
     pub fn as_associated_surface(&self) -> Option<&Arc<AssociatedSurface>> {
         match self {
             Self::AssociatedSurface(surface) => Some(surface),
@@ -376,6 +397,7 @@ impl SemanticProduct {
             Self::DataDeclaration(_) => b"data-declaration".as_slice(),
             Self::EnumDeclaration(_) => b"enum-declaration".as_slice(),
             Self::EnumRequirements(_) => b"enum-requirements".as_slice(),
+            Self::TypeMemberDeclaration(_) => b"type-member-declaration".as_slice(),
             Self::AssociatedSurface(_) => b"associated-surface".as_slice(),
             Self::ResolvedImport(_) => b"resolved-import".as_slice(),
             Self::LinkedName(_) => b"linked-name".as_slice(),

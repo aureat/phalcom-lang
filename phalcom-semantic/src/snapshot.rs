@@ -197,6 +197,9 @@ pub struct SemanticSnapshot {
     pub enum_semantics: Arc<EnumSemanticTable>,
     pub enum_requirements: Arc<EnumRequirementTable>,
     pub associated_surfaces: Arc<AssociatedFamilyTable>,
+    /// Checked source type-member contracts keyed by stable declaration identity.
+    /// Associated namespace selection remains exclusively in `associated_surfaces`.
+    pub type_member_declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     /// Retained source-local semantic structure shards for incremental reuse.
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     pub status: SnapshotStatus,
@@ -253,6 +256,7 @@ impl SemanticSnapshot {
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
+            type_member_declarations: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -310,6 +314,7 @@ impl SemanticSnapshot {
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
+            type_member_declarations: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -337,6 +342,14 @@ impl SemanticSnapshot {
 
     pub fn with_associated_surfaces(mut self, associated_surfaces: Arc<AssociatedFamilyTable>) -> Self {
         self.associated_surfaces = associated_surfaces;
+        self
+    }
+
+    pub fn with_type_member_declarations(
+        mut self,
+        declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+    ) -> Self {
+        self.type_member_declarations = declarations;
         self
     }
 

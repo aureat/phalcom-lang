@@ -1,6 +1,7 @@
 //! Query keys, input fingerprints, and product fingerprints.
 
 use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId};
+use crate::types::type_member::TypeMemberDeclarationId;
 
 /// Fingerprint representing the input parameters to a query evaluation.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -63,6 +64,8 @@ pub enum QueryKey {
     DataDeclaration(DeclarationId),
     EnumDeclaration(DeclarationId),
     EnumRequirements(DeclarationId),
+    /// Checked source declaration for one type member, keyed by stable owner/selector identity.
+    TypeMemberDeclaration(TypeMemberDeclarationId),
     AssociatedSurface(DeclarationId),
     ResolvedImport(phalcom_modules::identity::ImportSiteId),
     LinkedName(ModuleId, String),

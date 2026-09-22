@@ -1306,7 +1306,7 @@ fn synthesize_associated_callable_reference(
                     Some(phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern)) => pattern.matches(&dc_selector),
                 }
             }),
-            AssociatedMemberId::DataComponent(_) => false,
+            AssociatedMemberId::DataComponent(_) | AssociatedMemberId::TypeMember(_) => false,
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -2593,7 +2593,7 @@ fn associated_constructor_application_target(
             }
             Some(target.with_fixed_generics(fixed_generics))
         }
-        AssociatedMemberId::DataComponent(_) => None,
+        AssociatedMemberId::DataComponent(_) | AssociatedMemberId::TypeMember(_) => None,
     }
 }
 

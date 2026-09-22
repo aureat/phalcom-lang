@@ -6,7 +6,7 @@ use crate::advisory::{
     FormalCallResultResolver, MethodFamilyResolver, ModuleMemberResolver, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr,
     analyze_statements,
 };
-use crate::associated::{AssociatedFamilyTable, build_associated_surface};
+use crate::associated::{AssociatedFamilyTable, build_associated_surface, build_associated_surface_with_type_members};
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
@@ -15,14 +15,14 @@ use crate::data_semantics::DataSemanticTable;
 use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
-use crate::db::product::EnumRequirementsProduct;
+use crate::db::product::{EnumRequirementsProduct, TypeMemberDeclarationProduct};
 use crate::db::query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, HierarchyEdgeQueryInputs, SignatureQueryInputs, bootstrap_advisory_callable,
     query_advisory_callable, query_advisory_module, query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface,
     query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_definition, query_callable_signature_with_inputs,
     query_data_declaration, query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements,
     query_field_signature_with_inputs, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
-    query_unlinked_interface,
+    query_type_member_declaration, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{
@@ -3331,11 +3331,15 @@ impl SemanticWorkspaceSession {
         let mut associated_surfaces_table = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
+        let mut type_member_declarations_table = previous_snapshot
+            .as_ref()
+            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.type_member_declarations).clone());
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
             enum_semantics.remove_module(module);
             enum_requirements_table.remove_module(module);
             associated_surfaces_table.remove_module(module);
+            type_member_declarations_table.retain(|id, _| &id.owner.module != module);
         }
 
         for base_prod in &self.base_data_products {
@@ -4128,9 +4132,79 @@ impl SemanticWorkspaceSession {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
             };
+            let parsed_unit = &shard.source;
             for statement in &shard.source.program.statements {
                 let declaration = match statement {
-                    Statement::Class(class_def) => DeclarationId::new(module_id.clone(), class_def.name.clone().into()),
+                    Statement::Class(class_def) => {
+                        let declaration = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        let mut member_candidates = Vec::<TypeMemberDeclarationProduct>::new();
+                        for member in &class_def.members {
+                            let ClassMember::TypeMember(definition) = member else { continue };
+                            let (product, diagnostics) = crate::checker::type_member_declaration::build_type_member_declaration(
+                                Arc::make_mut(&mut self.store),
+                                &declaration,
+                                definition,
+                                &declarations,
+                                &resolver,
+                                module_id,
+                            );
+                            diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                            if let Some(product) = product {
+                                member_candidates.push(product);
+                            }
+                        }
+                        let behavior_bases: HashSet<_> = class_def
+                            .members
+                            .iter()
+                            .filter_map(|member| crate::checker::declaration_signature::callable_id_for_member(&declaration, member))
+                            .map(|callable| callable.selector.base)
+                            .collect();
+                        let inherited_bases = HashSet::new();
+                        let (surface, surface_diagnostics) = build_associated_surface_with_type_members(
+                            &declaration,
+                            None,
+                            &member_candidates,
+                            &behavior_bases,
+                            &inherited_bases,
+                            module_id,
+                            Some(SemanticSourceSpan::new(module_id.clone(), class_def.range)),
+                        );
+                        diags_by_module
+                            .entry(module_id.clone())
+                            .or_default()
+                            .extend(surface_diagnostics.iter().cloned());
+                        let admitted_ids: BTreeSet<_> = surface
+                            .families
+                            .values()
+                            .flat_map(|family| family.members.iter())
+                            .filter_map(|member| match member {
+                                crate::associated::AssociatedMemberId::TypeMember(id) => Some(id.clone()),
+                                _ => None,
+                            })
+                            .collect();
+                        for product in member_candidates.into_iter().filter(|product| admitted_ids.contains(&product.id)) {
+                            let product = Arc::new(product);
+                            match query_type_member_declaration(&mut self.db, parsed_unit, product.clone()) {
+                                QueryOutcome::Ready(product) => {
+                                    type_member_declarations_table.insert(product.id.clone(), product);
+                                }
+                                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                            }
+                        }
+                        match query_associated_surface(&mut self.db, surface) {
+                            QueryOutcome::Ready(surface) => {
+                                associated_surfaces_table.insert(declaration.clone(), surface);
+                            }
+                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                        }
+                        declaration
+                    }
                     Statement::Data(data_def) => {
                         let declaration = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                         if data_def.is_product() {
@@ -4151,6 +4225,20 @@ impl SemanticWorkspaceSession {
                     associated_surfaces_table.insert(declaration, assoc_surface.clone());
                     let _ = query_associated_surface(&mut self.db, assoc_surface);
                 }
+            }
+            let retained_type_member_ids: BTreeSet<_> = type_member_declarations_table
+                .keys()
+                .filter(|id| &id.owner.module == module_id)
+                .cloned()
+                .collect();
+            let stale_type_member_keys: Vec<_> = self
+                .db
+                .query_keys_for_module(module_id)
+                .filter(|key| matches!(key, QueryKey::TypeMemberDeclaration(id) if !retained_type_member_ids.contains(id)))
+                .cloned()
+                .collect();
+            for key in stale_type_member_keys {
+                self.db.retire_query(&key);
             }
         }
 
@@ -5393,6 +5481,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_enum_semantics(Arc::new(enum_semantics));
         snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));
         snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
+        snapshot_obj = snapshot_obj.with_type_member_declarations(Arc::new(type_member_declarations_table));
         snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
         snapshot_obj = snapshot_obj.with_trait_headers(Arc::new(trait_headers));
         snapshot_obj = snapshot_obj.with_trait_surfaces(Arc::new(trait_surfaces));
@@ -6097,6 +6186,7 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::EnumDeclaration(declaration)
         | QueryKey::EnumRequirements(declaration)
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
+        QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
         QueryKey::ResolvedImport(site) => Some(&site.importer),
         QueryKey::FieldSignature(field) => Some(&field.owner.module),
         QueryKey::CallableDefinition(callable)

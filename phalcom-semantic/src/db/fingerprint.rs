@@ -244,6 +244,7 @@ pub fn declaration_surface_source_input_fingerprint(
                 for param in &type_member.parameters {
                     param.name.hash(&mut hasher);
                 }
+                hash_optional_source_region(&unit.text, Some(type_member.range), &mut hasher);
             }
         }
     }
@@ -2253,9 +2254,16 @@ pub fn enum_requirements_product_fingerprint(product: &crate::db::product::EnumR
     finish_product(hasher)
 }
 
-pub fn associated_surface_input_fingerprint(owner: &DeclarationId) -> InputFingerprint {
+pub fn associated_surface_input_fingerprint(surface: &crate::associated::AssociatedSurface) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
-    owner.hash(&mut hasher);
+    surface.owner.hash(&mut hasher);
+    for (base, family) in &surface.families {
+        base.hash(&mut hasher);
+        family.id.hash(&mut hasher);
+        family.kind.hash(&mut hasher);
+        family.members.hash(&mut hasher);
+        family.type_member_signature_fingerprint.hash(&mut hasher);
+    }
     finish_input(hasher)
 }
 
@@ -2267,7 +2275,28 @@ pub fn associated_surface_product_fingerprint(surface: &crate::associated::Assoc
         family.id.hash(&mut hasher);
         family.kind.hash(&mut hasher);
         family.members.hash(&mut hasher);
+        family.type_member_signature_fingerprint.hash(&mut hasher);
     }
+    finish_product(hasher)
+}
+
+/// Fingerprints the exact source slice that declares one type-member signature.
+pub fn type_member_declaration_input_fingerprint(
+    unit: &phalcom_modules::source::ParsedModuleUnit,
+    product: &crate::db::product::TypeMemberDeclarationProduct,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.id.hash(&mut hasher);
+    hash_optional_source_region(&unit.text, Some(product.source_range), &mut hasher);
+    product.signature.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+/// Fingerprints checked member semantics independently of source locations.
+pub fn type_member_declaration_product_fingerprint(product: &crate::db::product::TypeMemberDeclarationProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.id.hash(&mut hasher);
+    product.signature.hash(&mut hasher);
     finish_product(hasher)
 }
 

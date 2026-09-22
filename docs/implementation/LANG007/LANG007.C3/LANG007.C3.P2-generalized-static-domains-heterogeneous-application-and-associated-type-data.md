@@ -2758,6 +2758,34 @@ type Transform<S: Shape>: Shape
 
 use the same static-domain resolver as generic binders.
 
+#### C.1 Declaration product and associated-surface publication (amendment INC-C3-1)
+
+The live checker currently parses `TypeMemberDef` but does not validate or publish it.
+Implement the missing semantic declaration path with this ownership split:
+
+- A declaration semantic product owns the validated signature and stable member
+  identity. Identity is derived from the declaration owner and canonical selector;
+  it must survive snapshots and must not be a store-local numeric `TypeMemberId`.
+- `AssociatedSurface` owns name admission, collision decisions, and lookup selection.
+  Its type-member entry refers to the stable declaration identity/category; lookup then
+  retrieves the checked signature by that identity.
+- Do not create a separately queried name-to-signature type-member registry.
+  `DeclarationTypeTable` remains nominal type-form metadata and must not own member
+  signatures.
+- Resolve parameter and result domains through the canonical static-domain resolver.
+  Keep member-local binders separate from the owner's generic environment.
+- Projection identity must include the selected member identity, specialized owner
+  context, and canonical arguments. Intrinsic/domain-native operations retain identity
+  distinct from source-declared members.
+- T5 implements declaration validation/product publication and focused semantic tests;
+  it does not add a competing `::` lookup path. T7 routes lookup and collision selection
+  through `AssociatedSurface`.
+
+The type-member source fingerprint must include selector, all parameter/result domain
+syntax, implementation kind, and other signature-affecting source. A changed signature
+must invalidate its semantic product and dependent surface/projection consumers, while
+unrelated members remain reusable.
+
 #### D. ConstInt convergence
 
 If compatibility structures such as:
@@ -2844,6 +2872,20 @@ Stop if:
 ### Checkpoint update
 
 Record static alias and type-member domain convergence as durable interfaces.
+Record the declaration-product/`AssociatedSurface` split, stable identity, fingerprint
+dependencies, and focused incremental evidence under INC-C3-1.
+
+### Amendment record
+
+```text
+Amendment: INC-C3-1 (2026-09-22)
+Verdict: PLAN NEEDS CLARIFICATION
+Decision: checked signatures belong to declaration semantic products keyed by stable
+  owner-plus-canonical-selector identity; AssociatedSurface stores references and is
+  the only name-admission, collision, and lookup-selection authority.
+Constraint: do not use DeclarationTypeTable for member signatures or add an independently
+  queried type-member name registry. T5 publishes; T7 consumes through the surface.
+```
 
 ---
 
@@ -3113,6 +3155,8 @@ StaticArgument owner environments
 - associated static-domain resolution result;
 - associated static term resolution result;
 - heterogeneous owner specialization;
+- lookup selection through the published `AssociatedSurface` entry, followed by
+  declaration-product retrieval by stable type-member identity;
 - collision checks spanning P2 categories;
 - no runtime invocation semantics for static results.
 
@@ -3121,6 +3165,10 @@ StaticArgument owner environments
 **Read/modify:**
 
 ```text
+phalcom-semantic/src/types/type_member.rs
+phalcom-semantic/src/db/product.rs
+phalcom-semantic/src/db/query.rs
+phalcom-semantic/src/checker/type_member_declaration.rs
 phalcom-semantic/src/associated.rs
 phalcom-semantic/src/checker/associated.rs
 phalcom-semantic/src/checker/expression.rs
@@ -3130,6 +3178,10 @@ phalcom-semantic/src/db/query.rs
 phalcom-semantic/src/db/fingerprint.rs
 phalcom-semantic/src/source_index/mod.rs
 ```
+
+For source type members, T7 must consume the T5 `AssociatedSurface` selection and
+resolve its `TypeMemberDeclarationId` to the checked declaration product. It must not
+perform a separate name-based lookup or infer an independent category precedence.
 
 **Tests:**
 

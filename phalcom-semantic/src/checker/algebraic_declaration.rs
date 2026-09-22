@@ -23,7 +23,7 @@ use crate::types::case_environment::{CaseEnvironmentError, CaseTypeEnvironment, 
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
-use crate::types::store::{TypeData, TypeStore};
+use crate::types::store::TypeStore;
 use phalcom_ast::ast::{AlgebraicDef, AlgebraicPhase, CasePayloadSyntax, ProductShapeSyntax};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -600,13 +600,7 @@ fn static_payload_kind(
         ));
         return None;
     };
-    if let TypeData::Nominal { declaration } = store.get(payload) {
-        if declaration == &crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int) {
-            let domain = store.const_int_domain();
-            return Some(store.static_domain_kind(domain));
-        }
-    }
-    let kind = store.kind_of(payload);
+    let kind = crate::types::annotation::static_domain_kind_of_form(store, payload);
     if matches!(store.get_kind(kind), KindData::StaticDomain(_)) {
         Some(kind)
     } else {

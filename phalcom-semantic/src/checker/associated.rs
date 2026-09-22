@@ -612,7 +612,7 @@ pub fn specialize_associated_member(
                 target: Some(InvocationTargetId::DataConstructor(dc.clone())),
             })
         }
-        AssociatedMemberId::DataComponent(_) => Err(AssociatedResolutionError),
+        AssociatedMemberId::DataComponent(_) | AssociatedMemberId::TypeMember(_) => Err(AssociatedResolutionError),
     }
 }
 

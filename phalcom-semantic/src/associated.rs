@@ -1,5 +1,7 @@
+use crate::db::key::ProductFingerprint;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{AssociatedFamilyId, DataComponentId, DataConstructorId, DeclarationId, VariantId};
+use crate::types::type_member::TypeMemberDeclarationId;
 use phalcom_common::selector::SelectorBase;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -9,6 +11,8 @@ use std::sync::Arc;
 pub enum AssociatedFamilyKind {
     Variant,
     DataConstructor,
+    TypeMember,
+    IntrinsicTypeMember,
 }
 
 /// A member belonging to an associated family.
@@ -17,6 +21,75 @@ pub enum AssociatedMemberId {
     Variant(VariantId),
     DataConstructor(DataConstructorId),
     DataComponent(DataComponentId),
+    TypeMember(TypeMemberDeclarationId),
+}
+
+/// Builds an owner's associated namespace including checked source type members.
+///
+/// The returned surface is the sole name-admission/collision authority. Member signatures
+/// remain separate semantic products, referenced here only by stable identity.
+pub fn build_associated_surface_with_type_members(
+    owner: &DeclarationId,
+    variants: Option<&[VariantId]>,
+    type_members: &[crate::db::product::TypeMemberDeclarationProduct],
+    behavior_bases: &HashSet<SelectorBase>,
+    inherited_class_bases: &HashSet<SelectorBase>,
+    module_id: &crate::identity::ModuleId,
+    span: Option<SemanticSourceSpan>,
+) -> (Arc<AssociatedSurface>, Arc<[SemanticDiagnostic]>) {
+    let (base, base_diagnostics) = build_associated_surface(owner, variants, behavior_bases, inherited_class_bases, module_id, span.clone());
+    let mut surface = (*base).clone();
+    let mut diagnostics = base_diagnostics.to_vec();
+    let mut source_selector_counts = HashMap::<SelectorBase, usize>::new();
+    for member in type_members {
+        *source_selector_counts.entry(associated_base(&member.id.selector)).or_default() += 1;
+    }
+
+    for member in type_members {
+        let base = associated_base(&member.id.selector);
+        let conflict = source_selector_counts.get(&base).copied().unwrap_or_default() > 1
+            || surface.families.contains_key(&base)
+            || behavior_bases.contains(&base)
+            || inherited_class_bases.contains(&base);
+        if conflict {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module_id.clone(),
+                DiagnosticCode::EnumFamilyCategoryConflict,
+                format!(
+                    "associated member `{}` on `{}` conflicts with another owner member",
+                    format_selector_base(&base),
+                    owner.name
+                ),
+                member.source_range,
+            ));
+            continue;
+        }
+
+        let kind = if member.signature.intrinsic.is_some() {
+            AssociatedFamilyKind::IntrinsicTypeMember
+        } else {
+            AssociatedFamilyKind::TypeMember
+        };
+        let id = AssociatedFamilyId::new(owner.clone(), base.clone());
+        surface.families.insert(
+            base,
+            AssociatedFamilyInfo {
+                id,
+                kind,
+                members: Box::new([AssociatedMemberId::TypeMember(member.id.clone())]),
+                type_member_signature_fingerprint: Some(crate::db::fingerprint::type_member_declaration_product_fingerprint(member)),
+            },
+        );
+    }
+
+    (Arc::new(surface), Arc::from(diagnostics.into_boxed_slice()))
+}
+
+fn associated_base(selector: &crate::types::type_member::TypeMemberSelector) -> SelectorBase {
+    match selector {
+        crate::types::type_member::TypeMemberSelector::Named(name) => SelectorBase::Named(name.to_string()),
+        crate::types::type_member::TypeMemberSelector::Subscript => SelectorBase::Subscript,
+    }
 }
 
 /// Metadata describing one associated family on a declaration.
@@ -25,6 +98,8 @@ pub struct AssociatedFamilyInfo {
     pub id: AssociatedFamilyId,
     pub kind: AssociatedFamilyKind,
     pub members: Box<[AssociatedMemberId]>,
+    /// Version stamp of the checked signature referenced by a type-member entry.
+    pub type_member_signature_fingerprint: Option<ProductFingerprint>,
 }
 
 /// Complete associated family namespace surface for one declaration.
@@ -134,6 +209,7 @@ pub fn build_associated_surface(
                 id: family_id,
                 kind: AssociatedFamilyKind::Variant,
                 members: members.into_boxed_slice(),
+                type_member_signature_fingerprint: None,
             },
         );
     }
@@ -152,6 +228,7 @@ pub fn build_data_associated_surface(owner: &DeclarationId) -> Arc<AssociatedSur
             id: family_id,
             kind: AssociatedFamilyKind::DataConstructor,
             members: Box::new([AssociatedMemberId::DataConstructor(DataConstructorId::new(owner.clone()))]),
+            type_member_signature_fingerprint: None,
         },
     );
     Arc::new(surface)

@@ -1,7 +1,10 @@
 //! Canonical type-member signatures, selectors, and compiler-intrinsic operations.
 
+use crate::identity::DeclarationId;
 use crate::types::id::{KindId, TypeId};
+use crate::types::store::TypeStore;
 use phalcom_ast::ast::TypeMemberSelectorSyntax;
+use phalcom_common::modifier::ImplementationKind;
 
 /// Canonical selector for a type-level member or projection.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -44,8 +47,23 @@ impl TypeMemberSelector {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TypeMemberDomain {
     Kind(KindId),
-    ConstInt,
-    Type(TypeId),
+}
+
+/// Stable declaration identity for a source type member.
+///
+/// Unlike `TypeMemberId`, this identity is independent of interner allocation order and
+/// remains stable across semantic snapshots. `At` is canonicalized to `Subscript` in the
+/// selector before constructing this identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TypeMemberDeclarationId {
+    pub owner: DeclarationId,
+    pub selector: TypeMemberSelector,
+}
+
+impl TypeMemberDeclarationId {
+    pub fn new(owner: DeclarationId, selector: TypeMemberSelector) -> Self {
+        Self { owner, selector }
+    }
 }
 
 /// A formal parameter of a type member.
@@ -90,6 +108,50 @@ pub struct TypeMemberSignature {
     pub parameters: Box<[TypeMemberParameter]>,
     pub result_domain: TypeMemberDomain,
     pub intrinsic: Option<IntrinsicTypeOperation>,
+    pub implementation: ImplementationKind,
+}
+
+/// A checked member application failed its declared arity or argument-domain contract.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TypeMemberApplicationError {
+    ArityMismatch { expected: usize, actual: usize },
+    ArgumentDomainMismatch { index: usize, expected: KindId, actual: KindId },
+}
+
+/// Validates arguments against an already-selected declaration signature.
+///
+/// This helper performs no name lookup. Callers must first select a member through its
+/// owning semantic surface, then retrieve this signature by declaration identity.
+pub fn validate_type_member_arguments(
+    store: &mut TypeStore,
+    signature: &TypeMemberSignature,
+    arguments: &[TypeMemberArgument],
+) -> Result<(), TypeMemberApplicationError> {
+    if arguments.len() != signature.parameters.len() {
+        return Err(TypeMemberApplicationError::ArityMismatch {
+            expected: signature.parameters.len(),
+            actual: arguments.len(),
+        });
+    }
+    for (index, (parameter, argument)) in signature.parameters.iter().zip(arguments).enumerate() {
+        let TypeMemberDomain::Kind(expected) = &parameter.domain;
+        let actual = match argument {
+            TypeMemberArgument::Type(ty) => store.kind_of(*ty),
+            TypeMemberArgument::Const(ConstTerm::Int(value)) => {
+                let integer = store.const_int(*value);
+                store.kind_of(integer)
+            }
+            TypeMemberArgument::RecordRow(_) => KindId::RECORD_ROW,
+        };
+        if actual != *expected {
+            return Err(TypeMemberApplicationError::ArgumentDomainMismatch {
+                index,
+                expected: *expected,
+                actual,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Unique identifier for an interned type member.

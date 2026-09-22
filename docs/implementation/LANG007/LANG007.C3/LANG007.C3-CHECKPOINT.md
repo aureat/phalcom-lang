@@ -678,21 +678,33 @@ Evidence:
 ```text
 INC-C3-1
 Plan/task: LANG007.C3.P2 / T5.C — type-member user-domain parameters/results
-Trigger: T5's assumed source declaration semantic path is absent; choosing its
-  durable owner/index would establish semantic authority and affect T7 lookup.
-Observed: ClassMember::TypeMember is ignored by declaration checking and
-  excluded from declaration signatures; DeclarationTypeTable carries no
-  type-member product. TypeMemberSignature/TypeMemberId are currently unused.
-Decision requested: Should canonical type-member signatures be declaration
-  semantic products indexed by AssociatedSurface, with that surface remaining
-  the sole lookup/collision authority, or should AssociatedSurface itself own
-  those signatures? Specify the stable identity/owner seam before T5 resumes.
-Architecture impact: none made; no parallel registry or lookup path introduced.
-Plan amendment: none pending decision.
-Verification required: user-domain parameter/result formation, wrong-domain
-  rejection, projection identity, and T7 collision/lookup coverage.
-Status: AWAITING_ARCHITECTURAL_GUIDANCE; adviser consultation unavailable in
-  this runtime, so implementation is stopped at this seam.
+Trigger: T5 lacked source-declaration validation/publication; selecting its
+  owner/index affects T7 namespace lookup.
+Decision: declaration semantic products own checked signatures keyed by stable
+  owner-plus-canonical-selector identity; AssociatedSurface owns name admission,
+  collisions, and lookup selection and refers to that identity. DeclarationTypeTable
+  remains nominal type-form metadata. No separately queried type-member registry.
+Architecture impact: authoritative split recorded in the amended T5 contract.
+Plan amendment: Level 1 clarification recorded in P2 T5 on 2026-09-22; T5 publishes
+  declaration products, T7 routes selection through AssociatedSurface.
+Verification required: user-domain parameter/result formation, wrong-domain rejection,
+  projection identity, same-owner collision through AssociatedSurface, and incremental
+  invalidation of changed signatures without invalidating unrelated members.
+Status: ADOPTED; implementation resumed. T5 publication is now implemented and focused
+  tested; source-member application/projection selection still belongs to T7.
+
+INC-C3-2
+Plan/task: LANG007.C3.P2 / T6.B — runtime-data-owned associated type data
+Trigger: T6 explicitly requires STOP AND CONSULT if the effective specification does
+  not define unambiguous runtime-data owner syntax.
+Observed: docs/specs/type-members.md defines Inherent members on nominal declarations,
+  trait-owned Associated members, and DomainNative members; docs/specs/objects/data-objects.md
+  does not define nested associated type-data declarations or their source placement.
+  No accepted runtime-data-owned `type data` syntax/ownership rule was found.
+Decision requested: clarify or amend the normative source syntax and ownership model for
+  associated `type data` under classes and runtime `data` declarations before T6 changes
+  AST/parser or semantic identity. No T6 implementation has started.
+Status: AWAITING USER/ARCHITECTURAL GUIDANCE; T6 stopped at its plan-mandated gate.
 ```
 
 Use entries:
@@ -807,8 +819,15 @@ T5 partial
     constructor paths still await T7 unified `::` lookup. Integer type-member
     arguments now canonicalize to `TypeData::ConstInt` at projection formation;
     normalization and intrinsic tuple indexing consume that canonical term.
-    Focused type-member tests pass. User-domain type-member declarations remain
-    unresolved pending the architecture decision in INC-C3-1.
+    Focused type-member tests pass. Source declarations now publish checked
+    signatures under stable owner-plus-canonical-selector identities. Snapshot
+    products own signatures; AssociatedSurface entries reference identities, own
+    collision/admission decisions, and depend on signature fingerprints. A source
+    signature edit recomputes the entry while an unchanged sibling product is reused.
+    A signature-only argument validator is available for a previously selected
+    declaration product and rejects wrong-domain arguments; T7 owns routing source
+    applications through AssociatedSurface and preserving selected-declaration
+    projection identity across equivalent lookup spellings.
 
 T8 partial
     durable applied metadata uses `StaticArgumentRef`, schema v6 is emitted,
@@ -831,6 +850,7 @@ core and semantic crate checks                                     PASS
 semantic library static-data inference unit filter                 BASELINE_BLOCKED (BASELINE-003)
 semantic foundations/type_members                                 PASS (7)
 semantic integration/type_member_closure                           PASS (9)
+semantic incremental/type_members                                  PASS (7)
 ```
 
 This is partial P2 evidence, not P2 acceptance. Remaining P2 implementation includes
@@ -870,14 +890,16 @@ next plan:
     LANG007.C3.P2
 
 next action:
-    obtain architectural guidance for INC-C3-1 before implementing user-domain
-    type-member declarations or proceeding to dependent associated lookup.
+    obtain the T6.B source-syntax/ownership decision recorded under INC-C3-2 before
+    editing associated type-data grammar or identity. T7 must route source-member
+    selection through AssociatedSurface and retrieve the checked signature by
+    TypeMemberDeclarationId before domain-checking arguments.
 
 P2 started from the completed P1 commit `79e6726093349d3269460a29a7c1c4c3035ec2cf`
 with a clean working tree; that revision was pushed to `origin/main` before P2
-implementation continued. The current T5 canonical-Int slice is focused-tested;
-P2 remains partial and is not complete. Do not enter dependent T6/T7 declaration
-and lookup work until the T5 architecture decision is recorded.
+implementation continued. The T5 canonical-Int and source-publication slices are
+focused-tested; P2 remains partial and is not complete. T6/T7 remain gated on T5
+acceptance; T7 must consume type-member declaration products through AssociatedSurface.
 ```
 
 At P1 start:
