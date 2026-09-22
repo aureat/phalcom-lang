@@ -701,10 +701,31 @@ Observed: docs/specs/type-members.md defines Inherent members on nominal declara
   trait-owned Associated members, and DomainNative members; docs/specs/objects/data-objects.md
   does not define nested associated type-data declarations or their source placement.
   No accepted runtime-data-owned `type data` syntax/ownership rule was found.
-Decision requested: clarify or amend the normative source syntax and ownership model for
-  associated `type data` under classes and runtime `data` declarations before T6 changes
-  AST/parser or semantic identity. No T6 implementation has started.
-Status: AWAITING USER/ARCHITECTURAL GUIDANCE; T6 stopped at its plan-mandated gate.
+Guidance received (not ratified): classes may declare associated `type data` in the
+  class body; a runtime `data` owner's representation remains closed, and its associated
+  `type data` is declared in an unguarded inherent `impl` in the owner's module, not in
+  a conformance impl. Both forms have the nominal owner as semantic owner; impl location
+  is provenance only. Use stable owner-plus-name declaration identity, specialized by
+  the canonical owner generic environment. Reject duplicate associated domain names
+  across inherent impl blocks and let AssociatedSurface decide collisions with other
+  associated categories. Guarded and partial-target impl declarations are excluded.
+  Associated type data has no runtime inhabitants or invocation target; its static cases
+  belong to the associated domain.
+Architecture impact: recommendation preserves the closed runtime-data representation,
+  stable declaration identity, and AssociatedSurface name authority. It is architectural
+  guidance only; the accepted specifications have not yet been amended.
+Plan amendment: required after normative acceptance. Replace T6.B's unspecified runtime-
+  data placement with the inherent-impl rule and restrictions, and cross-reference the
+  owning normative specifications rather than duplicating definitions.
+Verification required after acceptance: parse and publish class-body and inherent-impl
+  forms; reject declarations in runtime-data representation bodies and conformance impls;
+  reject duplicate names across inherent impls; verify stable declaration identity over
+  two generic owner specializations, distinct canonical concrete domains, and no runtime
+  value production.
+Resume condition: accept or revise the normative rule in the specifications governing
+  associated type data and data/impl placement, then amend T6.B. No T6 grammar or identity
+  implementation has started; implementer remains stopped pending that acceptance.
+Status: ARCHITECTURAL RECOMMENDATION RECEIVED, NOT RATIFIED; T6 remains stopped.
 ```
 
 Use entries:
@@ -897,10 +918,11 @@ next plan:
     LANG007.C3.P2
 
 next action:
-    obtain the T6.B source-syntax/ownership decision recorded under INC-C3-2 before
-    editing associated type-data grammar or identity. T7 must route source-member
-    selection through AssociatedSurface and retrieve the checked signature by
-    TypeMemberDeclarationId before domain-checking arguments.
+    obtain acceptance or revision of the normative source-syntax/ownership rule under
+    INC-C3-2 in the owning specifications before amending T6.B or editing associated
+    type-data grammar or identity. Once accepted, update the plan and resume T6. T7 must
+    route source-member selection through AssociatedSurface and retrieve the checked
+    signature by TypeMemberDeclarationId before domain-checking arguments.
 
 P2 started from the completed P1 commit `79e6726093349d3269460a29a7c1c4c3035ec2cf`
 with a clean working tree; that revision was pushed to `origin/main` before P2
