@@ -13,6 +13,15 @@ selects one of two semantic shapes:
 The declaration keyword, semantic owner, and case identity are shared across
 both shapes. Physical representation remains an implementation choice.
 
+The `data` body defines the complete representation-bearing component or case
+set; it does not contain associated `type data` declarations. A data-owned
+associated static domain is declared in an unguarded inherent `impl` in the
+owner's module. It remains semantically owned by the data declaration and does
+not add components, cases, runtime values, or constructor/invocation targets.
+See [Type-Level Domains](../type-level-domains.md) for static-domain semantics,
+[Type Members](../type-members.md) for identity and associated namespace rules,
+and [Implementation Declarations](impl.md) for placement.
+
 ```phalcom
 data Point(
   x: Int,

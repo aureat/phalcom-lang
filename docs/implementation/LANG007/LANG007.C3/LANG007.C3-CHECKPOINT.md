@@ -701,7 +701,7 @@ Observed: docs/specs/type-members.md defines Inherent members on nominal declara
   trait-owned Associated members, and DomainNative members; docs/specs/objects/data-objects.md
   does not define nested associated type-data declarations or their source placement.
   No accepted runtime-data-owned `type data` syntax/ownership rule was found.
-Guidance received (not ratified): classes may declare associated `type data` in the
+Accepted decision (user ratified 2026-09-23): classes may declare associated `type data` in the
   class body; a runtime `data` owner's representation remains closed, and its associated
   `type data` is declared in an unguarded inherent `impl` in the owner's module, not in
   a conformance impl. Both forms have the nominal owner as semantic owner; impl location
@@ -711,21 +711,21 @@ Guidance received (not ratified): classes may declare associated `type data` in 
   associated categories. Guarded and partial-target impl declarations are excluded.
   Associated type data has no runtime inhabitants or invocation target; its static cases
   belong to the associated domain.
-Architecture impact: recommendation preserves the closed runtime-data representation,
-  stable declaration identity, and AssociatedSurface name authority. It is architectural
-  guidance only; the accepted specifications have not yet been amended.
-Plan amendment: required after normative acceptance. Replace T6.B's unspecified runtime-
-  data placement with the inherent-impl rule and restrictions, and cross-reference the
-  owning normative specifications rather than duplicating definitions.
-Verification required after acceptance: parse and publish class-body and inherent-impl
+Architecture impact: accepted rule preserves the closed runtime-data representation,
+  stable owner-plus-name declaration identity, and AssociatedSurface name authority.
+  The impl fragment supplies provenance only; the owner generic environment supplies
+  canonical specialization.
+Plan amendment: applied to T6.B. The owning normative specifications define the domain,
+  ownership/identity, representation boundary, and inherent-impl placement with
+  cross-references rather than competing definitions.
+Verification required: parse and publish class-body and inherent-impl
   forms; reject declarations in runtime-data representation bodies and conformance impls;
   reject duplicate names across inherent impls; verify stable declaration identity over
   two generic owner specializations, distinct canonical concrete domains, and no runtime
   value production.
-Resume condition: accept or revise the normative rule in the specifications governing
-  associated type data and data/impl placement, then amend T6.B. No T6 grammar or identity
-  implementation has started; implementer remains stopped pending that acceptance.
-Status: ARCHITECTURAL RECOMMENDATION RECEIVED, NOT RATIFIED; T6 remains stopped.
+Normative amendments: docs/specs/type-level-domains.md, docs/specs/type-members.md,
+  docs/specs/objects/data-objects.md, and docs/specs/objects/impl.md.
+Status: ADOPTED; T6 may resume. Grammar and identity implementation has not yet started.
 ```
 
 Use entries:
@@ -918,17 +918,18 @@ next plan:
     LANG007.C3.P2
 
 next action:
-    obtain acceptance or revision of the normative source-syntax/ownership rule under
-    INC-C3-2 in the owning specifications before amending T6.B or editing associated
-    type-data grammar or identity. Once accepted, update the plan and resume T6. T7 must
-    route source-member selection through AssociatedSurface and retrieve the checked
-    signature by TypeMemberDeclarationId before domain-checking arguments.
+    implement T6 under the user-ratified INC-C3-2 rule: class-body declarations and
+    runtime-data declarations in unguarded inherent impls, with stable owner-plus-name
+    identity and canonical owner specialization. Then implement T7 through the one
+    AssociatedSurface decision, including source type-member signature retrieval by
+    TypeMemberDeclarationId before domain-checking arguments.
 
 P2 started from the completed P1 commit `79e6726093349d3269460a29a7c1c4c3035ec2cf`
 with a clean working tree; that revision was pushed to `origin/main` before P2
 implementation continued. The T5 canonical-Int and source-publication slices are
-focused-tested; P2 remains partial and is not complete. T6/T7 remain gated on T5
-acceptance; T7 must consume type-member declaration products through AssociatedSurface.
+focused-tested; P2 remains partial and is not complete. T6 is unblocked by the adopted
+INC-C3-2 specification amendment; T7 must consume type-member declaration products
+through AssociatedSurface.
 ```
 
 At P1 start:

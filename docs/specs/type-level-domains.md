@@ -69,6 +69,28 @@ kinded form.
 type and not a runtime value. Static domains and their terms remain compiler-
 owned semantic forms.
 
+## Type-data declarations
+
+A `type data` declaration introduces one nominal static domain and its closed
+set of static cases. It may be declared at module scope or as an associated
+declaration of an eligible nominal owner. Class-owned declarations appear in
+the class body. For a runtime `data` owner, the representation body remains
+limited to its components or cases; an associated `type data` declaration is
+written in an unguarded inherent `impl` for that owner in the owner's module.
+
+The associated declaration is semantically owned by the target declaration,
+not by the source `impl` fragment. The `impl` contributes source provenance
+only. A conformance `impl`, a guarded inherent `impl`, or a partial-target
+inherent `impl` does not introduce an associated static domain. Associated
+declaration identity, duplicate rules, and namespace collisions are defined
+by [Type Members](type-members.md); inherent-implementation placement and
+authorization are defined by [Implementation Declarations](objects/impl.md).
+
+An associated static domain has no runtime inhabitants or invocation target.
+Its cases denote static terms in that domain. Specializing a generic owner uses
+the canonical owner arguments to produce the corresponding concrete static
+domain; it does not create a new source declaration.
+
 ## 3. Compile-time value domains
 
 Restricted compile-time values use a separate judgment:

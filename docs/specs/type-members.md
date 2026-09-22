@@ -55,6 +55,54 @@ type members, but the semantic requirements are fixed:
 - omitted result-domain syntax defaults to `Type` only where the owning
   declaration form specifies that default.
 
+An associated algebraic static domain is declared with `type data` and is a
+distinct declaration category, not a type-member projection. It contributes a
+domain denotation and static case terms to the owner's associated namespace.
+The owner forms and placement rules are defined by
+[Type-Level Domains](type-level-domains.md),
+[Data Objects](objects/data-objects.md), and
+[Implementation Declarations](objects/impl.md).
+
+The source form on a class is:
+
+```phalcom
+class Parser {
+    type data State {
+        Start
+        Done
+    }
+}
+```
+
+For a runtime `data` declaration, the associated declaration is written in an
+unguarded inherent `impl` in the target's owning module, not in the
+representation body:
+
+```phalcom
+data Packet(bytes: ByteArray)
+
+impl Packet {
+    type data State {
+        Unread
+        Parsed
+    }
+}
+```
+
+In both forms, the nominal class or data declaration is the semantic owner.
+The inherent `impl` fragment is provenance only. Declaration identity is the
+stable pair `(owner declaration identity, associated name)` and is unchanged by
+owner specialization. A concrete associated domain is that declaration
+identity specialized by the canonical generic arguments of the owner.
+Duplicate associated domain names are invalid across all direct and inherent
+declarations for one owner. A conformance `impl`, guarded inherent `impl`, or
+partial-target inherent `impl` cannot introduce one. Associated namespace
+collisions with other member categories follow the single owner-level lookup
+and collision rules; source order does not select a winner.
+
+Associated static cases belong to the associated domain. They are static terms,
+not runtime values, methods, or invocation targets.
+
 The initial compiler-intrinsic structural declaration surface is:
 
 ```phalcom

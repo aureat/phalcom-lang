@@ -2974,9 +2974,38 @@ or an equivalent associated-declaration wrapper is acceptable.
 
 #### B. Runtime-data-owned associated type data
 
-P2 requirements include class/runtime-data owners.
+P2 requirements include class/runtime-data owners. The accepted source forms are:
 
-Before editing grammar, verify the effective accepted source syntax.
+```phalcom
+class Parser {
+    type data State {
+        Start
+        Done
+    }
+}
+
+data Packet(bytes: ByteArray)
+
+impl Packet {
+    type data State {
+        Unread
+        Parsed
+    }
+}
+```
+
+Class-owned declarations appear in the class body. A runtime `data` owner's
+representation body remains closed to its components/cases; its associated
+`type data` is declared in an unguarded, covering inherent `impl` in the
+owner's module. A conformance `impl`, guarded inherent `impl`, or partial-target
+inherent `impl` cannot introduce the domain.
+
+The target declaration is the semantic owner in both forms. The inherent
+`impl` location is provenance only. Declaration identity is stable owner plus
+associated name; canonical owner arguments specialize that declaration into a
+concrete domain. Duplicate names across direct declarations and inherent
+implementation fragments are invalid. AssociatedSurface remains the authority
+for collisions with other associated categories.
 
 The architecture is fixed:
 
@@ -2988,8 +3017,10 @@ associated declarations
 
 Do not treat `type data` as a product field or sum case.
 
-If the effective specification does not unambiguously define placement/source syntax:
-**STOP AND CONSULT**.
+Associated static cases denote terms in their domain and create no runtime
+inhabitants or invocation targets. Cross-specification ownership is recorded
+in `docs/specs/type-level-domains.md`, `docs/specs/type-members.md`,
+`docs/specs/objects/data-objects.md`, and `docs/specs/objects/impl.md`.
 
 #### C. Declaration identity
 
@@ -3078,12 +3109,18 @@ CV-P2-19
 Required tests:
 
 ```text
+parse and publish class-body Parser::State
+parse and publish inherent-impl Packet::State
+reject type data inside a runtime data representation body
+reject type data inside a conformance impl
+reject duplicate associated domain names across inherent impl fragments
 Parser::State declaration identity
 Parser::State::Start static term
 Container<Int>::State canonical specialization
 Container<String>::State different specialization
 same associated declaration identity across specializations
 repeated specialization canonicalizes
+two generic-owner specializations have distinct concrete domains
 singleton vs explicit empty constructor identity remains distinct
 associated term cannot materialize as runtime value
 ```

@@ -81,6 +81,21 @@ impl User {
 
 The `impl` declaration is the member's source provenance; it is not a separate behavioral owner.
 
+An unguarded inherent implementation may also contribute an associated
+`type data` declaration when its target is a class or runtime `data` type. Such
+a declaration is semantically owned by the target declaration, and the
+implementation fragment is provenance only. For a runtime `data` target this
+is the source site for the associated declaration; it does not extend the
+representation body. The rule is specified by [Type Members](../type-members.md)
+and [Type-Level Domains](../type-level-domains.md).
+
+Only an unguarded covering inherent implementation for the nominal target may
+introduce an associated static domain. Conditional/guarded and partial-target
+implementations cannot introduce one. Duplicate associated domain names are
+checked across all direct class declarations and all inherent implementation
+fragments for the same target. Conformance implementations never introduce
+inherent associated static domains.
+
 ```text
 callable owner
     User
@@ -291,9 +306,10 @@ The present specification governs target resolution, ownership, generic scope, s
 
 # Representation Boundary
 
-An inherent implementation contributes behavior only.
-
-It cannot change the representation-defining declaration of its target.
+An inherent implementation contributes behavior and the associated static
+declarations explicitly permitted by the type-level and type-member
+specifications. It never changes the representation-defining declaration of
+its target.
 
 It cannot introduce:
 
