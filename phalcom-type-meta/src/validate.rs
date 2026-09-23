@@ -320,7 +320,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             validate_schema_v4_feature_floor(bundle)?;
             validate_pre_v5_static_domain_floor(bundle)?;
         }
-        5 | 6 => validate_schema_v5_feature_floor(bundle)?,
+        5 | 6 | 7 => validate_schema_v5_feature_floor(bundle)?,
         _ => unreachable!("version range checked above"),
     }
 
@@ -439,6 +439,13 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             ));
                         }
                     }
+                    crate::kind::StaticDomainRef::Associated { declaration, .. } => {
+                        if &static_data.constructor.declaration != &declaration.owner {
+                            return Err(MetadataValidationError::Malformed(
+                                "static-data constructor owner does not match its associated domain owner".to_string(),
+                            ));
+                        }
+                    }
                 }
                 if !matches!(
                     &bundle.kinds[entry.kind.0 as usize].node,
@@ -449,12 +456,19 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     ));
                 }
                 for argument in static_data.arguments.iter() {
-                    let StaticArgumentRef::Term(term) = argument;
-                    if term.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation {
-                            index: i as u32,
-                            target: term.0,
-                        });
+                    match argument {
+                        StaticArgumentRef::Term(term) => {
+                            if term.0 as usize >= i {
+                                return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: term.0 });
+                            }
+                        }
+                        StaticArgumentRef::RecordRow(row) => {
+                            for field in row.fields.iter() {
+                                if field.ty.0 as usize >= i {
+                                    return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: field.ty.0 });
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -466,9 +480,18 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     });
                 }
                 for arg in arguments.iter() {
-                    let StaticArgumentRef::Term(arg) = arg;
-                    if arg.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: arg.0 });
+                    match arg {
+                        StaticArgumentRef::Term(arg) if arg.0 as usize >= i => {
+                            return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: arg.0 });
+                        }
+                        StaticArgumentRef::RecordRow(row) => {
+                            for field in row.fields.iter() {
+                                if field.ty.0 as usize >= i {
+                                    return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: field.ty.0 });
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }

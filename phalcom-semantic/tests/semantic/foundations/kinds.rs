@@ -1,5 +1,5 @@
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::identity::{AssociatedStaticDomainDeclarationId, DeclarationId};
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::types::application::TypeApplicationError;
@@ -103,6 +103,37 @@ fn heterogeneous_static_application_rejects_wrong_domain_without_coercion() {
         store.apply_static_form(integer, &[StaticArgument::Term(bits), StaticArgument::Term(endian_big)]),
         Err(TypeApplicationError::ArgumentKindMismatch { index: 1, expected, actual }) if expected == shape_kind && actual == endian_kind
     ));
+}
+
+#[test]
+fn associated_static_domain_declaration_identity_survives_owner_specialization() {
+    let mut store = TypeStore::new();
+    let declaration = AssociatedStaticDomainDeclarationId::new(test_decl("Container"), "State");
+    let int = store.nominal_type(test_decl("Int"));
+    let string = store.nominal_type(test_decl("String"));
+
+    let int_domain = store.associated_static_domain(declaration.clone(), vec![StaticArgument::Term(int)].into_boxed_slice());
+    let same_int_domain = store.associated_static_domain(declaration.clone(), vec![StaticArgument::Term(int)].into_boxed_slice());
+    let string_domain = store.associated_static_domain(declaration.clone(), vec![StaticArgument::Term(string)].into_boxed_slice());
+
+    assert_eq!(int_domain, same_int_domain);
+    assert_ne!(int_domain, string_domain);
+    assert_eq!(declaration.owner, test_decl("Container"));
+    assert_eq!(declaration.name.as_ref(), "State");
+
+    let row_owner = test_decl("RowOwner");
+    let owner_kind = store.arrow_kind(vec![KindId::TYPE, KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+    let owner_form = store.nominal_form(row_owner.clone(), owner_kind);
+    let row = store
+        .record_row_checked(Vec::new(), phalcom_semantic::types::row::RecordRowTail::Closed)
+        .expect("closed record row");
+    let applied = store
+        .apply_static_form(owner_form, &[StaticArgument::Term(int), StaticArgument::RecordRow(row)])
+        .expect("heterogeneous nominal application");
+    assert_eq!(
+        store.applied_nominal_static_parts(applied),
+        Some((row_owner, vec![StaticArgument::Term(int), StaticArgument::RecordRow(row)]))
+    );
 }
 
 #[test]

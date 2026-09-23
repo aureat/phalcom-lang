@@ -50,7 +50,7 @@ use std::ops::Range;
 /// from: its members, its (currently always-empty, see that field's doc)
 /// class-level attributes, and its standalone `@invariant(...)` predicates
 /// (DEC-ANNOT-B).
-type ClassBodyParts = (Vec<ClassMember>, Vec<Attribute>, Vec<(Expr, SourceRange)>);
+type ClassBodyParts = (Vec<ClassMember>, Vec<Attribute>, Vec<(Expr, SourceRange)>, Vec<AlgebraicDef>);
 type SelectorSpecSlots = (Vec<SelectorSlotSyntax>, Vec<SelectorSlotSyntax>, Option<SourceRange>, usize);
 
 enum ProductLabelStart {
@@ -3740,7 +3740,7 @@ impl<'source> Parser<'source> {
         self.in_class_body = true;
         let body = self.parse_class_body();
         self.in_class_body = previous_class_context;
-        let (members, body_attrs, invariants) = body?;
+        let (members, body_attrs, invariants, associated_type_data) = body?;
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
         // `body_attrs` is always empty today (`parse_class_body`'s own doc:
@@ -3754,6 +3754,7 @@ impl<'source> Parser<'source> {
             generic_parameters,
             superclass,
             where_clause,
+            associated_type_data,
             members,
             attributes: header_attrs,
             invariants,
@@ -3784,6 +3785,7 @@ impl<'source> Parser<'source> {
     /// if end-of-file is reached before the closing brace.
     fn parse_class_body(&mut self) -> ParserResult<ClassBodyParts> {
         let mut members = Vec::new();
+        let mut associated_type_data = Vec::new();
         // No surface grammar attaches an attribute to the class header
         // itself yet (only to a following member, or `@invariant`'s
         // standalone carve-out below) — this is always empty today, reserved
@@ -3830,13 +3832,20 @@ impl<'source> Parser<'source> {
                     range: variant_attr.range.start..variant_attr.range.end,
                 });
             }
+            if matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data) {
+                let Statement::Data(declaration) = self.parse_type_data(std::mem::take(&mut pending_attrs), ParsedModifiers::default())? else {
+                    unreachable!("parse_type_data always returns a data declaration")
+                };
+                associated_type_data.push(declaration);
+                continue;
+            }
             let mut member = self.parse_class_member()?;
             if !pending_attrs.is_empty() {
                 self.attach_attrs(&mut member, std::mem::take(&mut pending_attrs))?;
             }
             members.push(member);
         }
-        Ok((members, class_attributes, class_invariants))
+        Ok((members, class_attributes, class_invariants, associated_type_data))
     }
 
     fn parse_type_data(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers) -> ParserResult<Statement> {
@@ -4008,6 +4017,7 @@ impl<'source> Parser<'source> {
         self.skip_newlines();
 
         let mut members = Vec::new();
+        let mut associated_type_data = Vec::new();
         let mut pending_attrs = Vec::new();
 
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -4023,6 +4033,14 @@ impl<'source> Parser<'source> {
                     kind: SyntaxErrorKind::Message("fields and storage are not allowed in `impl` blocks".to_string()),
                     range: start..end,
                 });
+            }
+            if matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data) {
+                let Statement::Data(declaration) = self.parse_type_data(std::mem::take(&mut pending_attrs), ParsedModifiers::default())? else {
+                    unreachable!("parse_type_data always returns a data declaration")
+                };
+                associated_type_data.push(declaration);
+                self.skip_newlines();
+                continue;
             }
             let member = self.parse_impl_member(std::mem::take(&mut pending_attrs))?;
             members.push(member);
@@ -4041,6 +4059,7 @@ impl<'source> Parser<'source> {
             kind,
             target,
             where_clause,
+            associated_type_data,
             members,
             range,
             target_range,
@@ -7715,11 +7734,18 @@ impl<'source> Parser<'source> {
         }
 
         if self.eat(&Token::ColonColon) {
-            let second_separator_start = self.tokens[self.pos.saturating_sub(1)].start;
-            return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message("the second `::` reference syntax is obsolete; use `&receiver::name` or `&receiver::name(...)`".to_string()),
-                range: second_separator_start..self.prev_end,
-            });
+            let first_lookup = Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
+                receiver,
+                first_separator_range,
+                member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
+                    base,
+                    base_range,
+                    mode: AssociatedNamedMode::Getter,
+                    range: (base_start..self.prev_end).into(),
+                }),
+                range: (start..self.prev_end).into(),
+            }));
+            return self.parse_associated_suffix(first_lookup, start);
         }
 
         if matches!(self.peek(), Token::DotDotDot) {

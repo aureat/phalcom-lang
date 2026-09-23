@@ -180,6 +180,68 @@ fn wrong_user_static_domain_argument_is_rejected() {
 }
 
 #[test]
+fn associated_static_domain_case_edit_invalidates_and_matches_cold_analysis() {
+    use std::sync::Arc;
+
+    let module = module();
+    let source_a = "data Packet(bytes: Int)\nimpl Packet { type data State { Unread; Parsed } }\nclass Geometry { type Keep<T: Type>: Type }\n";
+    let source_b = "data Packet(bytes: Int)\nimpl Packet { type data State { Unread; Ready } }\nclass Geometry { type Keep<T: Type>: Type }\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental.update(single_module_input(module.clone(), source_a, 1));
+    assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
+
+    let packet = DeclarationId::new(module.clone(), "Packet".into());
+    let state = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(packet.clone(), "State");
+    let first_state = first.snapshot.associated_static_domains.get(&state).expect("initial State product");
+    let geometry = DeclarationId::new(module.clone(), "Geometry".into());
+    let keep =
+        phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(geometry, phalcom_semantic::types::type_member::TypeMemberSelector::named("Keep"));
+    let first_keep = first.snapshot.type_member_declarations.get(&keep).expect("unrelated Keep product");
+
+    let updated = incremental.update(single_module_input(module.clone(), source_b, 2));
+    assert!(!updated.snapshot.has_errors(), "updated diagnostics: {:?}", updated.snapshot.diagnostics);
+    let updated_state = updated.snapshot.associated_static_domains.get(&state).expect("updated State product");
+    assert!(
+        !Arc::ptr_eq(first_state, updated_state),
+        "case edit must recompute its associated-domain product"
+    );
+    assert_ne!(first_state, updated_state, "renamed case must alter the published constructor set");
+    assert_eq!(
+        first_keep.signature,
+        updated.snapshot.type_member_declarations.get(&keep).expect("updated Keep product").signature,
+        "an unrelated member's checked signature must remain unchanged"
+    );
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_result = cold.update(single_module_input(module.clone(), source_b, 1));
+    assert!(!cold_result.snapshot.has_errors(), "cold diagnostics: {:?}", cold_result.snapshot.diagnostics);
+    let constructor_facts = |snapshot: &phalcom_semantic::SemanticSnapshot,
+                             product: &phalcom_semantic::db::product::AssociatedStaticDomainDeclarationProduct| {
+        product
+            .constructors
+            .iter()
+            .map(|constructor| {
+                let metadata = snapshot.store.static_constructor(*constructor).expect("constructor metadata");
+                (metadata.declaration.clone(), metadata.case_name.clone(), metadata.parameter_kinds.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        constructor_facts(&updated.snapshot, updated_state),
+        constructor_facts(
+            &cold_result.snapshot,
+            cold_result.snapshot.associated_static_domains.get(&state).expect("cold State product")
+        ),
+        "store-local constructor ids must materialize to the same stable declaration facts"
+    );
+    assert_eq!(
+        updated.snapshot.associated_surfaces.surfaces.get(&packet),
+        cold_result.snapshot.associated_surfaces.surfaces.get(&packet),
+        "associated namespace must match cold analysis after the case edit"
+    );
+}
+
+#[test]
 fn test_incremental_tuple_at_edit_matches_cold_session() {
     let module = module();
     let source_a = r#"

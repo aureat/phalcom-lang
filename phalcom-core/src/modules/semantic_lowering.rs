@@ -604,6 +604,8 @@ pub enum ProjectionError {
     MissingTraitRequirementSlot(phalcom_semantic::traits::TraitRequirementId),
     #[error("missing conformance metadata for callable owner {0:?}")]
     MissingConformanceMetadata(ImplId),
+    #[error("static associated result cannot be lowered as a runtime value")]
+    StaticAssociatedResultInRuntimeContext,
 }
 
 fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -> bool {
@@ -2149,6 +2151,9 @@ fn project_associated_resolution(
                         construction,
                     }
                 }
+                AssociatedMemberId::StaticDomain(_) | AssociatedMemberId::TypeMember(_) => {
+                    return Err(ProjectionError::StaticAssociatedResultInRuntimeContext);
+                }
             };
             Ok((LoweringSiteKind::AssociatedLookup, spec))
         }
@@ -2203,6 +2208,9 @@ fn project_associated_resolution(
                         )
                     }
                     (AssociatedMemberId::DataComponent(_), None) => {
+                        continue;
+                    }
+                    (AssociatedMemberId::StaticDomain(_) | AssociatedMemberId::TypeMember(_), _) => {
                         continue;
                     }
                     (_, Some(InvocationTargetId::VariantConstructor(vc))) => (
@@ -2304,6 +2312,9 @@ fn project_associated_resolution(
                 candidates: exec_candidates.into_boxed_slice(),
             };
             Ok((LoweringSiteKind::AssociatedInvoke, spec))
+        }
+        AssociatedResolutionKind::StaticDomain { .. } | AssociatedResolutionKind::StaticTerm { .. } => {
+            Err(ProjectionError::StaticAssociatedResultInRuntimeContext)
         }
     }
 }

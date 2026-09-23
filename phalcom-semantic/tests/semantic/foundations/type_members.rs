@@ -118,6 +118,73 @@ fn integer_type_member_arguments_use_canonical_const_int_terms() {
     assert!(diags.is_empty());
 }
 
+#[test]
+fn source_type_member_projection_uses_surface_identity_and_checks_argument_domain() {
+    use phalcom_common::modifier::ImplementationKind;
+    use phalcom_common::selector::SelectorBase;
+    use phalcom_semantic::associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedMemberId, AssociatedSurface};
+    use phalcom_semantic::db::product::TypeMemberDeclarationProduct;
+    use phalcom_semantic::types::type_member::{TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSelector, TypeMemberSignature};
+
+    let mut env = setup();
+    let owner = decl("Geometry");
+    let header = phalcom_semantic::declarations::NominalDeclarationHeader::from_signature(&mut env.store, owner.clone(), None);
+    env.declarations.insert(header.into_type_info(None));
+    env.resolver.insert("Geometry", owner.clone());
+    let selector = TypeMemberSelector::named("Choose");
+    let member_id = TypeMemberDeclarationId::new(owner.clone(), selector.clone());
+    let product = std::sync::Arc::new(TypeMemberDeclarationProduct {
+        id: member_id.clone(),
+        signature: TypeMemberSignature {
+            selector: selector.clone(),
+            parameters: Box::new([TypeMemberParameter {
+                name: "candidate".into(),
+                domain: TypeMemberDomain::Kind(phalcom_semantic::types::id::KindId::TYPE),
+            }]),
+            result_domain: TypeMemberDomain::Kind(phalcom_semantic::types::id::KindId::TYPE),
+            intrinsic: None,
+            implementation: ImplementationKind::Phalcom,
+        },
+        source_range: RANGE,
+    });
+    let mut surface = AssociatedSurface::new(owner.clone());
+    surface.families.insert(
+        SelectorBase::Named("Choose".into()),
+        AssociatedFamilyInfo {
+            id: phalcom_semantic::identity::AssociatedFamilyId::new(owner.clone(), SelectorBase::Named("Choose".into())),
+            kind: AssociatedFamilyKind::TypeMember,
+            members: Box::new([AssociatedMemberId::TypeMember(member_id.clone())]),
+            type_member_signature_fingerprint: None,
+        },
+    );
+    env.resolver.associated_surfaces.insert(owner, std::sync::Arc::new(surface));
+    env.resolver.type_member_declarations.insert(member_id.clone(), product);
+
+    let good = proj_ann(
+        ref_ann("Geometry"),
+        "Choose",
+        vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("Geometry"))],
+    );
+    let mut diagnostics = Vec::new();
+    let projection = match resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &good, &mut diagnostics) {
+        TypeFormResolution::Ready(projection) => projection,
+        other => panic!("selected type member should resolve, got {other:?}; diagnostics: {diagnostics:?}"),
+    };
+    let TypeData::TypeMemberProjection(projection_data) = env.store.get(projection) else {
+        panic!("source type member should remain a symbolic projection");
+    };
+    assert_eq!(projection_data.source_declaration.as_ref(), Some(&member_id));
+    assert!(diagnostics.is_empty());
+
+    let wrong = proj_ann(ref_ann("Geometry"), "Choose", vec![TypeMemberArgumentSyntax::IntLiteral { value: 1, range: RANGE }]);
+    let mut diagnostics = Vec::new();
+    assert!(matches!(
+        resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &wrong, &mut diagnostics),
+        TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch)
+    ));
+    assert!(!diagnostics.is_empty());
+}
+
 fn setup() -> TestEnv {
     let mut store = TypeStore::new();
     let module = ModuleId::universe_root();

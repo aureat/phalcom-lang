@@ -78,6 +78,7 @@ fn lane_projections_accept_symbolic_terms_with_their_exact_pack_kind() {
             subject: ProjectionSubject::Type(positional),
             selector: TypeMemberSelector::named("Map"),
             arguments: Box::new([]),
+            source_declaration: None,
         },
         KindId::TYPE_PACK,
     );

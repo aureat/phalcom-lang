@@ -78,6 +78,8 @@ pub struct TypeMemberProjectionRef {
     pub subject: TypeNodeId,
     pub selector: TypeMemberSelectorRef,
     pub arguments: Box<[TypeMemberArgumentRef]>,
+    #[serde(default)]
+    pub source_declaration: Option<crate::identity::StableTypeMemberRef>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -89,6 +91,13 @@ pub struct StaticConstructorRef {
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum StaticArgumentRef {
     Term(TypeNodeId),
+    RecordRow(RecordRowRef),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct RecordRowRef {
+    pub fields: Box<[RecordFieldRef]>,
+    pub tail: Option<crate::generic::StableTypeParameterRef>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]

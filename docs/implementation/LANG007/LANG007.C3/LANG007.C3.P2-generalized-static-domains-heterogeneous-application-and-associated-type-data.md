@@ -3005,7 +3005,9 @@ The target declaration is the semantic owner in both forms. The inherent
 associated name; canonical owner arguments specialize that declaration into a
 concrete domain. Duplicate names across direct declarations and inherent
 implementation fragments are invalid. AssociatedSurface remains the authority
-for collisions with other associated categories.
+for collisions with other associated categories. Associated declarations have
+no member-local generic parameters; specialization uses only the canonical
+owner generic environment.
 
 The architecture is fixed:
 
@@ -3219,6 +3221,26 @@ phalcom-semantic/src/source_index/mod.rs
 For source type members, T7 must consume the T5 `AssociatedSurface` selection and
 resolve its `TypeMemberDeclarationId` to the checked declaration product. It must not
 perform a separate name-based lookup or infer an independent category precedence.
+
+The resolver boundary is amended under `INC-C3-3`: type formation uses a
+session/query-provided associated-member resolution context. That context selects the
+member only through the owner's published `AssociatedSurface`, retrieves the checked
+signature by `TypeMemberDeclarationId`, and records dependencies on both the surface
+and selected declaration product. The selected stable declaration identity is retained
+in the canonical projection. It must not add a separately queried name registry or
+perform an intrinsic-then-source fallback chain; intrinsic members remain governed by
+their existing intrinsic identity and recognition rules.
+
+The user additionally directed that source-member projection resolution be available
+in all declaration annotations, not only body checking or post-publication consumers.
+The live session currently lowers aliases before it completes generic headers and
+publishes associated surfaces after callable signatures. Therefore the phase order
+must be reorganized so the canonical owner/header and surface selection products are
+available before every annotation consumer. Do not publish a provisional second
+surface or add a parallel name index. The exact boundary between shell/header staging
+and alias lowering remains an explicit implementation decision pending user direction;
+preserve the current alias/generic-header dependency contract until that decision is
+settled.
 
 **Tests:**
 

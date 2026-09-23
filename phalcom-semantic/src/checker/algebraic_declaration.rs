@@ -11,8 +11,8 @@ use crate::enum_semantics::{
     VariantVisibility,
 };
 use crate::identity::{
-    CallableId, DataComponentId, DataConstructorId, DeclarationId, DispatchSide, ModuleId, VariantConstructorId, VariantFamilyId, VariantFieldId,
-    VariantId,
+    AssociatedStaticDomainDeclarationId, CallableId, DataComponentId, DataConstructorId, DeclarationId, DispatchSide, ModuleId,
+    VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId,
 };
 use crate::resolver::LinkedTypeResolver;
 use crate::surface::MemberVisibility;
@@ -529,6 +529,179 @@ pub fn build_algebraic_semantics(
         info: Arc::new(decl_info),
         diagnostics: Arc::from(diagnostics.into_boxed_slice()),
     })
+}
+
+/// Builds the declaration-owned static-domain product for associated `type data`.
+/// The owner declaration and its canonical generic environment define identity;
+/// the source declaration name is not promoted to a synthetic top-level owner.
+pub fn build_associated_static_domain_declaration(
+    owner: &DeclarationId,
+    def: &AlgebraicDef,
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &LinkedTypeResolver,
+    module_id: &ModuleId,
+) -> (Option<crate::db::product::AssociatedStaticDomainDeclarationProduct>, Vec<SemanticDiagnostic>) {
+    let mut diagnostics = Vec::new();
+    if def.phase != AlgebraicPhase::TypeOnly || !def.generic_parameters.is_empty() || def.where_clause.is_some() {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            module_id.clone(),
+            DiagnosticCode::KindExpectedType,
+            "associated type data must be type-only and cannot declare member-local generic parameters",
+            def.range,
+        ));
+        return (None, diagnostics);
+    }
+
+    let id = AssociatedStaticDomainDeclarationId::new(owner.clone(), def.name.clone());
+    let owner_signature = declarations.generic_signature(owner).cloned();
+    let mut type_parameters = HashMap::new();
+    if let Some(signature) = &owner_signature {
+        for parameter in signature.parameters.iter().copied() {
+            let name = store.type_parameter(parameter).name.to_string();
+            type_parameters.insert(name, type_level_binding_for_parameter(store, parameter));
+        }
+    }
+    let scoped_resolver = ScopedTypeResolver { parent: resolver, type_parameters };
+    let formation_site = TypeFormationSite::member(module_id.clone(), owner.clone(), DispatchSide::Instance);
+    let owner_arguments = declarations
+        .generic_signature(owner)
+        .map(|signature| {
+            signature
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    let kind = store.type_parameter(*parameter).kind;
+                    if kind == KindId::RECORD_ROW {
+                        let row = store
+                            .record_row_checked(Vec::new(), crate::types::row::RecordRowTail::Parameter(*parameter))
+                            .expect("a parameter-only record row is canonical");
+                        crate::types::store::StaticArgument::RecordRow(row)
+                    } else {
+                        crate::types::store::StaticArgument::Term(store.parameter_form(*parameter))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        })
+        .unwrap_or_else(|| Box::new([]));
+    let domain = store.associated_static_domain(id.clone(), owner_arguments);
+
+    let mut constructors = Vec::new();
+    match &def.shape {
+        phalcom_ast::ast::AlgebraicShapeSyntax::Sum(sum) => {
+            for case in &sum.cases {
+                if !case.generic_parameters.is_empty() || case.where_clause.is_some() || case.result_annotation.is_some() {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        module_id.clone(),
+                        DiagnosticCode::KindExpectedType,
+                        "associated type-data cases cannot declare local generics, constraints, or specialized results",
+                        case.range,
+                    ));
+                    continue;
+                }
+                let mut parameter_kinds = Vec::new();
+                let mut valid_case = true;
+                match &case.payload {
+                    phalcom_ast::ast::CasePayloadSyntax::Singleton => {}
+                    phalcom_ast::ast::CasePayloadSyntax::Tuple { parameters, .. } => {
+                        for parameter in parameters {
+                            let Some(annotation) = parameter.annotation.as_ref() else {
+                                valid_case = false;
+                                diagnostics.push(SemanticDiagnostic::error_in(
+                                    module_id.clone(),
+                                    DiagnosticCode::KindExpectedType,
+                                    "associated static-domain constructor parameters require explicit static-domain types",
+                                    parameter.range,
+                                ));
+                                continue;
+                            };
+                            if let Some(kind) = associated_static_payload_kind(
+                                store, declarations, &scoped_resolver, &formation_site, annotation, module_id, parameter.range, &mut diagnostics,
+                            ) {
+                                parameter_kinds.push(kind);
+                            } else {
+                                valid_case = false;
+                            }
+                        }
+                    }
+                    phalcom_ast::ast::CasePayloadSyntax::Record { components, .. } => {
+                        for component in components {
+                            if let Some(kind) = associated_static_payload_kind(
+                                store,
+                                declarations,
+                                &scoped_resolver,
+                                &formation_site,
+                                &component.annotation,
+                                module_id,
+                                component.range,
+                                &mut diagnostics,
+                            ) {
+                                parameter_kinds.push(kind);
+                            } else {
+                                valid_case = false;
+                            }
+                        }
+                    }
+                };
+                if !valid_case {
+                    continue;
+                }
+                constructors.push(store.intern_static_constructor(
+                    domain,
+                    owner.clone(),
+                    case.name.clone(),
+                    parameter_kinds.into_boxed_slice(),
+                ));
+            }
+        }
+        phalcom_ast::ast::AlgebraicShapeSyntax::Product(_) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module_id.clone(),
+                DiagnosticCode::KindExpectedType,
+                "associated type data must declare a closed set of static cases",
+                def.range,
+            ));
+        }
+    }
+
+    let product = crate::db::product::AssociatedStaticDomainDeclarationProduct {
+        id,
+        domain,
+        constructors: constructors.into_boxed_slice(),
+        source_range: def.range,
+    };
+    (Some(product), diagnostics)
+}
+
+fn associated_static_payload_kind(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &ScopedTypeResolver<'_>,
+    formation_site: &TypeFormationSite,
+    annotation: &phalcom_ast::ast::TypeAnnotation,
+    module_id: &ModuleId,
+    range: phalcom_ast::ast::SourceRange,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> Option<KindId> {
+    match resolve_type_annotation(store, declarations, resolver, formation_site, annotation, diagnostics) {
+        TypeKnowledge::Known(evidence) => {
+            let ty = evidence.ty();
+            let kind = store.kind_of(ty);
+            if kind == KindId::TYPE || matches!(store.get_kind(kind), KindData::StaticDomain(_)) {
+                Some(kind)
+            } else {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    module_id.clone(),
+                    DiagnosticCode::KindExpectedType,
+                    "associated type-data payload must have a supported static kind",
+                    range,
+                ));
+                None
+            }
+        }
+        TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_) => None,
+    }
 }
 
 fn register_static_declaration(

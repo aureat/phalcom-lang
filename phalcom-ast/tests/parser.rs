@@ -89,6 +89,39 @@ fn class_inherits_from_qualified_static_symbol() {
 }
 
 #[test]
+fn associated_type_data_parses_in_class_body_and_inherent_impl() {
+    let program = parse_source(
+        "class Parser { type data State { Start Done } }\ndata Packet(bytes: ByteArray)\nimpl Packet { type data State { Unread Parsed } }\n",
+        0,
+    )
+    .expect("associated type-data declarations parse at their accepted sites");
+
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class declaration")
+    };
+    assert_eq!(class.associated_type_data.len(), 1);
+    assert_eq!(class.associated_type_data[0].name, "State");
+    assert_eq!(class.associated_type_data[0].phase, phalcom_ast::ast::AlgebraicPhase::TypeOnly);
+
+    let Statement::Impl(implementation) = &program.statements[2] else {
+        panic!("expected inherent implementation")
+    };
+    assert_eq!(implementation.associated_type_data.len(), 1);
+    assert_eq!(implementation.associated_type_data[0].name, "State");
+    assert_eq!(implementation.associated_type_data[0].phase, phalcom_ast::ast::AlgebraicPhase::TypeOnly);
+
+    let nested = parse_source("Parser::State::Done\n", 0).expect("nested associated static-case path parses");
+    assert!(matches!(nested.statements.first(), Some(Statement::Expr { expr: Expr::AssociatedLookup(_), .. })));
+}
+
+#[test]
+fn associated_type_data_is_not_part_of_runtime_data_representation_body() {
+    let error = parse_source("data Packet { type data State { Unread } }\n", 0)
+        .expect_err("runtime data representation bodies reject nested type data");
+    assert!(error.to_string().contains("case name"), "unexpected parser diagnostic: {error}");
+}
+
+#[test]
 fn class_inherits_with_extends_produces_syntax_error() {
     let result = parse_source("class Child extends Parent {}\n", 0);
     assert!(result.is_err(), "class with extends must produce a syntax error");

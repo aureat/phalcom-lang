@@ -140,6 +140,7 @@ fn materialize_type_inner(
                     subject,
                     selector: projection.selector.clone(),
                     arguments,
+                    source_declaration: projection.source_declaration.clone(),
                 },
                 kind,
             ))

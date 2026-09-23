@@ -725,8 +725,83 @@ Verification required: parse and publish class-body and inherent-impl
   value production.
 Normative amendments: docs/specs/type-level-domains.md, docs/specs/type-members.md,
   docs/specs/objects/data-objects.md, and docs/specs/objects/impl.md.
-Status: ADOPTED; T6 may resume. Grammar and identity implementation has not yet started.
+Status: ADOPTED; T6 resumed and now has focused parser, declaration-publication,
+  collision, generic-specialization, and no-runtime-invocation evidence recorded
+  below.
+
+INC-C3-3
+Plan/task: LANG007.C3.P2 / T7 — source type-member projection selection
+Trigger: mandatory trigger 14 (a second source of canonical resolution would be
+  introduced by a local workaround); trigger 7 if the type-formation and surface
+  query boundaries imply materially different integration designs.
+Observed: source `TypeMemberDef` signatures are published as identity-keyed
+  declaration products and `AssociatedSurface` stores their admitted identities.
+  `resolve_type_member_projection` in `types/annotation.rs` receives only
+  `&dyn TypeResolver`, resolves intrinsic operations locally, and otherwise builds
+  a symbolic projection; it receives neither the selected surface entry nor a
+  checked source declaration product. `CheckingContext` tracks associated-surface
+  dependencies, but the type-formation resolver has no corresponding selected-member
+  product/dependency seam.
+Expected architecture: T7 must select by owner/base through AssociatedSurface,
+  retrieve the checked signature by stable `TypeMemberDeclarationId`, and preserve
+  that identity in the canonical projection. No parallel name lookup is allowed.
+Scoped work already present: T6 publishes associated static-domain products and
+  T7 resolves associated static domains and singleton cases as static semantic
+  results; heterogeneous owner applications preserve `RecordRow` in the canonical
+  `StaticArgument` envelope. Focused tests pass for those slices.
+Implementer hypothesis: type formation needs an explicit session/query-provided
+  associated-member resolution context that records dependencies and returns the
+  selected declaration identity/product, while leaving AssociatedSurface as the
+  sole selection authority.
+Alternative: route type-member projection formation through a new canonical
+  semantic query at the declaration/snapshot boundary rather than extending the
+  resolver context. These differ in query ownership and invalidation wiring.
+Decision: user confirmed the session/query-provided seam: AssociatedSurface
+  selects the member; checked declaration products are retrieved by stable
+  TypeMemberDeclarationId; consumed surface and signature products participate
+  in invalidation dependencies. No independent name registry or precedence path.
+Plan amendment: required and applied in T7 before implementation resumes.
+Verification required: source type-member selection through surface, wrong-domain
+  rejection, projection identity across equivalent spellings, collision through the
+  surface, and changed-signature invalidation with an unrelated sibling reusable.
+Status: RESOLVED; implementation now selects source members only through the
+  confirmed surface/query seam. Focused wrong-domain and selected-identity tests pass.
+  The publication phase still follows alias and callable-signature queries, so
+  source projections are not yet available in all annotations. User directed a
+  phase reorganization for all annotations; the staging boundary around aliases
+  and generic headers is awaiting the user's choice.
+Independent T4/T8 work may continue while that phase boundary is settled.
 ```
+
+### INC-C3-4
+
+Incident report: [INC-C3-4.md](INC-C3-4.md)
+
+Plan/task: LANG007.C3.P2 / T8 — nominal static-case source-index identity
+Trigger: mandatory trigger 11 (two plausible semantic authorities have different
+  invalidation consequences) and trigger 14 (do not reconstruct canonical targets
+  from source spelling).
+Observed: associated static cases publish `AssociatedResolutionKind::StaticTerm`
+  with stable `StaticCaseId`, which source-index attachment consumes. For nominal
+  `type data Shape { Scalar }` referenced as `Shape::Scalar`, callable analysis
+  publishes no case resolution; `synthesize_associated_lookup` follows
+  `resolve_associated_owner` and rejects the type-only owner before producing a case
+  target. The source index consequently has no stable target for `Scalar`.
+Expected architecture: T8 targets derive from canonical semantic selection and stable
+  domain/case identity, not token spelling or a second case-name registry.
+Implementer hypothesis: nominal type-data cases need a semantic resolution product
+  carrying the nominal `StaticDomainDeclarationId` and selected `StaticCaseId`, while
+  runtime-value use remains rejected.
+Alternative: source-index construction could consume an existing type-data declaration
+  product directly without adding a callable-resolution variant. These choices differ
+  in resolution ownership and dependency/invalidation wiring.
+Decision: pending user direction. No speculative source-spelling fallback was retained.
+Plan amendment: pending decision.
+Verification required: a nominal `Shape::Scalar` source target resolves to stable
+  declaration identity; runtime use remains rejected; incremental case edits update
+  that target while unrelated targets remain reusable.
+Status: OPEN; resume this slice after the canonical selection/dependency seam is
+  confirmed. Independent T4/T8 work may continue.
 
 Use entries:
 
@@ -830,8 +905,11 @@ T4 partial
     solver-local structural form, recursively tracks their variables/support,
     unifies only matching domain/constructor identities, and materializes
     through `TypeStore::static_data`. The `InferVarId(KindId)` identity and
-    existing row solver remain unchanged. Library unit tests for the new
-    solver cases remain behind BASELINE-003.
+    existing row solver remain unchanged. Three focused integration tests now
+    cover ConstInt payload solving, domain/case mismatch refutation, and rejection
+    of a proper-Type candidate for a static-domain variable. The original library
+    unit-test filter remains behind BASELINE-003. Heterogeneous row arguments in
+    the general inference-term application representation remain unimplemented.
 
 T5 partial
     type aliases accept an optional declaration-backed result kind such as
@@ -850,9 +928,40 @@ T5 partial
     applications through AssociatedSurface and preserving selected-declaration
     projection identity across equivalent lookup spellings.
 
+T6 focused-tested
+    associated `type data` parses in class bodies and unguarded inherent
+    implementations of runtime data owners. Stable declaration identity is
+    owner-plus-name; owner generic arguments form canonical specialized domains.
+    Checked declaration products are retained separately from AssociatedSurface,
+    which admits the category and handles collisions. Constructor payload kinds
+    are checked against the owner generic environment. Conformance and guarded/
+    partial-target impl declarations are rejected; duplicate names across impl
+    fragments are rejected. No runtime invocation target is created. Structural
+    updates always republish a product-data owner's base constructor surface even
+    when no associated static domain is contributed.
+
+T7 partial
+    nested associated `::` paths parse. AssociatedSurface-selected static
+    domains resolve to canonical owner-specialized domains, and singleton
+    static cases resolve to canonical static terms. Core lowering rejects either
+    static result in a runtime-value context. Source type-member projections now
+    select through AssociatedSurface, retrieve the checked signature by stable
+    declaration identity, validate domain arguments, record surface dependencies,
+    and preserve declaration identity in the projection. Focused wrong-domain and
+    identity tests pass. Publication still occurs after alias/callable signature
+    queries, so all-annotation coverage requires the authorized phase reorganization.
+    Broader category lookup and heterogeneous owner-argument completion remain open.
+
 T8 partial
-    durable applied metadata uses `StaticArgumentRef`, schema v6 is emitted,
-    and v1-v5 compatibility validation remains covered.
+    durable applied metadata uses `StaticArgumentRef`; schema v7 preserves source
+    type-member projection identity, associated static-domain declaration identity
+    and owner environment, plus record-row static arguments. Type-meta compatibility
+    tests and semantic metadata round-trip pass. Associated declaration
+    catalog/reference validation and cross-module import/reconstruction remain
+    open. The source index now resolves associated static-domain names and case
+    names to stable declaration-based targets. Focused incremental/cold parity covers a
+    changed associated static-domain case set. Since constructor IDs are store-local,
+    parity compares normalized declaration/case/kind facts rather than raw IDs.
 ```
 
 Focused evidence acquired during this P2 continuation:
@@ -866,12 +975,26 @@ semantic foundations/type_annotations                               PASS (45)
 semantic adts                                                      PASS (281; 28 ignored/gated)
 semantic metadata integration                                     PASS (21)
 type-meta schema compatibility                                     PASS (9)
+semantic source type-member surface selection/domain validation    PASS (1)
+semantic associated static-domain/case source-index targets         PASS (1)
+semantic integration/metadata                                      PASS (23)
+semantic incremental/type_members                                  PASS (7)
+semantic foundations/static_domain_inference                       PASS (3)
+semantic incremental/adts                                          PASS (13; 3 ignored/gated)
+semantic incremental type-data case edit cold parity               PASS (1)
+semantic incremental associated static-domain edit/cold parity     PASS (1)
+core crate check                                                   PASS
 core language/algebraic_data                                      PASS (44; 19 ignored/gated)
 core and semantic crate checks                                     PASS
 semantic library static-data inference unit filter                 BASELINE_BLOCKED (BASELINE-003)
 semantic foundations/type_members                                 PASS (7)
 semantic integration/type_member_closure                           PASS (9)
 semantic incremental/type_members                                  PASS (7)
+AST parser associated type-data sites and nested path                PASS (2)
+semantic associated static-domain publication/duplicates            PASS (focused filters)
+semantic nested associated static domain/term lookup                 PASS (focused)
+semantic generic-owner associated-domain specialization              PASS (focused)
+core associated lowering boundary                                    PASS (cargo check only)
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic      PASS (post-amendment)
 repo-wide cargo fmt --all -- --check                               FAIL (D; pre-existing formatting drift outside this slice)
 ```
@@ -883,9 +1006,10 @@ changes from that check were retained.
 
 This is partial P2 evidence, not P2 acceptance. Remaining P2 implementation includes
 full first-order inference coverage and row-aware solver terms, static type-member
-domain convergence, associated `type data` declaration/specialization and unified `::`
-lookup, lossless record-row application metadata/import handling, and
-cold/incremental/source identity certification.
+domain convergence and source application/projection routing through AssociatedSurface,
+heterogeneous associated-owner arguments, static constructor argument lookup,
+lossless metadata/import round trips (including associated declarations), and
+cold/incremental/source-index identity certification.
 
 ### P3 evidence
 
@@ -918,18 +1042,20 @@ next plan:
     LANG007.C3.P2
 
 next action:
-    implement T6 under the user-ratified INC-C3-2 rule: class-body declarations and
-    runtime-data declarations in unguarded inherent impls, with stable owner-plus-name
-    identity and canonical owner specialization. Then implement T7 through the one
-    AssociatedSurface decision, including source type-member signature retrieval by
-    TypeMemberDeclarationId before domain-checking arguments.
+    continue independent T4/T8 closure: resolve the row-aware inference boundary,
+    extend metadata with associated declaration validation/import identity, and add
+    source-index coverage. Resume T7 phase reorganization after settling the pending
+    shell/header-versus-alias boundary; preserve the confirmed single AssociatedSurface
+    selection and identity-keyed signature retrieval.
 
 P2 started from the completed P1 commit `79e6726093349d3269460a29a7c1c4c3035ec2cf`
 with a clean working tree; that revision was pushed to `origin/main` before P2
 implementation continued. The T5 canonical-Int and source-publication slices are
-focused-tested; P2 remains partial and is not complete. T6 is unblocked by the adopted
-INC-C3-2 specification amendment; T7 must consume type-member declaration products
-through AssociatedSurface.
+focused-tested; P2 remains partial and is not complete. T6 has focused publication and
+identity evidence under the user-ratified INC-C3-2 amendment. T7 has focused static-domain,
+singleton-term, and source-member projection evidence under the user-ratified INC-C3-3
+seam, but all-annotation availability still requires phase reorganization. Independent
+T4/T8 closure is continuing.
 ```
 
 At P1 start:

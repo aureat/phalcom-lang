@@ -777,6 +777,7 @@ fn normalize_type_member_projection(
         subject: normalized_subject.clone(),
         selector: projection.selector.clone(),
         arguments: normalized_arguments.clone().into_boxed_slice(),
+        source_declaration: projection.source_declaration.clone(),
     };
     let rewritten = store.type_member_projection(rewritten_proj, orig_kind);
 

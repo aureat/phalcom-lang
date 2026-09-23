@@ -154,6 +154,79 @@ fn metadata_exports_and_validates_static_domain_and_type_data_identity() {
 }
 
 #[test]
+fn metadata_projection_retains_selected_source_type_member_identity() {
+    let mut store = TypeStore::new();
+    let owner = dummy_decl("Geometry");
+    let subject = store.nominal_type(owner.clone());
+    let member = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
+        owner,
+        phalcom_semantic::types::type_member::TypeMemberSelector::named("Transform"),
+    );
+    let projection = store.type_member_projection(
+        phalcom_semantic::types::type_member::TypeLevelProjection {
+            subject: phalcom_semantic::types::type_member::ProjectionSubject::Type(subject),
+            selector: member.selector.clone(),
+            arguments: Box::new([]),
+            source_declaration: Some(member),
+        },
+        KindId::TYPE,
+    );
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let projection_id = exporter.export_type_form(projection).unwrap();
+    let bundle = exporter.build_bundle(&[]).unwrap();
+    let TypeNode::TypeMemberProjection(projected) = &bundle.types[projection_id.0 as usize].form else {
+        panic!("expected source type-member projection metadata");
+    };
+    let stable_member = projected.source_declaration.as_ref().expect("stable source member identity");
+    assert_eq!(stable_member.selector.as_ref(), "Transform");
+    assert_eq!(stable_member.owner.path.last().map(AsRef::as_ref), Some("Geometry"));
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+}
+
+#[test]
+fn metadata_exports_associated_static_domain_identity_and_owner_environment() {
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+
+    use phalcom_semantic::identity::AssociatedStaticDomainDeclarationId;
+
+    let mut store = TypeStore::new();
+    let owner = dummy_decl("Packet");
+    let declaration = AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+    let int = store.nominal_type(dummy_decl("Int"));
+    let term_domain = store.associated_static_domain(declaration.clone(), vec![StaticArgument::Term(int)].into_boxed_slice());
+    let term_constructor = store.intern_static_constructor(term_domain, owner.clone(), "Unread", Box::new([]));
+    let term = store.static_data(term_domain, term_constructor, Box::new([])).expect("associated singleton");
+
+    let row = store.record_row_checked(Vec::new(), phalcom_semantic::types::row::RecordRowTail::Closed).unwrap();
+    let row_domain = store.associated_static_domain(declaration, vec![StaticArgument::RecordRow(row)].into_boxed_slice());
+    let row_constructor = store.intern_static_constructor(row_domain, owner, "Parsed", Box::new([]));
+    let row_term = store.static_data(row_domain, row_constructor, Box::new([])).expect("row-specialized associated singleton");
+
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let term_id = exporter.export_type_form(term).unwrap();
+    let row_term_id = exporter.export_type_form(row_term).unwrap();
+    let bundle = exporter.build_bundle(&[]).unwrap();
+    let TypeNode::StaticData(term_data) = &bundle.types[term_id.0 as usize].form else {
+        panic!("expected associated static data node");
+    };
+    let StaticDomainRef::Associated { declaration, owner_environment } = &term_data.domain else {
+        panic!("expected associated static-domain reference");
+    };
+    assert_eq!(declaration.name.as_ref(), "State");
+    assert!(matches!(owner_environment.as_ref(), [StaticArgumentRef::Term(_)]));
+    let TypeNode::StaticData(row_data) = &bundle.types[row_term_id.0 as usize].form else {
+        panic!("expected row-specialized associated static data node");
+    };
+    assert!(matches!(&row_data.domain, StaticDomainRef::Associated { owner_environment, .. }
+        if matches!(owner_environment.as_ref(), [StaticArgumentRef::RecordRow(row)] if row.fields.is_empty() && row.tail.is_none())));
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+
+    let json = encode_metadata_json(&bundle).unwrap();
+    let decoded = decode_metadata_json(&json, &ValidationLimits::default()).unwrap();
+    assert_eq!(decoded, bundle, "associated identity and row owner environment must survive metadata round-trip");
+}
+
+#[test]
 fn metadata_publishes_stable_algebraic_phase_and_shape() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(

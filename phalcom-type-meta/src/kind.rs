@@ -12,6 +12,10 @@ pub struct KindNodeId(pub u32);
 pub enum StaticDomainRef {
     ConstInt,
     Nominal { declaration: StableDeclarationRef },
+    Associated {
+        declaration: crate::identity::StableAssociatedStaticDomainDeclarationRef,
+        owner_environment: Box<[crate::type_node::StaticArgumentRef]>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]

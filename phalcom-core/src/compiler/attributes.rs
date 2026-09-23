@@ -1876,6 +1876,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
                 range: v.range,
             }),
             where_clause: None,
+            associated_type_data: Vec::new(),
             members,
             attributes: vec![Attribute {
                 kind: AttrKind::Builtin(BuiltinAttr::Data),

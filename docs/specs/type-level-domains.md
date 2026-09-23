@@ -86,6 +86,10 @@ declaration identity, duplicate rules, and namespace collisions are defined
 by [Type Members](type-members.md); inherent-implementation placement and
 authorization are defined by [Implementation Declarations](objects/impl.md).
 
+An associated `type data` declaration does not introduce member-local generic
+parameters. Its generic specialization is exactly the canonical generic
+environment of its nominal owner.
+
 An associated static domain has no runtime inhabitants or invocation target.
 Its cases denote static terms in that domain. Specializing a generic owner uses
 the canonical owner arguments to produce the corresponding concrete static

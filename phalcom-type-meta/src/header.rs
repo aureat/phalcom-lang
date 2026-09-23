@@ -4,9 +4,9 @@ use crate::fingerprint::Fingerprint128;
 use serde::{Deserialize, Serialize};
 
 pub const MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION: u32 = 1;
-/// Schema v6 widens applied arguments to the heterogeneous `StaticArgumentRef`
-/// envelope while retaining v5 static-domain/type-data nodes.
-pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 6;
+/// Schema v7 retains selected source type-member declaration identity in
+/// projections; v6 widened applications to heterogeneous static arguments.
+pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 7;
 pub const SEMANTIC_MODEL_VERSION: u32 = 1;
 pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 1;
 

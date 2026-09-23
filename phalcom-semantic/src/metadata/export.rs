@@ -277,13 +277,98 @@ impl<'a> MetadataExporter<'a> {
         }
     }
 
-    fn export_static_domain(&self, domain: StaticDomainId) -> Result<StaticDomainRef, MetadataExportError> {
+    fn export_static_domain(&mut self, domain: StaticDomainId) -> Result<StaticDomainRef, MetadataExportError> {
         match self.store.static_domain(domain) {
             Some(StaticDomainData::ConstInt) => Ok(StaticDomainRef::ConstInt),
             Some(StaticDomainData::Nominal { declaration }) => Ok(StaticDomainRef::Nominal {
                 declaration: self.stable_declaration(declaration),
             }),
+            Some(StaticDomainData::Associated { declaration, owner_arguments }) => {
+                let declaration = phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
+                    owner: self.stable_declaration(&declaration.owner),
+                    name: declaration.name.clone(),
+                };
+                let owner_environment = owner_arguments
+                    .iter()
+                    .map(|argument| self.export_static_argument(*argument, TypeId::DUMMY))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(StaticDomainRef::Associated {
+                    declaration,
+                    owner_environment: owner_environment.into_boxed_slice(),
+                })
+            }
             None => Err(MetadataExportError::InvalidStaticDomain(domain)),
+        }
+    }
+
+    fn export_static_argument(
+        &mut self,
+        argument: StaticArgument,
+        failure_context: TypeId,
+    ) -> Result<StaticArgumentRef, MetadataExportError> {
+        match argument {
+            StaticArgument::Term(term) => Ok(StaticArgumentRef::Term(self.export_type_form(term)?)),
+            StaticArgument::RecordRow(row_id) => {
+                let row = self.store.record_row(row_id);
+                let mut fields = Vec::with_capacity(row.fields.len());
+                for field in row.fields.iter() {
+                    fields.push(RecordFieldRef {
+                        name: field.name.clone(),
+                        ty: self.export_type_form(field.ty)?,
+                    });
+                }
+                let tail = match row.tail {
+                    crate::types::row::RecordRowTail::Closed => None,
+                    crate::types::row::RecordRowTail::Parameter(parameter) => Some(self.export_type_parameter(parameter)?),
+                    crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableForm(failure_context)),
+                };
+                Ok(StaticArgumentRef::RecordRow(phalcom_type_meta::type_node::RecordRowRef {
+                    fields: fields.into_boxed_slice(),
+                    tail,
+                }))
+            }
+        }
+    }
+
+    fn write_static_argument_fingerprint(&self, builder: &mut FingerprintBuilder, argument: &StaticArgumentRef) {
+        match argument {
+            StaticArgumentRef::Term(term) => {
+                builder.write_u8(1);
+                builder.write_fingerprint(self.types[term.0 as usize].structural_fingerprint);
+            }
+            StaticArgumentRef::RecordRow(row) => {
+                builder.write_u8(2);
+                builder.write_u32(row.fields.len() as u32);
+                for field in row.fields.iter() {
+                    builder.write_str(&field.name);
+                    builder.write_fingerprint(self.types[field.ty.0 as usize].structural_fingerprint);
+                }
+                if let Some(tail) = &row.tail {
+                    builder.write_u8(1);
+                    self.write_stable_parameter_fingerprint(builder, tail);
+                } else {
+                    builder.write_u8(0);
+                }
+            }
+        }
+    }
+
+    fn write_static_domain_fingerprint(&self, builder: &mut FingerprintBuilder, domain: &StaticDomainRef) {
+        match domain {
+            StaticDomainRef::ConstInt => builder.write_u8(1),
+            StaticDomainRef::Nominal { declaration } => {
+                builder.write_u8(2);
+                write_stable_declaration_fingerprint(builder, declaration);
+            }
+            StaticDomainRef::Associated { declaration, owner_environment } => {
+                builder.write_u8(3);
+                write_stable_declaration_fingerprint(builder, &declaration.owner);
+                builder.write_str(&declaration.name);
+                builder.write_u32(owner_environment.len() as u32);
+                for argument in owner_environment.iter() {
+                    self.write_static_argument_fingerprint(builder, argument);
+                }
+            }
         }
     }
 
@@ -322,13 +407,7 @@ impl<'a> MetadataExporter<'a> {
             KindNode::CompleteTypePack => fp_b.write_u8(6),
             KindNode::StaticDomain(domain) => {
                 fp_b.write_u8(7);
-                match domain {
-                    StaticDomainRef::ConstInt => fp_b.write_u8(1),
-                    StaticDomainRef::Nominal { declaration } => {
-                        fp_b.write_u8(2);
-                        write_stable_declaration_fingerprint(&mut fp_b, declaration);
-                    }
-                }
+                self.write_static_domain_fingerprint(&mut fp_b, domain);
             }
             KindNode::Arrow { parameters, result } => {
                 fp_b.write_u8(2);
@@ -770,10 +849,7 @@ impl<'a> MetadataExporter<'a> {
                 let origin_id = self.export_type_form(origin)?;
                 let mut arg_ids = Vec::new();
                 for arg in arguments.iter() {
-                    let Some(arg) = arg.as_type_id() else {
-                        return Err(MetadataExportError::NonExportableForm(origin));
-                    };
-                    arg_ids.push(StaticArgumentRef::Term(self.export_type_form(arg)?));
+                    arg_ids.push(self.export_static_argument(*arg, origin)?);
                 }
                 TypeNode::Applied {
                     origin: origin_id,
@@ -971,6 +1047,10 @@ impl<'a> MetadataExporter<'a> {
                     subject,
                     selector,
                     arguments: arguments.into_boxed_slice(),
+                    source_declaration: proj.source_declaration.as_ref().map(|id| phalcom_type_meta::identity::StableTypeMemberRef {
+                        owner: self.stable_declaration(&id.owner),
+                        selector: id.selector.name().into(),
+                    }),
                 })
             }
             TypeData::ConstInt(value) => TypeNode::ConstInt(value),
@@ -983,10 +1063,7 @@ impl<'a> MetadataExporter<'a> {
                 let arguments = term
                     .arguments
                     .iter()
-                    .map(|argument| match argument {
-                        StaticArgument::Term(argument) => Ok(StaticArgumentRef::Term(self.export_type_form(*argument)?)),
-                        StaticArgument::RecordRow(_) => Err(MetadataExportError::NonExportableForm(ty)),
-                    })
+                    .map(|argument| self.export_static_argument(*argument, ty))
                     .collect::<Result<Vec<_>, MetadataExportError>>()?;
                 TypeNode::StaticData(StaticDataRef {
                     domain,
@@ -1015,23 +1092,12 @@ impl<'a> MetadataExporter<'a> {
             }
             TypeNode::StaticData(static_data) => {
                 fp_b.write_u8(23);
-                match &static_data.domain {
-                    StaticDomainRef::ConstInt => fp_b.write_u8(1),
-                    StaticDomainRef::Nominal { declaration } => {
-                        fp_b.write_u8(2);
-                        write_stable_declaration_fingerprint(&mut fp_b, declaration);
-                    }
-                }
+                self.write_static_domain_fingerprint(&mut fp_b, &static_data.domain);
                 write_stable_declaration_fingerprint(&mut fp_b, &static_data.constructor.declaration);
                 fp_b.write_str(&static_data.constructor.case_name);
                 fp_b.write_u32(static_data.arguments.len() as u32);
                 for argument in static_data.arguments.iter() {
-                    match argument {
-                        StaticArgumentRef::Term(argument) => {
-                            fp_b.write_u8(1);
-                            fp_b.write_fingerprint(self.types[argument.0 as usize].structural_fingerprint);
-                        }
-                    }
+                    self.write_static_argument_fingerprint(&mut fp_b, argument);
                 }
             }
             TypeNode::Nominal { declaration } => {
@@ -1045,12 +1111,7 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_fingerprint(self.types[origin.0 as usize].structural_fingerprint);
                 fp_b.write_u32(arguments.len() as u32);
                 for arg in arguments.iter() {
-                    match arg {
-                        StaticArgumentRef::Term(arg) => {
-                            fp_b.write_u8(1);
-                            fp_b.write_fingerprint(self.types[arg.0 as usize].structural_fingerprint);
-                        }
-                    }
+                    self.write_static_argument_fingerprint(&mut fp_b, arg);
                 }
             }
             TypeNode::Union(members) => {
@@ -1196,6 +1257,13 @@ impl<'a> MetadataExporter<'a> {
             TypeNode::TypeMemberProjection(proj) => {
                 fp_b.write_u8(17);
                 fp_b.write_fingerprint(self.types[proj.subject.0 as usize].structural_fingerprint);
+                if let Some(source) = &proj.source_declaration {
+                    fp_b.write_u8(1);
+                    write_stable_declaration_fingerprint(&mut fp_b, &source.owner);
+                    fp_b.write_str(&source.selector);
+                } else {
+                    fp_b.write_u8(0);
+                }
                 match &proj.selector {
                     phalcom_type_meta::type_node::TypeMemberSelectorRef::Named(name) => {
                         fp_b.write_u8(0);

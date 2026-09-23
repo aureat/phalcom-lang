@@ -6,7 +6,13 @@ use crate::types::annotation::TypeResolver;
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+
+#[derive(Clone, Debug, Default)]
+struct AssociatedTypeMemberProducts {
+    surfaces: BTreeMap<DeclarationId, Arc<crate::associated::AssociatedSurface>>,
+    declarations: BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+}
 
 /// A project-aware type resolver that resolves type names through the linker layout
 /// and known declaration tables without resorting to global heuristics.
@@ -18,6 +24,7 @@ pub struct LinkedTypeResolver {
     retained_alias_forms: Arc<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
     alias_form_overrides: RefCell<BTreeMap<DeclarationId, Option<crate::types::id::TypeId>>>,
     trait_associated_types: Arc<BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>>,
+    associated_type_members: Arc<RwLock<AssociatedTypeMemberProducts>>,
 }
 
 impl LinkedTypeResolver {
@@ -41,6 +48,7 @@ impl LinkedTypeResolver {
             retained_alias_forms: Arc::new(BTreeMap::new()),
             alias_form_overrides: RefCell::new(BTreeMap::new()),
             trait_associated_types: Arc::new(BTreeMap::new()),
+            associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
         }
     }
 
@@ -61,6 +69,7 @@ impl LinkedTypeResolver {
             retained_alias_forms,
             alias_form_overrides: RefCell::new(BTreeMap::new()),
             trait_associated_types: Arc::new(BTreeMap::new()),
+            associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
         }
     }
 
@@ -83,9 +92,37 @@ impl LinkedTypeResolver {
     pub fn remove_alias_form(&self, declaration: DeclarationId) {
         self.alias_form_overrides.borrow_mut().insert(declaration, None);
     }
+
+    /// Replaces the associated member query view after declaration surfaces and
+    /// their checked member products have been published for this snapshot.
+    pub fn update_associated_type_members(
+        &self,
+        surfaces: &crate::associated::AssociatedFamilyTable,
+        declarations: &BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    ) {
+        if let Ok(mut products) = self.associated_type_members.write() {
+            products.surfaces = surfaces.surfaces.iter().map(|(owner, surface)| (owner.clone(), surface.clone())).collect();
+            products.declarations = declarations.clone();
+        }
+    }
 }
 
 impl TypeResolver for LinkedTypeResolver {
+    fn resolve_associated_type_member(
+        &self,
+        owner: &DeclarationId,
+        selector: &crate::types::type_member::TypeMemberSelector,
+    ) -> Option<Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+        let base = match selector {
+            crate::types::type_member::TypeMemberSelector::Named(name) => phalcom_common::selector::SelectorBase::Named(name.to_string()),
+            crate::types::type_member::TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
+        };
+        let products = self.associated_type_members.read().ok()?;
+        let family = products.surfaces.get(owner)?.families.get(&base)?;
+        let crate::associated::AssociatedMemberId::TypeMember(id) = family.members.first()? else { return None };
+        products.declarations.get(id).cloned()
+    }
+
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
         if let Some(linked_mod) = self.linked.modules.get(current_module) {
             if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(alias) {

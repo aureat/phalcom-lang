@@ -9,7 +9,7 @@ use super::row::{RecordRowData, RecordRowField, RecordRowTail};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
 use super::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberSelector};
 use super::variance::Variance;
-use crate::identity::{DeclarationId, VariantId};
+use crate::identity::{AssociatedStaticDomainDeclarationId, DeclarationId, VariantId};
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use std::collections::HashMap;
@@ -203,6 +203,11 @@ pub enum StaticDomainData {
     ConstInt,
     /// A nominal static domain introduced by a `type data` declaration.
     Nominal { declaration: DeclarationId },
+    /// An associated static domain specialized by its owner's canonical arguments.
+    Associated {
+        declaration: AssociatedStaticDomainDeclarationId,
+        owner_arguments: Box<[StaticArgument]>,
+    },
 }
 
 /// A canonical static algebraic term: one constructor application within a
@@ -664,6 +669,18 @@ impl TypeStore {
         self.intern_static_domain(StaticDomainData::Nominal { declaration })
     }
 
+    /// Interns one canonical specialization of an associated static domain.
+    pub fn associated_static_domain(
+        &mut self,
+        declaration: AssociatedStaticDomainDeclarationId,
+        owner_arguments: Box<[StaticArgument]>,
+    ) -> StaticDomainId {
+        self.intern_static_domain(StaticDomainData::Associated {
+            declaration,
+            owner_arguments,
+        })
+    }
+
     /// Registers one static constructor or case and returns its store-local identity.
     pub fn intern_static_constructor(
         &mut self,
@@ -689,6 +706,19 @@ impl TypeStore {
 
     pub fn static_constructor(&self, id: AlgebraicStaticConstructorId) -> Option<&AlgebraicStaticConstructorData> {
         self.static_constructors.get(id.index())
+    }
+
+    /// Returns the canonical static constructors declared by one domain.
+    /// This is identity-based enumeration for semantic member selection; it is
+    /// not a separate name lookup authority.
+    pub fn static_constructor_ids_for_domain(&self, domain: StaticDomainId) -> Vec<AlgebraicStaticConstructorId> {
+        self.static_constructors
+            .iter()
+            .enumerate()
+            .filter_map(|(index, constructor)| {
+                (constructor.domain == domain).then(|| AlgebraicStaticConstructorId::from_index(index))
+            })
+            .collect()
     }
 
     /// Forms a canonical compile-time integer term.
@@ -949,6 +979,7 @@ impl TypeStore {
                     subject: ProjectionSubject::Type(ty),
                     selector: TypeMemberSelector::named("Positionals"),
                     arguments: Box::new([]),
+                    source_declaration: None,
                 },
                 KindId::TYPE_PACK,
             )),
@@ -985,6 +1016,7 @@ impl TypeStore {
                     subject: ProjectionSubject::Type(ty),
                     selector: TypeMemberSelector::named("Labeled"),
                     arguments: Box::new([]),
+                    source_declaration: None,
                 },
                 KindId::LABELED_TYPE_PACK,
             )),
@@ -1615,14 +1647,20 @@ impl TypeStore {
 
     /// Decomposes a nominal or applied nominal type into `(declaration, type_arguments)`.
     pub fn applied_nominal_parts(&self, ty: TypeId) -> Option<(DeclarationId, Vec<TypeId>)> {
+        let (declaration, arguments) = self.applied_nominal_static_parts(ty)?;
+        let arguments = arguments.into_iter().map(StaticArgument::as_type_id).collect::<Option<Vec<_>>>()?;
+        Some((declaration, arguments))
+    }
+
+    /// Decomposes a nominal application without erasing record-row arguments.
+    pub fn applied_nominal_static_parts(&self, ty: TypeId) -> Option<(DeclarationId, Vec<StaticArgument>)> {
         match self.get(ty) {
             TypeData::Nominal { declaration } => Some((declaration.clone(), Vec::new())),
             TypeData::Applied { origin, arguments } => {
                 let decl = self.nominal_origin_declaration(*origin)?;
-                let arguments = arguments.iter().map(|argument| argument.as_type_id()).collect::<Option<Vec<_>>>()?;
-                Some((decl.clone(), arguments))
+                Some((decl.clone(), arguments.to_vec()))
             }
-            TypeData::ExactCase { enum_type, .. } => self.applied_nominal_parts(*enum_type),
+            TypeData::ExactCase { enum_type, .. } => self.applied_nominal_static_parts(*enum_type),
             _ => None,
         }
     }
@@ -1877,5 +1915,50 @@ mod tests {
             store.static_data(domain, constructor, vec![StaticArgument::Term(runtime_type)].into_boxed_slice()),
             Err(StaticDataFormationError::ArgumentKindMismatch { index: 0, .. })
         ));
+    }
+
+    #[test]
+    fn associated_static_domain_identity_is_stable_and_specialization_is_canonical() {
+        let mut store = TypeStore::new();
+        let declaration = AssociatedStaticDomainDeclarationId::new(test_decl("Container"), "State");
+        let int = store.nominal_type(test_decl("Int"));
+        let string = store.nominal_type(test_decl("String"));
+
+        let int_domain = store.associated_static_domain(
+            declaration.clone(),
+            vec![StaticArgument::Term(int)].into_boxed_slice(),
+        );
+        let same_int_domain = store.associated_static_domain(
+            declaration.clone(),
+            vec![StaticArgument::Term(int)].into_boxed_slice(),
+        );
+        let string_domain = store.associated_static_domain(
+            declaration.clone(),
+            vec![StaticArgument::Term(string)].into_boxed_slice(),
+        );
+
+        assert_eq!(int_domain, same_int_domain);
+        assert_ne!(int_domain, string_domain);
+        assert_eq!(
+            store.static_domain(int_domain),
+            Some(&StaticDomainData::Associated {
+                declaration: declaration.clone(),
+                owner_arguments: vec![StaticArgument::Term(int)].into_boxed_slice(),
+            })
+        );
+        assert_eq!(declaration.owner.name.as_ref(), "Container");
+        assert_eq!(declaration.name.as_ref(), "State");
+
+        let owner = test_decl("RowOwner");
+        let kind = store.arrow_kind(vec![KindId::TYPE, KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+        let form = store.nominal_form(owner.clone(), kind);
+        let row = store.record_row_checked(Vec::new(), RecordRowTail::Closed).expect("closed row");
+        let applied = store
+            .apply_static_form(form, &[StaticArgument::Term(int), StaticArgument::RecordRow(row)])
+            .expect("heterogeneous owner application");
+        assert_eq!(
+            store.applied_nominal_static_parts(applied),
+            Some((owner, vec![StaticArgument::Term(int), StaticArgument::RecordRow(row)]))
+        );
     }
 }

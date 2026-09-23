@@ -2,7 +2,7 @@
 
 use super::evidence::TypeKnowledge;
 use super::family::FamilyOperationShape;
-use super::id::{KindId, TypeId};
+use super::id::{KindId, StaticDomainId, TypeId};
 use crate::associated::AssociatedMemberId;
 use crate::checker::associated::BehavioralFamilySpec;
 use crate::dispatch::ConditionalDispatchSelection;
@@ -73,6 +73,11 @@ impl AssociatedValueDenotation {
 pub enum SemanticDenotation {
     TypeForm(TypeId),
     Kind(KindId),
+    /// A declaration-owned associated static domain selected through its
+    /// owner's `AssociatedSurface`.
+    StaticDomain(StaticDomainId),
+    /// A canonical compile-time term; never a runtime value or invocation target.
+    StaticTerm(TypeId),
     AssociatedValue(Box<AssociatedValueDenotation>),
     /// A behavioral family captured from an ordinary receiver.
     BehavioralFamily(Box<BehavioralFamilyDenotation>),

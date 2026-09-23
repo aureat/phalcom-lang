@@ -6,7 +6,7 @@ use crate::advisory::{
     FormalCallResultResolver, MethodFamilyResolver, ModuleMemberResolver, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr,
     analyze_statements,
 };
-use crate::associated::{AssociatedFamilyTable, build_associated_surface, build_associated_surface_with_type_members};
+use crate::associated::{AssociatedFamilyTable, build_associated_surface};
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
@@ -3334,12 +3334,16 @@ impl SemanticWorkspaceSession {
         let mut type_member_declarations_table = previous_snapshot
             .as_ref()
             .map_or_else(BTreeMap::new, |snapshot| (*snapshot.type_member_declarations).clone());
+        let mut associated_static_domains_table = previous_snapshot
+            .as_ref()
+            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.associated_static_domains).clone());
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
             enum_semantics.remove_module(module);
             enum_requirements_table.remove_module(module);
             associated_surfaces_table.remove_module(module);
             type_member_declarations_table.retain(|id, _| &id.owner.module != module);
+            associated_static_domains_table.retain(|id, _| &id.owner.module != module);
         }
 
         for base_prod in &self.base_data_products {
@@ -4133,11 +4137,14 @@ impl SemanticWorkspaceSession {
                 continue;
             };
             let parsed_unit = &shard.source;
+            let empty_contribs = Vec::new();
+            let module_contribs = inherent_contributions_by_module.get(module_id).unwrap_or(&empty_contribs);
             for statement in &shard.source.program.statements {
                 let declaration = match statement {
                     Statement::Class(class_def) => {
                         let declaration = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
                         let mut member_candidates = Vec::<TypeMemberDeclarationProduct>::new();
+                        let mut static_domain_candidates = Vec::<crate::db::product::AssociatedStaticDomainDeclarationProduct>::new();
                         for member in &class_def.members {
                             let ClassMember::TypeMember(definition) = member else { continue };
                             let (product, diagnostics) = crate::checker::type_member_declaration::build_type_member_declaration(
@@ -4153,6 +4160,76 @@ impl SemanticWorkspaceSession {
                                 member_candidates.push(product);
                             }
                         }
+                        for definition in &class_def.associated_type_data {
+                            let (product, diagnostics) = crate::checker::algebraic_declaration::build_associated_static_domain_declaration(
+                                &declaration,
+                                definition,
+                                Arc::make_mut(&mut self.store),
+                                &declarations,
+                                &resolver,
+                                module_id,
+                            );
+                            diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                            if let Some(product) = product {
+                                static_domain_candidates.push(product);
+                            }
+                        }
+                        for (statement_index, statement) in parsed_unit.program.statements.iter().enumerate() {
+                            let Statement::Impl(impl_def) = statement else { continue };
+                            if impl_def.associated_type_data.is_empty() {
+                                continue;
+                            }
+                            let target_matches_owner = impl_def.target.origin_symbol_ref().is_some_and(|symbol| {
+                                let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                                resolver.resolve_type_name(module_id, &symbol.root, &members).as_ref() == Some(&declaration)
+                            });
+                            if !target_matches_owner {
+                                continue;
+                            }
+                            let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(statement_index as u32));
+                            if !matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) {
+                                for definition in &impl_def.associated_type_data {
+                                    diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::KindExpectedType,
+                                        "associated type data is not permitted in a conformance impl",
+                                        definition.range,
+                                    ));
+                                }
+                                continue;
+                            }
+                            let Some(contribution) = module_contribs.iter().find(|contribution| contribution.id == impl_id) else {
+                                continue;
+                            };
+                            if contribution.target.declaration() != &declaration {
+                                continue;
+                            }
+                            if contribution.is_conditionally_applicable {
+                                for definition in &impl_def.associated_type_data {
+                                    diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::KindExpectedType,
+                                        "guarded or partial-target impls cannot introduce associated type data",
+                                        definition.range,
+                                    ));
+                                }
+                                continue;
+                            }
+                            for definition in &impl_def.associated_type_data {
+                                let (product, diagnostics) = crate::checker::algebraic_declaration::build_associated_static_domain_declaration(
+                                    &declaration,
+                                    definition,
+                                    Arc::make_mut(&mut self.store),
+                                    &declarations,
+                                    &resolver,
+                                    module_id,
+                                );
+                                diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                                if let Some(product) = product {
+                                    static_domain_candidates.push(product);
+                                }
+                            }
+                        }
                         let behavior_bases: HashSet<_> = class_def
                             .members
                             .iter()
@@ -4160,10 +4237,11 @@ impl SemanticWorkspaceSession {
                             .map(|callable| callable.selector.base)
                             .collect();
                         let inherited_bases = HashSet::new();
-                        let (surface, surface_diagnostics) = build_associated_surface_with_type_members(
+                        let (surface, surface_diagnostics) = crate::associated::build_associated_surface_with_declarations(
                             &declaration,
                             None,
                             &member_candidates,
+                            &static_domain_candidates,
                             &behavior_bases,
                             &inherited_bases,
                             module_id,
@@ -4194,6 +4272,18 @@ impl SemanticWorkspaceSession {
                                 QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                             }
                         }
+                        let admitted_domain_ids: BTreeSet<_> = surface
+                            .families
+                            .values()
+                            .flat_map(|family| family.members.iter())
+                            .filter_map(|member| match member {
+                                crate::associated::AssociatedMemberId::StaticDomain(id) => Some(id.clone()),
+                                _ => None,
+                            })
+                            .collect();
+                        for product in static_domain_candidates.into_iter().filter(|product| admitted_domain_ids.contains(&product.id)) {
+                            associated_static_domains_table.insert(product.id.clone(), Arc::new(product));
+                        }
                         match query_associated_surface(&mut self.db, surface) {
                             QueryOutcome::Ready(surface) => {
                                 associated_surfaces_table.insert(declaration.clone(), surface);
@@ -4207,16 +4297,113 @@ impl SemanticWorkspaceSession {
                     }
                     Statement::Data(data_def) => {
                         let declaration = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
-                        if data_def.is_product() {
-                            if !associated_surfaces_table.surfaces.contains_key(&declaration) {
-                                let assoc_surface = crate::associated::build_data_associated_surface(&declaration);
-                                associated_surfaces_table.insert(declaration, assoc_surface.clone());
-                                let _ = query_associated_surface(&mut self.db, assoc_surface);
+                        let mut candidates = Vec::new();
+                        for (statement_index, statement) in parsed_unit.program.statements.iter().enumerate() {
+                            let Statement::Impl(impl_def) = statement else { continue };
+                            if impl_def.associated_type_data.is_empty() {
+                                continue;
                             }
-                            continue;
-                        } else {
-                            declaration
+                            let target_matches_owner = impl_def.target.origin_symbol_ref().is_some_and(|symbol| {
+                                let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                                resolver.resolve_type_name(module_id, &symbol.root, &members).as_ref() == Some(&declaration)
+                            });
+                            if !target_matches_owner {
+                                continue;
+                            }
+                            let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(statement_index as u32));
+                            if !matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) {
+                                for definition in &impl_def.associated_type_data {
+                                    diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::KindExpectedType,
+                                        "associated type data is not permitted in a conformance impl",
+                                        definition.range,
+                                    ));
+                                }
+                                continue;
+                            }
+                            let Some(contribution) = module_contribs.iter().find(|contribution| contribution.id == impl_id) else {
+                                continue;
+                            };
+                            if contribution.target.declaration() != &declaration {
+                                continue;
+                            }
+                            if contribution.is_conditionally_applicable {
+                                for definition in &impl_def.associated_type_data {
+                                    diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::KindExpectedType,
+                                        "guarded or partial-target impls cannot introduce associated type data",
+                                        definition.range,
+                                    ));
+                                }
+                                continue;
+                            }
+                            for definition in &impl_def.associated_type_data {
+                                let (product, diagnostics) = crate::checker::algebraic_declaration::build_associated_static_domain_declaration(
+                                    &declaration,
+                                    definition,
+                                    Arc::make_mut(&mut self.store),
+                                    &declarations,
+                                    &resolver,
+                                    module_id,
+                                );
+                                diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                                if let Some(product) = product {
+                                    candidates.push(product);
+                                }
+                            }
                         }
+                        let base = associated_surfaces_table.surfaces.get(&declaration).cloned().unwrap_or_else(|| {
+                            if data_def.is_product() {
+                                crate::associated::build_data_associated_surface(&declaration)
+                            } else {
+                                Arc::new(crate::associated::AssociatedSurface::new(declaration.clone()))
+                            }
+                        });
+                        if !candidates.is_empty() {
+                            let (surface, diagnostics) = crate::associated::extend_associated_surface_with_static_domains(
+                                &declaration,
+                                base,
+                                &candidates,
+                                &HashSet::new(),
+                                &HashSet::new(),
+                                module_id,
+                            );
+                            diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics.iter().cloned());
+                            let admitted_ids: BTreeSet<_> = surface
+                                .families
+                                .values()
+                                .flat_map(|family| family.members.iter())
+                                .filter_map(|member| match member {
+                                    crate::associated::AssociatedMemberId::StaticDomain(id) => Some(id.clone()),
+                                    _ => None,
+                                })
+                                .collect();
+                            for product in candidates.into_iter().filter(|product| admitted_ids.contains(&product.id)) {
+                                associated_static_domains_table.insert(product.id.clone(), Arc::new(product));
+                            }
+                            match query_associated_surface(&mut self.db, surface.clone()) {
+                                QueryOutcome::Ready(surface) => {
+                                    associated_surfaces_table.insert(declaration.clone(), surface);
+                                }
+                                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                            }
+                        } else {
+                            match query_associated_surface(&mut self.db, base.clone()) {
+                                QueryOutcome::Ready(surface) => {
+                                    associated_surfaces_table.insert(declaration.clone(), surface);
+                                }
+                                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                            }
+                        }
+                        declaration
                     }
                     _ => continue,
                 };
@@ -4241,6 +4428,8 @@ impl SemanticWorkspaceSession {
                 self.db.retire_query(&key);
             }
         }
+
+        resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
 
         // Override safety is a hierarchy-wide publication invariant. Validate
         // only after every formal signature and dispatch surface is available.
@@ -5482,6 +5671,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));
         snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
         snapshot_obj = snapshot_obj.with_type_member_declarations(Arc::new(type_member_declarations_table));
+        snapshot_obj = snapshot_obj.with_associated_static_domains(Arc::new(associated_static_domains_table));
         snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
         snapshot_obj = snapshot_obj.with_trait_headers(Arc::new(trait_headers));
         snapshot_obj = snapshot_obj.with_trait_surfaces(Arc::new(trait_surfaces));
@@ -7122,6 +7312,8 @@ fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) ->
         | SemanticTargetId::VariantFamily(_)
         | SemanticTargetId::VariantField(_)
         | SemanticTargetId::DataComponent(_)
+        | SemanticTargetId::StaticDomain(_)
+        | SemanticTargetId::StaticCase(_)
         | SemanticTargetId::AssociatedType(_) => AdvisoryOrigin::Constraint(site.clone()),
     };
     AdvisoryTargetResolution {

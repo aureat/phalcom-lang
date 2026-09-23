@@ -242,6 +242,8 @@ pub struct ClassDef {
     pub superclass: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this class (Spec 04).
     pub where_clause: Option<WhereClauseSyntax>,
+    /// Associated type-data declarations owned by this class.
+    pub associated_type_data: Vec<AlgebraicDef>,
     pub members: Vec<ClassMember>,
     /// `@name(args…)` attributes attached directly to the class header
     /// (e.g. a future class-level decorator), distinct from
@@ -728,6 +730,8 @@ pub struct ImplDef {
     pub kind: ImplKind,
     pub target: TypeAnnotation,
     pub where_clause: Option<WhereClauseSyntax>,
+    /// Associated type-data declarations contributed to the nominal target.
+    pub associated_type_data: Vec<AlgebraicDef>,
     pub members: Vec<ImplMember>,
     pub range: SourceRange,
     pub target_range: SourceRange,

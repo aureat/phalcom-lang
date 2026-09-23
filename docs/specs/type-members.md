@@ -99,6 +99,9 @@ declarations for one owner. A conformance `impl`, guarded inherent `impl`, or
 partial-target inherent `impl` cannot introduce one. Associated namespace
 collisions with other member categories follow the single owner-level lookup
 and collision rules; source order does not select a winner.
+Associated `type data` declarations have no member-local generic parameters;
+their only specialization is by the canonical generic environment of the
+nominal owner.
 
 Associated static cases belong to the associated domain. They are static terms,
 not runtime values, methods, or invocation targets.

@@ -154,6 +154,7 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                     subject,
                     selector: projection.selector.clone(),
                     arguments,
+                    source_declaration: projection.source_declaration.clone(),
                 },
                 kind,
             )

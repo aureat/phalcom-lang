@@ -216,4 +216,7 @@ pub struct TypeLevelProjection {
     pub subject: ProjectionSubject,
     pub selector: TypeMemberSelector,
     pub arguments: Box<[TypeMemberArgument]>,
+    /// Present when this projection selected a checked source declaration via
+    /// the owner's AssociatedSurface. Intrinsic projections remain `None`.
+    pub source_declaration: Option<TypeMemberDeclarationId>,
 }

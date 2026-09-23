@@ -13,6 +13,8 @@ use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
 use crate::traits::{TraitHeader, TraitSurface};
 use crate::types::type_member::{TypeMemberDeclarationId, TypeMemberSignature};
+use crate::identity::AssociatedStaticDomainDeclarationId;
+use crate::types::id::{AlgebraicStaticConstructorId, StaticDomainId};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::LinkedProgram;
@@ -26,6 +28,19 @@ use std::sync::Arc;
 pub struct TypeMemberDeclarationProduct {
     pub id: TypeMemberDeclarationId,
     pub signature: TypeMemberSignature,
+    pub source_range: SourceRange,
+}
+
+/// Checked associated `type data` declaration. Name admission and lookup are
+/// owned by `AssociatedSurface`; this product owns the canonical domain and
+/// declaration-owned static constructors.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssociatedStaticDomainDeclarationProduct {
+    pub id: AssociatedStaticDomainDeclarationId,
+    /// Generic-owner template. Applying its owner environment interns the
+    /// concrete domain in `TypeStore`.
+    pub domain: StaticDomainId,
+    pub constructors: Box<[AlgebraicStaticConstructorId]>,
     pub source_range: SourceRange,
 }
 

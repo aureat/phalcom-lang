@@ -483,6 +483,7 @@ fn test_symbolic_projection_survives_generic_substitution() {
             subject: ProjectionSubject::Type(sym_tuple),
             selector: TypeMemberSelector::Subscript,
             arguments: Box::new([TypeMemberArgument::Const(ConstTerm::Int(0))]),
+            source_declaration: None,
         },
         KindId::TYPE,
     );

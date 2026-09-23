@@ -5,6 +5,42 @@ pub use phalcom_modules::{
     StableModuleKey, StableProjectKey, SyntheticProjectId,
 };
 
+/// Stable source identity for an associated static type-data declaration.
+///
+/// The owner and associated name identify the declaration independently of
+/// its enclosing `impl` fragment and any generic owner specialization.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AssociatedStaticDomainDeclarationId {
+    pub owner: DeclarationId,
+    pub name: Box<str>,
+}
+
+impl AssociatedStaticDomainDeclarationId {
+    pub fn new(owner: DeclarationId, name: impl Into<Box<str>>) -> Self {
+        Self { owner, name: name.into() }
+    }
+}
+
+/// Stable declaration identity for a nominal or associated static domain.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StaticDomainDeclarationId {
+    Nominal(DeclarationId),
+    Associated(AssociatedStaticDomainDeclarationId),
+}
+
+/// Stable identity for one static constructor/case declaration.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StaticCaseId {
+    pub domain: StaticDomainDeclarationId,
+    pub name: Box<str>,
+}
+
+impl StaticCaseId {
+    pub fn new(domain: StaticDomainDeclarationId, name: impl Into<Box<str>>) -> Self {
+        Self { domain, name: name.into() }
+    }
+}
+
 /// Stable identifier for a workspace instance.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct WorkspaceId(pub u64);
@@ -545,6 +581,8 @@ pub enum SemanticTargetId {
     VariantFamily(VariantFamilyId),
     VariantField(VariantFieldId),
     DataComponent(DataComponentId),
+    StaticDomain(StaticDomainDeclarationId),
+    StaticCase(StaticCaseId),
     AssociatedType(crate::traits::AssociatedTypeRequirementId),
 }
 

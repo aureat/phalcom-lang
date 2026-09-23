@@ -58,6 +58,16 @@ pub enum AssociatedResolutionKind {
         result_type: TypeId,
         argument_mapping: Option<Box<[u32]>>,
     },
+    StaticDomain {
+        member: AssociatedMemberId,
+        domain: crate::types::id::StaticDomainId,
+    },
+    StaticTerm {
+        member: AssociatedMemberId,
+        domain: crate::types::id::StaticDomainId,
+        case: crate::identity::StaticCaseId,
+        term: TypeId,
+    },
     DynamicInvoke {
         candidates: Box<[SpecializedAssociatedMember]>,
         result_type: Option<TypeId>,
@@ -167,7 +177,7 @@ pub struct AssociatedResolutionError;
 pub struct AssociatedOwnerResolution {
     pub owner_form: TypeId,
     pub lookup_owner: DeclarationId,
-    pub supplied_arguments: Vec<TypeId>,
+    pub supplied_arguments: Vec<crate::types::store::StaticArgument>,
     pub residual_kind: KindId,
 }
 
@@ -197,7 +207,7 @@ pub fn resolve_associated_owner(
         return Err(AssociatedResolutionError);
     };
 
-    let Some((lookup_owner, supplied_arguments)) = ctx.store.applied_nominal_parts(owner_form) else {
+    let Some((lookup_owner, supplied_arguments)) = ctx.store.applied_nominal_static_parts(owner_form) else {
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::AssociatedOwnerNotDeclarationBacked,
@@ -424,6 +434,7 @@ pub fn specialize_associated_member(
     range: SourceRange,
 ) -> Result<SpecializedAssociatedMember, AssociatedResolutionError> {
     match member_id {
+        AssociatedMemberId::StaticDomain(_) => Err(AssociatedResolutionError),
         AssociatedMemberId::Variant(variant_id) => {
             let Some(variant_info) = ctx.variant_info(variant_id).cloned() else {
                 ctx.emit_diagnostic(SemanticDiagnostic::error_in(

@@ -532,6 +532,7 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                         subject,
                         selector: projection.selector.clone(),
                         arguments,
+                        source_declaration: projection.source_declaration.clone(),
                     },
                     kind,
                 )

@@ -214,13 +214,24 @@ impl CallableSourceAttachment {
             if let Some(target) = &expression.callable {
                 exact_targets.insert(site.id.clone(), SemanticTargetId::Callable(target.clone()));
             }
-            if let Some(resolution) = analysis.associated_resolutions.get(&expression.id)
-                && let AssociatedResolutionKind::ExactValue {
-                    member: AssociatedMemberId::DataComponent(component),
-                    ..
-                } = &resolution.kind
-            {
-                exact_targets.insert(site.id.clone(), SemanticTargetId::DataComponent(component.clone()));
+            if let Some(resolution) = analysis.associated_resolutions.get(&expression.id) {
+                let target = match &resolution.kind {
+                    AssociatedResolutionKind::ExactValue {
+                        member: AssociatedMemberId::DataComponent(component),
+                        ..
+                    } => Some(SemanticTargetId::DataComponent(component.clone())),
+                    AssociatedResolutionKind::StaticDomain {
+                        member: AssociatedMemberId::StaticDomain(declaration),
+                        ..
+                    } => Some(SemanticTargetId::StaticDomain(
+                        crate::identity::StaticDomainDeclarationId::Associated(declaration.clone()),
+                    )),
+                    AssociatedResolutionKind::StaticTerm { case, .. } => Some(SemanticTargetId::StaticCase(case.clone())),
+                    _ => None,
+                };
+                if let Some(target) = target {
+                    exact_targets.insert(site.id.clone(), target);
+                }
             }
             formal_expressions.insert(expression.id, site.id.clone());
             expression_sites.push(site);
@@ -353,6 +364,20 @@ impl ModuleSourceIndex {
                     .collect::<Vec<_>>();
                 if let [occurrence] = candidates.as_slice() {
                     exact_targets.insert(occurrence.site.clone(), target.clone());
+                }
+            } else if let Some(name) = match target {
+                SemanticTargetId::StaticDomain(crate::identity::StaticDomainDeclarationId::Associated(declaration)) => Some(declaration.name.as_ref()),
+                SemanticTargetId::StaticCase(case) => Some(case.name.as_ref()),
+                _ => None,
+            } {
+                for occurrence in &all {
+                    if occurrence.kind == OccurrenceKind::Member
+                        && formal_source.range.start <= occurrence.range.start
+                        && occurrence.range.end <= formal_source.range.end
+                        && matches!(&occurrence.hint, Some(crate::source_index::occurrence::OccurrenceHint::Name(occurrence_name)) if occurrence_name.as_ref() == name)
+                    {
+                        exact_targets.insert(occurrence.site.clone(), target.clone());
+                    }
                 }
             } else {
                 for occurrence in &all {

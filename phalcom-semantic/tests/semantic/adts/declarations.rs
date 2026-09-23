@@ -323,6 +323,198 @@ const none_case = Option::None
 }
 
 #[test]
+fn class_owned_associated_type_data_publishes_stable_domain_and_cases() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Container<T> {
+  type data State {
+    Start
+    Done
+  }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let owner = DeclarationId::new(module, "Container".into());
+    let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+    let declaration = analysis.snapshot.associated_static_domains.get(&id).expect("published declaration product");
+    assert_eq!(declaration.constructors.len(), 2);
+    let surface = analysis.snapshot.associated_surfaces.surfaces.get(&owner).expect("associated surface");
+    let family = surface.families.get(&SelectorBase::Named("State".into())).expect("admitted static domain");
+    assert_eq!(family.kind, phalcom_semantic::associated::AssociatedFamilyKind::StaticDomain);
+    assert_eq!(family.members.as_ref(), &[phalcom_semantic::AssociatedMemberId::StaticDomain(id.clone())]);
+    assert!(matches!(
+        analysis.snapshot.store.static_domain(declaration.domain),
+        Some(phalcom_semantic::types::store::StaticDomainData::Associated { declaration: found, owner_arguments })
+            if found == &id && owner_arguments.len() == 1
+    ));
+}
+
+#[test]
+fn associated_static_domain_payload_uses_owner_generic_parameter_kind() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Container<T: Type> {
+  type data State {
+    Box(_ value: T)
+  }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let owner = DeclarationId::new(module, "Container".into());
+    let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner, "State");
+    let declaration = analysis.snapshot.associated_static_domains.get(&id).expect("published declaration");
+    assert_eq!(declaration.constructors.len(), 1);
+    let constructor = analysis.snapshot.store.static_constructor(declaration.constructors[0]).expect("constructor metadata");
+    assert_eq!(constructor.parameter_kinds.as_ref(), &[KindId::TYPE]);
+}
+
+#[test]
+fn runtime_data_inherent_impl_publishes_associated_static_domain() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Packet(bytes: Int)
+impl Packet {
+  type data State {
+    Unread
+    Parsed
+  }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let owner = DeclarationId::new(module, "Packet".into());
+    let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+    assert_eq!(analysis.snapshot.associated_static_domains.get(&id).expect("published declaration").constructors.len(), 2);
+    assert!(analysis.snapshot.associated_surfaces.surfaces.get(&owner).unwrap().families.contains_key(&SelectorBase::Named("State".into())));
+}
+
+#[test]
+fn associated_static_domain_duplicate_across_inherent_impl_fragments_is_rejected() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Packet(bytes: Int)
+impl Packet { type data State { Unread } }
+impl Packet { type data State { Parsed } }
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let owner = DeclarationId::new(module, "Packet".into());
+    let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+    assert!(!analysis.snapshot.associated_static_domains.contains_key(&id));
+    assert!(analysis.snapshot.diagnostics.values().flat_map(|diagnostics| diagnostics.iter()).any(|diagnostic| diagnostic.code == DiagnosticCode::EnumFamilyCategoryConflict));
+}
+
+#[test]
+fn conformance_impl_cannot_introduce_associated_static_domain() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+trait Marker {}
+data Packet(bytes: Int)
+impl Marker for Packet {
+  type data State { Unread }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let owner = DeclarationId::new(module, "Packet".into());
+    let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner, "State");
+    assert!(!analysis.snapshot.associated_static_domains.contains_key(&id));
+    assert!(analysis.snapshot.diagnostics.values().flat_map(|diagnostics| diagnostics.iter()).any(|diagnostic| {
+        diagnostic.message.contains("not permitted in a conformance impl")
+    }));
+}
+
+#[test]
+fn associated_static_domain_and_case_resolve_as_static_semantic_results() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Parser {
+  type data State { Start Done }
+  @class status() { Parser::State::Done }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let owner = DeclarationId::new(module.clone(), "Parser".into());
+    let status = CallableId::new(owner, Selector::method("status", []).expect("status selector"), DispatchSide::Class);
+    let callable = analysis.snapshot.callable_analyses.get(&status).expect("status analysis");
+    assert!(callable.associated_resolutions.values().any(|resolution| matches!(
+        resolution.kind,
+        phalcom_semantic::checker::AssociatedResolutionKind::StaticDomain { .. }
+    )));
+    assert!(callable.associated_resolutions.values().any(|resolution| matches!(
+        resolution.kind,
+        phalcom_semantic::checker::AssociatedResolutionKind::StaticTerm { .. }
+    )));
+    assert!(!callable.associated_resolutions.values().any(|resolution| matches!(
+        resolution.kind,
+        phalcom_semantic::checker::AssociatedResolutionKind::StaticInvoke { .. }
+    )));
+}
+
+#[test]
+fn associated_static_domain_lookup_specializes_generic_owner_canonically() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Container<T: Type> {
+  type data State { Start }
+}
+class Probe {
+  @class intState() { Container<Int>::State::Start }
+  @class stringState() { Container<String>::State::Start }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let owner = DeclarationId::new(module.clone(), "Container".into());
+    let declaration = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+    let probe = DeclarationId::new(module, "Probe".into());
+    let int_method = CallableId::new(probe.clone(), Selector::method("intState", []).expect("selector"), DispatchSide::Class);
+    let string_method = CallableId::new(probe, Selector::method("stringState", []).expect("selector"), DispatchSide::Class);
+    let domain_for = |callable: &CallableId| {
+        analysis.snapshot.callable_analyses.get(callable).expect("callable analysis")
+            .associated_resolutions
+            .values()
+            .find_map(|resolution| match &resolution.kind {
+                phalcom_semantic::checker::AssociatedResolutionKind::StaticDomain {
+                    member: phalcom_semantic::AssociatedMemberId::StaticDomain(id),
+                    domain,
+                } if id == &declaration => Some(*domain),
+                _ => None,
+            })
+            .expect("specialized associated domain")
+    };
+    let int_domain = domain_for(&int_method);
+    let string_domain = domain_for(&string_method);
+    assert_ne!(int_domain, string_domain);
+    assert!(matches!(analysis.snapshot.store.static_domain(int_domain), Some(phalcom_semantic::types::store::StaticDomainData::Associated { declaration: id, .. }) if id == &declaration));
+    assert!(matches!(analysis.snapshot.store.static_domain(string_domain), Some(phalcom_semantic::types::store::StaticDomainData::Associated { declaration: id, .. }) if id == &declaration));
+}
+
+#[test]
 fn singleton_associated_getter_publishes_exact_value_resolution() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
@@ -555,4 +747,47 @@ fn record_payload_case_produces_labeled_constructor_and_fields() {
     assert_eq!(ctor.parameters.len(), 2);
     assert_eq!(ctor.parameters[0].external_label.as_deref(), Some("method"));
     assert_eq!(ctor.parameters[1].external_label.as_deref(), Some("path"));
+}
+
+#[test]
+fn associated_static_domain_and_case_paths_have_stable_source_index_targets() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        "class Parser {\n  type data State { Start; Done }\n  @class status() { Parser::State::Done }\n}\n",
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let index = analysis.snapshot.source_index.module(&module).expect("module source index");
+    let domain_id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(
+        DeclarationId::new(module, "Parser".into()),
+        "State",
+    );
+
+    let state_offset = source.find("State::Done").expect("associated domain path") + 1;
+    let state_target = index
+        .occurrences
+        .occurrence_at(state_offset)
+        .and_then(|occurrence| occurrence.target.cloned());
+    assert_eq!(
+        state_target,
+        Some(phalcom_semantic::identity::SemanticTargetId::StaticDomain(
+            phalcom_semantic::identity::StaticDomainDeclarationId::Associated(domain_id.clone())
+        ))
+    );
+
+    let case_offset = source.rfind("Done").expect("static case path") + 1;
+    let case_target = index
+        .occurrences
+        .occurrence_at(case_offset)
+        .and_then(|occurrence| occurrence.target.cloned());
+    assert_eq!(
+        case_target,
+        Some(phalcom_semantic::identity::SemanticTargetId::StaticCase(
+            phalcom_semantic::identity::StaticCaseId::new(
+                phalcom_semantic::identity::StaticDomainDeclarationId::Associated(domain_id),
+                "Done",
+            )
+        ))
+    );
 }

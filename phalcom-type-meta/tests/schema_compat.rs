@@ -86,13 +86,13 @@ fn test_unsupported_schema_versions_rejected() {
         }
     );
 
-    // Version 7 (future)
-    let b7 = sample_bundle(7, false);
-    let err7 = validate_metadata_bundle(&b7, &limits).unwrap_err();
+    // Version 8 (future)
+    let b8 = sample_bundle(8, false);
+    let err8 = validate_metadata_bundle(&b8, &limits).unwrap_err();
     assert_eq!(
-        err7,
+        err8,
         MetadataValidationError::UnsupportedSchemaVersion {
-            found: 7,
+            found: 8,
             minimum: MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION,
             maximum: TYPE_METADATA_SCHEMA_VERSION,
         }

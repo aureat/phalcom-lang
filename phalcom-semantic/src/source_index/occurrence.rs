@@ -625,7 +625,18 @@ impl OccurrenceBuilder<'_> {
                 self.expr(&index.value, OccurrenceRole::Read);
             }
             Expr::Block(block) => self.block(block),
-            Expr::AssociatedLookup(lookup) => self.expr(&lookup.receiver, OccurrenceRole::Reference),
+            Expr::AssociatedLookup(lookup) => {
+                if let phalcom_ast::ast::AssociatedMemberSyntax::Named(member) = &lookup.member {
+                    self.record(
+                        member.base_range,
+                        OccurrenceKind::Member,
+                        OccurrenceRole::Reference,
+                        Some(OccurrenceHint::Name(member.base.clone().into())),
+                        None,
+                    );
+                }
+                self.expr(&lookup.receiver, OccurrenceRole::Reference);
+            }
             Expr::AssociatedInvoke(invoke) => {
                 self.expr(&invoke.receiver, OccurrenceRole::Reference);
                 self.pack(&invoke.args);

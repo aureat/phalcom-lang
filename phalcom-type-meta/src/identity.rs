@@ -61,6 +61,21 @@ pub struct StableFieldRef {
     pub name: Box<str>,
 }
 
+/// Stable source type-member declaration identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct StableTypeMemberRef {
+    pub owner: StableDeclarationRef,
+    pub selector: Box<str>,
+}
+
+/// Stable associated static-domain declaration identity, independent of owner
+/// specialization and implementation-fragment location.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct StableAssociatedStaticDomainDeclarationRef {
+    pub owner: StableDeclarationRef,
+    pub name: Box<str>,
+}
+
 /// Stable impl reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct StableImplRef {

@@ -157,6 +157,16 @@ pub trait TypeResolver {
     fn resolve_associated_type_requirement(&self, _trait_declaration: &DeclarationId, _name: &str) -> Option<AssociatedTypeRequirementId> {
         None
     }
+
+    /// Selects a source type-member only through the published associated
+    /// surface, then returns its checked declaration product by stable identity.
+    fn resolve_associated_type_member(
+        &self,
+        _owner: &DeclarationId,
+        _selector: &TypeMemberSelector,
+    ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+        None
+    }
 }
 
 /// A scoped type resolver overlaying lexical type parameters on top of a parent resolver.
@@ -193,6 +203,14 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
     fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<AssociatedTypeRequirementId> {
         self.parent.resolve_associated_type_requirement(trait_declaration, name)
     }
+
+    fn resolve_associated_type_member(
+        &self,
+        owner: &DeclarationId,
+        selector: &TypeMemberSelector,
+    ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+        self.parent.resolve_associated_type_member(owner, selector)
+    }
 }
 
 /// A standard resolver holding local declarations, imported declarations, and builtins.
@@ -201,6 +219,9 @@ pub struct SimpleTypeResolver {
     pub declarations: std::collections::HashMap<String, DeclarationId>,
     pub type_parameters: std::collections::HashMap<String, TypeLevelBinding>,
     pub associated_types: std::collections::HashMap<(DeclarationId, String), AssociatedTypeRequirementId>,
+    pub associated_surfaces: std::collections::HashMap<DeclarationId, std::sync::Arc<crate::associated::AssociatedSurface>>,
+    pub type_member_declarations:
+        std::collections::HashMap<super::type_member::TypeMemberDeclarationId, std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>>,
 }
 
 impl SimpleTypeResolver {
@@ -245,6 +266,20 @@ impl TypeResolver for SimpleTypeResolver {
 
     fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<AssociatedTypeRequirementId> {
         self.associated_types.get(&(trait_declaration.clone(), name.to_string())).cloned()
+    }
+
+    fn resolve_associated_type_member(
+        &self,
+        owner: &DeclarationId,
+        selector: &TypeMemberSelector,
+    ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+        let base = match selector {
+            TypeMemberSelector::Named(name) => phalcom_common::selector::SelectorBase::Named(name.to_string()),
+            TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
+        };
+        let family = self.associated_surfaces.get(owner)?.families.get(&base)?;
+        let crate::associated::AssociatedMemberId::TypeMember(id) = family.members.first()? else { return None };
+        self.type_member_declarations.get(id).cloned()
     }
 }
 
@@ -2372,7 +2407,7 @@ fn resolve_type_member_projection(
         _ => "",
     };
 
-    let kind = match lookup_intrinsic_type_operation(target_domain, &canonical_selector) {
+    let mut kind = match lookup_intrinsic_type_operation(target_domain, &canonical_selector) {
         Some(IntrinsicTypeOperation::TuplePositionals) | Some(IntrinsicTypeOperation::TypePackMap) => KindId::TYPE_PACK,
         Some(IntrinsicTypeOperation::TupleLabeled) | Some(IntrinsicTypeOperation::LabeledTypePackMap) => KindId::LABELED_TYPE_PACK,
         _ => KindId::TYPE,
@@ -2408,10 +2443,35 @@ fn resolve_type_member_projection(
         return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
     }
 
+    let selected_source = if intrinsic.is_none() {
+        store
+            .applied_nominal_static_parts(subject_ty)
+            .and_then(|(owner, _)| resolver.resolve_associated_type_member(&owner, &canonical_selector))
+    } else {
+        None
+    };
+    let source_declaration = if let Some(product) = selected_source {
+        if let Err(error) = super::type_member::validate_type_member_arguments(store, &product.signature, &canonical_args) {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                format!("type-member arguments do not match the selected declaration: {error:?}"),
+                range,
+            ));
+            return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+        }
+        let super::type_member::TypeMemberDomain::Kind(result_kind) = product.signature.result_domain;
+        kind = result_kind;
+        Some(product.id.clone())
+    } else {
+        None
+    };
+
     let projection = TypeLevelProjection {
         subject: ProjectionSubject::Type(subject_ty),
         selector: canonical_selector,
         arguments: canonical_args.into_boxed_slice(),
+        source_declaration,
     };
 
     let proj_ty = store.type_member_projection(projection, kind);

@@ -238,7 +238,12 @@ fn instantiate_type_ref(
                     let new_origin = instantiate_type_ref(RuntimeTypeRef::Base { pool, node: *origin }, env, context, registry, depth + 1)?;
                     let mut new_args = Vec::with_capacity(arguments.len());
                     for arg in arguments.iter() {
-                        let phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) = arg;
+                        let phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) = arg else {
+                            // Runtime overlays currently reify only type arguments.
+                            // A row argument must remain unavailable rather than
+                            // being silently erased from applied-type identity.
+                            return None;
+                        };
                         new_args.push(instantiate_type_ref(
                             RuntimeTypeRef::Base { pool, node: *arg },
                             env,

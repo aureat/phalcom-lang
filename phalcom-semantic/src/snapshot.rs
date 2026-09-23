@@ -200,6 +200,8 @@ pub struct SemanticSnapshot {
     /// Checked source type-member contracts keyed by stable declaration identity.
     /// Associated namespace selection remains exclusively in `associated_surfaces`.
     pub type_member_declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+    /// Checked associated static-domain declarations keyed by stable owner/name identity.
+    pub associated_static_domains: Arc<BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
     /// Retained source-local semantic structure shards for incremental reuse.
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     pub status: SnapshotStatus,
@@ -257,6 +259,7 @@ impl SemanticSnapshot {
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
             type_member_declarations: Arc::new(BTreeMap::new()),
+            associated_static_domains: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -315,6 +318,7 @@ impl SemanticSnapshot {
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
             type_member_declarations: Arc::new(BTreeMap::new()),
+            associated_static_domains: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -350,6 +354,14 @@ impl SemanticSnapshot {
         declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     ) -> Self {
         self.type_member_declarations = declarations;
+        self
+    }
+
+    pub fn with_associated_static_domains(
+        mut self,
+        domains: Arc<BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+    ) -> Self {
+        self.associated_static_domains = domains;
         self
     }
 

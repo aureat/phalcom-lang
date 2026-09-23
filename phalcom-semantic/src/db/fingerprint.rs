@@ -734,6 +734,14 @@ fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Ha
                 member.hash(hasher);
             }
         }
+        Some(SemanticDenotation::StaticDomain(domain)) => {
+            5u8.hash(hasher);
+            domain.hash(hasher);
+        }
+        Some(SemanticDenotation::StaticTerm(term)) => {
+            6u8.hash(hasher);
+            term.hash(hasher);
+        }
     }
 }
 

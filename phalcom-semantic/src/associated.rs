@@ -1,6 +1,6 @@
 use crate::db::key::ProductFingerprint;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
-use crate::identity::{AssociatedFamilyId, DataComponentId, DataConstructorId, DeclarationId, VariantId};
+use crate::identity::{AssociatedFamilyId, AssociatedStaticDomainDeclarationId, DataComponentId, DataConstructorId, DeclarationId, VariantId};
 use crate::types::type_member::TypeMemberDeclarationId;
 use phalcom_common::selector::SelectorBase;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -11,6 +11,7 @@ use std::sync::Arc;
 pub enum AssociatedFamilyKind {
     Variant,
     DataConstructor,
+    StaticDomain,
     TypeMember,
     IntrinsicTypeMember,
 }
@@ -21,7 +22,86 @@ pub enum AssociatedMemberId {
     Variant(VariantId),
     DataConstructor(DataConstructorId),
     DataComponent(DataComponentId),
+    StaticDomain(AssociatedStaticDomainDeclarationId),
     TypeMember(TypeMemberDeclarationId),
+}
+
+/// Builds an owner's associated namespace with checked source type members and
+/// associated static-domain declarations. The surface admits names; declaration
+/// products remain the authority for their checked signatures and constructors.
+pub fn build_associated_surface_with_declarations(
+    owner: &DeclarationId,
+    variants: Option<&[VariantId]>,
+    type_members: &[crate::db::product::TypeMemberDeclarationProduct],
+    static_domains: &[crate::db::product::AssociatedStaticDomainDeclarationProduct],
+    behavior_bases: &HashSet<SelectorBase>,
+    inherited_class_bases: &HashSet<SelectorBase>,
+    module_id: &crate::identity::ModuleId,
+    span: Option<SemanticSourceSpan>,
+) -> (Arc<AssociatedSurface>, Arc<[SemanticDiagnostic]>) {
+    let (surface, base_diagnostics) = build_associated_surface_with_type_members(
+        owner,
+        variants,
+        type_members,
+        behavior_bases,
+        inherited_class_bases,
+        module_id,
+        span,
+    );
+    let (surface, domain_diagnostics) = extend_associated_surface_with_static_domains(
+        owner,
+        surface,
+        static_domains,
+        behavior_bases,
+        inherited_class_bases,
+        module_id,
+    );
+    let mut diagnostics = base_diagnostics.to_vec();
+    diagnostics.extend(domain_diagnostics.iter().cloned());
+    (surface, Arc::from(diagnostics.into_boxed_slice()))
+}
+
+pub fn extend_associated_surface_with_static_domains(
+    owner: &DeclarationId,
+    base_surface: Arc<AssociatedSurface>,
+    static_domains: &[crate::db::product::AssociatedStaticDomainDeclarationProduct],
+    behavior_bases: &HashSet<SelectorBase>,
+    inherited_class_bases: &HashSet<SelectorBase>,
+    module_id: &crate::identity::ModuleId,
+) -> (Arc<AssociatedSurface>, Arc<[SemanticDiagnostic]>) {
+    let mut surface = (*base_surface).clone();
+    let mut diagnostics = Vec::new();
+    let mut counts = HashMap::<SelectorBase, usize>::new();
+    for domain in static_domains {
+        *counts.entry(SelectorBase::Named(domain.id.name.to_string())).or_default() += 1;
+    }
+    for domain in static_domains {
+        let base = SelectorBase::Named(domain.id.name.to_string());
+        if counts.get(&base).copied().unwrap_or_default() > 1
+            || surface.families.contains_key(&base)
+            || behavior_bases.contains(&base)
+            || inherited_class_bases.contains(&base)
+        {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module_id.clone(),
+                DiagnosticCode::EnumFamilyCategoryConflict,
+                format!("associated member `{}` on `{}` conflicts with another owner member", domain.id.name, owner.name),
+                domain.source_range,
+            ));
+            continue;
+        }
+        let id = AssociatedFamilyId::new(owner.clone(), base.clone());
+        surface.families.insert(
+            base,
+            AssociatedFamilyInfo {
+                id,
+                kind: AssociatedFamilyKind::StaticDomain,
+                members: Box::new([AssociatedMemberId::StaticDomain(domain.id.clone())]),
+                type_member_signature_fingerprint: None,
+            },
+        );
+    }
+    (Arc::new(surface), Arc::from(diagnostics.into_boxed_slice()))
 }
 
 /// Builds an owner's associated namespace including checked source type members.

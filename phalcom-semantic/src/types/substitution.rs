@@ -308,6 +308,7 @@ impl TypeSubstitution {
                         subject,
                         selector: projection.selector.clone(),
                         arguments,
+                        source_declaration: projection.source_declaration.clone(),
                     },
                     kind,
                 )
@@ -489,6 +490,7 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                     subject,
                     selector: projection.selector.clone(),
                     arguments,
+                    source_declaration: projection.source_declaration.clone(),
                 },
                 kind,
             )

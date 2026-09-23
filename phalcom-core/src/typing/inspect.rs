@@ -44,10 +44,10 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
                 TypeNode::Applied { origin, arguments } => {
                     let mut children = Vec::with_capacity(arguments.len() + 1);
                     children.push(RuntimeTypeRef::Base { pool, node: *origin });
-                    children.extend(arguments.iter().map(|argument| {
-                        let phalcom_type_meta::type_node::StaticArgumentRef::Term(node) = argument;
-                        RuntimeTypeRef::Base { pool, node: *node }
-                    }));
+                    for argument in arguments.iter() {
+                        let phalcom_type_meta::type_node::StaticArgumentRef::Term(node) = argument else { return None };
+                        children.push(RuntimeTypeRef::Base { pool, node: *node });
+                    }
                     Some(children)
                 }
                 TypeNode::Union(members) => Some(members.iter().map(|node| RuntimeTypeRef::Base { pool, node: *node }).collect()),
@@ -69,15 +69,14 @@ pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
             RuntimeOverlayTypeNode::TypeLambda { .. } | RuntimeOverlayTypeNode::Special(_) | RuntimeOverlayTypeNode::SelfType(_) => Some(Vec::new()),
         },
         RuntimeTypeRef::Base { pool, node } => match &registry.get_pool(pool)?.bundle.types.get(node.0 as usize)?.form {
-            TypeNode::Applied { arguments, .. } => Some(
-                arguments
-                    .iter()
-                    .map(|argument| {
-                        let phalcom_type_meta::type_node::StaticArgumentRef::Term(node) = argument;
-                        RuntimeTypeRef::Base { pool, node: *node }
-                    })
-                    .collect(),
-            ),
+            TypeNode::Applied { arguments, .. } => {
+                let mut result = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    let phalcom_type_meta::type_node::StaticArgumentRef::Term(node) = argument else { return None };
+                    result.push(RuntimeTypeRef::Base { pool, node: *node });
+                }
+                Some(result)
+            }
             TypeNode::Union(members) => Some(members.iter().map(|node| RuntimeTypeRef::Base { pool, node: *node }).collect()),
             _ => Some(Vec::new()),
         },
@@ -216,8 +215,14 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                     let args = arguments
                         .iter()
                         .map(|arg| {
-                            let phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) = arg;
-                            display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *arg }, depth + 1)
+                            match arg {
+                                phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) => {
+                                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *arg }, depth + 1)
+                                }
+                                phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
+                                    format!("{{{}}}", row.fields.iter().map(|field| field.name.as_ref()).collect::<Vec<_>>().join(", "))
+                                }
+                            }
                         })
                         .collect::<Vec<_>>()
                         .join(", ");

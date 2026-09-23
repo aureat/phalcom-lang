@@ -819,6 +819,7 @@ fn substitute_type_id_self_and_params(store: &mut TypeStore, ty: TypeId, subject
                     subject: new_subject,
                     selector: projection.selector.clone(),
                     arguments,
+                    source_declaration: projection.source_declaration.clone(),
                 },
                 kind,
             ))

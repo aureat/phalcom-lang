@@ -292,6 +292,18 @@ impl TypeResolver for TrackingTypeResolver<'_> {
     fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<crate::traits::AssociatedTypeRequirementId> {
         self.inner.resolve_associated_type_requirement(trait_declaration, name)
     }
+
+    fn resolve_associated_type_member(
+        &self,
+        owner: &DeclarationId,
+        selector: &crate::types::type_member::TypeMemberSelector,
+    ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+        let product = self.inner.resolve_associated_type_member(owner, selector);
+        if product.is_some() {
+            record_query_dependency(&self.dependencies, SemanticDependency::AssociatedSurface(owner.clone()));
+        }
+        product
+    }
 }
 
 /// Hierarchy wrapper that records each mutable direct edge consumed by body checking.

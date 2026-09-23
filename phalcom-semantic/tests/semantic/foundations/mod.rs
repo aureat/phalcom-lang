@@ -29,6 +29,7 @@ mod record_row_inference;
 mod record_row_materialization;
 mod semantic_correctness_regressions;
 mod substitution;
+mod static_domain_inference;
 mod type_annotations;
 mod type_members;
 mod type_model;

@@ -1082,6 +1082,70 @@ fn type_form_descriptor_type(ctx: &mut CheckingContext<'_>, form: TypeId) -> Opt
 
 fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &lookup.receiver, &ExpectedType::None);
+    if let Some(SemanticDenotation::StaticDomain(domain)) = receiver.denotation.as_ref() {
+        let AssociatedMemberSyntax::Named(member) = &lookup.member else {
+            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AssociatedMemberMissing,
+                "static domains support named case lookup only",
+                lookup.range,
+            ));
+            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+        };
+        let ids = ctx.store.static_constructor_ids_for_domain(*domain);
+        let Some(constructor) = ids.into_iter().find(|id| {
+            ctx.store.static_constructor(*id).is_some_and(|constructor| constructor.case_name.as_ref() == member.base)
+        }) else {
+            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AssociatedMemberMissing,
+                format!("static case `{}` was not declared in this domain", member.base),
+                lookup.range,
+            ));
+            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+        };
+        let Some(metadata) = ctx.store.static_constructor(constructor).cloned() else {
+            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+        };
+        if !metadata.parameter_kinds.is_empty() || !matches!(member.mode, AssociatedNamedMode::Getter) {
+            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AssociatedMemberMissing,
+                format!("static case `{}` requires constructor arguments or a different lookup form", member.base),
+                lookup.range,
+            ));
+            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+        }
+        let Ok(term) = ctx.store.static_data(*domain, constructor, Box::new([])) else {
+            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+        };
+        let Some(crate::types::store::StaticDomainData::Associated { declaration, .. }) = ctx.store.static_domain(*domain) else {
+            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+        };
+        let case = crate::identity::StaticCaseId::new(
+            crate::identity::StaticDomainDeclarationId::Associated(declaration.clone()),
+            metadata.case_name.clone(),
+        );
+        let member_id = AssociatedMemberId::StaticDomain(declaration.clone());
+        if let Some(expression) = ctx.current_expression_id() {
+            ctx.record_associated_resolution(
+                expression,
+                AssociatedResolution {
+                    owner_form: TypeId::DUMMY,
+                    lookup_owner: metadata.declaration,
+                    family: None,
+                    kind: AssociatedResolutionKind::StaticTerm {
+                        member: member_id,
+                        domain: *domain,
+                        case,
+                        term,
+                    },
+                },
+            );
+        }
+        return TypedExpression::established(term, EvidenceOrigin::DeclarationSemantics, lookup.range)
+            .with_denotation(SemanticDenotation::StaticTerm(term));
+    }
     let Ok(owner) = resolve_associated_owner(ctx, &receiver, lookup.range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
@@ -1107,6 +1171,34 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
             let Ok(family) = resolve_effective_associated_family(ctx, &owner, &base, lookup.range) else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
+
+            if family.kind == crate::associated::AssociatedFamilyKind::StaticDomain {
+                let Some(AssociatedMemberId::StaticDomain(id)) = family.members.first() else {
+                    return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                };
+                let arguments = owner
+                    .supplied_arguments
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                let domain = ctx.store.associated_static_domain(id.clone(), arguments);
+                if let Some(expression) = ctx.current_expression_id() {
+                    ctx.record_associated_resolution(
+                        expression,
+                        AssociatedResolution {
+                            owner_form: owner.owner_form,
+                            lookup_owner: owner.lookup_owner.clone(),
+                            family: Some(family.id.clone()),
+                            kind: AssociatedResolutionKind::StaticDomain {
+                                member: AssociatedMemberId::StaticDomain(id.clone()),
+                                domain,
+                            },
+                        },
+                    );
+                }
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression).with_denotation(SemanticDenotation::StaticDomain(domain));
+            }
 
             match &member.mode {
                 AssociatedNamedMode::Getter => {
@@ -1306,7 +1398,7 @@ fn synthesize_associated_callable_reference(
                     Some(phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern)) => pattern.matches(&dc_selector),
                 }
             }),
-            AssociatedMemberId::DataComponent(_) | AssociatedMemberId::TypeMember(_) => false,
+            AssociatedMemberId::DataComponent(_) | AssociatedMemberId::StaticDomain(_) | AssociatedMemberId::TypeMember(_) => false,
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -1572,8 +1664,13 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                     &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
                     idx as u32,
                 ) {
-                    env.bind_param(param_id, arg);
-                    fixed_generics.push((param_id, arg));
+                    match arg {
+                        crate::types::store::StaticArgument::Term(ty) => {
+                            env.bind_param(param_id, ty);
+                            fixed_generics.push((param_id, ty));
+                        }
+                        crate::types::store::StaticArgument::RecordRow(row) => env.bind_row(param_id, row),
+                    }
                 }
             }
 
@@ -1655,8 +1752,13 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                     &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
                     idx as u32,
                 ) {
-                    env.bind_param(param_id, arg);
-                    fixed_generics.push((param_id, arg));
+                    match arg {
+                        crate::types::store::StaticArgument::Term(ty) => {
+                            env.bind_param(param_id, ty);
+                            fixed_generics.push((param_id, ty));
+                        }
+                        crate::types::store::StaticArgument::RecordRow(row) => env.bind_row(param_id, row),
+                    }
                 }
             }
 
@@ -2445,7 +2547,7 @@ fn family_callable_application_target(
                 if !matches!(target_id, InvocationTargetId::VariantConstructor(_) | InvocationTargetId::DataConstructor(_)) {
                     return None;
                 }
-                let (actual_owner, supplied_arguments) = ctx.store.applied_nominal_parts(*owner_form)?;
+                let (actual_owner, supplied_arguments) = ctx.store.applied_nominal_static_parts(*owner_form)?;
                 if actual_owner != *lookup_owner {
                     return None;
                 }
@@ -2504,7 +2606,9 @@ fn associated_constructor_application_target(
                     &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
                     index as u32,
                 ) {
-                    fixed_generics.push((parameter, argument));
+                    if let crate::types::store::StaticArgument::Term(argument) = argument {
+                        fixed_generics.push((parameter, argument));
+                    }
                 }
             }
 
@@ -2559,7 +2663,9 @@ fn associated_constructor_application_target(
                     &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
                     index as u32,
                 ) {
-                    fixed_generics.push((parameter, argument));
+                    if let crate::types::store::StaticArgument::Term(argument) = argument {
+                        fixed_generics.push((parameter, argument));
+                    }
                 }
             }
 
@@ -2593,7 +2699,7 @@ fn associated_constructor_application_target(
             }
             Some(target.with_fixed_generics(fixed_generics))
         }
-        AssociatedMemberId::DataComponent(_) | AssociatedMemberId::TypeMember(_) => None,
+        AssociatedMemberId::DataComponent(_) | AssociatedMemberId::StaticDomain(_) | AssociatedMemberId::TypeMember(_) => None,
     }
 }
 
