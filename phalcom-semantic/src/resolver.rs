@@ -26,6 +26,7 @@ pub struct LinkedTypeResolver {
     trait_associated_types: Arc<BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>>,
     associated_type_members: Arc<RwLock<AssociatedTypeMemberProducts>>,
     static_case_catalogs: Arc<RwLock<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>>,
+    static_case_signatures: Arc<RwLock<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>>,
 }
 
 impl LinkedTypeResolver {
@@ -51,6 +52,7 @@ impl LinkedTypeResolver {
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
             static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
+            static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
@@ -73,6 +75,7 @@ impl LinkedTypeResolver {
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
             static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
+            static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
@@ -117,6 +120,12 @@ impl LinkedTypeResolver {
             *current = catalogs.clone();
         }
     }
+
+    pub fn update_static_case_signatures(&self, signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>) {
+        if let Ok(mut current) = self.static_case_signatures.write() {
+            *current = signatures.clone();
+        }
+    }
 }
 
 impl TypeResolver for LinkedTypeResolver {
@@ -139,6 +148,10 @@ impl TypeResolver for LinkedTypeResolver {
         domain: &crate::identity::StaticDomainDeclarationId,
     ) -> Option<Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
         self.static_case_catalogs.read().ok()?.get(domain).cloned()
+    }
+
+    fn resolve_static_case_signature(&self, case: &crate::identity::StaticCaseId) -> Option<Arc<crate::static_case::StaticCaseSignatureProduct>> {
+        self.static_case_signatures.read().ok()?.get(case).cloned()
     }
     fn resolve_associated_type_member(
         &self,

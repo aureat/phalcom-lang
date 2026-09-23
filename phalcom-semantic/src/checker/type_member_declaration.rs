@@ -47,7 +47,7 @@ pub fn build_type_member_declaration(
             continue;
         }
         let domain = match &parameter.domain {
-            TypeMemberParameterDomainSyntax::Kind(syntax) => match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax) {
+            TypeMemberParameterDomainSyntax::Kind(syntax) => match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax, &mut diagnostics) {
                 KindResolution::Ready(kind) => Some(kind),
                 other => {
                     diagnostics.push(SemanticDiagnostic::error_in(
@@ -77,7 +77,7 @@ pub fn build_type_member_declaration(
     }
 
     let result_domain = match &definition.result {
-        TypeMemberResultSyntax::Kind(syntax) => match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax) {
+        TypeMemberResultSyntax::Kind(syntax) => match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax, &mut diagnostics) {
             KindResolution::Ready(kind) => Some(kind),
             other => {
                 diagnostics.push(SemanticDiagnostic::error_in(

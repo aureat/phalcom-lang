@@ -200,14 +200,98 @@ fn static_case_catalog_distinguishes_singleton_from_empty_constructor() {
     use phalcom_semantic::identity::StaticDomainDeclarationId;
 
     let module = module();
-    let source = "type data Shape { Scalar; Empty() }\ntype DefaultShape: Shape = Shape::Scalar\n";
+    let source = "type data Shape { Scalar; Empty() }\ntype DefaultShape: Shape = Shape::Scalar\ntype EmptyShape: Shape = Shape::Empty()\n";
     let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
     assert!(!result.snapshot.has_errors(), "diagnostics: {:?}", result.snapshot.diagnostics);
-    let domain = StaticDomainDeclarationId::Nominal(DeclarationId::new(module, "Shape".into()));
+    let domain = StaticDomainDeclarationId::Nominal(DeclarationId::new(module.clone(), "Shape".into()));
     let catalog = result.snapshot.static_case_catalogs.get(&domain).expect("published catalog");
     assert!(catalog.select(&Selector::getter("Scalar").unwrap()).is_some());
     assert!(catalog.select(&Selector::method("Empty", []).unwrap()).is_some());
     assert!(catalog.select(&Selector::getter("Empty").unwrap()).is_none());
+    let empty = catalog.select(&Selector::method("Empty", []).unwrap()).unwrap();
+    assert!(
+        result.snapshot.static_case_signatures.contains_key(&empty.id),
+        "zero-arity constructor still requires a checked signature"
+    );
+    assert!(result.snapshot.type_aliases.contains_key(&DeclarationId::new(module, "EmptyShape".into())));
+}
+
+#[test]
+fn recursive_static_domain_payload_depends_on_the_domain_header_only() {
+    use phalcom_common::selector::Selector;
+    use phalcom_semantic::identity::StaticDomainDeclarationId;
+
+    let module = module();
+    let source = "type data Tree { Leaf; Branch(_ subtree: Tree) }\n";
+    let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
+    assert!(
+        !result.snapshot.has_errors(),
+        "recursive domain payload should be legal: {:?}",
+        result.snapshot.diagnostics
+    );
+    let domain = StaticDomainDeclarationId::Nominal(DeclarationId::new(module, "Tree".into()));
+    let catalog = result.snapshot.static_case_catalogs.get(&domain).expect("Tree case catalog");
+    let branch = catalog
+        .select(&Selector::method("Branch", [phalcom_common::selector::SelectorSlot::Positional]).unwrap())
+        .unwrap();
+    assert!(result.snapshot.static_case_signatures.contains_key(&branch.id));
+}
+
+#[test]
+fn alias_and_static_case_signature_cycle_is_rejected_as_one_component() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+    use phalcom_semantic::identity::StaticDomainDeclarationId;
+
+    let module = module();
+    let source = "type data Shape { Scalar; Wrap(_ value: Alias) }\ntype Alias: Shape = Shape::Wrap<Shape::Scalar>(_)\n";
+    let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
+    let cycles = result
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::TypeSignatureCycle)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        cycles.len(),
+        1,
+        "expected one mixed signature-cycle diagnostic: {:?}",
+        result.snapshot.diagnostics
+    );
+    let domain = StaticDomainDeclarationId::Nominal(DeclarationId::new(module.clone(), "Shape".into()));
+    let catalog = result
+        .snapshot
+        .static_case_catalogs
+        .get(&domain)
+        .expect("declaration catalog survives signature cycle");
+    let wrap = catalog
+        .cases
+        .iter()
+        .find(|case| case.id.selector.base == phalcom_common::selector::SelectorBase::Named("Wrap".into()))
+        .unwrap();
+    assert!(
+        !result.snapshot.static_case_signatures.contains_key(&wrap.id),
+        "cyclic checked signature must be withheld"
+    );
+    assert!(!result.snapshot.type_aliases.contains_key(&DeclarationId::new(module, "Alias".into())));
+}
+
+#[test]
+fn associated_generic_static_case_signature_dependencies_join_the_cycle_graph() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module = module();
+    let source = "class Container<T: Type> { type data State { Ready; Box(_ value: Alias) } }\ntype Alias: Container<Int>::State = Container<Int>::State::Box<Container<Int>::State::Ready>(_)\n";
+    let result = SemanticWorkspaceSession::new().update(single_module_input(module, source, 1));
+    let cycles = result
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::TypeSignatureCycle)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        cycles.len(),
+        1,
+        "associated generic owner must select the same signature graph node: {:?}",
+        result.snapshot.diagnostics
+    );
 }
 
 #[test]
@@ -412,6 +496,109 @@ fn associated_static_domain_case_edit_invalidates_and_matches_cold_analysis() {
         updated.snapshot.associated_surfaces.surfaces.get(&packet),
         cold_result.snapshot.associated_surfaces.surfaces.get(&packet),
         "associated namespace must match cold analysis after the case edit"
+    );
+}
+
+#[test]
+fn associated_static_case_signature_edit_invalidates_and_matches_cold_analysis() {
+    use phalcom_semantic::identity::{AssociatedStaticDomainDeclarationId, StaticDomainDeclarationId};
+    use phalcom_semantic::static_case::StaticCaseShape;
+    use std::sync::Arc;
+
+    let module = module();
+    let source_a = "type data Shape { Scalar }\ntype data Other { Point }\nclass Parser { type data State { Value(_ shape: Shape); Stay(_ shape: Shape) } }\n";
+    let source_b = "type data Shape { Scalar }\ntype data Other { Point }\nclass Parser { type data State { Value(_ shape: Other); Stay(_ shape: Shape) } }\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let initial = incremental.update(single_module_input(module.clone(), source_a, 1));
+    assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
+
+    let domain = StaticDomainDeclarationId::Associated(AssociatedStaticDomainDeclarationId::new(
+        DeclarationId::new(module.clone(), "Parser".into()),
+        "State",
+    ));
+    let case = initial.snapshot.static_case_catalogs[&domain]
+        .cases
+        .iter()
+        .find(|case| matches!(case.shape, StaticCaseShape::Constructor { .. }))
+        .expect("Value constructor case")
+        .id
+        .clone();
+    let first_signature = initial.snapshot.static_case_signatures.get(&case).expect("checked Value signature");
+    let sibling_id = initial.snapshot.static_case_catalogs[&domain]
+        .cases
+        .iter()
+        .find(|case| case.id.selector.base == phalcom_common::selector::SelectorBase::Named("Stay".into()))
+        .expect("Stay constructor case")
+        .id
+        .clone();
+    let sibling_signature = initial.snapshot.static_case_signatures.get(&sibling_id).expect("checked Stay signature");
+
+    let updated = incremental.update(single_module_input(module.clone(), source_b, 2));
+    assert!(!updated.snapshot.has_errors(), "updated diagnostics: {:?}", updated.snapshot.diagnostics);
+    let updated_signature = updated.snapshot.static_case_signatures.get(&case).expect("updated Value signature");
+    assert!(
+        !Arc::ptr_eq(first_signature, updated_signature),
+        "payload kind edit must rebuild the signature product"
+    );
+    assert_ne!(first_signature.parameter_kinds, updated_signature.parameter_kinds, "payload domain must update");
+    assert!(
+        Arc::ptr_eq(
+            sibling_signature,
+            updated.snapshot.static_case_signatures.get(&sibling_id).expect("retained Stay signature")
+        ),
+        "an unrelated sibling case signature should be reused"
+    );
+
+    let cold = SemanticWorkspaceSession::new().update(single_module_input(module, source_b, 1));
+    assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
+    let cold_signature = cold.snapshot.static_case_signatures.get(&case).expect("cold Value signature");
+    assert_eq!(
+        updated_signature.parameter_kinds, cold_signature.parameter_kinds,
+        "incremental signature must match cold analysis"
+    );
+}
+
+#[test]
+fn inherent_impl_static_case_signature_edit_invalidates_and_matches_cold_analysis() {
+    use phalcom_semantic::identity::{AssociatedStaticDomainDeclarationId, StaticDomainDeclarationId};
+    use phalcom_semantic::static_case::StaticCaseShape;
+
+    let module = module();
+    let source_a =
+        "type data Shape { Scalar }\ntype data Other { Point }\ndata Packet(bytes: Int)\nimpl Packet { type data State { Value(_ shape: Shape) } }\n";
+    let source_b =
+        "type data Shape { Scalar }\ntype data Other { Point }\ndata Packet(bytes: Int)\nimpl Packet { type data State { Value(_ shape: Other) } }\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental.update(single_module_input(module.clone(), source_a, 1));
+    assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
+    let domain = StaticDomainDeclarationId::Associated(AssociatedStaticDomainDeclarationId::new(
+        DeclarationId::new(module.clone(), "Packet".into()),
+        "State",
+    ));
+    let catalog = first.snapshot.static_case_catalogs.get(&domain).expect("impl-owned catalog");
+    let case = catalog
+        .cases
+        .iter()
+        .find(|case| matches!(case.shape, StaticCaseShape::Constructor { .. }))
+        .expect("Value constructor")
+        .id
+        .clone();
+    let signature = first.snapshot.static_case_signatures.get(&case).expect("initial signature");
+
+    let updated = incremental.update(single_module_input(module.clone(), source_b, 2));
+    assert!(!updated.snapshot.has_errors(), "updated diagnostics: {:?}", updated.snapshot.diagnostics);
+    let updated_signature = updated.snapshot.static_case_signatures.get(&case).expect("updated signature");
+    assert_ne!(
+        signature.parameter_kinds, updated_signature.parameter_kinds,
+        "impl-owned payload domain must update"
+    );
+
+    let cold = SemanticWorkspaceSession::new().update(single_module_input(module, source_b, 1));
+    assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
+    assert_eq!(
+        updated_signature.parameter_kinds,
+        cold.snapshot.static_case_signatures.get(&case).expect("cold signature").parameter_kinds,
+        "impl-owned signature must match cold analysis"
     );
 }
 

@@ -320,6 +320,14 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         product
     }
 
+    fn resolve_static_case_signature(&self, case: &crate::identity::StaticCaseId) -> Option<std::sync::Arc<crate::static_case::StaticCaseSignatureProduct>> {
+        let product = self.inner.resolve_static_case_signature(case);
+        if product.is_some() {
+            record_query_dependency(&self.dependencies, SemanticDependency::StaticCaseSignature(case.clone()));
+        }
+        product
+    }
+
     fn resolve_associated_static_domain(
         &self,
         owner: &DeclarationId,

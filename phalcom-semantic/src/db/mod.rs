@@ -494,6 +494,10 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
             crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,
             crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.owner.module,
         }),
+        QueryKey::StaticCaseSignature(case) => Some(match &case.domain {
+            crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,
+            crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.owner.module,
+        }),
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
         QueryKey::ResolvedImport(site) => Some(&site.importer),
         QueryKey::LinkedName(module, _) | QueryKey::PublicExport(module, _) => Some(module),

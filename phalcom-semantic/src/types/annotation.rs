@@ -9,7 +9,7 @@ use super::parameter::{
     GenericBinderHeader, GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm,
 };
 use super::row::RecordRowTail;
-use super::store::{CallableParameterType, CallableType, RecordTypeField, TypeData, TypeStore};
+use super::store::{CallableParameterType, CallableType, RecordTypeField, StaticArgument, TypeData, TypeStore};
 use super::type_lambda::{
     ScopedCallableParameter, ScopedCallableType, ScopedLabeledTypePackElement, ScopedOpenRecord, ScopedPackProjectionLane, ScopedRecordField, ScopedRecordTail,
     ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
@@ -176,6 +176,11 @@ pub trait TypeResolver {
         None
     }
 
+    /// Retrieves the checked constructor contract for one selected static case.
+    fn resolve_static_case_signature(&self, _case: &crate::identity::StaticCaseId) -> Option<std::sync::Arc<crate::static_case::StaticCaseSignatureProduct>> {
+        None
+    }
+
     /// Selects an associated static domain only through the owner's namespace surface.
     fn resolve_associated_static_domain(
         &self,
@@ -234,6 +239,10 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
         domain: &crate::identity::StaticDomainDeclarationId,
     ) -> Option<std::sync::Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
         self.parent.resolve_static_case_catalog(domain)
+    }
+
+    fn resolve_static_case_signature(&self, case: &crate::identity::StaticCaseId) -> Option<std::sync::Arc<crate::static_case::StaticCaseSignatureProduct>> {
+        self.parent.resolve_static_case_signature(case)
     }
 
     fn resolve_associated_static_domain(
@@ -335,6 +344,7 @@ pub enum TypeFormationInvalid {
     Syntax,
     InvalidKindSyntax,
     ExpectedProperType { actual: KindId },
+    ExpectedStaticDomain { actual: KindId },
     NotAConstructor,
     TooManyTypeArguments,
     TypeArgumentKindMismatch,
@@ -425,7 +435,7 @@ pub fn resolve_kind_syntax(store: &mut TypeStore, kind: &KindSyntax) -> KindReso
         KindSyntax::RecordRow(_) => KindResolution::Ready(KindId::RECORD_ROW),
         KindSyntax::TypePack(_) => KindResolution::Ready(KindId::TYPE_PACK),
         KindSyntax::LabeledTypePack(_) => KindResolution::Ready(KindId::LABELED_TYPE_PACK),
-        KindSyntax::Named { .. } => KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax),
+        KindSyntax::StaticDomain { .. } => KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax),
         KindSyntax::Grouped { inner, .. } => resolve_kind_syntax(store, inner),
         KindSyntax::Arrow { parameter, result, .. } => {
             let p_kind = match resolve_kind_syntax(store, parameter) {
@@ -471,34 +481,34 @@ pub(crate) fn resolve_contextual_kind_syntax(
     resolver: Option<&dyn TypeResolver>,
     site: &TypeFormationSite,
     kind: &KindSyntax,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> KindResolution {
     match kind {
-        KindSyntax::Named { name, owner_members, associated, .. } => {
+        KindSyntax::StaticDomain { form, .. } => {
             let (Some(declarations), Some(resolver)) = (declarations, resolver) else {
                 return KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax);
             };
-            let Some(declaration) = resolver.resolve_type_name(&site.module, name, owner_members) else {
-                return KindResolution::Unresolved(TypeFormationUnresolved::Name(name.clone().into_boxed_str()));
+            let ty = match resolve_type_form(store, declarations, resolver, site, form, diagnostics) {
+                TypeFormResolution::Ready(ty) => ty,
+                TypeFormResolution::Dynamic => return KindResolution::Dynamic,
+                TypeFormResolution::Missing(reason) => return KindResolution::Missing(reason),
+                TypeFormResolution::Unresolved(reason) => return KindResolution::Unresolved(reason),
+                TypeFormResolution::Invalid(reason) => return KindResolution::Invalid(reason),
+                TypeFormResolution::Blocked(reason) => return KindResolution::Blocked(reason),
+                TypeFormResolution::Cancelled => return KindResolution::Cancelled,
+                TypeFormResolution::BudgetExceeded(report) => return KindResolution::BudgetExceeded(report),
+                TypeFormResolution::InternalFailure(failure) => return KindResolution::InternalFailure(failure),
             };
-            if let Some(associated) = associated {
-                let Some(id) = resolver.resolve_associated_static_domain(&declaration, associated) else {
-                    return KindResolution::Unresolved(TypeFormationUnresolved::Name(associated.clone().into_boxed_str()));
-                };
-                let domain = store.associated_static_domain(id, Box::new([]));
-                return KindResolution::Ready(store.static_domain_kind(domain));
-            }
-            let Some(kind) = declarations.kind(&declaration) else {
-                return KindResolution::Missing(TypeFormationMissing::DeclarationProduct(declaration));
-            };
+            let kind = store.kind_of(ty);
             if matches!(store.get_kind(kind), KindData::StaticDomain(_)) {
                 KindResolution::Ready(kind)
             } else {
-                KindResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: kind })
+                KindResolution::Invalid(TypeFormationInvalid::ExpectedStaticDomain { actual: kind })
             }
         }
-        KindSyntax::Grouped { inner, .. } => resolve_contextual_kind_syntax(store, declarations, resolver, site, inner),
-        KindSyntax::Arrow { parameter, result, .. } => resolve_contextual_kind_syntax(store, declarations, resolver, site, parameter).and_then(|parameter| {
-            resolve_contextual_kind_syntax(store, declarations, resolver, site, result)
+        KindSyntax::Grouped { inner, .. } => resolve_contextual_kind_syntax(store, declarations, resolver, site, inner, diagnostics),
+        KindSyntax::Arrow { parameter, result, .. } => resolve_contextual_kind_syntax(store, declarations, resolver, site, parameter, diagnostics).and_then(|parameter| {
+            resolve_contextual_kind_syntax(store, declarations, resolver, site, result, diagnostics)
                 .map_ready(|result| store.arrow_kind(Box::new([parameter]), result))
         }),
         _ => resolve_kind_syntax(store, kind),
@@ -557,16 +567,23 @@ fn resolve_static_case_form(
     let Some(catalog) = resolver.resolve_static_case_catalog(&identity) else {
         return Some(TypeFormResolution::Blocked(BlockReason::SuppressedDependency));
     };
-    let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape);
-    let case = match crate::static_case::select_static_case(&catalog, &selector) {
+    let selected = if payload_shape.is_none() && !generic_arguments.is_empty() {
+        catalog.select_constructor(variant_name, generic_arguments.len()).ok_or(())
+    } else {
+        let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape);
+        crate::static_case::select_static_case(&catalog, &selector).map_err(|_| ())
+    };
+    let case = match selected {
         Ok(case) => case,
-        Err(error) => {
+        Err(()) => {
+            let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape);
+            let error = crate::static_case::select_static_case(&catalog, &selector).err();
             let message = match error {
-                crate::static_case::StaticCaseSelectionError::Missing => format!("static case `{variant_name}` was not declared in this domain"),
-                crate::static_case::StaticCaseSelectionError::WrongShape => {
+                Some(crate::static_case::StaticCaseSelectionError::Missing) | None => format!("static case `{variant_name}` was not declared in this domain"),
+                Some(crate::static_case::StaticCaseSelectionError::WrongShape) => {
                     format!("static case `{variant_name}` requires a different constructor shape")
                 }
-                crate::static_case::StaticCaseSelectionError::Ambiguous => {
+                Some(crate::static_case::StaticCaseSelectionError::Ambiguous) => {
                     format!("static case `{variant_name}` is declared more than once")
                 }
             };
@@ -574,17 +591,72 @@ fn resolve_static_case_form(
             return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
         }
     };
-    if !generic_arguments.is_empty() || payload_shape.is_some() {
+    let term = match &case.shape {
+        crate::static_case::StaticCaseShape::Singleton => {
+            if !generic_arguments.is_empty() || payload_shape.is_some() {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    site.module.clone(),
+                    DiagnosticCode::AnnotationUnresolved,
+                    format!("static singleton `{variant_name}` does not accept constructor arguments"),
+                    range,
+                ));
+                return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
+            }
+            crate::static_case::materialize_static_singleton(store, domain, case)
+        }
+        crate::static_case::StaticCaseShape::Constructor { .. } => {
+            let Some(signature) = resolver.resolve_static_case_signature(&case.id) else {
+                return Some(TypeFormResolution::Blocked(BlockReason::SuppressedDependency));
+            };
+            if signature.parameter_kinds.len() != generic_arguments.len() {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    site.module.clone(),
+                    DiagnosticCode::AnnotationUnresolved,
+                    format!(
+                        "static case `{variant_name}` expects {} payload arguments, got {}",
+                        signature.parameter_kinds.len(),
+                        generic_arguments.len()
+                    ),
+                    range,
+                ));
+                return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
+            }
+            let mut arguments = Vec::with_capacity(generic_arguments.len());
+            for (index, (annotation, expected)) in generic_arguments.iter().zip(signature.parameter_kinds.iter()).enumerate() {
+                let TypeFormResolution::Ready(argument) = resolve_type_form(store, declarations, resolver, site, annotation, diagnostics) else {
+                    return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
+                };
+                let static_argument = match store.get(argument) {
+                    TypeData::Record(row) => StaticArgument::RecordRow(*row),
+                    _ => StaticArgument::Term(argument),
+                };
+                let actual = match static_argument {
+                    StaticArgument::Term(term) => store.kind_of(term),
+                    StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+                };
+                if actual != *expected {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        site.module.clone(),
+                        DiagnosticCode::KindExpectedType,
+                        format!(
+                            "payload argument {} for static case `{variant_name}` has kind {}, expected {}",
+                            index + 1,
+                            store.format_kind(actual),
+                            store.format_kind(*expected)
+                        ),
+                        annotation.range,
+                    ));
+                    return Some(TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch));
+                }
+                arguments.push(static_argument);
+            }
+            crate::static_case::materialize_static_constructor(store, domain, case, &signature, arguments.into_boxed_slice())
+        }
+    };
+    let Some(term) = term else {
         diagnostics.push(SemanticDiagnostic::error_in(
             site.module.clone(), DiagnosticCode::AnnotationUnresolved,
-            "static case constructor arguments are not formed by exact-case target syntax", range,
-        ));
-        return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
-    }
-    let Some(term) = crate::static_case::materialize_static_singleton(store, domain, case) else {
-        diagnostics.push(SemanticDiagnostic::error_in(
-            site.module.clone(), DiagnosticCode::AnnotationUnresolved,
-            format!("static case `{variant_name}` requires constructor arguments"), range,
+            format!("could not materialize static case `{variant_name}`"), range,
         ));
         return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
     };
@@ -2815,7 +2887,7 @@ pub fn resolve_generic_binder_header_with_context(
     if let Some(clause) = where_clause {
         for c in &clause.constraints {
             if let GenericConstraintSyntax::KindFact { subject, kind, range, .. } = c {
-                let resolved_kind = resolve_contextual_kind_syntax(store, declarations, resolver, site, kind);
+                let resolved_kind = resolve_contextual_kind_syntax(store, declarations, resolver, site, kind, diagnostics);
                 if let KindResolution::Invalid(reason) = &resolved_kind {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
@@ -2883,7 +2955,7 @@ pub fn resolve_generic_binder_header_with_context(
         let binder_kind = match p.kind.as_ref() {
             None => None,
             Some(syntax) => {
-                let res = resolve_contextual_kind_syntax(store, declarations, resolver, site, syntax);
+                let res = resolve_contextual_kind_syntax(store, declarations, resolver, site, syntax, diagnostics);
                 if let KindResolution::Invalid(reason) = &res {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),

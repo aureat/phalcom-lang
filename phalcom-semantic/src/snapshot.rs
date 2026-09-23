@@ -201,9 +201,12 @@ pub struct SemanticSnapshot {
     /// Associated namespace selection remains exclusively in `associated_surfaces`.
     pub type_member_declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     /// Checked associated static-domain declarations keyed by stable owner/name identity.
-    pub associated_static_domains: Arc<BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+    pub associated_static_domains:
+        Arc<BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
     /// Source-structural static case membership, independent of payload validity.
     pub static_case_catalogs: Arc<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
+    /// Checked constructor contracts keyed by stable static-case identity.
+    pub static_case_signatures: Arc<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
     /// Retained source-local semantic structure shards for incremental reuse.
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     pub status: SnapshotStatus,
@@ -263,6 +266,7 @@ impl SemanticSnapshot {
             type_member_declarations: Arc::new(BTreeMap::new()),
             associated_static_domains: Arc::new(BTreeMap::new()),
             static_case_catalogs: Arc::new(BTreeMap::new()),
+            static_case_signatures: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -323,6 +327,7 @@ impl SemanticSnapshot {
             type_member_declarations: Arc::new(BTreeMap::new()),
             associated_static_domains: Arc::new(BTreeMap::new()),
             static_case_catalogs: Arc::new(BTreeMap::new()),
+            static_case_signatures: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -374,6 +379,14 @@ impl SemanticSnapshot {
         catalogs: Arc<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
     ) -> Self {
         self.static_case_catalogs = catalogs;
+        self
+    }
+
+    pub fn with_static_case_signatures(
+        mut self,
+        signatures: Arc<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
+    ) -> Self {
+        self.static_case_signatures = signatures;
         self
     }
 

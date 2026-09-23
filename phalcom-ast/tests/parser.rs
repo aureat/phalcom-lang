@@ -1215,7 +1215,9 @@ fn parse_type_alias_and_type_precedence() {
 fn parse_static_alias_result_domain() {
     let p = parse_source("type DefaultShape: Shape = Shape\n", 0).expect("static alias result domain should parse");
     let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
-    assert!(matches!(alias.result_kind, Some(KindSyntax::Named { ref name, .. }) if name == "Shape"));
+    assert!(
+        matches!(alias.result_kind, Some(KindSyntax::StaticDomain { ref form, .. }) if matches!(&form.expr, TypeAnnotationExpr::Reference(reference) if reference.leaf_name() == "Shape"))
+    );
 }
 
 #[test]
@@ -1252,7 +1254,19 @@ fn parse_kind_expressions_and_higher_kinded_binders() {
 fn parse_named_static_domain_binder_kind() {
     let p = parse_source("data Tensor<T: Type, S: Shape>()\n", 0).expect("named static-domain binder should parse");
     let Statement::Data(data) = &p.statements[0] else { panic!() };
-    assert!(matches!(data.generic_parameters[1].kind.as_ref(), Some(KindSyntax::Named { name, .. }) if name == "Shape"));
+    assert!(
+        matches!(data.generic_parameters[1].kind.as_ref(), Some(KindSyntax::StaticDomain { form, .. }) if matches!(&form.expr, TypeAnnotationExpr::Reference(reference) if reference.leaf_name() == "Shape"))
+    );
+}
+
+#[test]
+fn parse_associated_static_domain_kind_as_type_form() {
+    let p = parse_source("data Holder<T: Container<Int>::State>()\n", 0).expect("associated static-domain kind should use an ordinary type form");
+    let Statement::Data(data) = &p.statements[0] else { panic!() };
+    let Some(KindSyntax::StaticDomain { form, .. }) = data.generic_parameters[0].kind.as_ref() else {
+        panic!("expected a static-domain kind form");
+    };
+    assert!(matches!(form.expr, TypeAnnotationExpr::ExactEnumCase { ref variant_name, .. } if variant_name == "State"));
 }
 
 #[test]

@@ -133,3 +133,49 @@ aliases and headers, and expose one canonical case-selection product to both
 annotation and expression consumers? If so, specify how cycles involving
 static-case payload annotations and aliases are classified, and whether
 singleton case identity may be published before payload validation.
+
+## 15. Ratified architecture (2026-09-23)
+
+The user ratified the following resolution. This section supersedes the open
+decision request above and authorizes implementation in LANG007.C3.P2.
+
+- `StaticDomainCaseCatalogProduct` remains the early structural authority for
+  every stable case identity, selector, shape, and source range. Catalogs are
+  not signature-graph nodes.
+- Add one checked `StaticCaseSignatureProduct` per constructor-shaped case.
+  Singleton getters need no signature; every constructor, including `Unit()`,
+  requires one before materialization. Invalid payload signatures withhold the
+  contract but retain catalog identity.
+- Add `StaticCaseSignature(StaticCaseId)` to the existing Alias/Header/Member
+  graph. A cycle containing Member or StaticCaseSignature is one deterministic
+  `TypeSignatureCycle`; preserve current Alias-only and Header/Alias-only
+  behavior. Domain-header recursion remains legal because case signatures
+  depend on headers, never vice versa.
+- Keep `AssociatedSurface` as the only associated-domain namespace authority,
+  the catalog as the only case-membership authority, the signature product as
+  constructor-contract authority, and `TypeStore` as canonical interner only.
+- Replace expanded named kind syntax with `KindSyntax::StaticDomain { form:
+  Box<TypeAnnotation>, ... }`. Resolve the form through the existing type-form
+  path, verify its canonical kind is a static domain, and preserve heterogeneous
+  owner arguments for forms such as `Container<Int, R>::State`.
+- Algebraic declaration aggregates and both annotation/expression consumers
+  must consume catalog plus checked signatures; no consumer may rediscover
+  membership by scanning `TypeStore` intern history.
+
+Implementation order: static-domain type-form kinds; signature query/product;
+graph and SCC integration; unified scheduling; catalog/signature-backed
+builders; shared materialization; focused cold/incremental precision coverage.
+
+## 16. Implementation follow-through (2026-09-23)
+
+The ratified slice is implemented in the current working tree and has focused
+evidence recorded in `LANG007.C3-CHECKPOINT.md`. In addition to the named gates
+above, the continuation fixed the legacy TypeOnly aggregate path that treated a
+recursive static-domain payload as an unsaturated proper runtime type, and
+redirected the remaining runtime-data inherent-impl associated-domain builder
+call through the catalog/signature products.
+
+P2 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. T4 heterogeneous row
+inference, T8 cross-module metadata/import parity, remaining static type-member
+convergence, and T9 stabilization are still open. This record closes the
+architectural decision request; it does not declare P2 complete.

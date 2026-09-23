@@ -6,7 +6,7 @@ checkpoint: LANG007.C3
 kind: implementation-plan
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 depends_on:
   - LANG007.C3.P1
   - LANG007.C2
@@ -3481,6 +3481,35 @@ Record unified `::` namespace and heterogeneous associated-owner specialization 
 durable interfaces.
 
 ---
+
+### Ratified T7 extension — static-case signatures and kind forms
+
+The user ratified the architecture in `INC-C3-10.md` on 2026-09-23. This
+amendment extends T7 without changing its lookup authority:
+
+1. Replace transitional expanded `KindSyntax::Named` fields with
+   `KindSyntax::StaticDomain { form: Box<TypeAnnotation>, range }`. Resolve the
+   form through `resolve_type_form`, preserve applied heterogeneous owner
+   arguments, and require the resolved canonical kind to be a static domain.
+2. Publish one `StaticCaseSignatureProduct` per constructor-shaped case, keyed
+   by stable `StaticCaseId`. Catalog identity remains early and survives invalid
+   payload contracts. Singleton getters need no signature; `Foo()` does.
+3. Add the product/query/dependency to semantic DB and resolver surfaces, then
+   add `StaticCaseSignature` to the existing Alias/Header/Member graph. The
+   catalog is never a signature-graph node.
+4. Treat each SCC containing Member or StaticCaseSignature as one
+   `TypeSignatureCycle`; preserve current alias-only and Header/Alias-only
+   classifications. Header recursion from payloads is legal and there is no
+   reverse header-to-case-signature edge.
+5. Schedule and invalidate case signatures with aliases, headers, and members.
+   Static-case selection is catalog-owned; constructor validation is
+   signature-owned; TypeStore only interns the selected canonical term.
+6. Refactor algebraic builders and annotation/expression consumers to use the
+   catalog and checked signature, then verify recursive domains, invalid
+   contracts, selected/sibling invalidation, real mixed SCCs, and
+   cold/incremental parity.
+
+This amendment does not close T7/T9 or waive T4/T8 acceptance gates.
 
 ## T8 — Persist static domains and prove cross-module/incremental equivalence
 

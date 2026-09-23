@@ -11,21 +11,19 @@ use crate::enum_semantics::{
     VariantVisibility,
 };
 use crate::identity::{
-    AssociatedStaticDomainDeclarationId, CallableId, DataComponentId, DataConstructorId, DeclarationId, DispatchSide, ModuleId,
-    VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId,
+    AssociatedStaticDomainDeclarationId, CallableId, DataComponentId, DataConstructorId, DeclarationId, DispatchSide, ModuleId, VariantConstructorId,
+    VariantFamilyId, VariantFieldId, VariantId,
 };
 use crate::resolver::LinkedTypeResolver;
 use crate::surface::MemberVisibility;
-use crate::types::annotation::{
-    ScopedTypeResolver, TypeFormationSite, resolve_type_annotation, resolve_type_form, type_level_binding_for_parameter,
-};
+use crate::types::annotation::{ScopedTypeResolver, TypeFormationSite, resolve_type_annotation, resolve_type_form, type_level_binding_for_parameter};
 use crate::types::case_environment::{CaseEnvironmentError, CaseTypeEnvironment, derive_case_environment};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::{AlgebraicDef, AlgebraicPhase, CasePayloadSyntax, ProductShapeSyntax};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 /// Builds complete semantic metadata and products for an [`AlgebraicDef`].
@@ -36,6 +34,21 @@ pub fn build_algebraic_semantics(
     declarations: &DeclarationTypeTable,
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
+) -> Option<AlgebraicDeclarationProduct> {
+    build_algebraic_semantics_with_static_products(owner, def, store, declarations, resolver, module_id, None, &BTreeMap::new())
+}
+
+/// Builds an algebraic declaration using the canonical static-case catalog and
+/// checked constructor-signature products when the declaration is type-only.
+pub fn build_algebraic_semantics_with_static_products(
+    owner: &DeclarationId,
+    def: &AlgebraicDef,
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &LinkedTypeResolver,
+    module_id: &ModuleId,
+    static_catalog: Option<&crate::static_case::StaticDomainCaseCatalogProduct>,
+    static_signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
 ) -> Option<AlgebraicDeclarationProduct> {
     let mut diagnostics = Vec::new();
 
@@ -108,7 +121,9 @@ pub fn build_algebraic_semantics(
             }
 
             let mut ann_diags = Vec::new();
-            let raw_knowledge = resolve_type_annotation(store, declarations, &scoped_resolver, &formation_site, &comp.annotation, &mut ann_diags);
+            let raw_knowledge = resolve_algebraic_payload_annotation(
+                store, declarations, &scoped_resolver, &formation_site, &comp.annotation, def.phase == AlgebraicPhase::TypeOnly, &mut ann_diags,
+            );
             diagnostics.extend(ann_diags);
 
             let declared_type = match raw_knowledge {
@@ -368,7 +383,9 @@ pub fn build_algebraic_semantics(
 
                         let declared_type = if let Some(ref ann) = param.annotation {
                             let mut ann_diags = Vec::new();
-                            let raw_knowledge = resolve_type_annotation(store, declarations, &variant_resolver, &formation_site, ann, &mut ann_diags);
+                            let raw_knowledge = resolve_algebraic_payload_annotation(
+                                store, declarations, &variant_resolver, &formation_site, ann, def.phase == AlgebraicPhase::TypeOnly, &mut ann_diags,
+                            );
                             diagnostics.extend(ann_diags);
 
                             match raw_knowledge {
@@ -412,7 +429,15 @@ pub fn build_algebraic_semantics(
                         let external_label: Option<Box<str>> = comp.external_label.clone().map(String::into_boxed_str).or_else(|| Some(local_name.clone()));
 
                         let mut ann_diags = Vec::new();
-                        let raw_knowledge = resolve_type_annotation(store, declarations, &variant_resolver, &formation_site, &comp.annotation, &mut ann_diags);
+                        let raw_knowledge = resolve_algebraic_payload_annotation(
+                            store,
+                            declarations,
+                            &variant_resolver,
+                            &formation_site,
+                            &comp.annotation,
+                            def.phase == AlgebraicPhase::TypeOnly,
+                            &mut ann_diags,
+                        );
                         diagnostics.extend(ann_diags);
 
                         let declared_type = match raw_knowledge {
@@ -512,7 +537,7 @@ pub fn build_algebraic_semantics(
     };
 
     let static_data = if def.phase == AlgebraicPhase::TypeOnly {
-        Some(register_static_declaration(owner, &representation, def, store, module_id, &mut diagnostics))
+        Some(register_static_declaration(owner, &representation, def, store, module_id, &mut diagnostics, static_catalog, static_signatures))
     } else {
         None
     };
@@ -543,6 +568,19 @@ pub fn build_associated_static_domain_declaration(
     declarations: &DeclarationTypeTable,
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
+) -> (Option<crate::db::product::AssociatedStaticDomainDeclarationProduct>, Vec<SemanticDiagnostic>) {
+    build_associated_static_domain_declaration_with_static_products(owner, def, store, declarations, resolver, module_id, None, &BTreeMap::new())
+}
+
+pub fn build_associated_static_domain_declaration_with_static_products(
+    owner: &DeclarationId,
+    def: &AlgebraicDef,
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &LinkedTypeResolver,
+    module_id: &ModuleId,
+    catalog: Option<&crate::static_case::StaticDomainCaseCatalogProduct>,
+    signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
 ) -> (Option<crate::db::product::AssociatedStaticDomainDeclarationProduct>, Vec<SemanticDiagnostic>) {
     let mut diagnostics = Vec::new();
     if def.phase != AlgebraicPhase::TypeOnly || !def.generic_parameters.is_empty() || def.where_clause.is_some() {
@@ -590,6 +628,14 @@ pub fn build_associated_static_domain_declaration(
     let domain = store.associated_static_domain(id.clone(), owner_arguments);
 
     let mut constructors = Vec::new();
+    if let Some(catalog) = catalog {
+        for case in catalog.cases.iter() {
+            let signature = signatures.get(&case.id).map(Arc::as_ref);
+            if let Some(constructor) = crate::static_case::intern_static_case_constructor(store, domain, case, signature) {
+                constructors.push(constructor);
+            }
+        }
+    } else {
     match &def.shape {
         phalcom_ast::ast::AlgebraicShapeSyntax::Sum(sum) => {
             for case in &sum.cases {
@@ -666,6 +712,7 @@ pub fn build_associated_static_domain_declaration(
             ));
         }
     }
+    }
 
     let product = crate::db::product::AssociatedStaticDomainDeclarationProduct {
         id,
@@ -706,6 +753,55 @@ fn associated_static_payload_kind(
     }
 }
 
+/// Type-only algebraic payloads may name a static domain header directly.
+/// Runtime `data` payloads retain the ordinary proper-type checker.
+fn resolve_algebraic_payload_annotation(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn crate::types::annotation::TypeResolver,
+    site: &TypeFormationSite,
+    annotation: &phalcom_ast::ast::TypeAnnotation,
+    allow_static_domain: bool,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> TypeKnowledge {
+    if !allow_static_domain {
+        return resolve_type_annotation(store, declarations, resolver, site, annotation, diagnostics);
+    }
+    match resolve_type_form(store, declarations, resolver, site, annotation, diagnostics) {
+        crate::types::annotation::TypeFormResolution::Ready(form) => {
+            let kind = store.kind_of(form);
+            if kind == KindId::TYPE || matches!(store.get_kind(kind), KindData::StaticDomain(_)) {
+                TypeKnowledge::assumed(form, crate::types::evidence::EvidenceOrigin::DeveloperAnnotation).with_range(annotation.range)
+            } else {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    site.module.clone(),
+                    DiagnosticCode::KindExpectedType,
+                    "type-data payload must be a type or static-domain form",
+                    annotation.range,
+                ));
+                TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::SuppressedByInvalidCause)
+            }
+        }
+        crate::types::annotation::TypeFormResolution::Dynamic => TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape),
+        crate::types::annotation::TypeFormResolution::Unresolved(crate::types::annotation::TypeFormationUnresolved::Name(name)) => {
+            TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::UnresolvedName(name))
+        }
+        crate::types::annotation::TypeFormResolution::Unresolved(crate::types::annotation::TypeFormationUnresolved::SelfOutsideOwner) => {
+            TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::UnresolvedName("Self".into()))
+        }
+        crate::types::annotation::TypeFormResolution::Blocked(_) => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked),
+        crate::types::annotation::TypeFormResolution::Cancelled => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::InferenceCancelled),
+        crate::types::annotation::TypeFormResolution::BudgetExceeded(_) => {
+            TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::InferenceBudgetExceeded)
+        }
+        crate::types::annotation::TypeFormResolution::Invalid(_)
+        | crate::types::annotation::TypeFormResolution::Missing(_)
+        | crate::types::annotation::TypeFormResolution::InternalFailure(_) => {
+            TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::SuppressedByInvalidCause)
+        }
+    }
+}
+
 fn register_static_declaration(
     owner: &DeclarationId,
     representation: &AlgebraicRepresentation,
@@ -713,8 +809,24 @@ fn register_static_declaration(
     store: &mut TypeStore,
     module_id: &ModuleId,
     diagnostics: &mut Vec<SemanticDiagnostic>,
+    catalog: Option<&crate::static_case::StaticDomainCaseCatalogProduct>,
+    signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
 ) -> StaticAlgebraicDeclarationInfo {
     let domain = store.nominal_static_domain(owner.clone());
+    if let Some(catalog) = catalog {
+        let constructors = catalog
+            .cases
+            .iter()
+            .filter_map(|case| {
+                let signature = signatures.get(&case.id).map(Arc::as_ref);
+                crate::static_case::intern_static_case_constructor(store, domain, case, signature)
+            })
+            .collect::<Vec<_>>();
+        return StaticAlgebraicDeclarationInfo {
+            domain,
+            constructors: constructors.into_boxed_slice(),
+        };
+    }
     let constructors = match representation {
         AlgebraicRepresentation::Product(info) => {
             let kinds = info

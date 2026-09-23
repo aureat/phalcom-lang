@@ -402,6 +402,7 @@ pub enum SemanticDependency {
     AssociatedSurface(DeclarationId),
     TypeMemberDeclaration(crate::types::type_member::TypeMemberDeclarationId),
     StaticDomainCaseCatalog(crate::identity::StaticDomainDeclarationId),
+    StaticCaseSignature(crate::identity::StaticCaseId),
     ResolvedImport(phalcom_modules::identity::ImportSiteId),
     LinkedName(ModuleId, String),
     PublicExport(ModuleId, String),

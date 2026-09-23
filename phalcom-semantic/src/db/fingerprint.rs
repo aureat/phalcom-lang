@@ -2332,6 +2332,24 @@ pub fn static_domain_case_catalog_product_fingerprint(product: &crate::static_ca
     finish_product(hasher)
 }
 
+pub fn static_case_signature_input_fingerprint(
+    unit: &phalcom_modules::source::ParsedModuleUnit,
+    product: &crate::static_case::StaticCaseSignatureProduct,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.id.hash(&mut hasher);
+    hash_optional_source_region(&unit.text, Some(product.source_range), &mut hasher);
+    product.parameter_kinds.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn static_case_signature_product_fingerprint(product: &crate::static_case::StaticCaseSignatureProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.id.hash(&mut hasher);
+    product.parameter_kinds.hash(&mut hasher);
+    finish_product(hasher)
+}
+
 /// Fingerprints the checked source contribution and canonical case facts for one associated static domain.
 pub fn associated_static_domain_declaration_input_fingerprint(
     unit: &phalcom_modules::source::ParsedModuleUnit,

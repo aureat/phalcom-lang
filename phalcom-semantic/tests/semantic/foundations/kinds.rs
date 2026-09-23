@@ -314,6 +314,32 @@ fn source_generic_binder_resolves_named_static_domain_kind() {
 }
 
 #[test]
+fn source_generic_binder_resolves_associated_static_domain_kind_through_type_form() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        "type data Shape { Scalar }\n\
+         class Container<T: Type> { type data State { Ready } }\n\
+         data Holder<S: Container<Int>::State>()\n",
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
+    let holder = DeclarationId::new(module, "Holder".into());
+    let signature = analysis.snapshot.declarations.generic_signature(&holder).expect("Holder generic signature");
+    let kind = analysis.snapshot.store.type_parameter(signature.parameters[0]).kind;
+    let phalcom_semantic::types::kind::KindData::StaticDomain(domain) = analysis.snapshot.store.get_kind(kind) else {
+        panic!("expected associated static-domain kind, got {}", analysis.snapshot.store.format_kind(kind));
+    };
+    assert!(matches!(
+        analysis.snapshot.store.static_domain(*domain),
+        Some(phalcom_semantic::types::store::StaticDomainData::Associated { declaration, owner_arguments })
+            if declaration.owner.name.as_ref() == "Container" && owner_arguments.len() == 1
+    ));
+}
+
+#[test]
 fn type_data_case_cannot_be_used_as_a_runtime_value() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(

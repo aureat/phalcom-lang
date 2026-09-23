@@ -2,16 +2,14 @@
 
 Continue P2 from the current worktree. The numbered plan and checkpoint remain
 authoritative; this document is an operational handoff, not a competing status record
-or a claim that P2 is complete. The T7 architecture is decided and implemented through
-the shell surface and retained Alias/Header/Member graph; verify that implementation,
-then continue with T4 and T8.
+or a claim that P2 is complete. The 2026-09-23 ratified static-case/kind-form slice is
+implemented and focused-tested. Continue with the still-open T4 and T8 gates, then T9.
 
 ## Mission and scope
 
-- Complete the highest-risk remaining P2 semantic work, beginning with T7's
-  declaration-annotation dependency ordering and canonical `AssociatedSurface`
-  publication. Then close T4 heterogeneous row inference and T8 metadata/import and
-  cold/incremental equivalence; finish through T9 only after T1–T8 acceptance.
+- Complete the remaining P2 semantic work, with T4 heterogeneous row inference and
+  T8 metadata/import and cold/incremental equivalence as the next major gates. Reconcile
+  remaining T7 consumers, then finish through T9 only after T1–T8 acceptance.
 - Preserve the accepted authority split: checked type-member signatures are
   declaration products keyed by stable owner-plus-selector identity; `AssociatedSurface`
   alone admits names, detects collisions, and selects members. The scheduler orders
@@ -27,17 +25,20 @@ then continue with T4 and T8.
 ## Current state
 
 - Program/checkpoint/plan: `LANG007` / `LANG007.C3` / `LANG007.C3.P2`.
-- Status: `IN_PROGRESS / PARTIAL / UNVERIFIED` for the current working diff; P2 is not complete.
+- Status: `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` for the implemented slice; P2 is not complete.
 - State anchor: branch `main`, HEAD
-  `1c9985b6d449d8680667a91651ea64b2808c44ca` (working tree changes only). The current
+  `5d8d66f91b978ac60e29eca9aac2569af9c7a071` (working tree changes only). The current
   P2 diff is not committed.
-- Historical focused result: `incremental::type_members` selected 12 tests and passed
-  before the current graph-invalidation correction. A test attempt against the current
-  correction was blocked before selection by the unrelated canonical Universe parser
-  failure in `core/universe/src/concurrency/fiber.ph`. The current diff has a semantic
-  library compile check; it does not yet have focused behavioral evidence.
-- Current P2 edits are in this handoff, the C3 checkpoint, `INC-C3-7.md`, and
-  `phalcom-semantic/src/{associated.rs,checker/analysis.rs,checker/context.rs,db/fingerprint.rs,db/query.rs,session.rs}`.
+- Fresh focused evidence on 2026-09-23: semantic crate check; parser
+  `parse_associated_static_domain_kind_as_type_form`; generic associated-domain kind
+  resolution; singleton versus zero-arity constructor signature; recursive static-domain
+  payload; alias/case-signature and associated-generic-owner SCCs; nominal catalog rename
+  parity; class-owned signature edit with sibling reuse and cold parity; inherent-impl
+  signature edit and cold parity; and the TypeOnly runtime-negative boundary all pass.
+  See the C3 checkpoint for the exact evidence list. This proves the ratified slice only.
+- Current P2 edits for this slice also touch the P2 plan, `INC-C3-10.md`, AST kind
+  parsing, static-case query products, algebraic builders, resolver/snapshot, and focused
+  parser/semantic tests. Earlier P2 edits remain in their recorded paths.
   Preserve the six staged `phalcom-core/core/future/*` renames and the untracked STDL002
   audit listed above. Check fresh status before editing; do not stage broadly.
 
@@ -45,10 +46,10 @@ then continue with T4 and T8.
 
 | Priority | Plan area | Current gap | Next-agent disposition |
 |---|---|---|---|
-| 1 | T7 declaration dependency graph | The retained Alias/Header/Member graph now seeds reverse invalidation before product removal; behavior-only inherent-impl edits refresh old and new owners. The code compiles, but incremental/cold-parity evidence remains unverified. The graph edges and SCCs are still reconstructed across the full graph. | Verify exact dependent recomputation, sibling reuse, mixed-SCC edits, and behavior-only impl collision refresh. Keep `AssociatedSurface` as the sole lookup authority; track full-graph reconstruction as a performance follow-up. |
+| 1 | T7 declaration dependency graph | The Alias/Header/Member/StaticCaseSignature graph, stable case catalog, and checked per-case signatures are implemented. Static-case edit, sibling-reuse, cycle, recursive-domain, and cold-parity evidence is fresh. Full graph edges and SCCs are still reconstructed across the full graph. | Continue remaining all-annotation and static type-member convergence checks; keep `AssociatedSurface` as the sole lookup authority and track full-graph reconstruction as a performance follow-up. |
 | 2 | T4 heterogeneous inference | The query-owned coordinator now preserves `Term` and `RecordRow` children, routes row shape solving separately, feeds field equalities into ordinary inference, and retains unresolved ancestor rows symbolically. The semantic library compiles; behavior is unverified. | Add/run the focused T4 acceptance matrix when verification is authorized. Cover mixed `Applied` and `StaticData`, nested ancestor-row resolution, inferred shared fields, mismatch, and unresolved root rows. |
 | 3 | T8 persistence/import closure | The schema-v8 typed catalog, canonical-product export path, and catalog/Applied validators compile; provider composition, import reconstruction, and cold/incremental parity remain unverified. | Close exact metadata/import dependencies and parity cases after checking current gates; do not redo nominal target selection. |
-| 4 | T7/T4/T8 remaining feature gates | Static type-member domain convergence, heterogeneous associated-owner arguments, payload static-constructor argument lookup, and acceptance evidence for reverse invalidation remain listed in the checkpoint. | Reconcile each against current implementation before taking it; keep one owner for `::` selection and exact dependencies. |
+| 4 | T7/T4/T8 remaining feature gates | Associated generic-owner kind resolution and zero-arity constructor formation now have focused coverage. Heterogeneous owner arguments including row forms, complete static type-member convergence, and cross-module payload argument/import parity remain open. | Reconcile each against current implementation before taking it; keep one owner for `::` selection and exact dependencies. |
 | Final | T9 | Stabilization, runtime isolation, consumer audit, lifecycle updates, walkthrough/handoff. | Start only after T1–T8 acceptance evidence is complete. |
 
 ## Settled architecture and decisions
@@ -181,20 +182,20 @@ that edit as D unless investigation changes its relationship to P2.
   type-data case cold parity. These are partial slice results, not a full T4/T8 gate.
 - The recorded `Tensor` alias failure was traced to missing nominal shells while
   resolving named binder domains. The implementation now publishes shells before
-  contextual headers, but the correction's behavior remains unverified.
+  contextual headers; parser, ordinary-kind, and associated generic-owner kind
+  resolution have focused evidence.
 - Not run: broad crate/workspace tests, P2 T9 stabilization, full metadata/import and
   cold/incremental matrices. Run one focused discriminator at a time; broaden only at
   the plan's explicit gate.
 
 ## Immediate resume sequence
 
-1. Reconcile fresh status and scoped diff with the protected staged renames and
-   untracked STDL002 audit. Keep P2 `IN_PROGRESS / PARTIAL`; the active plan remains
-   `UNVERIFIED` for this correction.
-2. Obtain focused behavioral evidence for shell availability and the retained graph:
-   member-signature edits, dependent versus sibling reuse, mixed-SCC reclassification,
-   behavior-only impl collision refresh, and cold/incremental parity. Resolve the
-   unrelated parser blocker without changing its out-of-scope source.
+1. Reconcile fresh status and scoped diff with any protected user-owned paths. Keep P2
+   `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; these results close only the ratified
+   static-case/kind-form slice.
+2. Continue remaining all-annotation and static type-member convergence checks,
+   including dependent versus sibling reuse and behavior-only collision refresh where
+   not already covered by the checkpoint's historic evidence.
 3. Track full-graph dependency-edge reconstruction and SCC traversal as the remaining
    T7 performance issue. Do not replace semantic dependency tracking with global
    invalidation.

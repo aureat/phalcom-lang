@@ -68,6 +68,8 @@ pub enum QueryKey {
     TypeMemberDeclaration(TypeMemberDeclarationId),
     /// Source-structural case membership, available before checked signatures.
     StaticDomainCaseCatalog(crate::identity::StaticDomainDeclarationId),
+    /// Checked constructor contract for one stable static-case identity.
+    StaticCaseSignature(crate::identity::StaticCaseId),
     /// Checked associated static-domain declaration, keyed independently of owner specialization.
     AssociatedStaticDomainDeclaration(crate::identity::AssociatedStaticDomainDeclarationId),
     AssociatedSurface(DeclarationId),

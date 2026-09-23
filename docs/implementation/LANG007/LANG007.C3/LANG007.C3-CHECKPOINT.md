@@ -132,12 +132,26 @@ C3 is complete only when this statement is true:
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
-| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | UNVERIFIED | active; existing T7 type-member lane passes, but a new static-case alias regression fails before incremental comparison |
+| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | active; ratified static-case signature and type-form-kind slice passes focused semantic/parser checks; T4/T8 and full P2 gates remain open |
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P2 |
 
 No additional P4 is planned.
 
 If implementation reveals a bounded corrective closure needed for C3 acceptance, add a new plan in this checkpoint rather than falsely closing P3.
+
+### 4.1 P2 architecture amendment — static cases and static-domain kinds
+
+On 2026-09-23 the user ratified the architecture recorded in `INC-C3-10.md`.
+P2 therefore adds per-case checked constructor signatures to the existing
+Alias/Header/Member graph, while retaining early structural case catalogs as
+the declaration-identity authority. Singleton getters require no signature;
+constructor-shaped cases, including `Unit()`, require a checked signature.
+Cycles containing Member or StaticCaseSignature are rejected as one
+`TypeSignatureCycle`; existing Alias-only and Header/Alias-only behavior stays
+unchanged. Static-domain kind syntax carries an ordinary `TypeAnnotation` and
+resolves through the existing type-form path so applied associated owners retain
+their heterogeneous arguments. Details and implementation order are in
+`INC-C3-10.md` and the P2 plan amendment.
 
 ---
 
@@ -1125,28 +1139,34 @@ T6 focused-tested
     when no associated static domain is contributed.
 
 T7 partial
-    nested associated `::` paths parse. AssociatedSurface-selected static
-    domains resolve to canonical owner-specialized domains, and singleton
-    static cases resolve to canonical static terms. Core lowering rejects either
-    static result in a runtime-value context. Source type-member projections now
-    select through AssociatedSurface, retrieve the checked signature by stable
-    declaration identity, validate domain arguments, record surface dependencies,
-    and preserve declaration identity in the projection. Source-member projection
-    identity is focused-tested in alias, generic-header, and field annotations. A
-    same-module `Tensor` alias-application gap was traced to shell/header phase
-    ordering; declaration shells now precede contextual binder resolution, and the
-    all-category AssociatedSurface is built from stable declaration shells before
-    checked signatures. The retained Alias/Header/Member graph now seeds reverse
-    invalidation from declaration fingerprints before retained products are removed;
-    selected projections record both namespace and exact signature dependencies.
-    Behavior-only inherent-impl edits seed old and new owners for surface refresh.
-    The accepted mixed-SCC rule and generic-header participation are implemented.
-    This correction compiles, but exact dependent reuse, mixed-cycle edit parity, and
-    behavior-only collision refresh are not verified. The declaration fingerprint
-    pass is module-scoped; graph edge reconstruction and SCC classification still
-    traverse the full graph and remain a performance follow-up. Generic associated
-    owner arguments, payload static-constructor lookup, and complete all-annotation
-    parity remain open.
+    Nested associated `::` paths parse, and kind atoms now wrap ordinary
+    `TypeAnnotation` forms so `Container<Int>::State` resolves through the existing
+    type-form path and `AssociatedSurface`. Static case catalogs publish stable
+    identities for every case before payload checking; per-case constructor
+    signatures (including zero-arity constructors) are query products in the
+    Alias/Header/Member/StaticCaseSignature graph. Builders consume catalog and
+    checked-signature products, and one shared intern/materialization path enforces
+    singleton versus constructor requirements. The graph classifies any SCC with a
+    Member or StaticCaseSignature as one `TypeSignatureCycle`, while recursive
+    domain payloads remain legal. TypeOnly aggregate metadata now accepts static
+    domain forms without running them through the proper-runtime-type checker.
+    Class-body and inherent-impl associated signatures have per-case source
+    fingerprints; an old duplicate impl builder path was redirected to the same
+    catalog/signature products.
+
+    Focused evidence on 2026-09-23: parser associated-domain kind-form test (1),
+    associated generic-owner kind resolution (1), singleton versus `Empty()`
+    signature/alias (1), recursive static-domain payload (1), alias/case-signature
+    SCC (1), associated generic-owner SCC (1), nominal catalog rename and cold parity
+    (1), class-owned signature edit with sibling reuse and cold parity (1),
+    inherent-impl signature edit and cold parity (1), and runtime-negative TypeOnly
+    value use (1) all pass; `cargo check -p phalcom-semantic` passes. These results
+    close the ratified static-case/kind-form implementation slice, not all P2 gates.
+    Heterogeneous row inference (T4), metadata/import reconstruction and provider
+    parity (T8), remaining static type-member convergence, and final T9 stabilization
+    remain open. Declaration fingerprint discovery is module-scoped, but dependency
+    graph reconstruction and SCC traversal still scan the full graph; retain this as
+    a performance follow-up rather than claiming exact-worklist completion.
 
 T8 partial
     schema v8 adds a stable declaration/case catalog, validates associated owner
@@ -1216,13 +1236,12 @@ formatter check reports differences in untouched AST/core/checker files; no form
 changes from that check were retained.
 
 This is partial P2 evidence, not P2 acceptance. The T8 nominal-case target slice is
-implemented and focused-tested (INC-C3-4). T7's shell-built category surface and
-retained reverse-invalidation path are implemented but lack focused behavioral evidence;
-full-graph edge reconstruction and SCC traversal remain a performance concern. Other
-open P2 work includes T4 heterogeneous row-argument inference, static type-member domain
-convergence, heterogeneous associated-owner arguments, payload static-constructor
-argument lookup, and cross-module metadata/import plus cold/incremental identity
-certification. T4 has historical focused semantic tests; the library unit-test filter
+implemented and focused-tested (INC-C3-4), and the ratified static-case/kind-form T7
+slice now has focused behavioral evidence recorded above. Full-graph edge reconstruction
+and SCC traversal remain a performance concern. Other open P2 work includes T4
+heterogeneous row-argument inference, remaining static type-member domain convergence,
+cross-module metadata/import plus cold/incremental identity certification, and final T9
+stabilization. T4 has historical focused semantic tests; the library unit-test filter
 remains blocked by BASELINE-003.
 
 ### P3 evidence

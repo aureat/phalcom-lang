@@ -1,11 +1,11 @@
 //! Declaration-owned identities and structural catalogs for static cases.
 
 use crate::identity::{StaticCaseId, StaticDomainDeclarationId};
+use crate::types::id::{KindId, StaticDomainId, TypeId};
+use crate::types::store::{StaticArgument, TypeStore};
 use phalcom_ast::ast::{AlgebraicDef, AlgebraicShapeSyntax, CasePayloadSyntax};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
-use crate::types::id::{StaticDomainId, TypeId};
-use crate::types::store::{StaticArgument, TypeStore};
 
 /// Source-known case shape, independent of checked payload kinds.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -29,10 +29,30 @@ pub struct StaticDomainCaseCatalogProduct {
     pub cases: Box<[StaticCaseHeader]>,
 }
 
+/// Checked payload-kind contract for one constructor-shaped static case.
+///
+/// The stable case identity comes from the structural catalog. This product
+/// owns only the checked constructor contract, so an invalid payload does not
+/// erase the declaration identity used by diagnostics and incremental analysis.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StaticCaseSignatureProduct {
+    pub id: StaticCaseId,
+    pub parameter_kinds: Box<[KindId]>,
+    pub source_range: SourceRange,
+}
+
 impl StaticDomainCaseCatalogProduct {
     /// Selects a case by canonical selector, including getter versus constructor shape.
     pub fn select(&self, selector: &Selector) -> Option<&StaticCaseHeader> {
         self.cases.iter().find(|case| &case.id.selector == selector)
+    }
+
+    /// Selects a constructor by its declared base name and payload arity.
+    pub fn select_constructor(&self, name: &str, arity: usize) -> Option<&StaticCaseHeader> {
+        self.cases.iter().find(|case| {
+            matches!(case.shape, StaticCaseShape::Constructor { ref slots } if slots.len() == arity)
+                && matches!(&case.id.selector.base, phalcom_common::selector::SelectorBase::Named(base) if base == name)
+        })
     }
 }
 
@@ -65,12 +85,50 @@ pub fn materialize_static_singleton(store: &mut TypeStore, domain: StaticDomainI
     if case.shape != StaticCaseShape::Singleton {
         return None;
     }
+    let constructor = intern_static_case_constructor(store, domain, case, None)?;
+    store.static_data(domain, constructor, Box::<[StaticArgument]>::default()).ok()
+}
+
+/// Interns a catalog-selected case contract. Singleton cases need no checked
+/// signature; every constructor-shaped case, including arity zero, does.
+pub fn intern_static_case_constructor(
+    store: &mut TypeStore,
+    domain: StaticDomainId,
+    case: &StaticCaseHeader,
+    signature: Option<&StaticCaseSignatureProduct>,
+) -> Option<crate::types::id::AlgebraicStaticConstructorId> {
+    let parameter_kinds = match case.shape {
+        StaticCaseShape::Singleton => {
+            if signature.is_some() {
+                return None;
+            }
+            Box::<[KindId]>::default()
+        }
+        StaticCaseShape::Constructor { .. } => {
+            let signature = signature?;
+            if case.id != signature.id {
+                return None;
+            }
+            signature.parameter_kinds.clone()
+        }
+    };
     let owner = match &case.id.domain {
         StaticDomainDeclarationId::Nominal(owner) => owner.clone(),
         StaticDomainDeclarationId::Associated(declaration) => declaration.owner.clone(),
     };
-    let constructor = store.intern_static_constructor(domain, owner, case.id.selector.encode(), Box::new([]));
-    store.static_data(domain, constructor, Box::<[StaticArgument]>::default()).ok()
+    Some(store.intern_static_constructor(domain, owner, case.id.selector.encode(), parameter_kinds))
+}
+
+/// Interns a constructor-shaped case only after its checked signature is present.
+pub fn materialize_static_constructor(
+    store: &mut TypeStore,
+    domain: StaticDomainId,
+    case: &StaticCaseHeader,
+    signature: &StaticCaseSignatureProduct,
+    arguments: Box<[StaticArgument]>,
+) -> Option<TypeId> {
+    let constructor = intern_static_case_constructor(store, domain, case, Some(signature))?;
+    store.static_data(domain, constructor, arguments).ok()
 }
 
 /// Builds declaration identity and membership using only structural source facts.

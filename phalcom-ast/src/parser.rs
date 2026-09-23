@@ -2434,7 +2434,7 @@ impl<'source> Parser<'source> {
     /// Parses a kind expression (Spec 04 §3.3): `Type`, `RecordRow`, `TypePack`, `LabeledTypePack`, `Kind -> Kind`, `(Kind)`.
     pub fn parse_kind_expression(&mut self) -> ParserResult<KindSyntax> {
         let start = self.cur_start();
-        let atom = if self.eat(&Token::LParen) {
+        let atom = if matches!(self.peek(), Token::LParen) && !self.kind_static_domain_form_ahead() && self.eat(&Token::LParen) {
             let inner = self.parse_kind_expression()?;
             self.expect(&Token::RParen, &["\")\""])?;
             let range = (start..self.prev_end).into();
@@ -2455,19 +2455,10 @@ impl<'source> Parser<'source> {
             self.advance();
             let range = (start..self.prev_end).into();
             KindSyntax::LabeledTypePack(range)
-        } else if let Token::Identifier(name) = self.peek().clone() {
-            self.advance();
-            let mut owner_members = Vec::new();
-            while self.eat(&Token::Dot) {
-                owner_members.push(self.expect_identifier(&["qualified kind owner"])?);
-            }
-            let associated = if self.eat(&Token::ColonColon) {
-                Some(self.expect_identifier(&["associated static domain"] )?)
-            } else {
-                None
-            };
+        } else if matches!(self.peek(), Token::Identifier(_)) || matches!(self.peek(), Token::LParen) {
+            let form = self.parse_type_form()?;
             let range = (start..self.prev_end).into();
-            KindSyntax::Named { name, owner_members, associated, range }
+            KindSyntax::StaticDomain { form: Box::new(form), range }
         } else {
             let err = self.error_here(vec![
                 "\"Type\"".to_string(),
@@ -2493,6 +2484,26 @@ impl<'source> Parser<'source> {
         } else {
             Ok(atom)
         }
+    }
+
+    /// Distinguishes a parenthesized type-form owner such as `(Int, R)::State`
+    /// from a parenthesized kind such as `(Type) -> Type`.
+    fn kind_static_domain_form_ahead(&self) -> bool {
+        let mut depth = 0usize;
+        for lexeme in self.tokens.iter().skip(self.pos) {
+            match &lexeme.token {
+                Token::LParen => depth += 1,
+                Token::RParen => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return self.tokens.get(self.pos + 1).is_some_and(|next| matches!(next.token, Token::ColonColon));
+                    }
+                }
+                Token::Eof => return false,
+                _ => {}
+            }
+        }
+        false
     }
 
     /// Parses optional generic parameters after a declaration name.

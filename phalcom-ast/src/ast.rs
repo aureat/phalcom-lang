@@ -1012,10 +1012,6 @@ pub enum TypeAnnotationExpr {
 pub enum TypeMemberSelectorSyntax {
     Named {
         name: String,
-        /// Module-qualified owner path before an optional associated member.
-        owner_members: Vec<String>,
-        /// Associated static domain selected through the owner's namespace.
-        associated: Option<String>,
         range: SourceRange,
     },
     Subscript { range: SourceRange },
@@ -1204,8 +1200,11 @@ pub enum KindSyntax {
     RecordRow(SourceRange),
     TypePack(SourceRange),
     LabeledTypePack(SourceRange),
-    /// Declaration-backed static domain kind, e.g. `Shape` in `S: Shape`.
-    Named { name: String, range: SourceRange },
+    /// A type form whose canonical semantic kind must be a static domain.
+    StaticDomain {
+        form: Box<TypeAnnotation>,
+        range: SourceRange,
+    },
     Arrow {
         parameter: Box<KindSyntax>,
         result: Box<KindSyntax>,
@@ -1228,7 +1227,7 @@ impl KindSyntax {
             KindSyntax::RecordRow(r) => *r,
             KindSyntax::TypePack(r) => *r,
             KindSyntax::LabeledTypePack(r) => *r,
-            KindSyntax::Named { range, .. } => *range,
+            KindSyntax::StaticDomain { range, .. } => *range,
             KindSyntax::Arrow { range, .. } => *range,
             KindSyntax::Grouped { range, .. } => *range,
             KindSyntax::Invalid { range, .. } => *range,

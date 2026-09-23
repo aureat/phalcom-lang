@@ -22,8 +22,7 @@ use crate::db::query::{
     query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_definition, query_callable_signature_with_inputs,
     query_data_declaration, query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements,
     query_field_signature_with_inputs, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
-    query_type_member_declaration, query_unlinked_interface,
-    query_static_domain_case_catalog,
+    query_static_case_signature, query_static_domain_case_catalog, query_type_member_declaration, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{
@@ -44,8 +43,8 @@ use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_
 use crate::traits::{TraitHeader, TraitRef, TraitSurfaceTable, build_trait_surface};
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::annotation::{
-    GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, lower_scoped_type_alias_form, resolve_generic_signature,
-    resolve_kind_syntax, type_level_binding_for_parameter,
+    GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, lower_scoped_type_alias_form, resolve_generic_signature, resolve_kind_syntax,
+    type_level_binding_for_parameter,
 };
 use crate::types::id::{KindId, TypeId};
 use crate::types::native::register_native_surfaces;
@@ -1739,12 +1738,28 @@ impl SemanticWorkspaceSession {
         // shard changed. Reuse retained fingerprints for every other module so
         // a local edit does not turn fingerprint discovery into a workspace
         // declaration scan.
+        let mut signature_known_declarations = self
+            .base_declarations
+            .iter()
+            .map(|(declaration, _)| declaration.clone())
+            .collect::<HashSet<_>>();
+        for shard in self.semantic_structure_shards.values() {
+            signature_known_declarations.extend(shard.declarations.iter().map(|declaration| declaration.id.clone()));
+            signature_known_declarations.extend(shard.aliases.iter().cloned());
+        }
+        let signature_resolver = LinkedTypeResolver::with_retained_alias_forms(
+            input.linked.clone(),
+            signature_known_declarations,
+            ModuleId::universe_root(),
+            self.alias_forms.clone(),
+        );
         let mut current_signature_fingerprints = self.declaration_signature_fingerprints.clone();
         for module in &structural_recomputed_modules {
             current_signature_fingerprints.retain(|node, _| signature_node_module(node) != module);
             if let Some(shard) = self.semantic_structure_shards.get(module) {
                 current_signature_fingerprints.extend(declaration_signature_source_fingerprints(
                     std::iter::once((module, shard)),
+                    &signature_resolver,
                 ));
             }
         }
@@ -1789,21 +1804,28 @@ impl SemanticWorkspaceSession {
             .iter()
             .filter_map(|node| match node {
                 TypeSignatureDependencyNode::Alias(declaration) => Some(declaration.clone()),
-                TypeSignatureDependencyNode::Header(_) | TypeSignatureDependencyNode::Member(_) => None,
+                TypeSignatureDependencyNode::Header(_) | TypeSignatureDependencyNode::Member(_) | TypeSignatureDependencyNode::StaticCaseSignature(_) => None,
             })
             .collect::<BTreeSet<_>>();
         let signature_header_work = signature_dependency_work
             .iter()
             .filter_map(|node| match node {
                 TypeSignatureDependencyNode::Header(declaration) => Some(declaration.clone()),
-                TypeSignatureDependencyNode::Alias(_) | TypeSignatureDependencyNode::Member(_) => None,
+                TypeSignatureDependencyNode::Alias(_) | TypeSignatureDependencyNode::Member(_) | TypeSignatureDependencyNode::StaticCaseSignature(_) => None,
             })
             .collect::<BTreeSet<_>>();
         let signature_member_work = signature_dependency_work
             .iter()
             .filter_map(|node| match node {
                 TypeSignatureDependencyNode::Member(member) => Some(member.clone()),
-                TypeSignatureDependencyNode::Alias(_) | TypeSignatureDependencyNode::Header(_) => None,
+                TypeSignatureDependencyNode::Alias(_) | TypeSignatureDependencyNode::Header(_) | TypeSignatureDependencyNode::StaticCaseSignature(_) => None,
+            })
+            .collect::<BTreeSet<_>>();
+        let signature_case_work = signature_dependency_work
+            .iter()
+            .filter_map(|node| match node {
+                TypeSignatureDependencyNode::StaticCaseSignature(case) => Some(case.clone()),
+                _ => None,
             })
             .collect::<BTreeSet<_>>();
         generic_header_work.extend(signature_header_work.iter().cloned());
@@ -2582,6 +2604,14 @@ impl SemanticWorkspaceSession {
             }
         }
         resolver.update_static_case_catalogs(&static_case_catalogs);
+        let static_case_sources = collect_static_case_sources(&self.semantic_structure_shards, &resolver, &static_case_catalogs);
+        let mut static_case_signatures_table = previous_snapshot
+            .as_ref()
+            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.static_case_signatures).clone());
+        for case in &signature_case_work {
+            static_case_signatures_table.remove(case);
+        }
+        resolver.update_static_case_signatures(&static_case_signatures_table);
         let mut blocked_declarations = BTreeSet::new();
         let mut type_aliases = previous_snapshot
             .as_ref()
@@ -2749,6 +2779,7 @@ impl SemanticWorkspaceSession {
             let mut member_dependencies = BTreeSet::new();
             collect_source_member_projection_dependencies(&alias.body, module_id, &resolver, &source_member_ids, &mut member_dependencies);
             dependencies.extend(member_dependencies.into_iter().map(TypeSignatureDependencyNode::Member));
+            collect_static_case_signature_dependencies(&alias.body, module_id, &resolver, &static_case_catalogs, &mut dependencies);
             let mut referenced_declarations = BTreeSet::new();
             collect_type_annotation_declarations(&alias.body, module_id, &resolver, &mut referenced_declarations);
             dependencies.extend(
@@ -2813,6 +2844,7 @@ impl SemanticWorkspaceSession {
                         let mut projected = BTreeSet::new();
                         collect_source_member_projection_dependencies(annotation, module_id, &resolver, &source_member_ids, &mut projected);
                         dependencies.extend(projected.into_iter().map(TypeSignatureDependencyNode::Member));
+                        collect_static_case_signature_dependencies(annotation, module_id, &resolver, &static_case_catalogs, &mut dependencies);
                     }
                 }
             }
@@ -2867,6 +2899,7 @@ impl SemanticWorkspaceSession {
                 let mut projected_members = BTreeSet::new();
                 collect_source_member_projection_dependencies(annotation, module_id, &resolver, &source_member_ids, &mut projected_members);
                 dependencies.extend(projected_members.into_iter().map(TypeSignatureDependencyNode::Member));
+                collect_static_case_signature_dependencies(annotation, module_id, &resolver, &static_case_catalogs, &mut dependencies);
             }
             signature_graph.insert(node.clone(), dependencies);
             signature_ranges.insert(node, (module_id.clone(), definition.range));
@@ -2987,24 +3020,62 @@ impl SemanticWorkspaceSession {
                 signature_ranges.insert(node, (module_id.clone(), range));
             }
         }
+        for (id, (module_id, owner, definition, header)) in &static_case_sources {
+            let node = TypeSignatureDependencyNode::StaticCaseSignature(id.clone());
+            let mut dependencies = BTreeSet::new();
+            if generic_header_nodes.contains(owner) {
+                dependencies.insert(TypeSignatureDependencyNode::Header(owner.clone()));
+            }
+            for annotation in static_case_payload_annotations(definition, id).unwrap_or_default() {
+                let mut referenced = BTreeSet::new();
+                collect_type_annotation_declarations(annotation, module_id, &resolver, &mut referenced);
+                dependencies.extend(
+                    referenced
+                        .iter()
+                        .filter(|dependency| alias_nodes.contains(*dependency))
+                        .cloned()
+                        .map(TypeSignatureDependencyNode::Alias),
+                );
+                dependencies.extend(
+                    referenced
+                        .iter()
+                        .filter(|dependency| generic_header_nodes.contains(*dependency))
+                        .cloned()
+                        .map(TypeSignatureDependencyNode::Header),
+                );
+                let mut projected = BTreeSet::new();
+                collect_source_member_projection_dependencies(annotation, module_id, &resolver, &source_member_ids, &mut projected);
+                dependencies.extend(projected.into_iter().map(TypeSignatureDependencyNode::Member));
+                collect_static_case_signature_dependencies(annotation, module_id, &resolver, &static_case_catalogs, &mut dependencies);
+            }
+            signature_graph.insert(node.clone(), dependencies);
+            signature_ranges.insert(node, (module_id.clone(), header.source_range));
+        }
         let mut type_signature_cycle_aliases = BTreeSet::new();
         let mut type_signature_cycle_headers = BTreeSet::new();
         let mut type_signature_cycle_members = BTreeSet::new();
+        let mut type_signature_cycle_cases = BTreeSet::new();
         for component in type_signature_cycle_components(&signature_graph)
             .into_iter()
-            .filter(|component| component.iter().any(|node| matches!(node, TypeSignatureDependencyNode::Member(_))))
+            .filter(|component| {
+                component.iter().any(|node| matches!(node, TypeSignatureDependencyNode::Member(_) | TypeSignatureDependencyNode::StaticCaseSignature(_)))
+            })
         {
             type_signature_cycle_aliases.extend(component.iter().filter_map(|node| match node {
                 TypeSignatureDependencyNode::Alias(declaration) => Some(declaration.clone()),
-                TypeSignatureDependencyNode::Header(_) | TypeSignatureDependencyNode::Member(_) => None,
+                TypeSignatureDependencyNode::Header(_) | TypeSignatureDependencyNode::Member(_) | TypeSignatureDependencyNode::StaticCaseSignature(_) => None,
             }));
             type_signature_cycle_headers.extend(component.iter().filter_map(|node| match node {
                 TypeSignatureDependencyNode::Header(declaration) => Some(declaration.clone()),
-                TypeSignatureDependencyNode::Alias(_) | TypeSignatureDependencyNode::Member(_) => None,
+                TypeSignatureDependencyNode::Alias(_) | TypeSignatureDependencyNode::Member(_) | TypeSignatureDependencyNode::StaticCaseSignature(_) => None,
             }));
             type_signature_cycle_members.extend(component.iter().filter_map(|node| match node {
                 TypeSignatureDependencyNode::Member(id) => Some(id.clone()),
-                TypeSignatureDependencyNode::Alias(_) | TypeSignatureDependencyNode::Header(_) => None,
+                TypeSignatureDependencyNode::Alias(_) | TypeSignatureDependencyNode::Header(_) | TypeSignatureDependencyNode::StaticCaseSignature(_) => None,
+            }));
+            type_signature_cycle_cases.extend(component.iter().filter_map(|node| match node {
+                TypeSignatureDependencyNode::StaticCaseSignature(id) => Some(id.clone()),
+                _ => None,
             }));
             if let Some(anchor) = component.first()
                 && let Some((module_id, range)) = signature_ranges.get(anchor)
@@ -3088,6 +3159,7 @@ impl SemanticWorkspaceSession {
                                     TypeSignatureDependencyNode::Alias(alias) => !alias_sources.contains_key(alias) || type_aliases.contains_key(alias),
                                     TypeSignatureDependencyNode::Header(header) => declarations.generic_binder_header(header).is_some(),
                                     TypeSignatureDependencyNode::Member(member) => type_member_declarations_table.contains_key(member),
+                                    TypeSignatureDependencyNode::StaticCaseSignature(case) => static_case_signatures_table.contains_key(case),
                                 })
                             })
                 })
@@ -3148,7 +3220,51 @@ impl SemanticWorkspaceSession {
         for declaration in alias_cycles.iter().chain(type_signature_cycle_aliases.iter()) {
             pending_aliases.remove(declaration);
         }
+        let mut pending_static_cases = static_case_sources
+            .keys()
+            .filter(|case| !static_case_signatures_table.contains_key(*case) || signature_case_work.contains(*case))
+            .filter(|case| !type_signature_cycle_cases.contains(*case))
+            .cloned()
+            .collect::<BTreeSet<_>>();
         loop {
+            let ready_case = pending_static_cases
+                .iter()
+                .find(|case| {
+                    signature_graph
+                        .get(&TypeSignatureDependencyNode::StaticCaseSignature((*case).clone()))
+                        .is_none_or(|dependencies| {
+                            dependencies.iter().all(|dependency| match dependency {
+                                TypeSignatureDependencyNode::Alias(alias) => !alias_sources.contains_key(alias) || type_aliases.contains_key(alias),
+                                TypeSignatureDependencyNode::Header(header) => declarations.generic_binder_header(header).is_some(),
+                                TypeSignatureDependencyNode::Member(member) => type_member_declarations_table.contains_key(member),
+                                TypeSignatureDependencyNode::StaticCaseSignature(dependency) => static_case_signatures_table.contains_key(dependency),
+                            })
+                        })
+                })
+                .cloned();
+            if let Some(case_id) = ready_case {
+                if let Some((module_id, owner, definition, header)) = static_case_sources.get(&case_id)
+                    && let Some(shard) = self.semantic_structure_shards.get(module_id)
+                {
+                    let (product, diagnostics) =
+                        build_static_case_signature(Arc::make_mut(&mut self.store), &declarations, &resolver, module_id, owner, definition, header);
+                    diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                    if let Some(product) = product {
+                        match query_static_case_signature(&mut self.db, &shard.source, Arc::new(product)) {
+                            QueryOutcome::Ready(product) => {
+                                static_case_signatures_table.insert(case_id.clone(), product);
+                                resolver.update_static_case_signatures(&static_case_signatures_table);
+                            }
+                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                        }
+                    }
+                }
+                pending_static_cases.remove(&case_id);
+                continue;
+            }
             let ready_alias = pending_aliases
             .iter()
             .find(|declaration| {
@@ -3162,6 +3278,7 @@ impl SemanticWorkspaceSession {
                                     TypeSignatureDependencyNode::Alias(alias) => !pending_aliases.contains(alias),
                                     TypeSignatureDependencyNode::Header(header) => declarations.generic_binder_header(header).is_some(),
                                     TypeSignatureDependencyNode::Member(member) => type_member_declarations_table.contains_key(member),
+                                    TypeSignatureDependencyNode::StaticCaseSignature(case) => static_case_signatures_table.contains_key(case),
                                 })
                             })
             })
@@ -3193,6 +3310,7 @@ impl SemanticWorkspaceSession {
                                     }
                                     TypeSignatureDependencyNode::Header(header) => declarations.generic_binder_header(header).is_some(),
                                     TypeSignatureDependencyNode::Member(member) => type_member_declarations_table.contains_key(member),
+                                    TypeSignatureDependencyNode::StaticCaseSignature(case) => static_case_signatures_table.contains_key(case),
                                 })
                             })
                     })
@@ -3278,6 +3396,7 @@ impl SemanticWorkspaceSession {
                     Some(&resolver),
                     &site,
                     result_kind,
+                    &mut diagnostics,
                 );
                 let expected_kind = match expected_kind {
                     crate::types::annotation::KindResolution::Ready(kind) => kind,
@@ -4180,14 +4299,20 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                    let static_catalog = (data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly)
+                        .then(|| static_case_catalogs.get(&crate::identity::StaticDomainDeclarationId::Nominal(decl_id.clone())))
+                        .flatten()
+                        .map(Arc::as_ref);
                     if data_def.is_sum() {
-                        let Some(enum_product) = crate::checker::enum_declaration::build_enum_semantics(
+                        let Some(enum_product) = crate::checker::enum_declaration::build_enum_semantics_with_static_products(
                             &decl_id,
                             data_def,
                             Arc::make_mut(&mut self.store),
                             &declarations,
                             &resolver,
                             module_id,
+                            static_catalog,
+                            &static_case_signatures_table,
                         ) else {
                             diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
                                 module_id.clone(),
@@ -4211,13 +4336,15 @@ impl SemanticWorkspaceSession {
                         let arc_enum_product = Arc::new(enum_product);
                         let _ = query_enum_declaration(&mut self.db, arc_enum_product);
                     } else {
-                        let Some(data_product) = crate::checker::data_declaration::build_data_semantics(
+                        let Some(data_product) = crate::checker::data_declaration::build_data_semantics_with_static_products(
                             &decl_id,
                             data_def,
                             Arc::make_mut(&mut self.store),
                             &declarations,
                             &resolver,
                             module_id,
+                            static_catalog,
+                            &static_case_signatures_table,
                         ) else {
                             diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
                                 module_id.clone(),
@@ -4936,17 +5063,22 @@ impl SemanticWorkspaceSession {
                             if !associated_surface_admits(
                                 &associated_surfaces_table,
                                 &declaration,
-                                &crate::associated::AssociatedMemberId::StaticDomain(domain_id),
+                                &crate::associated::AssociatedMemberId::StaticDomain(domain_id.clone()),
                             ) {
                                 continue;
                             }
-                            let (product, diagnostics) = crate::checker::algebraic_declaration::build_associated_static_domain_declaration(
+                            let catalog = static_case_catalogs
+                                .get(&crate::identity::StaticDomainDeclarationId::Associated(domain_id))
+                                .map(Arc::as_ref);
+                            let (product, diagnostics) = crate::checker::algebraic_declaration::build_associated_static_domain_declaration_with_static_products(
                                 &declaration,
                                 definition,
                                 Arc::make_mut(&mut self.store),
                                 &declarations,
                                 &resolver,
                                 module_id,
+                                catalog,
+                                &static_case_signatures_table,
                             );
                             diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
                             if let Some(product) = product {
@@ -5002,17 +5134,22 @@ impl SemanticWorkspaceSession {
                                 if !associated_surface_admits(
                                     &associated_surfaces_table,
                                     &declaration,
-                                    &crate::associated::AssociatedMemberId::StaticDomain(domain_id),
+                                    &crate::associated::AssociatedMemberId::StaticDomain(domain_id.clone()),
                                 ) {
                                     continue;
                                 }
-                                let (product, diagnostics) = crate::checker::algebraic_declaration::build_associated_static_domain_declaration(
+                                let catalog = static_case_catalogs
+                                    .get(&crate::identity::StaticDomainDeclarationId::Associated(domain_id))
+                                    .map(Arc::as_ref);
+                                let (product, diagnostics) = crate::checker::algebraic_declaration::build_associated_static_domain_declaration_with_static_products(
                                     &declaration,
                                     definition,
                                     Arc::make_mut(&mut self.store),
                                     &declarations,
                                     &resolver,
                                     module_id,
+                                    catalog,
+                                    &static_case_signatures_table,
                                 );
                                 diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
                                 if let Some(product) = product {
@@ -5086,17 +5223,22 @@ impl SemanticWorkspaceSession {
                                 if !associated_surface_admits(
                                     &associated_surfaces_table,
                                     &declaration,
-                                    &crate::associated::AssociatedMemberId::StaticDomain(domain_id),
+                                    &crate::associated::AssociatedMemberId::StaticDomain(domain_id.clone()),
                                 ) {
                                     continue;
                                 }
-                                let (product, diagnostics) = crate::checker::algebraic_declaration::build_associated_static_domain_declaration(
+                                let catalog = static_case_catalogs
+                                    .get(&crate::identity::StaticDomainDeclarationId::Associated(domain_id))
+                                    .map(Arc::as_ref);
+                                let (product, diagnostics) = crate::checker::algebraic_declaration::build_associated_static_domain_declaration_with_static_products(
                                     &declaration,
                                     definition,
                                     Arc::make_mut(&mut self.store),
                                     &declarations,
                                     &resolver,
                                     module_id,
+                                    catalog,
+                                    &static_case_signatures_table,
                                 );
                                 diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
                                 if let Some(product) = product {
@@ -6391,6 +6533,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_type_member_declarations(Arc::new(type_member_declarations_table));
         snapshot_obj = snapshot_obj.with_associated_static_domains(Arc::new(associated_static_domains_table));
         snapshot_obj = snapshot_obj.with_static_case_catalogs(Arc::new(static_case_catalogs));
+        snapshot_obj = snapshot_obj.with_static_case_signatures(Arc::new(static_case_signatures_table));
         snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
         snapshot_obj = snapshot_obj.with_trait_headers(Arc::new(trait_headers));
         snapshot_obj = snapshot_obj.with_trait_surfaces(Arc::new(trait_surfaces));
@@ -7060,12 +7203,301 @@ enum TypeSignatureDependencyNode {
     Alias(DeclarationId),
     Header(DeclarationId),
     Member(crate::types::type_member::TypeMemberDeclarationId),
+    StaticCaseSignature(crate::identity::StaticCaseId),
+}
+
+type StaticCaseSource = (ModuleId, DeclarationId, phalcom_ast::ast::AlgebraicDef, crate::static_case::StaticCaseHeader);
+
+fn collect_static_case_sources(
+    shards: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
+    resolver: &LinkedTypeResolver,
+    catalogs: &BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
+) -> BTreeMap<crate::identity::StaticCaseId, StaticCaseSource> {
+    fn add_definition(
+        module: &ModuleId,
+        owner: &DeclarationId,
+        definition: &phalcom_ast::ast::AlgebraicDef,
+        catalogs: &BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
+        sources: &mut BTreeMap<crate::identity::StaticCaseId, StaticCaseSource>,
+    ) {
+        let domain = match definition.phase {
+            phalcom_ast::ast::AlgebraicPhase::TypeOnly if owner.name.as_ref() == definition.name => {
+                crate::identity::StaticDomainDeclarationId::Nominal(owner.clone())
+            }
+            phalcom_ast::ast::AlgebraicPhase::TypeOnly => crate::identity::StaticDomainDeclarationId::Associated(
+                crate::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), definition.name.clone()),
+            ),
+            phalcom_ast::ast::AlgebraicPhase::Runtime => return,
+        };
+        let Some(catalog) = catalogs.get(&domain) else { return };
+        for case in catalog.cases.iter() {
+            if matches!(case.shape, crate::static_case::StaticCaseShape::Constructor { .. }) {
+                sources.insert(case.id.clone(), (module.clone(), owner.clone(), definition.clone(), case.clone()));
+            }
+        }
+    }
+
+    let mut sources = BTreeMap::new();
+    for (module, shard) in shards {
+        for statement in &shard.source.program.statements {
+            match statement {
+                Statement::Data(definition) if definition.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly => {
+                    let owner = DeclarationId::new(module.clone(), definition.name.clone().into());
+                    add_definition(module, &owner, definition, catalogs, &mut sources);
+                }
+                Statement::Class(class_def) => {
+                    let owner = DeclarationId::new(module.clone(), class_def.name.clone().into());
+                    for definition in &class_def.associated_type_data {
+                        add_definition(module, &owner, definition, catalogs, &mut sources);
+                    }
+                }
+                Statement::Impl(impl_def) if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) => {
+                    if let Some(symbol) = impl_def.target.origin_symbol_ref() {
+                        let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                        if let Some(owner) = resolver.resolve_type_name(module, &symbol.root, &members) {
+                            for definition in &impl_def.associated_type_data {
+                                add_definition(module, &owner, definition, catalogs, &mut sources);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    sources
+}
+
+fn static_case_payload_annotations<'a>(definition: &'a phalcom_ast::ast::AlgebraicDef, id: &crate::identity::StaticCaseId) -> Option<Vec<&'a TypeAnnotation>> {
+    match &definition.shape {
+        phalcom_ast::ast::AlgebraicShapeSyntax::Product(product) => {
+            let components = product.components();
+            Some(components.iter().map(|component| &component.annotation).collect())
+        }
+        phalcom_ast::ast::AlgebraicShapeSyntax::Sum(sum) => {
+            let case = sum
+                .cases
+                .iter()
+                .find(|case| phalcom_ast::selector::selector_from_variant(case) == id.selector)?;
+            if !case.generic_parameters.is_empty() || case.where_clause.is_some() || case.result_annotation.is_some() {
+                return None;
+            }
+            match &case.payload {
+                phalcom_ast::ast::CasePayloadSyntax::Singleton => Some(Vec::new()),
+                phalcom_ast::ast::CasePayloadSyntax::Tuple { parameters, .. } => {
+                    Some(parameters.iter().map(|parameter| parameter.annotation.as_ref()).collect::<Option<Vec<_>>>()?)
+                }
+                phalcom_ast::ast::CasePayloadSyntax::Record { components, .. } => Some(components.iter().map(|component| &component.annotation).collect()),
+            }
+        }
+    }
+}
+
+fn build_static_case_signature(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &LinkedTypeResolver,
+    module: &ModuleId,
+    owner: &DeclarationId,
+    definition: &phalcom_ast::ast::AlgebraicDef,
+    header: &crate::static_case::StaticCaseHeader,
+) -> (Option<crate::static_case::StaticCaseSignatureProduct>, Vec<SemanticDiagnostic>) {
+    let mut diagnostics = Vec::new();
+    let Some(annotations) = static_case_payload_annotations(definition, &header.id) else {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            module.clone(),
+            DiagnosticCode::KindExpectedType,
+            "static-data constructors cannot declare case-local generics, constraints, or specialized results",
+            header.source_range,
+        ));
+        return (None, diagnostics);
+    };
+    let mut type_parameters = HashMap::new();
+    if let Some(binder) = declarations.generic_binder_header(owner) {
+        for parameter in binder.parameters.iter().copied() {
+            let data = store.type_parameter(parameter);
+            let name = data.name.to_string();
+            let binding = type_level_binding_for_parameter(store, parameter);
+            type_parameters.insert(name, binding);
+        }
+    }
+    let scoped = crate::types::annotation::ScopedTypeResolver {
+        parent: resolver,
+        type_parameters,
+    };
+    let site = TypeFormationSite::member(module.clone(), owner.clone(), DispatchSide::Class);
+    let mut parameter_kinds = Vec::with_capacity(annotations.len());
+    for annotation in annotations {
+        let form = crate::types::annotation::resolve_type_form(store, declarations, &scoped, &site, annotation, &mut diagnostics);
+        let crate::types::annotation::TypeFormationOutcome::Ready(form) = form else {
+            return (None, diagnostics);
+        };
+        let kind = crate::types::annotation::static_domain_kind_of_form(store, form);
+        if !matches!(store.get_kind(kind), crate::types::kind::KindData::StaticDomain(_)) {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module.clone(),
+                DiagnosticCode::KindExpectedType,
+                "type-data payload must have a supported static domain",
+                annotation.range,
+            ));
+            return (None, diagnostics);
+        }
+        parameter_kinds.push(kind);
+    }
+    (
+        Some(crate::static_case::StaticCaseSignatureProduct {
+            id: header.id.clone(),
+            parameter_kinds: parameter_kinds.into_boxed_slice(),
+            source_range: header.source_range,
+        }),
+        diagnostics,
+    )
+}
+
+fn collect_static_case_signature_dependencies(
+    annotation: &TypeAnnotation,
+    module: &ModuleId,
+    resolver: &dyn TypeResolver,
+    catalogs: &BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
+    dependencies: &mut BTreeSet<TypeSignatureDependencyNode>,
+) {
+    use phalcom_ast::ast::{GenericArgumentSyntax, TypeCallableItem, TypeMemberArgumentSyntax, TypeTupleItem};
+
+    fn domain_of_form(form: &TypeAnnotation, module: &ModuleId, resolver: &dyn TypeResolver) -> Option<crate::identity::StaticDomainDeclarationId> {
+        match &form.expr {
+            TypeAnnotationExpr::Reference(reference) => {
+                let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                resolver
+                    .resolve_type_name(module, &reference.root, &members)
+                    .map(crate::identity::StaticDomainDeclarationId::Nominal)
+            }
+            TypeAnnotationExpr::Application { origin, .. } => domain_of_form(origin, module, resolver),
+            TypeAnnotationExpr::ExactEnumCase {
+                enum_target,
+                variant_name,
+                generic_arguments,
+                payload_shape,
+                ..
+            } if generic_arguments.is_empty() && payload_shape.is_none() => {
+                let symbol = enum_target.origin_symbol_ref()?;
+                let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                let owner = resolver.resolve_type_name(module, &symbol.root, &members)?;
+                resolver
+                    .resolve_associated_static_domain(&owner, variant_name)
+                    .map(crate::identity::StaticDomainDeclarationId::Associated)
+            }
+            _ => None,
+        }
+    }
+
+    match &annotation.expr {
+        TypeAnnotationExpr::ExactEnumCase {
+            enum_target,
+            variant_name,
+            generic_arguments,
+            payload_shape,
+            ..
+        } => {
+            if let Some(domain) = domain_of_form(enum_target, module, resolver)
+                && let Some(catalog) = catalogs.get(&domain)
+            {
+                let selected = if payload_shape.is_none() && !generic_arguments.is_empty() {
+                    catalog.select_constructor(variant_name, generic_arguments.len())
+                } else {
+                    let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref());
+                    catalog.select(&selector)
+                };
+                if let Some(case) = selected
+                    && matches!(case.shape, crate::static_case::StaticCaseShape::Constructor { .. })
+                {
+                    dependencies.insert(TypeSignatureDependencyNode::StaticCaseSignature(case.id.clone()));
+                }
+            }
+            collect_static_case_signature_dependencies(enum_target, module, resolver, catalogs, dependencies);
+            for argument in generic_arguments {
+                collect_static_case_signature_dependencies(argument, module, resolver, catalogs, dependencies);
+            }
+        }
+        TypeAnnotationExpr::Application { origin, arguments, .. } => {
+            collect_static_case_signature_dependencies(origin, module, resolver, catalogs, dependencies);
+            for argument in arguments {
+                match argument {
+                    GenericArgumentSyntax::Single(argument) => collect_static_case_signature_dependencies(argument, module, resolver, catalogs, dependencies),
+                    GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_static_case_signature_dependencies(&expansion.operand, module, resolver, catalogs, dependencies)
+                    }
+                }
+            }
+        }
+        TypeAnnotationExpr::Union { members, .. } => {
+            for item in members {
+                collect_static_case_signature_dependencies(item, module, resolver, catalogs, dependencies);
+            }
+        }
+        TypeAnnotationExpr::Tuple { elements, .. } => {
+            for item in elements {
+                match item {
+                    TypeTupleItem::Element(element) => collect_static_case_signature_dependencies(&element.ty, module, resolver, catalogs, dependencies),
+                    TypeTupleItem::Expansion(expansion) => {
+                        collect_static_case_signature_dependencies(&expansion.operand, module, resolver, catalogs, dependencies)
+                    }
+                }
+            }
+        }
+        TypeAnnotationExpr::Callable { parameters, result, .. } => {
+            for item in parameters {
+                match item {
+                    TypeCallableItem::Parameter(parameter) => {
+                        collect_static_case_signature_dependencies(&parameter.ty, module, resolver, catalogs, dependencies)
+                    }
+                    TypeCallableItem::Expansion(expansion) => {
+                        collect_static_case_signature_dependencies(&expansion.operand, module, resolver, catalogs, dependencies)
+                    }
+                }
+            }
+            collect_static_case_signature_dependencies(result, module, resolver, catalogs, dependencies);
+        }
+        TypeAnnotationExpr::Record { fields, .. } => {
+            for field in fields {
+                collect_static_case_signature_dependencies(&field.ty, module, resolver, catalogs, dependencies);
+            }
+        }
+        TypeAnnotationExpr::TypeLambda { body, .. } => collect_static_case_signature_dependencies(body, module, resolver, catalogs, dependencies),
+        TypeAnnotationExpr::TypeMemberProjection { subject, arguments, .. } => {
+            collect_static_case_signature_dependencies(subject, module, resolver, catalogs, dependencies);
+            for argument in arguments {
+                if let TypeMemberArgumentSyntax::TypeForm(argument) = argument {
+                    collect_static_case_signature_dependencies(argument, module, resolver, catalogs, dependencies);
+                }
+            }
+        }
+        TypeAnnotationExpr::AssociatedTypeProjection { subject, .. } => {
+            collect_static_case_signature_dependencies(subject, module, resolver, catalogs, dependencies)
+        }
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, .. } => {
+            collect_static_case_signature_dependencies(subject, module, resolver, catalogs, dependencies);
+            collect_static_case_signature_dependencies(&trait_ref.trait_type, module, resolver, catalogs, dependencies);
+            for specialization in &trait_ref.associated_specializations {
+                collect_static_case_signature_dependencies(&specialization.value, module, resolver, catalogs, dependencies);
+            }
+        }
+        TypeAnnotationExpr::Reference(_)
+        | TypeAnnotationExpr::Unit { .. }
+        | TypeAnnotationExpr::Dynamic { .. }
+        | TypeAnnotationExpr::Never { .. }
+        | TypeAnnotationExpr::SelfType { .. }
+        | TypeAnnotationExpr::Invalid { .. } => {}
+    }
 }
 
 fn signature_node_module(node: &TypeSignatureDependencyNode) -> &ModuleId {
     match node {
         TypeSignatureDependencyNode::Alias(declaration) | TypeSignatureDependencyNode::Header(declaration) => &declaration.module,
         TypeSignatureDependencyNode::Member(member) => &member.owner.module,
+        TypeSignatureDependencyNode::StaticCaseSignature(case) => match &case.domain {
+            crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,
+            crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.owner.module,
+        },
     }
 }
 
@@ -7099,6 +7531,7 @@ fn reverse_signature_dependency_closure(
 
 fn declaration_signature_source_fingerprints<'a>(
     shards: impl IntoIterator<Item = (&'a ModuleId, &'a Arc<ModuleSemanticStructureShard>)>,
+    resolver: &dyn TypeResolver,
 ) -> BTreeMap<TypeSignatureDependencyNode, u64> {
     fn hash_text(text: &str) -> u64 {
         let mut hasher = DefaultHasher::new();
@@ -7144,13 +7577,63 @@ fn declaration_signature_source_fingerprints<'a>(
                         );
                         fingerprints.insert(TypeSignatureDependencyNode::Member(id), hash_text(range_text(shard, definition.range)));
                     }
+                    for definition in &class_def.associated_type_data {
+                        if definition.phase != phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                            continue;
+                        }
+                        let domain = crate::identity::StaticDomainDeclarationId::Associated(
+                            crate::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), definition.name.clone()),
+                        );
+                        let catalog = crate::static_case::catalog_from_declaration(domain, definition);
+                        for source_case in match &definition.shape {
+                            phalcom_ast::ast::AlgebraicShapeSyntax::Sum(sum) => sum.cases.iter().collect::<Vec<_>>(),
+                            phalcom_ast::ast::AlgebraicShapeSyntax::Product(_) => Vec::new(),
+                        } {
+                            let selector = phalcom_ast::selector::selector_from_variant(source_case);
+                            let id = crate::identity::StaticCaseId::with_selector(catalog.domain.clone(), selector);
+                            if catalog.select(&id.selector).is_some_and(|case| matches!(case.shape, crate::static_case::StaticCaseShape::Constructor { .. })) {
+                                fingerprints.insert(
+                                    TypeSignatureDependencyNode::StaticCaseSignature(id),
+                                    hash_text(range_text(shard, source_case.range)),
+                                );
+                            }
+                        }
+                    }
                 }
-                Statement::Data(data_def) if !data_def.generic_parameters.is_empty() => {
+                Statement::Data(data_def) => {
                     let declaration = DeclarationId::new(module.clone(), data_def.name.clone().into());
-                    fingerprints.insert(
-                        TypeSignatureDependencyNode::Header(declaration),
-                        header_hash((&data_def.generic_parameters, &data_def.where_clause)),
-                    );
+                    if !data_def.generic_parameters.is_empty() {
+                        fingerprints.insert(
+                            TypeSignatureDependencyNode::Header(declaration.clone()),
+                            header_hash((&data_def.generic_parameters, &data_def.where_clause)),
+                        );
+                    }
+                    if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                        let domain = crate::identity::StaticDomainDeclarationId::Nominal(declaration);
+                        let catalog = crate::static_case::catalog_from_declaration(domain, data_def);
+                        match &data_def.shape {
+                            phalcom_ast::ast::AlgebraicShapeSyntax::Sum(sum) => {
+                                for source_case in &sum.cases {
+                                    let selector = phalcom_ast::selector::selector_from_variant(source_case);
+                                    let id = crate::identity::StaticCaseId::with_selector(catalog.domain.clone(), selector);
+                                    if catalog.select(&id.selector).is_some_and(|case| matches!(case.shape, crate::static_case::StaticCaseShape::Constructor { .. })) {
+                                        fingerprints.insert(
+                                            TypeSignatureDependencyNode::StaticCaseSignature(id),
+                                            hash_text(range_text(shard, source_case.range)),
+                                        );
+                                    }
+                                }
+                            }
+                            phalcom_ast::ast::AlgebraicShapeSyntax::Product(_) => {
+                                if let Some(case) = catalog.cases.iter().find(|case| matches!(case.shape, crate::static_case::StaticCaseShape::Constructor { .. })) {
+                                    fingerprints.insert(
+                                        TypeSignatureDependencyNode::StaticCaseSignature(case.id.clone()),
+                                        hash_text(range_text(shard, data_def.range)),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
                 Statement::Trait(trait_def) if !trait_def.generic_parameters.is_empty() => {
                     let declaration = DeclarationId::new(module.clone(), trait_def.name.clone().into());
@@ -7158,6 +7641,43 @@ fn declaration_signature_source_fingerprints<'a>(
                         TypeSignatureDependencyNode::Header(declaration),
                         header_hash((&trait_def.generic_parameters, &trait_def.where_clause)),
                     );
+                }
+                Statement::Impl(impl_def) if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) => {
+                    if let Some(symbol) = impl_def.target.origin_symbol_ref()
+                        && let Some(owner) = resolver.resolve_type_name(module, &symbol.root, &symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>())
+                    {
+                        for definition in &impl_def.associated_type_data {
+                            if definition.phase != phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                                continue;
+                            }
+                            let domain = crate::identity::StaticDomainDeclarationId::Associated(
+                                crate::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), definition.name.clone()),
+                            );
+                            let catalog = crate::static_case::catalog_from_declaration(domain, definition);
+                            match &definition.shape {
+                                phalcom_ast::ast::AlgebraicShapeSyntax::Sum(sum) => {
+                                    for source_case in &sum.cases {
+                                        let selector = phalcom_ast::selector::selector_from_variant(source_case);
+                                        let id = crate::identity::StaticCaseId::with_selector(catalog.domain.clone(), selector);
+                                        if catalog.select(&id.selector).is_some_and(|case| matches!(case.shape, crate::static_case::StaticCaseShape::Constructor { .. })) {
+                                            fingerprints.insert(
+                                                TypeSignatureDependencyNode::StaticCaseSignature(id),
+                                                hash_text(range_text(shard, source_case.range)),
+                                            );
+                                        }
+                                    }
+                                }
+                                phalcom_ast::ast::AlgebraicShapeSyntax::Product(_) => {
+                                    if let Some(case) = catalog.cases.iter().find(|case| matches!(case.shape, crate::static_case::StaticCaseShape::Constructor { .. })) {
+                                        fingerprints.insert(
+                                            TypeSignatureDependencyNode::StaticCaseSignature(case.id.clone()),
+                                            hash_text(range_text(shard, definition.range)),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -7174,12 +7694,10 @@ fn collect_kind_signature_header_dependencies(
     dependencies: &mut BTreeSet<DeclarationId>,
 ) {
     match syntax {
-        phalcom_ast::ast::KindSyntax::Named { name, owner_members, .. } => {
-            if let Some(declaration) = resolver.resolve_type_name(module, name, owner_members)
-                && headers.contains(&declaration)
-            {
-                dependencies.insert(declaration);
-            }
+        phalcom_ast::ast::KindSyntax::StaticDomain { form, .. } => {
+            let mut referenced = BTreeSet::new();
+            collect_type_annotation_declarations(form, module, resolver, &mut referenced);
+            dependencies.extend(referenced.into_iter().filter(|declaration| headers.contains(declaration)));
         }
         phalcom_ast::ast::KindSyntax::Arrow { parameter, result, .. } => {
             collect_kind_signature_header_dependencies(parameter, module, resolver, headers, dependencies);
@@ -7204,12 +7722,10 @@ fn collect_kind_signature_alias_dependencies(
     dependencies: &mut BTreeSet<DeclarationId>,
 ) {
     match syntax {
-        phalcom_ast::ast::KindSyntax::Named { name, owner_members, .. } => {
-            if let Some(declaration) = resolver.resolve_type_name(module, name, owner_members)
-                && aliases.contains(&declaration)
-            {
-                dependencies.insert(declaration);
-            }
+        phalcom_ast::ast::KindSyntax::StaticDomain { form, .. } => {
+            let mut referenced = BTreeSet::new();
+            collect_type_annotation_declarations(form, module, resolver, &mut referenced);
+            dependencies.extend(referenced.into_iter().filter(|declaration| aliases.contains(declaration)));
         }
         phalcom_ast::ast::KindSyntax::Arrow { parameter, result, .. } => {
             collect_kind_signature_alias_dependencies(parameter, module, resolver, aliases, dependencies);
@@ -7693,6 +8209,10 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
         QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
         QueryKey::StaticDomainCaseCatalog(domain) => Some(match domain {
+            crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,
+            crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.owner.module,
+        }),
+        QueryKey::StaticCaseSignature(case) => Some(match &case.domain {
             crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,
             crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.owner.module,
         }),
