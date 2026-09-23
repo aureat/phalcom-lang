@@ -299,8 +299,12 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         selector: &crate::types::type_member::TypeMemberSelector,
     ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
         let product = self.inner.resolve_associated_type_member(owner, selector);
-        if product.is_some() {
+        if let Some(product) = &product {
             record_query_dependency(&self.dependencies, SemanticDependency::AssociatedSurface(owner.clone()));
+            record_query_dependency(
+                &self.dependencies,
+                SemanticDependency::TypeMemberDeclaration(product.id.clone()),
+            );
         }
         product
     }
@@ -483,7 +487,7 @@ pub struct CheckingContext<'a> {
     pub diagnostics: Vec<SemanticDiagnostic>,
     pub analysis_incidents: BTreeMap<AnalysisIncidentId, InternalSemanticIncident>,
     pub terminal_status: Option<AnalysisStatus>,
-    inference_contexts: BTreeMap<crate::checker::inference::InferenceContextId, Rc<RefCell<crate::checker::inference::InferenceSession>>>,
+    inference_contexts: BTreeMap<crate::checker::inference::InferenceContextId, Rc<RefCell<crate::checker::inference::InferenceCoordinator>>>,
     next_inference_context_id: u32,
     inference_frames: Vec<(crate::checker::inference::InferenceContextId, crate::checker::inference::InferenceFrameId)>,
     symbolic_inference_results: BTreeMap<ExpressionId, crate::checker::typed_expr::SymbolicInferenceResult>,
@@ -951,20 +955,20 @@ impl<'a> CheckingContext<'a> {
         std::mem::take(&mut self.normal_return_exits)
     }
 
-    pub(crate) fn solve_inference(&mut self, session: &mut crate::checker::inference::InferenceSession) -> crate::checker::inference::InferenceOutcome {
+    pub(crate) fn solve_inference(&mut self, session: &mut crate::checker::inference::InferenceCoordinator) -> crate::checker::inference::InferenceOutcome {
         session.solve_with_control(self.store, &self.hierarchy, &self.control)
     }
 
     pub(crate) fn propagate_inference(
         &mut self,
-        session: &mut crate::checker::inference::InferenceSession,
+        session: &mut crate::checker::inference::InferenceCoordinator,
     ) -> Result<bool, Box<crate::checker::inference::InferenceOutcome>> {
         session.propagate_with_control(self.store, &self.hierarchy, &self.control)
     }
 
     pub(crate) fn solve_inference_in_frame(
         &mut self,
-        session: &mut crate::checker::inference::InferenceSession,
+        session: &mut crate::checker::inference::InferenceCoordinator,
         frame: crate::checker::inference::InferenceFrameId,
     ) -> crate::checker::inference::InferenceOutcome {
         let empty_surfaces = crate::traits::TraitSurfaceTable::new();
@@ -1016,7 +1020,7 @@ impl<'a> CheckingContext<'a> {
             context = crate::checker::inference::InferenceContextId(self.next_inference_context_id);
         }
         self.next_inference_context_id = self.next_inference_context_id.saturating_add(1);
-        let mut session = crate::checker::inference::InferenceSession::new();
+        let mut session = crate::checker::inference::InferenceCoordinator::new();
         let frame = session.root_frame();
         self.inference_contexts.insert(context, Rc::new(RefCell::new(session)));
         (context, frame)
@@ -1026,7 +1030,7 @@ impl<'a> CheckingContext<'a> {
     pub(crate) fn inference_session(
         &self,
         context: crate::checker::inference::InferenceContextId,
-    ) -> Option<Rc<RefCell<crate::checker::inference::InferenceSession>>> {
+    ) -> Option<Rc<RefCell<crate::checker::inference::InferenceCoordinator>>> {
         self.inference_contexts.get(&context).cloned()
     }
 

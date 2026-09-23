@@ -51,6 +51,8 @@ pub struct FormalQueryInputs<'a> {
     pub data_semantics: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
+    pub type_member_declarations:
+        Option<&'a BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
 }
 
@@ -86,6 +88,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::DataDeclaration(declaration) => QueryKey::DataDeclaration(declaration.clone()),
         crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration) => QueryKey::EnumDeclaration(declaration.clone()),
         crate::checker::analysis::SemanticDependency::AssociatedSurface(declaration) => QueryKey::AssociatedSurface(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::TypeMemberDeclaration(declaration) => QueryKey::TypeMemberDeclaration(declaration.clone()),
         crate::checker::analysis::SemanticDependency::ResolvedImport(site) => QueryKey::ResolvedImport(site.clone()),
         crate::checker::analysis::SemanticDependency::LinkedName(module, name) => QueryKey::LinkedName(module.clone(), name.clone()),
         crate::checker::analysis::SemanticDependency::PublicExport(module, name) => QueryKey::PublicExport(module.clone(), name.clone()),
@@ -106,6 +109,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::DataDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::DataDeclaration(declaration.clone())),
         QueryKey::EnumDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration.clone())),
         QueryKey::AssociatedSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::AssociatedSurface(declaration.clone())),
+        QueryKey::TypeMemberDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::TypeMemberDeclaration(declaration.clone())),
         QueryKey::ResolvedImport(site) => Some(crate::checker::analysis::SemanticDependency::ResolvedImport(site.clone())),
         QueryKey::LinkedName(module, name) => Some(crate::checker::analysis::SemanticDependency::LinkedName(module.clone(), name.clone())),
         QueryKey::PublicExport(module, name) => Some(crate::checker::analysis::SemanticDependency::PublicExport(module.clone(), name.clone())),
@@ -1104,26 +1108,7 @@ pub fn query_associated_surface(
         db.discard_for_recompute(&key);
     }
     db.metrics().record_miss();
-    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
-    for family in surface.families.values() {
-        for member in family.members.iter() {
-            let crate::associated::AssociatedMemberId::TypeMember(member_id) = member else {
-                if let crate::associated::AssociatedMemberId::StaticDomain(domain_id) = member {
-                    if let Err(error) = db.record_dependency(
-                        &mut recorder,
-                        QueryKey::AssociatedStaticDomainDeclaration(domain_id.clone()),
-                    ) {
-                        return query_failure(db, key, error);
-                    }
-                }
-                continue;
-            };
-            let dependency = QueryKey::TypeMemberDeclaration(member_id.clone());
-            if let Err(error) = db.record_dependency(&mut recorder, dependency) {
-                return query_failure(db, key, error);
-            }
-        }
-    }
+    let recorder = crate::db::DependencyRecorder::new(key.clone());
     let product_fingerprint = crate::db::fingerprint::associated_surface_product_fingerprint(&surface);
     if let Err(error) = publish_current_product(
         db,
@@ -1482,6 +1467,18 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
             unit_outcome(query_associated_surface(db, surface))
+        }
+        crate::checker::analysis::SemanticDependency::TypeMemberDeclaration(declaration) => {
+            let Some(table) = inputs.type_member_declarations else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            let Some(product) = table.get(declaration).cloned() else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            let Some(unit) = inputs.sources.get(&declaration.owner.module) else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            unit_outcome(query_type_member_declaration(db, unit, product))
         }
     };
 

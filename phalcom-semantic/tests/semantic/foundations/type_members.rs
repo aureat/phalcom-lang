@@ -154,7 +154,6 @@ fn source_type_member_projection_uses_surface_identity_and_checks_argument_domai
             id: phalcom_semantic::identity::AssociatedFamilyId::new(owner.clone(), SelectorBase::Named("Choose".into())),
             kind: AssociatedFamilyKind::TypeMember,
             members: Box::new([AssociatedMemberId::TypeMember(member_id.clone())]),
-            type_member_signature_fingerprint: None,
         },
     );
     env.resolver.associated_surfaces.insert(owner, std::sync::Arc::new(surface));

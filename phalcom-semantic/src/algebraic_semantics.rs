@@ -26,7 +26,7 @@ pub struct AlgebraicSumInfo {
 }
 
 /// Canonical static-domain registration for a type-only algebraic declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StaticAlgebraicDeclarationInfo {
     pub domain: StaticDomainId,
     pub constructors: Box<[AlgebraicStaticConstructorId]>,

@@ -655,7 +655,8 @@ fn build_data_construction_spec(
     let exporter =
         phalcom_semantic::metadata::MetadataExporter::new(&snapshot.store, None, None, None, phalcom_type_meta::header::MetadataProfile::RuntimePublic)
             .with_project_universe(projects)
-            .with_algebraic_semantics(&snapshot.data_semantics, &snapshot.enum_semantics);
+            .with_algebraic_semantics(&snapshot.data_semantics, &snapshot.enum_semantics)
+            .with_associated_static_domains(snapshot.associated_static_domains.as_ref());
     let metadata = exporter
         .build_bundle(&[(&constructor.owner.module, "data", result_type)])
         .map_err(|error| ProjectionError::DataTypeMetadata(error.to_string()))?;

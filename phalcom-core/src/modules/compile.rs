@@ -805,6 +805,7 @@ impl ProgramCompiler {
         )
         .with_project_universe(&analyzed.project_universe)
         .with_algebraic_semantics(&analyzed.semantic.data_semantics, &analyzed.semantic.enum_semantics)
+        .with_associated_static_domains(analyzed.semantic.associated_static_domains.as_ref())
         .with_aliases(analyzed.semantic.type_aliases.as_ref());
         let mut stable_call_root_specs = Vec::with_capacity(runtime_call_root_specs.len());
         let mut exporter = exporter;

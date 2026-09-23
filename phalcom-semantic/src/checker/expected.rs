@@ -95,7 +95,7 @@ impl ExpectedType {
         } = self
         {
             if arguments.len() == 1 && inference_origin_matches(store, self, collection_decl) {
-                if let Some(first) = arguments.first() {
+                if let Some(first) = arguments.first().and_then(crate::checker::inference::InferenceStaticArgument::term) {
                     return ExpectedType::inference_from(*context, first.clone(), ExpectationOrigin::CollectionElement);
                 }
             }
@@ -121,9 +121,11 @@ impl ExpectedType {
         } = self
         {
             if arguments.len() == 2 && inference_origin_matches(store, self, map_decl) {
+                let left = arguments[0].term().cloned();
+                let right = arguments[1].term().cloned();
                 return (
-                    ExpectedType::inference_from(*context, arguments[0].clone(), ExpectationOrigin::ProductComponent),
-                    ExpectedType::inference_from(*context, arguments[1].clone(), ExpectationOrigin::ProductComponent),
+                    left.map(|term| ExpectedType::inference_from(*context, term, ExpectationOrigin::ProductComponent)).unwrap_or(ExpectedType::None),
+                    right.map(|term| ExpectedType::inference_from(*context, term, ExpectationOrigin::ProductComponent)).unwrap_or(ExpectedType::None),
                 );
             }
         }

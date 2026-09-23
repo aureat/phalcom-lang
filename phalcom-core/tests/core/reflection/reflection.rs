@@ -198,6 +198,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
         parameters: vec![param_t].into_boxed_slice(),
         generic_signatures: vec![gen_sig].into_boxed_slice(),
         declarations: vec![decl_rec].into_boxed_slice(),
+        static_domains: Box::new([]),
         aliases: Box::new([]),
         callables: vec![callable_value].into_boxed_slice(),
         fields: vec![field_val].into_boxed_slice(),

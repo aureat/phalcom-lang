@@ -1,7 +1,7 @@
 //! Declaration records, superclasses, aliases, callables, and fields.
 
-use crate::generic::GenericSignatureRecordId;
-use crate::identity::{SourceSpanRef, StableCallableRef, StableDeclarationRef, StableFieldRef};
+use crate::generic::{GenericParameterModeRef, GenericSignatureRecordId};
+use crate::identity::{SourceSpanRef, StableCallableRef, StableDeclarationRef, StableFieldRef, StableStaticDomainDeclarationRef};
 use crate::kind::KindNodeId;
 use crate::type_node::TypeNodeId;
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,32 @@ pub enum AlgebraicShapeRef {
 pub struct AlgebraicDeclarationRecord {
     pub phase: AlgebraicPhaseRef,
     pub shape: AlgebraicShapeRef,
+}
+
+/// One parameter of the declaration that owns a static domain. Associated
+/// domain specializations validate their owner environment against this
+/// ordered parameter shape.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct StaticDomainParameterRecord {
+    pub kind: KindNodeId,
+    pub mode: GenericParameterModeRef,
+}
+
+/// One stable constructor/case declaration in a static domain.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct StaticDomainCaseRecord {
+    pub name: Box<str>,
+    pub parameter_kinds: Box<[KindNodeId]>,
+}
+
+/// Declaration catalog for a nominal or associated static domain. Associated
+/// owner arguments remain on `StaticDomainRef`; this record describes the
+/// declaration shared by all specializations.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct StaticDomainDeclarationRecord {
+    pub declaration: StableStaticDomainDeclarationRef,
+    pub owner_parameters: Box<[StaticDomainParameterRecord]>,
+    pub cases: Box<[StaticDomainCaseRecord]>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

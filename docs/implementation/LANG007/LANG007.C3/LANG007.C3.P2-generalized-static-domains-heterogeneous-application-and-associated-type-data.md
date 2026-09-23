@@ -2635,6 +2635,58 @@ Add the exact new static-inference filter if placed elsewhere.
 T4 passes when static-domain variables infer/refute structurally with no new inference
 identity and no backtracking.
 
+### Architecture amendment — query-context row coordination (2026-09-23)
+
+INC-C3-8 amends T4's row lifetime boundary after live call-path review. Preserve the
+distinct `InferVarId` and `RecordRowVarId` spaces and the `InferenceStaticArgument`
+envelope. A query-context-owned coordinator owns the ordinary inference session and a
+separate row solver, routes mixed equations by category, and keeps row variables alive
+for the inference-context lifetime. Do not hold a `RefCell` borrow across argument
+analysis or nested calls.
+
+Frame completion must solve/check only the row roots required by that frame's result.
+Unresolved cross-frame equations remain available to the parent; a child result that
+still depends on an unresolved outer row remains symbolic/blocked and cannot be
+materialized as a concrete row. Replace the current all-allocated-variable underconstraint
+check for coordinated solves with explicit frame-scoped root checks. Row solver IDs must
+never enter canonical types, metadata, or published products.
+
+This changes solver ownership/lifetime, not language row semantics or variable identity.
+The amended focused gate covers mixed `Applied` and `StaticData` arguments, mismatch and
+occurs checks, distinct identities, retained underconstraint, child-to-parent resolution,
+and unchanged ordinary type inference. Do not implement T4 without the coordinator and
+frame-scope behavior in place.
+
+#### Row payload composition amendment — 2026-09-23
+
+The query-context coordinator uses the existing `RecordRowVarId` space and generalizes
+the row solver over its field payload `V` (keeping `TypeId` as the default/current use).
+The row solver owns label/tail shape unification and emits `(V, V)` obligations for
+same-label fields; it must not treat Rust equality of field payloads as semantic field
+equality. The inference coordinator instantiates it with `V = InferenceTerm`, lifts
+canonical fields as `InferenceTerm::Canonical(TypeId)`, and keeps inferred fields as
+their existing terms. This preserves separate row/type identities and creates no fake
+`TypeId` values.
+
+The coordinator alternates ordinary inference propagation, queued mixed row equations,
+row-shape solving, and emitted field-pair `Equivalent` constraints to a fixed point under
+one query budget/cancellation boundary. Its materializer resolves every row field payload
+through ordinary inference before canonical row creation; unresolved or cyclic
+cross-domain references remain blocked. Cross-domain occurs checking traverses ordinary
+terms stored in row fields and row substitutions. Acceptance additionally covers
+inference through shared row labels, inferred fields carried by tail extension,
+conflicting field values, unresolved rows, cross-domain occurs rejection, and nested
+frames that retain an outer-row dependency.
+
+`GenericApplicationSession` becomes a lightweight per-call binding view over the
+query-context coordinator; it must not own a row solver. A nested call whose row solution
+depends on an unresolved ancestor keeps its result as the existing same-context
+`SymbolicInferenceResult` and does not attempt canonical `GenericInstantiation`. The
+parent continues solving through the shared coordinator. Materialize only when the
+result's row dependencies are concrete, and report underconstraint only at root-context
+completion before solver state is dropped. If a call owns the root context, symbolic row
+terms cannot escape that context.
+
 ### Local STOP / CONSULT triggers
 
 Stop if:
@@ -3758,6 +3810,27 @@ Stop if:
   project identity semantics;
 - incremental correctness appears to require a broad workspace scan because the
   canonical dependency graph lacks an identity edge.
+
+### Architecture amendment — schema-v8 static-domain catalog (2026-09-23)
+
+INC-C3-9 closes the metadata schema decision. Schema v8 adds a typed catalog keyed by
+stable nominal or associated static-domain declaration identity. Each catalog record
+contains the owning declaration's ordered parameter kinds/modes and sorted case names
+with ordered payload kinds. Associated specialization arguments stay on the existing
+`StaticDomainRef::Associated` and are checked against that declaration shape.
+
+Schemas v1-v7 retain their existing validation behavior. The new catalog field defaults
+empty when an older bundle is decoded; schema-v8 bundles require catalog membership and
+validate associated owner argument arity/kinds, static-data case membership, payload
+arity/kinds, heterogeneous row fields/tails, and global/scoped `Applied` argument and
+result kinds. Snapshot-backed export must consume the current canonical nominal
+data/enum and associated declaration products. It must not enumerate TypeStore
+interning history as the source of currently declared cases. Cross-module catalog
+composition, import reconstruction, exact provider invalidation, and cold/incremental
+parity remain acceptance requirements.
+
+The current schema/exporter/validator slice compiles. No focused tests were run, so the
+T8 implementation remains `UNVERIFIED` and P2 remains partial.
 
 ### Checkpoint update
 

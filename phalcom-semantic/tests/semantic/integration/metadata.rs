@@ -191,15 +191,29 @@ fn metadata_exports_associated_static_domain_identity_and_owner_environment() {
 
     let mut store = TypeStore::new();
     let owner = dummy_decl("Packet");
+    store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(owner.clone()),
+        0,
+        "T",
+        KindId::TYPE,
+    ));
     let declaration = AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
     let int = store.nominal_type(dummy_decl("Int"));
     let term_domain = store.associated_static_domain(declaration.clone(), vec![StaticArgument::Term(int)].into_boxed_slice());
     let term_constructor = store.intern_static_constructor(term_domain, owner.clone(), "Unread", Box::new([]));
     let term = store.static_data(term_domain, term_constructor, Box::new([])).expect("associated singleton");
 
+    let row_owner = dummy_decl("RowPacket");
+    store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(row_owner.clone()),
+        0,
+        "R",
+        KindId::RECORD_ROW,
+    ));
+    let row_declaration = AssociatedStaticDomainDeclarationId::new(row_owner.clone(), "State");
     let row = store.record_row_checked(Vec::new(), phalcom_semantic::types::row::RecordRowTail::Closed).unwrap();
-    let row_domain = store.associated_static_domain(declaration, vec![StaticArgument::RecordRow(row)].into_boxed_slice());
-    let row_constructor = store.intern_static_constructor(row_domain, owner, "Parsed", Box::new([]));
+    let row_domain = store.associated_static_domain(row_declaration, vec![StaticArgument::RecordRow(row)].into_boxed_slice());
+    let row_constructor = store.intern_static_constructor(row_domain, row_owner, "Parsed", Box::new([]));
     let row_term = store.static_data(row_domain, row_constructor, Box::new([])).expect("row-specialized associated singleton");
 
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);

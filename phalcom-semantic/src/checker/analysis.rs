@@ -400,6 +400,7 @@ pub enum SemanticDependency {
     DataDeclaration(DeclarationId),
     EnumDeclaration(DeclarationId),
     AssociatedSurface(DeclarationId),
+    TypeMemberDeclaration(crate::types::type_member::TypeMemberDeclarationId),
     ResolvedImport(phalcom_modules::identity::ImportSiteId),
     LinkedName(ModuleId, String),
     PublicExport(ModuleId, String),

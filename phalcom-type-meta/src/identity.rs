@@ -76,6 +76,14 @@ pub struct StableAssociatedStaticDomainDeclarationRef {
     pub name: Box<str>,
 }
 
+/// Stable identity of a declared static domain, independent of any concrete
+/// associated-owner specialization.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum StableStaticDomainDeclarationRef {
+    Nominal(StableDeclarationRef),
+    Associated(StableAssociatedStaticDomainDeclarationRef),
+}
+
 /// Stable impl reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct StableImplRef {

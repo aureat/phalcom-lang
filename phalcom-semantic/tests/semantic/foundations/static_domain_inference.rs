@@ -1,7 +1,7 @@
 //! LANG007.C3.P2 T4 integration coverage for structural static-data inference.
 
 use phalcom_modules::ModuleId;
-use phalcom_semantic::checker::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceTerm};
+use phalcom_semantic::checker::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceStaticArgument, InferenceTerm};
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
@@ -26,12 +26,12 @@ fn static_constructor_payload_inference_solves_canonical_integer_term() {
             InferenceTerm::StaticData {
                 domain: shape,
                 constructor: vector,
-                arguments: vec![InferenceTerm::Var(width_var)].into_boxed_slice(),
+                arguments: vec![InferenceStaticArgument::Term(InferenceTerm::Var(width_var))].into_boxed_slice(),
             },
             InferenceTerm::StaticData {
                 domain: shape,
                 constructor: vector,
-                arguments: vec![InferenceTerm::Canonical(width)].into_boxed_slice(),
+                arguments: vec![InferenceStaticArgument::Term(InferenceTerm::Canonical(width))].into_boxed_slice(),
             },
         ),
         ConstraintOrigin::Explicit,
@@ -93,12 +93,12 @@ fn nested_static_constructor_inference_solves_recursively() {
     let symbolic_width = InferenceTerm::StaticData {
         domain: shape,
         constructor: width_constructor,
-        arguments: vec![InferenceTerm::Var(width_var)].into_boxed_slice(),
+        arguments: vec![InferenceStaticArgument::Term(InferenceTerm::Var(width_var))].into_boxed_slice(),
     };
     let concrete_width = InferenceTerm::StaticData {
         domain: shape,
         constructor: width_constructor,
-        arguments: vec![InferenceTerm::Canonical(width)].into_boxed_slice(),
+        arguments: vec![InferenceStaticArgument::Term(InferenceTerm::Canonical(width))].into_boxed_slice(),
     };
 
     inference.add_constraint(
@@ -106,12 +106,12 @@ fn nested_static_constructor_inference_solves_recursively() {
             InferenceTerm::StaticData {
                 domain: shape,
                 constructor: wrapper,
-                arguments: vec![symbolic_width].into_boxed_slice(),
+                arguments: vec![InferenceStaticArgument::Term(symbolic_width)].into_boxed_slice(),
             },
             InferenceTerm::StaticData {
                 domain: shape,
                 constructor: wrapper,
-                arguments: vec![concrete_width].into_boxed_slice(),
+                arguments: vec![InferenceStaticArgument::Term(concrete_width)].into_boxed_slice(),
             },
         ),
         ConstraintOrigin::Explicit,
@@ -160,7 +160,7 @@ fn generic_application_infers_a_static_domain_argument() {
     let shape_var = inference.fresh_variable(shape_kind);
     let inferred_application = InferenceTerm::Applied {
         origin: Box::new(InferenceTerm::Canonical(carrier)),
-        arguments: vec![InferenceTerm::Var(shape_var)].into_boxed_slice(),
+        arguments: vec![InferenceStaticArgument::Term(InferenceTerm::Var(shape_var))].into_boxed_slice(),
     };
 
     inference.add_constraint(

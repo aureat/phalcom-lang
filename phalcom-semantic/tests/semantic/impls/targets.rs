@@ -635,6 +635,7 @@ fn test_exact_enum_case_target_success() {
         owner: status_decl.clone(),
         root_form: status_ty,
         generic_signature: None,
+        static_data: None,
         default_result_type: status_ty,
         variants: vec![ready_var_id.clone()].into_boxed_slice(),
         variant_families: vec![].into_boxed_slice(),

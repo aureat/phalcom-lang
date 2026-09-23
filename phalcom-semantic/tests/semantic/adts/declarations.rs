@@ -224,6 +224,7 @@ fn adt_req_01_02_04_requirements_report_satisfied_missing_and_incompatible_cases
         owner: owner.clone(),
         root_form: nominal_owner,
         generic_signature: None,
+        static_data: None,
         default_result_type: nominal_owner,
         variants: variants.iter().map(|v| v.id.clone()).collect(),
         variant_families: Box::new([]),

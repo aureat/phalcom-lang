@@ -23,7 +23,7 @@ fn getter_callable(module: &ModuleId, owner: &str, name: &str) -> CallableId {
 }
 
 #[test]
-fn source_type_members_publish_checked_signatures_and_invalidate_the_surface_consumer() {
+fn source_type_members_publish_checked_signatures_without_changing_namespace_selection() {
     use phalcom_semantic::associated::{AssociatedFamilyKind, AssociatedMemberId};
     use phalcom_semantic::types::type_member::{
         TypeMemberApplicationError, TypeMemberArgument, TypeMemberDeclarationId, TypeMemberSelector, validate_type_member_arguments,
@@ -69,7 +69,6 @@ fn source_type_members_publish_checked_signatures_and_invalidate_the_surface_con
         .expect("Transform family");
     assert_eq!(family.kind, AssociatedFamilyKind::TypeMember);
     assert_eq!(family.members.as_ref(), &[AssociatedMemberId::TypeMember(transform.clone())]);
-    assert!(family.type_member_signature_fingerprint.is_some());
 
     let updated = session.update(single_module_input(module, source_b, 2));
     assert!(!updated.snapshot.has_errors(), "updated diagnostics: {:?}", updated.snapshot.diagnostics);
@@ -89,16 +88,8 @@ fn source_type_members_publish_checked_signatures_and_invalidate_the_surface_con
         .families
         .get(&phalcom_common::selector::SelectorBase::Named("Transform".into()))
         .unwrap();
-    assert_ne!(family.type_member_signature_fingerprint, updated_family.type_member_signature_fingerprint);
-    let updated_surface = updated.snapshot.associated_surfaces.surfaces.get(&owner).unwrap();
-    assert!(
-        !Arc::ptr_eq(surface, updated_surface),
-        "signature dependency must invalidate the associated-surface product"
-    );
-    assert!(
-        updated.stats.query_products_recomputed > 0,
-        "signature edit must recompute its dependent surface"
-    );
+    assert_eq!(family.kind, updated_family.kind);
+    assert_eq!(family.members, updated_family.members);
 }
 
 #[test]
@@ -176,6 +167,31 @@ fn source_type_member_projection_is_available_in_generic_header_annotations() {
         "generic-header projection should resolve through the published surface: {:#?}",
         result.snapshot.diagnostics
     );
+}
+
+#[test]
+fn alias_application_tracks_nominal_header_domain_edits_and_matches_cold_analysis() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module = module();
+    let source_a = "type data Shape { Scalar }\ntype data Other { Point }\ndata Tensor<T: Type, S: Shape>()\ntype V: Type = Tensor<Int, Shape::Scalar>\ntype Unrelated = Int\n";
+    let source_b = "type data Shape { Scalar }\ntype data Other { Point }\ndata Tensor<T: Type, S: Other>()\ntype V: Type = Tensor<Int, Shape::Scalar>\ntype Unrelated = Int\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental.update(single_module_input(module.clone(), source_a, 1));
+    assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
+    let unrelated = DeclarationId::new(module.clone(), "Unrelated".into());
+    let unrelated_form = first.snapshot.type_aliases.get(&unrelated).expect("unrelated alias").form;
+    assert!(first.snapshot.type_aliases.get(&DeclarationId::new(module.clone(), "V".into())).is_some());
+
+    let updated = incremental.update(single_module_input(module.clone(), source_b, 2));
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_result = cold.update(single_module_input(module.clone(), source_b, 1));
+    let codes = |result: &phalcom_semantic::session::SemanticWorkspaceUpdate| {
+        result.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>()
+    };
+    assert_eq!(codes(&updated), codes(&cold_result), "header edit must match cold diagnostics");
+    assert!(codes(&updated).contains(&DiagnosticCode::ApplicationArgumentKindMismatch));
+    assert_eq!(updated.snapshot.type_aliases.get(&unrelated).expect("retained unrelated alias").form, unrelated_form);
 }
 
 #[test]
@@ -275,7 +291,7 @@ fn wrong_user_static_domain_argument_is_rejected() {
         result
             .snapshot
             .all_diagnostics()
-            .any(|diagnostic| { matches!(diagnostic.code, DiagnosticCode::ArgumentMismatch | DiagnosticCode::AnnotationUnresolved) }),
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::ApplicationArgumentKindMismatch),
         "expected a domain mismatch diagnostic: {:?}",
         result.snapshot.diagnostics
     );

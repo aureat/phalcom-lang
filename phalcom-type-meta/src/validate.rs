@@ -2,7 +2,8 @@ use crate::bundle::SemanticMetadataBundle;
 use crate::declaration::PublishedTypeSlot;
 use crate::generic::{GenericParameterModeRef, VarianceRef};
 use crate::header::{MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION, supports_type_metadata_schema};
-use crate::kind::{KindNode, KindNodeId};
+use crate::identity::StableStaticDomainDeclarationRef;
+use crate::kind::{KindNode, KindNodeId, StaticDomainRef};
 use crate::scoped_type::{ScopedRecordTailRef, ScopedTypeNode};
 use crate::type_node::{StaticArgumentRef, TypeNode};
 use std::collections::HashSet;
@@ -77,8 +78,321 @@ pub enum MetadataValidationError {
     LambdaScopeViolation { depth: u32, index: u32 },
     #[error("duplicate type parameter owner: {0:?} index {1}")]
     DuplicateParameterOwner(String, u32),
+    #[error("static-domain declaration is missing from the metadata catalog: {0:?}")]
+    MissingStaticDomainCatalogEntry(StableStaticDomainDeclarationRef),
+    #[error("duplicate static-domain declaration catalog entry: {0:?}")]
+    DuplicateStaticDomainCatalogEntry(StableStaticDomainDeclarationRef),
+    #[error("static-domain case is missing from its declaration catalog: {declaration:?}::{case}")]
+    MissingStaticDomainCase { declaration: StableStaticDomainDeclarationRef, case: Box<str> },
+    #[error("duplicate static-domain case in catalog: {declaration:?}::{case}")]
+    DuplicateStaticDomainCase { declaration: StableStaticDomainDeclarationRef, case: Box<str> },
+    #[error("associated static-domain owner environment arity mismatch for {declaration:?}: expected {expected}, found {actual}")]
+    StaticDomainOwnerArityMismatch {
+        declaration: StableStaticDomainDeclarationRef,
+        expected: usize,
+        actual: usize,
+    },
+    #[error("associated static-domain owner argument kind mismatch for {declaration:?} at index {index}: expected kind {expected_kind}, found kind {actual_kind}")]
+    StaticDomainOwnerKindMismatch {
+        declaration: StableStaticDomainDeclarationRef,
+        index: usize,
+        expected_kind: u32,
+        actual_kind: u32,
+    },
+    #[error("static-domain case payload arity mismatch for {declaration:?}::{case}: expected {expected}, found {actual}")]
+    StaticDomainCaseArityMismatch {
+        declaration: StableStaticDomainDeclarationRef,
+        case: Box<str>,
+        expected: usize,
+        actual: usize,
+    },
+    #[error("static-domain case payload kind mismatch for {declaration:?}::{case} at index {index}: expected kind {expected_kind}, found kind {actual_kind}")]
+    StaticDomainCaseKindMismatch {
+        declaration: StableStaticDomainDeclarationRef,
+        case: Box<str>,
+        index: usize,
+        expected_kind: u32,
+        actual_kind: u32,
+    },
+    #[error("type application arity mismatch at node {node}: supplied {actual}, accepted at most {maximum}")]
+    TypeApplicationArityMismatch { node: u32, maximum: usize, actual: usize },
+    #[error("type application argument kind mismatch at node {node}, index {index}: expected kind {expected_kind}, found kind {actual_kind}")]
+    TypeApplicationArgumentKindMismatch { node: u32, index: usize, expected_kind: u32, actual_kind: u32 },
+    #[error("type application result kind mismatch at node {node}")]
+    TypeApplicationResultKindMismatch { node: u32 },
     #[error("malformed metadata: {0}")]
     Malformed(String),
+}
+
+fn static_domain_declaration(domain: &StaticDomainRef) -> Option<StableStaticDomainDeclarationRef> {
+    match domain {
+        StaticDomainRef::ConstInt => None,
+        StaticDomainRef::Nominal { declaration } => Some(StableStaticDomainDeclarationRef::Nominal(declaration.clone())),
+        StaticDomainRef::Associated { declaration, .. } => Some(StableStaticDomainDeclarationRef::Associated(declaration.clone())),
+    }
+}
+
+fn argument_kind_id(
+    argument: &StaticArgumentRef,
+    bundle: &SemanticMetadataBundle,
+) -> Result<Option<KindNodeId>, MetadataValidationError> {
+    match argument {
+        StaticArgumentRef::Term(term) => {
+            let Some(entry) = bundle.types.get(term.0 as usize) else {
+                return Err(MetadataValidationError::InvalidTypeIndex {
+                    index: term.0,
+                    total: bundle.types.len(),
+                });
+            };
+            Ok(Some(entry.kind))
+        }
+        StaticArgumentRef::RecordRow(_) => Ok(bundle
+            .kinds
+            .iter()
+            .position(|entry| matches!(entry.node, KindNode::RecordRow))
+            .map(|index| KindNodeId(index as u32))),
+    }
+}
+
+fn argument_matches_kind(
+    argument: &StaticArgumentRef,
+    expected: KindNodeId,
+    bundle: &SemanticMetadataBundle,
+) -> Result<Option<KindNodeId>, MetadataValidationError> {
+    let expected_entry = bundle.kinds.get(expected.0 as usize).ok_or(MetadataValidationError::InvalidKindIndex {
+        index: expected.0,
+        total: bundle.kinds.len(),
+    })?;
+    let actual = argument_kind_id(argument, bundle)?;
+    match (argument, actual) {
+        (StaticArgumentRef::RecordRow(_), _) if matches!(expected_entry.node, KindNode::RecordRow) => Ok(Some(expected)),
+        (StaticArgumentRef::RecordRow(_), _) => Ok(None),
+        (_, Some(actual)) if actual == expected => Ok(Some(actual)),
+        (_, Some(actual)) => Ok(Some(actual)),
+        (_, None) => Ok(None),
+    }
+}
+
+fn validate_application_kinds(
+    node: u32,
+    callee_kind: KindNodeId,
+    actual_kinds: &[KindNodeId],
+    result_kind: KindNodeId,
+    bundle: &SemanticMetadataBundle,
+) -> Result<(), MetadataValidationError> {
+    if actual_kinds.is_empty() {
+        let callee = bundle.kinds.get(callee_kind.0 as usize).ok_or(MetadataValidationError::InvalidKindIndex {
+            index: callee_kind.0,
+            total: bundle.kinds.len(),
+        })?;
+        let actual_result = bundle.kinds.get(result_kind.0 as usize).ok_or(MetadataValidationError::InvalidKindIndex {
+            index: result_kind.0,
+            total: bundle.kinds.len(),
+        })?;
+        if callee.node != actual_result.node {
+            return Err(MetadataValidationError::TypeApplicationResultKindMismatch { node });
+        }
+        return Ok(());
+    }
+    let callee = bundle.kinds.get(callee_kind.0 as usize).ok_or(MetadataValidationError::InvalidKindIndex {
+        index: callee_kind.0,
+        total: bundle.kinds.len(),
+    })?;
+    let KindNode::Arrow { parameters, result } = &callee.node else {
+        return Err(MetadataValidationError::TypeApplicationArityMismatch {
+            node,
+            maximum: 0,
+            actual: actual_kinds.len(),
+        });
+    };
+    if actual_kinds.len() > parameters.len() {
+        return Err(MetadataValidationError::TypeApplicationArityMismatch {
+            node,
+            maximum: parameters.len(),
+            actual: actual_kinds.len(),
+        });
+    }
+    for (index, (&actual, &expected)) in actual_kinds.iter().zip(parameters.iter()).enumerate() {
+        if actual != expected {
+            return Err(MetadataValidationError::TypeApplicationArgumentKindMismatch {
+                node,
+                index,
+                expected_kind: expected.0,
+                actual_kind: actual.0,
+            });
+        }
+    }
+    let expected_result = if actual_kinds.len() == parameters.len() {
+        bundle.kinds.get(result.0 as usize).map(|entry| entry.node.clone())
+    } else {
+        Some(KindNode::Arrow {
+            parameters: parameters[actual_kinds.len()..].into(),
+            result: *result,
+        })
+    };
+    let actual_result = bundle.kinds.get(result_kind.0 as usize).ok_or(MetadataValidationError::InvalidKindIndex {
+        index: result_kind.0,
+        total: bundle.kinds.len(),
+    })?;
+    if expected_result.as_ref() != Some(&actual_result.node) {
+        return Err(MetadataValidationError::TypeApplicationResultKindMismatch { node });
+    }
+    Ok(())
+}
+
+fn validate_static_domain_catalog(
+    bundle: &SemanticMetadataBundle,
+) -> Result<std::collections::HashMap<StableStaticDomainDeclarationRef, &crate::declaration::StaticDomainDeclarationRecord>, MetadataValidationError> {
+    let mut catalog = std::collections::HashMap::new();
+    for record in bundle.static_domains.iter() {
+        if catalog.insert(record.declaration.clone(), record).is_some() {
+            return Err(MetadataValidationError::DuplicateStaticDomainCatalogEntry(record.declaration.clone()));
+        }
+        for parameter in record.owner_parameters.iter() {
+            if parameter.kind.0 as usize >= bundle.kinds.len() {
+                return Err(MetadataValidationError::InvalidKindIndex {
+                    index: parameter.kind.0,
+                    total: bundle.kinds.len(),
+                });
+            }
+            let kind = &bundle.kinds[parameter.kind.0 as usize].node;
+            let mode_valid = match parameter.mode {
+                GenericParameterModeRef::Single => true,
+                GenericParameterModeRef::PositionalPack => matches!(kind, KindNode::TypePack),
+                GenericParameterModeRef::LabeledPack => matches!(kind, KindNode::LabeledTypePack),
+                GenericParameterModeRef::CompletePack => matches!(kind, KindNode::CompleteTypePack),
+            };
+            if !mode_valid {
+                return Err(MetadataValidationError::Malformed(
+                    "static-domain owner parameter mode does not match its kind".to_string(),
+                ));
+            }
+        }
+        let mut previous_case: Option<&str> = None;
+        for case in record.cases.iter() {
+            if let Some(previous) = previous_case {
+                if case.name.as_ref() == previous {
+                    return Err(MetadataValidationError::DuplicateStaticDomainCase {
+                        declaration: record.declaration.clone(),
+                        case: case.name.clone(),
+                    });
+                }
+                if case.name.as_ref() < previous {
+                    return Err(MetadataValidationError::Malformed(
+                        "static-domain cases must be sorted by stable case name".to_string(),
+                    ));
+                }
+            }
+            previous_case = Some(&case.name);
+            for &kind in case.parameter_kinds.iter() {
+                if kind.0 as usize >= bundle.kinds.len() {
+                    return Err(MetadataValidationError::InvalidKindIndex {
+                        index: kind.0,
+                        total: bundle.kinds.len(),
+                    });
+                }
+                if !matches!(bundle.kinds[kind.0 as usize].node, KindNode::Type | KindNode::StaticDomain(_)) {
+                    return Err(MetadataValidationError::Malformed(
+                        "static-domain case payload kinds must be Type or StaticDomain".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(catalog)
+}
+
+fn validate_static_domain_instance(
+    domain: &StaticDomainRef,
+    catalog: &std::collections::HashMap<StableStaticDomainDeclarationRef, &crate::declaration::StaticDomainDeclarationRecord>,
+    bundle: &SemanticMetadataBundle,
+    param_map: &std::collections::HashMap<(String, u32), &crate::generic::TypeParameterRecord>,
+) -> Result<(), MetadataValidationError> {
+    let Some(declaration) = static_domain_declaration(domain) else {
+        return Ok(());
+    };
+    let Some(record) = catalog.get(&declaration).copied() else {
+        return Err(MetadataValidationError::MissingStaticDomainCatalogEntry(declaration));
+    };
+    if let StaticDomainRef::Associated { owner_environment, .. } = domain {
+        if owner_environment.len() != record.owner_parameters.len() {
+            return Err(MetadataValidationError::StaticDomainOwnerArityMismatch {
+                declaration,
+                expected: record.owner_parameters.len(),
+                actual: owner_environment.len(),
+            });
+        }
+        for (index, (argument, parameter)) in owner_environment.iter().zip(record.owner_parameters.iter()).enumerate() {
+            let actual = argument_matches_kind(argument, parameter.kind, bundle)?;
+            if actual.is_none() || actual != Some(parameter.kind) {
+                return Err(MetadataValidationError::StaticDomainOwnerKindMismatch {
+                    declaration: declaration.clone(),
+                    index,
+                    expected_kind: parameter.kind.0,
+                    actual_kind: actual.map_or(u32::MAX, |kind| kind.0),
+                });
+            }
+            validate_static_argument_row(argument, None, bundle, param_map)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_static_argument_row(
+    argument: &StaticArgumentRef,
+    before_type_node: Option<u32>,
+    bundle: &SemanticMetadataBundle,
+    param_map: &std::collections::HashMap<(String, u32), &crate::generic::TypeParameterRecord>,
+) -> Result<(), MetadataValidationError> {
+    let StaticArgumentRef::RecordRow(row) = argument else {
+        return Ok(());
+    };
+    let mut previous_name: Option<&str> = None;
+    for field in row.fields.iter() {
+        let index = field.ty.0 as usize;
+        if index >= bundle.types.len() {
+            return Err(MetadataValidationError::InvalidTypeIndex {
+                index: field.ty.0,
+                total: bundle.types.len(),
+            });
+        }
+        if before_type_node.is_some_and(|before| field.ty.0 >= before) {
+            return Err(MetadataValidationError::TopologicalOrderViolation {
+                index: before_type_node.unwrap_or_default(),
+                target: field.ty.0,
+            });
+        }
+        if !matches!(bundle.kinds[bundle.types[index].kind.0 as usize].node, KindNode::Type) {
+            return Err(MetadataValidationError::Malformed("record-row field values must have kind Type".to_string()));
+        }
+        if let Some(previous) = previous_name {
+            if field.name.as_ref() < previous {
+                return Err(MetadataValidationError::RecordFieldOrderInvalid {
+                    node: before_type_node.unwrap_or(u32::MAX),
+                });
+            }
+            if field.name.as_ref() == previous {
+                return Err(MetadataValidationError::RecordDuplicateField {
+                    node: before_type_node.unwrap_or(u32::MAX),
+                    field: field.name.clone(),
+                });
+            }
+        }
+        previous_name = Some(&field.name);
+    }
+    if let Some(tail) = &row.tail {
+        let owner_key = format!("{:?}", tail.owner);
+        let parameter = param_map.get(&(owner_key.clone(), tail.index)).ok_or(MetadataValidationError::RecordTailParameterMissing {
+            owner: owner_key,
+            index: tail.index,
+        })?;
+        if !matches!(bundle.kinds[parameter.kind.0 as usize].node, KindNode::RecordRow) {
+            return Err(MetadataValidationError::RecordTailKindMismatch {
+                actual_kind: parameter.kind.0,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn validate_schema_v1_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
@@ -286,6 +600,15 @@ fn validate_schema_v5_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(
     Ok(())
 }
 
+fn validate_pre_v8_catalog_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
+    if !bundle.static_domains.is_empty() {
+        return Err(MetadataValidationError::Malformed(
+            "schema before v8 cannot contain a static-domain declaration catalog".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Iteratively validates a [`SemanticMetadataBundle`].
 pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &ValidationLimits) -> Result<(), MetadataValidationError> {
     if !supports_type_metadata_schema(bundle.header.schema_version) {
@@ -320,7 +643,11 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             validate_schema_v4_feature_floor(bundle)?;
             validate_pre_v5_static_domain_floor(bundle)?;
         }
-        5 | 6 | 7 => validate_schema_v5_feature_floor(bundle)?,
+        5 | 6 | 7 => {
+            validate_schema_v5_feature_floor(bundle)?;
+            validate_pre_v8_catalog_floor(bundle)?;
+        }
+        8 => validate_schema_v5_feature_floor(bundle)?,
         _ => unreachable!("version range checked above"),
     }
 
@@ -405,6 +732,19 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
         }
     }
 
+    let static_domain_catalog = if bundle.header.schema_version >= 8 {
+        validate_static_domain_catalog(bundle)?
+    } else {
+        std::collections::HashMap::new()
+    };
+    if bundle.header.schema_version >= 8 {
+        for entry in bundle.kinds.iter() {
+            if let KindNode::StaticDomain(domain) = &entry.node {
+                validate_static_domain_instance(domain, &static_domain_catalog, bundle, &param_map)?;
+            }
+        }
+    }
+
     // Validate global types graph (strictly topologically sorted)
     for (i, entry) in bundle.types.iter().enumerate() {
         if entry.kind.0 as usize >= bundle.kinds.len() {
@@ -447,6 +787,48 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         }
                     }
                 }
+                if bundle.header.schema_version >= 8 {
+                    validate_static_domain_instance(&static_data.domain, &static_domain_catalog, bundle, &param_map)?;
+                    if let Some(declaration) = static_domain_declaration(&static_data.domain) {
+                        let record = static_domain_catalog
+                            .get(&declaration)
+                            .copied()
+                            .ok_or_else(|| MetadataValidationError::MissingStaticDomainCatalogEntry(declaration.clone()))?;
+                        let case = record
+                            .cases
+                            .iter()
+                            .find(|case| case.name == static_data.constructor.case_name)
+                            .ok_or_else(|| MetadataValidationError::MissingStaticDomainCase {
+                                declaration: declaration.clone(),
+                                case: static_data.constructor.case_name.clone(),
+                            })?;
+                        if case.parameter_kinds.len() != static_data.arguments.len() {
+                            return Err(MetadataValidationError::StaticDomainCaseArityMismatch {
+                                declaration: declaration.clone(),
+                                case: case.name.clone(),
+                                expected: case.parameter_kinds.len(),
+                                actual: static_data.arguments.len(),
+                            });
+                        }
+                        for (index, (argument, &expected_kind)) in static_data
+                            .arguments
+                            .iter()
+                            .zip(case.parameter_kinds.iter())
+                            .enumerate()
+                        {
+                            let actual_kind = argument_matches_kind(argument, expected_kind, bundle)?;
+                            if actual_kind != Some(expected_kind) {
+                                return Err(MetadataValidationError::StaticDomainCaseKindMismatch {
+                                    declaration: declaration.clone(),
+                                    case: case.name.clone(),
+                                    index,
+                                    expected_kind: expected_kind.0,
+                                    actual_kind: actual_kind.map_or(u32::MAX, |kind| kind.0),
+                                });
+                            }
+                        }
+                    }
+                }
                 if !matches!(
                     &bundle.kinds[entry.kind.0 as usize].node,
                     KindNode::StaticDomain(domain) if domain == &static_data.domain
@@ -456,6 +838,9 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     ));
                 }
                 for argument in static_data.arguments.iter() {
+                    if bundle.header.schema_version >= 8 {
+                        validate_static_argument_row(argument, Some(i as u32), bundle, &param_map)?;
+                    }
                     match argument {
                         StaticArgumentRef::Term(term) => {
                             if term.0 as usize >= i {
@@ -480,6 +865,9 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     });
                 }
                 for arg in arguments.iter() {
+                    if bundle.header.schema_version >= 8 {
+                        validate_static_argument_row(arg, Some(i as u32), bundle, &param_map)?;
+                    }
                     match arg {
                         StaticArgumentRef::Term(arg) if arg.0 as usize >= i => {
                             return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: arg.0 });
@@ -493,6 +881,22 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         }
                         _ => {}
                     }
+                }
+                if bundle.header.schema_version >= 8 {
+                    let callee_kind = bundle.types[origin.0 as usize].kind;
+                    let mut actual_kinds = Vec::with_capacity(arguments.len());
+                    for (index, argument) in arguments.iter().enumerate() {
+                        let Some(actual) = argument_kind_id(argument, bundle)? else {
+                            return Err(MetadataValidationError::TypeApplicationArgumentKindMismatch {
+                                node: i as u32,
+                                index,
+                                expected_kind: u32::MAX,
+                                actual_kind: u32::MAX,
+                            });
+                        };
+                        actual_kinds.push(actual);
+                    }
+                    validate_application_kinds(i as u32, callee_kind, &actual_kinds, entry.kind, bundle)?;
                 }
             }
             TypeNode::Union(members) => {
@@ -784,6 +1188,14 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             target: arg.0,
                         });
                     }
+                }
+                if bundle.header.schema_version >= 8 {
+                    let callee_kind = bundle.scoped_types[origin.0 as usize].kind;
+                    let actual_kinds = arguments
+                        .iter()
+                        .map(|argument| bundle.scoped_types[argument.0 as usize].kind)
+                        .collect::<Vec<_>>();
+                    validate_application_kinds(i as u32, callee_kind, &actual_kinds, entry.kind, bundle)?;
                 }
             }
             ScopedTypeNode::Union(members) => {

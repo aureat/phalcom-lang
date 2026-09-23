@@ -62,21 +62,29 @@ pub struct AlgebraicDeclarationProduct {
 impl AlgebraicDeclarationProduct {
     pub fn to_data_declaration_product(&self) -> Option<DataDeclarationProduct> {
         match &self.info.representation {
-            AlgebraicRepresentation::Product(data_info) => Some(DataDeclarationProduct {
-                info: data_info.clone(),
-                diagnostics: self.diagnostics.clone(),
-            }),
+            AlgebraicRepresentation::Product(data_info) => {
+                let mut info = (**data_info).clone();
+                info.static_data = self.info.static_data.clone();
+                Some(DataDeclarationProduct {
+                    info: Arc::new(info),
+                    diagnostics: self.diagnostics.clone(),
+                })
+            }
             AlgebraicRepresentation::Sum(_) => None,
         }
     }
 
     pub fn to_enum_declaration_product(&self) -> Option<EnumDeclarationProduct> {
         match &self.info.representation {
-            AlgebraicRepresentation::Sum(sum_info) => Some(EnumDeclarationProduct {
-                info: sum_info.enum_info.clone(),
-                variants: sum_info.variants.clone(),
-                diagnostics: self.diagnostics.clone(),
-            }),
+            AlgebraicRepresentation::Sum(sum_info) => {
+                let mut info = (*sum_info.enum_info).clone();
+                info.static_data = self.info.static_data.clone();
+                Some(EnumDeclarationProduct {
+                    info: Arc::new(info),
+                    variants: sum_info.variants.clone(),
+                    diagnostics: self.diagnostics.clone(),
+                })
+            }
             AlgebraicRepresentation::Product(_) => None,
         }
     }

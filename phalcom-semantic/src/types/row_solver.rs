@@ -22,13 +22,13 @@ pub enum RecordRowTermTail {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RecordRowTerm {
-    pub fields: Box<[RecordRowField]>,
+pub struct RecordRowTerm<V = TypeId> {
+    pub fields: Box<[RecordRowField<V>]>,
     pub tail: RecordRowTermTail,
 }
 
-impl RecordRowTerm {
-    pub fn new(fields: Vec<RecordRowField>, tail: RecordRowTermTail) -> Result<Self, Box<str>> {
+impl<V> RecordRowTerm<V> {
+    pub fn new(fields: Vec<RecordRowField<V>>, tail: RecordRowTermTail) -> Result<Self, Box<str>> {
         let mut fields = fields;
         fields.sort_by(|left, right| left.name.cmp(&right.name));
         for pair in fields.windows(2) {
@@ -42,10 +42,21 @@ impl RecordRowTerm {
         })
     }
 
-    pub fn closed(fields: Vec<RecordRowField>) -> Result<Self, Box<str>> {
+    pub fn closed(fields: Vec<RecordRowField<V>>) -> Result<Self, Box<str>> {
         Self::new(fields, RecordRowTermTail::Closed)
     }
 
+    fn extension(fields: Vec<RecordRowField<V>>, tail: RecordRowTermTail) -> Self {
+        let mut fields = fields;
+        fields.sort_by(|left, right| left.name.cmp(&right.name));
+        Self {
+            fields: fields.into_boxed_slice(),
+            tail,
+        }
+    }
+}
+
+impl RecordRowTerm<TypeId> {
     pub fn from_canonical(store: &TypeStore, row: RecordRowId) -> Self {
         let data = store.record_row(row);
         Self {
@@ -58,14 +69,6 @@ impl RecordRowTerm {
         }
     }
 
-    fn extension(fields: Vec<RecordRowField>, tail: RecordRowTermTail) -> Self {
-        let mut fields = fields;
-        fields.sort_by(|left, right| left.name.cmp(&right.name));
-        Self {
-            fields: fields.into_boxed_slice(),
-            tail,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -75,15 +78,17 @@ pub struct RecordRowLacks {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct RecordRowSolution {
-    pub substitutions: HashMap<RecordRowVarId, RecordRowTerm>,
+pub struct RecordRowSolution<V = TypeId> {
+    pub substitutions: HashMap<RecordRowVarId, RecordRowTerm<V>>,
 }
 
-impl RecordRowSolution {
-    pub fn term_for(&self, variable: RecordRowVarId) -> Option<&RecordRowTerm> {
+impl<V> RecordRowSolution<V> {
+    pub fn term_for(&self, variable: RecordRowVarId) -> Option<&RecordRowTerm<V>> {
         self.substitutions.get(&variable)
     }
+}
 
+impl RecordRowSolution<TypeId> {
     pub fn zonk_variable_to_canonical(&self, variable: RecordRowVarId, store: &mut TypeStore) -> Result<RecordRowId, RecordRowZonkError> {
         let term = self.term_for(variable).ok_or(RecordRowZonkError::Unsolved(variable))?;
         self.zonk_term_to_canonical(term, store, &mut HashSet::new())
@@ -117,9 +122,9 @@ impl RecordRowSolution {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum RecordRowFailure {
-    OccursCheckFailed { var: RecordRowVarId, term: RecordRowTerm },
-    LacksViolation { field: Box<str>, row: RecordRowTerm },
+pub enum RecordRowFailure<V = TypeId> {
+    OccursCheckFailed { var: RecordRowVarId, term: RecordRowTerm<V> },
+    LacksViolation { field: Box<str>, row: RecordRowTerm<V> },
     IncompatibleFields { field: Box<str>, expected: TypeId, actual: TypeId },
     MissingField { field: Box<str> },
     ExtraField { field: Box<str> },
@@ -150,36 +155,53 @@ pub enum RecordRowZonkError {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum RecordRowSolveResult {
-    Solved(RecordRowSolution),
+pub enum RecordRowSolveResult<V = TypeId> {
+    Solved(RecordRowSolution<V>),
     Underconstrained(RecordRowUnderconstrained),
-    Rejected(RecordRowFailure),
+    Rejected(RecordRowFailure<V>),
     Blocked(RecordRowBlockedReason),
     Cancelled,
     BudgetExceeded(BudgetReport),
     InternalFailure(IncidentId),
 }
 
-enum ControlFailure {
+enum ControlFailure<V = TypeId> {
     Cancelled,
     Budget(BudgetReport),
-    Rejected(RecordRowFailure),
+    Rejected(RecordRowFailure<V>),
 }
 
-pub struct RecordRowSolver {
+/// Shape-solving result. Equal-label payload pairs must be equated by the
+/// owning inference coordinator; row solving itself only owns labels and tails.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecordRowShapeSolveResult<V> {
+    Solved {
+        solution: RecordRowSolution<V>,
+        field_equations: Vec<(Box<str>, V, V)>,
+    },
+    Underconstrained(RecordRowUnderconstrained),
+    Rejected(RecordRowFailure<V>),
+    Blocked(RecordRowBlockedReason),
+    Cancelled,
+    BudgetExceeded(BudgetReport),
+    InternalFailure(IncidentId),
+}
+
+#[derive(Clone, Debug)]
+pub struct RecordRowSolver<V = TypeId> {
     next_var: u32,
     allocated: Vec<RecordRowVarId>,
-    substitutions: HashMap<RecordRowVarId, RecordRowTerm>,
+    substitutions: HashMap<RecordRowVarId, RecordRowTerm<V>>,
     lacks: Vec<RecordRowLacks>,
 }
 
-impl Default for RecordRowSolver {
+impl<V: Clone + Eq> Default for RecordRowSolver<V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RecordRowSolver {
+impl<V: Clone + Eq> RecordRowSolver<V> {
     pub fn new() -> Self {
         Self {
             next_var: 0,
@@ -196,7 +218,7 @@ impl RecordRowSolver {
         id
     }
 
-    pub fn add_lacks(&mut self, row: RecordRowVarId, field: Box<str>) -> Result<(), RecordRowFailure> {
+    pub fn add_lacks(&mut self, row: RecordRowVarId, field: Box<str>) -> Result<(), RecordRowFailure<V>> {
         let row_term = self.normalize_term(&RecordRowTerm::extension(Vec::new(), RecordRowTermTail::Var(row)));
         if self.term_contains_field(&row_term, &field) {
             return Err(RecordRowFailure::LacksViolation { field, row: row_term });
@@ -209,16 +231,16 @@ impl RecordRowSolver {
         Ok(())
     }
 
-    pub fn occurs(&self, var: RecordRowVarId, term: &RecordRowTerm) -> bool {
+    pub fn occurs(&self, var: RecordRowVarId, term: &RecordRowTerm<V>) -> bool {
         let term = self.normalize_term(term);
         matches!(term.tail, RecordRowTermTail::Var(other) if other == var)
     }
 
-    pub fn normalize_term(&self, term: &RecordRowTerm) -> RecordRowTerm {
+    pub fn normalize_term(&self, term: &RecordRowTerm<V>) -> RecordRowTerm<V> {
         self.normalize_term_with_seen(term, &mut HashSet::new())
     }
 
-    fn normalize_term_with_seen(&self, term: &RecordRowTerm, seen: &mut HashSet<RecordRowVarId>) -> RecordRowTerm {
+    fn normalize_term_with_seen(&self, term: &RecordRowTerm<V>, seen: &mut HashSet<RecordRowVarId>) -> RecordRowTerm<V> {
         let mut fields = term.fields.to_vec();
         let tail = match term.tail {
             RecordRowTermTail::Var(variable) => {
@@ -240,14 +262,170 @@ impl RecordRowSolver {
         RecordRowTerm::extension(fields, tail)
     }
 
+    pub fn solve_shapes_for_roots(
+        &mut self,
+        equations: &[(RecordRowTerm<V>, RecordRowTerm<V>)],
+        roots: &[RecordRowVarId],
+        budget: &mut QueryBudget,
+        cancellation: &CancellationToken,
+    ) -> RecordRowShapeSolveResult<V> {
+        self.solve_shapes_for_roots_with_payload_occurs(equations, roots, budget, cancellation, |_, _| false)
+    }
+
+    /// Solves row labels and tails while delegating cross-domain occurs checks
+    /// to the owner of row payloads. Ordinary row callers use the unchecked
+    /// wrapper above because `TypeId` cannot contain query-local row variables.
+    pub fn solve_shapes_for_roots_with_payload_occurs<F>(
+        &mut self,
+        equations: &[(RecordRowTerm<V>, RecordRowTerm<V>)],
+        roots: &[RecordRowVarId],
+        budget: &mut QueryBudget,
+        cancellation: &CancellationToken,
+        mut payload_occurs: F,
+    ) -> RecordRowShapeSolveResult<V>
+    where
+        F: FnMut(RecordRowVarId, &V) -> bool,
+    {
+        let mut field_equations = Vec::new();
+        for (left, right) in equations {
+            match self.unify_shape_with_control(left, right, budget, cancellation, &mut payload_occurs) {
+                Err(ControlFailure::Cancelled) => return RecordRowShapeSolveResult::Cancelled,
+                Err(ControlFailure::Budget(report)) => return RecordRowShapeSolveResult::BudgetExceeded(report),
+                Err(ControlFailure::Rejected(error)) => return RecordRowShapeSolveResult::Rejected(error),
+                Ok(mut equalities) => field_equations.append(&mut equalities),
+            }
+        }
+
+        let unresolved = roots
+            .iter()
+            .copied()
+            .filter(|variable| !self.substitutions.contains_key(variable))
+            .collect::<Vec<_>>();
+        if !unresolved.is_empty() {
+            return RecordRowShapeSolveResult::Underconstrained(RecordRowUnderconstrained {
+                variables: unresolved.into_boxed_slice(),
+            });
+        }
+
+        let substitutions = self
+            .allocated
+            .iter()
+            .filter_map(|variable| {
+                let normalized = self.normalize_term(&RecordRowTerm::extension(Vec::new(), RecordRowTermTail::Var(*variable)));
+                (!matches!(normalized.tail, RecordRowTermTail::Var(current) if current == *variable)).then_some((*variable, normalized))
+            })
+            .collect();
+        RecordRowShapeSolveResult::Solved {
+            solution: RecordRowSolution { substitutions },
+            field_equations,
+        }
+    }
+
+    fn unify_shape_with_control(
+        &mut self,
+        left: &RecordRowTerm<V>,
+        right: &RecordRowTerm<V>,
+        budget: &mut QueryBudget,
+        cancellation: &CancellationToken,
+        payload_occurs: &mut impl FnMut(RecordRowVarId, &V) -> bool,
+    ) -> Result<Vec<(Box<str>, V, V)>, ControlFailure<V>> {
+        cancellation.check().map_err(|_| ControlFailure::Cancelled)?;
+        budget.charge_step().map_err(ControlFailure::Budget)?;
+
+        let left = self.normalize_term(left);
+        let right = self.normalize_term(right);
+        self.validate_fields(&left)?;
+        self.validate_fields(&right)?;
+
+        let mut field_equations = Vec::new();
+        let mut only_left = Vec::new();
+        let mut only_right = Vec::new();
+        for field in left.fields.iter() {
+            if let Some(other) = right.fields.iter().find(|candidate| candidate.name == field.name) {
+                field_equations.push((field.name.clone(), field.ty.clone(), other.ty.clone()));
+            } else {
+                only_left.push(field.clone());
+            }
+        }
+        for field in right.fields.iter() {
+            if !left.fields.iter().any(|candidate| candidate.name == field.name) {
+                only_right.push(field.clone());
+            }
+        }
+
+        if only_left.is_empty() && only_right.is_empty() {
+            self.unify_tails(left.tail, right.tail, budget, cancellation, payload_occurs)?;
+        } else if only_left.is_empty() {
+            self.bind_tail(left.tail, RecordRowTerm::extension(only_right, right.tail), budget, cancellation, payload_occurs)?;
+        } else if only_right.is_empty() {
+            self.bind_tail(right.tail, RecordRowTerm::extension(only_left, left.tail), budget, cancellation, payload_occurs)?;
+        } else {
+            let fresh = self.fresh_var();
+            self.bind_tail(
+                left.tail,
+                RecordRowTerm::extension(only_right, RecordRowTermTail::Var(fresh)),
+                budget,
+                cancellation,
+                payload_occurs,
+            )?;
+            self.bind_tail(
+                right.tail,
+                RecordRowTerm::extension(only_left, RecordRowTermTail::Var(fresh)),
+                budget,
+                cancellation,
+                payload_occurs,
+            )?;
+        }
+        Ok(field_equations)
+    }
+
+    fn term_contains_field(&self, term: &RecordRowTerm<V>, field: &str) -> bool {
+        term.fields.iter().any(|candidate| candidate.name.as_ref() == field)
+    }
+
+    fn propagate_lack_alias(&mut self, row: RecordRowVarId, field: Box<str>) {
+        let normalized = self.normalize_term(&RecordRowTerm::extension(Vec::new(), RecordRowTermTail::Var(row)));
+        if let RecordRowTermTail::Var(next) = normalized.tail {
+            if next != row && !self.lacks.iter().any(|lack| lack.row == next && lack.field == field) {
+                self.lacks.push(RecordRowLacks { row: next, field });
+            }
+        }
+    }
+
+    fn propagate_lacks(&mut self, from: RecordRowVarId, to: RecordRowVarId) {
+        let pending = self
+            .lacks
+            .iter()
+            .filter(|lack| lack.row == from)
+            .map(|lack| lack.field.clone())
+            .collect::<Vec<_>>();
+        for field in pending {
+            if !self.lacks.iter().any(|lack| lack.row == to && lack.field == field) {
+                self.lacks.push(RecordRowLacks { row: to, field });
+            }
+        }
+    }
+
+}
+
+impl RecordRowSolver<TypeId> {
     pub fn unify(&mut self, left: &RecordRowTerm, right: &RecordRowTerm, store: &TypeStore) -> Result<(), RecordRowFailure> {
         let mut budget = QueryBudget::default();
         let cancellation = CancellationToken::new();
-        self.unify_with_control(left, right, store, &mut budget, &cancellation)
-            .map_err(|failure| match failure {
-                ControlFailure::Rejected(error) => error,
-                ControlFailure::Cancelled | ControlFailure::Budget(_) => RecordRowFailure::KindMismatch,
-            })
+        let mut trial = self.clone();
+        let mut payload_occurs = |_: RecordRowVarId, _: &TypeId| false;
+        match trial.unify_shape_with_control(left, right, &mut budget, &cancellation, &mut payload_occurs) {
+            Ok(field_equations) => {
+                if let Some((field, expected, actual)) = field_equations.into_iter().find(|(_, expected, actual)| expected != actual) {
+                    return Err(RecordRowFailure::IncompatibleFields { field, expected, actual });
+                }
+                *self = trial;
+                let _ = store;
+                Ok(())
+            }
+            Err(ControlFailure::Rejected(error)) => Err(error),
+            Err(ControlFailure::Cancelled | ControlFailure::Budget(_)) => Err(RecordRowFailure::KindMismatch),
+        }
     }
 
     pub fn solve(
@@ -268,112 +446,39 @@ impl RecordRowSolver {
         budget: &mut QueryBudget,
         cancellation: &CancellationToken,
     ) -> RecordRowSolveResult {
-        for (left, right) in equations {
-            match self.unify_with_control(left, right, store, budget, cancellation) {
-                Err(ControlFailure::Cancelled) => return RecordRowSolveResult::Cancelled,
-                Err(ControlFailure::Budget(report)) => return RecordRowSolveResult::BudgetExceeded(report),
-                Err(ControlFailure::Rejected(error)) => return RecordRowSolveResult::Rejected(error),
-                Ok(()) => {}
-            }
-        }
-
-        let unresolved = self
-            .allocated
-            .iter()
-            .copied()
-            .filter(|variable| {
-                matches!(
-                    self.normalize_term(&RecordRowTerm::extension(Vec::new(), RecordRowTermTail::Var(*variable))).tail,
-                    RecordRowTermTail::Var(current) if current == *variable
-                )
-            })
-            .collect::<Vec<_>>();
-        if !unresolved.is_empty() {
-            return RecordRowSolveResult::Underconstrained(RecordRowUnderconstrained {
-                variables: unresolved.into_boxed_slice(),
-            });
-        }
-
-        let substitutions = self
-            .allocated
-            .iter()
-            .filter_map(|variable| {
-                let normalized = self.normalize_term(&RecordRowTerm::extension(Vec::new(), RecordRowTermTail::Var(*variable)));
-                (!matches!(normalized.tail, RecordRowTermTail::Var(current) if current == *variable)).then_some((*variable, normalized))
-            })
-            .collect();
-        RecordRowSolveResult::Solved(RecordRowSolution { substitutions })
-    }
-
-    fn unify_with_control(
-        &mut self,
-        left: &RecordRowTerm,
-        right: &RecordRowTerm,
-        _store: &TypeStore,
-        budget: &mut QueryBudget,
-        cancellation: &CancellationToken,
-    ) -> Result<(), ControlFailure> {
-        cancellation.check().map_err(|_| ControlFailure::Cancelled)?;
-        budget.charge_step().map_err(ControlFailure::Budget)?;
-
-        let left = self.normalize_term(left);
-        let right = self.normalize_term(right);
-        self.validate_fields(&left)?;
-        self.validate_fields(&right)?;
-
-        let mut only_left = Vec::new();
-        let mut only_right = Vec::new();
-        for field in left.fields.iter() {
-            if let Some(other) = right.fields.iter().find(|candidate| candidate.name == field.name) {
-                if field.ty != other.ty {
-                    return Err(ControlFailure::Rejected(RecordRowFailure::IncompatibleFields {
-                        field: field.name.clone(),
-                        expected: field.ty,
-                        actual: other.ty,
-                    }));
+        let mut trial = self.clone();
+        let roots = trial.allocated.clone();
+        match trial.solve_shapes_for_roots(equations, &roots, budget, cancellation) {
+            RecordRowShapeSolveResult::Solved { field_equations, solution } => {
+                if let Some((field, expected, actual)) = field_equations.into_iter().find(|(_, expected, actual)| expected != actual) {
+                    return RecordRowSolveResult::Rejected(RecordRowFailure::IncompatibleFields { field, expected, actual });
                 }
-            } else {
-                only_left.push(field.clone());
+                *self = trial;
+                let _ = store;
+                RecordRowSolveResult::Solved(solution)
             }
-        }
-        for field in right.fields.iter() {
-            if !left.fields.iter().any(|candidate| candidate.name == field.name) {
-                only_right.push(field.clone());
+            RecordRowShapeSolveResult::Underconstrained(result) => {
+                *self = trial;
+                RecordRowSolveResult::Underconstrained(result)
             }
+            RecordRowShapeSolveResult::Rejected(error) => RecordRowSolveResult::Rejected(error),
+            RecordRowShapeSolveResult::Blocked(reason) => RecordRowSolveResult::Blocked(reason),
+            RecordRowShapeSolveResult::Cancelled => RecordRowSolveResult::Cancelled,
+            RecordRowShapeSolveResult::BudgetExceeded(report) => RecordRowSolveResult::BudgetExceeded(report),
+            RecordRowShapeSolveResult::InternalFailure(id) => RecordRowSolveResult::InternalFailure(id),
         }
-
-        if only_left.is_empty() && only_right.is_empty() {
-            return self.unify_tails(left.tail, right.tail, budget, cancellation);
-        }
-        if only_left.is_empty() {
-            return self.bind_tail(left.tail, RecordRowTerm::extension(only_right, right.tail), budget, cancellation);
-        }
-        if only_right.is_empty() {
-            return self.bind_tail(right.tail, RecordRowTerm::extension(only_left, left.tail), budget, cancellation);
-        }
-
-        let fresh = self.fresh_var();
-        self.bind_tail(
-            left.tail,
-            RecordRowTerm::extension(only_right, RecordRowTermTail::Var(fresh)),
-            budget,
-            cancellation,
-        )?;
-        self.bind_tail(
-            right.tail,
-            RecordRowTerm::extension(only_left, RecordRowTermTail::Var(fresh)),
-            budget,
-            cancellation,
-        )
     }
+}
 
+impl<V: Clone + Eq> RecordRowSolver<V> {
     fn unify_tails(
         &mut self,
         left: RecordRowTermTail,
         right: RecordRowTermTail,
         budget: &mut QueryBudget,
         cancellation: &CancellationToken,
-    ) -> Result<(), ControlFailure> {
+        payload_occurs: &mut impl FnMut(RecordRowVarId, &V) -> bool,
+    ) -> Result<(), ControlFailure<V>> {
         if left == right {
             return Ok(());
         }
@@ -383,6 +488,7 @@ impl RecordRowSolver {
                 RecordRowTerm::extension(Vec::new(), tail),
                 budget,
                 cancellation,
+                payload_occurs,
             ),
             (expected, actual) => Err(ControlFailure::Rejected(RecordRowFailure::RigidTailMismatch { expected, actual })),
         }
@@ -391,10 +497,11 @@ impl RecordRowSolver {
     fn bind_tail(
         &mut self,
         target: RecordRowTermTail,
-        term: RecordRowTerm,
+        term: RecordRowTerm<V>,
         budget: &mut QueryBudget,
         cancellation: &CancellationToken,
-    ) -> Result<(), ControlFailure> {
+        payload_occurs: &mut impl FnMut(RecordRowVarId, &V) -> bool,
+    ) -> Result<(), ControlFailure<V>> {
         cancellation.check().map_err(|_| ControlFailure::Cancelled)?;
         budget.charge_step().map_err(ControlFailure::Budget)?;
         let term = self.normalize_term(&term);
@@ -432,6 +539,9 @@ impl RecordRowSolver {
                 if self.occurs(variable, &term) {
                     return Err(ControlFailure::Rejected(RecordRowFailure::OccursCheckFailed { var: variable, term }));
                 }
+                if term.fields.iter().any(|field| payload_occurs(variable, &field.ty)) {
+                    return Err(ControlFailure::Rejected(RecordRowFailure::OccursCheckFailed { var: variable, term }));
+                }
                 for lack in self.lacks.iter().filter(|lack| lack.row == variable) {
                     if self.term_contains_field(&term, &lack.field) {
                         return Err(ControlFailure::Rejected(RecordRowFailure::LacksViolation {
@@ -452,7 +562,7 @@ impl RecordRowSolver {
         }
     }
 
-    fn validate_fields(&self, term: &RecordRowTerm) -> Result<(), ControlFailure> {
+    fn validate_fields(&self, term: &RecordRowTerm<V>) -> Result<(), ControlFailure<V>> {
         for pair in term.fields.windows(2) {
             if pair[0].name == pair[1].name {
                 return Err(ControlFailure::Rejected(RecordRowFailure::DuplicateField(pair[0].name.clone())));
@@ -461,30 +571,4 @@ impl RecordRowSolver {
         Ok(())
     }
 
-    fn term_contains_field(&self, term: &RecordRowTerm, field: &str) -> bool {
-        term.fields.iter().any(|candidate| candidate.name.as_ref() == field)
-    }
-
-    fn propagate_lack_alias(&mut self, row: RecordRowVarId, field: Box<str>) {
-        let normalized = self.normalize_term(&RecordRowTerm::extension(Vec::new(), RecordRowTermTail::Var(row)));
-        if let RecordRowTermTail::Var(next) = normalized.tail {
-            if next != row && !self.lacks.iter().any(|lack| lack.row == next && lack.field == field) {
-                self.lacks.push(RecordRowLacks { row: next, field });
-            }
-        }
-    }
-
-    fn propagate_lacks(&mut self, from: RecordRowVarId, to: RecordRowVarId) {
-        let pending = self
-            .lacks
-            .iter()
-            .filter(|lack| lack.row == from)
-            .map(|lack| lack.field.clone())
-            .collect::<Vec<_>>();
-        for field in pending {
-            if !self.lacks.iter().any(|lack| lack.row == to && lack.field == field) {
-                self.lacks.push(RecordRowLacks { row: to, field });
-            }
-        }
-    }
 }

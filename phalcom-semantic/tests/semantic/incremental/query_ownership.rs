@@ -309,6 +309,7 @@ class Owner {
         hierarchy: &hierarchy,
         base_resolver: &resolver,
         declarations: &declarations,
+        type_member_declarations: None,
         type_aliases: &type_aliases,
         field_signatures: None,
         field_lifecycle: None,

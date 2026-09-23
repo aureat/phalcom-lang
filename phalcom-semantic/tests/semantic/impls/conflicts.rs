@@ -210,6 +210,7 @@ fn test_data_component_collision_rejected() {
         owner: point_decl.clone(),
         root_form: store.nominal(point_decl.clone()),
         generic_signature: None,
+        static_data: None,
         shape: DataShape::Record,
         components: vec![data_comp].into_boxed_slice(),
         constructor: DataConstructorSignature {

@@ -112,6 +112,9 @@ pub struct EnumInfo {
     pub owner: DeclarationId,
     pub root_form: TypeId,
     pub generic_signature: Option<GenericSignature>,
+    /// Canonical static-domain declaration product when this algebraic
+    /// declaration is type-only.
+    pub static_data: Option<crate::algebraic_semantics::StaticAlgebraicDeclarationInfo>,
     pub default_result_type: TypeId,
     pub variants: Box<[VariantId]>,
     pub variant_families: Box<[VariantFamilyId]>,

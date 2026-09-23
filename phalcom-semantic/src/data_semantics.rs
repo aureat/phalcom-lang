@@ -50,6 +50,10 @@ pub struct DataInfo {
     pub owner: DeclarationId,
     pub root_form: TypeId,
     pub generic_signature: Option<GenericSignature>,
+    /// Canonical static-domain declaration product when this algebraic
+    /// declaration is type-only. The exporter must consume this product
+    /// rather than enumerate interned TypeStore history.
+    pub static_data: Option<crate::algebraic_semantics::StaticAlgebraicDeclarationInfo>,
     pub shape: DataShape,
     pub components: Box<[DataComponentSemantic]>,
     pub constructor: DataConstructorSignature,

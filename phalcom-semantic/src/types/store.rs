@@ -655,6 +655,22 @@ impl TypeStore {
         self.static_domains.get(id.index())
     }
 
+    /// Enumerates canonical static-domain identities registered in this store.
+    pub fn static_domain_ids(&self) -> impl Iterator<Item = StaticDomainId> + '_ {
+        (0..self.static_domains.len()).map(StaticDomainId::from_index)
+    }
+
+    /// Returns declaration parameters in source order for metadata validation.
+    pub fn type_parameters_for_owner(&self, owner: &TypeParameterOwner) -> Vec<TypeParameterId> {
+        let mut parameters = self
+            .parameter_to_id
+            .iter()
+            .filter_map(|((parameter_owner, index), parameter)| (parameter_owner == owner).then_some((*index, *parameter)))
+            .collect::<Vec<_>>();
+        parameters.sort_by_key(|(index, _)| *index);
+        parameters.into_iter().map(|(_, parameter)| parameter).collect()
+    }
+
     pub fn static_constructor_count(&self) -> usize {
         self.static_constructors.len()
     }

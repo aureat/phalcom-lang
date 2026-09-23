@@ -3,9 +3,9 @@
 use super::id::{KindId, TypeId, TypeParameterId};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RecordRowField {
+pub struct RecordRowField<T = TypeId> {
     pub name: Box<str>,
-    pub ty: TypeId,
+    pub ty: T,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

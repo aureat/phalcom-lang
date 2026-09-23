@@ -6,6 +6,7 @@ use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeS
 use crate::data_semantics::DataSemanticTable;
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::EnumSemanticTable;
+use crate::identity::AssociatedStaticDomainDeclarationId;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::type_alias::TypeAliasTable;
 use crate::types::id::{AlgebraicStaticConstructorId, KindId, ScopedTypeId, StaticDomainId, TypeId, TypeParameterId};
@@ -33,7 +34,7 @@ use phalcom_type_meta::header::{
     TYPE_METADATA_SCHEMA_VERSION,
 };
 use phalcom_type_meta::identity::SourceSpanRef;
-use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef, StableStaticDomainDeclarationRef};
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId, StaticDomainRef};
 use phalcom_type_meta::scoped_type::{
     ScopedCallableParamRef, ScopedCallableTypeRef, ScopedOpenRecordTypeRef, ScopedRecordFieldRef, ScopedRecordTailRef, ScopedTupleElementRef, ScopedTypeNode,
@@ -43,7 +44,7 @@ use phalcom_type_meta::type_node::{
     CallableParamRef, CallableTypeRef, OpenRecordTypeRef, RecordFieldRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef,
     TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 type GenericSignatureKey = (TypeParameterOwner, Box<[TypeParameterId]>, Box<[GenericConstraint]>);
 
@@ -67,6 +68,12 @@ pub enum MetadataExportError {
     InvalidStaticDomain(StaticDomainId),
     #[error("cannot export unknown static constructor {0:?}")]
     InvalidStaticConstructor(AlgebraicStaticConstructorId),
+    #[error("cannot export invalid static-domain catalog for {domain:?}: {reason}")]
+    InvalidStaticDomainCatalog { domain: StaticDomainId, reason: &'static str },
+    #[error("cannot export static domain without its canonical declaration product: {0:?}")]
+    MissingStaticDomainDeclaration(StableStaticDomainDeclarationRef),
+    #[error("cannot export scoped type application with invalid kinding: {0}")]
+    InvalidKindApplication(&'static str),
 }
 
 fn write_stable_project_fingerprint(builder: &mut FingerprintBuilder, project: &StableProjectRef) {
@@ -128,6 +135,8 @@ pub struct MetadataExporter<'a> {
     declarations: Option<&'a DeclarationTypeTable>,
     algebraic_data: Option<&'a DataSemanticTable>,
     algebraic_enums: Option<&'a EnumSemanticTable>,
+    associated_static_domains:
+        Option<&'a BTreeMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
     aliases: Option<&'a TypeAliasTable>,
     callables: Option<&'a CallableSignatureTable>,
     fields: Option<&'a FieldSignatureTable>,
@@ -136,6 +145,7 @@ pub struct MetadataExporter<'a> {
 
     // Deduplication index maps
     kind_map: HashMap<KindData, KindNodeId>,
+    kind_node_map: HashMap<KindNode, KindNodeId>,
     kinds: Vec<KindNodeEntry>,
 
     type_map: HashMap<TypeNode, TypeNodeId>,
@@ -218,12 +228,14 @@ impl<'a> MetadataExporter<'a> {
             declarations,
             algebraic_data: None,
             algebraic_enums: None,
+            associated_static_domains: None,
             aliases: None,
             callables,
             fields,
             profile,
             identity_context: None,
             kind_map: HashMap::new(),
+            kind_node_map: HashMap::new(),
             kinds: Vec::new(),
             type_map: HashMap::new(),
             types: Vec::new(),
@@ -253,6 +265,18 @@ impl<'a> MetadataExporter<'a> {
     pub fn with_algebraic_semantics(mut self, data: &'a DataSemanticTable, enums: &'a EnumSemanticTable) -> Self {
         self.algebraic_data = Some(data);
         self.algebraic_enums = Some(enums);
+        self
+    }
+
+    /// Supplies the current declaration-owned associated static-domain
+    /// products. Interned TypeStore entries are identity storage and may
+    /// outlive a declaration revision, so they are never used as the catalog
+    /// membership authority.
+    pub fn with_associated_static_domains(
+        mut self,
+        domains: &'a BTreeMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>,
+    ) -> Self {
+        self.associated_static_domains = Some(domains);
         self
     }
 
@@ -299,6 +323,225 @@ impl<'a> MetadataExporter<'a> {
             }
             None => Err(MetadataExportError::InvalidStaticDomain(domain)),
         }
+    }
+
+    fn export_static_domain_catalog(
+        &mut self,
+    ) -> Result<Box<[phalcom_type_meta::declaration::StaticDomainDeclarationRecord]>, MetadataExportError> {
+        type CaseMap = BTreeMap<Box<str>, Box<[phalcom_type_meta::kind::KindNodeId]>>;
+        type DomainMap = BTreeMap<
+            StableStaticDomainDeclarationRef,
+            (Vec<phalcom_type_meta::declaration::StaticDomainParameterRecord>, CaseMap),
+        >;
+
+        let mut sources = Vec::new();
+        if let Some(data) = self.algebraic_data {
+            for info in data.data_decls.values() {
+                if let Some(static_data) = &info.static_data {
+                    sources.push((
+                        static_data.domain,
+                        info.owner.clone(),
+                        StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&info.owner)),
+                        None,
+                        static_data.constructors.to_vec(),
+                    ));
+                }
+            }
+        }
+        if let Some(enums) = self.algebraic_enums {
+            for info in enums.enums.values() {
+                if let Some(static_data) = &info.static_data {
+                    sources.push((
+                        static_data.domain,
+                        info.owner.clone(),
+                        StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&info.owner)),
+                        None,
+                        static_data.constructors.to_vec(),
+                    ));
+                }
+            }
+        }
+        if let Some(associated) = self.associated_static_domains {
+            for product in associated.values() {
+                sources.push((
+                    product.domain,
+                    product.id.owner.clone(),
+                    StableStaticDomainDeclarationRef::Associated(phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
+                        owner: self.stable_declaration(&product.id.owner),
+                        name: product.id.name.clone(),
+                    }),
+                    Some(product.id.clone()),
+                    product.constructors.to_vec(),
+                ));
+            }
+        }
+        if self.algebraic_data.is_none() && self.algebraic_enums.is_none() && self.associated_static_domains.is_none() {
+            // A detached TypeStore-only exporter has no workspace snapshot or
+            // declaration products to consult. In that standalone mode the
+            // store is the complete semantic universe. Snapshot-backed export
+            // always attaches canonical products above and never enters this
+            // history-enumeration path.
+            for domain_id in self.store.static_domain_ids() {
+                match self.store.static_domain(domain_id).cloned() {
+                    Some(StaticDomainData::Nominal { declaration }) => sources.push((
+                        domain_id,
+                        declaration.clone(),
+                        StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&declaration)),
+                        None,
+                        self.store.static_constructor_ids_for_domain(domain_id),
+                    )),
+                    Some(StaticDomainData::Associated { declaration, .. }) => sources.push((
+                        domain_id,
+                        declaration.owner.clone(),
+                        StableStaticDomainDeclarationRef::Associated(phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
+                            owner: self.stable_declaration(&declaration.owner),
+                            name: declaration.name.clone(),
+                        }),
+                        Some(declaration),
+                        self.store.static_constructor_ids_for_domain(domain_id),
+                    )),
+                    Some(StaticDomainData::ConstInt) | None => {}
+                }
+            }
+        }
+        sources.sort_by(|left, right| left.2.cmp(&right.2));
+
+        let mut catalog = DomainMap::new();
+        for (domain_id, owner, expected_declaration, expected_associated, constructors) in sources {
+            let domain_data = self.store.static_domain(domain_id).ok_or(MetadataExportError::InvalidStaticDomain(domain_id))?;
+            let (declaration, owner_arguments) = match (expected_associated.as_ref(), domain_data) {
+                (None, StaticDomainData::Nominal { declaration }) if *declaration == owner => (expected_declaration, None),
+                (Some(expected), StaticDomainData::Associated { declaration, owner_arguments }) if declaration == expected => {
+                    (expected_declaration, Some(owner_arguments))
+                }
+                _ => {
+                    return Err(MetadataExportError::InvalidStaticDomainCatalog {
+                        domain: domain_id,
+                        reason: "canonical declaration product does not match its TypeStore domain",
+                    });
+                }
+            };
+
+            // Preserve the stable specialization graph even when a domain has
+            // no observed StaticData term in the exported roots.
+            self.export_static_domain(domain_id)?;
+
+            let owner_parameters = self
+                .store
+                .type_parameters_for_owner(&crate::types::parameter::TypeParameterOwner::Declaration(owner.clone()))
+                .into_iter()
+                .enumerate()
+                .map(|(expected_index, parameter)| {
+                    let data = self.store.type_parameter(parameter);
+                    if data.index as usize != expected_index {
+                        return Err(MetadataExportError::InvalidStaticDomainCatalog {
+                            domain: domain_id,
+                            reason: "owner generic parameter indices are not contiguous",
+                        });
+                    }
+                    let kind = self.export_kind(data.kind)?;
+                    let mode = match data.mode {
+                        GenericParameterMode::Single => GenericParameterModeRef::Single,
+                        GenericParameterMode::PositionalPack => GenericParameterModeRef::PositionalPack,
+                        GenericParameterMode::LabeledPack => GenericParameterModeRef::LabeledPack,
+                        GenericParameterMode::CompletePack => GenericParameterModeRef::CompletePack,
+                    };
+                    Ok(phalcom_type_meta::declaration::StaticDomainParameterRecord { kind, mode })
+                })
+                .collect::<Result<Vec<_>, MetadataExportError>>()?;
+            if owner_arguments.is_some_and(|arguments| arguments.len() != owner_parameters.len()) {
+                return Err(MetadataExportError::InvalidStaticDomainCatalog {
+                    domain: domain_id,
+                    reason: "associated owner environment arity does not match its declaration",
+                });
+            }
+            if let Some(arguments) = owner_arguments {
+                let parameters = self
+                    .store
+                    .type_parameters_for_owner(&crate::types::parameter::TypeParameterOwner::Declaration(owner.clone()));
+                for (&argument, &parameter) in arguments.iter().zip(parameters.iter()) {
+                    let expected = self.store.type_parameter(parameter).kind;
+                    let actual = match argument {
+                        StaticArgument::Term(term) => self.store.kind_of(term),
+                        StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+                    };
+                    if actual != expected {
+                        return Err(MetadataExportError::InvalidStaticDomainCatalog {
+                            domain: domain_id,
+                            reason: "associated owner environment kind does not match its declaration",
+                        });
+                    }
+                }
+            }
+
+            let entry = catalog.entry(declaration.clone()).or_insert_with(|| (owner_parameters.clone(), BTreeMap::new()));
+            if entry.0 != owner_parameters {
+                return Err(MetadataExportError::InvalidStaticDomainCatalog {
+                    domain: domain_id,
+                    reason: "associated specializations disagree about owner parameter kinds",
+                });
+            }
+
+            for constructor_id in constructors {
+                let constructor = self
+                    .store
+                    .static_constructor(constructor_id)
+                    .ok_or(MetadataExportError::InvalidStaticConstructor(constructor_id))?;
+                if constructor.domain != domain_id || constructor.declaration != owner {
+                    return Err(MetadataExportError::InvalidStaticDomainCatalog {
+                        domain: domain_id,
+                        reason: "canonical constructor does not match its static-domain declaration product",
+                    });
+                }
+                let parameter_kinds = constructor
+                    .parameter_kinds
+                    .iter()
+                    .map(|&kind| self.export_kind(kind))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_boxed_slice();
+                match entry.1.get(&constructor.case_name) {
+                    Some(existing) if existing.as_ref() != parameter_kinds.as_ref() => {
+                        return Err(MetadataExportError::InvalidStaticDomainCatalog {
+                            domain: domain_id,
+                            reason: "specialized constructors disagree about payload kinds",
+                        });
+                    }
+                    Some(_) => {}
+                    None => {
+                        entry.1.insert(constructor.case_name.clone(), parameter_kinds);
+                    }
+                }
+            }
+        }
+
+        let catalog_declarations = catalog.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+        for kind in &self.kinds {
+            let KindNode::StaticDomain(domain) = &kind.node else { continue };
+            let declaration = match domain {
+                StaticDomainRef::ConstInt => continue,
+                StaticDomainRef::Nominal { declaration } => StableStaticDomainDeclarationRef::Nominal(declaration.clone()),
+                StaticDomainRef::Associated { declaration, .. } => StableStaticDomainDeclarationRef::Associated(declaration.clone()),
+            };
+            if !catalog_declarations.contains(&declaration) {
+                return Err(MetadataExportError::MissingStaticDomainDeclaration(declaration));
+            }
+        }
+
+        Ok(catalog
+            .into_iter()
+            .map(|(declaration, (owner_parameters, cases))| {
+                phalcom_type_meta::declaration::StaticDomainDeclarationRecord {
+                    declaration,
+                    owner_parameters: owner_parameters.into_boxed_slice(),
+                    cases: cases
+                        .into_iter()
+                        .map(|(name, parameter_kinds)| phalcom_type_meta::declaration::StaticDomainCaseRecord { name, parameter_kinds })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice())
     }
 
     fn export_static_argument(
@@ -398,6 +641,11 @@ impl<'a> MetadataExporter<'a> {
             KindData::StaticDomain(domain) => KindNode::StaticDomain(self.export_static_domain(domain)?),
         };
 
+        if let Some(&id) = self.kind_node_map.get(&node) {
+            self.kind_map.insert(data, id);
+            return Ok(id);
+        }
+
         let mut fp_b = FingerprintBuilder::new();
         match &node {
             KindNode::Type => fp_b.write_u8(1),
@@ -422,8 +670,63 @@ impl<'a> MetadataExporter<'a> {
 
         let id = KindNodeId(self.kinds.len() as u32);
         self.kinds.push(KindNodeEntry { node, structural_fingerprint });
+        self.kind_node_map.insert(self.kinds[id.0 as usize].node.clone(), id);
         self.kind_map.insert(data, id);
         Ok(id)
+    }
+
+    fn intern_exported_arrow_kind(&mut self, mut parameters: Vec<KindNodeId>, mut result: KindNodeId) -> KindNodeId {
+        if parameters.is_empty() {
+            return result;
+        }
+        if let KindNode::Arrow { parameters: nested, result: nested_result } = self.kinds[result.0 as usize].node.clone() {
+            parameters.extend(nested.iter().copied());
+            result = nested_result;
+        }
+        let node = KindNode::Arrow {
+            parameters: parameters.into_boxed_slice(),
+            result,
+        };
+        if let Some(&id) = self.kind_node_map.get(&node) {
+            return id;
+        }
+        let mut fingerprint = FingerprintBuilder::new();
+        fingerprint.write_u8(2);
+        if let KindNode::Arrow { parameters, result } = &node {
+            fingerprint.write_u32(parameters.len() as u32);
+            for &parameter in parameters.iter() {
+                fingerprint.write_fingerprint(self.kinds[parameter.0 as usize].structural_fingerprint);
+            }
+            fingerprint.write_fingerprint(self.kinds[result.0 as usize].structural_fingerprint);
+        }
+        let id = KindNodeId(self.kinds.len() as u32);
+        self.kinds.push(KindNodeEntry {
+            node: node.clone(),
+            structural_fingerprint: fingerprint.finish(),
+        });
+        self.kind_node_map.insert(node, id);
+        id
+    }
+
+    fn apply_exported_kind(&mut self, callee: KindNodeId, arguments: &[KindNodeId]) -> Result<KindNodeId, MetadataExportError> {
+        if arguments.is_empty() {
+            return Ok(callee);
+        }
+        let node = self.kinds[callee.0 as usize].node.clone();
+        let KindNode::Arrow { parameters, result } = node else {
+            return Err(MetadataExportError::InvalidKindApplication("callee kind is not an arrow"));
+        };
+        if arguments.len() > parameters.len() {
+            return Err(MetadataExportError::InvalidKindApplication("too many arguments"));
+        }
+        if arguments.iter().zip(parameters.iter()).any(|(actual, expected)| actual != expected) {
+            return Err(MetadataExportError::InvalidKindApplication("argument kind mismatch"));
+        }
+        if arguments.len() == parameters.len() {
+            Ok(result)
+        } else {
+            Ok(self.intern_exported_arrow_kind(parameters[arguments.len()..].to_vec(), result))
+        }
     }
 
     pub fn export_type_parameter(&mut self, param: TypeParameterId) -> Result<StableTypeParameterRef, MetadataExportError> {
@@ -478,6 +781,7 @@ impl<'a> MetadataExporter<'a> {
         binder_kinds: &[Box<[KindId]>],
     ) -> Result<ScopedTypeNodeId, MetadataExportError> {
         let scoped_data = self.store.arena().get_scoped(scoped_id).clone();
+        let mut computed_kind = None;
         let scoped_node = match scoped_data {
             ScopedTypeData::Bound { depth, index } => ScopedTypeNode::Bound { depth, index },
             ScopedTypeData::Free(ty) => {
@@ -490,6 +794,9 @@ impl<'a> MetadataExporter<'a> {
                 for &arg in arguments.iter() {
                     args.push(self.export_scoped_type_with_binders(arg, binder_kinds)?);
                 }
+                let callee_kind = self.scoped_types[o.0 as usize].kind;
+                let argument_kinds = args.iter().map(|argument| self.scoped_types[argument.0 as usize].kind).collect::<Vec<_>>();
+                computed_kind = Some(self.apply_exported_kind(callee_kind, &argument_kinds)?);
                 ScopedTypeNode::Applied {
                     origin: o,
                     arguments: args.into_boxed_slice(),
@@ -635,6 +942,7 @@ impl<'a> MetadataExporter<'a> {
                 let mut nested_binders = binder_kinds.to_vec();
                 nested_binders.push(lam_data.parameter_kinds.clone());
                 let body = self.export_scoped_type_with_binders(lam_data.body, &nested_binders)?;
+                computed_kind = Some(self.intern_exported_arrow_kind(p_kinds.clone(), self.scoped_types[body.0 as usize].kind));
                 ScopedTypeNode::Lambda {
                     parameter_kinds: p_kinds.into_boxed_slice(),
                     parameter_modes: Some(p_modes.into_boxed_slice()),
@@ -802,25 +1110,29 @@ impl<'a> MetadataExporter<'a> {
             }
         }
         let structural_fingerprint = fp_b.finish();
-        let kind_id = match &scoped_node {
-            ScopedTypeNode::Bound { depth, index } => {
-                let inferred = binder_kinds
-                    .get(binder_kinds.len().saturating_sub(1).saturating_sub(*depth as usize))
-                    .and_then(|layer| layer.get(*index as usize))
-                    .copied()
-                    .unwrap_or(KindId::TYPE);
-                self.export_kind(inferred)
+        let kind_id = if let Some(kind) = computed_kind {
+            Ok(kind)
+        } else {
+            match &scoped_node {
+                ScopedTypeNode::Bound { depth, index } => {
+                    let inferred = binder_kinds
+                        .get(binder_kinds.len().saturating_sub(1).saturating_sub(*depth as usize))
+                        .and_then(|layer| layer.get(*index as usize))
+                        .copied()
+                        .unwrap_or(KindId::TYPE);
+                    self.export_kind(inferred)
+                }
+                ScopedTypeNode::Free(t) => Ok(self.types[t.0 as usize].kind),
+                ScopedTypeNode::TypePack(_) | ScopedTypeNode::TypePackConcat(_) => self.export_kind(KindId::TYPE_PACK),
+                ScopedTypeNode::LabeledTypePack(_) | ScopedTypeNode::LabeledTypePackConcat(_) => self.export_kind(KindId::LABELED_TYPE_PACK),
+                ScopedTypeNode::CompleteTypePack { .. } => self.export_kind(KindId::COMPLETE_TYPE_PACK),
+                ScopedTypeNode::PackProjection { lane, .. } => self.export_kind(match lane {
+                    phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Positionals => KindId::TYPE_PACK,
+                    phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Labeled => KindId::LABELED_TYPE_PACK,
+                    phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Complete => KindId::COMPLETE_TYPE_PACK,
+                }),
+                _ => self.export_kind(KindId::TYPE),
             }
-            ScopedTypeNode::Free(t) => Ok(self.types[t.0 as usize].kind),
-            ScopedTypeNode::TypePack(_) | ScopedTypeNode::TypePackConcat(_) => self.export_kind(KindId::TYPE_PACK),
-            ScopedTypeNode::LabeledTypePack(_) | ScopedTypeNode::LabeledTypePackConcat(_) => self.export_kind(KindId::LABELED_TYPE_PACK),
-            ScopedTypeNode::CompleteTypePack { .. } => self.export_kind(KindId::COMPLETE_TYPE_PACK),
-            ScopedTypeNode::PackProjection { lane, .. } => self.export_kind(match lane {
-                phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Positionals => KindId::TYPE_PACK,
-                phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Labeled => KindId::LABELED_TYPE_PACK,
-                phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Complete => KindId::COMPLETE_TYPE_PACK,
-            }),
-            _ => self.export_kind(KindId::TYPE),
         }?;
         let id = ScopedTypeNodeId(self.scoped_types.len() as u32);
         self.scoped_types.push(ScopedTypeNodeEntry {
@@ -1624,6 +1936,8 @@ impl<'a> MetadataExporter<'a> {
             });
         }
 
+        let static_domain_catalog = self.export_static_domain_catalog()?;
+
         self.parameters.sort_by(|left, right| left.id.cmp(&right.id));
         let mut algebraic_declarations = out_declarations.iter().filter(|record| record.algebraic.is_some()).collect::<Vec<_>>();
         algebraic_declarations.sort_by(|left, right| left.declaration.cmp(&right.declaration));
@@ -1685,6 +1999,38 @@ impl<'a> MetadataExporter<'a> {
                 AlgebraicShapeRef::Sum => 2,
             });
         }
+        interface_builder.write_u32(static_domain_catalog.len() as u32);
+        for domain in static_domain_catalog.iter() {
+            match &domain.declaration {
+                StableStaticDomainDeclarationRef::Nominal(declaration) => {
+                    interface_builder.write_u8(1);
+                    write_stable_declaration_fingerprint(&mut interface_builder, declaration);
+                }
+                StableStaticDomainDeclarationRef::Associated(declaration) => {
+                    interface_builder.write_u8(2);
+                    write_stable_declaration_fingerprint(&mut interface_builder, &declaration.owner);
+                    interface_builder.write_str(&declaration.name);
+                }
+            }
+            interface_builder.write_u32(domain.owner_parameters.len() as u32);
+            for parameter in domain.owner_parameters.iter() {
+                interface_builder.write_fingerprint(self.kinds[parameter.kind.0 as usize].structural_fingerprint);
+                interface_builder.write_u8(match parameter.mode {
+                    GenericParameterModeRef::Single => 1,
+                    GenericParameterModeRef::PositionalPack => 2,
+                    GenericParameterModeRef::LabeledPack => 3,
+                    GenericParameterModeRef::CompletePack => 4,
+                });
+            }
+            interface_builder.write_u32(domain.cases.len() as u32);
+            for case in domain.cases.iter() {
+                interface_builder.write_str(&case.name);
+                interface_builder.write_u32(case.parameter_kinds.len() as u32);
+                for kind in case.parameter_kinds.iter() {
+                    interface_builder.write_fingerprint(self.kinds[kind.0 as usize].structural_fingerprint);
+                }
+            }
+        }
         let interface_fingerprint = interface_builder.finish();
         let header = SemanticMetadataHeader {
             schema_version: TYPE_METADATA_SCHEMA_VERSION,
@@ -1696,7 +2042,7 @@ impl<'a> MetadataExporter<'a> {
             features: MetadataFeatures {
                 type_lambdas: true,
                 record_rows: true,
-                static_domains: self.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(_))),
+                static_domains: !static_domain_catalog.is_empty() || self.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(_))),
                 runtime_type_constants: !out_roots.is_empty(),
                 source_occurrences: false,
                 advanced_sections: Box::new([]),
@@ -1714,6 +2060,7 @@ impl<'a> MetadataExporter<'a> {
             parameters: self.parameters.into_boxed_slice(),
             generic_signatures: self.generic_signatures.into_boxed_slice(),
             declarations: out_declarations.into_boxed_slice(),
+            static_domains: static_domain_catalog,
             aliases: out_aliases.into_boxed_slice(),
             callables: out_callables.into_boxed_slice(),
             fields: out_fields.into_boxed_slice(),

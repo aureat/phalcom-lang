@@ -54,6 +54,7 @@ fn enum_info(owner: DeclarationId, root: phalcom_semantic::types::id::TypeId, va
         owner,
         root_form: root,
         generic_signature: None,
+        static_data: None,
         default_result_type: root,
         variants: variants.iter().map(|variant| variant.id.clone()).collect(),
         variant_families: Box::new([]),

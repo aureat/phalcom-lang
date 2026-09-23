@@ -132,7 +132,7 @@ C3 is complete only when this statement is true:
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
-| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | active; started from completed P1 commit `79e67260` |
+| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | UNVERIFIED | active; existing T7 type-member lane passes, but a new static-case alias regression fails before incremental comparison |
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P2 |
 
 No additional P4 is planned.
@@ -863,6 +863,113 @@ Status: PARTIALLY RESOLVED — cycle policy and focused implementation are in pl
   decided; implementation and focused cycle/application tests remain. See
   [advanced-agent handoff](LANG007.C3.P2-advanced-agent-handoff.md).
 
+### INC-C3-7 — T7 graph invalidation and shell edit triggers
+
+Incident report: [INC-C3-7.md](INC-C3-7.md)
+
+Plan/task: LANG007.C3.P2 / T7 — incremental signature dependencies and shell
+publication.
+Trigger: mandatory trigger 15 (nonlocal incremental invalidation is uncertain) and
+trigger 16 (the live retained-product lifecycle does not satisfy the accepted plan).
+Finding: the Alias/Header/Member graph originally scheduled and classified SCCs but
+was not retained or traversed for reverse invalidation. Existing alias/header maps did
+not cover cross-kind member edges, and retained member products could bypass the
+scheduler. The shell builder also failed to seed affected owners for behavior-only
+inherent impl edits, leaving collision facts stale.
+Decision: use the same stable-identity graph for scheduling, SCC handling, and reverse
+invalidation. Traverse old reverse edges from changed declaration nodes before dropping
+retained products; rebuild the exact consumer closure, refresh edges for recomputed
+products, and apply SCC withholding before publication. Include old and new resolved
+owners for every changed namespace-affecting inherent impl. Keep `AssociatedSurface`
+as the sole selection/collision authority. No plan amendment is required; these
+requirements are already in T7's exact invalidation contract. The current working diff
+now persists the graph/reverse edges, seeds old-graph closure from source-level
+declaration fingerprints before dropping products, and retains old/current inherent
+impl targets for surface rebuilding.
+Verification: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic --lib`
+and `git diff --check` pass. Focused semantic tests were not run against this diff; a
+prior test attempt was blocked before the selected case by the canonical Universe
+parser failure documented in the incident report.
+Status: IMPLEMENTED / UNVERIFIED — compile checked; exact dependent reuse,
+behavior-only collision refresh, and cold/incremental parity remain unverified.
+
+Current focused update (2026-09-23): the semantic test target compiles after
+updating T4/T7 test fixtures, and `incremental::type_members` selects and passes
+12 existing tests. A new `Tensor<Int, Shape::Scalar>` alias/header regression
+fails on its initial cold analysis: zero-payload `ExactEnumCase` formation
+forwards `Shape::Scalar` to contextual trait-associated projection resolution
+and emits `AnnotationUnresolved` for missing conformance evidence. The accepted
+static term must instead be selected through canonical static-domain/case
+authority, with exact dependency recording. The retained-graph edit and cold
+parity portions of this regression remain unverified. The canonical Universe
+`fiber.ph` parser defect was repaired separately; it had masked these tests.
+
+### INC-C3-8 — T4 mixed inference solver ownership and frame scope
+
+Incident report: [INC-C3-8.md](INC-C3-8.md)
+
+Plan/task: LANG007.C3.P2 / T4 — heterogeneous applied inference with row arguments.
+Trigger: mandatory triggers 3 and 5 (solver ownership and lifetime); T4 STOP/CONSULT.
+Finding: the original `type_id_to_inference_with_rows` path made an entire `Applied` or
+`StaticData` term opaque when one child was a `RecordRow`. Ordinary constraints lived in
+a retained query-context `InferenceSession`, but row variables lived in a call-local
+`GenericApplicationSession`.
+Decision: preserve separate `InferVarId` and `RecordRowVarId` identities. Amend T4 so a
+query-context-owned coordinator owns both existing solvers, routes mixed equations, and
+uses explicit frame-scoped row roots. Row variables persist to query-context teardown;
+unresolved cross-frame equations remain for the parent, and child results cannot
+materialize unresolved outer rows. No row identity enters canonical products. The T4
+plan is amended with this contract and required acceptance cases before implementation.
+The row solver is generalized over field payloads: it solves labels/tails and emits
+same-label payload pairs to ordinary inference using `InferenceTerm` payloads without
+fake `TypeId`s. `InferenceCoordinator` owns the ordinary session and a separate row
+solver, alternates both to a fixed point, materializes resolved field terms, and checks
+cross-domain occurs through row fields and substitutions. Nested views inherit active row
+parameter mappings; a child can retain a same-context symbolic result dependent on an
+unresolved ancestor row instead of materializing a canonical generic instantiation.
+Verification: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic --lib` passed.
+No T4 tests were added or run; mixed-argument behavior and nested resolution remain
+unverified. Existing T7 working diff remains `IMPLEMENTED / UNVERIFIED` as recorded under
+INC-C3-7.
+Status: IMPLEMENTED / UNVERIFIED — implementation present; focused acceptance remains open.
+
+### INC-C3-9 — T8 typed catalog and metadata validation boundary
+
+Incident report: [INC-C3-9.md](INC-C3-9.md)
+
+Plan/task: LANG007.C3.P2 / T8 — stable metadata catalog and validation.
+Trigger: metadata could validate that a static constructor's owner matched its domain,
+but the serialized artifact had no declaration/case catalog for membership, payload
+kind, or associated owner-environment checks.
+Decision: schema v8 adds a typed catalog keyed by stable nominal/associated declaration
+identity. Each entry records ordered owner parameter kind/mode pairs and sorted cases
+with ordered payload kinds. Associated owner specialization remains in
+`StaticDomainRef::Associated`. Schemas v1-v7 keep their prior validation behavior; the
+new catalog defaults empty when decoding older bundles, and older readers reject v8.
+Snapshot-backed export consumes canonical current data/enum and associated declaration
+products. It must not infer current declaration membership by enumerating TypeStore
+interning history. v8 validation checks catalog membership, owner arity/kinds, case
+membership, payload arity/kinds, and global/scoped Applied argument and result kinds.
+The bounded implementation is present and `cargo check` passes for type-meta,
+semantic, and core libraries. No tests were run. Cross-module catalog composition,
+import reconstruction, provider invalidation, and cold/incremental parity remain open.
+Status: IMPLEMENTED / UNVERIFIED — schema and exporter slice compiles; T8 remains partial.
+
+### INC-C3-10 — static cases in declaration annotations
+
+Incident report: [INC-C3-10.md](INC-C3-10.md)
+
+Plan/task: LANG007.C3.P2 / T5/T7 — static aliases and all-annotation availability.
+Observed: the new `Tensor<Int, Shape::Scalar>` alias regression fails in cold
+analysis before its incremental assertions. Zero-payload `ExactEnumCase`
+formation routes to contextual trait-associated projection, while checked
+nominal static-case products are built after aliases. The T5 static-alias
+example and T7 all-annotation contract therefore remain unimplemented.
+Decision: pending architectural consultation on early checked case publication,
+unified graph scheduling/cycles, and one selector shared by annotations and
+expressions. Do not add a store-history or source-spelling fallback.
+Status: OPEN / UNVERIFIED — no semantic correction attempted.
+
 Use entries:
 
 ```text
@@ -1015,29 +1122,33 @@ T7 partial
     declaration identity, validate domain arguments, record surface dependencies,
     and preserve declaration identity in the projection. Source-member projection
     identity is focused-tested in alias, generic-header, and field annotations. A
-    same-module `type V = Tensor<Int,
-    Shape::Scalar>` probe still fails because aliases are lowered before source
-    nominal generic signatures exist. Transparent-alias/member-signature
-    cycles are rejected as one deterministic SCC diagnostic, with participant
-    products withheld. The ratified rule is recorded in Type Members and INC-C3-6.
-    Full category-complete early surface publication, reverse dependency invalidation,
-    complete generic-application availability in aliases, and broader heterogeneous
-    owner-argument lookup remain open. Extending the dependency graph to nominal/trait
-    generic headers raises cycle behavior beyond the ratified alias/member rule and
-    is awaiting an architectural decision recorded in INC-C3-6.
+    same-module `Tensor` alias-application gap was traced to shell/header phase
+    ordering; declaration shells now precede contextual binder resolution, and the
+    all-category AssociatedSurface is built from stable declaration shells before
+    checked signatures. The retained Alias/Header/Member graph now seeds reverse
+    invalidation from declaration fingerprints before retained products are removed;
+    selected projections record both namespace and exact signature dependencies.
+    Behavior-only inherent-impl edits seed old and new owners for surface refresh.
+    The accepted mixed-SCC rule and generic-header participation are implemented.
+    This correction compiles, but exact dependent reuse, mixed-cycle edit parity, and
+    behavior-only collision refresh are not verified. The declaration fingerprint
+    pass is module-scoped; graph edge reconstruction and SCC classification still
+    traverse the full graph and remain a performance follow-up. Generic associated
+    owner arguments, payload static-constructor lookup, and complete all-annotation
+    parity remain open.
 
 T8 partial
-    durable applied metadata uses `StaticArgumentRef`; schema v7 preserves source
-    type-member projection identity, associated static-domain declaration identity
-    and owner environment, plus record-row static arguments. Type-meta compatibility
-    tests and semantic metadata round-trip pass. Associated declaration
-    catalog/reference validation and cross-module import/reconstruction remain
-    open. The source index resolves associated static-domain names and case names to
-    stable declaration-based targets; a new two-module test verifies an imported
-    nominal static-case target and canonical resolution retain provider identity while
-    runtime use remains rejected. Focused incremental/cold parity covers a changed
-    associated static-domain case set. Since constructor IDs are store-local,
-    parity compares normalized declaration/case/kind facts rather than raw IDs.
+    schema v8 adds a stable declaration/case catalog, validates associated owner
+    argument kinds and static constructor membership/payload kinds, validates
+    heterogeneous row argument fields/tails, and checks kinded arguments and result
+    kinds for global/scoped Applied nodes. Snapshot-backed export
+    consumes current nominal data/enum products and associated declaration products;
+    the metadata contract does not enumerate retained TypeStore history. Schemas v1-v7
+    retain their existing validation floors. The affected libraries compile, but no
+    v8 behavior tests were run against this diff. Cross-module catalog composition and
+    import reconstruction, provider edit invalidation, and cold/incremental parity
+    remain open. The source index retains the prior focused nominal-case identity
+    evidence; it does not close the broader T8 contract.
 ```
 
 Focused evidence acquired during this P2 continuation:
@@ -1094,12 +1205,14 @@ formatter check reports differences in untouched AST/core/checker files; no form
 changes from that check were retained.
 
 This is partial P2 evidence, not P2 acceptance. The T8 nominal-case target slice is
-implemented and focused-tested (INC-C3-4). Remaining P2 work includes T7's complete
-category surface and precise invalidation, T4 heterogeneous row-argument inference,
-static type-member domain convergence, heterogeneous associated-owner arguments,
-payload static-constructor argument lookup, and cross-module metadata/import plus
-cold/incremental identity certification. T4 has executable focused semantic tests;
-the historical library unit-test filter remains blocked by BASELINE-003.
+implemented and focused-tested (INC-C3-4). T7's shell-built category surface and
+retained reverse-invalidation path are implemented but lack focused behavioral evidence;
+full-graph edge reconstruction and SCC traversal remain a performance concern. Other
+open P2 work includes T4 heterogeneous row-argument inference, static type-member domain
+convergence, heterogeneous associated-owner arguments, payload static-constructor
+argument lookup, and cross-module metadata/import plus cold/incremental identity
+certification. T4 has historical focused semantic tests; the library unit-test filter
+remains blocked by BASELINE-003.
 
 ### P3 evidence
 
@@ -1132,10 +1245,11 @@ next plan:
     LANG007.C3.P2
 
 next action:
-    resolve the INC-C3-6 decision on generic-header participation in the unified
-    declaration dependency graph. Then complete T7's category-complete surface and
-    reverse dependency invalidation, and close T4's heterogeneous row-argument
-    inference plus T8's cross-module metadata/import and cold/incremental identity gates.
+    obtain focused behavioral evidence for T4's mixed row/type inference and nested
+    ancestor-row resolution; obtain T7's incremental/cold-parity evidence for the
+    retained graph and behavior-only inherent-impl surface refresh; then close T8's
+    cross-module metadata/import and cold/incremental identity gates. Keep T7's
+    graph-build/SCC full-traversal performance concern open.
 
 Advanced-agent continuation prompt: [LANG007.C3.P2-advanced-agent-handoff.md](LANG007.C3.P2-advanced-agent-handoff.md).
 
@@ -1145,9 +1259,10 @@ implementation continued. The T5 canonical-Int and source-publication slices are
 focused-tested; P2 remains partial and is not complete. T6 has focused publication and
 identity evidence under the user-ratified INC-C3-2 amendment. T7 has focused static-domain,
 singleton-term, and field/alias/generic-header source-member projection evidence under
-the INC-C3-3 seam, plus the user-ratified INC-C3-6 cycle rule. Category-complete surface
-publication and incremental dependency closure remain. The T8 nominal-case slice is
-focused-tested under INC-C3-4; cross-module and broader identity gates remain.
+the INC-C3-3 seam, plus the user-ratified INC-C3-6 cycle rule. The shell-built surface and
+reverse-invalidation path are now implemented; focused incremental/cold-parity evidence
+and graph-build performance work remain. The T8 nominal-case slice is focused-tested
+under INC-C3-4; cross-module and broader identity gates remain.
 ```
 
 At P1 start:

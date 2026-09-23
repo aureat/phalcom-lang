@@ -11,6 +11,8 @@ use crate::types::row_solver::{
 };
 use crate::types::store::{TypeData, TypeStore};
 use std::collections::HashSet;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use super::inference::InferenceTerm;
 
@@ -45,18 +47,61 @@ pub(crate) struct StableRecordRowLack {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GenericInferenceBinding {
     Type(InferVarId),
+    FixedType(TypeId),
+    UntrackedType,
     RecordRow(RecordRowVarId),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CombinedInferenceFailure {
-    RowRejected(RecordRowFailure),
+pub enum CombinedInferenceFailure<V = TypeId> {
+    RowRejected(RecordRowFailure<V>),
     RowZonk { parameter: TypeParameterId, error: RecordRowZonkError },
     UnderconstrainedType(TypeParameterId),
     UnderconstrainedRow(TypeParameterId),
     Blocked(BlockReason),
     Cancelled,
     BudgetExceeded(BudgetReport),
+}
+
+fn lift_canonical_row_failure(failure: RecordRowFailure<TypeId>) -> RecordRowFailure<InferenceTerm> {
+    match failure {
+        RecordRowFailure::OccursCheckFailed { var, term } => RecordRowFailure::OccursCheckFailed {
+            var,
+            term: RecordRowTerm {
+                fields: term
+                    .fields
+                    .iter()
+                    .map(|field| crate::types::row::RecordRowField {
+                        name: field.name.clone(),
+                        ty: InferenceTerm::Canonical(field.ty),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                tail: term.tail,
+            },
+        },
+        RecordRowFailure::LacksViolation { field, row } => RecordRowFailure::LacksViolation {
+            field,
+            row: RecordRowTerm {
+                fields: row
+                    .fields
+                    .iter()
+                    .map(|field| crate::types::row::RecordRowField {
+                        name: field.name.clone(),
+                        ty: InferenceTerm::Canonical(field.ty),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                tail: row.tail,
+            },
+        },
+        RecordRowFailure::IncompatibleFields { field, expected, actual } => RecordRowFailure::IncompatibleFields { field, expected, actual },
+        RecordRowFailure::MissingField { field } => RecordRowFailure::MissingField { field },
+        RecordRowFailure::ExtraField { field } => RecordRowFailure::ExtraField { field },
+        RecordRowFailure::DuplicateField(field) => RecordRowFailure::DuplicateField(field),
+        RecordRowFailure::RigidTailMismatch { expected, actual } => RecordRowFailure::RigidTailMismatch { expected, actual },
+        RecordRowFailure::KindMismatch => RecordRowFailure::KindMismatch,
+    }
 }
 
 pub(crate) fn collect_stable_record_row_lacks(store: &TypeStore, ty: TypeId) -> Vec<StableRecordRowLack> {
@@ -197,6 +242,61 @@ pub struct GenericApplicationSession {
     pub rows: RecordRowSolver,
     pub parameter_bindings: std::collections::HashMap<TypeParameterId, GenericInferenceBinding>,
     row_equations: Vec<(RecordRowTerm, RecordRowTerm)>,
+    query_session: Option<Rc<RefCell<super::inference::InferenceCoordinator>>>,
+    query_frame: Option<super::inference::InferenceFrameId>,
+}
+
+fn materialize_query_row_term(
+    session: &super::inference::InferenceSession,
+    solution: &RecordRowSolution<InferenceTerm>,
+    term: &RecordRowTerm<InferenceTerm>,
+    parameter: TypeParameterId,
+    store: &mut TypeStore,
+    visiting: &mut HashSet<RecordRowVarId>,
+) -> Result<crate::types::id::RecordRowId, CombinedInferenceFailure<InferenceTerm>> {
+    let mut fields = term
+        .fields
+        .iter()
+        .map(|field| {
+            session
+                .materialize(&field.ty, store)
+                .map(|ty| crate::types::row::RecordRowField {
+                    name: field.name.clone(),
+                    ty,
+                })
+                .map_err(|_| CombinedInferenceFailure::UnderconstrainedType(parameter))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let tail = match term.tail {
+        RecordRowTermTail::Closed => RecordRowTail::Closed,
+        RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+        RecordRowTermTail::Projection(projection) => RecordRowTail::Projection(projection),
+        RecordRowTermTail::Var(variable) => {
+            if !visiting.insert(variable) {
+                return Err(CombinedInferenceFailure::RowZonk {
+                    parameter,
+                    error: RecordRowZonkError::Recursive(variable),
+                });
+            }
+            let Some(next) = solution.term_for(variable) else {
+                return Err(CombinedInferenceFailure::RowZonk {
+                    parameter,
+                    error: RecordRowZonkError::Unsolved(variable),
+                });
+            };
+            let next_id = materialize_query_row_term(session, solution, next, parameter, store, visiting)?;
+            visiting.remove(&variable);
+            let next = store.record_row(next_id).clone();
+            fields.extend(next.fields.into_vec());
+            next.tail
+        }
+    };
+    store
+        .record_row_checked(fields, tail)
+        .map_err(|error| CombinedInferenceFailure::RowZonk {
+            parameter,
+            error: RecordRowZonkError::Formation(error),
+        })
 }
 
 pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
@@ -204,7 +304,7 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
         InferenceTerm::Record(record) => {
             matches!(record.tail, InferenceRecordTail::Var(_)) || record.fields.iter().any(|field| term_has_row_variables(&field.term))
         }
-        InferenceTerm::Applied { origin, arguments } => term_has_row_variables(origin) || arguments.iter().any(term_has_row_variables),
+        InferenceTerm::Applied { origin, arguments } => term_has_row_variables(origin) || arguments.iter().any(static_argument_has_row_variables),
         InferenceTerm::ExactCase { enum_type, .. } => term_has_row_variables(enum_type),
         InferenceTerm::Union(members) => members.iter().any(term_has_row_variables),
         InferenceTerm::Tuple(elements) => elements.iter().any(|element| term_has_row_variables(&element.term)),
@@ -226,8 +326,17 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
             return_type,
         } => term_has_row_variables(positionals) || term_has_row_variables(labeled) || term_has_row_variables(return_type),
         InferenceTerm::PackProjection { subject, .. } => term_has_row_variables(subject),
-        InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(term_has_row_variables),
+        InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(static_argument_has_row_variables),
         InferenceTerm::Canonical(_) | InferenceTerm::Var(_) | InferenceTerm::Rigid(_) => false,
+    }
+}
+
+fn static_argument_has_row_variables(argument: &super::inference::InferenceStaticArgument) -> bool {
+    match argument {
+        super::inference::InferenceStaticArgument::Term(term) => term_has_row_variables(term),
+        super::inference::InferenceStaticArgument::RecordRow(row) => {
+            matches!(row.tail, InferenceRecordTail::Var(_)) || row.fields.iter().any(|field| term_has_row_variables(&field.term))
+        }
     }
 }
 
@@ -260,6 +369,54 @@ impl GenericApplicationSession {
             rows,
             parameter_bindings,
             row_equations: Vec::new(),
+            query_session: None,
+            query_frame: None,
+        }
+    }
+
+    /// Creates a lightweight application view over the query-owned inference
+    /// graph. All row identities allocated here remain valid until the root
+    /// query context is dropped.
+    pub(crate) fn new_for_query_context(
+        generic_signatures: &[&GenericSignature],
+        store: &TypeStore,
+        session: Rc<RefCell<super::inference::InferenceCoordinator>>,
+        frame: super::inference::InferenceFrameId,
+        type_terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>,
+        fixed_generics: &[(TypeParameterId, TypeId)],
+    ) -> Self {
+        let mut parameter_bindings = std::collections::HashMap::new();
+        let fixed_generics = fixed_generics.iter().copied().collect::<std::collections::HashMap<_, _>>();
+        for generic_signature in generic_signatures {
+            for &parameter in generic_signature.parameters.iter() {
+                let kind = store.type_parameter(parameter).kind;
+                let binding = if kind == KindId::RECORD_ROW {
+                    let variable = session.borrow_mut().fresh_record_row_variable_in_frame(frame);
+                    session.borrow_mut().bind_record_row_parameter(frame, parameter, variable);
+                    GenericInferenceBinding::RecordRow(variable)
+                } else if let Some(InferenceTerm::Var(variable)) = type_terms.get(&parameter) {
+                    GenericInferenceBinding::Type(*variable)
+                } else if let Some(&ty) = fixed_generics.get(&parameter) {
+                    GenericInferenceBinding::FixedType(ty)
+                } else {
+                    // Every non-row declaration parameter is normally
+                    // instantiated in `type_terms`; this fallback preserves
+                    // the binding classification if a future domain adds a
+                    // non-inference fixed form.
+                    GenericInferenceBinding::UntrackedType
+                };
+                parameter_bindings.insert(parameter, binding);
+            }
+        }
+        Self {
+            // These legacy fields are retained for the standalone helper API;
+            // query work is routed through `query_session` below.
+            types: super::inference::InferenceSession::new(),
+            rows: RecordRowSolver::new(),
+            parameter_bindings,
+            row_equations: Vec::new(),
+            query_session: Some(session),
+            query_frame: Some(frame),
         }
     }
 
@@ -268,31 +425,54 @@ impl GenericApplicationSession {
             .iter()
             .filter_map(|(&parameter, binding)| match binding {
                 GenericInferenceBinding::Type(variable) => Some((parameter, InferenceTerm::Var(*variable))),
-                GenericInferenceBinding::RecordRow(_) => None,
+                GenericInferenceBinding::FixedType(ty) => Some((parameter, InferenceTerm::Canonical(*ty))),
+                GenericInferenceBinding::RecordRow(_) | GenericInferenceBinding::UntrackedType => None,
             })
             .collect()
     }
 
     pub fn row_terms(&self) -> std::collections::HashMap<TypeParameterId, RecordRowVarId> {
-        self.parameter_bindings
+        let mut terms = self
+            .query_session
+            .as_ref()
+            .zip(self.query_frame)
+            .map(|(session, frame)| session.borrow().row_parameter_terms_for_frame(frame))
+            .unwrap_or_default();
+        terms.extend(self.parameter_bindings
             .iter()
             .filter_map(|(&parameter, binding)| match binding {
                 GenericInferenceBinding::RecordRow(variable) => Some((parameter, *variable)),
-                GenericInferenceBinding::Type(_) => None,
+                GenericInferenceBinding::Type(_) | GenericInferenceBinding::FixedType(_) | GenericInferenceBinding::UntrackedType => None,
             })
-            .collect()
+        );
+        terms
     }
 
     pub fn type_term(&self, ty: TypeId, store: &TypeStore) -> InferenceTerm {
-        self.types.type_id_to_inference_with_rows(ty, &self.type_terms(), &self.row_terms(), store)
+        let type_terms = self.type_terms();
+        let row_terms = self.row_terms();
+        if let Some(session) = &self.query_session {
+            session.borrow().type_id_to_inference_with_rows(ty, &type_terms, &row_terms, store)
+        } else {
+            self.types.type_id_to_inference_with_rows(ty, &type_terms, &row_terms, store)
+        }
     }
 
-    pub fn constrain_signature_type_lacks(&mut self, ty: TypeId, store: &TypeStore) -> Result<(), CombinedInferenceFailure> {
+    pub fn constrain_signature_type_lacks(&mut self, ty: TypeId, store: &TypeStore) -> Result<(), CombinedInferenceFailure<InferenceTerm>> {
         for lack in collect_stable_record_row_lacks(store, ty) {
             let Some(GenericInferenceBinding::RecordRow(variable)) = self.parameter_bindings.get(&lack.parameter).copied() else {
                 continue;
             };
-            self.rows.add_lacks(variable, lack.field).map_err(CombinedInferenceFailure::RowRejected)?;
+            if let Some(session) = &self.query_session {
+                session
+                    .borrow_mut()
+                    .add_record_row_lacks(variable, lack.field)
+                    .map_err(CombinedInferenceFailure::RowRejected)?;
+            } else {
+                self.rows
+                    .add_lacks(variable, lack.field)
+                    .map_err(|failure| CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(failure)))?;
+            }
         }
         Ok(())
     }
@@ -302,7 +482,7 @@ impl GenericApplicationSession {
         actual_ty: TypeId,
         formal: &InferenceRecord,
         store: &TypeStore,
-    ) -> Result<Option<Vec<(InferenceTerm, InferenceTerm)>>, CombinedInferenceFailure> {
+    ) -> Result<Option<Vec<(InferenceTerm, InferenceTerm)>>, CombinedInferenceFailure<InferenceTerm>> {
         let TypeData::Record(actual_row_id) = store.get(actual_ty) else {
             return Ok(None);
         };
@@ -311,9 +491,9 @@ impl GenericApplicationSession {
         for required in formal.fields.iter() {
             let Some(actual_field) = actual_row.find_field(&required.name) else {
                 return if actual_row.tail == RecordRowTail::Closed {
-                    Err(CombinedInferenceFailure::RowRejected(RecordRowFailure::MissingField {
+                    Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(RecordRowFailure::MissingField {
                         field: required.name.clone(),
-                    }))
+                    })))
                 } else {
                     Err(CombinedInferenceFailure::Blocked(BlockReason::RecursiveFixpoint))
                 };
@@ -336,31 +516,55 @@ impl GenericApplicationSession {
             InferenceRecordTail::Closed => {}
             InferenceRecordTail::Parameter(parameter) => {
                 if !extra.is_empty() || actual_tail != RecordRowTermTail::Parameter(parameter) {
-                    return Err(CombinedInferenceFailure::RowRejected(RecordRowFailure::RigidTailMismatch {
+                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(RecordRowFailure::RigidTailMismatch {
                         expected: RecordRowTermTail::Parameter(parameter),
                         actual: actual_tail,
-                    }));
+                    })));
                 }
             }
             InferenceRecordTail::Projection(proj) => {
                 if !extra.is_empty() || actual_tail != RecordRowTermTail::Projection(proj) {
-                    return Err(CombinedInferenceFailure::RowRejected(RecordRowFailure::RigidTailMismatch {
+                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(RecordRowFailure::RigidTailMismatch {
                         expected: RecordRowTermTail::Projection(proj),
                         actual: actual_tail,
-                    }));
+                    })));
                 }
             }
             InferenceRecordTail::Var(variable) => {
-                self.row_equations.push((
-                    RecordRowTerm {
+                if let Some(session) = &self.query_session {
+                    let left = InferenceRecord {
                         fields: Box::new([]),
-                        tail: RecordRowTermTail::Var(variable),
-                    },
-                    RecordRowTerm {
-                        fields: extra.into_boxed_slice(),
-                        tail: actual_tail,
-                    },
-                ));
+                        tail: InferenceRecordTail::Var(variable),
+                    };
+                    let right = InferenceRecord {
+                        fields: extra
+                            .into_iter()
+                            .map(|field| InferenceRecordField {
+                                name: field.name,
+                                term: InferenceTerm::Canonical(field.ty),
+                            })
+                            .collect::<Vec<_>>()
+                            .into_boxed_slice(),
+                        tail: match actual_tail {
+                            RecordRowTermTail::Closed => InferenceRecordTail::Closed,
+                            RecordRowTermTail::Parameter(parameter) => InferenceRecordTail::Parameter(parameter),
+                            RecordRowTermTail::Projection(projection) => InferenceRecordTail::Projection(projection),
+                            RecordRowTermTail::Var(variable) => InferenceRecordTail::Var(variable),
+                        },
+                    };
+                    session.borrow_mut().enqueue_record_row_equation(&left, &right);
+                } else {
+                    self.row_equations.push((
+                        RecordRowTerm {
+                            fields: Box::new([]),
+                            tail: RecordRowTermTail::Var(variable),
+                        },
+                        RecordRowTerm {
+                            fields: extra.into_boxed_slice(),
+                            tail: actual_tail,
+                        },
+                    ));
+                }
             }
         }
         Ok(Some(ordinary))
@@ -368,6 +572,28 @@ impl GenericApplicationSession {
 
     pub fn solve_rows(&mut self, store: &TypeStore, budget: &mut QueryBudget, cancellation: &CancellationToken) -> RecordRowSolveResult {
         self.rows.solve_many(&self.row_equations, store, budget, cancellation)
+    }
+
+    pub fn solve_rows_for_query(&self, budget: &mut QueryBudget, cancellation: &CancellationToken) -> RecordRowSolveResult<InferenceTerm> {
+        let Some(session) = &self.query_session else {
+            return RecordRowSolveResult::InternalFailure(crate::types::row_solver::IncidentId(0));
+        };
+        let roots = self
+            .parameter_bindings
+            .values()
+            .filter_map(|binding| match binding {
+                GenericInferenceBinding::RecordRow(variable) => Some(*variable),
+                GenericInferenceBinding::Type(_) | GenericInferenceBinding::FixedType(_) | GenericInferenceBinding::UntrackedType => None,
+            })
+            .collect::<Vec<_>>();
+        session.borrow().row_solution_for_roots(&roots, budget, cancellation)
+    }
+
+    pub fn has_pending_ancestor_row_dependency(&self, solution: &RecordRowSolution<InferenceTerm>, term: &InferenceTerm) -> bool {
+        let (Some(session), Some(frame)) = (&self.query_session, self.query_frame) else {
+            return false;
+        };
+        session.borrow().term_has_unresolved_ancestor_row(term, solution, frame)
     }
 
     pub fn build_instantiation(
@@ -389,7 +615,7 @@ impl GenericApplicationSession {
         let mut result = GenericInstantiation::default();
         for (&parameter, binding) in &self.parameter_bindings {
             match binding {
-                GenericInferenceBinding::Type(_) => {
+                GenericInferenceBinding::Type(_) | GenericInferenceBinding::FixedType(_) | GenericInferenceBinding::UntrackedType => {
                     let Some(term) = type_terms.get(&parameter) else {
                         return Err(CombinedInferenceFailure::UnderconstrainedType(parameter));
                     };
@@ -405,6 +631,37 @@ impl GenericApplicationSession {
                     let row = row_solution
                         .zonk_variable_to_canonical(*variable, store)
                         .map_err(|error| CombinedInferenceFailure::RowZonk { parameter, error })?;
+                    result.bind_row(parameter, row);
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    pub fn build_instantiation_from_active_terms_in_query(
+        &self,
+        session: &super::inference::InferenceSession,
+        type_terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>,
+        row_solution: &RecordRowSolution<InferenceTerm>,
+        store: &mut TypeStore,
+    ) -> Result<GenericInstantiation, CombinedInferenceFailure<InferenceTerm>> {
+        let mut result = GenericInstantiation::default();
+        for (&parameter, binding) in &self.parameter_bindings {
+            match binding {
+                GenericInferenceBinding::Type(_) | GenericInferenceBinding::FixedType(_) | GenericInferenceBinding::UntrackedType => {
+                    let Some(term) = type_terms.get(&parameter) else {
+                        return Err(CombinedInferenceFailure::UnderconstrainedType(parameter));
+                    };
+                    let ty = session
+                        .materialize(term, store)
+                        .map_err(|_| CombinedInferenceFailure::UnderconstrainedType(parameter))?;
+                    result.bind_type(parameter, ty);
+                }
+                GenericInferenceBinding::RecordRow(variable) => {
+                    let Some(term) = row_solution.term_for(*variable) else {
+                        return Err(CombinedInferenceFailure::UnderconstrainedRow(parameter));
+                    };
+                    let row = materialize_query_row_term(session, row_solution, term, parameter, store, &mut HashSet::new())?;
                     result.bind_row(parameter, row);
                 }
             }
@@ -428,6 +685,8 @@ impl GenericApplicationSession {
                     };
                     result.bind_type(parameter, ty);
                 }
+                GenericInferenceBinding::FixedType(ty) => result.bind_type(parameter, *ty),
+                GenericInferenceBinding::UntrackedType => return Err(CombinedInferenceFailure::UnderconstrainedType(parameter)),
                 GenericInferenceBinding::RecordRow(variable) => {
                     let Some(_) = row_solution.term_for(*variable) else {
                         return Err(CombinedInferenceFailure::UnderconstrainedRow(parameter));

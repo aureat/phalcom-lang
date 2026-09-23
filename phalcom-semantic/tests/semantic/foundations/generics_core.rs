@@ -4,6 +4,7 @@
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate};
 use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::checker::inference::InferenceStaticArgument;
 use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
@@ -248,7 +249,7 @@ fn gate_01_5_e_generic_method_inference_and_occurs_check() {
     let var_t = session.fresh_variable(KindId::TYPE);
     let list_var_term = InferenceTerm::Applied {
         origin: Box::new(InferenceTerm::Canonical(list_form)),
-        arguments: Box::new([InferenceTerm::Var(var_t)]),
+        arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(var_t))]),
     };
     let list_int_term = InferenceTerm::Canonical(list_int);
 
@@ -266,7 +267,7 @@ fn gate_01_5_e_generic_method_inference_and_occurs_check() {
     let var_x = session2.fresh_variable(KindId::TYPE);
     let list_x_term = InferenceTerm::Applied {
         origin: Box::new(InferenceTerm::Canonical(list_form)),
-        arguments: Box::new([InferenceTerm::Var(var_x)]),
+        arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(var_x))]),
     };
 
     session2.add_constraint(

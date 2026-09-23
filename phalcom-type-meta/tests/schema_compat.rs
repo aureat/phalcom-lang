@@ -50,6 +50,7 @@ fn sample_bundle(version: u32, record_rows: bool) -> SemanticMetadataBundle {
         parameters: Box::new([]),
         generic_signatures: Box::new([]),
         declarations: Box::new([]),
+        static_domains: Box::new([]),
         aliases: Box::new([]),
         callables: Box::new([]),
         fields: Box::new([]),
@@ -86,13 +87,13 @@ fn test_unsupported_schema_versions_rejected() {
         }
     );
 
-    // Version 8 (future)
-    let b8 = sample_bundle(8, false);
-    let err8 = validate_metadata_bundle(&b8, &limits).unwrap_err();
+    // Version 9 (future)
+    let b9 = sample_bundle(9, false);
+    let err9 = validate_metadata_bundle(&b9, &limits).unwrap_err();
     assert_eq!(
-        err8,
+        err9,
         MetadataValidationError::UnsupportedSchemaVersion {
-            found: 8,
+            found: 9,
             minimum: MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION,
             maximum: TYPE_METADATA_SCHEMA_VERSION,
         }

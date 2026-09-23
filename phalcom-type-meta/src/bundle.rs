@@ -78,6 +78,10 @@ pub struct SemanticMetadataBundle {
     pub parameters: Box<[TypeParameterRecord]>,
     pub generic_signatures: Box<[GenericSignatureRecord]>,
     pub declarations: Box<[DeclarationTypeRecord]>,
+    /// Stable declaration/case catalog required by schema v8. Older schemas
+    /// decode with an empty catalog and retain their original validation rules.
+    #[serde(default)]
+    pub static_domains: Box<[crate::declaration::StaticDomainDeclarationRecord]>,
     pub aliases: Box<[TypeAliasRecord]>,
     pub callables: Box<[CallableSemanticRecord]>,
     pub fields: Box<[FieldSemanticRecord]>,

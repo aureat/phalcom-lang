@@ -1,7 +1,7 @@
-use crate::db::key::ProductFingerprint;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{AssociatedFamilyId, AssociatedStaticDomainDeclarationId, DataComponentId, DataConstructorId, DeclarationId, VariantId};
 use crate::types::type_member::TypeMemberDeclarationId;
+use phalcom_common::range::SourceRange;
 use phalcom_common::selector::SelectorBase;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -26,6 +26,17 @@ pub enum AssociatedMemberId {
     TypeMember(TypeMemberDeclarationId),
 }
 
+/// Name/category identity collected from a declaration shell before its checked
+/// signature or case product is available.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssociatedMemberShell {
+    pub base: SelectorBase,
+    pub kind: AssociatedFamilyKind,
+    pub member: AssociatedMemberId,
+    pub module: crate::identity::ModuleId,
+    pub source_range: SourceRange,
+}
+
 /// Builds an owner's associated namespace with checked source type members and
 /// associated static-domain declarations. The surface admits names; declaration
 /// products remain the authority for their checked signatures and constructors.
@@ -39,25 +50,38 @@ pub fn build_associated_surface_with_declarations(
     module_id: &crate::identity::ModuleId,
     span: Option<SemanticSourceSpan>,
 ) -> (Arc<AssociatedSurface>, Arc<[SemanticDiagnostic]>) {
-    let (surface, base_diagnostics) = build_associated_surface_with_type_members(
+    let (base, base_diagnostics) = build_associated_surface(owner, variants, behavior_bases, inherited_class_bases, module_id, span);
+    let mut shells = type_members
+        .iter()
+        .map(|member| AssociatedMemberShell {
+            base: associated_base(&member.id.selector),
+            kind: if member.signature.intrinsic.is_some() {
+                AssociatedFamilyKind::IntrinsicTypeMember
+            } else {
+                AssociatedFamilyKind::TypeMember
+            },
+            member: AssociatedMemberId::TypeMember(member.id.clone()),
+            module: member.id.owner.module.clone(),
+            source_range: member.source_range,
+        })
+        .collect::<Vec<_>>();
+    shells.extend(static_domains.iter().map(|domain| AssociatedMemberShell {
+        base: SelectorBase::Named(domain.id.name.to_string()),
+        kind: AssociatedFamilyKind::StaticDomain,
+        member: AssociatedMemberId::StaticDomain(domain.id.clone()),
+        module: domain.id.owner.module.clone(),
+        source_range: domain.source_range,
+    }));
+    let (surface, declaration_diagnostics) = extend_associated_surface_with_shells(
         owner,
-        variants,
-        type_members,
-        behavior_bases,
-        inherited_class_bases,
-        module_id,
-        span,
-    );
-    let (surface, domain_diagnostics) = extend_associated_surface_with_static_domains(
-        owner,
-        surface,
-        static_domains,
+        base,
+        &shells,
         behavior_bases,
         inherited_class_bases,
         module_id,
     );
     let mut diagnostics = base_diagnostics.to_vec();
-    diagnostics.extend(domain_diagnostics.iter().cloned());
+    diagnostics.extend(declaration_diagnostics.iter().cloned());
     (surface, Arc::from(diagnostics.into_boxed_slice()))
 }
 
@@ -69,35 +93,64 @@ pub fn extend_associated_surface_with_static_domains(
     inherited_class_bases: &HashSet<SelectorBase>,
     module_id: &crate::identity::ModuleId,
 ) -> (Arc<AssociatedSurface>, Arc<[SemanticDiagnostic]>) {
+    let shells = static_domains
+        .iter()
+        .map(|domain| AssociatedMemberShell {
+            base: SelectorBase::Named(domain.id.name.to_string()),
+            kind: AssociatedFamilyKind::StaticDomain,
+            member: AssociatedMemberId::StaticDomain(domain.id.clone()),
+            module: domain.id.owner.module.clone(),
+            source_range: domain.source_range,
+        })
+        .collect::<Vec<_>>();
+    extend_associated_surface_with_shells(owner, base_surface, &shells, behavior_bases, inherited_class_bases, module_id)
+}
+
+/// Adds shell identities to a precomputed runtime namespace. Namespace
+/// admission depends only on stable names/categories; checked member products
+/// remain separate and cannot invalidate this surface when only a signature
+/// changes.
+pub fn extend_associated_surface_with_shells(
+    owner: &DeclarationId,
+    base_surface: Arc<AssociatedSurface>,
+    shells: &[AssociatedMemberShell],
+    behavior_bases: &HashSet<SelectorBase>,
+    inherited_class_bases: &HashSet<SelectorBase>,
+    _module_id: &crate::identity::ModuleId,
+) -> (Arc<AssociatedSurface>, Arc<[SemanticDiagnostic]>) {
     let mut surface = (*base_surface).clone();
     let mut diagnostics = Vec::new();
     let mut counts = HashMap::<SelectorBase, usize>::new();
-    for domain in static_domains {
-        *counts.entry(SelectorBase::Named(domain.id.name.to_string())).or_default() += 1;
+    for shell in shells {
+        *counts.entry(shell.base.clone()).or_default() += 1;
     }
-    for domain in static_domains {
-        let base = SelectorBase::Named(domain.id.name.to_string());
+    for shell in shells {
+        let base = shell.base.clone();
         if counts.get(&base).copied().unwrap_or_default() > 1
             || surface.families.contains_key(&base)
             || behavior_bases.contains(&base)
             || inherited_class_bases.contains(&base)
         {
             diagnostics.push(SemanticDiagnostic::error_in(
-                module_id.clone(),
+                shell.module.clone(),
                 DiagnosticCode::EnumFamilyCategoryConflict,
-                format!("associated member `{}` on `{}` conflicts with another owner member", domain.id.name, owner.name),
-                domain.source_range,
+                format!(
+                    "associated member `{}` on `{}` conflicts with another owner member",
+                    format_selector_base(&base),
+                    owner.name
+                ),
+                shell.source_range,
             ));
             continue;
         }
+
         let id = AssociatedFamilyId::new(owner.clone(), base.clone());
         surface.families.insert(
             base,
             AssociatedFamilyInfo {
                 id,
-                kind: AssociatedFamilyKind::StaticDomain,
-                members: Box::new([AssociatedMemberId::StaticDomain(domain.id.clone())]),
-                type_member_signature_fingerprint: None,
+                kind: shell.kind,
+                members: Box::new([shell.member.clone()]),
             },
         );
     }
@@ -118,51 +171,25 @@ pub fn build_associated_surface_with_type_members(
     span: Option<SemanticSourceSpan>,
 ) -> (Arc<AssociatedSurface>, Arc<[SemanticDiagnostic]>) {
     let (base, base_diagnostics) = build_associated_surface(owner, variants, behavior_bases, inherited_class_bases, module_id, span.clone());
-    let mut surface = (*base).clone();
-    let mut diagnostics = base_diagnostics.to_vec();
-    let mut source_selector_counts = HashMap::<SelectorBase, usize>::new();
-    for member in type_members {
-        *source_selector_counts.entry(associated_base(&member.id.selector)).or_default() += 1;
-    }
-
-    for member in type_members {
-        let base = associated_base(&member.id.selector);
-        let conflict = source_selector_counts.get(&base).copied().unwrap_or_default() > 1
-            || surface.families.contains_key(&base)
-            || behavior_bases.contains(&base)
-            || inherited_class_bases.contains(&base);
-        if conflict {
-            diagnostics.push(SemanticDiagnostic::error_in(
-                module_id.clone(),
-                DiagnosticCode::EnumFamilyCategoryConflict,
-                format!(
-                    "associated member `{}` on `{}` conflicts with another owner member",
-                    format_selector_base(&base),
-                    owner.name
-                ),
-                member.source_range,
-            ));
-            continue;
-        }
-
-        let kind = if member.signature.intrinsic.is_some() {
-            AssociatedFamilyKind::IntrinsicTypeMember
-        } else {
-            AssociatedFamilyKind::TypeMember
-        };
-        let id = AssociatedFamilyId::new(owner.clone(), base.clone());
-        surface.families.insert(
-            base,
-            AssociatedFamilyInfo {
-                id,
-                kind,
-                members: Box::new([AssociatedMemberId::TypeMember(member.id.clone())]),
-                type_member_signature_fingerprint: Some(crate::db::fingerprint::type_member_declaration_product_fingerprint(member)),
+    let shells = type_members
+        .iter()
+        .map(|member| AssociatedMemberShell {
+            base: associated_base(&member.id.selector),
+            kind: if member.signature.intrinsic.is_some() {
+                AssociatedFamilyKind::IntrinsicTypeMember
+            } else {
+                AssociatedFamilyKind::TypeMember
             },
-        );
-    }
-
-    (Arc::new(surface), Arc::from(diagnostics.into_boxed_slice()))
+            member: AssociatedMemberId::TypeMember(member.id.clone()),
+            module: member.id.owner.module.clone(),
+            source_range: member.source_range,
+        })
+        .collect::<Vec<_>>();
+    let (surface, member_diagnostics) =
+        extend_associated_surface_with_shells(owner, base, &shells, behavior_bases, inherited_class_bases, module_id);
+    let mut diagnostics = base_diagnostics.to_vec();
+    diagnostics.extend(member_diagnostics.iter().cloned());
+    (surface, Arc::from(diagnostics.into_boxed_slice()))
 }
 
 fn associated_base(selector: &crate::types::type_member::TypeMemberSelector) -> SelectorBase {
@@ -178,8 +205,6 @@ pub struct AssociatedFamilyInfo {
     pub id: AssociatedFamilyId,
     pub kind: AssociatedFamilyKind,
     pub members: Box<[AssociatedMemberId]>,
-    /// Version stamp of the checked signature referenced by a type-member entry.
-    pub type_member_signature_fingerprint: Option<ProductFingerprint>,
 }
 
 /// Complete associated family namespace surface for one declaration.
@@ -289,7 +314,6 @@ pub fn build_associated_surface(
                 id: family_id,
                 kind: AssociatedFamilyKind::Variant,
                 members: members.into_boxed_slice(),
-                type_member_signature_fingerprint: None,
             },
         );
     }
@@ -308,7 +332,6 @@ pub fn build_data_associated_surface(owner: &DeclarationId) -> Arc<AssociatedSur
             id: family_id,
             kind: AssociatedFamilyKind::DataConstructor,
             members: Box::new([AssociatedMemberId::DataConstructor(DataConstructorId::new(owner.clone()))]),
-            type_member_signature_fingerprint: None,
         },
     );
     Arc::new(surface)

@@ -2144,6 +2144,7 @@ pub fn data_declaration_input_fingerprint(product: &crate::db::product::DataDecl
         }
         None => 0u8.hash(&mut hasher),
     }
+    product.info.static_data.hash(&mut hasher);
     for c in product.info.components.iter() {
         c.id.hash(&mut hasher);
         c.external_label.hash(&mut hasher);
@@ -2167,6 +2168,7 @@ pub fn data_declaration_product_fingerprint(product: &crate::db::product::DataDe
         }
         None => 0u8.hash(&mut hasher),
     }
+    product.info.static_data.hash(&mut hasher);
     for c in product.info.components.iter() {
         c.id.hash(&mut hasher);
         c.external_label.hash(&mut hasher);
@@ -2183,6 +2185,7 @@ pub fn enum_declaration_input_fingerprint(product: &crate::db::product::EnumDecl
     let mut hasher = DefaultHasher::new();
     product.info.owner.hash(&mut hasher);
     product.info.root_form.hash(&mut hasher);
+    product.info.static_data.hash(&mut hasher);
     product.info.variants.hash(&mut hasher);
     for v in product.variants.iter() {
         v.id.hash(&mut hasher);
@@ -2215,6 +2218,7 @@ pub fn enum_declaration_input_fingerprint(product: &crate::db::product::EnumDecl
 pub fn enum_declaration_product_fingerprint(product: &crate::db::product::EnumDeclarationProduct) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     product.info.owner.hash(&mut hasher);
+    product.info.static_data.hash(&mut hasher);
     product.info.variants.hash(&mut hasher);
     for v in product.variants.iter() {
         v.id.hash(&mut hasher);
@@ -2270,7 +2274,6 @@ pub fn associated_surface_input_fingerprint(surface: &crate::associated::Associa
         family.id.hash(&mut hasher);
         family.kind.hash(&mut hasher);
         family.members.hash(&mut hasher);
-        family.type_member_signature_fingerprint.hash(&mut hasher);
     }
     finish_input(hasher)
 }
@@ -2283,7 +2286,6 @@ pub fn associated_surface_product_fingerprint(surface: &crate::associated::Assoc
         family.id.hash(&mut hasher);
         family.kind.hash(&mut hasher);
         family.members.hash(&mut hasher);
-        family.type_member_signature_fingerprint.hash(&mut hasher);
     }
     finish_product(hasher)
 }

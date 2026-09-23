@@ -977,9 +977,22 @@ fn apply_generic_callable_in_context(
         return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
     };
 
-    let has_row_generics = domains.has_record_row_parameters(ctx);
+    let has_row_generics = domains.has_record_row_parameters(ctx) || !session_handle.borrow().row_parameter_terms_for_frame(frame).is_empty();
     let domain_signatures = domains.signatures().collect::<Vec<_>>();
-    let mut row_session = has_row_generics.then(|| GenericApplicationSession::new_for_domains(&domain_signatures, ctx.store));
+    let mut var_map = domains.instantiate(&mut session_handle.borrow_mut(), ctx.store, frame, fixed_generics);
+    for &(parameter, ty) in fixed_generics {
+        var_map.insert(parameter, InferenceTerm::Canonical(ty));
+    }
+    let mut row_session = has_row_generics.then(|| {
+        GenericApplicationSession::new_for_query_context(
+            &domain_signatures,
+            ctx.store,
+            session_handle.clone(),
+            frame,
+            &var_map,
+            fixed_generics,
+        )
+    });
     if let Some(rows) = row_session.as_mut() {
         for parameter in signature.parameters.iter() {
             if let Some(ty) = parameter.ty.ty() {
@@ -993,10 +1006,6 @@ fn apply_generic_callable_in_context(
                 record_row_constraint_failure(ctx, failure, call_range);
             }
         }
-    }
-    let mut var_map = domains.instantiate(&mut session_handle.borrow_mut(), ctx.store, frame, fixed_generics);
-    for &(parameter, ty) in fixed_generics {
-        var_map.insert(parameter, InferenceTerm::Canonical(ty));
     }
     let Some(call_id) = ctx.current_expression_id() else {
         ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
@@ -1279,9 +1288,14 @@ fn apply_generic_callable_in_context(
             crate::types::outcome::BlockReason::RecursiveFixpoint,
         ));
     let mut row_outcome = row_session.as_mut().map(|rows| {
-        let store_ref: &crate::types::store::TypeStore = &*ctx.store;
-        ctx.control.relation(|budget, cancellation| rows.solve_rows(store_ref, budget, cancellation))
+        ctx.control.relation(|budget, cancellation| rows.solve_rows_for_query(budget, cancellation))
     });
+    let mut row_pending_ancestor = match (row_session.as_ref(), row_outcome.as_ref()) {
+        (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution))) => {
+            return_term.as_ref().is_some_and(|term| rows.has_pending_ancestor_row_dependency(solution, term))
+        }
+        _ => false,
+    };
     let argument_underconstrained = match &argument_outcome {
         crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value.clone()),
         _ => None,
@@ -1293,6 +1307,7 @@ fn apply_generic_callable_in_context(
             &var_map,
             row_session.as_mut(),
             row_outcome.as_ref(),
+            row_pending_ancestor,
             Some(solution),
             GenericReturnPublication {
                 return_term: return_term.as_ref(),
@@ -1345,7 +1360,7 @@ fn apply_generic_callable_in_context(
                         (row_session.as_ref(), row_outcome.as_ref())
                     {
                         if term_has_row_variables(return_term) {
-                            if let Ok(instantiation) = rows.build_instantiation_from_active_terms(&session_handle.borrow(), &var_map, row_solution, ctx.store) {
+                            if let Ok(instantiation) = rows.build_instantiation_from_active_terms_in_query(&session_handle.borrow(), &var_map, row_solution, ctx.store) {
                                 if let Some(ret_ty) = signature.return_type.ty() {
                                     crate::types::materialize_type(ctx.store, ret_ty, &instantiation, crate::types::RowMaterializationMode::RequireSolvedTail)
                                         .ok()
@@ -1398,9 +1413,14 @@ fn apply_generic_callable_in_context(
                 crate::types::outcome::BlockReason::RecursiveFixpoint,
             ));
         if let Some(rows) = row_session.as_mut() {
-            let store_ref: &crate::types::store::TypeStore = &*ctx.store;
-            row_outcome = Some(ctx.control.relation(|budget, cancellation| rows.solve_rows(store_ref, budget, cancellation)));
+            row_outcome = Some(ctx.control.relation(|budget, cancellation| rows.solve_rows_for_query(budget, cancellation)));
         }
+        row_pending_ancestor = match (row_session.as_ref(), row_outcome.as_ref()) {
+            (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution))) => {
+                return_term.as_ref().is_some_and(|term| rows.has_pending_ancestor_row_dependency(solution, term))
+            }
+            _ => false,
+        };
         result
     } else {
         argument_outcome
@@ -1542,7 +1562,8 @@ fn apply_generic_callable_in_context(
                 | crate::checker::inference::InferenceFailureReason::KindMismatch { var, .. }
                 | crate::checker::inference::InferenceFailureReason::MissingVariableMetadata { var } => session.parameter_for_variable(*var, &var_map),
                 crate::checker::inference::InferenceFailureReason::StructuralMismatch { .. }
-                | crate::checker::inference::InferenceFailureReason::UnresolvedSelf => None,
+                | crate::checker::inference::InferenceFailureReason::UnresolvedSelf
+                | crate::checker::inference::InferenceFailureReason::InternalRowSolverFailure { .. } => None,
             };
             let parents = session.constraint_explanation_roots(&conflict.constraint_indices);
             let explanation = ctx.record_derivation(
@@ -1599,9 +1620,9 @@ fn apply_generic_callable_in_context(
         crate::checker::inference::InferenceOutcome::Solved(_) => {}
     }
 
-    if matches!(outcome, crate::checker::inference::InferenceOutcome::Underconstrained(_)) {
+    if row_pending_ancestor || matches!(outcome, crate::checker::inference::InferenceOutcome::Underconstrained(_)) {
         if let Some(return_term) = return_term.as_ref() {
-            if !term_has_row_variables(return_term) {
+            if row_pending_ancestor || !term_has_row_variables(return_term) {
                 ctx.publish_symbolic_inference_result(
                     call_id,
                     crate::checker::typed_expr::SymbolicInferenceResult {
@@ -1614,12 +1635,14 @@ fn apply_generic_callable_in_context(
     }
 
     match &outcome {
+        crate::checker::inference::InferenceOutcome::Solved(_) if row_pending_ancestor => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
         crate::checker::inference::InferenceOutcome::Solved(solution) => publish_generic_return_with_rows(
             ctx,
             &session_handle.borrow(),
             &var_map,
             row_session.as_mut(),
             row_outcome.as_ref(),
+            false,
             Some(solution),
             GenericReturnPublication {
                 return_term: return_term.as_ref(),
@@ -1731,7 +1754,8 @@ fn publish_generic_return_with_rows(
     session: &InferenceSession,
     type_terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>,
     row_session: Option<&mut GenericApplicationSession>,
-    row_outcome: Option<&crate::types::row_solver::RecordRowSolveResult>,
+    row_outcome: Option<&crate::types::row_solver::RecordRowSolveResult<InferenceTerm>>,
+    pending_ancestor_row_dependency: bool,
     _type_solution: Option<&crate::checker::inference::InferenceSolution>,
     publication: GenericReturnPublication<'_>,
 ) -> TypeKnowledge {
@@ -1743,6 +1767,9 @@ fn publish_generic_return_with_rows(
     let Some(rows) = row_session else {
         return publish_generic_return(ctx, session, return_term, signature_return, call_range);
     };
+    if pending_ancestor_row_dependency {
+        return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+    }
     let Some(return_term) = return_term else {
         return promote_exact_return(signature_return, ExactReturnOrigin::GenericInference, call_range);
     };
@@ -1757,7 +1784,7 @@ fn publish_generic_return_with_rows(
         crate::checker::inference::InferenceProofState::Unknown(reason) => TypeKnowledge::Unknown(reason),
         crate::checker::inference::InferenceProofState::Dynamic(reason) => TypeKnowledge::Dynamic(reason),
         crate::checker::inference::InferenceProofState::Established | crate::checker::inference::InferenceProofState::Assumed => {
-            let instantiation = match rows.build_instantiation_from_active_terms(session, type_terms, row_solution, ctx.store) {
+            let instantiation = match rows.build_instantiation_from_active_terms_in_query(session, type_terms, row_solution, ctx.store) {
                 Ok(instantiation) => instantiation,
                 Err(failure) => {
                     record_row_constraint_failure(ctx, failure, call_range);
@@ -1782,7 +1809,7 @@ fn publish_generic_return_with_rows(
     }
 }
 
-fn record_row_constraint_failure(ctx: &mut CheckingContext<'_>, failure: CombinedInferenceFailure, range: SourceRange) {
+fn record_row_constraint_failure<V>(ctx: &mut CheckingContext<'_>, failure: CombinedInferenceFailure<V>, range: SourceRange) {
     if ctx.call_status_is_recorded() {
         return;
     }
@@ -1952,7 +1979,7 @@ fn record_internal_row_failure(ctx: &mut CheckingContext<'_>, safe_message: &'st
     ctx.record_call_status(AnalysisStatus::InternalFailure(incident));
 }
 
-fn row_failure_diagnostic(store: &TypeStore, failure: &crate::types::row_solver::RecordRowFailure) -> (DiagnosticCode, String) {
+fn row_failure_diagnostic<V>(store: &TypeStore, failure: &crate::types::row_solver::RecordRowFailure<V>) -> (DiagnosticCode, String) {
     match failure {
         crate::types::row_solver::RecordRowFailure::LacksViolation { field, .. } => (
             DiagnosticCode::RecordRowLacksViolation,
@@ -1987,7 +2014,7 @@ fn row_failure_diagnostic(store: &TypeStore, failure: &crate::types::row_solver:
     }
 }
 
-fn record_row_solve_outcome(ctx: &mut CheckingContext<'_>, outcome: &crate::types::row_solver::RecordRowSolveResult, range: SourceRange) {
+fn record_row_solve_outcome<V: Clone>(ctx: &mut CheckingContext<'_>, outcome: &crate::types::row_solver::RecordRowSolveResult<V>, range: SourceRange) {
     match outcome {
         crate::types::row_solver::RecordRowSolveResult::Solved(_) => {}
         crate::types::row_solver::RecordRowSolveResult::Underconstrained(_) => {
@@ -2387,7 +2414,7 @@ fn publish_call_specialization(
     fixed_generics: &[(TypeParameterId, TypeId)],
     exact_argument_bindings: &std::collections::BTreeMap<TypeParameterId, TypeId>,
     type_terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>,
-    session_handle: &std::rc::Rc<std::cell::RefCell<InferenceSession>>,
+    session_handle: &std::rc::Rc<std::cell::RefCell<crate::checker::inference::InferenceCoordinator>>,
     call_range: SourceRange,
 ) {
     let Some(callable) = callable else {

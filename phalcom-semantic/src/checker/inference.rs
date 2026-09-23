@@ -11,13 +11,20 @@ use crate::types::application::TypeApplicationError;
 use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::{AlgebraicStaticConstructorId, KindId, RigidTypeVariableId, StaticDomainId, TypeId, TypeParameterId, VariantTypeId};
 use crate::types::kind::KindData;
-use crate::types::outcome::{BlockReason, BudgetReport};
+use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, QueryBudget};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
 use crate::types::variance::Variance;
+use crate::types::row::RecordRowField;
+use crate::types::row_solver::{
+    RecordRowShapeSolveResult, RecordRowSolution, RecordRowSolveResult, RecordRowSolver, RecordRowTerm, RecordRowTermTail, RecordRowVarId,
+};
 use crate::types::{FamilyMemberType, FamilyMemberTypeKind, FamilyOperationShape, RecordRowTail, TupleTypeElement};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
+use std::rc::{Rc, Weak};
 
 /// Solver-local representation of a trait application in an associated projection.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,7 +43,7 @@ pub enum InferenceTerm {
     Rigid(RigidTypeVariableId),
     Applied {
         origin: Box<InferenceTerm>,
-        arguments: Box<[InferenceTerm]>,
+        arguments: Box<[InferenceStaticArgument]>,
     },
     /// Structural static-data constructor term. Concrete terms may remain
     /// canonical, but symbolic children must stay visible to first-order
@@ -44,7 +51,7 @@ pub enum InferenceTerm {
     StaticData {
         domain: StaticDomainId,
         constructor: AlgebraicStaticConstructorId,
-        arguments: Box<[InferenceTerm]>,
+        arguments: Box<[InferenceStaticArgument]>,
     },
     ExactCase {
         variant: VariantTypeId,
@@ -81,6 +88,32 @@ pub enum InferenceTerm {
         subject: Box<InferenceTerm>,
         lane: InferencePackProjectionLane,
     },
+}
+
+/// One heterogeneous static argument in a solver-local applied term. Row
+/// arguments retain their own identity space and are routed by the query
+/// inference coordinator instead of being coerced into ordinary type terms.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InferenceStaticArgument {
+    Term(InferenceTerm),
+    RecordRow(InferenceRecord),
+}
+
+impl InferenceStaticArgument {
+    pub fn term(&self) -> Option<&InferenceTerm> {
+        match self {
+            Self::Term(term) => Some(term),
+            Self::RecordRow(_) => None,
+        }
+    }
+}
+
+fn static_terms(arguments: &[InferenceStaticArgument]) -> Option<Vec<InferenceTerm>> {
+    arguments.iter().map(|argument| argument.term().cloned()).collect()
+}
+
+fn inference_arguments_from_terms(arguments: &[InferenceTerm]) -> Box<[InferenceStaticArgument]> {
+    arguments.iter().cloned().map(InferenceStaticArgument::Term).collect::<Vec<_>>().into_boxed_slice()
 }
 
 /// A labeled element inside a solver-local labeled type pack.
@@ -161,6 +194,7 @@ pub enum InferenceFailureReason {
     MissingVariableMetadata { var: InferVarId },
     StructuralMismatch { left: Box<InferenceTerm>, right: Box<InferenceTerm> },
     UnresolvedSelf,
+    InternalRowSolverFailure { incident: u64 },
 }
 
 /// Description of an inference variable.
@@ -246,6 +280,124 @@ pub struct RequiredInferencePremise {
 struct InferenceSubtypeEdge {
     sub: InferVarId,
     sup: InferVarId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PendingInferenceRowEquation {
+    left: InferenceRecord,
+    right: InferenceRecord,
+    diagnostic_left: InferenceTerm,
+    diagnostic_right: InferenceTerm,
+}
+
+fn record_term_for_row_solver(record: &InferenceRecord) -> RecordRowTerm<InferenceTerm> {
+    RecordRowTerm {
+        fields: record
+            .fields
+            .iter()
+            .map(|field| RecordRowField {
+                name: field.name.clone(),
+                ty: field.term.clone(),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        tail: match record.tail {
+            InferenceRecordTail::Closed => RecordRowTermTail::Closed,
+            InferenceRecordTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
+            InferenceRecordTail::Projection(projection) => RecordRowTermTail::Projection(projection),
+            InferenceRecordTail::Var(variable) => RecordRowTermTail::Var(variable),
+        },
+    }
+}
+
+fn inference_term_contains_row_variable(
+    term: &InferenceTerm,
+    target: RecordRowVarId,
+    row_solver: &RecordRowSolver<InferenceTerm>,
+    var_terms: &HashMap<InferVarId, InferenceTerm>,
+    aliases: &HashMap<InferVarId, InferVarId>,
+    visiting: &mut HashSet<InferVarId>,
+) -> bool {
+    macro_rules! visit {
+        ($nested:expr) => {
+            inference_term_contains_row_variable($nested, target, row_solver, var_terms, aliases, visiting)
+        };
+    }
+    match term {
+        InferenceTerm::Var(variable) => {
+            let mut representative = *variable;
+            while let Some(next) = aliases.get(&representative).copied() {
+                if next == representative {
+                    break;
+                }
+                representative = next;
+            }
+            if !visiting.insert(representative) {
+                return false;
+            }
+            let contains = var_terms.get(&representative).or_else(|| var_terms.get(variable)).is_some_and(|nested| visit!(nested));
+            visiting.remove(&representative);
+            contains
+        }
+        InferenceTerm::Applied { origin, arguments } => {
+            visit!(origin) || arguments.iter().any(|argument| inference_static_argument_contains_row_variable(argument, target, row_solver, var_terms, aliases, visiting))
+        }
+        InferenceTerm::StaticData { arguments, .. } => arguments
+            .iter()
+            .any(|argument| inference_static_argument_contains_row_variable(argument, target, row_solver, var_terms, aliases, visiting)),
+        InferenceTerm::ExactCase { enum_type, .. } => visit!(enum_type),
+        InferenceTerm::Union(members) => members.iter().any(|nested| visit!(nested)),
+        InferenceTerm::Tuple(elements) => elements.iter().any(|element| visit!(&element.term)),
+        InferenceTerm::Callable(callable) => {
+            callable.parameters.iter().any(|parameter| visit!(&parameter.term)) || visit!(&callable.return_type)
+        }
+        InferenceTerm::Record(record) => inference_record_contains_row_variable(record, target, row_solver, var_terms, aliases, visiting),
+        InferenceTerm::Family(family) => family.iter().any(|member| visit!(&member.term)),
+        InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
+            visit!(subject) || trait_ref.arguments.iter().any(|nested| visit!(nested))
+        }
+        InferenceTerm::TypePack(elements) => elements.iter().any(|nested| visit!(nested)),
+        InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|element| visit!(&element.term)),
+        InferenceTerm::CompleteTypePack { positionals, labeled } => visit!(positionals) || visit!(labeled),
+        InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => segments.iter().any(|nested| visit!(nested)),
+        InferenceTerm::TupleFromPacks { positionals, labeled } => visit!(positionals) || visit!(labeled),
+        InferenceTerm::CallableFromPacks { positionals, labeled, return_type } => {
+            visit!(positionals) || visit!(labeled) || visit!(return_type)
+        }
+        InferenceTerm::PackProjection { subject, .. } => visit!(subject),
+        InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => false,
+    }
+}
+
+fn inference_static_argument_contains_row_variable(
+    argument: &InferenceStaticArgument,
+    target: RecordRowVarId,
+    row_solver: &RecordRowSolver<InferenceTerm>,
+    var_terms: &HashMap<InferVarId, InferenceTerm>,
+    aliases: &HashMap<InferVarId, InferVarId>,
+    visiting: &mut HashSet<InferVarId>,
+) -> bool {
+    match argument {
+        InferenceStaticArgument::Term(term) => inference_term_contains_row_variable(term, target, row_solver, var_terms, aliases, visiting),
+        InferenceStaticArgument::RecordRow(record) => {
+            inference_record_contains_row_variable(record, target, row_solver, var_terms, aliases, visiting)
+        }
+    }
+}
+
+fn inference_record_contains_row_variable(
+    record: &InferenceRecord,
+    target: RecordRowVarId,
+    row_solver: &RecordRowSolver<InferenceTerm>,
+    var_terms: &HashMap<InferVarId, InferenceTerm>,
+    aliases: &HashMap<InferVarId, InferVarId>,
+    visiting: &mut HashSet<InferVarId>,
+) -> bool {
+    let normalized = row_solver.normalize_term(&record_term_for_row_solver(record));
+    matches!(normalized.tail, RecordRowTermTail::Var(variable) if variable == target)
+        || normalized.fields.iter().any(|field| {
+            inference_term_contains_row_variable(&field.ty, target, row_solver, var_terms, aliases, visiting)
+        })
 }
 
 /// Kind of constraint relation.
@@ -410,6 +562,11 @@ pub struct InferenceSession {
     frames: Vec<InferenceFrame>,
     root_frame: Option<InferenceFrameId>,
     next_frame_index: u32,
+    /// Non-owning access for structural term traversal and materialization.
+    /// `InferenceCoordinator` owns the row solver alongside this session.
+    row_solver: Weak<RefCell<RecordRowSolver<InferenceTerm>>>,
+    pending_row_equations: Vec<PendingInferenceRowEquation>,
+    queued_row_equations: Vec<PendingInferenceRowEquation>,
 }
 
 #[derive(Clone, Debug)]
@@ -423,6 +580,37 @@ struct CanonicalConstructorView {
 impl InferenceSession {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn enqueue_row_equation(
+        &mut self,
+        left: &InferenceRecord,
+        right: &InferenceRecord,
+        diagnostic_left: &InferenceTerm,
+        diagnostic_right: &InferenceTerm,
+    ) -> SolveEffect {
+        let equation = PendingInferenceRowEquation {
+            left: left.clone(),
+            right: right.clone(),
+            diagnostic_left: diagnostic_left.clone(),
+            diagnostic_right: diagnostic_right.clone(),
+        };
+        if self.queued_row_equations.iter().any(|queued| queued.left == equation.left && queued.right == equation.right) {
+            return SolveEffect::Unchanged;
+        }
+        self.queued_row_equations.push(equation.clone());
+        self.pending_row_equations.push(equation);
+        SolveEffect::Changed
+    }
+
+    pub(crate) fn enqueue_record_row_equation(&mut self, left: &InferenceRecord, right: &InferenceRecord) -> SolveEffect {
+        let diagnostic_left = InferenceTerm::Record(left.clone());
+        let diagnostic_right = InferenceTerm::Record(right.clone());
+        self.enqueue_row_equation(left, right, &diagnostic_left, &diagnostic_right)
+    }
+
+    fn take_pending_row_equations(&mut self) -> Vec<PendingInferenceRowEquation> {
+        std::mem::take(&mut self.pending_row_equations)
     }
 
     /// Returns the root application frame, creating it for standalone callers
@@ -717,13 +905,11 @@ impl InferenceSession {
             }
             TypeData::Applied { origin, arguments } => {
                 let orig_term = self.type_id_to_inference(*origin, subst, store);
-                let Some(arg_terms) = arguments
+                let row_subst = HashMap::new();
+                let arg_terms = arguments
                     .iter()
-                    .map(|argument| argument.as_type_id().map(|argument| self.type_id_to_inference(argument, subst, store)))
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    return InferenceTerm::Canonical(ty);
-                };
+                    .map(|argument| self.static_argument_to_inference_with_rows(argument, subst, &row_subst, store))
+                    .collect::<Vec<_>>();
                 InferenceTerm::Applied {
                     origin: Box::new(orig_term),
                     arguments: arg_terms.into_boxed_slice(),
@@ -733,15 +919,14 @@ impl InferenceSession {
                 let arguments = term
                     .arguments
                     .iter()
-                    .map(|argument| argument.as_type_id().map(|argument| self.type_id_to_inference(argument, subst, store)))
-                    .collect::<Option<Vec<_>>>();
-                match arguments {
-                    Some(arguments) => InferenceTerm::StaticData {
-                        domain: term.domain,
-                        constructor: term.constructor,
-                        arguments: arguments.into_boxed_slice(),
-                    },
-                    None => InferenceTerm::Canonical(ty),
+                    .map(|argument| {
+                        self.static_argument_to_inference_with_rows(argument, subst, &HashMap::new(), store)
+                    })
+                    .collect::<Vec<_>>();
+                InferenceTerm::StaticData {
+                    domain: term.domain,
+                    constructor: term.constructor,
+                    arguments: arguments.into_boxed_slice(),
                 }
             }
             TypeData::ExactCase { variant, enum_type } => {
@@ -910,13 +1095,10 @@ impl InferenceSession {
         match store.get(ty) {
             TypeData::Parameter(parameter) => subst.get(parameter).cloned().unwrap_or(InferenceTerm::Canonical(ty)),
             TypeData::Applied { origin, arguments } => {
-                let Some(arguments) = arguments
+                let arguments = arguments
                     .iter()
-                    .map(|argument| argument.as_type_id().map(|argument| self.type_id_to_inference_with_rows(argument, subst, row_subst, store)))
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    return InferenceTerm::Canonical(ty);
-                };
+                    .map(|argument| self.static_argument_to_inference_with_rows(argument, subst, row_subst, store))
+                    .collect::<Vec<_>>();
                 InferenceTerm::Applied {
                     origin: Box::new(self.type_id_to_inference_with_rows(*origin, subst, row_subst, store)),
                     arguments: arguments.into_boxed_slice(),
@@ -926,19 +1108,12 @@ impl InferenceSession {
                 let arguments = term
                     .arguments
                     .iter()
-                    .map(|argument| {
-                        argument
-                            .as_type_id()
-                            .map(|argument| self.type_id_to_inference_with_rows(argument, subst, row_subst, store))
-                    })
-                    .collect::<Option<Vec<_>>>();
-                match arguments {
-                    Some(arguments) => InferenceTerm::StaticData {
-                        domain: term.domain,
-                        constructor: term.constructor,
-                        arguments: arguments.into_boxed_slice(),
-                    },
-                    None => InferenceTerm::Canonical(ty),
+                    .map(|argument| self.static_argument_to_inference_with_rows(argument, subst, row_subst, store))
+                    .collect::<Vec<_>>();
+                InferenceTerm::StaticData {
+                    domain: term.domain,
+                    constructor: term.constructor,
+                    arguments: arguments.into_boxed_slice(),
                 }
             }
             TypeData::ExactCase { variant, enum_type } => InferenceTerm::ExactCase {
@@ -1095,6 +1270,40 @@ impl InferenceSession {
         }
     }
 
+    fn static_argument_to_inference_with_rows(
+        &self,
+        argument: &crate::types::store::StaticArgument,
+        subst: &HashMap<TypeParameterId, InferenceTerm>,
+        row_subst: &HashMap<TypeParameterId, crate::types::row_solver::RecordRowVarId>,
+        store: &TypeStore,
+    ) -> InferenceStaticArgument {
+        match argument {
+            crate::types::store::StaticArgument::Term(ty) => InferenceStaticArgument::Term(self.type_id_to_inference_with_rows(*ty, subst, row_subst, store)),
+            crate::types::store::StaticArgument::RecordRow(row) => {
+                let canonical = store.record_row(*row);
+                InferenceStaticArgument::RecordRow(InferenceRecord {
+                    fields: canonical
+                        .fields
+                        .iter()
+                        .map(|field| InferenceRecordField {
+                            name: field.name.clone(),
+                            term: self.type_id_to_inference_with_rows(field.ty, subst, row_subst, store),
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                    tail: match canonical.tail {
+                        RecordRowTail::Closed => InferenceRecordTail::Closed,
+                        RecordRowTail::Parameter(parameter) => row_subst
+                            .get(&parameter)
+                            .copied()
+                            .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
+                        RecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
+                    },
+                })
+            }
+        }
+    }
+
     /// Materializes an inference term for bidirectional checking while
     /// retaining unresolved generic variables as inference terms. Solved
     /// variables become canonical types; unresolved ones stay solver-local so
@@ -1114,9 +1323,9 @@ impl InferenceSession {
                 let origin = self.materialize_for_expected(origin, store)?;
                 let arguments = arguments
                     .iter()
-                    .map(|argument| self.materialize_for_expected(argument, store))
+                    .map(|argument| self.materialize_static_argument_for_expected(argument, store))
                     .collect::<Option<Vec<_>>>()?;
-                store.apply_type_form(origin, &arguments).ok()
+                store.apply_static_form(origin, &arguments).ok()
             }
             InferenceTerm::StaticData {
                 domain,
@@ -1125,7 +1334,7 @@ impl InferenceSession {
             } => {
                 let arguments = arguments
                     .iter()
-                    .map(|argument| self.materialize_for_expected(argument, store).map(crate::types::store::StaticArgument::Term))
+                    .map(|argument| self.materialize_static_argument_for_expected(argument, store))
                     .collect::<Option<Vec<_>>>()?;
                 store.static_data(*domain, *constructor, arguments.into_boxed_slice()).ok()
             }
@@ -1281,6 +1490,35 @@ impl InferenceSession {
         }
     }
 
+    fn materialize_static_argument_for_expected(
+        &self,
+        argument: &InferenceStaticArgument,
+        store: &mut TypeStore,
+    ) -> Option<crate::types::store::StaticArgument> {
+        match argument {
+            InferenceStaticArgument::Term(term) => self.materialize_for_expected(term, store).map(crate::types::store::StaticArgument::Term),
+            InferenceStaticArgument::RecordRow(row) => {
+                let fields = row
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        Some(crate::types::row::RecordRowField {
+                            name: field.name.clone(),
+                            ty: self.materialize_for_expected(&field.term, store)?,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                let tail = match row.tail {
+                    InferenceRecordTail::Closed => RecordRowTail::Closed,
+                    InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+                    InferenceRecordTail::Projection(projection) => RecordRowTail::Projection(projection),
+                    InferenceRecordTail::Var(_) => return None,
+                };
+                store.record_row_checked(fields, tail).ok().map(crate::types::store::StaticArgument::RecordRow)
+            }
+        }
+    }
+
     /// Lowers an application of a canonical type lambda into an inference term.
     ///
     /// Ordinary beta reduction requires canonical arguments. During generic
@@ -1296,7 +1534,11 @@ impl InferenceSession {
             return None;
         }
 
-        self.scoped_to_inference(lambda.body, 0, arguments, store)
+        let arguments = arguments
+            .iter()
+            .map(|argument| argument.term().cloned())
+            .collect::<Option<Vec<_>>>()?;
+        self.scoped_to_inference(lambda.body, 0, &arguments, store)
     }
 
     fn scoped_to_inference(&self, scoped: crate::types::id::ScopedTypeId, depth: u32, arguments: &[InferenceTerm], store: &TypeStore) -> Option<InferenceTerm> {
@@ -1310,7 +1552,7 @@ impl InferenceSession {
                 origin: Box::new(self.scoped_to_inference(origin, depth, arguments, store)?),
                 arguments: nested_arguments
                     .iter()
-                    .map(|&argument| self.scoped_to_inference(argument, depth, arguments, store))
+                    .map(|&argument| self.scoped_to_inference(argument, depth, arguments, store).map(InferenceStaticArgument::Term))
                     .collect::<Option<Vec<_>>>()?
                     .into_boxed_slice(),
             }),
@@ -1506,11 +1748,11 @@ impl InferenceSession {
             .map_err(|_| InferenceFailureReason::StructuralMismatch {
                 left: Box::new(InferenceTerm::Applied {
                     origin: Box::new(left_origin.clone()),
-                    arguments: left_arguments.to_vec().into_boxed_slice(),
+                    arguments: inference_arguments_from_terms(left_arguments),
                 }),
                 right: Box::new(InferenceTerm::Applied {
                     origin: Box::new(right_origin.clone()),
-                    arguments: right_arguments.to_vec().into_boxed_slice(),
+                    arguments: inference_arguments_from_terms(right_arguments),
                 }),
             })?;
         let Some(view) = self.canonical_constructor_view(actual, store) else {
@@ -1531,11 +1773,11 @@ impl InferenceSession {
                 .ok_or_else(|| InferenceFailureReason::StructuralMismatch {
                     left: Box::new(InferenceTerm::Applied {
                         origin: Box::new(left_origin.clone()),
-                        arguments: left_arguments.to_vec().into_boxed_slice(),
+                        arguments: inference_arguments_from_terms(left_arguments),
                     }),
                     right: Box::new(InferenceTerm::Applied {
                         origin: Box::new(right_origin.clone()),
-                        arguments: right_arguments.to_vec().into_boxed_slice(),
+                        arguments: inference_arguments_from_terms(right_arguments),
                     }),
                 })?
         };
@@ -1666,7 +1908,7 @@ impl InferenceSession {
                 origin: Box::new(self.term_for_expected(origin)),
                 arguments: arguments
                     .iter()
-                    .map(|argument| self.term_for_expected(argument))
+                    .map(|argument| self.static_argument_for_expected(argument))
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
             },
@@ -1679,7 +1921,7 @@ impl InferenceSession {
                 constructor: *constructor,
                 arguments: arguments
                     .iter()
-                    .map(|argument| self.term_for_expected(argument))
+                    .map(|argument| self.static_argument_for_expected(argument))
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
             },
@@ -1797,6 +2039,24 @@ impl InferenceSession {
                 subject: Box::new(self.term_for_expected(subject)),
                 lane: *lane,
             },
+        }
+    }
+
+    fn static_argument_for_expected(&self, argument: &InferenceStaticArgument) -> InferenceStaticArgument {
+        match argument {
+            InferenceStaticArgument::Term(term) => InferenceStaticArgument::Term(self.term_for_expected(term)),
+            InferenceStaticArgument::RecordRow(row) => InferenceStaticArgument::RecordRow(InferenceRecord {
+                fields: row
+                    .fields
+                    .iter()
+                    .map(|field| InferenceRecordField {
+                        name: field.name.clone(),
+                        term: self.term_for_expected(&field.term),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                tail: row.tail,
+            }),
         }
     }
 
@@ -2329,9 +2589,9 @@ impl InferenceSession {
                 !self.substitutions.contains_key(&representative)
             }
             InferenceTerm::Applied { origin, arguments } => {
-                self.term_has_unresolved_variables(origin) || arguments.iter().any(|argument| self.term_has_unresolved_variables(argument))
+                self.term_has_unresolved_variables(origin) || arguments.iter().any(|argument| self.static_argument_has_unresolved_variables(argument))
             }
-            InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(|argument| self.term_has_unresolved_variables(argument)),
+            InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(|argument| self.static_argument_has_unresolved_variables(argument)),
             InferenceTerm::ExactCase { enum_type, .. } => self.term_has_unresolved_variables(enum_type),
             InferenceTerm::Union(members) => members.iter().any(|member| self.term_has_unresolved_variables(member)),
             InferenceTerm::Tuple(elements) => elements.iter().any(|element| self.term_has_unresolved_variables(&element.term)),
@@ -2339,7 +2599,7 @@ impl InferenceSession {
                 callable.parameters.iter().any(|parameter| self.term_has_unresolved_variables(&parameter.term))
                     || self.term_has_unresolved_variables(&callable.return_type)
             }
-            InferenceTerm::Record(record) => record.fields.iter().any(|field| self.term_has_unresolved_variables(&field.term)),
+            InferenceTerm::Record(record) => self.record_row_has_unresolved_variables(record),
             InferenceTerm::Family(family) => family.iter().any(|member| self.term_has_unresolved_variables(&member.term)),
             InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
                 self.term_has_unresolved_variables(subject) || trait_ref.arguments.iter().any(|arg| self.term_has_unresolved_variables(arg))
@@ -2367,6 +2627,41 @@ impl InferenceSession {
             InferenceTerm::PackProjection { subject, .. } => self.term_has_unresolved_variables(subject),
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => false,
         }
+    }
+
+    fn static_argument_has_unresolved_variables(&self, argument: &InferenceStaticArgument) -> bool {
+        match argument {
+            InferenceStaticArgument::Term(term) => self.term_has_unresolved_variables(term),
+            InferenceStaticArgument::RecordRow(row) => self.record_row_has_unresolved_variables(row),
+        }
+    }
+
+    fn normalized_record_row(&self, record: &InferenceRecord) -> RecordRowTerm<InferenceTerm> {
+        let term = record_term_for_row_solver(record);
+        self.row_solver
+            .upgrade()
+            .map(|solver| solver.borrow().normalize_term(&term))
+            .unwrap_or(term)
+    }
+
+    pub(crate) fn term_contains_row_variable(&self, term: &InferenceTerm, target: RecordRowVarId) -> bool {
+        let Some(row_solver) = self.row_solver.upgrade() else {
+            return false;
+        };
+        inference_term_contains_row_variable(
+            term,
+            target,
+            &row_solver.borrow(),
+            &self.var_terms,
+            &self.var_aliases,
+            &mut HashSet::new(),
+        )
+    }
+
+    fn record_row_has_unresolved_variables(&self, record: &InferenceRecord) -> bool {
+        let normalized = self.normalized_record_row(record);
+        matches!(normalized.tail, RecordRowTermTail::Var(_))
+            || normalized.fields.iter().any(|field| self.term_has_unresolved_variables(&field.ty))
     }
 
     /// Returns aggregate value support for all variables influencing a term.
@@ -2402,12 +2697,12 @@ impl InferenceSession {
             InferenceTerm::Applied { origin, arguments } => {
                 self.collect_term_variables(origin, variables);
                 for argument in arguments.iter() {
-                    self.collect_term_variables(argument, variables);
+                    self.collect_static_argument_variables(argument, variables);
                 }
             }
             InferenceTerm::StaticData { arguments, .. } => {
                 for argument in arguments.iter() {
-                    self.collect_term_variables(argument, variables);
+                    self.collect_static_argument_variables(argument, variables);
                 }
             }
             InferenceTerm::ExactCase { enum_type, .. } => {
@@ -2430,8 +2725,8 @@ impl InferenceSession {
                 self.collect_term_variables(&callable.return_type, variables);
             }
             InferenceTerm::Record(record) => {
-                for field in record.fields.iter() {
-                    self.collect_term_variables(&field.term, variables);
+                for field in self.normalized_record_row(record).fields.iter() {
+                    self.collect_term_variables(&field.ty, variables);
                 }
             }
             InferenceTerm::Family(family) => {
@@ -2484,6 +2779,17 @@ impl InferenceSession {
         }
     }
 
+    fn collect_static_argument_variables(&self, argument: &InferenceStaticArgument, variables: &mut HashSet<InferVarId>) {
+        match argument {
+            InferenceStaticArgument::Term(term) => self.collect_term_variables(term, variables),
+            InferenceStaticArgument::RecordRow(row) => {
+                for field in self.normalized_record_row(row).fields.iter() {
+                    self.collect_term_variables(&field.ty, variables);
+                }
+            }
+        }
+    }
+
     fn record_relation_support(&mut self, relation: &InferenceRelation, support: InferenceSupport) {
         match relation {
             InferenceRelation::Equivalent(left, right) | InferenceRelation::Subtype(left, right) => {
@@ -2499,12 +2805,12 @@ impl InferenceSession {
             InferenceTerm::Applied { origin, arguments } => {
                 self.record_term_proof_state(origin, proof.clone());
                 for argument in arguments.iter() {
-                    self.record_term_proof_state(argument, proof.clone());
+                    self.record_static_argument_proof_state(argument, proof.clone());
                 }
             }
             InferenceTerm::StaticData { arguments, .. } => {
                 for argument in arguments.iter() {
-                    self.record_term_proof_state(argument, proof.clone());
+                    self.record_static_argument_proof_state(argument, proof.clone());
                 }
             }
             InferenceTerm::ExactCase { enum_type, .. } => {
@@ -2527,8 +2833,8 @@ impl InferenceSession {
                 self.record_term_proof_state(&callable.return_type, proof);
             }
             InferenceTerm::Record(record) => {
-                for field in record.fields.iter() {
-                    self.record_term_proof_state(&field.term, proof.clone());
+                for field in self.normalized_record_row(record).fields.iter() {
+                    self.record_term_proof_state(&field.ty, proof.clone());
                 }
             }
             InferenceTerm::Family(family) => {
@@ -2581,18 +2887,29 @@ impl InferenceSession {
         }
     }
 
+    fn record_static_argument_proof_state(&mut self, argument: &InferenceStaticArgument, proof: InferenceProofState) {
+        match argument {
+            InferenceStaticArgument::Term(term) => self.record_term_proof_state(term, proof),
+            InferenceStaticArgument::RecordRow(row) => {
+                for field in self.normalized_record_row(row).fields.iter() {
+                    self.record_term_proof_state(&field.ty, proof.clone());
+                }
+            }
+        }
+    }
+
     fn record_term_support(&mut self, term: &InferenceTerm, support: InferenceSupport) {
         match term {
             InferenceTerm::Var(variable) => self.record_variable_support(*variable, support),
             InferenceTerm::Applied { origin, arguments } => {
                 self.record_term_support(origin, support);
                 for argument in arguments.iter() {
-                    self.record_term_support(argument, support);
+                    self.record_static_argument_support(argument, support);
                 }
             }
             InferenceTerm::StaticData { arguments, .. } => {
                 for argument in arguments.iter() {
-                    self.record_term_support(argument, support);
+                    self.record_static_argument_support(argument, support);
                 }
             }
             InferenceTerm::ExactCase { enum_type, .. } => {
@@ -2615,8 +2932,8 @@ impl InferenceSession {
                 self.record_term_support(&callable.return_type, support);
             }
             InferenceTerm::Record(record) => {
-                for field in record.fields.iter() {
-                    self.record_term_support(&field.term, support);
+                for field in self.normalized_record_row(record).fields.iter() {
+                    self.record_term_support(&field.ty, support);
                 }
             }
             InferenceTerm::Family(family) => {
@@ -2669,6 +2986,17 @@ impl InferenceSession {
         }
     }
 
+    fn record_static_argument_support(&mut self, argument: &InferenceStaticArgument, support: InferenceSupport) {
+        match argument {
+            InferenceStaticArgument::Term(term) => self.record_term_support(term, support),
+            InferenceStaticArgument::RecordRow(row) => {
+                for field in self.normalized_record_row(row).fields.iter() {
+                    self.record_term_support(&field.ty, support);
+                }
+            }
+        }
+    }
+
     fn record_variable_support(&mut self, variable: InferVarId, support: InferenceSupport) {
         let representative = self.find_var(variable);
         if let Some(candidate) = self.variables.iter_mut().find(|candidate| candidate.id == representative) {
@@ -2695,7 +3023,9 @@ impl InferenceSession {
             | InferenceFailureReason::KindMismatch { var, .. }
             | InferenceFailureReason::ConflictingBounds { var, .. }
             | InferenceFailureReason::MissingVariableMetadata { var } => Some(*var),
-            InferenceFailureReason::StructuralMismatch { .. } | InferenceFailureReason::UnresolvedSelf => None,
+            InferenceFailureReason::StructuralMismatch { .. }
+            | InferenceFailureReason::UnresolvedSelf
+            | InferenceFailureReason::InternalRowSolverFailure { .. } => None,
         };
         if let Some(var) = var {
             let rep = self.find_var(var);
@@ -2763,13 +3093,13 @@ impl InferenceSession {
             InferenceTerm::Canonical(_) => false,
             InferenceTerm::Rigid(_) => false,
             InferenceTerm::Var(v) => self.find_var(*v) == rep,
-            InferenceTerm::Applied { origin, arguments } => self.occurs_in_term(rep, origin) || arguments.iter().any(|a| self.occurs_in_term(rep, a)),
-            InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(|argument| self.occurs_in_term(rep, argument)),
+            InferenceTerm::Applied { origin, arguments } => self.occurs_in_term(rep, origin) || arguments.iter().any(|argument| self.occurs_in_static_argument(rep, argument)),
+            InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(|argument| self.occurs_in_static_argument(rep, argument)),
             InferenceTerm::ExactCase { enum_type, .. } => self.occurs_in_term(rep, enum_type),
             InferenceTerm::Union(members) => members.iter().any(|m| self.occurs_in_term(rep, m)),
             InferenceTerm::Tuple(elems) => elems.iter().any(|e| self.occurs_in_term(rep, &e.term)),
             InferenceTerm::Callable(c) => c.parameters.iter().any(|p| self.occurs_in_term(rep, &p.term)) || self.occurs_in_term(rep, &c.return_type),
-            InferenceTerm::Record(record) => record.fields.iter().any(|field| self.occurs_in_term(rep, &field.term)),
+            InferenceTerm::Record(record) => self.normalized_record_row(record).fields.iter().any(|field| self.occurs_in_term(rep, &field.ty)),
             InferenceTerm::Family(family) => family.iter().any(|member| self.occurs_in_term(rep, &member.term)),
             InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
                 self.occurs_in_term(rep, subject) || trait_ref.arguments.iter().any(|arg| self.occurs_in_term(rep, arg))
@@ -2790,6 +3120,13 @@ impl InferenceSession {
         }
     }
 
+    fn occurs_in_static_argument(&self, variable: InferVarId, argument: &InferenceStaticArgument) -> bool {
+        match argument {
+            InferenceStaticArgument::Term(term) => self.occurs_in_term(variable, term),
+            InferenceStaticArgument::RecordRow(row) => self.normalized_record_row(row).fields.iter().any(|field| self.occurs_in_term(variable, &field.ty)),
+        }
+    }
+
     /// Checks if `term` contains an associated type projection.
     pub fn term_has_projection(&self, term: &InferenceTerm, store: &TypeStore) -> bool {
         match term {
@@ -2806,16 +3143,16 @@ impl InferenceSession {
                 }
             }
             InferenceTerm::Applied { origin, arguments } => {
-                self.term_has_projection(origin, store) || arguments.iter().any(|a| self.term_has_projection(a, store))
+                self.term_has_projection(origin, store) || arguments.iter().any(|argument| self.static_argument_has_projection(argument, store))
             }
-            InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(|argument| self.term_has_projection(argument, store)),
+            InferenceTerm::StaticData { arguments, .. } => arguments.iter().any(|argument| self.static_argument_has_projection(argument, store)),
             InferenceTerm::ExactCase { enum_type, .. } => self.term_has_projection(enum_type, store),
             InferenceTerm::Union(members) => members.iter().any(|m| self.term_has_projection(m, store)),
             InferenceTerm::Tuple(elems) => elems.iter().any(|e| self.term_has_projection(&e.term, store)),
             InferenceTerm::Callable(c) => {
                 c.parameters.iter().any(|p| self.term_has_projection(&p.term, store)) || self.term_has_projection(&c.return_type, store)
             }
-            InferenceTerm::Record(record) => record.fields.iter().any(|field| self.term_has_projection(&field.term, store)),
+            InferenceTerm::Record(record) => self.normalized_record_row(record).fields.iter().any(|field| self.term_has_projection(&field.ty, store)),
             InferenceTerm::Family(family) => family.iter().any(|member| self.term_has_projection(&member.term, store)),
             InferenceTerm::TypePack(elements) => elements.iter().any(|elem| self.term_has_projection(elem, store)),
             InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| self.term_has_projection(&elem.term, store)),
@@ -2833,6 +3170,13 @@ impl InferenceSession {
             } => self.term_has_projection(positionals, store) || self.term_has_projection(labeled, store) || self.term_has_projection(return_type, store),
             InferenceTerm::PackProjection { .. } => true,
             InferenceTerm::Rigid(_) => false,
+        }
+    }
+
+    fn static_argument_has_projection(&self, argument: &InferenceStaticArgument, store: &TypeStore) -> bool {
+        match argument {
+            InferenceStaticArgument::Term(term) => self.term_has_projection(term, store),
+            InferenceStaticArgument::RecordRow(row) => self.normalized_record_row(row).fields.iter().any(|field| self.term_has_projection(&field.ty, store)),
         }
     }
 
@@ -2877,6 +3221,26 @@ impl InferenceSession {
         ))
     }
 
+    fn unify_static_arguments(
+        &mut self,
+        left: &InferenceStaticArgument,
+        right: &InferenceStaticArgument,
+        outer_left: &InferenceTerm,
+        outer_right: &InferenceTerm,
+        store: &mut TypeStore,
+    ) -> Result<SolveEffect, InferenceFailureReason> {
+        match (left, right) {
+            (InferenceStaticArgument::Term(left), InferenceStaticArgument::Term(right)) => self.unify_terms(left, right, store),
+            (InferenceStaticArgument::RecordRow(left), InferenceStaticArgument::RecordRow(right)) => {
+                Ok(self.enqueue_row_equation(left, right, outer_left, outer_right))
+            }
+            _ => Err(InferenceFailureReason::StructuralMismatch {
+                left: Box::new(outer_left.clone()),
+                right: Box::new(outer_right.clone()),
+            }),
+        }
+    }
+
     fn unify_terms(&mut self, left: &InferenceTerm, right: &InferenceTerm, store: &mut TypeStore) -> Result<SolveEffect, InferenceFailureReason> {
         if let Some(reduced) = self.symbolic_beta_reduce(left, store) {
             return self.unify_terms(&reduced, right, store);
@@ -2885,6 +3249,20 @@ impl InferenceSession {
             return self.unify_terms(left, &reduced, store);
         }
         match (left, right) {
+            (InferenceTerm::Canonical(ty), inferred @ InferenceTerm::Applied { .. })
+            | (inferred @ InferenceTerm::Applied { .. }, InferenceTerm::Canonical(ty))
+                if matches!(store.get(*ty), TypeData::Applied { .. }) =>
+            {
+                let canonical = self.type_id_to_inference(*ty, &HashMap::new(), store);
+                self.unify_terms(&canonical, inferred, store)
+            }
+            (InferenceTerm::Canonical(ty), inferred @ InferenceTerm::StaticData { .. })
+            | (inferred @ InferenceTerm::StaticData { .. }, InferenceTerm::Canonical(ty))
+                if matches!(store.get(*ty), TypeData::StaticData(_)) =>
+            {
+                let canonical = self.type_id_to_inference(*ty, &HashMap::new(), store);
+                self.unify_terms(&canonical, inferred, store)
+            }
             (InferenceTerm::Rigid(left), InferenceTerm::Rigid(right)) => {
                 if left == right {
                     Ok(SolveEffect::Unchanged)
@@ -3050,8 +3428,10 @@ impl InferenceSession {
                 }
             }
             (InferenceTerm::Applied { origin: o1, arguments: a1 }, InferenceTerm::Applied { origin: o2, arguments: a2 }) => {
-                if let Some(effect) = self.match_applied_constructor_shapes(o1, a1, o2, a2, store)? {
-                    return Ok(effect);
+                if let (Some(left_terms), Some(right_terms)) = (static_terms(a1), static_terms(a2)) {
+                    if let Some(effect) = self.match_applied_constructor_shapes(o1, &left_terms, o2, &right_terms, store)? {
+                        return Ok(effect);
+                    }
                 }
                 if a1.len() != a2.len() {
                     return Err(InferenceFailureReason::StructuralMismatch {
@@ -3061,7 +3441,7 @@ impl InferenceSession {
                 }
                 let mut changed = self.unify_terms(o1, o2, store)?.is_changed();
                 for (arg1, arg2) in a1.iter().zip(a2.iter()) {
-                    changed |= self.unify_terms(arg1, arg2, store)?.is_changed();
+                    changed |= self.unify_static_arguments(arg1, arg2, left, right, store)?.is_changed();
                 }
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
@@ -3085,35 +3465,7 @@ impl InferenceSession {
                 }
                 let mut changed = false;
                 for (left_argument, right_argument) in a1.iter().zip(a2.iter()) {
-                    changed |= self.unify_terms(left_argument, right_argument, store)?.is_changed();
-                }
-                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
-            }
-            (InferenceTerm::Canonical(ty), InferenceTerm::StaticData { domain, constructor, arguments })
-            | (InferenceTerm::StaticData { domain, constructor, arguments }, InferenceTerm::Canonical(ty)) => {
-                let TypeData::StaticData(canonical) = store.get(*ty).clone() else {
-                    return Err(InferenceFailureReason::StructuralMismatch {
-                        left: Box::new(left.clone()),
-                        right: Box::new(right.clone()),
-                    });
-                };
-                if canonical.domain != *domain || canonical.constructor != *constructor || canonical.arguments.len() != arguments.len() {
-                    return Err(InferenceFailureReason::StructuralMismatch {
-                        left: Box::new(left.clone()),
-                        right: Box::new(right.clone()),
-                    });
-                }
-                let mut changed = false;
-                for (inferred, canonical_argument) in arguments.iter().zip(canonical.arguments.iter()) {
-                    let Some(canonical_argument) = canonical_argument.as_type_id() else {
-                        return Err(InferenceFailureReason::StructuralMismatch {
-                            left: Box::new(left.clone()),
-                            right: Box::new(right.clone()),
-                        });
-                    };
-                    changed |= self
-                        .unify_terms(inferred, &InferenceTerm::Canonical(canonical_argument), store)?
-                        .is_changed();
+                    changed |= self.unify_static_arguments(left_argument, right_argument, left, right, store)?.is_changed();
                 }
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
@@ -3126,48 +3478,10 @@ impl InferenceSession {
                     };
                     return self.unify_terms(&InferenceTerm::Canonical(enum_type), &applied, store);
                 }
-                if let TypeData::Applied {
-                    origin: orig_ty,
-                    arguments: args_ty,
-                } = store.get(*ty).clone()
-                {
-                    let Some(canonical_arguments) = args_ty
-                        .iter()
-                        .map(|argument| argument.as_type_id().map(InferenceTerm::Canonical))
-                        .collect::<Option<Vec<_>>>()
-                    else {
-                        return Err(InferenceFailureReason::StructuralMismatch {
-                            left: Box::new(left.clone()),
-                            right: Box::new(right.clone()),
-                        });
-                    };
-                    let aligned = if matches!(left, InferenceTerm::Canonical(_)) {
-                        self.match_applied_constructor_shapes(&InferenceTerm::Canonical(orig_ty), &canonical_arguments, origin, arguments, store)?
-                    } else {
-                        self.match_applied_constructor_shapes(origin, arguments, &InferenceTerm::Canonical(orig_ty), &canonical_arguments, store)?
-                    };
-                    if let Some(effect) = aligned {
-                        return Ok(effect);
-                    }
-                    if args_ty.len() != arguments.len() {
-                        return Err(InferenceFailureReason::StructuralMismatch {
-                            left: Box::new(left.clone()),
-                            right: Box::new(right.clone()),
-                        });
-                    }
-                    let orig_term = InferenceTerm::Canonical(orig_ty);
-                    let mut changed = self.unify_terms(origin, &orig_term, store)?.is_changed();
-                    for (arg_term, arg_ty) in arguments.iter().zip(args_ty.iter().filter_map(|argument| argument.as_type_id())) {
-                        let canon = InferenceTerm::Canonical(arg_ty);
-                        changed |= self.unify_terms(arg_term, &canon, store)?.is_changed();
-                    }
-                    Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
-                } else {
-                    Err(InferenceFailureReason::StructuralMismatch {
-                        left: Box::new(left.clone()),
-                        right: Box::new(right.clone()),
-                    })
-                }
+                Err(InferenceFailureReason::StructuralMismatch {
+                    left: Box::new(left.clone()),
+                    right: Box::new(right.clone()),
+                })
             }
             (InferenceTerm::Canonical(ty), InferenceTerm::Callable(callable)) | (InferenceTerm::Callable(callable), InferenceTerm::Canonical(ty)) => {
                 let TypeData::Callable(canonical) = store.get(*ty).clone() else {
@@ -3656,8 +3970,10 @@ impl InferenceSession {
                     arguments: right_arguments,
                 },
             ) => {
-                if let Some(effect) = self.match_applied_constructor_shapes(left_origin, left_arguments, right_origin, right_arguments, store)? {
-                    return Ok(effect);
+                if let (Some(left_terms), Some(right_terms)) = (static_terms(left_arguments), static_terms(right_arguments)) {
+                    if let Some(effect) = self.match_applied_constructor_shapes(left_origin, &left_terms, right_origin, &right_terms, store)? {
+                        return Ok(effect);
+                    }
                 }
                 if left_origin == right_origin {
                     if left_arguments.len() != right_arguments.len() {
@@ -3672,18 +3988,30 @@ impl InferenceSession {
                     };
                     let mut changed = false;
                     for (index, (left, right)) in left_arguments.iter().zip(right_arguments.iter()).enumerate() {
+                        if matches!((left, right), (InferenceStaticArgument::RecordRow(_), InferenceStaticArgument::RecordRow(_))) {
+                            changed |= self.unify_static_arguments(left, right, sub, sup, store)?.is_changed();
+                            continue;
+                        }
                         let variance = declaration
                             .as_ref()
                             .and_then(|decl| store.get_parameter_variance(decl, index as u32))
                             .unwrap_or(Variance::Invariant);
                         changed |= match variance {
-                            Variance::Covariant => self.subtype_terms(left, right, store, hier)?.is_changed(),
-                            Variance::Contravariant => self.subtype_terms(right, left, store, hier)?.is_changed(),
-                            Variance::Invariant => self.unify_terms(left, right, store)?.is_changed(),
+                            Variance::Covariant => match (left, right) {
+                                (InferenceStaticArgument::Term(left), InferenceStaticArgument::Term(right)) => self.subtype_terms(left, right, store, hier)?.is_changed(),
+                                _ => self.unify_static_arguments(left, right, sub, sup, store)?.is_changed(),
+                            },
+                            Variance::Contravariant => match (left, right) {
+                                (InferenceStaticArgument::Term(left), InferenceStaticArgument::Term(right)) => self.subtype_terms(right, left, store, hier)?.is_changed(),
+                                _ => self.unify_static_arguments(left, right, sub, sup, store)?.is_changed(),
+                            },
+                            Variance::Invariant => self.unify_static_arguments(left, right, sub, sup, store)?.is_changed(),
                         };
                     }
                     Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
-                } else if let Some(projected) = self.project_supertype_term(left_origin, left_arguments, store, hier) {
+                } else if let Some(left_terms) = static_terms(left_arguments)
+                    && let Some(projected) = self.project_supertype_term(left_origin, &left_terms, store, hier)
+                {
                     if projected == *sub {
                         return Ok(SolveEffect::Unchanged);
                     }
@@ -3946,12 +4274,12 @@ impl InferenceSession {
             }
             InferenceTerm::Applied { origin, arguments } => {
                 let orig_ty = self.materialize(origin, store)?;
-                let mut arg_tys = Vec::with_capacity(arguments.len());
-                for arg in arguments.iter() {
-                    arg_tys.push(self.materialize(arg, store)?);
+                let mut static_arguments = Vec::with_capacity(arguments.len());
+                for argument in arguments.iter() {
+                    static_arguments.push(self.materialize_static_argument(argument, store)?);
                 }
                 store
-                    .apply_type_form(orig_ty, &arg_tys)
+                    .apply_static_form(orig_ty, &static_arguments)
                     .map_err(InferenceMaterializationFailure::TypeApplication)
             }
             InferenceTerm::StaticData {
@@ -3961,7 +4289,7 @@ impl InferenceSession {
             } => {
                 let arguments = arguments
                     .iter()
-                    .map(|argument| self.materialize(argument, store).map(crate::types::store::StaticArgument::Term))
+                    .map(|argument| self.materialize_static_argument(argument, store))
                     .collect::<Result<Vec<_>, _>>()?;
                 store
                     .static_data(*domain, *constructor, arguments.into_boxed_slice())
@@ -4000,24 +4328,25 @@ impl InferenceSession {
                 }))
             }
             InferenceTerm::Record(record) => {
-                let fields = record
+                let normalized = self.normalized_record_row(record);
+                let fields = normalized
                     .fields
                     .iter()
                     .map(|field| {
                         Ok(crate::types::row::RecordRowField {
                             name: field.name.clone(),
-                            ty: self.materialize(&field.term, store)?,
+                            ty: self.materialize(&field.ty, store)?,
                         })
                     })
                     .collect::<Result<Vec<_>, InferenceMaterializationFailure>>()?;
                 store
                     .record_row_type_checked(
                         fields,
-                        match record.tail {
-                            InferenceRecordTail::Closed => RecordRowTail::Closed,
-                            InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
-                            InferenceRecordTail::Projection(proj) => RecordRowTail::Projection(proj),
-                            InferenceRecordTail::Var(_) => return Err(InferenceMaterializationFailure::InternalInvariant),
+                        match normalized.tail {
+                            RecordRowTermTail::Closed => RecordRowTail::Closed,
+                            RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+                            RecordRowTermTail::Projection(proj) => RecordRowTail::Projection(proj),
+                            RecordRowTermTail::Var(_) => return Err(InferenceMaterializationFailure::UnsupportedDomain),
                         },
                     )
                     .map_err(|_| InferenceMaterializationFailure::InternalInvariant)
@@ -4113,6 +4442,39 @@ impl InferenceSession {
         }
     }
 
+    fn materialize_static_argument(
+        &self,
+        argument: &InferenceStaticArgument,
+        store: &mut TypeStore,
+    ) -> Result<crate::types::store::StaticArgument, InferenceMaterializationFailure> {
+        match argument {
+            InferenceStaticArgument::Term(term) => self.materialize(term, store).map(crate::types::store::StaticArgument::Term),
+            InferenceStaticArgument::RecordRow(row) => {
+                let normalized = self.normalized_record_row(row);
+                let fields = normalized
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        Ok(crate::types::row::RecordRowField {
+                            name: field.name.clone(),
+                            ty: self.materialize(&field.ty, store)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, InferenceMaterializationFailure>>()?;
+                let tail = match normalized.tail {
+                    RecordRowTermTail::Closed => RecordRowTail::Closed,
+                    RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+                    RecordRowTermTail::Projection(projection) => RecordRowTail::Projection(projection),
+                    RecordRowTermTail::Var(_) => return Err(InferenceMaterializationFailure::UnsupportedDomain),
+                };
+                store
+                    .record_row_checked(fields, tail)
+                    .map(crate::types::store::StaticArgument::RecordRow)
+                    .map_err(|_| InferenceMaterializationFailure::UnsupportedDomain)
+            }
+        }
+    }
+
     /// Extracts materialized projections from constraints and var_terms, normalizes them via
     /// the provided normalizer closure, and unifies the normalized types.
     pub fn extract_and_normalize_projections<F>(&mut self, store: &mut TypeStore, mut normalizer: F) -> Result<bool, InferenceFailureReason>
@@ -4200,6 +4562,221 @@ impl InferenceSession {
         self.constraints = constraints;
 
         Ok(progress)
+    }
+}
+
+/// Query-context owner for the ordinary type solver and the distinct record
+/// row solver. It coordinates their fixed point without merging identities.
+pub(crate) struct InferenceCoordinator {
+    types: InferenceSession,
+    rows: Rc<RefCell<RecordRowSolver<InferenceTerm>>>,
+    row_variable_frames: HashMap<RecordRowVarId, InferenceFrameId>,
+    row_parameter_bindings: HashMap<InferenceFrameId, HashMap<TypeParameterId, RecordRowVarId>>,
+}
+
+impl InferenceCoordinator {
+    pub(crate) fn new() -> Self {
+        let rows = Rc::new(RefCell::new(RecordRowSolver::new()));
+        let types = InferenceSession {
+            row_solver: Rc::downgrade(&rows),
+            ..InferenceSession::default()
+        };
+        Self {
+            types,
+            rows,
+            row_variable_frames: HashMap::new(),
+            row_parameter_bindings: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn fresh_record_row_variable_in_frame(&mut self, frame: InferenceFrameId) -> RecordRowVarId {
+        let variable = self.rows.borrow_mut().fresh_var();
+        self.row_variable_frames.insert(variable, frame);
+        variable
+    }
+
+    pub(crate) fn bind_record_row_parameter(&mut self, frame: InferenceFrameId, parameter: TypeParameterId, variable: RecordRowVarId) {
+        self.row_parameter_bindings.entry(frame).or_default().insert(parameter, variable);
+    }
+
+    pub(crate) fn row_parameter_terms_for_frame(&self, frame: InferenceFrameId) -> HashMap<TypeParameterId, RecordRowVarId> {
+        let mut chain = Vec::new();
+        let mut current = Some(frame);
+        while let Some(candidate) = current {
+            chain.push(candidate);
+            current = self.types.frame_parent(candidate);
+        }
+        let mut bindings = HashMap::new();
+        for ancestor in chain.into_iter().rev() {
+            bindings.extend(self.row_parameter_bindings.get(&ancestor).into_iter().flatten().map(|(&parameter, &variable)| (parameter, variable)));
+        }
+        bindings
+    }
+
+    pub(crate) fn add_record_row_lacks(
+        &mut self,
+        variable: RecordRowVarId,
+        field: Box<str>,
+    ) -> Result<(), crate::types::row_solver::RecordRowFailure<InferenceTerm>> {
+        self.rows.borrow_mut().add_lacks(variable, field)
+    }
+
+    pub(crate) fn row_solution_for_roots(
+        &self,
+        roots: &[RecordRowVarId],
+        budget: &mut QueryBudget,
+        cancellation: &CancellationToken,
+    ) -> RecordRowSolveResult<InferenceTerm> {
+        let mut solver = self.rows.borrow().clone();
+        match solver.solve_shapes_for_roots(&[], roots, budget, cancellation) {
+            RecordRowShapeSolveResult::Solved { solution, .. } => RecordRowSolveResult::Solved(solution),
+            RecordRowShapeSolveResult::Underconstrained(result) => RecordRowSolveResult::Underconstrained(result),
+            RecordRowShapeSolveResult::Rejected(error) => RecordRowSolveResult::Rejected(error),
+            RecordRowShapeSolveResult::Blocked(reason) => RecordRowSolveResult::Blocked(reason),
+            RecordRowShapeSolveResult::Cancelled => RecordRowSolveResult::Cancelled,
+            RecordRowShapeSolveResult::BudgetExceeded(report) => RecordRowSolveResult::BudgetExceeded(report),
+            RecordRowShapeSolveResult::InternalFailure(id) => RecordRowSolveResult::InternalFailure(id),
+        }
+    }
+
+    pub(crate) fn row_variable_is_owned_by_ancestor_frame(&self, variable: RecordRowVarId, frame: InferenceFrameId) -> bool {
+        let Some(owner) = self.row_variable_frames.get(&variable).copied() else {
+            return false;
+        };
+        let mut current = self.types.frame_parent(frame);
+        while let Some(candidate) = current {
+            if candidate == owner {
+                return true;
+            }
+            current = self.types.frame_parent(candidate);
+        }
+        false
+    }
+
+    pub(crate) fn term_has_unresolved_ancestor_row(
+        &self,
+        term: &InferenceTerm,
+        solution: &RecordRowSolution<InferenceTerm>,
+        frame: InferenceFrameId,
+    ) -> bool {
+        self.row_variable_frames.keys().copied().any(|root| {
+            if !self.types.term_contains_row_variable(term, root) {
+                return false;
+            }
+            let mut current = root;
+            let mut seen = HashSet::new();
+            loop {
+                if !seen.insert(current) {
+                    return false;
+                }
+                match solution.term_for(current) {
+                    Some(row) => match row.tail {
+                        RecordRowTermTail::Var(next) => current = next,
+                        RecordRowTermTail::Closed | RecordRowTermTail::Parameter(_) | RecordRowTermTail::Projection(_) => return false,
+                    },
+                    None => return self.row_variable_is_owned_by_ancestor_frame(current, frame),
+                }
+            }
+        })
+    }
+
+    pub(crate) fn enqueue_record_row_equation(&mut self, left: &InferenceRecord, right: &InferenceRecord) -> SolveEffect {
+        self.types.enqueue_record_row_equation(left, right)
+    }
+
+    pub(crate) fn propagate_with_control(
+        &mut self,
+        store: &mut TypeStore,
+        hierarchy: &dyn TypeHierarchy,
+        control: &CheckerControl,
+    ) -> Result<bool, Box<InferenceOutcome>> {
+        let mut any_changed = false;
+        loop {
+            let ordinary_changed = self.types.propagate_with_control(store, hierarchy, control)?;
+            any_changed |= ordinary_changed;
+            let pending_rows = self.types.take_pending_row_equations();
+            if pending_rows.is_empty() {
+                return Ok(any_changed);
+            }
+
+            let equations = pending_rows
+                .iter()
+                .map(|equation| (record_term_for_row_solver(&equation.left), record_term_for_row_solver(&equation.right)))
+                .collect::<Vec<_>>();
+            let row_state = self.rows.borrow().clone();
+            let var_terms = &self.types.var_terms;
+            let aliases = &self.types.var_aliases;
+            let rows = self.rows.clone();
+            let row_result = control.relation(|budget, cancellation| {
+                rows.borrow_mut()
+                    .solve_shapes_for_roots_with_payload_occurs(&equations, &[], budget, cancellation, |target, payload| {
+                        inference_term_contains_row_variable(
+                            payload,
+                            target,
+                            &row_state,
+                            var_terms,
+                            aliases,
+                            &mut HashSet::new(),
+                        )
+                    })
+            });
+            match row_result {
+                RecordRowShapeSolveResult::Solved { field_equations, .. } => {
+                    for (_, left, right) in field_equations {
+                        self.types.add_constraint(InferenceRelation::Equivalent(left, right), ConstraintOrigin::Explicit, None);
+                    }
+                    any_changed = true;
+                }
+                RecordRowShapeSolveResult::Underconstrained(_) => {
+                    unreachable!("row shape solving without completion roots cannot be underconstrained")
+                }
+                RecordRowShapeSolveResult::Rejected(_) => {
+                    let first = &pending_rows[0];
+                    let failure = InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(first.diagnostic_left.clone()),
+                        right: Box::new(first.diagnostic_right.clone()),
+                    };
+                    return Err(Box::new(self.types.failure_outcome(failure, None, None)));
+                }
+                RecordRowShapeSolveResult::Blocked(reason) => return Err(Box::new(InferenceOutcome::Blocked(match reason {
+                    crate::types::row_solver::RecordRowBlockedReason::UnboundVariable(_) => BlockReason::RecursiveFixpoint,
+                    crate::types::row_solver::RecordRowBlockedReason::AmbiguousExtension => BlockReason::RecursiveFixpoint,
+                }))),
+                RecordRowShapeSolveResult::Cancelled => return Err(Box::new(InferenceOutcome::Cancelled)),
+                RecordRowShapeSolveResult::BudgetExceeded(report) => return Err(Box::new(InferenceOutcome::BudgetExceeded(report))),
+                RecordRowShapeSolveResult::InternalFailure(id) => {
+                    return Err(Box::new(InferenceOutcome::InternalFailure(InferenceFailureReason::InternalRowSolverFailure {
+                        incident: id.0,
+                    })));
+                }
+            }
+        }
+    }
+
+    pub(crate) fn solve_with_control(
+        &mut self,
+        store: &mut TypeStore,
+        hierarchy: &dyn TypeHierarchy,
+        control: &CheckerControl,
+    ) -> InferenceOutcome {
+        match self.propagate_with_control(store, hierarchy, control) {
+            Ok(_) => self.types.finish_root(),
+            Err(outcome) => *outcome,
+        }
+    }
+}
+
+impl Deref for InferenceCoordinator {
+    type Target = InferenceSession;
+
+    fn deref(&self) -> &Self::Target {
+        &self.types
+    }
+}
+
+impl DerefMut for InferenceCoordinator {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.types
     }
 }
 

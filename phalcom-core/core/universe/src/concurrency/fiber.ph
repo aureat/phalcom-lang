@@ -404,7 +404,7 @@ class Future<T> {
         const reg = FutureSubscription.fiber(
           regId,
           current,
-          generation,
+          generation
         ) {
           _detachCount = _detachCount + 1
           if _detachCount >= 16 {
@@ -544,7 +544,7 @@ class Future<T> {
   /// @returns A future recovering to a valid value on error.
   catch(_ callback: (Error) -> T) -> Future<T> {
     const result: Future<T> = Future.new()
-    subscribeReady {
+    subscribeReady(|| {
       match _outcome {
         Option::Some(out) => {
           match out {
@@ -566,7 +566,7 @@ class Future<T> {
         _ => ()
       }
       ()
-    }
+    })
     result
   }
 
@@ -576,7 +576,7 @@ class Future<T> {
   /// @returns A future tracking the recovery operation.
   recoverWith(_ callback: (Error) -> Future<T>) -> Future<T> {
     const result: Future<T> = Future.new()
-    subscribeReady {
+    subscribeReady(|| {
       match _outcome {
         Option::Some(out) => {
           match out {
@@ -602,7 +602,7 @@ class Future<T> {
         _ => ()
       }
       ()
-    }
+    })
     result
   }
 
@@ -718,7 +718,7 @@ class Future<T> {
     while i < n {
       const index = i
       const input = inputs.at(i)
-      const sub = input.subscribeReady {
+      const sub = input.subscribeReady(|| {
         match input.outcome {
           Option::Some(out) => {
             outcomes.at(index, put: out)
@@ -731,7 +731,7 @@ class Future<T> {
           _ => ()
         }
         ()
-      }
+      })
       subs.rawPush(sub)
       i = i + 1
     }

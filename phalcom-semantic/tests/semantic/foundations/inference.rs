@@ -3,7 +3,7 @@ use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::checker::context::CheckerControl;
 use phalcom_semantic::checker::inference::{
     ConstraintOrigin, InferenceFailureReason, InferenceLabeledTypePackElement, InferenceOutcome, InferencePackProjectionLane, InferenceProofState,
-    InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm, InferenceTupleElement,
+    InferenceRelation, InferenceSession, InferenceStaticArgument, InferenceSupport, InferenceTerm, InferenceTupleElement,
 };
 use phalcom_semantic::db::{CancellationToken, QueryBudget};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
@@ -31,7 +31,7 @@ fn rigid_parameter(store: &mut TypeStore) -> TypeId {
 fn unary_application(form: TypeId, variable: phalcom_semantic::identity::InferVarId) -> InferenceTerm {
     InferenceTerm::Applied {
         origin: Box::new(InferenceTerm::Canonical(form)),
-        arguments: Box::new([InferenceTerm::Var(variable)]),
+        arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(variable))]),
     }
 }
 
@@ -67,7 +67,7 @@ fn test_unification_and_occurs_check() {
     // ?T in List<?T> == List<Int>
     let list_var_term = InferenceTerm::Applied {
         origin: Box::new(InferenceTerm::Canonical(list_form)),
-        arguments: Box::new([InferenceTerm::Var(var)]),
+        arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(var))]),
     };
     let list_int_term = InferenceTerm::Canonical(list_int_ty);
 
@@ -98,7 +98,7 @@ fn test_occurs_check_rejects_recursive_term() {
     // ?T == List<?T> -> occurs check failure
     let list_var_term = InferenceTerm::Applied {
         origin: Box::new(InferenceTerm::Canonical(list_form)),
-        arguments: Box::new([InferenceTerm::Var(var)]),
+        arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(var))]),
     };
 
     session.add_constraint(
@@ -610,7 +610,7 @@ fn rigid_lhs_canonical_parameter_preserves_subtype_direction() {
         *right,
         InferenceTerm::Applied {
             origin: Box::new(InferenceTerm::Canonical(form)),
-            arguments: Box::new([InferenceTerm::Var(argument)]),
+            arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(argument))]),
         }
     );
     assert!(matches!(store.get(rigid), TypeData::Parameter(_)));
@@ -648,7 +648,7 @@ fn deferred_subtype_is_rechecked_after_nested_variable_solves() {
         *left,
         InferenceTerm::Applied {
             origin: Box::new(InferenceTerm::Canonical(form)),
-            arguments: Box::new([InferenceTerm::Var(argument)]),
+            arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(argument))]),
         }
     );
     let expected = store.apply_type_form(form, &[int]).unwrap();
@@ -715,7 +715,7 @@ fn constructor_alignment_accepts_binary_kind() {
         InferenceRelation::Equivalent(
             InferenceTerm::Applied {
                 origin: Box::new(InferenceTerm::Var(constructor)),
-                arguments: Box::new([InferenceTerm::Var(first), InferenceTerm::Var(second)]),
+                arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(first)), InferenceStaticArgument::Term(InferenceTerm::Var(second))]),
             },
             InferenceTerm::Canonical(actual),
         ),
@@ -755,7 +755,7 @@ fn constructor_alignment_accepts_higher_order_kind() {
         InferenceRelation::Equivalent(
             InferenceTerm::Applied {
                 origin: Box::new(InferenceTerm::Var(constructor)),
-                arguments: Box::new([InferenceTerm::Var(argument)]),
+                arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(argument))]),
             },
             InferenceTerm::Canonical(actual),
         ),
@@ -789,7 +789,7 @@ fn sc4_red_constructor_alignment_must_use_non_suffix_evidence() {
         InferenceRelation::Equivalent(
             InferenceTerm::Applied {
                 origin: Box::new(InferenceTerm::Var(constructor)),
-                arguments: Box::new([InferenceTerm::Var(argument)]),
+                arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(argument))]),
             },
             InferenceTerm::Canonical(actual),
         ),
@@ -832,7 +832,7 @@ fn sc4_red_constructor_alignment_must_support_fixed_middle_positions() {
         InferenceRelation::Equivalent(
             InferenceTerm::Applied {
                 origin: Box::new(InferenceTerm::Var(constructor)),
-                arguments: Box::new([InferenceTerm::Var(first), InferenceTerm::Var(second)]),
+                arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(first)), InferenceStaticArgument::Term(InferenceTerm::Var(second))]),
             },
             InferenceTerm::Canonical(actual),
         ),
@@ -1105,7 +1105,7 @@ fn p3_scoped_pack_lambda_lowers_to_inference_terms() {
 
     let applied_term = InferenceTerm::Applied {
         origin: Box::new(InferenceTerm::Canonical(lambda_ty)),
-        arguments: Box::new([InferenceTerm::Var(var_p)]),
+        arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(var_p))]),
     };
 
     let reduced = session.symbolic_beta_reduce(&applied_term, &store);
