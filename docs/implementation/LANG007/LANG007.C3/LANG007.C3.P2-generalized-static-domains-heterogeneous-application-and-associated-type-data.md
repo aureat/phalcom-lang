@@ -3418,8 +3418,10 @@ Phase-order finding (INC-C3-6 continuation): even a same-module alias applicatio
 `type V: Type = Tensor<Int, Shape::Scalar>` currently reports unresolved `Tensor`,
 because aliases are lowered before source nominal generic signatures are built. The
 current alias/member graph therefore does not yet satisfy all-annotation availability.
-Before extending it to nominal/trait generic headers, obtain a decision on how cycles
-and invalidation involving those headers relate to the ratified alias/member rule.
+The user accepted adding nominal/trait generic headers to the unified declaration graph.
+An SCC containing a source type-member signature uses the ratified deterministic
+rejection/withholding rule; alias-only and generic-header-only cycle behavior remains
+unchanged. The implementation must preserve exact component/dependent invalidation.
 
 ### Checkpoint update
 

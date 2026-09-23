@@ -212,14 +212,16 @@ not change the language meaning of a valid symbolic projection.
 
 ### Declaration-signature dependency cycles
 
-Transparent type aliases and source type-member declarations may depend on one
-another while their declared forms, parameter domains, and result domains are
-checked. A declaration-signature dependency cycle containing one or more
-source type-member declarations is invalid. Every declaration participating in
-the cycle remains unavailable as a checked semantic product, and the compiler
-reports a deterministic type-signature-cycle diagnostic identifying the
-participating declarations. Editing any declaration in the cycle requires
-rechecking the affected cycle component and its dependents.
+Transparent type aliases, nominal or trait generic headers, and source type-member
+declarations may depend on one another while their declared forms, parameter
+domains, and result domains are checked. A declaration-signature dependency cycle
+containing one or more source type-member declarations is invalid, including when
+the cycle also contains a generic header. Every declaration participating in such
+a cycle remains unavailable as a checked semantic product, and the compiler reports
+a deterministic type-signature-cycle diagnostic identifying the participating
+declarations. Existing alias-only and generic-header-only cycle behavior is
+unchanged by this rule. Editing any declaration in the cycle requires rechecking
+the affected cycle component and its dependents.
 
 This rule concerns declaration formation, not projection normalization. A
 well-formed symbolic projection remains valid and may remain stuck as described

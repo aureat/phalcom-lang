@@ -205,22 +205,23 @@ diagnostic per component anchored to its lowest stable declaration identity, and
 invalidation/rechecking of the affected component and dependents. The dependency
 graph schedules checking only; `AssociatedSurface` remains the sole lookup authority.
 
-Additional decision required: should the single declaration-signature dependency
-graph include nominal/trait generic headers alongside aliases and source type-member
-signatures, so all declaration annotations can resolve complete generic applications?
-If yes, specify whether cycles involving generic headers follow the same deterministic
-rejection rule or retain their existing diagnostics/behavior. Recommendation: include
-the headers and reject any declaration-signature SCC involving a source type-member
-signature with the same one-diagnostic/withheld-products policy, while preserving
-existing alias-only and generic-header-only cycle behavior until separately specified.
+Decision accepted by the user: include nominal/trait generic-header products in the
+single declaration-signature dependency graph. Any SCC containing a source type-member
+signature follows the existing deterministic one-diagnostic/withheld-products policy,
+including SCCs that also contain generic headers. Alias-only and generic-header-only
+cycle behavior remains unchanged. The scheduler orders and checks semantic products;
+`AssociatedSurface` remains the only name-selection authority. The plan, checkpoint,
+and this incident record must preserve this boundary.
 
 ## 15. Resume decision
 
-The user ratified rejection of alias/source-member signature cycles, and the rule,
-diagnostic, plan, checkpoint, and focused mixed-cycle regression were implemented.
-T7 is stopped on the newly identified generic-header/application phase dependency
-pending the decision above. The field, alias, and generic-header source-projection
-identity regressions pass; the Tensor alias probe is not a passing gate.
+The user ratified rejection of alias/source-member signature cycles and then accepted
+generic-header participation with the same mixed-SCC policy while leaving alias-only
+and header-only behavior unchanged. The normative rule, plan, checkpoint, and initial
+alias/member diagnostic are recorded. T7 may implement the extended graph; focused
+generic-header cycle, generic application, invalidation, and cold-parity coverage is
+still required. The field, alias, and generic-header source-projection identity
+regressions pass; the Tensor alias probe is not a passing gate.
 
 ## 16. Durable record
 

@@ -62,18 +62,19 @@ depending on that decision.
 3. **All-annotation availability:** the user directed phase reorganization so source
    projections are available in declaration annotations, including aliases, generic
    headers, fields, and callable signatures.
-4. **Cycle rule accepted 2026-09-23:** declaration-signature cycles crossing
-   transparent aliases and source type-member signatures are invalid; withhold products
-   for participants and emit one deterministic `TypeSignatureCycle` diagnostic per
-   component. Ordinary stuck symbolic projection normalization remains valid. The rule
-   is in `docs/specs/type-members.md`, with implementation/tests in the current diff.
+4. **Cycle rule accepted 2026-09-23:** declaration-signature SCCs containing source
+   type-member signatures are invalid, including when nominal/trait generic headers
+   are also participants; withhold participant products and emit one deterministic
+   `TypeSignatureCycle` per component. Alias-only and header-only cycle behavior remains
+   unchanged. Ordinary stuck symbolic projection normalization remains valid. The
+   normative rule is in `docs/specs/type-members.md`.
 5. **T6:** associated `type data` on runtime `data` owners is declared in an unguarded
    inherent `impl`, not in the representation body or a conformance impl. Owner-plus-
    name is declaration identity; the impl is provenance only.
 
-Do not reopen these decisions. The open issue is how the all-annotation dependency
-graph obtains nominal/trait generic header products without violating the decisions
-above or changing unrelated cycle behavior.
+Do not reopen these decisions. The open work is implementing one dependency graph that
+includes nominal/trait generic-header products, then validating all-annotation ordering,
+category-complete `AssociatedSurface` publication, and exact invalidation.
 
 ## Highest-risk open issue — T7 phase/dependency graph
 
@@ -106,18 +107,15 @@ Evidence in the live tree:
 - The order is observable in the live session: transparent aliases are lowered before
   nominal generic signatures are published. The graph currently has `Alias` and
   `Member` node kinds, but no nominal/trait generic-header node. The records do not
-  settle whether generic headers join that graph or define cycle behavior for SCCs
-  involving them. Do not assume the ratified alias/member cycle rule automatically
-  covers generic-header-only cycles.
-- The graph presently does not model nominal/trait generic headers. The plan requires
-  one declaration dependency graph but the accepted cycle rule was specifically
-  ratified for cycles crossing aliases and source type members. Before broadening graph
-  semantics, present the principal/user with a narrow recommendation. Proposed starting
-  point: add generic-header nodes to the one graph; any SCC containing a source
-  type-member signature follows the accepted deterministic rejection/withholding rule,
-  while alias-only and generic-header-only cycle behavior remains unchanged. This is a
-  recommendation, not an accepted decision. Obtain the required architecture decision
-  before extending graph semantics; independent T4/T8 work may continue meanwhile.
+  yet implement generic-header participation. The accepted decision is to add those
+  nodes while preserving alias-only and header-only cycle behavior; SCCs containing a
+  source type-member signature use the deterministic rejection/withholding rule.
+- The graph presently does not model nominal/trait generic headers. The user accepted
+  including them in the unified graph; any SCC containing a source type-member
+  signature follows the accepted deterministic rejection/withholding rule, while
+  alias-only and header-only cycle behavior remains unchanged. Implement this decision
+  and cover mixed alias/member/header cycles; do not request the same architecture
+  decision again.
 - Incremental acceptance is not closed: a changed source-member signature must
   invalidate only its dependent projections/surfaces; an unrelated sibling member
   should remain reusable. Cycle component edits must recheck the affected component
@@ -233,11 +231,9 @@ that edit as D unless investigation changes its relationship to P2.
 1. Reconcile current `git status --short` with the dirty paths listed above; inspect
    only the P2-scoped diff and preserve concurrent work.
 2. Reproduce the `Tensor` alias failure, then trace generic-header publication, alias
-   lowering, and `AssociatedSurface` selection. Return a narrow architecture
-   recommendation on whether header products join the graph and the exact mixed-SCC
-   policy. Do not change scheduler semantics before that decision is recorded in the
-   checkpoint and plan.
-3. While that decision is pending, take the T4 discriminator: test a generic
+   lowering, and `AssociatedSurface` selection. Implement the accepted unified graph
+   extension, category-complete surface publication, and exact dependent invalidation.
+3. In parallel with the bounded T7 implementation, take the T4 discriminator: test a generic
    application containing a row argument alongside a term argument, and establish
    whether inference preserves, solves, and materializes both categories. Follow T4's
    stop/consult boundary if shared solver identity is required.

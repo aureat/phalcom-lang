@@ -849,15 +849,19 @@ Observed: the field-annotation regression initially selected a symbolic projecti
 Decision: user accepted on 2026-09-23 that cross-kind declaration-signature cycles
   are rejected with a deterministic diagnostic; ordinary symbolic projection
   normalization remains valid. `docs/specs/type-members.md` and the T7 plan are
-  amended; `TypeSignatureCycle` is implemented for alias/member SCCs.
+  amended; `TypeSignatureCycle` is implemented for alias/member SCCs. User has now
+  accepted including nominal/trait generic headers in the unified graph: reject an
+  SCC containing a source type-member signature under the same deterministic rule,
+  while preserving alias-only and header-only cycle behavior.
 Verification: `incremental::type_members` selects 12 and passes, including field,
   alias, generic-header identity, collision, wrong-domain, incremental-surface, and
   mixed-cycle tests. The same-module `Tensor` alias probe fails and is recorded in
   INC-C3-6; it is not a passing gate.
 Status: PARTIALLY RESOLVED — cycle policy and focused implementation are in place;
   all-annotation scheduling, complete AssociatedSurface publication, and exact
-  invalidation remain open. A decision is needed on including nominal/trait generic
-  headers in the one dependency graph. See [advanced-agent handoff](LANG007.C3.P2-advanced-agent-handoff.md).
+  invalidation remain open. Generic-header participation and mixed-SCC policy are
+  decided; implementation and focused cycle/application tests remain. See
+  [advanced-agent handoff](LANG007.C3.P2-advanced-agent-handoff.md).
 
 Use entries:
 
