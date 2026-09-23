@@ -95,3 +95,63 @@ the test now uses the compiled program path and passes.
 Review the scoped diff and classify the remaining historical old-spelling
 documents. Preserve unrelated worktree files and do not commit unless
 requested.
+
+## LANG004.C1.P2.R1 corrective remediation — 2026-09-23
+
+### State
+
+```text
+starting revision: 2ea4f3a1
+implementation:    complete
+verification:      baseline-blocked after focused runtime evidence
+scope:             phalcom-core invocation layout and Family forwarding only
+```
+
+The existing runtime already used `InvocationLayout`, but retained a captured-setter
+compatibility branch that accepted a Setter RHS as one ordinary positional argument.
+R1 removes that exception. Layout validation now checks structural slot count against
+the selector kind, dispatch validates the exact physical stack window, and lane
+accessors return `None` instead of indexing outside a malformed window. Family exact
+and pattern forwarding and BoundMethodFamily activation continue to use structural
+positionals/labels plus the independent setter lane. Selector identity, stack order,
+and assignment result behavior were not changed.
+
+### Focused evidence
+
+| Evidence | Result |
+|---|---|
+| `cargo check -p phalcom-core` | PASS |
+| `cargo test -p phalcom-core --lib method::tests::invocation_layout_keeps_setter_value_outside_structural_lanes` | PASS: 1 selected |
+| `cargo test -p phalcom-core --lib vm::send::tests::captured_setter_rejects_an_ordinary_positional_rhs_lane` | PASS: 1 selected |
+| `cargo test -p phalcom-core --lib vm::send::tests::family_set_tuple_forwards_labeled_indices_and_rhs_as_distinct_lanes` | PASS: exact and pattern Family tuple forwarding |
+| `cargo test -p phalcom-core --lib vm::send::tests::bound_method_family_matches_labeled_setter_without_counting_rhs_as_index` | PASS: 1 selected |
+| `cargo test -p phalcom-core --test core execution_family_runtime::shape_aware_subscript_setter_reads_structural_and_rhs_lanes` | PASS: static and dynamic-pack sends reach the same shape-aware lane reader |
+| `rustfmt --edition 2024 --check` on the three changed Rust files | PASS |
+| `git diff --check` | PASS |
+
+### Baseline-blocked gates
+
+The R1 baseline command `cargo test -p phalcom-core --test core execution_family_runtime
+-- --nocapture` selected 20 tests: 11 passed and 9 failed before their fixtures ran.
+Each failure reported the existing Universe diagnostic
+`EnumFamilyCategoryConflict` for `Tuple.[]` in `universe:collections.tuple`. This
+reproduced before R1 edits and is outside the invocation ABI patch.
+
+`cargo fmt --all -- --check` also reports formatting differences across untouched AST,
+semantic, metadata, and core files; the changed Rust files pass their scoped formatter
+check. `cargo check --workspace --all-targets` is blocked by unrelated semantic test
+compilation errors: a stale `DeclarationTypeInfo` initializer and old test literals for
+the generalized `InferenceStaticArgument` representation. `cargo check -p phalcom-core`
+and the focused R1 runtime cases pass.
+
+### Negative search and next action
+
+No setter `+1/-1` positional compensation, `setter_as_positional` fallback, tuple
+`shape: Option<(usize, usize)>`, or `shaped_with_labels` constructor remains in the
+scoped runtime files. The remaining `saturating_sub(1)` hits are instruction-pointer
+source-range calculations; `expected_positional + usize::from(expected_setter)` only
+formats an arity diagnostic.
+
+Do not repair the unrelated Tuple namespace, semantic test compilation, or repository-wide
+format drift under R1. Re-run the blocked family runtime and broad gates when those
+baselines are addressed; preserve their current classifications until then.

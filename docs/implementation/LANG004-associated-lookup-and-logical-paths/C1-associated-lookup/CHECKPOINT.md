@@ -18,6 +18,7 @@ ordinary `.` sends, associated `::` lookup, and `&` callable references.
 |---|---|---|
 | `LANG004.C1.P1` | `&` callable references and `::` associated lookup | In progress; focused evidence retained |
 | `LANG004.C1.P2` | selector shapes, setter value lanes, and Family activation | In progress; implementation state retained |
+| `LANG004.C1.P2.R1` | setter-value lane invocation ABI remediation | Implementation complete; focused runtime evidence passes; broader gates are baseline-blocked; see R1 walkthrough/handoff |
 
 ## State
 
@@ -26,3 +27,6 @@ The implementation record is
 
 P2 implementation state is recorded in
 [`selector-shapes-and-family-activation-implementation-state.md`](selector-shapes-and-family-activation-implementation-state.md).
+The R1 corrective implementation and its verification boundary are recorded in
+[`LANG004.C1.P2.R1-walkthrough.md`](LANG004.C1.P2.R1-walkthrough.md) and
+[`LANG004.C1.P2.R1-handoff.md`](LANG004.C1.P2.R1-handoff.md).

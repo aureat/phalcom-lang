@@ -97,8 +97,31 @@ impl InvocationLayout {
             SignatureKind::Getter | SignatureKind::Setter if self.structural_positionals != 0 || !self.labels.is_empty() => {
                 Err(RuntimeError::Internal(format!("accessor invocation layout has structural lanes for {kind:?}")))
             }
+            SignatureKind::Method(slots) | SignatureKind::SubscriptGet(slots) | SignatureKind::SubscriptSet(slots)
+                if self.structural_positionals + self.labels.len() != slots as usize =>
+            {
+                Err(RuntimeError::Internal(format!(
+                    "invocation layout has {} structural slots for {kind:?}",
+                    self.structural_positionals + self.labels.len()
+                )))
+            }
             _ => Ok(()),
         }
+    }
+
+    /// Validates that this layout describes exactly the stack window beginning
+    /// at `receiver_index`. Invocation windows are topmost when dispatch starts.
+    pub(crate) fn validate_window(&self, receiver_index: usize, stack_len: usize) -> Result<(), RuntimeError> {
+        let expected_end = receiver_index
+            .checked_add(1)
+            .and_then(|start| start.checked_add(self.physical_arity()))
+            .ok_or_else(|| RuntimeError::Internal("invocation window bounds overflow".into()))?;
+        if expected_end != stack_len {
+            return Err(RuntimeError::Internal(format!(
+                "invocation layout expects stack window [{receiver_index}..{expected_end}), stack ends at {stack_len}"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -219,19 +242,35 @@ impl ArgumentView {
 
     /// Returns positional value `index`.
     pub fn positional(&self, vm: &VM, index: usize) -> Option<Value> {
-        (index < self.positional_count()).then(|| vm.stack[self.receiver_index + 1 + index])
+        if index >= self.positional_count() {
+            return None;
+        }
+        self.receiver_index
+            .checked_add(1)?
+            .checked_add(index)
+            .and_then(|offset| vm.stack.get(offset).copied())
     }
 
     /// Returns labeled value `index` in label order.
     pub fn labeled_value(&self, vm: &VM, index: usize) -> Option<Value> {
-        (index < self.labeled_count()).then(|| vm.stack[self.receiver_index + 1 + self.positional_count() + index])
+        if index >= self.labeled_count() {
+            return None;
+        }
+        self.receiver_index
+            .checked_add(1)?
+            .checked_add(self.positional_count())?
+            .checked_add(index)
+            .and_then(|offset| vm.stack.get(offset).copied())
     }
 
     /// Returns the distinguished setter value, when this is a setter window.
     pub fn setter_value(&self, vm: &VM) -> Option<Value> {
-        self.layout
-            .has_setter_value()
-            .then(|| vm.stack[self.receiver_index + self.layout.physical_arity()])
+        if !self.layout.has_setter_value() {
+            return None;
+        }
+        self.receiver_index
+            .checked_add(self.layout.physical_arity())
+            .and_then(|offset| vm.stack.get(offset).copied())
     }
 
     /// Returns the label for labeled lane position `index`.

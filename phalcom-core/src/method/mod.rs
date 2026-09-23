@@ -432,9 +432,18 @@ mod tests {
         assert!(setter.validate_for_kind(SignatureKind::SubscriptSet(3)).is_ok());
         assert!(setter.validate_for_kind(SignatureKind::Method(3)).is_err());
         assert!(setter.validate_for_kind(SignatureKind::Setter).is_err());
+        assert!(InvocationLayout::ordinary(1, Box::default()).validate_for_kind(SignatureKind::Setter).is_err());
+        assert!(
+            InvocationLayout::setter(1, Box::default())
+                .validate_for_kind(SignatureKind::SubscriptSet(2))
+                .is_err()
+        );
         let setter_without_structural_lanes = InvocationLayout::setter(0, Box::default());
         assert!(setter_without_structural_lanes.validate_for_kind(SignatureKind::Getter).is_err());
         assert!(setter_without_structural_lanes.validate_for_kind(SignatureKind::Method(0)).is_err());
         assert!(InvocationLayout::setter(1, Box::default()).validate_for_kind(SignatureKind::Setter).is_err());
+        assert!(setter.validate_window(0, 5).is_ok());
+        assert!(setter.validate_window(0, 4).is_err());
+        assert!(setter.validate_window(0, 6).is_err());
     }
 }

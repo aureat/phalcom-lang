@@ -572,6 +572,9 @@ impl VM {
         source_range: SourceRange,
         caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<CallOutcome> {
+        layout.validate_window(receiver_idx, self.stack.len())?;
+        let (_, _, kind) = decode_selector(self.resolve_symbol(selector));
+        layout.validate_for_kind(kind)?;
         let receiver = self.stack[receiver_idx];
         let before = self.frames.len();
         if let Some(method) = receiver.lookup_method(self, selector) {
@@ -625,8 +628,10 @@ impl VM {
         source_range: SourceRange,
         caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<CallOutcome> {
+        layout.validate_window(receiver_idx, self.stack.len())?;
         let receiver = self.stack[receiver_idx];
         let (_, _, kind) = decode_selector(self.resolve_symbol(selector));
+        layout.validate_for_kind(kind)?;
         if matches!(kind, SignatureKind::SubscriptGet(_) | SignatureKind::SubscriptSet(_))
             && receiver
                 .as_obj()
@@ -819,17 +824,9 @@ impl VM {
             return Ok(selector);
         }
 
-        let setter_as_positional = expected_setter
-            && !layout.has_setter_value()
-            && layout.structural_positionals() == 1
-            && layout.labels().is_empty()
-            && expected_positional == 0
-            && expected_labels.is_empty();
-
-        if !setter_as_positional
-            && (expected_positional != layout.structural_positionals()
-                || expected_labels.as_slice() != layout.labels()
-                || expected_setter != layout.has_setter_value())
+        if expected_positional != layout.structural_positionals()
+            || expected_labels.as_slice() != layout.labels()
+            || expected_setter != layout.has_setter_value()
         {
             return Err(RuntimeError::Arity {
                 signature: "call",
@@ -867,6 +864,7 @@ impl VM {
         type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
         conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
     ) -> PhResult<CallOutcome> {
+        view.layout().validate_window(view.receiver_index(), self.stack.len())?;
         self.authorize_method_access_as(method, view.caller_authority().0, view.caller_authority().1)?;
         let method_selector = self.heap.method(method).signature.selector;
         let actual_selector = self.validate_captured_method_shape(method, view.layout())?;
@@ -1120,6 +1118,7 @@ impl VM {
         invocation: FamilyInvocationKind,
         source_range: SourceRange,
     ) -> PhResult<CallOutcome> {
+        view.layout().validate_window(view.receiver_index(), self.stack.len())?;
         let expects_setter = matches!(invocation, FamilyInvocationKind::Setter | FamilyInvocationKind::SubscriptSet);
         if view.has_setter_value() != expects_setter {
             return Err(RuntimeError::Internal(format!("Family invocation kind {invocation:?} does not match setter lane presence")).into());
@@ -1661,7 +1660,141 @@ impl VM {
 #[cfg(test)]
 mod tests {
     use crate::error::{PhError, RuntimeError};
+    use crate::heap::{BoundMethodFamilyObject, FamilyObject, FamilySpec, InstanceObject, MethodFamilyObject, Object};
+    use crate::method::{ArgumentView, CallOutcome, InvocationLayout, MethodObject, Signature, SignatureKind};
+    use crate::value::Value;
     use crate::vm::VM;
+    use std::sync::Arc;
+
+    fn setter_probe(_vm: &mut VM, _receiver: Value, _args: ArgumentView) -> crate::error::PhResult<CallOutcome> {
+        Ok(CallOutcome::Returned(Value::unit()))
+    }
+
+    fn labeled_setter_probe(vm: &mut VM, receiver: Value, args: ArgumentView) -> crate::error::PhResult<CallOutcome> {
+        let key = args.positional(vm, 0).ok_or_else(|| RuntimeError::Internal("missing positional lane".into()))?;
+        let debug = args.labeled_value(vm, 0).ok_or_else(|| RuntimeError::Internal("missing labeled lane".into()))?;
+        let value = args.setter_value(vm).ok_or_else(|| RuntimeError::Internal("missing setter lane".into()))?;
+        let receiver_id = receiver
+            .as_obj()
+            .ok_or_else(|| RuntimeError::Internal("setter receiver is not an object".into()))?;
+        let encoded = key.as_int().unwrap_or_default() + if debug == Value::bool(true) { 10 } else { 0 } + value.as_int().unwrap_or_default() * 100;
+        vm.heap.instance_mut(receiver_id).slots[0] = Value::int(encoded);
+        Ok(CallOutcome::Returned(Value::unit()))
+    }
+
+    #[test]
+    fn captured_setter_rejects_an_ordinary_positional_rhs_lane() {
+        let mut vm = VM::new();
+        let owner = vm.universe.classes.object_class;
+        let selector = vm.get_or_intern("value=(_)");
+        let signature = Signature::new(selector, SignatureKind::Setter);
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_shape_primitive(
+            selector,
+            signature,
+            setter_probe,
+            owner,
+        ))));
+
+        let old_positional_shape = InvocationLayout::ordinary(1, Box::default());
+        assert!(matches!(
+            vm.validate_captured_method_shape(method, &old_positional_shape),
+            Err(PhError::Runtime(RuntimeError::Arity { .. }))
+        ));
+
+        let explicit_setter_shape = InvocationLayout::setter(0, Box::default());
+        assert_eq!(
+            vm.validate_captured_method_shape(method, &explicit_setter_shape)
+                .expect("a dedicated setter lane matches the setter selector"),
+            selector
+        );
+    }
+
+    #[test]
+    fn family_set_tuple_forwards_labeled_indices_and_rhs_as_distinct_lanes() {
+        let mut vm = VM::new();
+        let owner = vm.universe.classes.object_class;
+        let receiver_id = vm.heap.alloc(Object::Instance(InstanceObject::new(owner, 1)));
+        let receiver = Value::obj(receiver_id);
+        let selector = vm.get_or_intern("[_,debug]=(_)");
+        let signature = Signature::new(selector, SignatureKind::SubscriptSet(2));
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_shape_primitive(
+            selector,
+            signature,
+            labeled_setter_probe,
+            owner,
+        ))));
+        vm.heap.class_mut(owner).add_method(selector, method);
+        let family_id = vm.heap.alloc(Object::Family(FamilyObject {
+            receiver,
+            spec: FamilySpec::Exact(selector),
+            conditional: Arc::from([]),
+        }));
+        let family = Value::obj(family_id);
+        let label = vm.interner.intern("debug");
+
+        let tuple = crate::product::finish_tuple_value(&mut vm, vec![Value::int(42)], vec![(label, Value::bool(true))])
+            .expect("labeled setter shape tuple should be valid");
+        vm.stack = vec![family, tuple, Value::int(99)];
+        let api_view = ArgumentView::ordinary_window(0, 2, Box::default(), None, crate::method::RuntimeAccessOrigin::none());
+        crate::primitive::family::family_set_shape(&mut vm, family, api_view).expect("Family.set(Tuple,value) should forward");
+
+        assert_eq!(vm.heap.instance(receiver_id).slots[0], Value::int(9952));
+
+        let pattern =
+            vm.alloc_selector_pattern(phalcom_common::selector::SelectorPattern::try_decode_pattern("[...]=(_)").expect("valid Family setter pattern"));
+        let pattern_family = Value::obj(vm.heap.alloc(Object::Family(FamilyObject {
+            receiver,
+            spec: FamilySpec::Pattern(pattern),
+            conditional: Arc::from([]),
+        })));
+        let tuple = crate::product::finish_tuple_value(&mut vm, vec![Value::int(5)], vec![(label, Value::bool(true))])
+            .expect("labeled setter shape tuple should be valid");
+        vm.stack = vec![pattern_family, tuple, Value::int(7)];
+        let api_view = ArgumentView::ordinary_window(0, 2, Box::default(), None, crate::method::RuntimeAccessOrigin::none());
+        crate::primitive::family::family_set_shape(&mut vm, pattern_family, api_view).expect("pattern Family.set(Tuple,value) should forward");
+
+        assert_eq!(vm.heap.instance(receiver_id).slots[0], Value::int(715));
+    }
+
+    #[test]
+    fn bound_method_family_matches_labeled_setter_without_counting_rhs_as_index() {
+        let mut vm = VM::new();
+        let owner = vm.universe.classes.object_class;
+        let receiver_id = vm.heap.alloc(Object::Instance(InstanceObject::new(owner, 1)));
+        let receiver = Value::obj(receiver_id);
+        let selector = vm.get_or_intern("[_,debug]=(_)");
+        let signature = Signature::new(selector, SignatureKind::SubscriptSet(2));
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_shape_primitive(
+            selector,
+            signature,
+            labeled_setter_probe,
+            owner,
+        ))));
+        let pattern =
+            vm.alloc_selector_pattern(phalcom_common::selector::SelectorPattern::try_decode_pattern("[...]=(_)").expect("valid subscript setter pattern"));
+        let mut exact_methods = indexmap::IndexMap::new();
+        exact_methods.insert(selector, method);
+        let family = vm.heap.alloc(Object::MethodFamily(Box::new(MethodFamilyObject {
+            source_behavior: owner,
+            pattern,
+            exact_methods,
+            rest_candidates: Box::new([]),
+        })));
+        let bound = BoundMethodFamilyObject { family, receiver };
+        let label = vm.interner.intern("debug");
+        vm.stack = vec![Value::nil(), Value::int(42), Value::bool(true), Value::int(99)];
+        let view = ArgumentView::from_layout(
+            0,
+            InvocationLayout::setter(1, Box::new([label])),
+            None,
+            crate::method::RuntimeAccessOrigin::none(),
+        );
+
+        vm.activate_bound_method_family(bound, view, phalcom_common::range::SourceRange::default())
+            .expect("bound family should match structural index lanes and forward setter RHS");
+
+        assert_eq!(vm.heap.instance(receiver_id).slots[0], Value::int(9952));
+    }
 
     #[test]
     fn invoke_method_object_rejects_inaccessible_method_without_stack_mutation() {
