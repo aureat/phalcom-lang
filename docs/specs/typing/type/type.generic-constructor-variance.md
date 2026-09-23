@@ -2,7 +2,7 @@
 
 **Status:** Normative specification  
 **Registry families:** `type.generic`, `type.constructor`, `type.variance`  
-**Identifier range used here:** `T0250–T0274`
+**Identifier range used here:** `T0800–T0824`
 
 ## Purpose
 
@@ -22,46 +22,48 @@ Generic subtyping must be derived from constructor-declared variance. A subtype 
 ## Laws
 
 ```phalcom
-@id(T0250)
+@id(T0800)
 @name(type.constructor.application.identity)
 ConstructorApplicationIdentity<F, A> {
     F<A> == F<A>
 }
 
-@id(T0251)
+@id(T0801)
 @name(type.constructor.identity-substitution)
 ConstructorIdentitySubstitution<F, A, B> {
-    if A == B {
+    if staticEquivalent(A, B) {
         F<A> == F<B>
     }
 }
 
-@id(T0252)
-@name(type.constructor.distinct.identity)
-DistinctConstructorsStayDistinct<F, G, A> {
-    if F != G {
+@id(T0802)
+@name(type.constructor.nominal-distinct.identity)
+DistinctNominalConstructorsStayDistinct<F, G, A> {
+    if nominalConstructor(F)
+        and nominalConstructor(G)
+        and F != G
+    {
         F<A> != G<A>
     }
 }
 
-@id(T0253)
+@id(T0803)
 @name(type.constructor.kind.application)
-ConstructorApplicationKind<F, A, K> {
-    if kind(F) == Type -> K and kind(A) == Type {
-        kind(F<A>) == K
+ConstructorApplicationKind<F, A, K1, K2> {
+    if kind(F) == K1 -> K2 and kind(A) == K1 {
+        kind(F<A>) == K2
     }
 }
 
-@id(T0254)
+@id(T0804)
 @name(type.variance.must-be-declared)
 GenericSubtypingRequiresDeclaredVariance<F, A, B> {
-    if A <: B {
-        // does not imply:
-        // F<A> <: F<B>
+    if A <: B and variance(F, 0) != Covariant {
+        notEntailsFrom(A <: B, F<A> <: F<B>)
     }
 }
 
-@id(T0255)
+@id(T0805)
 @name(type.variance.covariant)
 CovariantConstructor<F, A, B> {
     if variance(F, 0) == Covariant and A <: B {
@@ -69,7 +71,7 @@ CovariantConstructor<F, A, B> {
     }
 }
 
-@id(T0256)
+@id(T0806)
 @name(type.variance.contravariant)
 ContravariantConstructor<F, A, B> {
     if variance(F, 0) == Contravariant and A <: B {
@@ -77,15 +79,16 @@ ContravariantConstructor<F, A, B> {
     }
 }
 
-@id(T0257)
-@name(type.variance.invariant)
-InvariantConstructor<F, A, B> {
-    if variance(F, 0) == Invariant {
-        F<A> <: F<B> iff A == B
+@id(T0807)
+@name(type.variance.invariant.no-induced-subtype)
+InvariantParameterDoesNotInduceSubtype<F, A, B> {
+    if variance(F, 0) == Invariant and A != B {
+        notEntailsFrom(A <: B, F<A> <: F<B>)
+        notEntailsFrom(A <: B, F<B> <: F<A>)
     }
 }
 
-@id(T0258)
+@id(T0808)
 @name(type.variance.covariant.identity)
 CovariantIdentityPreserved<F, A, B> {
     if variance(F, 0) == Covariant and A == B {
@@ -93,7 +96,7 @@ CovariantIdentityPreserved<F, A, B> {
     }
 }
 
-@id(T0259)
+@id(T0809)
 @name(type.variance.contravariant.identity)
 ContravariantIdentityPreserved<F, A, B> {
     if variance(F, 0) == Contravariant and A == B {
@@ -101,7 +104,7 @@ ContravariantIdentityPreserved<F, A, B> {
     }
 }
 
-@id(T0260)
+@id(T0810)
 @name(type.variance.invariant.identity)
 InvariantIdentityPreserved<F, A, B> {
     if variance(F, 0) == Invariant and A == B {
@@ -109,7 +112,7 @@ InvariantIdentityPreserved<F, A, B> {
     }
 }
 
-@id(T0261)
+@id(T0811)
 @name(type.constructor.multi-parameter.variance)
 MultiParameterVariance<F, A1, A2, B1, B2> {
     if variance(F, 0) == Covariant
@@ -121,7 +124,7 @@ MultiParameterVariance<F, A1, A2, B1, B2> {
     }
 }
 
-@id(T0262)
+@id(T0812)
 @name(type.constructor.injective.declared)
 DeclaredInjectiveConstructor<F, A, B> {
     if injective(F) and F<A> == F<B> {
@@ -129,7 +132,7 @@ DeclaredInjectiveConstructor<F, A, B> {
     }
 }
 
-@id(T0263)
+@id(T0813)
 @name(type.constructor.noninjective.not-assumed)
 ConstructorInjectivityNotImplicit<F, A, B> {
     if not injective(F) and F<A> == F<B> {
@@ -138,21 +141,23 @@ ConstructorInjectivityNotImplicit<F, A, B> {
     }
 }
 
-@id(T0264)
-@name(type.constructor.arity.significant)
-ConstructorAritySignificant<F, A, B> {
-    F<A> != F<A, B>
+@id(T0814)
+@name(type.constructor.arity.required)
+ConstructorArityRequired<F, ***As> {
+    if not acceptsArity(F, arity(***As)) {
+        illFormed(F<***As>)
+    }
 }
 
-@id(T0265)
-@name(type.constructor.parameter-order.significant)
-ConstructorParameterOrderSignificant<F, A, B> {
-    if A != B {
+@id(T0815)
+@name(type.constructor.nominal-parameter-order.significant)
+NominalConstructorParameterOrderSignificant<F, A, B> {
+    if nominalConstructor(F) and not staticEquivalent(A, B) {
         F<A, B> != F<B, A>
     }
 }
 
-@id(T0266)
+@id(T0816)
 @name(type.generic.never.covariant)
 CovariantNeverLowerBound<F, A> {
     if variance(F, 0) == Covariant {
@@ -160,7 +165,7 @@ CovariantNeverLowerBound<F, A> {
     }
 }
 
-@id(T0267)
+@id(T0817)
 @name(type.generic.any.covariant)
 CovariantAnyUpperBound<F, A> {
     if variance(F, 0) == Covariant {
@@ -168,7 +173,7 @@ CovariantAnyUpperBound<F, A> {
     }
 }
 
-@id(T0268)
+@id(T0818)
 @name(type.generic.never.contravariant)
 ContravariantNeverUpperBound<F, A> {
     if variance(F, 0) == Contravariant {
@@ -176,7 +181,7 @@ ContravariantNeverUpperBound<F, A> {
     }
 }
 
-@id(T0269)
+@id(T0819)
 @name(type.generic.any.contravariant)
 ContravariantAnyLowerBound<F, A> {
     if variance(F, 0) == Contravariant {
@@ -184,21 +189,21 @@ ContravariantAnyLowerBound<F, A> {
     }
 }
 
-@id(T0270)
-@name(type.generic.invariant.never-any-distinct)
-InvariantNeverAnyDistinct<F> {
-    if variance(F, 0) == Invariant {
+@id(T0820)
+@name(type.generic.invariant.nominal-never-any-distinct)
+InvariantNominalNeverAnyDistinct<F> {
+    if nominalConstructor(F) and variance(F, 0) == Invariant {
         F<Never> != F<Any>
     }
 }
 
-@id(T0271)
+@id(T0821)
 @name(type.constructor.partial-application.identity)
 PartialConstructorIdentity<F, A> {
     F<A> == F<A>
 }
 
-@id(T0272)
+@id(T0822)
 @name(type.constructor.partial-application.kind)
 PartialConstructorKind<F, A, K1, K2> {
     if kind(F) == Type -> K1 -> K2 and kind(A) == Type {
@@ -206,17 +211,17 @@ PartialConstructorKind<F, A, K1, K2> {
     }
 }
 
-@id(T0273)
+@id(T0823)
 @name(type.constructor.variance.composition)
 VarianceComposition<F, G> {
     variance(F<G<_>>, 0) ==
         composeVariance(variance(F, 0), variance(G, 0))
 }
 
-@id(T0274)
+@id(T0824)
 @name(type.constructor.variance.identity-consistency)
 VarianceNeverBreaksIdentity<F, A, B> {
-    if A == B {
+    if staticEquivalent(A, B) {
         F<A> == F<B>
     }
 }
@@ -224,93 +229,93 @@ VarianceNeverBreaksIdentity<F, A, B> {
 
 ## Law notes
 
-### T0250–T0253 — Constructor application
+### T0800–T0803 — Constructor application
 
-Type constructor application participates in ordinary semantic identity and kinding.
+Type constructor application participates in ordinary semantic identity and kinding. Distinct-constructor identity is only asserted for nominal constructors; arbitrary type functions may reduce to the same result.
 
 **Kind:** Semantic laws  
-**Depends on:** T0010–T0015, T0001–T0003
+**Depends on:** T0050–T0057, T0001–T0003
 
-### T0254 — `GenericSubtypingRequiresDeclaredVariance`
+### T0804 — `GenericSubtypingRequiresDeclaredVariance`
 
 This is a critical safety invariant.
 
 `A <: B` alone is insufficient to conclude `F<A> <: F<B>`.
 
 **Kind:** Solver-safety invariant  
-**Depends on:** T0020–T0023
+**Depends on:** T0100–T0103
 
-### T0255 — `CovariantConstructor`
+### T0805 — `CovariantConstructor`
 
 Covariant parameters preserve subtype direction.
 
 **Kind:** Semantic variance law  
-**Depends on:** T0254
+**Depends on:** T0804
 
-### T0256 — `ContravariantConstructor`
+### T0806 — `ContravariantConstructor`
 
 Contravariant parameters reverse subtype direction.
 
 **Kind:** Semantic variance law  
-**Depends on:** T0254
+**Depends on:** T0804
 
-### T0257 — `InvariantConstructor`
+### T0807 — `InvariantParameterDoesNotInduceSubtype`
 
-Invariant parameters permit generic subtyping only when the arguments are semantically identical.
+Invariant parameters do not induce either covariant or contravariant subtyping from argument subtyping. Separate declared subtype relations may still exist for other reasons.
 
 **Kind:** Semantic variance law  
-**Depends on:** T0024, T0254
+**Depends on:** T0104, T0804
 
-### T0258–T0260 — Identity preservation
+### T0808–T0810 — Identity preservation
 
 Variance never changes the basic rule that semantically identical arguments produce identical applications.
 
 **Kind:** Derived coherence laws  
-**Depends on:** T0251
+**Depends on:** T0801
 
-### T0261 — `MultiParameterVariance`
+### T0811 — `MultiParameterVariance`
 
 Each generic parameter contributes according to its own declared variance.
 
 **Kind:** Semantic variance law  
-**Depends on:** T0255–T0257
+**Depends on:** T0805–T0807
 
-### T0262 / T0263 — Constructor injectivity
+### T0812 / T0813 — Constructor injectivity
 
-Injectivity is explicit metadata/semantics, not a universal property of generic constructors.
+Injectivity is explicit metadata/semantics, not a universal property of arbitrary type constructors or reducible type functions.
 
 **Kind:** Semantic constructor laws  
 **Depends on:** T0001–T0003
 
-### T0264 / T0265 — Constructor shape identity
+### T0814 / T0815 — Constructor shape identity
 
-Application arity and parameter order are semantically significant.
+Constructor arity is a well-formedness requirement. For nominal constructors, ordered static arguments participate in nominal identity, so swapping distinct arguments changes the specialization.
 
 **Kind:** Semantic identity laws  
 **Depends on:** T0001–T0003
 
-### T0266–T0269 — Boundary consequences
+### T0816–T0819 — Boundary consequences
 
 `Never` and `Any` induce predictable extrema through covariant and contravariant parameters.
 
 **Kind:** Derived semantic laws  
-**Depends on:** T0031, T0041, T0255, T0256
+**Depends on:** T0151, T0201, T0805, T0806
 
-### T0270 — `InvariantNeverAnyDistinct`
+### T0820 — `InvariantNominalNeverAnyDistinct`
 
-Invariant applications over semantically distinct arguments remain distinct.
+For nominal constructors, invariant applications over semantically distinct arguments remain distinct by nominal argument identity. Invariance alone would not justify this law for arbitrary reducible type functions.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0257, T0036, T0043
+**Depends on:** `type.nominal`, `type.static-value`, T0156, T0203
 
-### T0271 / T0272 — Partial application
+### T0821 / T0822 — Partial application
 
 Partially applied constructors retain semantic identity and the remaining constructor kind.
 
 **Kind:** Semantic constructor laws  
-**Depends on:** T0014
+**Depends on:** T0056
 
-### T0273 — `VarianceComposition`
+### T0823 — `VarianceComposition`
 
 Nested constructor variance composes.
 
@@ -326,14 +331,14 @@ invariant × anything      = invariant
 ```
 
 **Kind:** Derived variance law  
-**Depends on:** T0255–T0257
+**Depends on:** T0805–T0807
 
-### T0274 — `VarianceNeverBreaksIdentity`
+### T0824 — `VarianceNeverBreaksIdentity`
 
 Variance affects subtype direction, never semantic identity substitution.
 
 **Kind:** Cross-cutting coherence law  
-**Depends on:** T0251
+**Depends on:** T0801
 
 ## Explicitly deferred laws
 

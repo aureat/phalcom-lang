@@ -2,7 +2,7 @@
 
 **Status:** Normative specification  
 **Registry family:** `type.algebra`  
-**Identifier range used here:** `T0140–T0155`
+**Identifier range used here:** `T0550–T0565`
 
 ## Purpose
 
@@ -25,84 +25,88 @@ Unless stated otherwise:
 ## Laws
 
 ```phalcom
-@id(T0140)
+@id(T0550)
 @name(type.algebra.lattice.bounded)
 TypeAlgebraBounded<A> {
     Never <: A
     A <: Any
 }
 
-@id(T0141)
+@id(T0551)
 @name(type.algebra.absorption.union)
 UnionAbsorption<A, B> {
     A | (A & B) == A
 }
 
-@id(T0142)
+@id(T0552)
 @name(type.algebra.absorption.intersection)
 IntersectionAbsorption<A, B> {
     A & (A | B) == A
 }
 
-@id(T0143)
+@id(T0553)
 @name(type.algebra.order.union-characterization)
 SubtypeByUnion<A, B> {
     A <: B iff A | B == B
 }
 
-@id(T0144)
+@id(T0554)
 @name(type.algebra.order.intersection-characterization)
 SubtypeByIntersection<A, B> {
     A <: B iff A & B == A
 }
 
-@id(T0145)
+@id(T0555)
 @name(type.algebra.order.dual-characterization)
 SubtypeAlgebraCharacterization<A, B> {
     A <: B iff A | B == B and A & B == A
 }
 
-@id(T0146)
+@id(T0556)
 @name(type.algebra.identity.join-meet)
 IdentityByJoinAndMeet<A, B> {
     A == B iff A | B == A and A & B == A
 }
 
-@id(T0147)
+@id(T0557)
 @name(type.algebra.distributive.intersection-over-union)
 IntersectionDistributesOverUnion<A, B, C> {
-    A & (B | C) == (A & B) | (A & C)
+    if distributiveTypeFragment(A, B, C) {
+        A & (B | C) == (A & B) | (A & C)
+    }
 }
 
-@id(T0148)
+@id(T0558)
 @name(type.algebra.distributive.union-over-intersection)
 UnionDistributesOverIntersection<A, B, C> {
-    A | (B & C) == (A | B) & (A | C)
+    if distributiveTypeFragment(A, B, C) {
+        A | (B & C) == (A | B) & (A | C)
+    }
 }
 
-@id(T0149)
+@id(T0559)
 @name(type.algebra.duality.never-any)
 NeverAnyDuality {
     Never | Any == Any
     Never & Any == Never
 }
 
-@id(T0150)
+@id(T0560)
 @name(type.algebra.exact.distinct-intersection)
 DistinctExactIntersection<a, b> {
-    if a != b {
+    if not staticEquivalent(a, b) {
         exact(a) & exact(b) == Never
     }
 }
 
-@id(T0151)
+@id(T0561)
 @name(type.algebra.boolean.partition)
 BoolPartition {
     Bool == exact(true) | exact(false)
     exact(true) & exact(false) == Never
 }
 
-@id(T0152)
+@id(T0562)
 @name(type.algebra.unit.singleton)
 UnitSingletonAlgebra {
     Unit == exact(())
@@ -110,7 +114,7 @@ UnitSingletonAlgebra {
     Unit <: Any
 }
 
-@id(T0153)
+@id(T0563)
 @name(type.algebra.order.identity-from-mutual)
 IdentityFromAlgebraicOrder<A, B> {
     if A | B == B and A & B == A
@@ -120,7 +124,7 @@ IdentityFromAlgebraicOrder<A, B> {
     }
 }
 
-@id(T0154)
+@id(T0564)
 @name(type.algebra.disjoint.order)
 DisjointSubtypePropagation<A, B, C> {
     if A <: B and disjoint(B, C) {
@@ -128,151 +132,149 @@ DisjointSubtypePropagation<A, B, C> {
     }
 }
 
-@id(T0155)
+@id(T0565)
 @name(type.algebra.semantic-normalization-boundary)
 SemanticLawDoesNotRequireExpansion<A, B, C> {
-    A & (B | C) == (A & B) | (A & C)
-
-    // does not require:
-    // normalize(A & (B | C))
-    // to structurally expand into
-    // normalize((A & B) | (A & C))
+    if distributiveTypeFragment(A, B, C) {
+        A & (B | C) == (A & B) | (A & C)
+        notRequiresStructuralExpansion(A & (B | C))
+    }
 }
 ```
 
 ## Law notes
 
-### T0140 — `TypeAlgebraBounded`
+### T0550 — `TypeAlgebraBounded`
 
 The proper-type subtype order is bounded by `Never` and `Any`.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0031, T0041
+**Depends on:** T0151, T0201
 
-### T0141 — `UnionAbsorption`
+### T0551 — `UnionAbsorption`
 
 Union absorbs an intersection that already includes the union operand.
 
 **Kind:** Derived semantic algebra law  
-**Depends on:** T0106–T0109, T0126–T0129
+**Depends on:** T0456–T0459, T0506–T0509
 
-### T0142 — `IntersectionAbsorption`
+### T0552 — `IntersectionAbsorption`
 
 Intersection absorbs a union that already includes the intersection operand.
 
 **Kind:** Derived semantic algebra law  
-**Depends on:** T0106–T0109, T0126–T0129
+**Depends on:** T0456–T0459, T0506–T0509
 
-### T0143 — `SubtypeByUnion`
+### T0553 — `SubtypeByUnion`
 
 `A <: B` exactly when joining `A` with `B` yields `B`.
 
 This gives union an order-characterization role and is a high-value consistency law for the subtype solver.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0106–T0109, T0023
+**Depends on:** T0456–T0459, T0103
 
-### T0144 — `SubtypeByIntersection`
+### T0554 — `SubtypeByIntersection`
 
 `A <: B` exactly when meeting `A` with `B` yields `A`.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0126–T0129, T0023
+**Depends on:** T0506–T0509, T0103
 
-### T0145 — `SubtypeAlgebraCharacterization`
+### T0555 — `SubtypeAlgebraCharacterization`
 
 Subtype order can be characterized simultaneously through both join and meet.
 
 The two equalities are intentionally redundant as a registry invariant: disagreement between them reveals a broken operator implementation or subtype solver.
 
 **Kind:** Derived cross-check law  
-**Depends on:** T0143, T0144
+**Depends on:** T0553, T0554
 
-### T0146 — `IdentityByJoinAndMeet`
+### T0556 — `IdentityByJoinAndMeet`
 
 Two types are identical exactly when their join and meet both collapse to one of the operands.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0024, T0143, T0144
+**Depends on:** T0104, T0553, T0554
 
-### T0147 — `IntersectionDistributesOverUnion`
+### T0557 — `IntersectionDistributesOverUnion`
 
-Intersection distributes over union at the semantic level.
+Within a declared distributive fragment, intersection distributes over union at the semantic level.
 
 The compiler is not required to eagerly rewrite the left side into the right side. Semantic equivalence does not imply a mandatory expansion strategy.
 
 **Kind:** Semantic algebra law  
-**Depends on:** T0100–T0114, T0120–T0134
+**Depends on:** T0450–T0464, T0500–T0514
 
-### T0148 — `UnionDistributesOverIntersection`
+### T0558 — `UnionDistributesOverIntersection`
 
-Union distributes over intersection at the semantic level.
+Within a declared distributive fragment, union distributes over intersection at the semantic level.
 
-As with T0147, this is not an instruction to eagerly expand normalized types.
+As with T0557, this is not an instruction to eagerly expand normalized types.
 
 **Kind:** Semantic algebra law  
-**Depends on:** T0100–T0114, T0120–T0134, T0147
+**Depends on:** T0450–T0464, T0500–T0514, T0557
 
-### T0149 — `NeverAnyDuality`
+### T0559 — `NeverAnyDuality`
 
 Bottom and top behave dually under join and meet.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0104, T0105, T0124, T0125
+**Depends on:** T0454, T0455, T0504, T0505
 
-### T0150 — `DistinctExactIntersection`
+### T0560 — `DistinctExactIntersection`
 
 Distinct exact-value types intersect to `Never`.
 
 **Kind:** Cross-family derived law  
-**Depends on:** T0067–T0069, T0135
+**Depends on:** T0358–T0360, T0515
 
-### T0151 — `BoolPartition`
+### T0561 — `BoolPartition`
 
 `Bool` is a closed partition into two disjoint exact cases.
 
 **Kind:** Cross-family derived law  
-**Depends on:** T0080–T0090, T0115, T0150
+**Depends on:** T0400–T0411, T0465, T0560
 
-### T0152 — `UnitSingletonAlgebra`
+### T0562 — `UnitSingletonAlgebra`
 
 `Unit` is the exact singleton type of `()` and lies within the bounded proper-type order.
 
 **Kind:** Cross-family derived law  
-**Depends on:** T0050–T0057, T0060–T0071, T0140
+**Depends on:** `type.unit`, `type.exact`, T0550
 
-### T0153 — `IdentityFromAlgebraicOrder`
+### T0563 — `IdentityFromAlgebraicOrder`
 
 If each type absorbs the other in both algebraic order directions, the types are semantically identical.
 
 This intentionally exercises union, intersection, subtype order, and semantic identity together.
 
 **Kind:** Derived coherence law  
-**Depends on:** T0143–T0146
+**Depends on:** T0553–T0556
 
-### T0154 — `DisjointSubtypePropagation`
+### T0564 — `DisjointSubtypePropagation`
 
 If `A` is narrower than `B` and `B` is disjoint from `C`, then `A` is also disjoint from `C`.
 
 This is important for exact-type reasoning, pattern reachability, and finite-domain elimination.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0021, T0135
+**Depends on:** T0101, T0515
 
-### T0155 — `SemanticLawDoesNotRequireExpansion`
+### T0565 — `SemanticLawDoesNotRequireExpansion`
 
 Semantic distributivity must not be confused with canonical representation.
 
-The compiler may preserve `A & (B | C)` as a compact semantic form while still proving it equivalent to `(A & B) | (A & C)`. Representation policy belongs to `type.normalization`.
+Within a declared distributive fragment, the compiler may preserve `A & (B | C)` as a compact semantic form while still proving the distributive equivalence. Representation policy belongs to `type.normalization`.
 
 This boundary is normative because blindly treating every valid algebraic equivalence as an eager rewrite rule can make normalization exponential.
 
 **Kind:** Semantic/representation boundary invariant  
-**Depends on:** T0147, T0148
+**Depends on:** T0557, T0558
 
 ## Algebraic structure
 
-With the laws defined through this point, the proper-type universe forms a bounded distributive lattice modulo semantic identity:
+With the laws defined through this point, the proper-type universe forms a bounded lattice modulo semantic identity. Fragments declared `distributiveTypeFragment` additionally form distributive lattices:
 
 ```text
 bottom          Never

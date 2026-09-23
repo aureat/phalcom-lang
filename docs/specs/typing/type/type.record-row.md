@@ -2,7 +2,7 @@
 
 **Status:** Normative specification  
 **Registry families:** `type.record`, `type.row`  
-**Identifier range used here:** `T0200–T0221`
+**Identifier range used here:** `T0700–T0721`
 
 ## Purpose
 
@@ -27,31 +27,31 @@ Unless stated otherwise:
 ## Laws
 
 ```phalcom
-@id(T0200)
+@id(T0700)
 @name(type.record.kind)
 RecordKind<***Fields> {
     kind(record<***Fields>) == Type
 }
 
-@id(T0201)
+@id(T0701)
 @name(type.row.field-names.unique)
 RowFieldNamesUnique<R> {
     unique(fields(R))
 }
 
-@id(T0202)
+@id(T0702)
 @name(type.record.field-order.irrelevant)
 RecordFieldOrderIrrelevant<A, B> {
     { x: A, y: B } == { y: B, x: A }
 }
 
-@id(T0203)
+@id(T0703)
 @name(type.record.field-name.significant)
 RecordFieldNamesSignificant<A> {
     { x: A } != { y: A }
 }
 
-@id(T0204)
+@id(T0704)
 @name(type.record.identity-substitution)
 RecordFieldIdentitySubstitution<A, B, C> {
     if A == B {
@@ -59,13 +59,13 @@ RecordFieldIdentitySubstitution<A, B, C> {
     }
 }
 
-@id(T0205)
+@id(T0705)
 @name(type.record.width-subtype)
 RecordWidthSubtype<A, B> {
     { x: A, y: B } <: { x: A }
 }
 
-@id(T0206)
+@id(T0706)
 @name(type.record.depth-subtype)
 RecordDepthSubtype<A, B> {
     if A <: B {
@@ -73,7 +73,7 @@ RecordDepthSubtype<A, B> {
     }
 }
 
-@id(T0207)
+@id(T0707)
 @name(type.record.width-depth-subtype)
 RecordWidthDepthSubtype<A1, A2, B1> {
     if A1 <: B1 {
@@ -81,7 +81,7 @@ RecordWidthDepthSubtype<A1, A2, B1> {
     }
 }
 
-@id(T0208)
+@id(T0708)
 @name(type.record.required-fields)
 RecordSubtypeRequiresFields<R1, R2> {
     if R1 <: R2 {
@@ -89,7 +89,7 @@ RecordSubtypeRequiresFields<R1, R2> {
     }
 }
 
-@id(T0209)
+@id(T0709)
 @name(type.record.field-subtype)
 RecordSubtypeRequiresFieldCompatibility<R1, R2, N> {
     if R1 <: R2 and N in fields(R2) {
@@ -97,7 +97,7 @@ RecordSubtypeRequiresFieldCompatibility<R1, R2, N> {
     }
 }
 
-@id(T0210)
+@id(T0710)
 @name(type.row.projection)
 RowFieldProjection<R, N> {
     if N in fields(R) {
@@ -105,7 +105,7 @@ RowFieldProjection<R, N> {
     }
 }
 
-@id(T0211)
+@id(T0711)
 @name(type.row.projection.missing)
 MissingRowFieldProjectionIllFormed<R, N> {
     if N not in fields(R) {
@@ -113,34 +113,34 @@ MissingRowFieldProjectionIllFormed<R, N> {
     }
 }
 
-@id(T0212)
+@id(T0712)
 @name(type.record.projection)
 RecordFieldProjection<A, B> {
     { x: A, y: B }::At<"x"> == A
     { x: A, y: B }::At<"y"> == B
 }
 
-@id(T0213)
+@id(T0713)
 @name(type.record.mutable.invariant)
 MutableRecordFieldInvariant<A, B> {
     mutable { x: A } <: mutable { x: B }
         iff A == B
 }
 
-@id(T0214)
+@id(T0714)
 @name(type.record.mutable.width)
 MutableRecordWidthSubtype<A, B> {
     mutable { x: A, y: B } <: mutable { x: A }
 }
 
-@id(T0215)
+@id(T0715)
 @name(type.row.permutation.identity)
 RowPermutationIdentity<A, B, C> {
     row { x: A, y: B, z: C } ==
     row { z: C, x: A, y: B }
 }
 
-@id(T0216)
+@id(T0716)
 @name(type.row.extension)
 RowExtension<R, N, A> {
     if N not in fields(R) {
@@ -148,7 +148,7 @@ RowExtension<R, N, A> {
     }
 }
 
-@id(T0217)
+@id(T0717)
 @name(type.row.extension.projection)
 RowExtensionProjection<R, N, A> {
     if N not in fields(R) {
@@ -156,7 +156,7 @@ RowExtensionProjection<R, N, A> {
     }
 }
 
-@id(T0218)
+@id(T0718)
 @name(type.row.extension.preservation)
 RowExtensionPreservesExistingFields<R, N, A, M> {
     if N not in fields(R) and M in fields(R) {
@@ -164,19 +164,19 @@ RowExtensionPreservesExistingFields<R, N, A, M> {
     }
 }
 
-@id(T0219)
+@id(T0719)
 @name(type.record.tuple.distinct)
 RecordTupleDistinct<A, B> {
     { x: A, y: B } != (x: A, y: B)
 }
 
-@id(T0220)
+@id(T0720)
 @name(type.record.never-field)
 RecordWithNeverRequiredFieldIsNever<A> {
     { x: A, y: Never } == Never
 }
 
-@id(T0221)
+@id(T0721)
 @name(type.record.union.field-widening)
 RecordFieldUnionWidening<A, B> {
     { x: A } <: { x: A | B }
@@ -185,23 +185,23 @@ RecordFieldUnionWidening<A, B> {
 
 ## Law notes
 
-### T0200 — `RecordKind`
+### T0700 — `RecordKind`
 
 Every well-formed record type is a proper type.
 
 **Kind:** Semantic law  
-**Depends on:** T0018
+**Depends on:** T0060
 
-### T0201 — `RowFieldNamesUnique`
+### T0701 — `RowFieldNamesUnique`
 
 A row may not contain two semantic fields with the same label.
 
 Duplicate-field source syntax must be rejected or resolved before a valid semantic row exists.
 
 **Kind:** Well-formedness invariant  
-**Depends on:** T0200
+**Depends on:** T0700
 
-### T0202 — `RecordFieldOrderIrrelevant`
+### T0702 — `RecordFieldOrderIrrelevant`
 
 Record field ordering is not semantic.
 
@@ -210,148 +210,148 @@ Reordering fields preserves record identity.
 **Kind:** Semantic identity law  
 **Depends on:** T0001–T0003
 
-### T0203 — `RecordFieldNamesSignificant`
+### T0703 — `RecordFieldNamesSignificant`
 
 Field labels are semantic keys. Structurally identical value types under different labels do not produce identical record types.
 
 **Kind:** Semantic identity law  
 **Depends on:** T0001–T0003
 
-### T0204 — `RecordFieldIdentitySubstitution`
+### T0704 — `RecordFieldIdentitySubstitution`
 
 Replacing a field type with a semantically identical type preserves record identity.
 
 **Kind:** Derived coherence law  
 **Depends on:** T0001–T0003
 
-### T0205 — `RecordWidthSubtype`
+### T0705 — `RecordWidthSubtype`
 
 An immutable record with additional fields may be used where a subset of those fields is required.
 
 **Kind:** Semantic subtype law  
-**Depends on:** T0020–T0023
+**Depends on:** T0100–T0103
 
-### T0206 — `RecordDepthSubtype`
+### T0706 — `RecordDepthSubtype`
 
 Immutable record fields are covariant in their value type.
 
 **Kind:** Semantic variance law  
-**Depends on:** T0020–T0023
+**Depends on:** T0100–T0103
 
-### T0207 — `RecordWidthDepthSubtype`
+### T0707 — `RecordWidthDepthSubtype`
 
 Width and depth subtyping compose.
 
 A record may provide additional fields and narrower types for the fields required by the target.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0205, T0206, T0021
+**Depends on:** T0705, T0706, T0101
 
-### T0208 — `RecordSubtypeRequiresFields`
+### T0708 — `RecordSubtypeRequiresFields`
 
 If `R1 <: R2`, the source record must provide every field required by the target record.
 
 **Kind:** Semantic subtype invariant  
-**Depends on:** T0205
+**Depends on:** T0705
 
-### T0209 — `RecordSubtypeRequiresFieldCompatibility`
+### T0709 — `RecordSubtypeRequiresFieldCompatibility`
 
 For immutable fields required by the target record, the corresponding source field type must subtype the target field type.
 
 **Kind:** Semantic subtype invariant  
-**Depends on:** T0206
+**Depends on:** T0706
 
-### T0210 — `RowFieldProjection`
+### T0710 — `RowFieldProjection`
 
 Projecting a present row field yields a proper type.
 
 **Kind:** Kinding law  
-**Depends on:** T0010, T0201
+**Depends on:** T0050, T0701
 
-### T0211 — `MissingRowFieldProjectionIllFormed`
+### T0711 — `MissingRowFieldProjectionIllFormed`
 
 Static projection of a missing field is ill formed.
 
 The compiler must not manufacture `Never`, `Any`, or `Unknown` as though the field existed.
 
 **Kind:** Well-formedness invariant  
-**Depends on:** T0013, T0201
+**Depends on:** T0055, T0701
 
-### T0212 — `RecordFieldProjection`
+### T0712 — `RecordFieldProjection`
 
 Record field projection returns the type associated with the selected semantic field label.
 
 **Kind:** Semantic projection law  
-**Depends on:** T0210
+**Depends on:** T0710
 
-### T0213 — `MutableRecordFieldInvariant`
+### T0713 — `MutableRecordFieldInvariant`
 
 A writable field is invariant in its value type.
 
 Covariance would be unsound: code expecting `mutable { x: B }` could write any `B` into storage that only safely accepts a narrower `A`.
 
 **Kind:** Semantic variance law  
-**Depends on:** T0020–T0024
+**Depends on:** T0100–T0104
 
-### T0214 — `MutableRecordWidthSubtype`
+### T0714 — `MutableRecordWidthSubtype`
 
 Field mutability does not by itself invalidate width subtyping when the retained field contracts are identical.
 
 This law concerns dropping visibility of extra fields, not changing the writable type of retained fields.
 
 **Kind:** Semantic subtype law  
-**Depends on:** T0205, T0213
+**Depends on:** T0705, T0713
 
-### T0215 — `RowPermutationIdentity`
+### T0715 — `RowPermutationIdentity`
 
 Rows are unordered maps from semantic labels to field contracts.
 
 **Kind:** Semantic row law  
-**Depends on:** T0201, T0202
+**Depends on:** T0701, T0702
 
-### T0216 — `RowExtension`
+### T0716 — `RowExtension`
 
 Extending a row with a fresh field adds exactly that semantic field.
 
 **Kind:** Semantic row law  
-**Depends on:** T0201
+**Depends on:** T0701
 
-### T0217 — `RowExtensionProjection`
+### T0717 — `RowExtensionProjection`
 
 The newly introduced field projects to its declared type.
 
 **Kind:** Semantic row law  
-**Depends on:** T0210, T0216
+**Depends on:** T0710, T0716
 
-### T0218 — `RowExtensionPreservesExistingFields`
+### T0718 — `RowExtensionPreservesExistingFields`
 
 Extending a row with a fresh field preserves every existing field projection.
 
 **Kind:** Semantic row law  
-**Depends on:** T0216, T0217
+**Depends on:** T0716, T0717
 
-### T0219 — `RecordTupleDistinct`
+### T0719 — `RecordTupleDistinct`
 
 A record and a labeled tuple are not semantically identical merely because they expose similarly named entries.
 
 Records are unordered structural field products; tuples remain ordered products.
 
 **Kind:** Cross-family semantic law  
-**Depends on:** T0184, T0194, T0202
+**Depends on:** T0654, T0664, T0702
 
-### T0220 — `RecordWithNeverRequiredFieldIsNever`
+### T0720 — `RecordWithNeverRequiredFieldIsNever`
 
 A record with a required field of type `Never` is uninhabited and therefore semantically identical to `Never`.
 
 **Kind:** Cross-family semantic law  
-**Depends on:** T0032–T0034, T0200
+**Depends on:** T0152–T0154, T0700
 
-### T0221 — `RecordFieldUnionWidening`
+### T0721 — `RecordFieldUnionWidening`
 
 An immutable field may be widened to a union supertype.
 
 **Kind:** Cross-family derived law  
-**Depends on:** T0106, T0107, T0206
+**Depends on:** T0456, T0457, T0706
 
 ## Row/record separation
 

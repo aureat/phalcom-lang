@@ -2,7 +2,7 @@
 
 **Status:** Normative foundational specification  
 **Registry family:** `type.never`  
-**Identifier range used here:** `T0030–T0036`
+**Identifier range used here:** `T0150–T0156`
 
 ## Purpose
 
@@ -24,37 +24,37 @@ Unless stated otherwise:
 ## Laws
 
 ```phalcom
-@id(T0030)
+@id(T0150)
 @name(type.never.kind)
 NeverKind {
     kind(Never) == Type
 }
 
-@id(T0031)
+@id(T0151)
 @name(type.never.bottom)
 NeverIsBottom<A> {
     Never <: A
 }
 
-@id(T0032)
+@id(T0152)
 @name(type.never.empty)
 NeverIsEmpty {
     empty(Never)
 }
 
-@id(T0033)
+@id(T0153)
 @name(type.never.no-inhabitants)
 NeverHasNoInhabitants {
     inhabitants(Never) == 0
 }
 
-@id(T0034)
+@id(T0154)
 @name(type.never.no-value)
 NoValueHasNeverType<v> {
     not (v : Never)
 }
 
-@id(T0035)
+@id(T0155)
 @name(type.never.unique-bottom)
 NeverIsUniqueBottom<A> {
     if A <: Never {
@@ -62,71 +62,71 @@ NeverIsUniqueBottom<A> {
     }
 }
 
-@id(T0036)
+@id(T0156)
 @name(type.never.subtype-characterization)
 NeverSubtypeCharacterization<A> {
     A == Never iff A <: Never
 }
 ```
 
-## T0030 — `NeverKind`
+## T0150 — `NeverKind`
 
 `Never` is a proper type and therefore has kind `Type`.
 
 **Kind:** Semantic law  
-**Depends on:** T0010
+**Depends on:** T0050
 
-## T0031 — `NeverIsBottom`
+## T0151 — `NeverIsBottom`
 
 `Never` is a subtype of every proper type.
 
 This is the defining order-theoretic property of bottom. No nominal, structural, generic, exact, or user-defined proper type may sit below `Never` as a distinct semantic type.
 
 **Kind:** Semantic law  
-**Depends on:** T0018, T0020–T0023
+**Depends on:** T0060, T0100–T0103
 
-## T0032 — `NeverIsEmpty`
+## T0152 — `NeverIsEmpty`
 
 `Never` denotes the empty type.
 
 This law states semantic emptiness independently from any particular representation of inhabitant sets.
 
 **Kind:** Semantic law  
-**Depends on:** T0030
+**Depends on:** T0150
 
-## T0033 — `NeverHasNoInhabitants`
+## T0153 — `NeverHasNoInhabitants`
 
 The cardinality of `Never`, where represented, is zero.
 
-This is an explicit audit form of T0032 useful for finite-domain reasoning, exact types, pattern exhaustiveness, and runtime reflection.
+This is an explicit audit form of T0152 useful for finite-domain reasoning, exact types, pattern exhaustiveness, and runtime reflection.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0032
+**Depends on:** T0152
 
-## T0034 — `NoValueHasNeverType`
+## T0154 — `NoValueHasNeverType`
 
 No value may inhabit `Never`.
 
 Expressions may have static type `Never` when they cannot complete normally, but no successfully produced runtime value has type `Never`.
 
 **Kind:** Semantic law  
-**Depends on:** T0032, T0033
+**Depends on:** T0152, T0153
 
-## T0035 — `NeverIsUniqueBottom`
+## T0155 — `NeverIsUniqueBottom`
 
 Any proper type that is itself a subtype of `Never` is semantically identical to `Never`.
 
-This follows from T0031 and subtype antisymmetry.
+This follows from T0151 and subtype antisymmetry.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0023, T0031
+**Depends on:** T0103, T0151
 
-## T0036 — `NeverSubtypeCharacterization`
+## T0156 — `NeverSubtypeCharacterization`
 
 For a proper type `A`, being a subtype of `Never` is equivalent to being semantically identical to `Never`.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0022, T0035
+**Depends on:** T0102, T0155
 
 ## Explicitly deferred laws
 

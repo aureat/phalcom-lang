@@ -2,7 +2,7 @@
 
 **Status:** Normative foundational specification  
 **Registry family:** `type.boolean`  
-**Identifier range used here:** `T0080–T0091`
+**Identifier range used here:** `T0400–T0412`
 
 ## Purpose
 
@@ -23,43 +23,50 @@ This specification uses the semantic exact-type notation `exact(true)` and `exac
 ## Laws
 
 ```phalcom
-@id(T0080)
+@id(T0400)
 @name(type.boolean.kind)
 BoolKind {
     kind(Bool) == Type
 }
 
-@id(T0081)
+@id(T0401)
 @name(type.boolean.true.inhabits)
 TrueInhabitsBool {
     true : Bool
 }
 
-@id(T0082)
+@id(T0402)
 @name(type.boolean.false.inhabits)
 FalseInhabitsBool {
     false : Bool
 }
 
-@id(T0083)
+@id(T0403)
 @name(type.boolean.values.distinct)
 BooleanValuesDistinct {
-    true != false
+    not staticEquivalent(true, false)
 }
 
-@id(T0084)
+@id(T0404)
+@name(type.boolean.values.static)
+BooleanValuesStatic {
+    staticValue(true)
+    staticValue(false)
+}
+
+@id(T0405)
 @name(type.boolean.cardinality)
 BoolHasTwoInhabitants {
     inhabitants(Bool) == 2
 }
 
-@id(T0085)
+@id(T0406)
 @name(type.boolean.closed)
 BoolIsClosed {
     closed(Bool)
 }
 
-@id(T0086)
+@id(T0407)
 @name(type.boolean.only-values)
 BoolHasOnlyBooleanValues<v> {
     if v : Bool {
@@ -67,31 +74,31 @@ BoolHasOnlyBooleanValues<v> {
     }
 }
 
-@id(T0087)
+@id(T0408)
 @name(type.boolean.true.exact-subtype)
 ExactTrueSubtypeBool {
     exact(true) <: Bool
 }
 
-@id(T0088)
+@id(T0409)
 @name(type.boolean.false.exact-subtype)
 ExactFalseSubtypeBool {
     exact(false) <: Bool
 }
 
-@id(T0089)
+@id(T0410)
 @name(type.boolean.exact-cases.distinct)
 BooleanExactCasesDistinct {
     exact(true) != exact(false)
 }
 
-@id(T0090)
+@id(T0411)
 @name(type.boolean.case-set)
 BoolCaseSet {
     cases(Bool) == { exact(true), exact(false) }
 }
 
-@id(T0091)
+@id(T0412)
 @name(type.boolean.bounded)
 BoolBounds {
     Never <: Bool
@@ -99,79 +106,86 @@ BoolBounds {
 }
 ```
 
-## T0080 — `BoolKind`
+## T0400 — `BoolKind`
 
 `Bool` is a proper type.
 
 **Kind:** Semantic law  
-**Depends on:** T0010
+**Depends on:** T0050
 
-## T0081 — `TrueInhabitsBool`
+## T0401 — `TrueInhabitsBool`
 
 `true` is a Boolean value.
 
 **Kind:** Semantic law  
-**Depends on:** T0080
+**Depends on:** T0400
 
-## T0082 — `FalseInhabitsBool`
+## T0402 — `FalseInhabitsBool`
 
 `false` is a Boolean value.
 
 **Kind:** Semantic law  
-**Depends on:** T0080
+**Depends on:** T0400
 
-## T0083 — `BooleanValuesDistinct`
+## T0403 — `BooleanValuesDistinct`
 
 The two Boolean values are semantically distinct.
 
 **Kind:** Semantic law  
 **Depends on:** none beyond value equality
 
-## T0084 — `BoolHasTwoInhabitants`
+## T0404 — `BooleanValuesStatic`
+
+Both Boolean values have stable static identity and may be used in exact types and static type-level computations.
+
+**Kind:** Cross-family semantic law  
+**Depends on:** `type.static-value`
+
+## T0405 — `BoolHasTwoInhabitants`
 
 `Bool` has cardinality two.
 
 **Kind:** Semantic law  
-**Depends on:** T0081–T0083, T0086
+**Depends on:** T0401–T0403 and the closed-domain characterization in this file
 
-## T0085 — `BoolIsClosed`
+## T0406 — `BoolIsClosed`
 
 The Boolean domain is closed. The compiler may rely on the fact that no third Boolean inhabitant can appear later through extension, subclassing, generic specialization, or runtime registration.
 
 **Kind:** Semantic law  
-**Depends on:** T0080
+**Depends on:** T0400
 
-## T0086 — `BoolHasOnlyBooleanValues`
+## T0407 — `BoolHasOnlyBooleanValues`
 
 Every value inhabiting `Bool` is either `true` or `false`.
 
-Together with T0081–T0083, this establishes the complete value-level Boolean domain.
+Together with T0401–T0403, this establishes the complete value-level Boolean domain.
 
 **Kind:** Semantic law  
-**Depends on:** T0081–T0083, T0085
+**Depends on:** T0401–T0403, T0406
 
-## T0087 — `ExactTrueSubtypeBool`
+## T0408 — `ExactTrueSubtypeBool`
 
 The exact singleton type of `true` is a subtype of `Bool`.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0064, T0081
+**Depends on:** T0355, T0401
 
-## T0088 — `ExactFalseSubtypeBool`
+## T0409 — `ExactFalseSubtypeBool`
 
 The exact singleton type of `false` is a subtype of `Bool`.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0064, T0082
+**Depends on:** T0355, T0402
 
-## T0089 — `BooleanExactCasesDistinct`
+## T0410 — `BooleanExactCasesDistinct`
 
 The two Boolean exact types are distinct because their defining values are distinct.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0067, T0083
+**Depends on:** T0358, T0403
 
-## T0090 — `BoolCaseSet`
+## T0411 — `BoolCaseSet`
 
 The exact cases of `Bool` are precisely `exact(true)` and `exact(false)`.
 
@@ -184,14 +198,14 @@ Bool == exact(true) | exact(false)
 but that equation belongs to `type.union` because it introduces union semantics.
 
 **Kind:** Semantic finite-domain law  
-**Depends on:** T0060–T0069, T0085–T0089
+**Depends on:** T0351–T0360, T0406–T0410
 
-## T0091 — `BoolBounds`
+## T0412 — `BoolBounds`
 
 `Bool` is an ordinary proper type bounded by `Never` and `Any`.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0031, T0041
+**Depends on:** T0151, T0201
 
 ## Explicitly deferred laws
 

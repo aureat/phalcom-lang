@@ -2,7 +2,7 @@
 
 **Status:** Normative specification  
 **Registry family:** `type.union`  
-**Identifier range used here:** `T0100–T0115`
+**Identifier range used here:** `T0450–T0465`
 
 ## Purpose
 
@@ -25,55 +25,55 @@ Unless stated otherwise:
 ## Laws
 
 ```phalcom
-@id(T0100)
+@id(T0450)
 @name(type.union.kind)
 UnionKind<A, B> {
     kind(A | B) == Type
 }
 
-@id(T0101)
+@id(T0451)
 @name(type.union.commutative)
 UnionCommutative<A, B> {
     A | B == B | A
 }
 
-@id(T0102)
+@id(T0452)
 @name(type.union.associative)
 UnionAssociative<A, B, C> {
     (A | B) | C == A | (B | C)
 }
 
-@id(T0103)
+@id(T0453)
 @name(type.union.idempotent)
 UnionIdempotent<A> {
     A | A == A
 }
 
-@id(T0104)
+@id(T0454)
 @name(type.union.never.identity)
 UnionNeverIdentity<A> {
     A | Never == A
 }
 
-@id(T0105)
+@id(T0455)
 @name(type.union.any.absorbing)
 UnionAnyAbsorbing<A> {
     A | Any == Any
 }
 
-@id(T0106)
+@id(T0456)
 @name(type.union.left-subtype)
 UnionLeftSubtype<A, B> {
     A <: A | B
 }
 
-@id(T0107)
+@id(T0457)
 @name(type.union.right-subtype)
 UnionRightSubtype<A, B> {
     B <: A | B
 }
 
-@id(T0108)
+@id(T0458)
 @name(type.union.least-upper-bound)
 UnionLeastUpperBound<A, B, U> {
     if A <: U and B <: U {
@@ -81,7 +81,7 @@ UnionLeastUpperBound<A, B, U> {
     }
 }
 
-@id(T0109)
+@id(T0459)
 @name(type.union.subtype-absorption)
 UnionSubtypeAbsorption<A, B> {
     if A <: B {
@@ -89,7 +89,7 @@ UnionSubtypeAbsorption<A, B> {
     }
 }
 
-@id(T0110)
+@id(T0460)
 @name(type.union.identity-substitution)
 UnionIdentitySubstitution<A, B, C> {
     if A == B {
@@ -97,7 +97,7 @@ UnionIdentitySubstitution<A, B, C> {
     }
 }
 
-@id(T0111)
+@id(T0461)
 @name(type.union.monotone.left)
 UnionLeftMonotone<A, B, C> {
     if A <: B {
@@ -105,7 +105,7 @@ UnionLeftMonotone<A, B, C> {
     }
 }
 
-@id(T0112)
+@id(T0462)
 @name(type.union.monotone.right)
 UnionRightMonotone<A, B, C> {
     if A <: B {
@@ -113,7 +113,7 @@ UnionRightMonotone<A, B, C> {
     }
 }
 
-@id(T0113)
+@id(T0463)
 @name(type.union.monotone)
 UnionMonotone<A, B, C, D> {
     if A <: B and C <: D {
@@ -121,13 +121,13 @@ UnionMonotone<A, B, C, D> {
     }
 }
 
-@id(T0114)
+@id(T0464)
 @name(type.union.membership)
 UnionMembership<v, A, B> {
     v : A | B iff v : A or v : B
 }
 
-@id(T0115)
+@id(T0465)
 @name(type.union.boolean-decomposition)
 BoolUnionDecomposition {
     Bool == exact(true) | exact(false)
@@ -136,104 +136,104 @@ BoolUnionDecomposition {
 
 ## Law notes
 
-### T0100 — `UnionKind`
+### T0450 — `UnionKind`
 
 The union of two proper types is itself a proper type.
 
 **Kind:** Semantic law  
-**Depends on:** T0018
+**Depends on:** T0060
 
-### T0101 — `UnionCommutative`
+### T0451 — `UnionCommutative`
 
 Union is insensitive to operand order.
 
 **Kind:** Semantic algebra law  
 **Depends on:** T0001–T0003
 
-### T0102 — `UnionAssociative`
+### T0452 — `UnionAssociative`
 
 Grouping does not affect semantic union identity. This permits flat semantic treatment of nested unions without requiring source representation to be flat.
 
 **Kind:** Semantic algebra law  
-**Depends on:** T0101
+**Depends on:** T0451
 
-### T0103 — `UnionIdempotent`
+### T0453 — `UnionIdempotent`
 
 Repeating the same alternative does not create a new type.
 
 **Kind:** Semantic algebra law  
-**Depends on:** T0022–T0024
+**Depends on:** T0102–T0104
 
-### T0104 — `UnionNeverIdentity`
+### T0454 — `UnionNeverIdentity`
 
 `Never` is the identity element of union.
 
 **Kind:** Semantic algebra law  
-**Depends on:** T0031–T0036
+**Depends on:** T0151–T0156
 
-### T0105 — `UnionAnyAbsorbing`
+### T0455 — `UnionAnyAbsorbing`
 
 `Any` is the absorbing element of union.
 
 **Kind:** Semantic algebra law  
-**Depends on:** T0041–T0043
+**Depends on:** T0201–T0203
 
-### T0106 / T0107 — Operand subtyping
+### T0456 / T0457 — Operand subtyping
 
 Each operand is a subtype of the union.
 
 **Kind:** Semantic order laws  
-**Depends on:** T0020–T0023
+**Depends on:** T0100–T0103
 
-### T0108 — `UnionLeastUpperBound`
+### T0458 — `UnionLeastUpperBound`
 
 `A | B` is the least upper bound of `A` and `B`.
 
-Together with T0106 and T0107, this is the defining order-theoretic characterization of union.
+Together with T0456 and T0457, this is the defining order-theoretic characterization of union.
 
 **Kind:** Semantic order law  
-**Depends on:** T0106, T0107, T0021
+**Depends on:** T0456, T0457, T0101
 
-### T0109 — `UnionSubtypeAbsorption`
+### T0459 — `UnionSubtypeAbsorption`
 
 If one operand is already a subtype of the other, the narrower operand contributes no additional type space.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0106–T0108, T0023
+**Depends on:** T0456–T0458, T0103
 
-### T0110 — `UnionIdentitySubstitution`
+### T0460 — `UnionIdentitySubstitution`
 
 Replacing a union operand with a semantically identical type preserves the union.
 
 **Kind:** Derived coherence law  
-**Depends on:** T0001–T0003, T0101–T0103
+**Depends on:** T0001–T0003, T0451–T0453
 
-### T0111–T0113 — Monotonicity
+### T0461–T0463 — Monotonicity
 
 Union is monotone in each operand and jointly monotone.
 
 **Kind:** Derived order laws  
-**Depends on:** T0106–T0108, T0021
+**Depends on:** T0456–T0458, T0101
 
-### T0114 — `UnionMembership`
+### T0464 — `UnionMembership`
 
 A value inhabits `A | B` exactly when it inhabits at least one operand.
 
 **Kind:** Semantic membership law  
-**Depends on:** T0106–T0108
+**Depends on:** T0456–T0458
 
-### T0115 — `BoolUnionDecomposition`
+### T0465 — `BoolUnionDecomposition`
 
 The closed Boolean domain is exactly the union of the two exact Boolean cases.
 
 **Kind:** Cross-family semantic law  
-**Depends on:** T0060–T0069, T0080–T0090, T0106–T0114
+**Depends on:** T0351–T0360, T0400–T0411, T0456–T0464
 
 ## Required implementation invariants
 
 An implementation must preserve these laws regardless of source operand order, nested versus flat AST representation, normalization timing, alias expansion, exact-type reduction, projection resolution, canonical interning, or solver cache state.
 
-A union representation may retain source order for diagnostics, but semantic identity must obey T0101–T0103.
+A union representation may retain source order for diagnostics, but semantic identity must obey T0451–T0453.
 
 ## Explicitly deferred laws
 

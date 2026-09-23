@@ -2,7 +2,7 @@
 
 **Status:** Normative foundational specification  
 **Registry family:** `type.subtype`  
-**Identifier range used here:** `T0020–T0026`
+**Identifier range used here:** `T0100–T0106`
 
 ## Purpose
 
@@ -25,13 +25,13 @@ Unless stated otherwise:
 ## Laws
 
 ```phalcom
-@id(T0020)
+@id(T0100)
 @name(type.subtype.reflexive)
 SubtypeReflexive<A> {
     A <: A
 }
 
-@id(T0021)
+@id(T0101)
 @name(type.subtype.transitive)
 SubtypeTransitive<A, B, C> {
     if A <: B and B <: C {
@@ -39,7 +39,7 @@ SubtypeTransitive<A, B, C> {
     }
 }
 
-@id(T0022)
+@id(T0102)
 @name(type.subtype.identity.implies-mutual)
 IdentityImpliesMutualSubtyping<A, B> {
     if A == B {
@@ -48,7 +48,7 @@ IdentityImpliesMutualSubtyping<A, B> {
     }
 }
 
-@id(T0023)
+@id(T0103)
 @name(type.subtype.antisymmetric)
 SubtypeAntisymmetric<A, B> {
     if A <: B and B <: A {
@@ -56,13 +56,13 @@ SubtypeAntisymmetric<A, B> {
     }
 }
 
-@id(T0024)
+@id(T0104)
 @name(type.subtype.identity.iff-mutual)
 IdentityIffMutualSubtyping<A, B> {
     A == B iff A <: B and B <: A
 }
 
-@id(T0025)
+@id(T0105)
 @name(type.subtype.identity-substitution.left)
 SubtypeLeftIdentitySubstitution<A, B, C> {
     if A == B and A <: C {
@@ -70,7 +70,7 @@ SubtypeLeftIdentitySubstitution<A, B, C> {
     }
 }
 
-@id(T0026)
+@id(T0106)
 @name(type.subtype.identity-substitution.right)
 SubtypeRightIdentitySubstitution<A, B, C> {
     if A == B and C <: A {
@@ -79,16 +79,16 @@ SubtypeRightIdentitySubstitution<A, B, C> {
 }
 ```
 
-## T0020 — `SubtypeReflexive`
+## T0100 — `SubtypeReflexive`
 
 Every proper type is a subtype of itself.
 
 This must hold even when the type is represented through aliases, projections, generic applications, exact types, or other forms that require semantic resolution.
 
 **Kind:** Semantic law  
-**Depends on:** T0001, T0018
+**Depends on:** T0001, T0060
 
-## T0021 — `SubtypeTransitive`
+## T0101 — `SubtypeTransitive`
 
 Subtyping composes transitively.
 
@@ -97,58 +97,58 @@ If `A` may be used where `B` is required, and `B` may be used where `C` is requi
 An implementation may use shortcuts, caches, nominal ancestry, structural decomposition, or normalized forms, but no internal path may violate the transitive closure of the semantic relation.
 
 **Kind:** Semantic law  
-**Depends on:** T0020
+**Depends on:** T0100
 
-## T0022 — `IdentityImpliesMutualSubtyping`
+## T0102 — `IdentityImpliesMutualSubtyping`
 
 Semantically identical types must subtype each other in both directions.
 
 This connects the identity relation defined in `type.identity` to the subtype order without defining identity in terms of representation or syntax.
 
 **Kind:** Cross-family semantic law  
-**Depends on:** T0001–T0003, T0020
+**Depends on:** T0001–T0003, T0100
 
-## T0023 — `SubtypeAntisymmetric`
+## T0103 — `SubtypeAntisymmetric`
 
 Mutual subtyping of proper types implies semantic identity.
 
 This law is a major semantic commitment: Phalcom's `==` relation identifies the equivalence classes induced by `<:`. Two proper types that subtype each other are not merely observationally substitutable; they denote the same semantic type.
 
 **Kind:** Semantic law  
-**Depends on:** T0001–T0003, T0020–T0022
+**Depends on:** T0001–T0003, T0100–T0102
 
-## T0024 — `IdentityIffMutualSubtyping`
+## T0104 — `IdentityIffMutualSubtyping`
 
 For proper types, semantic identity is equivalent to mutual subtyping.
 
-This law is logically derived from T0022 and T0023 and is included as an explicit registry law because it is a high-value cross-check for solver, normalization, reflection, and canonicalization implementations.
+This law is logically derived from T0102 and T0103 and is included as an explicit registry law because it is a high-value cross-check for solver, normalization, reflection, and canonicalization implementations.
 
 It must not be used to bypass kind checking: the expression is only meaningful for well-formed proper-type operands.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0022, T0023
+**Depends on:** T0102, T0103
 
-## T0025 — `SubtypeLeftIdentitySubstitution`
+## T0105 — `SubtypeLeftIdentitySubstitution`
 
 Replacing the left operand of a subtype relation with a semantically identical type preserves the subtype result.
 
 This is derived from identity-implied mutual subtyping plus transitivity, but is registered explicitly because implementations frequently route aliases, projections, normalized forms, and canonical types through different solver paths.
 
 **Kind:** Derived coherence law  
-**Depends on:** T0021, T0022
+**Depends on:** T0101, T0102
 
-## T0026 — `SubtypeRightIdentitySubstitution`
+## T0106 — `SubtypeRightIdentitySubstitution`
 
 Replacing the right operand of a subtype relation with a semantically identical type preserves the subtype result.
 
-Together, T0025 and T0026 require subtype solving to be invariant under semantic identity of either operand.
+Together, T0105 and T0106 require subtype solving to be invariant under semantic identity of either operand.
 
 **Kind:** Derived coherence law  
-**Depends on:** T0021, T0022
+**Depends on:** T0101, T0102
 
 ## Structural consequence
 
-T0020, T0021, and T0023 establish `<:` as a partial order over semantic proper types:
+T0100, T0101, and T0103 establish `<:` as a partial order over semantic proper types:
 
 ```text
 reflexive      A <: A
@@ -174,4 +174,4 @@ The following do not belong in this foundational file:
 - inability-to-prove versus disproof — `type.solver`
 - reflective runtime subtype consistency — `type.reflection`
 
-Each later family must preserve T0020–T0026.
+Each later family must preserve T0100–T0106.

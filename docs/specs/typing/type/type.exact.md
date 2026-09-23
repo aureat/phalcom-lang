@@ -2,7 +2,7 @@
 
 **Status:** Normative foundational specification  
 **Registry family:** `type.exact`  
-**Identifier range used here:** `T0060–T0071`
+**Identifier range used here:** `T0350–T0363`
 
 ## Purpose
 
@@ -18,39 +18,47 @@ Exact types provide the basis for literal types, finite closed domains, Boolean 
 - `base(v)` denotes a proper type that `v` ordinarily inhabits.
 - `inhabitants(A)` denotes semantic cardinality where meaningful.
 - `v : A` means `v` inhabits `A`.
-- `a == b` between values means ordinary semantic value equality.
-- Type identity also uses `==`; context distinguishes the two.
+- `staticEquivalent(a, b)` is compile-time/static value identity from `type.static-value`.
+- `valueEqual(a, b)` may describe ordinary value equality but does not define exact-type identity.
 
 ## Laws
 
 ```phalcom
-@id(T0060)
-@name(type.exact.kind)
-ExactTypeKind<v> {
-    kind(exact(v)) == Type
+@id(T0350)
+@name(type.exact.admissible)
+ExactTypeRequiresStaticValue<v> {
+    wellFormed(exact(v)) iff staticValue(v)
 }
 
-@id(T0061)
+@id(T0351)
+@name(type.exact.kind)
+ExactTypeKind<v> {
+    if staticValue(v) {
+        kind(exact(v)) == Type
+    }
+}
+
+@id(T0352)
 @name(type.exact.value.inhabits)
 ExactValueInhabitsExactType<v> {
     v : exact(v)
 }
 
-@id(T0062)
+@id(T0353)
 @name(type.exact.singleton)
 ExactTypeHasOneInhabitant<v> {
     inhabitants(exact(v)) == 1
 }
 
-@id(T0063)
+@id(T0354)
 @name(type.exact.only-inhabitant)
 ExactTypeHasOnlyExactValue<v, x> {
     if x : exact(v) {
-        x == v
+        staticEquivalent(x, v)
     }
 }
 
-@id(T0064)
+@id(T0355)
 @name(type.exact.base.subtype)
 ExactTypeSubtypesBase<v, A> {
     if v : A {
@@ -58,149 +66,167 @@ ExactTypeSubtypesBase<v, A> {
     }
 }
 
-@id(T0065)
-@name(type.exact.equal-values.identity)
-EqualValuesHaveIdenticalExactTypes<a, b> {
-    if a == b {
+@id(T0356)
+@name(type.exact.static-equivalence.identity)
+EquivalentStaticValuesHaveIdenticalExactTypes<a, b> {
+    if staticEquivalent(a, b) {
         exact(a) == exact(b)
     }
 }
 
-@id(T0066)
-@name(type.exact.identity.implies-value-equality)
-IdenticalExactTypesHaveEqualValues<a, b> {
+@id(T0357)
+@name(type.exact.identity.implies-static-equivalence)
+IdenticalExactTypesHaveEquivalentStaticValues<a, b> {
     if exact(a) == exact(b) {
-        a == b
+        staticEquivalent(a, b)
     }
 }
 
-@id(T0067)
+@id(T0358)
 @name(type.exact.injective)
 ExactTypeInjective<a, b> {
-    exact(a) == exact(b) iff a == b
+    exact(a) == exact(b) iff staticEquivalent(a, b)
 }
 
-@id(T0068)
+@id(T0359)
 @name(type.exact.distinct.disjoint)
 DistinctExactTypesAreDisjoint<a, b> {
-    if a != b {
+    if not staticEquivalent(a, b) {
         disjoint(exact(a), exact(b))
     }
 }
 
-@id(T0069)
-@name(type.exact.distinct.not-identical)
-DistinctValuesHaveDistinctExactTypes<a, b> {
-    if a != b {
+@id(T0360)
+@name(type.exact.static-distinct.not-identical)
+DistinctStaticValuesHaveDistinctExactTypes<a, b> {
+    if not staticEquivalent(a, b) {
         exact(a) != exact(b)
     }
 }
 
-@id(T0070)
+@id(T0361)
 @name(type.exact.never.nonempty)
 ExactTypeIsNotNever<v> {
     exact(v) != Never
 }
 
-@id(T0071)
+@id(T0362)
 @name(type.exact.any.bounded)
 ExactTypeIsBounded<v> {
     Never <: exact(v)
     exact(v) <: Any
 }
+
+@id(T0363)
+@name(type.exact.unit.identity)
+UnitExactIdentity {
+    Unit == exact(())
+}
 ```
 
-## T0060 — `ExactTypeKind`
+## T0350 — `ExactTypeRequiresStaticValue`
+
+`exact(v)` is well formed exactly for values admitted to the static-value universe. Arbitrary runtime objects do not automatically induce exact types.
+
+**Kind:** Well-formedness law  
+**Depends on:** `type.static-value`
+
+## T0351 — `ExactTypeKind`
 
 Every exact-value type is a proper type.
 
 **Kind:** Semantic law  
-**Depends on:** T0010
+**Depends on:** T0050
 
-## T0061 — `ExactValueInhabitsExactType`
+## T0352 — `ExactValueInhabitsExactType`
 
 The defining value inhabits its exact type.
 
 **Kind:** Semantic law  
-**Depends on:** T0060
+**Depends on:** T0351
 
-## T0062 — `ExactTypeHasOneInhabitant`
+## T0353 — `ExactTypeHasOneInhabitant`
 
 Every exact type has cardinality one.
 
 **Kind:** Semantic law  
-**Depends on:** T0061
+**Depends on:** T0352
 
-## T0063 — `ExactTypeHasOnlyExactValue`
+## T0354 — `ExactTypeHasOnlyExactValue`
 
-If some value inhabits `exact(v)`, that value is semantically equal to `v`.
+If some value inhabits `exact(v)`, that value is statically equivalent to `v`.
 
-T0061 and T0063 characterize exact types extensionally.
+T0352 and T0354 characterize exact types extensionally.
 
 **Kind:** Semantic law  
-**Depends on:** T0061, T0062
+**Depends on:** T0352, T0353
 
-## T0064 — `ExactTypeSubtypesBase`
+## T0355 — `ExactTypeSubtypesBase`
 
 If `v` inhabits a proper type `A`, then the exact type of `v` is a subtype of `A`.
 
 Examples include integer literal exact types being subtypes of `Int`, exact Boolean cases being subtypes of `Bool`, and `exact(())` being a subtype of `Unit`.
 
 **Kind:** Semantic law  
-**Depends on:** T0020–T0023, T0061
+**Depends on:** T0100–T0103, T0352
 
-## T0065 — `EqualValuesHaveIdenticalExactTypes`
+## T0356 — `EquivalentStaticValuesHaveIdenticalExactTypes`
 
-Semantically equal values generate the same exact semantic type.
-
-This prevents exact-type identity from depending on source spelling, object reconstruction, or representation details when value equality says the values are the same.
+Statically equivalent values generate the same exact semantic type. Runtime-overloadable equality is not the authority for exact-type identity.
 
 **Kind:** Semantic law  
-**Depends on:** T0001–T0003
+**Depends on:** `type.static-value`
 
-## T0066 — `IdenticalExactTypesHaveEqualValues`
+## T0357 — `IdenticalExactTypesHaveEquivalentStaticValues`
 
-If two exact types are semantically identical, their defining values are semantically equal.
+If two exact types are semantically identical, their defining static values are statically equivalent.
 
 **Kind:** Semantic law  
-**Depends on:** T0062, T0063
+**Depends on:** T0353, T0354
 
-## T0067 — `ExactTypeInjective`
+## T0358 — `ExactTypeInjective`
 
-`exact` is injective with respect to semantic value equality.
+`exact` is injective with respect to static-value equivalence.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0065, T0066
+**Depends on:** T0356, T0357
 
-## T0068 — `DistinctExactTypesAreDisjoint`
+## T0359 — `DistinctExactTypesAreDisjoint`
 
-Distinct exact values produce singleton types with no common inhabitant.
+Statically distinct exact values produce singleton types with no common inhabitant.
 
 `disjoint(A, B)` is a semantic relation here; the later intersection family may establish its equivalence with `A & B == Never`.
 
 **Kind:** Semantic law  
-**Depends on:** T0062, T0063, T0067
+**Depends on:** T0353, T0354, T0358
 
-## T0069 — `DistinctValuesHaveDistinctExactTypes`
+## T0360 — `DistinctStaticValuesHaveDistinctExactTypes`
 
-Distinct values cannot generate the same exact type.
+Statically distinct values cannot generate the same exact type.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0067
+**Depends on:** T0358
 
-## T0070 — `ExactTypeIsNotNever`
+## T0361 — `ExactTypeIsNotNever`
 
 Every exact type has an inhabitant and therefore cannot be `Never`.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0032–T0034, T0061
+**Depends on:** T0152–T0154, T0352
 
-## T0071 — `ExactTypeIsBounded`
+## T0362 — `ExactTypeIsBounded`
 
 Every exact type lies between bottom and top in the ordinary proper-type subtype order.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0031, T0041
+**Depends on:** T0151, T0201
+
+## T0363 — `UnitExactIdentity`
+
+Because `()` is a static value and `Unit` has exactly that one inhabitant, `Unit` and `exact(())` are the same semantic singleton type.
+
+**Kind:** Cross-family derived law  
+**Depends on:** `type.unit` and the preceding exact-type laws
 
 ## Required implementation invariants
 
@@ -213,11 +239,10 @@ Exact-value typing must not depend on whether the value arose from:
 - reflection,
 - or canonicalization.
 
-If the semantic value is the same, T0065–T0067 require the exact type to be the same.
+If the static value is equivalent, the exact-type identity laws require the exact type to be the same.
 
 ## Explicitly deferred laws
 
-- which runtime values are admissible as exact type arguments
 - literal surface syntax in type position
 - exact integer/string/symbol-specific rules
 - intersection of distinct exact types reducing to `Never`

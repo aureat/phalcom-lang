@@ -2,7 +2,7 @@
 
 **Status:** Normative foundational specification  
 **Registry family:** `type.any`  
-**Identifier range used here:** `T0040–T0045`
+**Identifier range used here:** `T0200–T0205`
 
 ## Purpose
 
@@ -17,24 +17,24 @@ Unless stated otherwise:
 - `A` denotes a well-formed proper type of kind `Type`.
 - `==` means semantic type identity.
 - `<:` means semantic subtype.
-- `Unknown` is used only conceptually to denote lack of solver knowledge and is not defined as a proper type here.
+- Solver proof states such as `Unknown` are not type operands and are therefore outside the domain of `==` in this file.
 
 ## Laws
 
 ```phalcom
-@id(T0040)
+@id(T0200)
 @name(type.any.kind)
 AnyKind {
     kind(Any) == Type
 }
 
-@id(T0041)
+@id(T0201)
 @name(type.any.top)
 AnyIsTop<A> {
     A <: Any
 }
 
-@id(T0042)
+@id(T0202)
 @name(type.any.unique-top)
 AnyIsUniqueTop<A> {
     if Any <: A {
@@ -42,73 +42,71 @@ AnyIsUniqueTop<A> {
     }
 }
 
-@id(T0043)
+@id(T0203)
 @name(type.any.supertype-characterization)
 AnySubtypeCharacterization<A> {
     A == Any iff Any <: A
 }
 
-@id(T0044)
-@name(type.any.not-unknown)
-AnyIsNotUnknown {
-    Any != Unknown
+@id(T0204)
+@name(type.any.semantic-type)
+AnyIsSemanticType {
+    semanticType(Any)
+    kind(Any) == Type
 }
 
-@id(T0045)
-@name(type.any.semantic-not-knowledge-state)
-AnyIsSemanticType {
-    kind(Any) == Type
+@id(T0205)
+@name(type.any.not-knowledge-state)
+AnyIsNotKnowledgeState {
     not knowledgeState(Any)
 }
 ```
 
-## T0040 — `AnyKind`
+## T0200 — `AnyKind`
 
 `Any` is a proper type and therefore has kind `Type`.
 
 **Kind:** Semantic law  
-**Depends on:** T0010
+**Depends on:** T0050
 
-## T0041 — `AnyIsTop`
+## T0201 — `AnyIsTop`
 
 Every proper type is a subtype of `Any`.
 
 This is the defining order-theoretic property of top.
 
 **Kind:** Semantic law  
-**Depends on:** T0018, T0020–T0023
+**Depends on:** T0060, T0100–T0103
 
-## T0042 — `AnyIsUniqueTop`
+## T0202 — `AnyIsUniqueTop`
 
 If `Any` itself is a subtype of some proper type `A`, then `A` is semantically identical to `Any`.
 
-This follows from T0041 and subtype antisymmetry.
+This follows from T0201 and subtype antisymmetry.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0023, T0041
+**Depends on:** T0103, T0201
 
-## T0043 — `AnySubtypeCharacterization`
+## T0203 — `AnySubtypeCharacterization`
 
 For a proper type `A`, having `Any <: A` is equivalent to `A` being semantically identical to `Any`.
 
 **Kind:** Derived semantic law  
-**Depends on:** T0022, T0042
+**Depends on:** T0102, T0202
 
-## T0044 — `AnyIsNotUnknown`
+## T0204 — `AnyIsSemanticType`
 
-`Any` must never be used to represent lack of information.
+`Any` participates in the ordinary proper-type universe.
 
-This rule is intentionally cross-cutting: a solver may be unable to determine a type or relation, but that state must not silently widen to `Any`.
+**Kind:** Semantic law  
+**Depends on:** T0200
 
-**Kind:** Solver-safety invariant  
-**Depends on:** T0040
+## T0205 — `AnyIsNotKnowledgeState`
 
-## T0045 — `AnyIsSemanticType`
+`Any` is not a proof state, inference sentinel, wildcard, or representation of missing knowledge. Solver states live in a different semantic category and therefore are not compared to `Any` with type identity.
 
-`Any` participates in the ordinary proper-type universe. It is not a proof state, inference sentinel, wildcard, or "untyped" marker.
-
-**Kind:** Semantic/representation boundary invariant  
-**Depends on:** T0040, T0044
+**Kind:** Semantic/solver boundary invariant  
+**Depends on:** T0204
 
 ## Explicitly deferred laws
 

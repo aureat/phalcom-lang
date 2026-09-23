@@ -2,7 +2,7 @@
 
 **Status:** Normative specification  
 **Registry families:** `type.projection`, `type.associated`, `type.type-function`  
-**Identifier range used here:** `T0310–T0334`
+**Identifier range used here:** `T0900–T0924`
 
 ## Purpose
 
@@ -29,13 +29,13 @@ Unless stated otherwise:
 ## Laws
 
 ```phalcom
-@id(T0310)
+@id(T0900)
 @name(type.projection.deterministic)
 ProjectionDeterministic<T> {
     T::Item == T::Item
 }
 
-@id(T0311)
+@id(T0901)
 @name(type.projection.receiver.identity-substitution)
 ProjectionReceiverIdentitySubstitution<A, B> {
     if A == B {
@@ -43,7 +43,7 @@ ProjectionReceiverIdentitySubstitution<A, B> {
     }
 }
 
-@id(T0312)
+@id(T0902)
 @name(type.projection.argument.identity-substitution)
 ProjectionArgumentIdentitySubstitution<T, A, B> {
     if A == B {
@@ -51,7 +51,7 @@ ProjectionArgumentIdentitySubstitution<T, A, B> {
     }
 }
 
-@id(T0313)
+@id(T0903)
 @name(type.projection.kind)
 ProjectionKind<T, K> {
     if declaredProjectionKind(T::Item) == K {
@@ -59,7 +59,7 @@ ProjectionKind<T, K> {
     }
 }
 
-@id(T0314)
+@id(T0904)
 @name(type.projection.parameterized.kind)
 ParameterizedProjectionKind<T, A, K1, K2> {
     if declaredProjectionKind(T::At) == K1 -> K2
@@ -69,7 +69,7 @@ ParameterizedProjectionKind<T, A, K1, K2> {
     }
 }
 
-@id(T0315)
+@id(T0905)
 @name(type.projection.reduction)
 ProjectionReduction<T, R> {
     if resolve(T::Item) == R {
@@ -77,7 +77,7 @@ ProjectionReduction<T, R> {
     }
 }
 
-@id(T0316)
+@id(T0906)
 @name(type.projection.parameterized.reduction)
 ParameterizedProjectionReduction<T, A, R> {
     if resolve(T::At<A>) == R {
@@ -85,7 +85,7 @@ ParameterizedProjectionReduction<T, A, R> {
     }
 }
 
-@id(T0317)
+@id(T0907)
 @name(type.projection.reduction.identity-stable)
 ProjectionReductionIdentityStable<T, R1, R2> {
     if resolve(T::Item) == R1
@@ -95,7 +95,7 @@ ProjectionReductionIdentityStable<T, R1, R2> {
     }
 }
 
-@id(T0318)
+@id(T0908)
 @name(type.projection.unresolved.no-invention)
 UnresolvedProjectionInventsNoResult<T, R> {
     if unresolved(T::Item) {
@@ -103,7 +103,7 @@ UnresolvedProjectionInventsNoResult<T, R> {
     }
 }
 
-@id(T0319)
+@id(T0909)
 @name(type.projection.unresolved.not-any)
 UnresolvedProjectionIsNotAny<T> {
     if unresolved(T::Item) {
@@ -111,7 +111,7 @@ UnresolvedProjectionIsNotAny<T> {
     }
 }
 
-@id(T0320)
+@id(T0910)
 @name(type.projection.unresolved.not-never)
 UnresolvedProjectionIsNotNever<T> {
     if unresolved(T::Item) {
@@ -119,7 +119,7 @@ UnresolvedProjectionIsNotNever<T> {
     }
 }
 
-@id(T0321)
+@id(T0911)
 @name(type.projection.constraint-preservation)
 ProjectionConstraintPreservation<T, R, C> {
     if declaredConstraint(T::Item, C)
@@ -129,13 +129,15 @@ ProjectionConstraintPreservation<T, R, C> {
     }
 }
 
-@id(T0322)
-@name(type.projection.normalization-congruence)
-ProjectionNormalizationCongruence<T> {
-    normalize(T::Item) == normalize(resolveIfPossible(T::Item))
+@id(T0912)
+@name(type.projection.reduction.substitution)
+ProjectionReductionSubstitution<T, U, R> {
+    if T == U and resolve(T::Item) == R {
+        U::Item == R
+    }
 }
 
-@id(T0323)
+@id(T0913)
 @name(type.type-function.kind)
 TypeFunctionApplicationKind<F, A, K1, K2> {
     if kind(F) == K1 -> K2
@@ -145,13 +147,13 @@ TypeFunctionApplicationKind<F, A, K1, K2> {
     }
 }
 
-@id(T0324)
+@id(T0914)
 @name(type.type-function.deterministic)
 TypeFunctionDeterministic<F, A> {
     F<A> == F<A>
 }
 
-@id(T0325)
+@id(T0915)
 @name(type.type-function.argument.identity-substitution)
 TypeFunctionArgumentIdentitySubstitution<F, A, B> {
     if A == B {
@@ -159,7 +161,7 @@ TypeFunctionArgumentIdentitySubstitution<F, A, B> {
     }
 }
 
-@id(T0326)
+@id(T0916)
 @name(type.type-function.function.identity-substitution)
 TypeFunctionIdentitySubstitution<F, G, A> {
     if F == G {
@@ -167,7 +169,7 @@ TypeFunctionIdentitySubstitution<F, G, A> {
     }
 }
 
-@id(T0327)
+@id(T0917)
 @name(type.type-function.reduction)
 TypeFunctionReduction<F, A, R> {
     if resolve(F<A>) == R {
@@ -175,7 +177,7 @@ TypeFunctionReduction<F, A, R> {
     }
 }
 
-@id(T0328)
+@id(T0918)
 @name(type.type-function.reduction.identity-stable)
 TypeFunctionReductionIdentityStable<F, A, R1, R2> {
     if resolve(F<A>) == R1
@@ -185,7 +187,7 @@ TypeFunctionReductionIdentityStable<F, A, R1, R2> {
     }
 }
 
-@id(T0329)
+@id(T0919)
 @name(type.type-function.result.constraint)
 TypeFunctionResultConstraint<F, A, R, C> {
     if declaredResultConstraint(F, C)
@@ -195,7 +197,7 @@ TypeFunctionResultConstraint<F, A, R, C> {
     }
 }
 
-@id(T0330)
+@id(T0920)
 @name(type.type-function.unresolved.no-invention)
 UnresolvedTypeFunctionInventsNoResult<F, A, R> {
     if unresolved(F<A>) {
@@ -203,19 +205,19 @@ UnresolvedTypeFunctionInventsNoResult<F, A, R> {
     }
 }
 
-@id(T0331)
+@id(T0921)
 @name(type.type-function.pure)
 TypeFunctionPure<F, A> {
     evaluateType(F<A>) == evaluateType(F<A>)
 }
 
-@id(T0332)
+@id(T0922)
 @name(type.type-function.no-runtime-dependence)
 TypeFunctionNoRuntimeDependence<F, A> {
     typeResult(F<A>) doesNotDependOn runtimeExecutionState
 }
 
-@id(T0333)
+@id(T0923)
 @name(type.projection.type-function.consistency)
 ProjectionTypeFunctionConsistency<T, F, A> {
     if T::Item == F<A> {
@@ -223,7 +225,7 @@ ProjectionTypeFunctionConsistency<T, F, A> {
     }
 }
 
-@id(T0334)
+@id(T0924)
 @name(type.projection.solver.conservative)
 ProjectionSolverConservative<E, R> {
     if unresolved(E) {
@@ -234,107 +236,107 @@ ProjectionSolverConservative<E, R> {
 
 ## Law notes
 
-### T0310 — `ProjectionDeterministic`
+### T0900 — `ProjectionDeterministic`
 
 The same associated projection in the same semantic environment denotes the same type.
 
 **Kind:** Semantic law  
 **Depends on:** T0001–T0003
 
-### T0311 / T0312 — Identity substitution
+### T0901 / T0902 — Identity substitution
 
 Semantically identical receivers and arguments produce semantically identical projections.
 
 **Kind:** Semantic congruence laws  
 **Depends on:** T0001–T0003
 
-### T0313 / T0314 — Projection kinding
+### T0903 / T0904 — Projection kinding
 
 Associated projections must produce values of their declared result kinds.
 
 Ill-kinded arguments must be rejected before ordinary subtype solving.
 
 **Kind:** Kinding laws  
-**Depends on:** T0010–T0018
+**Depends on:** T0050–T0060
 
-### T0315 / T0316 — Projection reduction
+### T0905 / T0906 — Projection reduction
 
 When a projection resolves to `R`, the symbolic projection and `R` are semantically identical.
 
 **Kind:** Semantic reduction laws  
 **Depends on:** T0001–T0003
 
-### T0317 — `ProjectionReductionIdentityStable`
+### T0907 — `ProjectionReductionIdentityStable`
 
 A deterministic projection cannot resolve to two semantically different results.
 
 **Kind:** Coherence invariant  
-**Depends on:** T0310, T0315
+**Depends on:** T0900, T0905
 
-### T0318–T0320 — Unresolved projections
+### T0908–T0910 — Unresolved projections
 
 Failure to resolve a projection is absence of proof. It is not permission to manufacture `Any`, `Never`, or any arbitrary concrete result.
 
 **Kind:** Solver-safety invariants  
-**Depends on:** T0030–T0045
+**Depends on:** T0150–T0205
 
-### T0321 — `ProjectionConstraintPreservation`
+### T0911 — `ProjectionConstraintPreservation`
 
 Associated-type declarations may constrain their result. Every successful reduction must satisfy that declared contract.
 
 **Kind:** Semantic contract law  
-**Depends on:** T0315
+**Depends on:** T0905
 
-### T0322 — `ProjectionNormalizationCongruence`
+### T0912 — `ProjectionReductionSubstitution`
 
-Normalization may preserve a symbolic projection or reduce it, but both routes must converge semantically when reduction is available.
+Projection reduction is invariant under semantic identity of the receiver. Normalization-specific coherence is specified later in `type.normalization`, preserving dependency order.
 
-**Kind:** Cross-family coherence law  
-**Depends on:** `type.normalization`
+**Kind:** Projection coherence law  
+**Depends on:** T0901, T0905
 
-### T0323–T0328 — Type-level functions
+### T0913–T0918 — Type-level functions
 
 Type functions obey ordinary application kinding, semantic identity substitution, determinism, and stable reduction.
 
 **Kind:** Semantic type-computation laws  
-**Depends on:** T0010–T0018, T0001–T0003
+**Depends on:** T0050–T0060, T0001–T0003
 
-### T0329 — `TypeFunctionResultConstraint`
+### T0919 — `TypeFunctionResultConstraint`
 
 A declared type-function result contract remains authoritative after reduction.
 
 **Kind:** Semantic contract law  
-**Depends on:** T0327
+**Depends on:** T0917
 
-### T0330 — `UnresolvedTypeFunctionInventsNoResult`
+### T0920 — `UnresolvedTypeFunctionInventsNoResult`
 
 Unresolved type computation does not justify a fabricated result.
 
 **Kind:** Solver-safety invariant  
-**Depends on:** T0318
+**Depends on:** T0908
 
-### T0331 / T0332 — Purity and static dependence
+### T0921 / T0922 — Purity and static dependence
 
 Type-level evaluation is semantically pure and cannot depend on mutable runtime execution state.
 
 Compilation caches, incremental state, or evaluation order must not change the resulting type.
 
 **Kind:** Semantic determinism invariants  
-**Depends on:** T0324
+**Depends on:** T0914
 
-### T0333 — `ProjectionTypeFunctionConsistency`
+### T0923 — `ProjectionTypeFunctionConsistency`
 
 If a projection is defined in terms of a type function, both paths must normalize to the same semantic type.
 
 **Kind:** Cross-subsystem coherence law  
-**Depends on:** T0315, T0327
+**Depends on:** T0905, T0917
 
-### T0334 — `ProjectionSolverConservative`
+### T0924 — `ProjectionSolverConservative`
 
 The solver must remain conservative around unresolved type computation.
 
 **Kind:** Solver-safety invariant  
-**Depends on:** T0318–T0320, T0330
+**Depends on:** T0908–T0910, T0920
 
 ## Required implementation invariants
 

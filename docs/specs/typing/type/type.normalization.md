@@ -2,7 +2,7 @@
 
 **Status:** Normative implementation-facing specification  
 **Registry family:** `type.normalization`  
-**Identifier range used here:** `T0340–T0365`
+**Identifier range used here:** `T0950–T0975`
 
 ## Purpose
 
@@ -23,25 +23,25 @@ Normalization is not the definition of semantic identity. Some semantically equi
 ## Laws
 
 ```phalcom
-@id(T0340)
+@id(T0950)
 @name(type.normalization.identity-preserving)
 NormalizationPreservesIdentity<T> {
     normalize(T) == T
 }
 
-@id(T0341)
+@id(T0951)
 @name(type.normalization.idempotent)
 NormalizationIdempotent<T> {
     normalize(normalize(T)) == normalize(T)
 }
 
-@id(T0342)
+@id(T0952)
 @name(type.normalization.deterministic)
 NormalizationDeterministic<T> {
     normalize(T) == normalize(T)
 }
 
-@id(T0343)
+@id(T0953)
 @name(type.normalization.identity-substitution)
 NormalizationIdentitySubstitution<A, B> {
     if A == B {
@@ -49,7 +49,7 @@ NormalizationIdentitySubstitution<A, B> {
     }
 }
 
-@id(T0344)
+@id(T0954)
 @name(type.normalization.canonical)
 NormalizationProducesCanonical<T> {
     if canonicalizable(T) {
@@ -57,7 +57,7 @@ NormalizationProducesCanonical<T> {
     }
 }
 
-@id(T0345)
+@id(T0955)
 @name(type.normalization.canonical.identity)
 CanonicalEquivalentTypesShareForm<A, B> {
     if canonicalizable(A)
@@ -68,32 +68,32 @@ CanonicalEquivalentTypesShareForm<A, B> {
     }
 }
 
-@id(T0346)
+@id(T0956)
 @name(type.normalization.union.flatten)
 NormalizeUnionFlatten<A, B, C> {
     normalize((A | B) | C) ==
     normalize(A | B | C)
 }
 
-@id(T0347)
+@id(T0957)
 @name(type.normalization.union.unique)
 NormalizeUnionUnique<***Ts> {
     noDuplicates(members(normalize(union<***Ts>)))
 }
 
-@id(T0348)
+@id(T0958)
 @name(type.normalization.union.never-elimination)
 NormalizeUnionNever<A> {
     normalize(A | Never) == normalize(A)
 }
 
-@id(T0349)
+@id(T0959)
 @name(type.normalization.union.any-collapse)
 NormalizeUnionAny<A> {
     normalize(A | Any) == normalize(Any)
 }
 
-@id(T0350)
+@id(T0960)
 @name(type.normalization.union.subtype-redundancy)
 NormalizeUnionSubtypeRedundancy<A, B> {
     if A <: B {
@@ -101,32 +101,32 @@ NormalizeUnionSubtypeRedundancy<A, B> {
     }
 }
 
-@id(T0351)
+@id(T0961)
 @name(type.normalization.intersection.flatten)
 NormalizeIntersectionFlatten<A, B, C> {
     normalize((A & B) & C) ==
     normalize(A & B & C)
 }
 
-@id(T0352)
+@id(T0962)
 @name(type.normalization.intersection.unique)
 NormalizeIntersectionUnique<***Ts> {
     noDuplicates(members(normalize(intersection<***Ts>)))
 }
 
-@id(T0353)
+@id(T0963)
 @name(type.normalization.intersection.any-elimination)
 NormalizeIntersectionAny<A> {
     normalize(A & Any) == normalize(A)
 }
 
-@id(T0354)
+@id(T0964)
 @name(type.normalization.intersection.never-collapse)
 NormalizeIntersectionNever<A> {
     normalize(A & Never) == normalize(Never)
 }
 
-@id(T0355)
+@id(T0965)
 @name(type.normalization.intersection.supertype-redundancy)
 NormalizeIntersectionSupertypeRedundancy<A, B> {
     if A <: B {
@@ -134,13 +134,13 @@ NormalizeIntersectionSupertypeRedundancy<A, B> {
     }
 }
 
-@id(T0356)
+@id(T0966)
 @name(type.normalization.order.deterministic)
 NormalizedMemberOrderingDeterministic<T> {
     memberOrder(normalize(T)) == canonicalMemberOrder(T)
 }
 
-@id(T0357)
+@id(T0967)
 @name(type.normalization.projection.reduce-when-known)
 NormalizeResolvedProjection<E, R> {
     if resolve(E) == R {
@@ -148,7 +148,7 @@ NormalizeResolvedProjection<E, R> {
     }
 }
 
-@id(T0358)
+@id(T0968)
 @name(type.normalization.projection.preserve-when-unknown)
 NormalizeUnresolvedProjectionConservatively<E> {
     if unresolved(E) {
@@ -156,37 +156,37 @@ NormalizeUnresolvedProjectionConservatively<E> {
     }
 }
 
-@id(T0359)
+@id(T0969)
 @name(type.normalization.distributivity.not-mandatory)
 NormalizationNeedNotDistribute<A, B, C> {
-    A & (B | C) == (A & B) | (A & C)
-
-    // but canonical form is not required to eagerly expand
+    if distributiveTypeFragment(A, B, C) {
+        A & (B | C) == (A & B) | (A & C)
+        notRequiresStructuralExpansion(A & (B | C))
+    }
 }
 ```
 
 ```phalcom
-@id(T0360)
-@name(type.normalization.subtype-consistency)
-NormalizationSubtypeConsistency<A, B> {
-    solve(A <: B) ==
-    solve(normalize(A) <: normalize(B))
+@id(T0970)
+@name(type.normalization.subtype-semantic-consistency)
+NormalizationSubtypeSemanticConsistency<A, B> {
+    A <: B iff normalize(A) <: normalize(B)
 }
 
-@id(T0361)
+@id(T0971)
 @name(type.normalization.disjoint-consistency)
 NormalizationDisjointConsistency<A, B> {
     disjoint(A, B) ==
     disjoint(normalize(A), normalize(B))
 }
 
-@id(T0362)
+@id(T0972)
 @name(type.normalization.kind-preserving)
 NormalizationPreservesKind<T> {
     kind(normalize(T)) == kind(T)
 }
 
-@id(T0363)
+@id(T0973)
 @name(type.normalization.terminating)
 NormalizationTerminates<T> {
     if supportedNormalizationFragment(T) {
@@ -194,14 +194,14 @@ NormalizationTerminates<T> {
     }
 }
 
-@id(T0364)
+@id(T0974)
 @name(type.normalization.cache-independent)
 NormalizationCacheIndependent<T> {
     normalizeWithColdCache(T) ==
     normalizeWithWarmCache(T)
 }
 
-@id(T0365)
+@id(T0975)
 @name(type.normalization.source-order-independent)
 NormalizationSourceOrderIndependent<A, B> {
     normalize(A | B) == normalize(B | A)
@@ -211,99 +211,99 @@ NormalizationSourceOrderIndependent<A, B> {
 
 ## Law notes
 
-### T0340 — `NormalizationPreservesIdentity`
+### T0950 — `NormalizationPreservesIdentity`
 
 Normalization may change representation but never semantic meaning.
 
 **Kind:** Fundamental normalization invariant  
 **Depends on:** T0001–T0003
 
-### T0341 — `NormalizationIdempotent`
+### T0951 — `NormalizationIdempotent`
 
 Normalizing an already normalized type produces no semantic change.
 
 A canonical implementation should also avoid unnecessary representation churn.
 
 **Kind:** Representation invariant  
-**Depends on:** T0340
+**Depends on:** T0950
 
-### T0342 / T0343 — Determinism and substitution
+### T0952 / T0953 — Determinism and substitution
 
 Normalization must not depend on evaluation order, cache state, or syntactic accidents once semantic identity is fixed.
 
 **Kind:** Coherence invariants  
 **Depends on:** T0001–T0003
 
-### T0344 / T0345 — Canonical form
+### T0954 / T0955 — Canonical form
 
 Where canonicalization is declared complete, normalization produces one stable structural form for each semantic equivalence class.
 
 This completeness claim is intentionally conditional on `canonicalizable`.
 
 **Kind:** Representation invariants  
-**Depends on:** T0340–T0343
+**Depends on:** T0950–T0953
 
-### T0346–T0350 — Union normalization
+### T0956–T0960 — Union normalization
 
 Normalized unions flatten associative nesting, remove duplicates, eliminate `Never`, collapse on `Any`, and remove subtype-redundant members.
 
 **Kind:** Derived normalization laws  
-**Depends on:** T0100–T0115
+**Depends on:** T0450–T0465
 
-### T0351–T0355 — Intersection normalization
+### T0961–T0965 — Intersection normalization
 
 Normalized intersections flatten associative nesting, remove duplicates, eliminate `Any`, collapse on `Never`, and remove redundant supertypes.
 
 **Kind:** Derived normalization laws  
-**Depends on:** T0120–T0135
+**Depends on:** T0500–T0515
 
-### T0356 — `NormalizedMemberOrderingDeterministic`
+### T0966 — `NormalizedMemberOrderingDeterministic`
 
 Canonical member order must be deterministic.
 
 The semantic algebra is unordered, but deterministic representation is essential for stable hashing, caching, diagnostics, serialization, and incremental builds.
 
 **Kind:** Representation invariant  
-**Depends on:** T0101, T0121
+**Depends on:** T0451, T0501
 
-### T0357 / T0358 — Projection normalization
+### T0967 / T0968 — Projection normalization
 
 Known projections reduce consistently. Unknown projections remain symbolic and conservative.
 
 **Kind:** Cross-family invariants  
-**Depends on:** T0315–T0320
+**Depends on:** T0905–T0910
 
-### T0359 — `NormalizationNeedNotDistribute`
+### T0969 — `NormalizationNeedNotDistribute`
 
 Semantic distributivity does not require eager distributive expansion.
 
 This protects the normalizer from exponential growth.
 
 **Kind:** Semantic/representation boundary invariant  
-**Depends on:** T0147, T0148, T0155
+**Depends on:** T0557, T0558, T0565
 
-### T0360 — `NormalizationSubtypeConsistency`
+### T0970 — `NormalizationSubtypeSemanticConsistency`
 
-Subtype solving must produce the same semantic result before and after normalization.
+Normalization preserves the semantic subtype relation. This law intentionally speaks about semantic truth, not exact solver proof-state behavior. The canonical solver entrypoint may impose the stronger proof-state invariant in `type.inference-solver`.
 
-**Kind:** Cross-subsystem coherence invariant  
-**Depends on:** T0340, T0020–T0026
+**Kind:** Semantic normalization invariant  
+**Depends on:** T0950, T0100–T0106
 
-### T0361 — `NormalizationDisjointConsistency`
+### T0971 — `NormalizationDisjointConsistency`
 
 Normalization must preserve semantic disjointness.
 
 **Kind:** Cross-subsystem coherence invariant  
-**Depends on:** T0135, T0340
+**Depends on:** T0515, T0950
 
-### T0362 — `NormalizationPreservesKind`
+### T0972 — `NormalizationPreservesKind`
 
 Normalization may not move a type-level entity into a different kind.
 
 **Kind:** Kinding invariant  
-**Depends on:** T0010–T0018, T0340
+**Depends on:** T0050–T0060, T0950
 
-### T0363 — `NormalizationTerminates`
+### T0973 — `NormalizationTerminates`
 
 Every fragment advertised as supported by canonical normalization must terminate.
 
@@ -312,19 +312,19 @@ Recursive or intentionally symbolic fragments may use bounded reduction instead,
 **Kind:** Operational invariant  
 **Depends on:** none beyond fragment definition
 
-### T0364 — `NormalizationCacheIndependent`
+### T0974 — `NormalizationCacheIndependent`
 
 Caching may improve performance but cannot alter normalized semantic results.
 
 **Kind:** Implementation coherence invariant  
-**Depends on:** T0342
+**Depends on:** T0952
 
-### T0365 — `NormalizationSourceOrderIndependent`
+### T0975 — `NormalizationSourceOrderIndependent`
 
 Commutative operator normalization cannot depend on source operand order.
 
 **Kind:** Representation coherence invariant  
-**Depends on:** T0101, T0121, T0356
+**Depends on:** T0451, T0501, T0966
 
 ## Canonicalization completeness boundary
 

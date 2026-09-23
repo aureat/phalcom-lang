@@ -2,7 +2,7 @@
 
 **Status:** Normative specification  
 **Registry family:** `type.tuple`  
-**Identifier range used here:** `T0180–T0198`
+**Identifier range used here:** `T0650–T0668`
 
 ## Purpose
 
@@ -27,31 +27,31 @@ Unless stated otherwise:
 ## Laws
 
 ```phalcom
-@id(T0180)
+@id(T0650)
 @name(type.tuple.kind)
 TupleKind<***Es> {
     kind(tuple<***Es>) == Type
 }
 
-@id(T0181)
+@id(T0651)
 @name(type.tuple.identity)
 TupleIdentity<***Es> {
     tuple<***Es> == tuple<***Es>
 }
 
-@id(T0182)
+@id(T0652)
 @name(type.tuple.arity.significant)
 TupleAritySignificant<A, B> {
     (A,) != (A, B)
 }
 
-@id(T0183)
+@id(T0653)
 @name(type.tuple.singleton.distinct-from-element)
 SingletonTupleDistinctFromElement<A> {
     (A,) != A
 }
 
-@id(T0184)
+@id(T0654)
 @name(type.tuple.position.order-significant)
 TuplePositionOrderSignificant<A, B> {
     if A != B {
@@ -59,7 +59,7 @@ TuplePositionOrderSignificant<A, B> {
     }
 }
 
-@id(T0185)
+@id(T0655)
 @name(type.tuple.element.identity-substitution)
 TupleElementIdentitySubstitution<A, B, C> {
     if A == B {
@@ -67,7 +67,7 @@ TupleElementIdentitySubstitution<A, B, C> {
     }
 }
 
-@id(T0186)
+@id(T0656)
 @name(type.tuple.covariant)
 TupleCovariant<A1, A2, B1, B2> {
     if A1 <: B1 and A2 <: B2 {
@@ -75,7 +75,7 @@ TupleCovariant<A1, A2, B1, B2> {
     }
 }
 
-@id(T0187)
+@id(T0657)
 @name(type.tuple.subtype.requires-equal-arity)
 TupleSubtypeRequiresEqualArity<***As, ***Bs> {
     if tuple<***As> <: tuple<***Bs> {
@@ -83,7 +83,7 @@ TupleSubtypeRequiresEqualArity<***As, ***Bs> {
     }
 }
 
-@id(T0188)
+@id(T0658)
 @name(type.tuple.subtype.pointwise)
 TupleSubtypePointwise<***As, ***Bs> {
     if arity(***As) == arity(***Bs)
@@ -93,31 +93,31 @@ TupleSubtypePointwise<***As, ***Bs> {
     }
 }
 
-@id(T0189)
+@id(T0659)
 @name(type.tuple.at.zero)
 TupleAtZero<A, B> {
     (A, B)::At<0> == A
 }
 
-@id(T0190)
+@id(T0660)
 @name(type.tuple.at.one)
 TupleAtOne<A, B> {
     (A, B)::At<1> == B
 }
 
-@id(T0191)
+@id(T0661)
 @name(type.tuple.index.projection-equivalence)
 TupleIndexProjectionEquivalent<***Es, I> {
     tuple<***Es>[I] == tuple<***Es>::At<I>
 }
 
-@id(T0192)
+@id(T0662)
 @name(type.tuple.projection.kind)
 TupleProjectionKind<***Es, I> {
     kind(tuple<***Es>::At<I>) == Type
 }
 
-@id(T0193)
+@id(T0663)
 @name(type.tuple.projection.bounds)
 TupleProjectionRequiresValidIndex<***Es, I> {
     if I < 0 or I >= arity(***Es) {
@@ -125,19 +125,19 @@ TupleProjectionRequiresValidIndex<***Es, I> {
     }
 }
 
-@id(T0194)
+@id(T0664)
 @name(type.tuple.label.identity)
 TupleLabelsSignificant<A, B> {
     (x: A, y: B) != (a: A, b: B)
 }
 
-@id(T0195)
+@id(T0665)
 @name(type.tuple.label.position-significant)
 TupleLabelPositionSignificant<A, B> {
     (x: A, y: B) != (y: B, x: A)
 }
 
-@id(T0196)
+@id(T0666)
 @name(type.tuple.named-entry.covariant)
 NamedTupleCovariant<A1, A2, B1, B2> {
     if A1 <: B1 and A2 <: B2 {
@@ -145,13 +145,13 @@ NamedTupleCovariant<A1, A2, B1, B2> {
     }
 }
 
-@id(T0197)
+@id(T0667)
 @name(type.tuple.union.pointwise-widening)
 TuplePointwiseUnionWidening<A1, A2, B1, B2> {
     (A1, A2) <: (A1 | B1, A2 | B2)
 }
 
-@id(T0198)
+@id(T0668)
 @name(type.tuple.never.element)
 TupleWithNeverElementIsNever<A> {
     (A, Never) == Never
@@ -160,139 +160,139 @@ TupleWithNeverElementIsNever<A> {
 
 ## Law notes
 
-### T0180 — `TupleKind`
+### T0650 — `TupleKind`
 
 Every well-formed tuple type is a proper type.
 
 **Kind:** Semantic law  
-**Depends on:** T0018
+**Depends on:** T0060
 
-### T0181 — `TupleIdentity`
+### T0651 — `TupleIdentity`
 
 Tuple types participate in ordinary semantic identity.
 
 **Kind:** Semantic law  
 **Depends on:** T0001
 
-### T0182 — `TupleAritySignificant`
+### T0652 — `TupleAritySignificant`
 
 Tuple arity is part of semantic identity.
 
 **Kind:** Semantic identity law  
 **Depends on:** T0001–T0003
 
-### T0183 — `SingletonTupleDistinctFromElement`
+### T0653 — `SingletonTupleDistinctFromElement`
 
 A one-element tuple is not semantically identical to its element type.
 
 **Kind:** Semantic identity law  
-**Depends on:** T0182
+**Depends on:** T0652
 
-### T0184 — `TuplePositionOrderSignificant`
+### T0654 — `TuplePositionOrderSignificant`
 
 Tuple positions are ordered.
 
 When the element types differ, swapping positions changes the tuple type.
 
 **Kind:** Semantic identity law  
-**Depends on:** T0182
+**Depends on:** T0652
 
-### T0185 — `TupleElementIdentitySubstitution`
+### T0655 — `TupleElementIdentitySubstitution`
 
 Replacing an element type with a semantically identical type preserves tuple identity.
 
 **Kind:** Derived coherence law  
-**Depends on:** T0001–T0003, T0181
+**Depends on:** T0001–T0003, T0651
 
-### T0186 — `TupleCovariant`
+### T0656 — `TupleCovariant`
 
 Immutable tuple elements are covariant.
 
 **Kind:** Semantic variance law  
-**Depends on:** T0020–T0023
+**Depends on:** T0100–T0103
 
-### T0187 — `TupleSubtypeRequiresEqualArity`
+### T0657 — `TupleSubtypeRequiresEqualArity`
 
 Tuple subtyping does not erase or invent positions. A tuple may only subtype another tuple of the same arity unless a future explicit variadic/open-tuple feature says otherwise.
 
 **Kind:** Semantic subtype law  
-**Depends on:** T0182
+**Depends on:** T0652
 
-### T0188 — `TupleSubtypePointwise`
+### T0658 — `TupleSubtypePointwise`
 
 For equal-arity immutable tuples, pointwise element subtyping implies tuple subtyping.
 
 **Kind:** Semantic subtype law  
-**Depends on:** T0186, T0187
+**Depends on:** T0656, T0657
 
-### T0189 / T0190 — Basic projections
+### T0659 / T0660 — Basic projections
 
 Tuple projection by valid static index yields the element type at that position.
 
 **Kind:** Semantic projection laws  
-**Depends on:** T0180–T0182
+**Depends on:** T0650–T0652
 
-### T0191 — `TupleIndexProjectionEquivalent`
+### T0661 — `TupleIndexProjectionEquivalent`
 
 Compile-time indexing and the associated projection `::At<I>` are two syntactic routes to the same semantic type projection.
 
 **Kind:** Cross-syntax semantic law  
-**Depends on:** T0189, T0190
+**Depends on:** T0659, T0660
 
-### T0192 — `TupleProjectionKind`
+### T0662 — `TupleProjectionKind`
 
 A valid tuple element projection produces a proper type.
 
 **Kind:** Kinding law  
-**Depends on:** T0010, T0180
+**Depends on:** T0050, T0650
 
-### T0193 — `TupleProjectionRequiresValidIndex`
+### T0663 — `TupleProjectionRequiresValidIndex`
 
 Out-of-bounds tuple type projection is ill formed.
 
 It must not produce `Never`, `Any`, `Unknown`, or an unresolved ordinary type merely to keep solving.
 
 **Kind:** Well-formedness invariant  
-**Depends on:** T0013, T0182
+**Depends on:** T0055, T0652
 
-### T0194 — `TupleLabelsSignificant`
+### T0664 — `TupleLabelsSignificant`
 
 When tuple entries are labeled, labels participate in semantic identity.
 
 This law assumes the ratified model where named tuple entries expose semantic labels rather than diagnostic-only source names.
 
 **Kind:** Semantic identity law  
-**Depends on:** T0181
+**Depends on:** T0651
 
-### T0195 — `TupleLabelPositionSignificant`
+### T0665 — `TupleLabelPositionSignificant`
 
 Labels do not make tuples unordered. Position remains semantically significant.
 
 **Kind:** Semantic identity law  
-**Depends on:** T0184, T0194
+**Depends on:** T0654, T0664
 
-### T0196 — `NamedTupleCovariant`
+### T0666 — `NamedTupleCovariant`
 
 Named tuple elements are covariant when labels and arity agree.
 
 **Kind:** Semantic variance law  
-**Depends on:** T0186, T0194
+**Depends on:** T0656, T0664
 
-### T0197 — `TuplePointwiseUnionWidening`
+### T0667 — `TuplePointwiseUnionWidening`
 
 A tuple is a subtype of a tuple whose corresponding element types have been widened by union.
 
 **Kind:** Cross-family derived law  
-**Depends on:** T0106, T0107, T0186
+**Depends on:** T0456, T0457, T0656
 
-### T0198 — `TupleWithNeverElementIsNever`
+### T0668 — `TupleWithNeverElementIsNever`
 
 A strict product type with an uninhabited required element is itself uninhabited.
 
 This law assumes every tuple position must be populated by a value. Because `Never` has no value, no value can inhabit `(A, Never)`.
 
 **Kind:** Cross-family semantic law  
-**Depends on:** T0032–T0034, T0180
+**Depends on:** T0152–T0154, T0650
 
 ## Required implementation invariants
 
