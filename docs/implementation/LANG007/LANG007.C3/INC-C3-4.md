@@ -9,7 +9,8 @@
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Branch: `main`
 - Starting revision: `79e6726093349d3269460a29a7c1c4c3035ec2cf` (P2 baseline recorded in checkpoint)
-- Current revision: `c99f7b50` (working tree contains uncommitted P2 work)
+- Incident reproduction revision: `c99f7b50` (before the resolution slice)
+- Resolution commit: `c8708ef68be37c088c2652e1156f8ccbf893635c`
 
 ## 2. Escalation trigger
 
