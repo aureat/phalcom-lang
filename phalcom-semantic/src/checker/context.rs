@@ -2992,6 +2992,20 @@ impl<'a> CheckingContext<'a> {
             .insert(crate::checker::analysis::SemanticDependency::AssociatedSurface(decl.clone()));
     }
 
+    /// Records the declaration product that owns the selected static-domain case set.
+    pub fn record_static_domain_case_dependency(&self, domain: &crate::identity::StaticDomainDeclarationId) {
+        match domain {
+            crate::identity::StaticDomainDeclarationId::Nominal(owner) => {
+                if self.enum_info(owner).is_none() && self.data_info(owner).is_none() {
+                    record_declaration_shell_dependency(&self.semantic_dependencies, owner);
+                }
+            }
+            crate::identity::StaticDomainDeclarationId::Associated(declaration) => {
+                let _ = self.associated_surface(&declaration.owner);
+            }
+        }
+    }
+
     pub fn validate_return_contract(
         &mut self,
         status: crate::checker::analysis::CallableAnalysisStatus,

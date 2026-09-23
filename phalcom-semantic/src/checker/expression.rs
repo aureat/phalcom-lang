@@ -1083,80 +1083,50 @@ fn type_form_descriptor_type(ctx: &mut CheckingContext<'_>, form: TypeId) -> Opt
 fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &lookup.receiver, &ExpectedType::None);
     if let Some(SemanticDenotation::StaticDomain(domain)) = receiver.denotation.as_ref() {
-        let AssociatedMemberSyntax::Named(member) = &lookup.member else {
-            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                DiagnosticCode::AssociatedMemberMissing,
-                "static domains support named case lookup only",
-                lookup.range,
-            ));
+        let Some(result) = resolve_static_domain_case(
+            ctx,
+            *domain,
+            &lookup.member,
+            TypeId::DUMMY,
+            None,
+            lookup.range,
+        ) else {
             return TypedExpression::unknown(UnknownReason::UncheckedExpression);
         };
-        let ids = ctx.store.static_constructor_ids_for_domain(*domain);
-        let Some(constructor) = ids.into_iter().find(|id| {
-            ctx.store.static_constructor(*id).is_some_and(|constructor| constructor.case_name.as_ref() == member.base)
-        }) else {
-            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                DiagnosticCode::AssociatedMemberMissing,
-                format!("static case `{}` was not declared in this domain", member.base),
-                lookup.range,
-            ));
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        };
-        let Some(metadata) = ctx.store.static_constructor(constructor).cloned() else {
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        };
-        if !metadata.parameter_kinds.is_empty() || !matches!(member.mode, AssociatedNamedMode::Getter) {
-            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                DiagnosticCode::AssociatedMemberMissing,
-                format!("static case `{}` requires constructor arguments or a different lookup form", member.base),
-                lookup.range,
-            ));
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        }
-        let Ok(term) = ctx.store.static_data(*domain, constructor, Box::new([])) else {
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        };
-        let Some(crate::types::store::StaticDomainData::Associated { declaration, .. }) = ctx.store.static_domain(*domain) else {
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        };
-        let case = crate::identity::StaticCaseId::new(
-            crate::identity::StaticDomainDeclarationId::Associated(declaration.clone()),
-            metadata.case_name.clone(),
-        );
-        let member_id = AssociatedMemberId::StaticDomain(declaration.clone());
-        if let Some(expression) = ctx.current_expression_id() {
-            ctx.record_associated_resolution(
-                expression,
-                AssociatedResolution {
-                    owner_form: TypeId::DUMMY,
-                    lookup_owner: metadata.declaration,
-                    family: None,
-                    kind: AssociatedResolutionKind::StaticTerm {
-                        member: member_id,
-                        domain: *domain,
-                        case,
-                        term,
-                    },
-                },
-            );
-        }
-        return TypedExpression::established(term, EvidenceOrigin::DeclarationSemantics, lookup.range)
-            .with_denotation(SemanticDenotation::StaticTerm(term));
+        return result;
     }
     let Ok(owner) = resolve_associated_owner(ctx, &receiver, lookup.range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
     if ctx.declaration_is_type_only(&owner.lookup_owner) {
-        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-            ctx.current_module.clone(),
-            DiagnosticCode::TypeOnlyRuntimeValue,
-            "type-data cases are static terms and cannot be used as runtime values",
+        let crate::types::kind::KindData::StaticDomain(domain) = *ctx.store.get_kind(owner.residual_kind) else {
+            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::TypeOnlyRuntimeValue,
+                "type-data declaration must be fully applied before selecting a static case",
+                lookup.range,
+            ));
+            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+        };
+        let result = resolve_static_domain_case(
+            ctx,
+            domain,
+            &lookup.member,
+            owner.owner_form,
+            None,
             lookup.range,
-        ));
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+        );
+        if result.is_some() {
+            // Resolution and value legality are separate: publish the canonical
+            // case identity before rejecting its use as a runtime expression.
+            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::TypeOnlyRuntimeValue,
+                "type-data cases are static terms and cannot be used as runtime values",
+                lookup.range,
+            ));
+        }
+        return result.unwrap_or_else(|| TypedExpression::unknown(UnknownReason::UncheckedExpression));
     }
 
     match &lookup.member {
@@ -1267,6 +1237,82 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
         }
         _ => TypedExpression::unknown(UnknownReason::UncheckedExpression),
     }
+}
+
+fn resolve_static_domain_case(
+    ctx: &mut CheckingContext<'_>,
+    domain: crate::types::id::StaticDomainId,
+    member: &AssociatedMemberSyntax,
+    owner_form: TypeId,
+    family: Option<crate::identity::AssociatedFamilyId>,
+    range: SourceRange,
+) -> Option<TypedExpression> {
+    let AssociatedMemberSyntax::Named(member) = member else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedMemberMissing,
+            "static domains support named case lookup only",
+            range,
+        ));
+        return None;
+    };
+    let Some(domain_data) = ctx.store.static_domain(domain).cloned() else {
+        return None;
+    };
+    let (identity, lookup_owner) = match &domain_data {
+        crate::types::store::StaticDomainData::Nominal { declaration } => (
+            crate::identity::StaticDomainDeclarationId::Nominal(declaration.clone()),
+            declaration.clone(),
+        ),
+        crate::types::store::StaticDomainData::Associated { declaration, .. } => (
+            crate::identity::StaticDomainDeclarationId::Associated(declaration.clone()),
+            declaration.owner.clone(),
+        ),
+        crate::types::store::StaticDomainData::ConstInt => return None,
+    };
+    ctx.record_static_domain_case_dependency(&identity);
+    let constructor = ctx
+        .store
+        .static_constructor_ids_for_domain(domain)
+        .into_iter()
+        .find(|id| ctx.store.static_constructor(*id).is_some_and(|data| data.case_name.as_ref() == member.base));
+    let Some(constructor) = constructor else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedMemberMissing,
+            format!("static case `{}` was not declared in this domain", member.base),
+            range,
+        ));
+        return None;
+    };
+    let Some(metadata) = ctx.store.static_constructor(constructor).cloned() else {
+        return None;
+    };
+    if !metadata.parameter_kinds.is_empty() || !matches!(member.mode, AssociatedNamedMode::Getter) {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedMemberMissing,
+            format!("static case `{}` requires constructor arguments or a different lookup form", member.base),
+            range,
+        ));
+        return None;
+    }
+    let Ok(term) = ctx.store.static_data(domain, constructor, Box::new([])) else {
+        return None;
+    };
+    let case = crate::identity::StaticCaseId::new(identity, metadata.case_name.clone());
+    if let Some(expression) = ctx.current_expression_id() {
+        ctx.record_associated_resolution(
+            expression,
+            AssociatedResolution {
+                owner_form,
+                lookup_owner,
+                family,
+                kind: AssociatedResolutionKind::StaticTerm { domain, case, term },
+            },
+        );
+    }
+    Some(TypedExpression::established(term, EvidenceOrigin::DeclarationSemantics, range).with_denotation(SemanticDenotation::StaticTerm(term)))
 }
 
 fn behavioral_family_spec(_name: &str, selector: &phalcom_ast::ast::SelectorSpecSyntax) -> Option<BehavioralFamilySpec> {

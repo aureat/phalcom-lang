@@ -791,3 +791,63 @@ fn associated_static_domain_and_case_paths_have_stable_source_index_targets() {
         ))
     );
 }
+
+#[test]
+fn nominal_static_case_publishes_canonical_target_before_runtime_rejection() {
+    use phalcom_semantic::identity::{SemanticTargetId, StaticCaseId, StaticDomainDeclarationId};
+
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        "type data Shape { Scalar }\nclass Probe {\n  @class status() { Shape::Scalar }\n}\n",
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    assert!(analysis.snapshot.all_diagnostics().any(|diagnostic| {
+        diagnostic.code == DiagnosticCode::TypeOnlyRuntimeValue
+    }), "runtime use must remain rejected: {:?}", analysis.snapshot.diagnostics);
+
+    let index = analysis.snapshot.source_index.module(&module).expect("module source index");
+    let case_offset = source.rfind("Scalar").expect("case path") + 1;
+    let case_target = index
+        .occurrences
+        .occurrence_at(case_offset)
+        .and_then(|occurrence| occurrence.target.cloned());
+    assert_eq!(
+        case_target,
+        Some(SemanticTargetId::StaticCase(StaticCaseId::new(
+            StaticDomainDeclarationId::Nominal(DeclarationId::new(module, "Shape".into())),
+            "Scalar",
+        )))
+    );
+
+    let owner = DeclarationId::new(test_module(), "Probe".into());
+    let status = CallableId::new(owner, Selector::method("status", []).expect("selector"), DispatchSide::Class);
+    let callable = analysis.snapshot.callable_analyses.get(&status).expect("status analysis");
+    assert!(callable.associated_resolutions.values().any(|resolution| matches!(
+        resolution.kind,
+        AssociatedResolutionKind::StaticTerm { .. }
+    )), "canonical static-term resolution must coexist with the runtime diagnostic");
+}
+
+#[test]
+fn missing_nominal_static_case_has_no_source_target() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        "type data Shape { Scalar }\nclass Probe {\n  @class status() { Shape::Missing }\n}\n",
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    assert!(analysis.snapshot.all_diagnostics().any(|diagnostic| {
+        diagnostic.code == DiagnosticCode::AssociatedMemberMissing
+    }), "missing case must be diagnosed: {:?}", analysis.snapshot.diagnostics);
+
+    let index = analysis.snapshot.source_index.module(&module).expect("module source index");
+    let case_offset = source.rfind("Missing").expect("missing case path") + 1;
+    let case_target = index
+        .occurrences
+        .occurrence_at(case_offset)
+        .and_then(|occurrence| occurrence.target.cloned());
+    assert!(case_target.is_none(), "missing case must not produce a semantic target: {case_target:?}");
+}

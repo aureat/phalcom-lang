@@ -63,7 +63,6 @@ pub enum AssociatedResolutionKind {
         domain: crate::types::id::StaticDomainId,
     },
     StaticTerm {
-        member: AssociatedMemberId,
         domain: crate::types::id::StaticDomainId,
         case: crate::identity::StaticCaseId,
         term: TypeId,

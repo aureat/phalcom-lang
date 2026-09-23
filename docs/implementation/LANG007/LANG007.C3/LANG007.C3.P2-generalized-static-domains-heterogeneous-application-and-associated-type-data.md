@@ -3237,10 +3237,9 @@ The live session currently lowers aliases before it completes generic headers an
 publishes associated surfaces after callable signatures. Therefore the phase order
 must be reorganized so the canonical owner/header and surface selection products are
 available before every annotation consumer. Do not publish a provisional second
-surface or add a parallel name index. The exact boundary between shell/header staging
-and alias lowering remains an explicit implementation decision pending user direction;
-preserve the current alias/generic-header dependency contract until that decision is
-settled.
+surface or add a parallel name index. Preserve the existing alias/generic-header
+dependency contract while staging the reorganization; any material change to that
+contract requires a separate consultation rather than a local workaround.
 
 **Tests:**
 
@@ -3315,6 +3314,17 @@ type member projection
 A static-domain result has no `InvocationTargetId`.
 
 A static term has no runtime invocation target.
+
+Nominal and associated static domains converge before case selection. A nominal
+`type data` owner reached through `::` establishes its canonical
+`StaticDomainDeclarationId`; the case is selected through the same semantic
+static-domain selection machinery as a case reached after associated-domain lookup.
+The existing static-term resolution product carries `StaticCaseId` to downstream
+consumers. Publish that resolution before runtime-value legality is checked, so an
+invalid runtime use can still have a canonical target and the `TypeOnlyRuntimeValue`
+diagnostic. Static-domain/case selection records a dependency on the semantic product
+that owns the domain's case set. `CallableSourceAttachment` consumes the resolution;
+it never searches declaration cases or source spelling.
 
 #### E. Nested `::`
 
@@ -3647,6 +3657,12 @@ associated-domain path
 associated static-case path
 static alias reference
 ```
+
+For nominal type-data cases, the callable semantic product must publish the selected
+`StaticCaseId` even when the enclosing runtime expression is rejected. The runtime
+diagnostic and canonical reference target coexist. Case add/remove/rename must
+invalidate selection through the static-domain declaration dependency, not through
+source-index spelling or an independent case registry.
 
 Editor display taxonomy may remain partially legacy if P3 owns final polish, but exact
 semantic targets must be canonical.

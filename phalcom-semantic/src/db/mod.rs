@@ -489,6 +489,7 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::EnumDeclaration(declaration)
         | QueryKey::EnumRequirements(declaration)
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
+        QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
         QueryKey::ResolvedImport(site) => Some(&site.importer),
         QueryKey::LinkedName(module, _) | QueryKey::PublicExport(module, _) => Some(module),

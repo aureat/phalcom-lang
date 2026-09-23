@@ -1055,6 +1055,39 @@ pub fn query_type_member_declaration(
     QueryOutcome::Ready(product)
 }
 
+/// Publishes the checked case set for one associated static-domain declaration.
+pub fn query_associated_static_domain_declaration(
+    db: &mut SemanticDb,
+    unit: &ParsedModuleUnit,
+    product: Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>,
+    store: &TypeStore,
+) -> QueryOutcome<Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>> {
+    let key = QueryKey::AssociatedStaticDomainDeclaration(product.id.clone());
+    let input_fingerprint = crate::db::fingerprint::associated_static_domain_declaration_input_fingerprint(unit, &product, store);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_associated_static_domain_declaration()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::associated_static_domain_declaration_product_fingerprint(&product, store);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::AssociatedStaticDomainDeclaration(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
 pub fn query_associated_surface(
     db: &mut SemanticDb,
     surface: Arc<crate::associated::AssociatedSurface>,
@@ -1075,6 +1108,14 @@ pub fn query_associated_surface(
     for family in surface.families.values() {
         for member in family.members.iter() {
             let crate::associated::AssociatedMemberId::TypeMember(member_id) = member else {
+                if let crate::associated::AssociatedMemberId::StaticDomain(domain_id) = member {
+                    if let Err(error) = db.record_dependency(
+                        &mut recorder,
+                        QueryKey::AssociatedStaticDomainDeclaration(domain_id.clone()),
+                    ) {
+                        return query_failure(db, key, error);
+                    }
+                }
                 continue;
             };
             let dependency = QueryKey::TypeMemberDeclaration(member_id.clone());

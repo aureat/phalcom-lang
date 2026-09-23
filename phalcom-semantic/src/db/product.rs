@@ -181,6 +181,7 @@ pub enum SemanticProduct {
     EnumDeclaration(Arc<EnumDeclarationProduct>),
     EnumRequirements(Arc<EnumRequirementsProduct>),
     TypeMemberDeclaration(Arc<TypeMemberDeclarationProduct>),
+    AssociatedStaticDomainDeclaration(Arc<AssociatedStaticDomainDeclarationProduct>),
     AssociatedSurface(Arc<AssociatedSurface>),
     ResolvedImport(Arc<phalcom_modules::resolver::ImportResolutionProduct>),
     LinkedName(Arc<LinkedNameProduct>),
@@ -359,6 +360,13 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_associated_static_domain_declaration(&self) -> Option<&Arc<AssociatedStaticDomainDeclarationProduct>> {
+        match self {
+            Self::AssociatedStaticDomainDeclaration(product) => Some(product),
+            _ => None,
+        }
+    }
+
     pub fn as_associated_surface(&self) -> Option<&Arc<AssociatedSurface>> {
         match self {
             Self::AssociatedSurface(surface) => Some(surface),
@@ -413,6 +421,7 @@ impl SemanticProduct {
             Self::EnumDeclaration(_) => b"enum-declaration".as_slice(),
             Self::EnumRequirements(_) => b"enum-requirements".as_slice(),
             Self::TypeMemberDeclaration(_) => b"type-member-declaration".as_slice(),
+            Self::AssociatedStaticDomainDeclaration(_) => b"associated-static-domain-declaration".as_slice(),
             Self::AssociatedSurface(_) => b"associated-surface".as_slice(),
             Self::ResolvedImport(_) => b"resolved-import".as_slice(),
             Self::LinkedName(_) => b"linked-name".as_slice(),

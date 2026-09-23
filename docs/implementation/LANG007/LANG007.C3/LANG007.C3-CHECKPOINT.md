@@ -765,12 +765,13 @@ Verification required: source type-member selection through surface, wrong-domai
   rejection, projection identity across equivalent spellings, collision through the
   surface, and changed-signature invalidation with an unrelated sibling reusable.
 Status: RESOLVED; implementation now selects source members only through the
-  confirmed surface/query seam. Focused wrong-domain and selected-identity tests pass.
-  The publication phase still follows alias and callable-signature queries, so
-  source projections are not yet available in all annotations. User directed a
-  phase reorganization for all annotations; the staging boundary around aliases
-  and generic headers is awaiting the user's choice.
-Independent T4/T8 work may continue while that phase boundary is settled.
+confirmed surface/query seam. Focused wrong-domain and selected-identity tests pass.
+Source projections are not yet available in every declaration annotation because
+surface publication follows alias lowering and callable-signature queries. User
+directed a phase reorganization so all annotation consumers share this seam; that
+reorganization remains unfinished T7 work. Preserve the existing alias/generic-header
+dependency contract and do not publish provisional or parallel lookup surfaces.
+Independent T4/T8 work may continue during that implementation.
 ```
 
 ### INC-C3-4
@@ -795,13 +796,29 @@ Implementer hypothesis: nominal type-data cases need a semantic resolution produ
 Alternative: source-index construction could consume an existing type-data declaration
   product directly without adding a callable-resolution variant. These choices differ
   in resolution ownership and dependency/invalidation wiring.
-Decision: pending user direction. No speculative source-spelling fallback was retained.
-Plan amendment: pending decision.
+Decision: advisor recommends a canonical semantic static-term resolution product for
+  nominal cases, converging nominal and associated domains before case selection.
+  Resolve the domain, select the case, publish `StaticTerm` with stable
+  `StaticCaseId`, then apply runtime-value legality. `CallableSourceAttachment` remains
+  a consumer; no spelling fallback or source-index declaration search is allowed.
+  Static-domain selection owns invalidation for case edits.
+Plan amendment: required and applied to T7/T8 below.
 Verification required: a nominal `Shape::Scalar` source target resolves to stable
-  declaration identity; runtime use remains rejected; incremental case edits update
-  that target while unrelated targets remain reusable.
-Status: OPEN; resume this slice after the canonical selection/dependency seam is
-  confirmed. Independent T4/T8 work may continue.
+  declaration identity while runtime use remains rejected; missing cases publish no
+  target and diagnose; a case rename invalidates/recomputes the selection and source
+  target, while unrelated products remain reusable.
+Status: RESOLVED; the shared canonical selection path, declaration/query dependency,
+  missing-case behavior, and incremental/cold source-target checks are implemented and
+  focused-tested. T8 remains open for its other cross-module and persistence gates.
+
+Focused evidence: semantic crate check; `adts::declarations` (26 passed);
+`adts::associated` (22 passed, 5 gated); `associated::invocation` (1 passed);
+`incremental::type_members` (8 passed); `nominal_static_case_rename` (1 passed);
+`integration::metadata` (23 passed); `incremental::adts` (13 passed, 3 gated);
+core crate check; and `phalcom-type-meta` (9 passed). The semantic library-unit
+filter is baseline-blocked by the previously recorded missing `generic_binder_header`
+test initializer. Workspace formatter check remains baseline-failing on untouched
+files; no broad formatting was applied.
 
 Use entries:
 
@@ -1004,12 +1021,14 @@ The type-member publication slice is committed and pushed as
 formatter check reports differences in untouched AST/core/checker files; no formatting
 changes from that check were retained.
 
-This is partial P2 evidence, not P2 acceptance. Remaining P2 implementation includes
-full first-order inference coverage and row-aware solver terms, static type-member
-domain convergence and source application/projection routing through AssociatedSurface,
-heterogeneous associated-owner arguments, static constructor argument lookup,
-lossless metadata/import round trips (including associated declarations), and
-cold/incremental/source-index identity certification.
+This is partial P2 evidence, not P2 acceptance. The T8 nominal-case target slice is
+now implemented and focused-tested (INC-C3-4); remaining P2 work includes the
+all-annotation T7 phase reorganization, completion of static type-member domain
+convergence, heterogeneous associated-owner arguments, payload static-constructor
+argument lookup, and cross-module metadata/import plus cold/incremental identity
+certification. T4's static constructor unification has internal focused tests, but its
+acceptance coverage still needs a clean executable semantic test gate beyond the
+pre-existing library unit-test compilation blocker recorded above.
 
 ### P3 evidence
 
@@ -1042,11 +1061,10 @@ next plan:
     LANG007.C3.P2
 
 next action:
-    continue independent T4/T8 closure: resolve the row-aware inference boundary,
-    extend metadata with associated declaration validation/import identity, and add
-    source-index coverage. Resume T7 phase reorganization after settling the pending
-    shell/header-versus-alias boundary; preserve the confirmed single AssociatedSurface
-    selection and identity-keyed signature retrieval.
+    implement T7 phase reorganization to make source-member projection selection
+    available in all annotation consumers while preserving the alias/generic-header
+    dependency contract. Then close T4's executable domain-safe inference coverage and
+    T8's cross-module metadata/import and incremental identity gates.
 
 P2 started from the completed P1 commit `79e6726093349d3269460a29a7c1c4c3035ec2cf`
 with a clean working tree; that revision was pushed to `origin/main` before P2
@@ -1054,8 +1072,9 @@ implementation continued. The T5 canonical-Int and source-publication slices are
 focused-tested; P2 remains partial and is not complete. T6 has focused publication and
 identity evidence under the user-ratified INC-C3-2 amendment. T7 has focused static-domain,
 singleton-term, and source-member projection evidence under the user-ratified INC-C3-3
-seam, but all-annotation availability still requires phase reorganization. Independent
-T4/T8 closure is continuing.
+seam, but all-annotation availability still requires the user-directed phase
+reorganization. The T8 nominal-case slice is focused-tested under INC-C3-4; cross-module
+and broader identity gates remain.
 ```
 
 At P1 start:

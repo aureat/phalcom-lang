@@ -549,6 +549,73 @@ fn type_data_case_edit_matches_cold_static_domain_analysis() {
 }
 
 #[test]
+fn nominal_static_case_rename_invalidates_source_selection_and_preserves_unrelated_member() {
+    use phalcom_semantic::identity::{CallableId, DispatchSide, SemanticTargetId, StaticCaseId, StaticDomainDeclarationId};
+    use phalcom_semantic::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};
+
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(109),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("nominal_case_target_edit").unwrap()]),
+    );
+    let initial = "class Geometry { type Keep<T: Type>: Type }\ntype data Shape { Scalar }\nclass Probe { @class status() { Shape::Scalar } }\n";
+    let final_source = "class Geometry { type Keep<T: Type>: Type }\ntype data Shape { Atom }\nclass Probe { @class status() { Shape::Atom } }\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental.update(single_module_input(module.clone(), initial, 1));
+    assert!(first.snapshot.all_diagnostics().any(|diagnostic| {
+        diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue
+    }));
+    let geometry = DeclarationId::new(module.clone(), "Geometry".into());
+    let keep = TypeMemberDeclarationId::new(geometry, TypeMemberSelector::named("Keep"));
+    let first_keep = first.snapshot.type_member_declarations.get(&keep).expect("Keep declaration product");
+    let probe = DeclarationId::new(module.clone(), "Probe".into());
+    let status = CallableId::new(probe, Selector::method("status", []).expect("status selector"), DispatchSide::Class);
+    let body_key = QueryKey::CallableBody(status);
+    let first_body_fingerprint = incremental.db().ready_product_fingerprint(&body_key).expect("initial body product");
+
+    let updated = incremental.update(single_module_input(module.clone(), final_source, 2));
+    assert!(updated.snapshot.all_diagnostics().any(|diagnostic| {
+        diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue
+    }));
+    let second_body_fingerprint = incremental.db().ready_product_fingerprint(&body_key).expect("updated body product");
+    assert_ne!(first_body_fingerprint, second_body_fingerprint, "renamed case must invalidate its selecting body");
+    assert!(Arc::ptr_eq(
+        first_keep,
+        updated.snapshot.type_member_declarations.get(&keep).expect("retained Keep product")
+    ), "unrelated type-member product should remain reusable");
+
+    let index = updated.snapshot.source_index.module(&module).expect("updated source index");
+    let updated_case_target = index
+        .occurrences
+        .occurrence_at(final_source.find("Shape::Atom").expect("updated case") + "Shape::".len())
+        .and_then(|occurrence| occurrence.target.cloned());
+    assert_eq!(
+        updated_case_target,
+        Some(SemanticTargetId::StaticCase(StaticCaseId::new(
+            StaticDomainDeclarationId::Nominal(DeclarationId::new(module.clone(), "Shape".into())),
+            "Atom",
+        )))
+    );
+    assert!(
+        !index.occurrences.exact_targets().values().any(|target| {
+            target == &SemanticTargetId::StaticCase(StaticCaseId::new(
+                StaticDomainDeclarationId::Nominal(DeclarationId::new(module.clone(), "Shape".into())),
+                "Scalar",
+            ))
+        }),
+        "removed case target must not survive the edit"
+    );
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    let cold_index = cold_final.snapshot.source_index.module(&module).expect("cold source index");
+    let cold_target = cold_index
+        .occurrences
+        .occurrence_at(final_source.find("Shape::Atom").expect("cold case") + "Shape::".len())
+        .and_then(|occurrence| occurrence.target.cloned());
+    assert_eq!(updated_case_target, cold_target, "incremental target must match cold analysis");
+}
+
+#[test]
 fn nominal_binder_contract_edit_recomputes_variadic_alias_to_cold_parity() {
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(102),

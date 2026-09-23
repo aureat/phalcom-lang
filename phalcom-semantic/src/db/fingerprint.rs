@@ -2308,6 +2308,46 @@ pub fn type_member_declaration_product_fingerprint(product: &crate::db::product:
     finish_product(hasher)
 }
 
+/// Fingerprints the checked source contribution and canonical case facts for one associated static domain.
+pub fn associated_static_domain_declaration_input_fingerprint(
+    unit: &phalcom_modules::source::ParsedModuleUnit,
+    product: &crate::db::product::AssociatedStaticDomainDeclarationProduct,
+    store: &crate::types::store::TypeStore,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.id.hash(&mut hasher);
+    hash_optional_source_region(&unit.text, Some(product.source_range), &mut hasher);
+    hash_associated_static_domain_facts(product, store, &mut hasher);
+    finish_input(hasher)
+}
+
+/// Fingerprints the canonical identity and checked cases of one associated static domain.
+pub fn associated_static_domain_declaration_product_fingerprint(
+    product: &crate::db::product::AssociatedStaticDomainDeclarationProduct,
+    store: &crate::types::store::TypeStore,
+) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.id.hash(&mut hasher);
+    hash_associated_static_domain_facts(product, store, &mut hasher);
+    finish_product(hasher)
+}
+
+fn hash_associated_static_domain_facts(
+    product: &crate::db::product::AssociatedStaticDomainDeclarationProduct,
+    store: &crate::types::store::TypeStore,
+    hasher: &mut impl Hasher,
+) {
+    if let Some(domain) = store.static_domain(product.domain) {
+        domain.hash(hasher);
+    }
+    for constructor in product.constructors.iter() {
+        if let Some(constructor) = store.static_constructor(*constructor) {
+            constructor.case_name.hash(hasher);
+            constructor.parameter_kinds.hash(hasher);
+        }
+    }
+}
+
 pub fn resolved_import_input_fingerprint(product: &phalcom_modules::resolver::ImportResolutionProduct) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     product.site.importer.hash(&mut hasher);

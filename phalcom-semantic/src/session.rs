@@ -4282,7 +4282,21 @@ impl SemanticWorkspaceSession {
                             })
                             .collect();
                         for product in static_domain_candidates.into_iter().filter(|product| admitted_domain_ids.contains(&product.id)) {
-                            associated_static_domains_table.insert(product.id.clone(), Arc::new(product));
+                            let product = Arc::new(product);
+                            match crate::db::query::query_associated_static_domain_declaration(
+                                &mut self.db,
+                                parsed_unit,
+                                product.clone(),
+                                &self.store,
+                            ) {
+                                QueryOutcome::Ready(product) => {
+                                    associated_static_domains_table.insert(product.id.clone(), product);
+                                }
+                                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                            }
                         }
                         match query_associated_surface(&mut self.db, surface) {
                             QueryOutcome::Ready(surface) => {
@@ -4381,7 +4395,21 @@ impl SemanticWorkspaceSession {
                                 })
                                 .collect();
                             for product in candidates.into_iter().filter(|product| admitted_ids.contains(&product.id)) {
-                                associated_static_domains_table.insert(product.id.clone(), Arc::new(product));
+                                let product = Arc::new(product);
+                                match crate::db::query::query_associated_static_domain_declaration(
+                                    &mut self.db,
+                                    parsed_unit,
+                                    product.clone(),
+                                    &self.store,
+                                ) {
+                                    QueryOutcome::Ready(product) => {
+                                        associated_static_domains_table.insert(product.id.clone(), product);
+                                    }
+                                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                                }
                             }
                             match query_associated_surface(&mut self.db, surface.clone()) {
                                 QueryOutcome::Ready(surface) => {
@@ -6377,6 +6405,7 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::EnumRequirements(declaration)
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
+        QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
         QueryKey::ResolvedImport(site) => Some(&site.importer),
         QueryKey::FieldSignature(field) => Some(&field.owner.module),
         QueryKey::CallableDefinition(callable)

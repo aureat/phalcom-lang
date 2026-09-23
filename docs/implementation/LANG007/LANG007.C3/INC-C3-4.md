@@ -84,61 +84,38 @@ associated static-domain path
 Relevant identity types are `StaticDomainDeclarationId` and `StaticCaseId` in
 `phalcom-semantic/src/identity.rs`.
 
-## 8. Scoped implementation diff
+## 8. Advisor decision and plan amendment
 
-The current P2 changes already add stable nominal/associated domain and case identity
-types and source-index attachment for associated static-domain/case resolutions. No
-nominal-case source-spelling fallback or speculative resolution variant is retained.
-The checkpoint records this incident as `INC-C3-4`.
+The advisor resolved the ownership question: nominal type-data case selection must
+publish the existing canonical `StaticTerm` resolution carrying stable
+`StaticCaseId` before runtime-value legality is checked. `CallableSourceAttachment`
+consumes that product and must not inspect source spelling or search declarations.
+The semantic product/query dependency that owns the static-domain case set controls
+case-edit invalidation. No new resolution variant is required.
 
-## 9. Evidence
+Applied plan amendment: nominal and associated static domains converge before case
+selection; the selected domain records its owning declaration dependency, emits the
+canonical static term, and only then reports `TypeOnlyRuntimeValue` for illegal
+runtime use. The checkpoint records INC-C3-4 as resolved.
 
-- `synthesize_associated_lookup` records `StaticTerm` only after the receiver has
-  `SemanticDenotation::StaticDomain`; its generic owner path rejects type-only
-  declarations before recording a case resolution.
-- `CallableSourceAttachment` converts recorded associated `StaticDomain` and
-  `StaticTerm` products to stable semantic targets.
-- The focused associated source-index test passes:
-  `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic adts::declarations::associated_static_domain_and_case_paths_have_stable_source_index_targets`.
-- `git diff --check` passes for the current worktree.
-- A temporary nominal-case test observed no target, no callable resolution, and the
-  runtime-value diagnostic described above; the temporary test was removed.
+## 9. Implemented seam
 
-## 10. Implementer's causal hypothesis
+- `synthesize_associated_lookup` routes both a static-domain denotation and a
+  type-only nominal owner through `resolve_static_domain_case`.
+- The helper selects from the canonical `TypeStore` static-constructor set, constructs
+  the stable nominal or associated `StaticCaseId`, records `StaticTerm`, and returns
+  the semantic term. The nominal runtime diagnostic is emitted after this selection.
+- Nominal selection records the owning enum/data declaration dependency. Associated
+  case-set products are query-published and the owner's `AssociatedSurface` depends
+  on that product; no second lookup registry was added.
+- Source-index construction remains a consumer of semantic resolutions only.
 
-Nominal type-data case selection is not exposed as a semantic resolution product at
-the expression/source-index seam. Associated domains use `AssociatedSurface` and have
-an explicit resolution path; nominal domains take the type-only owner rejection path.
+## 10. Verification evidence
 
-## 11. Alternative hypotheses
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic` — PASS.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic nominal_static_case` — PASS (2 tests): canonical target plus runtime diagnostic; missing case has diagnostic and no target.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic nominal_static_case_rename` — PASS: rename recomputes the selecting body and source target, incremental target matches cold analysis, unrelated type-member product remains reusable.
+- The pre-existing associated static source-index regression remains part of the focused T8 gate and must be rerun at plan stabilization.
 
-The source index might instead consume an already-published nominal type-data
-declaration product directly, if that product can authoritatively identify the
-selected case and participate in dependencies/invalidation. The live call path has
-not established such a selection interface.
-
-## 12. Attempts already made
-
-- Tried a local target mapping for nominal cases. Prediction: a nominal stable target
-  could be derived once the case was found. Observation: no canonical resolution
-  product reached the source index; using token spelling would have created a second
-  lookup authority. The attempted code and temporary test were removed.
-- Verified the existing associated-domain path with its focused source-index test;
-  it passes and remains unchanged.
-
-## 13. Why local authority is insufficient
-
-Choosing whether callable semantic resolution or a declaration/query product owns
-nominal case selection changes semantic authority and incremental dependency wiring.
-The implementer must not choose between these architectures or introduce an
-independent registry without architectural direction.
-
-## 14. Decision requested
-
-Should nominal `type data` case selection publish a canonical semantic resolution
-product carrying `StaticCaseId` for source-index consumers, or should source-index
-construction consume an existing declaration product that already owns the selected
-case? In either design, what product/dependency is authoritative for case edits?
-
-**Status: OPEN.** T8 nominal-case source-index work must remain stopped until this
-decision is recorded in the checkpoint and the plan is amended if required.
+**Status: RESOLVED; implementation is focused-tested.** This incident does not assert
+that all P2 tasks or gates are complete.
