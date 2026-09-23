@@ -772,6 +772,7 @@ directed a phase reorganization so all annotation consumers share this seam; tha
 reorganization remains unfinished T7 work. Preserve the existing alias/generic-header
 dependency contract and do not publish provisional or parallel lookup surfaces.
 Independent T4/T8 work may continue during that implementation.
+
 ```
 
 ### INC-C3-4
@@ -819,6 +820,24 @@ core crate check; and `phalcom-type-meta` (9 passed). The semantic library-unit
 filter is baseline-blocked by the previously recorded missing `generic_binder_header`
 test initializer. Workspace formatter check remains baseline-failing on untouched
 files; no broad formatting was applied.
+
+### INC-C3-5 — T7 all-annotation phase ordering
+
+Incident report: [INC-C3-5.md](INC-C3-5.md)
+
+Plan/task: LANG007.C3.P2 / T7 — all declaration annotations
+Observed: aliases lower before generic headers; callable/field signatures are
+  materialized before data/enum and `AssociatedSurface` publication; the resolver
+  receives the associated type-member context only after that publication.
+Classification: known implementation gap from the accepted T7 amendment, not a
+  newly reproduced semantic failure or a new architecture decision.
+Decision: continue with the user-directed phase reorganization using one canonical
+  surface and the INC-C3-3 identity/dependency seam. Preserve alias/generic-header
+  dependency contracts. Consult only if live dependencies require changing those
+  contracts or introducing another authority.
+Verification: not run for the incident report; add annotation-phase, wrong-domain,
+  canonical identity, and incremental-dependency tests with the implementation.
+Status: OPEN — implementation and focused verification remain required.
 
 Use entries:
 
