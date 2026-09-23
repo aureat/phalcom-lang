@@ -3,6 +3,7 @@
 use phalcom_modules::ModuleId;
 use phalcom_semantic::checker::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceTerm};
 use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
@@ -76,6 +77,100 @@ fn static_constructor_inference_refutes_domain_and_case_mismatches() {
             "distinct static domains or constructors must not unify"
         );
     }
+}
+
+#[test]
+fn nested_static_constructor_inference_solves_recursively() {
+    let mut store = TypeStore::new();
+    let shape_declaration = declaration("Shape");
+    let shape = store.nominal_static_domain(shape_declaration.clone());
+    let width = store.const_int(3);
+    let width_constructor = store.intern_static_constructor(shape, shape_declaration.clone(), "Width", vec![store.kind_of(width)].into_boxed_slice());
+    let width_kind = store.static_domain_kind(shape);
+    let wrapper = store.intern_static_constructor(shape, shape_declaration, "Wrapper", vec![width_kind].into_boxed_slice());
+    let mut inference = InferenceSession::new();
+    let width_var = inference.fresh_variable(store.kind_of(width));
+    let symbolic_width = InferenceTerm::StaticData {
+        domain: shape,
+        constructor: width_constructor,
+        arguments: vec![InferenceTerm::Var(width_var)].into_boxed_slice(),
+    };
+    let concrete_width = InferenceTerm::StaticData {
+        domain: shape,
+        constructor: width_constructor,
+        arguments: vec![InferenceTerm::Canonical(width)].into_boxed_slice(),
+    };
+
+    inference.add_constraint(
+        InferenceRelation::Equivalent(
+            InferenceTerm::StaticData {
+                domain: shape,
+                constructor: wrapper,
+                arguments: vec![symbolic_width].into_boxed_slice(),
+            },
+            InferenceTerm::StaticData {
+                domain: shape,
+                constructor: wrapper,
+                arguments: vec![concrete_width].into_boxed_slice(),
+            },
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(inference.solve(&mut store, &MapTypeHierarchy::new()).is_solved());
+    assert_eq!(inference.materialize(&InferenceTerm::Var(width_var), &mut store), Ok(width));
+}
+
+#[test]
+fn underconstrained_static_domain_variable_remains_unsolved() {
+    use phalcom_semantic::checker::inference::{InferenceMaterializationFailure, InferenceOutcome};
+
+    let mut store = TypeStore::new();
+    let shape = store.nominal_static_domain(declaration("Shape"));
+    let mut inference = InferenceSession::new();
+    let shape_var = inference.fresh_variable(store.static_domain_kind(shape));
+
+    assert!(matches!(
+        inference.solve(&mut store, &MapTypeHierarchy::new()),
+        InferenceOutcome::Underconstrained(_)
+    ));
+    assert!(matches!(
+        inference.materialize(&InferenceTerm::Var(shape_var), &mut store),
+        Err(InferenceMaterializationFailure::Unsolved(_))
+    ));
+}
+
+#[test]
+fn generic_application_infers_a_static_domain_argument() {
+    use phalcom_semantic::types::store::StaticArgument;
+
+    let mut store = TypeStore::new();
+    let shape_declaration = declaration("Shape");
+    let shape = store.nominal_static_domain(shape_declaration.clone());
+    let scalar_constructor = store.intern_static_constructor(shape, shape_declaration, "Scalar", Box::new([]));
+    let scalar = store.static_data(shape, scalar_constructor, Box::new([])).expect("Shape::Scalar");
+    let shape_kind = store.static_domain_kind(shape);
+    let carrier_kind = store.arrow_kind(vec![shape_kind].into_boxed_slice(), KindId::TYPE);
+    let carrier = store.nominal_form(declaration("Carrier"), carrier_kind);
+    let applied_carrier = store
+        .apply_static_form(carrier, &[StaticArgument::Term(scalar)])
+        .expect("Carrier<Shape::Scalar>");
+    let mut inference = InferenceSession::new();
+    let shape_var = inference.fresh_variable(shape_kind);
+    let inferred_application = InferenceTerm::Applied {
+        origin: Box::new(InferenceTerm::Canonical(carrier)),
+        arguments: vec![InferenceTerm::Var(shape_var)].into_boxed_slice(),
+    };
+
+    inference.add_constraint(
+        InferenceRelation::Equivalent(inferred_application, InferenceTerm::Canonical(applied_carrier)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(inference.solve(&mut store, &MapTypeHierarchy::new()).is_solved());
+    assert_eq!(inference.materialize(&InferenceTerm::Var(shape_var), &mut store), Ok(scalar));
 }
 
 #[test]

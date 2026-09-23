@@ -3238,8 +3238,14 @@ publishes associated surfaces after callable signatures. Therefore the phase ord
 must be reorganized so the canonical owner/header and surface selection products are
 available before every annotation consumer. Do not publish a provisional second
 surface or add a parallel name index. Preserve the existing alias/generic-header
-dependency contract while staging the reorganization; any material change to that
-contract requires a separate consultation rather than a local workaround.
+dependency contract through one declaration dependency graph. Order acyclic alias
+and source-member signature dependencies topologically. A cycle containing source
+type-member signatures is invalid under the ratified Type Members rule: withhold the
+checked products for every participant and emit one deterministic type-signature-
+cycle diagnostic for the component, anchored to its lowest stable declaration
+identity. Ordinary stuck projection normalization is not such a declaration cycle.
+The shared `AssociatedSurface` remains the sole name-selection authority; the
+declaration dependency graph schedules/checks products and does not provide lookup.
 
 **Tests:**
 
@@ -3401,6 +3407,19 @@ Stop if:
 - lookup ordering requires a second authority;
 - existing behavior/intrinsic type-member precedence materially conflicts with accepted
   C3 semantics.
+
+Cycle policy amendment: the user accepted the INC-C3-6 recommendation on
+2026-09-23. `docs/specs/type-members.md` now rejects declaration-signature cycles
+crossing transparent aliases and source type-member signatures while preserving
+valid symbolic projections. T7 must implement deterministic diagnostics and
+component invalidation before phase reorganization is complete.
+
+Phase-order finding (INC-C3-6 continuation): even a same-module alias application
+`type V: Type = Tensor<Int, Shape::Scalar>` currently reports unresolved `Tensor`,
+because aliases are lowered before source nominal generic signatures are built. The
+current alias/member graph therefore does not yet satisfy all-annotation availability.
+Before extending it to nominal/trait generic headers, obtain a decision on how cycles
+and invalidation involving those headers relate to the ratified alias/member rule.
 
 ### Checkpoint update
 

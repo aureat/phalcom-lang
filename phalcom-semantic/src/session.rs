@@ -2383,12 +2383,126 @@ impl SemanticWorkspaceSession {
             );
         }
         stats.alias_dependency_nodes_considered = alias_recomputed_declarations.len();
+        let mut member_definitions = BTreeMap::new();
+        let mut source_member_ids = BTreeSet::new();
+        for (module_id, shard) in &self.semantic_structure_shards {
+            for statement in &shard.source.program.statements {
+                let Statement::Class(class_def) = statement else { continue };
+                let owner = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                for member in &class_def.members {
+                    let ClassMember::TypeMember(definition) = member else { continue };
+                    let id = crate::types::type_member::TypeMemberDeclarationId::new(
+                        owner.clone(),
+                        crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector),
+                    );
+                    source_member_ids.insert(id.clone());
+                    member_definitions.insert(id, (module_id.clone(), definition));
+                }
+            }
+        }
+        let mut signature_graph = BTreeMap::<TypeSignatureDependencyNode, BTreeSet<TypeSignatureDependencyNode>>::new();
+        let mut signature_ranges = BTreeMap::<TypeSignatureDependencyNode, (ModuleId, SourceRange)>::new();
+        for (declaration, (module_id, alias)) in &alias_sources {
+            let node = TypeSignatureDependencyNode::Alias(declaration.clone());
+            let mut dependencies = alias_dependencies
+                .get(declaration)
+                .into_iter()
+                .flatten()
+                .map(|dependency| TypeSignatureDependencyNode::Alias(dependency.clone()))
+                .collect::<BTreeSet<_>>();
+            let alias_nodes = alias_sources.keys().cloned().collect::<BTreeSet<_>>();
+            if let Some(result_kind) = &alias.result_kind {
+                let mut kind_dependencies = BTreeSet::new();
+                collect_kind_signature_alias_dependencies(result_kind, module_id, &resolver, &alias_nodes, &mut kind_dependencies);
+                dependencies.extend(kind_dependencies.into_iter().map(TypeSignatureDependencyNode::Alias));
+            }
+            for parameter in &alias.generic_parameters {
+                if let Some(kind) = &parameter.kind {
+                    let mut kind_dependencies = BTreeSet::new();
+                    collect_kind_signature_alias_dependencies(kind, module_id, &resolver, &alias_nodes, &mut kind_dependencies);
+                    dependencies.extend(kind_dependencies.into_iter().map(TypeSignatureDependencyNode::Alias));
+                }
+            }
+            let mut member_dependencies = BTreeSet::new();
+            collect_source_member_projection_dependencies(&alias.body, module_id, &resolver, &source_member_ids, &mut member_dependencies);
+            dependencies.extend(member_dependencies.into_iter().map(TypeSignatureDependencyNode::Member));
+            signature_graph.insert(node.clone(), dependencies);
+            signature_ranges.insert(node, (module_id.clone(), alias.range));
+        }
+        let alias_nodes = alias_sources.keys().cloned().collect::<BTreeSet<_>>();
+        for (id, (module_id, definition)) in &member_definitions {
+            let node = TypeSignatureDependencyNode::Member(id.clone());
+            let mut dependencies = BTreeSet::new();
+            let mut annotations = Vec::new();
+            for parameter in &definition.parameters {
+                match &parameter.domain {
+                    phalcom_ast::ast::TypeMemberParameterDomainSyntax::ConstType(annotation) => annotations.push(annotation),
+                    phalcom_ast::ast::TypeMemberParameterDomainSyntax::Kind(kind) => {
+                        let aliases = alias_sources.keys().cloned().collect::<BTreeSet<_>>();
+                        let mut kind_dependencies = BTreeSet::new();
+                        collect_kind_signature_alias_dependencies(kind, module_id, &resolver, &aliases, &mut kind_dependencies);
+                        dependencies.extend(kind_dependencies.into_iter().map(TypeSignatureDependencyNode::Alias));
+                    }
+                }
+            }
+            match &definition.result {
+                phalcom_ast::ast::TypeMemberResultSyntax::Type(annotation) => annotations.push(annotation),
+                phalcom_ast::ast::TypeMemberResultSyntax::Kind(kind) => {
+                    let aliases = alias_sources.keys().cloned().collect::<BTreeSet<_>>();
+                    let mut kind_dependencies = BTreeSet::new();
+                    collect_kind_signature_alias_dependencies(kind, module_id, &resolver, &aliases, &mut kind_dependencies);
+                    dependencies.extend(kind_dependencies.into_iter().map(TypeSignatureDependencyNode::Alias));
+                }
+            }
+            for annotation in annotations {
+                let mut declarations = BTreeSet::new();
+                collect_type_annotation_declarations(annotation, module_id, &resolver, &mut declarations);
+                dependencies.extend(
+                    declarations
+                        .into_iter()
+                        .filter(|dependency| alias_nodes.contains(dependency))
+                        .map(TypeSignatureDependencyNode::Alias),
+                );
+                let mut projected_members = BTreeSet::new();
+                collect_source_member_projection_dependencies(annotation, module_id, &resolver, &source_member_ids, &mut projected_members);
+                dependencies.extend(projected_members.into_iter().map(TypeSignatureDependencyNode::Member));
+            }
+            signature_graph.insert(node.clone(), dependencies);
+            signature_ranges.insert(node, (module_id.clone(), definition.range));
+        }
+        let mut type_signature_cycle_aliases = BTreeSet::new();
+        let mut type_signature_cycle_members = BTreeSet::new();
+        for component in type_signature_cycle_components(&signature_graph)
+            .into_iter()
+            .filter(|component| component.iter().any(|node| matches!(node, TypeSignatureDependencyNode::Member(_))))
+        {
+            type_signature_cycle_aliases.extend(component.iter().filter_map(|node| match node {
+                TypeSignatureDependencyNode::Alias(declaration) => Some(declaration.clone()),
+                TypeSignatureDependencyNode::Member(_) => None,
+            }));
+            type_signature_cycle_members.extend(component.iter().filter_map(|node| match node {
+                TypeSignatureDependencyNode::Member(id) => Some(id.clone()),
+                TypeSignatureDependencyNode::Alias(_) => None,
+            }));
+            if let Some(anchor) = component.first()
+                && let Some((module_id, range)) = signature_ranges.get(anchor)
+            {
+                let participants = component.iter().map(|node| format!("{node:?}")).collect::<Vec<_>>().join(" -> ");
+                diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                    module_id.clone(),
+                    DiagnosticCode::TypeSignatureCycle,
+                    format!("type-level declaration signature cycle: {participants}"),
+                    *range,
+                ));
+            }
+        }
         let alias_cycle_seeds = if previous_snapshot.is_none() {
             alias_dependencies.keys().cloned().collect()
         } else {
             alias_recomputed_declarations.clone()
         };
-        let alias_cycles = find_alias_cycles_from_seeds(&alias_dependencies, &alias_cycle_seeds);
+        let mut alias_cycles = find_alias_cycles_from_seeds(&alias_dependencies, &alias_cycle_seeds);
+        alias_cycles.retain(|declaration| !type_signature_cycle_aliases.contains(declaration));
         for declaration in &alias_cycles {
             let Some((module_id, alias)) = alias_sources.get(declaration) else {
                 continue;
@@ -2401,11 +2515,123 @@ impl SemanticWorkspaceSession {
             ));
         }
 
+        let mut associated_surfaces_table = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
+        let mut type_member_declarations_table = previous_snapshot
+            .as_ref()
+            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.type_member_declarations).clone());
+        for module in structural_work_modules.iter().chain(removed_modules.iter()) {
+            associated_surfaces_table.remove_module(module);
+            type_member_declarations_table.retain(|id, _| &id.owner.module != module);
+        }
+
+        // Resolve source members whose own signature prerequisites are already
+        // available. This publishes one canonical surface early enough for
+        // aliases that depend on those members; members waiting on aliases are
+        // completed after alias lowering and before formal field/callable checks.
+        let mut pending_members = source_member_ids
+            .iter()
+            .filter(|id| !type_signature_cycle_members.contains(*id) && !type_member_declarations_table.contains_key(*id))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        while !pending_members.is_empty() {
+            let ready_member = pending_members
+                .iter()
+                .find(|id| {
+                    signature_graph
+                        .get(&TypeSignatureDependencyNode::Member((*id).clone()))
+                        .is_none_or(|dependencies| {
+                            dependencies.iter().all(|dependency| match dependency {
+                                TypeSignatureDependencyNode::Alias(alias) => !alias_sources.contains_key(alias) || type_aliases.contains_key(alias),
+                                TypeSignatureDependencyNode::Member(member) => type_member_declarations_table.contains_key(member),
+                            })
+                        })
+                })
+                .cloned();
+            let Some(id) = ready_member else { break };
+            let Some((module_id, definition)) = member_definitions.get(&id) else {
+                pending_members.remove(&id);
+                continue;
+            };
+            let Some(shard) = self.semantic_structure_shards.get(module_id) else {
+                pending_members.remove(&id);
+                continue;
+            };
+            let parsed_unit = &shard.source;
+            let (product, diagnostics) = crate::checker::type_member_declaration::build_type_member_declaration(
+                Arc::make_mut(&mut self.store),
+                &id.owner,
+                definition,
+                &declarations,
+                &resolver,
+                module_id,
+            );
+            diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+            if let Some(product) = product {
+                match query_type_member_declaration(&mut self.db, parsed_unit, Arc::new(product)) {
+                    QueryOutcome::Ready(product) => {
+                        type_member_declarations_table.insert(id.clone(), product);
+                        let candidates = type_member_declarations_table
+                            .iter()
+                            .filter(|(member_id, _)| member_id.owner == id.owner)
+                            .map(|(_, product)| (**product).clone())
+                            .collect::<Vec<_>>();
+                        let class_def = parsed_unit.program.statements.iter().find_map(|statement| match statement {
+                            Statement::Class(class_def) if class_def.name == id.owner.name.as_ref() => Some(class_def),
+                            _ => None,
+                        });
+                        let behavior_bases = class_def
+                            .into_iter()
+                            .flat_map(|class_def| class_def.members.iter())
+                            .filter_map(|member| crate::checker::declaration_signature::callable_id_for_member(&id.owner, member))
+                            .map(|callable| callable.selector.base)
+                            .collect::<HashSet<_>>();
+                        let (surface, diagnostics) = crate::associated::build_associated_surface_with_type_members(
+                            &id.owner,
+                            None,
+                            &candidates,
+                            &behavior_bases,
+                            &HashSet::new(),
+                            module_id,
+                            class_def.map(|class_def| SemanticSourceSpan::new(module_id.clone(), class_def.range)),
+                        );
+                        diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics.iter().cloned());
+                        let admitted = surface
+                            .families
+                            .values()
+                            .flat_map(|family| family.members.iter())
+                            .filter_map(|member| match member {
+                                crate::associated::AssociatedMemberId::TypeMember(member) => Some(member.clone()),
+                                _ => None,
+                            })
+                            .collect::<BTreeSet<_>>();
+                        type_member_declarations_table.retain(|member, _| member.owner != id.owner || admitted.contains(member));
+                        match query_associated_surface(&mut self.db, surface) {
+                            QueryOutcome::Ready(surface) => {
+                                associated_surfaces_table.insert(id.owner.clone(), surface);
+                                resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
+                            }
+                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                        }
+                    }
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
+            }
+            pending_members.remove(&id);
+        }
+
         // Lower aliases after their alias dependencies. This matters for
         // imported aliases and preserves transparent substitution across
         // modules; cycles were removed above and never reach publication.
         let mut pending_aliases = alias_recomputed_declarations.clone();
-        for declaration in &alias_cycles {
+        for declaration in alias_cycles.iter().chain(type_signature_cycle_aliases.iter()) {
             pending_aliases.remove(declaration);
         }
         while let Some(declaration) = pending_aliases
@@ -2414,6 +2640,14 @@ impl SemanticWorkspaceSession {
                 alias_dependencies
                     .get(*declaration)
                     .is_none_or(|dependencies| dependencies.iter().all(|dependency| !pending_aliases.contains(dependency)))
+                    && signature_graph
+                        .get(&TypeSignatureDependencyNode::Alias((*declaration).clone()))
+                        .is_none_or(|dependencies| {
+                            dependencies.iter().all(|dependency| match dependency {
+                                TypeSignatureDependencyNode::Alias(alias) => !pending_aliases.contains(alias),
+                                TypeSignatureDependencyNode::Member(member) => type_member_declarations_table.contains_key(member),
+                            })
+                        })
             })
             .cloned()
         {
@@ -3161,6 +3395,80 @@ impl SemanticWorkspaceSession {
             field_signatures.remove_module(module);
         }
 
+        // Publish the canonical source-member surface and its checked products
+        // before any field/callable signature annotation is queried. The later
+        // associated-owner phase adds runtime/static categories to this same
+        // transactional surface table before the snapshot is published.
+        for module_id in &structural_work_modules {
+            let Some(shard) = self.semantic_structure_shards.get(module_id) else {
+                continue;
+            };
+            let parsed_unit = &shard.source;
+            for statement in &parsed_unit.program.statements {
+                let Statement::Class(class_def) = statement else { continue };
+                let owner = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let mut candidates = Vec::new();
+                for member in &class_def.members {
+                    let ClassMember::TypeMember(definition) = member else { continue };
+                    let id = crate::types::type_member::TypeMemberDeclarationId::new(
+                        owner.clone(),
+                        crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector),
+                    );
+                    if type_signature_cycle_members.contains(&id) {
+                        continue;
+                    }
+                    let (product, diagnostics) = crate::checker::type_member_declaration::build_type_member_declaration(
+                        Arc::make_mut(&mut self.store),
+                        &owner,
+                        definition,
+                        &declarations,
+                        &resolver,
+                        module_id,
+                    );
+                    diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                    if let Some(product) = product {
+                        let product = Arc::new(product);
+                        match query_type_member_declaration(&mut self.db, parsed_unit, product) {
+                            QueryOutcome::Ready(product) => {
+                                type_member_declarations_table.insert(product.id.clone(), product.clone());
+                                candidates.push((*product).clone());
+                            }
+                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                        }
+                    }
+                }
+                let behavior_bases = class_def
+                    .members
+                    .iter()
+                    .filter_map(|member| crate::checker::declaration_signature::callable_id_for_member(&owner, member))
+                    .map(|callable| callable.selector.base)
+                    .collect::<HashSet<_>>();
+                let (surface, diagnostics) = crate::associated::build_associated_surface_with_type_members(
+                    &owner,
+                    None,
+                    &candidates,
+                    &behavior_bases,
+                    &HashSet::new(),
+                    module_id,
+                    Some(SemanticSourceSpan::new(module_id.clone(), class_def.range)),
+                );
+                diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics.iter().cloned());
+                match query_associated_surface(&mut self.db, surface) {
+                    QueryOutcome::Ready(surface) => {
+                        associated_surfaces_table.insert(owner, surface);
+                    }
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
+            }
+        }
+        resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
+
         for module_id in &formal_declaration_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
@@ -3328,12 +3636,6 @@ impl SemanticWorkspaceSession {
         let mut enum_requirements_table = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
-        let mut associated_surfaces_table = previous_snapshot
-            .as_ref()
-            .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
-        let mut type_member_declarations_table = previous_snapshot
-            .as_ref()
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.type_member_declarations).clone());
         let mut associated_static_domains_table = previous_snapshot
             .as_ref()
             .map_or_else(BTreeMap::new, |snapshot| (*snapshot.associated_static_domains).clone());
@@ -3341,8 +3643,6 @@ impl SemanticWorkspaceSession {
             data_semantics.remove_module(module);
             enum_semantics.remove_module(module);
             enum_requirements_table.remove_module(module);
-            associated_surfaces_table.remove_module(module);
-            type_member_declarations_table.retain(|id, _| &id.owner.module != module);
             associated_static_domains_table.retain(|id, _| &id.owner.module != module);
         }
 
@@ -4147,6 +4447,13 @@ impl SemanticWorkspaceSession {
                         let mut static_domain_candidates = Vec::<crate::db::product::AssociatedStaticDomainDeclarationProduct>::new();
                         for member in &class_def.members {
                             let ClassMember::TypeMember(definition) = member else { continue };
+                            let member_id = crate::types::type_member::TypeMemberDeclarationId::new(
+                                declaration.clone(),
+                                crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector),
+                            );
+                            if type_signature_cycle_members.contains(&member_id) {
+                                continue;
+                            }
                             let (product, diagnostics) = crate::checker::type_member_declaration::build_type_member_declaration(
                                 Arc::make_mut(&mut self.store),
                                 &declaration,
@@ -4260,6 +4567,7 @@ impl SemanticWorkspaceSession {
                                 _ => None,
                             })
                             .collect();
+                        type_member_declarations_table.retain(|member, _| member.owner != declaration || admitted_ids.contains(member));
                         for product in member_candidates.into_iter().filter(|product| admitted_ids.contains(&product.id)) {
                             let product = Arc::new(product);
                             match query_type_member_declaration(&mut self.db, parsed_unit, product.clone()) {
@@ -4283,12 +4591,7 @@ impl SemanticWorkspaceSession {
                             .collect();
                         for product in static_domain_candidates.into_iter().filter(|product| admitted_domain_ids.contains(&product.id)) {
                             let product = Arc::new(product);
-                            match crate::db::query::query_associated_static_domain_declaration(
-                                &mut self.db,
-                                parsed_unit,
-                                product.clone(),
-                                &self.store,
-                            ) {
+                            match crate::db::query::query_associated_static_domain_declaration(&mut self.db, parsed_unit, product.clone(), &self.store) {
                                 QueryOutcome::Ready(product) => {
                                     associated_static_domains_table.insert(product.id.clone(), product);
                                 }
@@ -4396,12 +4699,7 @@ impl SemanticWorkspaceSession {
                                 .collect();
                             for product in candidates.into_iter().filter(|product| admitted_ids.contains(&product.id)) {
                                 let product = Arc::new(product);
-                                match crate::db::query::query_associated_static_domain_declaration(
-                                    &mut self.db,
-                                    parsed_unit,
-                                    product.clone(),
-                                    &self.store,
-                                ) {
+                                match crate::db::query::query_associated_static_domain_declaration(&mut self.db, parsed_unit, product.clone(), &self.store) {
                                     QueryOutcome::Ready(product) => {
                                         associated_static_domains_table.insert(product.id.clone(), product);
                                     }
@@ -6358,6 +6656,227 @@ fn find_alias_cycles_from_seeds(graph: &BTreeMap<DeclarationId, BTreeSet<Declara
         })
         .collect::<BTreeMap<_, _>>();
     find_alias_cycles(&affected_graph)
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+enum TypeSignatureDependencyNode {
+    Alias(DeclarationId),
+    Member(crate::types::type_member::TypeMemberDeclarationId),
+}
+
+fn collect_kind_signature_alias_dependencies(
+    syntax: &phalcom_ast::ast::KindSyntax,
+    module: &ModuleId,
+    resolver: &dyn TypeResolver,
+    aliases: &BTreeSet<DeclarationId>,
+    dependencies: &mut BTreeSet<DeclarationId>,
+) {
+    match syntax {
+        phalcom_ast::ast::KindSyntax::Named { name, .. } => {
+            if let Some(declaration) = resolver.resolve_type_name(module, name, &[])
+                && aliases.contains(&declaration)
+            {
+                dependencies.insert(declaration);
+            }
+        }
+        phalcom_ast::ast::KindSyntax::Arrow { parameter, result, .. } => {
+            collect_kind_signature_alias_dependencies(parameter, module, resolver, aliases, dependencies);
+            collect_kind_signature_alias_dependencies(result, module, resolver, aliases, dependencies);
+        }
+        phalcom_ast::ast::KindSyntax::Grouped { inner, .. } => {
+            collect_kind_signature_alias_dependencies(inner, module, resolver, aliases, dependencies);
+        }
+        phalcom_ast::ast::KindSyntax::Type(_)
+        | phalcom_ast::ast::KindSyntax::RecordRow(_)
+        | phalcom_ast::ast::KindSyntax::TypePack(_)
+        | phalcom_ast::ast::KindSyntax::LabeledTypePack(_)
+        | phalcom_ast::ast::KindSyntax::Invalid { .. } => {}
+    }
+}
+
+fn collect_source_member_projection_dependencies(
+    annotation: &TypeAnnotation,
+    module: &ModuleId,
+    resolver: &dyn TypeResolver,
+    members: &BTreeSet<crate::types::type_member::TypeMemberDeclarationId>,
+    dependencies: &mut BTreeSet<crate::types::type_member::TypeMemberDeclarationId>,
+) {
+    use phalcom_ast::ast::{GenericArgumentSyntax, TypeCallableItem, TypeMemberArgumentSyntax, TypeTupleItem};
+
+    match &annotation.expr {
+        TypeAnnotationExpr::TypeMemberProjection {
+            subject, selector, arguments, ..
+        } => {
+            if let Some(owner) = type_member_subject_owner(subject, module, resolver) {
+                let member =
+                    crate::types::type_member::TypeMemberDeclarationId::new(owner, crate::types::type_member::TypeMemberSelector::from_syntax(selector));
+                if members.contains(&member) {
+                    dependencies.insert(member);
+                }
+            }
+            collect_source_member_projection_dependencies(subject, module, resolver, members, dependencies);
+            for argument in arguments {
+                if let TypeMemberArgumentSyntax::TypeForm(argument) = argument {
+                    collect_source_member_projection_dependencies(argument, module, resolver, members, dependencies);
+                }
+            }
+        }
+        TypeAnnotationExpr::Application { origin, arguments, .. } => {
+            collect_source_member_projection_dependencies(origin, module, resolver, members, dependencies);
+            for argument in arguments {
+                match argument {
+                    GenericArgumentSyntax::Single(argument) => {
+                        collect_source_member_projection_dependencies(argument, module, resolver, members, dependencies);
+                    }
+                    GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_source_member_projection_dependencies(&expansion.operand, module, resolver, members, dependencies);
+                    }
+                }
+            }
+        }
+        TypeAnnotationExpr::Union { members: items, .. } => {
+            for item in items {
+                collect_source_member_projection_dependencies(item, module, resolver, members, dependencies);
+            }
+        }
+        TypeAnnotationExpr::Tuple { elements, .. } => {
+            for item in elements {
+                match item {
+                    TypeTupleItem::Element(element) => {
+                        collect_source_member_projection_dependencies(&element.ty, module, resolver, members, dependencies);
+                    }
+                    TypeTupleItem::Expansion(expansion) => {
+                        collect_source_member_projection_dependencies(&expansion.operand, module, resolver, members, dependencies);
+                    }
+                }
+            }
+        }
+        TypeAnnotationExpr::Callable { parameters, result, .. } => {
+            for item in parameters {
+                match item {
+                    TypeCallableItem::Parameter(parameter) => {
+                        collect_source_member_projection_dependencies(&parameter.ty, module, resolver, members, dependencies);
+                    }
+                    TypeCallableItem::Expansion(expansion) => {
+                        collect_source_member_projection_dependencies(&expansion.operand, module, resolver, members, dependencies);
+                    }
+                }
+            }
+            collect_source_member_projection_dependencies(result, module, resolver, members, dependencies);
+        }
+        TypeAnnotationExpr::Record { fields, .. } => {
+            for field in fields {
+                collect_source_member_projection_dependencies(&field.ty, module, resolver, members, dependencies);
+            }
+        }
+        TypeAnnotationExpr::TypeLambda { body, .. } => {
+            collect_source_member_projection_dependencies(body, module, resolver, members, dependencies);
+        }
+        TypeAnnotationExpr::ExactEnumCase {
+            enum_target,
+            generic_arguments,
+            ..
+        } => {
+            collect_source_member_projection_dependencies(enum_target, module, resolver, members, dependencies);
+            for argument in generic_arguments {
+                collect_source_member_projection_dependencies(argument, module, resolver, members, dependencies);
+            }
+        }
+        TypeAnnotationExpr::AssociatedTypeProjection { subject, .. } => {
+            collect_source_member_projection_dependencies(subject, module, resolver, members, dependencies);
+        }
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, .. } => {
+            collect_source_member_projection_dependencies(subject, module, resolver, members, dependencies);
+            collect_source_member_projection_dependencies(&trait_ref.trait_type, module, resolver, members, dependencies);
+            for specialization in &trait_ref.associated_specializations {
+                collect_source_member_projection_dependencies(&specialization.value, module, resolver, members, dependencies);
+            }
+        }
+        TypeAnnotationExpr::Reference(_)
+        | TypeAnnotationExpr::Unit { .. }
+        | TypeAnnotationExpr::Dynamic { .. }
+        | TypeAnnotationExpr::Never { .. }
+        | TypeAnnotationExpr::SelfType { .. }
+        | TypeAnnotationExpr::Invalid { .. } => {}
+    }
+}
+
+fn type_member_subject_owner(annotation: &TypeAnnotation, module: &ModuleId, resolver: &dyn TypeResolver) -> Option<DeclarationId> {
+    match &annotation.expr {
+        TypeAnnotationExpr::Reference(reference) => {
+            let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+            resolver.resolve_type_name(module, &reference.root, &members)
+        }
+        TypeAnnotationExpr::Application { origin, .. } => type_member_subject_owner(origin, module, resolver),
+        _ => None,
+    }
+}
+
+fn type_signature_cycle_components(
+    graph: &BTreeMap<TypeSignatureDependencyNode, BTreeSet<TypeSignatureDependencyNode>>,
+) -> Vec<BTreeSet<TypeSignatureDependencyNode>> {
+    struct Tarjan<'a> {
+        graph: &'a BTreeMap<TypeSignatureDependencyNode, BTreeSet<TypeSignatureDependencyNode>>,
+        next: usize,
+        indices: HashMap<TypeSignatureDependencyNode, usize>,
+        lowlinks: HashMap<TypeSignatureDependencyNode, usize>,
+        stack: Vec<TypeSignatureDependencyNode>,
+        on_stack: BTreeSet<TypeSignatureDependencyNode>,
+        components: Vec<BTreeSet<TypeSignatureDependencyNode>>,
+    }
+
+    fn visit(node: TypeSignatureDependencyNode, state: &mut Tarjan<'_>) {
+        let index = state.next;
+        state.next += 1;
+        state.indices.insert(node.clone(), index);
+        state.lowlinks.insert(node.clone(), index);
+        state.stack.push(node.clone());
+        state.on_stack.insert(node.clone());
+
+        if let Some(dependencies) = state.graph.get(&node) {
+            for dependency in dependencies {
+                if !state.indices.contains_key(dependency) {
+                    visit(dependency.clone(), state);
+                    let lowlink = state.lowlinks[&node].min(state.lowlinks[dependency]);
+                    state.lowlinks.insert(node.clone(), lowlink);
+                } else if state.on_stack.contains(dependency) {
+                    let lowlink = state.lowlinks[&node].min(state.indices[dependency]);
+                    state.lowlinks.insert(node.clone(), lowlink);
+                }
+            }
+        }
+
+        if state.lowlinks[&node] == state.indices[&node] {
+            let mut component = BTreeSet::new();
+            while let Some(member) = state.stack.pop() {
+                state.on_stack.remove(&member);
+                component.insert(member.clone());
+                if member == node {
+                    break;
+                }
+            }
+            if component.len() > 1 || state.graph.get(&node).is_some_and(|dependencies| dependencies.contains(&node)) {
+                state.components.push(component);
+            }
+        }
+    }
+
+    let mut state = Tarjan {
+        graph,
+        next: 0,
+        indices: HashMap::new(),
+        lowlinks: HashMap::new(),
+        stack: Vec::new(),
+        on_stack: BTreeSet::new(),
+        components: Vec::new(),
+    };
+    for node in graph.keys() {
+        if !state.indices.contains_key(node) {
+            visit(node.clone(), &mut state);
+        }
+    }
+    state.components.sort_by(|left, right| left.first().cmp(&right.first()));
+    state.components
 }
 
 fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {

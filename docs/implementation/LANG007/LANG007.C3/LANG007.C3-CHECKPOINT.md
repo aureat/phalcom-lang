@@ -766,12 +766,13 @@ Verification required: source type-member selection through surface, wrong-domai
   surface, and changed-signature invalidation with an unrelated sibling reusable.
 Status: RESOLVED; implementation now selects source members only through the
 confirmed surface/query seam. Focused wrong-domain and selected-identity tests pass.
-Source projections are not yet available in every declaration annotation because
-surface publication follows alias lowering and callable-signature queries. User
-directed a phase reorganization so all annotation consumers share this seam; that
-reorganization remains unfinished T7 work. Preserve the existing alias/generic-header
-dependency contract and do not publish provisional or parallel lookup surfaces.
-Independent T4/T8 work may continue during that implementation.
+Source projection identity is now focused-tested in field, alias, and generic-header
+annotations. The user-directed phase reorganization remains incomplete: even a
+same-module alias application of a source generic data declaration fails because
+nominal generic signatures are published later. INC-C3-6 records the ratified
+alias/member cycle rule and the new decision needed before extending the dependency
+graph to generic headers. Preserve AssociatedSurface as the only selector and do not
+publish provisional or parallel lookup surfaces. Independent T4/T8 work may continue.
 
 ```
 
@@ -783,34 +784,26 @@ Plan/task: LANG007.C3.P2 / T8 — nominal static-case source-index identity
 Trigger: mandatory trigger 11 (two plausible semantic authorities have different
   invalidation consequences) and trigger 14 (do not reconstruct canonical targets
   from source spelling).
-Observed: associated static cases publish `AssociatedResolutionKind::StaticTerm`
-  with stable `StaticCaseId`, which source-index attachment consumes. For nominal
-  `type data Shape { Scalar }` referenced as `Shape::Scalar`, callable analysis
-  publishes no case resolution; `synthesize_associated_lookup` follows
-  `resolve_associated_owner` and rejects the type-only owner before producing a case
-  target. The source index consequently has no stable target for `Scalar`.
+Observed: the original defect was that nominal `Shape::Scalar` received
+  `TypeOnlyRuntimeValue` before case selection, leaving no source target. The accepted
+  fix now converges nominal and associated domains at canonical static-case selection.
 Expected architecture: T8 targets derive from canonical semantic selection and stable
   domain/case identity, not token spelling or a second case-name registry.
-Implementer hypothesis: nominal type-data cases need a semantic resolution product
-  carrying the nominal `StaticDomainDeclarationId` and selected `StaticCaseId`, while
-  runtime-value use remains rejected.
-Alternative: source-index construction could consume an existing type-data declaration
-  product directly without adding a callable-resolution variant. These choices differ
-  in resolution ownership and dependency/invalidation wiring.
-Decision: advisor recommends a canonical semantic static-term resolution product for
-  nominal cases, converging nominal and associated domains before case selection.
-  Resolve the domain, select the case, publish `StaticTerm` with stable
-  `StaticCaseId`, then apply runtime-value legality. `CallableSourceAttachment` remains
-  a consumer; no spelling fallback or source-index declaration search is allowed.
-  Static-domain selection owns invalidation for case edits.
-Plan amendment: required and applied to T7/T8 below.
-Verification required: a nominal `Shape::Scalar` source target resolves to stable
-  declaration identity while runtime use remains rejected; missing cases publish no
-  target and diagnose; a case rename invalidates/recomputes the selection and source
-  target, while unrelated products remain reusable.
-Status: RESOLVED; the shared canonical selection path, declaration/query dependency,
-  missing-case behavior, and incremental/cold source-target checks are implemented and
-  focused-tested. T8 remains open for its other cross-module and persistence gates.
+Decision (advisor response adopted): resolve the nominal owner to
+  `StaticDomainDeclarationId`, select its case through canonical static-domain
+  semantics, publish the existing `StaticTerm` resolution with stable `StaticCaseId`,
+  then retain `TypeOnlyRuntimeValue` for illegal runtime use. `CallableSourceAttachment`
+  consumes this product and must not search declarations or source spelling. The
+  semantic static-domain/member-selection dependency owns case-edit invalidation.
+Plan amendment: T8's existing target and invalidation requirements are clarified by
+  INC-C3-4; no second lookup authority or new resolution variant is introduced.
+Verification: nominal target/runtime-diagnostic, missing-case, and rename/cold-parity
+  tests plus semantic crate check passed as recorded in INC-C3-4. On the current HEAD,
+  the same focused nominal-case set selected 3 and passed in a clean worktree; the
+  shared dirty checkout currently fails earlier while parsing the unrelated local
+  `fiber.ph` edit. T8 remains open for cross-module metadata/catalog validation and
+  broader persistence/import parity.
+Status: RESOLVED — nominal static-case selection is implemented and focused-tested.
 
 Focused evidence: semantic crate check; `adts::declarations` (26 passed);
 `adts::associated` (22 passed, 5 gated); `associated::invocation` (1 passed);
@@ -838,6 +831,33 @@ Decision: continue with the user-directed phase reorganization using one canonic
 Verification: not run for the incident report; add annotation-phase, wrong-domain,
   canonical identity, and incremental-dependency tests with the implementation.
 Status: OPEN — implementation and focused verification remain required.
+
+### INC-C3-6 — T7 alias/member signature dependency ordering
+
+Incident report: [INC-C3-6.md](INC-C3-6.md)
+
+Plan/task: LANG007.C3.P2 / T7 — all declaration annotations
+Trigger: mandatory trigger 7 (phase ordering may change the declaration-signature
+  dependency contract); trigger 16 for cycle-policy changes.
+Observed: the field-annotation regression initially selected a symbolic projection
+  without its source declaration identity; the implementation now fixes this for
+  field, alias, and generic-header cases. Alias lowering precedes members, while checked
+  member signatures resolve domains through the alias-populated resolver. A same-module
+  generic `Tensor` application in an alias still fails as unresolved because nominal
+  generic signatures are built after alias lowering. The current graph models aliases
+  and source members, not generic headers.
+Decision: user accepted on 2026-09-23 that cross-kind declaration-signature cycles
+  are rejected with a deterministic diagnostic; ordinary symbolic projection
+  normalization remains valid. `docs/specs/type-members.md` and the T7 plan are
+  amended; `TypeSignatureCycle` is implemented for alias/member SCCs.
+Verification: `incremental::type_members` selects 12 and passes, including field,
+  alias, generic-header identity, collision, wrong-domain, incremental-surface, and
+  mixed-cycle tests. The same-module `Tensor` alias probe fails and is recorded in
+  INC-C3-6; it is not a passing gate.
+Status: PARTIALLY RESOLVED — cycle policy and focused implementation are in place;
+  all-annotation scheduling, complete AssociatedSurface publication, and exact
+  invalidation remain open. A decision is needed on including nominal/trait generic
+  headers in the one dependency graph. See [advanced-agent handoff](LANG007.C3.P2-advanced-agent-handoff.md).
 
 Use entries:
 
@@ -939,13 +959,19 @@ T3
 T4 partial
     inference now lifts non-row `StaticData` constructor terms into a
     solver-local structural form, recursively tracks their variables/support,
-    unifies only matching domain/constructor identities, and materializes
+    unifies only matching domain/constructor identities, infers a non-row
+    static-domain generic application argument, and materializes
     through `TypeStore::static_data`. The `InferVarId(KindId)` identity and
-    existing row solver remain unchanged. Three focused integration tests now
-    cover ConstInt payload solving, domain/case mismatch refutation, and rejection
-    of a proper-Type candidate for a static-domain variable. The original library
-    unit-test filter remains behind BASELINE-003. Heterogeneous row arguments in
-    the general inference-term application representation remain unimplemented.
+    existing row solver remain unchanged. Six focused integration tests cover
+    ConstInt payload solving, domain/case mismatch refutation, rejection of a
+    proper-Type candidate, nested structural solving, preservation of an
+    underconstrained static-domain variable, and inference through a static-domain
+    generic application. `foundations::static_domain_inference`
+    (5), `foundations::generic_application` (11), and `foundations::generics_core`
+    (8) pass. The original library unit-test filter remains behind BASELINE-003.
+    Heterogeneous row arguments in the general inference-term application
+    representation remain unimplemented; alias/type-member convergence remains part
+    of G3.
 
 T5 partial
     type aliases accept an optional declaration-backed result kind such as
@@ -983,10 +1009,18 @@ T7 partial
     static result in a runtime-value context. Source type-member projections now
     select through AssociatedSurface, retrieve the checked signature by stable
     declaration identity, validate domain arguments, record surface dependencies,
-    and preserve declaration identity in the projection. Focused wrong-domain and
-    identity tests pass. Publication still occurs after alias/callable signature
-    queries, so all-annotation coverage requires the authorized phase reorganization.
-    Broader category lookup and heterogeneous owner-argument completion remain open.
+    and preserve declaration identity in the projection. Source-member projection
+    identity is focused-tested in alias, generic-header, and field annotations. A
+    same-module `type V = Tensor<Int,
+    Shape::Scalar>` probe still fails because aliases are lowered before source
+    nominal generic signatures exist. Transparent-alias/member-signature
+    cycles are rejected as one deterministic SCC diagnostic, with participant
+    products withheld. The ratified rule is recorded in Type Members and INC-C3-6.
+    Full category-complete early surface publication, reverse dependency invalidation,
+    complete generic-application availability in aliases, and broader heterogeneous
+    owner-argument lookup remain open. Extending the dependency graph to nominal/trait
+    generic headers raises cycle behavior beyond the ratified alias/member rule and
+    is awaiting an architectural decision recorded in INC-C3-6.
 
 T8 partial
     durable applied metadata uses `StaticArgumentRef`; schema v7 preserves source
@@ -994,9 +1028,11 @@ T8 partial
     and owner environment, plus record-row static arguments. Type-meta compatibility
     tests and semantic metadata round-trip pass. Associated declaration
     catalog/reference validation and cross-module import/reconstruction remain
-    open. The source index now resolves associated static-domain names and case
-    names to stable declaration-based targets. Focused incremental/cold parity covers a
-    changed associated static-domain case set. Since constructor IDs are store-local,
+    open. The source index resolves associated static-domain names and case names to
+    stable declaration-based targets; a new two-module test verifies an imported
+    nominal static-case target and canonical resolution retain provider identity while
+    runtime use remains rejected. Focused incremental/cold parity covers a changed
+    associated static-domain case set. Since constructor IDs are store-local,
     parity compares normalized declaration/case/kind facts rather than raw IDs.
 ```
 
@@ -1013,9 +1049,10 @@ semantic metadata integration                                     PASS (21)
 type-meta schema compatibility                                     PASS (9)
 semantic source type-member surface selection/domain validation    PASS (1)
 semantic associated static-domain/case source-index targets         PASS (1)
+semantic imported nominal static-case provider identity             PASS (1)
 semantic integration/metadata                                      PASS (23)
 semantic incremental/type_members                                  PASS (7)
-semantic foundations/static_domain_inference                       PASS (3)
+semantic foundations/static_domain_inference                       PASS (6)
 semantic incremental/adts                                          PASS (13; 3 ignored/gated)
 semantic incremental type-data case edit cold parity               PASS (1)
 semantic incremental associated static-domain edit/cold parity     PASS (1)
@@ -1033,6 +1070,18 @@ semantic generic-owner associated-domain specialization              PASS (focus
 core associated lowering boundary                                    PASS (cargo check only)
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic      PASS (post-amendment)
 repo-wide cargo fmt --all -- --check                               FAIL (D; pre-existing formatting drift outside this slice)
+semantic incremental/type_members                                  PASS (12; continuation)
+semantic associated lookup                                         PASS (1; continuation)
+semantic imported static-case provider identity                    PASS (1; continuation)
+semantic type-data case cold parity                                PASS (1; continuation)
+semantic mixed alias/member cycle                                  PASS (1; continuation)
+semantic source-member alias projection                            PASS (1; continuation)
+semantic source-member generic-header projection                   PASS (1; continuation)
+semantic nominal_static_case at HEAD                               PASS (3; clean worktree)
+type-meta schema_compat                                             PASS (9; clean worktree)
+semantic integration/metadata                                       PASS (23; clean worktree)
+semantic incremental/adts                                          PASS (13; 3 ignored; clean worktree)
+semantic imported nominal static-case resolution                  PASS (1; clean worktree)
 ```
 
 The type-member publication slice is committed and pushed as
@@ -1041,13 +1090,12 @@ formatter check reports differences in untouched AST/core/checker files; no form
 changes from that check were retained.
 
 This is partial P2 evidence, not P2 acceptance. The T8 nominal-case target slice is
-now implemented and focused-tested (INC-C3-4); remaining P2 work includes the
-all-annotation T7 phase reorganization, completion of static type-member domain
-convergence, heterogeneous associated-owner arguments, payload static-constructor
-argument lookup, and cross-module metadata/import plus cold/incremental identity
-certification. T4's static constructor unification has internal focused tests, but its
-acceptance coverage still needs a clean executable semantic test gate beyond the
-pre-existing library unit-test compilation blocker recorded above.
+implemented and focused-tested (INC-C3-4). Remaining P2 work includes T7's complete
+category surface and precise invalidation, T4 heterogeneous row-argument inference,
+static type-member domain convergence, heterogeneous associated-owner arguments,
+payload static-constructor argument lookup, and cross-module metadata/import plus
+cold/incremental identity certification. T4 has executable focused semantic tests;
+the historical library unit-test filter remains blocked by BASELINE-003.
 
 ### P3 evidence
 
@@ -1080,20 +1128,22 @@ next plan:
     LANG007.C3.P2
 
 next action:
-    implement T7 phase reorganization to make source-member projection selection
-    available in all annotation consumers while preserving the alias/generic-header
-    dependency contract. Then close T4's executable domain-safe inference coverage and
-    T8's cross-module metadata/import and incremental identity gates.
+    resolve the INC-C3-6 decision on generic-header participation in the unified
+    declaration dependency graph. Then complete T7's category-complete surface and
+    reverse dependency invalidation, and close T4's heterogeneous row-argument
+    inference plus T8's cross-module metadata/import and cold/incremental identity gates.
+
+Advanced-agent continuation prompt: [LANG007.C3.P2-advanced-agent-handoff.md](LANG007.C3.P2-advanced-agent-handoff.md).
 
 P2 started from the completed P1 commit `79e6726093349d3269460a29a7c1c4c3035ec2cf`
 with a clean working tree; that revision was pushed to `origin/main` before P2
 implementation continued. The T5 canonical-Int and source-publication slices are
 focused-tested; P2 remains partial and is not complete. T6 has focused publication and
 identity evidence under the user-ratified INC-C3-2 amendment. T7 has focused static-domain,
-singleton-term, and source-member projection evidence under the user-ratified INC-C3-3
-seam, but all-annotation availability still requires the user-directed phase
-reorganization. The T8 nominal-case slice is focused-tested under INC-C3-4; cross-module
-and broader identity gates remain.
+singleton-term, and field/alias/generic-header source-member projection evidence under
+the INC-C3-3 seam, plus the user-ratified INC-C3-6 cycle rule. Category-complete surface
+publication and incremental dependency closure remain. The T8 nominal-case slice is
+focused-tested under INC-C3-4; cross-module and broader identity gates remain.
 ```
 
 At P1 start:

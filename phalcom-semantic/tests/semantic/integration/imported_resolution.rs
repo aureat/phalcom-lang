@@ -253,6 +253,119 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
 }
 
 #[test]
+fn imported_static_domain_case_publishes_provider_identity_before_runtime_rejection() {
+    let project = ResolvedProjectId::from_raw(707);
+    let shapes_module = module(project, &["app", "shapes"]);
+    let consumer_module = module(project, &["app", "consumer"]);
+    let shape_source: Arc<str> = Arc::from("type data Shape { Scalar }\nexport Shape\n");
+    let consumer_source: Arc<str> = Arc::from("import app.shapes.Shape\nclass Probe { @class status() { Shape::Scalar } }\n");
+    let shape_parsed = phalcom_ast::parse(&shape_source, 0);
+    let consumer_parsed = phalcom_ast::parse(&consumer_source, 0);
+    assert!(shape_parsed.errors.is_empty(), "provider parse errors: {:#?}", shape_parsed.errors);
+    assert!(consumer_parsed.errors.is_empty(), "consumer parse errors: {:#?}", consumer_parsed.errors);
+    let shape_program = Arc::new(shape_parsed.program);
+    let consumer_program = Arc::new(consumer_parsed.program);
+    let shape_symbol = SymbolId {
+        module: shapes_module.clone(),
+        name: "Shape".into(),
+    };
+    let shape_export = LinkedExport {
+        public_name: "Shape".into(),
+        target: LinkedExportTarget::Binding(shape_symbol.clone()),
+        range: Default::default(),
+    };
+    let shape_linked = LinkedModule {
+        interface: LinkedModuleInterface {
+            module: shapes_module.clone(),
+            kind: ModuleKind::Module,
+            exports: BTreeMap::from([("Shape".into(), shape_export)]),
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout {
+            local_globals: BTreeMap::from([("Shape".into(), GlobalBindingId(0))]),
+            imports: BTreeMap::new(),
+        },
+        linked_reads: Vec::new(),
+        runtime_dependencies: Vec::new(),
+    };
+    let consumer_linked = LinkedModule {
+        interface: LinkedModuleInterface {
+            module: consumer_module.clone(),
+            kind: ModuleKind::Module,
+            exports: BTreeMap::new(),
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout {
+            local_globals: BTreeMap::from([("Probe".into(), GlobalBindingId(0))]),
+            imports: BTreeMap::from([("Shape".into(), ImportBindingId(0))]),
+        },
+        linked_reads: vec![LinkedReadSpec::Binding(shape_symbol)],
+        runtime_dependencies: vec![shapes_module.clone()],
+    };
+    let sources = BTreeMap::from([
+        (
+            shapes_module.clone(),
+            Arc::new(ParsedModuleUnit::new(
+                shapes_module.clone(),
+                ModuleKind::Module,
+                None,
+                shape_source,
+                shape_program,
+            )),
+        ),
+        (
+            consumer_module.clone(),
+            Arc::new(ParsedModuleUnit::new(
+                consumer_module.clone(),
+                ModuleKind::Module,
+                None,
+                consumer_source.clone(),
+                consumer_program,
+            )),
+        ),
+    ]);
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(ProjectUniverse::new()),
+        modules: BTreeMap::from([(shapes_module.clone(), shape_linked), (consumer_module.clone(), consumer_linked)]),
+        graphs: Default::default(),
+        entry: consumer_module.clone(),
+        initialization_order: vec![shapes_module.clone(), consumer_module.clone()],
+    });
+
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue),
+        "type-data case remains invalid as a runtime value: {:#?}",
+        analysis.snapshot.diagnostics
+    );
+    let shape = DeclarationId::new(shapes_module.clone(), "Shape".into());
+    let index = analysis.snapshot.source_index.module(&consumer_module).expect("consumer source index");
+    let case_offset = consumer_source.rfind("Scalar").expect("case reference") + 1;
+    assert_eq!(
+        index.occurrences.occurrence_at(case_offset).and_then(|occurrence| occurrence.target.cloned()),
+        Some(SemanticTargetId::StaticCase(phalcom_semantic::identity::StaticCaseId::new(
+            phalcom_semantic::identity::StaticDomainDeclarationId::Nominal(shape.clone()),
+            "Scalar",
+        )))
+    );
+
+    let status = CallableId::new(
+        DeclarationId::new(consumer_module, "Probe".into()),
+        Selector::method("status", []).expect("status selector"),
+        DispatchSide::Class,
+    );
+    let callable = analysis.snapshot.callable_analyses.get(&status).expect("status analysis");
+    assert!(callable.associated_resolutions.values().any(|resolution| matches!(
+        &resolution.kind,
+        phalcom_semantic::checker::associated::AssociatedResolutionKind::StaticTerm { domain, .. }
+            if matches!(analysis.snapshot.store.static_domain(*domain), Some(phalcom_semantic::types::store::StaticDomainData::Nominal { declaration }) if declaration == &shape)
+    )));
+}
+
+#[test]
 fn editor_definition_sites_exclude_local_import_declaration_for_external_target() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("package.ph"), "").unwrap();

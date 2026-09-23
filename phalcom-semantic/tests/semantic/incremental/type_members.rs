@@ -102,6 +102,108 @@ fn source_type_members_publish_checked_signatures_and_invalidate_the_surface_con
 }
 
 #[test]
+fn source_type_member_projection_is_available_in_field_annotations() {
+    use phalcom_semantic::types::store::TypeData;
+    use phalcom_semantic::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};
+
+    let module = module();
+    let source = "class Geometry {\n  type Wrap<T: Type>: Type\n}\nclass Consumer<T: Type> {\n  _value: Geometry::Wrap<T>\n}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let result = session.update(single_module_input(module.clone(), source, 1));
+
+    assert!(
+        !result.snapshot.has_errors(),
+        "source member projection should be valid in a field annotation: {:?}",
+        result.snapshot.diagnostics
+    );
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let field = phalcom_semantic::identity::FieldId::new(consumer, "_value", phalcom_semantic::identity::DispatchSide::Instance);
+    let field_signature = result.snapshot.field_signatures.get(&field).expect("published Consumer.value signature");
+    let projection = field_signature
+        .declared_type
+        .canonical_type()
+        .and_then(|field_type| match result.snapshot.store.get(field_type) {
+            TypeData::TypeMemberProjection(projection) => Some(projection),
+            _ => None,
+        })
+        .expect("field type should preserve its source type-member projection");
+    let expected_member = TypeMemberDeclarationId::new(DeclarationId::new(module.clone(), "Geometry".into()), TypeMemberSelector::named("Wrap"));
+    assert_eq!(projection.source_declaration.as_ref(), Some(&expected_member));
+}
+
+#[test]
+fn source_type_member_projection_is_available_in_alias_annotations() {
+    use phalcom_semantic::types::store::TypeData;
+    use phalcom_semantic::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};
+
+    let module = module();
+    let source = "class Geometry {\n  type Wrap<T: Type>: Type\n}\ntype Wrapped = Geometry::Wrap<Int>\n";
+    let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
+
+    assert!(
+        !result.snapshot.has_errors(),
+        "alias projection should resolve: {:#?}",
+        result.snapshot.diagnostics
+    );
+    let alias = result
+        .snapshot
+        .type_aliases
+        .get(&DeclarationId::new(module.clone(), "Wrapped".into()))
+        .expect("published alias");
+    let TypeData::TypeMemberProjection(projection) = result.snapshot.store.get(alias.form) else {
+        panic!(
+            "alias should preserve its source member projection, got {:?}",
+            result.snapshot.store.get(alias.form)
+        );
+    };
+    assert_eq!(
+        projection.source_declaration.as_ref(),
+        Some(&TypeMemberDeclarationId::new(
+            DeclarationId::new(module, "Geometry".into()),
+            TypeMemberSelector::named("Wrap")
+        ))
+    );
+}
+
+#[test]
+fn source_type_member_projection_is_available_in_generic_header_annotations() {
+    let module = module();
+    let source = "class Geometry {\n  type Wrap<T: Type>: Type\n}\nclass Consumer<T: Type> where T == Geometry::Wrap<Int> {}\n";
+    let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
+
+    assert!(
+        !result.snapshot.has_errors(),
+        "generic-header projection should resolve through the published surface: {:#?}",
+        result.snapshot.diagnostics
+    );
+}
+
+#[test]
+fn alias_and_type_member_signature_cycle_is_rejected_as_one_component() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module = module();
+    let source = "class Geometry {\n  type Wrap<T: Shape>: Shape\n}\ntype Shape = Geometry::Wrap<Shape>\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let result = session.update(single_module_input(module.clone(), source, 1));
+
+    let diagnostics = result.snapshot.diagnostics.get(&module).expect("module diagnostics");
+    let cycles = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::TypeSignatureCycle)
+        .collect::<Vec<_>>();
+    assert_eq!(cycles.len(), 1, "one deterministic cycle diagnostic per component: {diagnostics:#?}");
+    assert!(cycles[0].message.contains("Geometry"));
+    assert!(cycles[0].message.contains("Shape"));
+    assert!(!result.snapshot.type_aliases.contains_key(&DeclarationId::new(module.clone(), "Shape".into())));
+    let member = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
+        DeclarationId::new(module, "Geometry".into()),
+        phalcom_semantic::types::type_member::TypeMemberSelector::named("Wrap"),
+    );
+    assert!(!result.snapshot.type_member_declarations.contains_key(&member));
+}
+
+#[test]
 fn associated_surface_rejects_type_member_collision_with_owner_behavior() {
     use phalcom_common::selector::SelectorBase;
     use phalcom_semantic::diagnostic::DiagnosticCode;

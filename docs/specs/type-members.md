@@ -210,6 +210,22 @@ runtime VM dispatch, materialize runtime values, or execute arbitrary source
 code. Internal cancellation, cycle, and budget states may exist, but they must
 not change the language meaning of a valid symbolic projection.
 
+### Declaration-signature dependency cycles
+
+Transparent type aliases and source type-member declarations may depend on one
+another while their declared forms, parameter domains, and result domains are
+checked. A declaration-signature dependency cycle containing one or more
+source type-member declarations is invalid. Every declaration participating in
+the cycle remains unavailable as a checked semantic product, and the compiler
+reports a deterministic type-signature-cycle diagnostic identifying the
+participating declarations. Editing any declaration in the cycle requires
+rechecking the affected cycle component and its dependents.
+
+This rule concerns declaration formation, not projection normalization. A
+well-formed symbolic projection remains valid and may remain stuck as described
+above; it is not rejected merely because normalization encounters a recursive
+or unavailable reduction.
+
 ## 8. Intrinsic type members
 
 `intrinsic` identifies declarations whose implementation is provided directly
