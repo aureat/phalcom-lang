@@ -652,7 +652,7 @@ pub fn build_associated_static_domain_declaration(
                 constructors.push(store.intern_static_constructor(
                     domain,
                     owner.clone(),
-                    case.name.clone(),
+                    phalcom_ast::selector::selector_from_variant(case).encode(),
                     parameter_kinds.into_boxed_slice(),
                 ));
             }

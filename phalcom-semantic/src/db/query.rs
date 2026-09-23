@@ -89,6 +89,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration) => QueryKey::EnumDeclaration(declaration.clone()),
         crate::checker::analysis::SemanticDependency::AssociatedSurface(declaration) => QueryKey::AssociatedSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::TypeMemberDeclaration(declaration) => QueryKey::TypeMemberDeclaration(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::StaticDomainCaseCatalog(domain) => QueryKey::StaticDomainCaseCatalog(domain.clone()),
         crate::checker::analysis::SemanticDependency::ResolvedImport(site) => QueryKey::ResolvedImport(site.clone()),
         crate::checker::analysis::SemanticDependency::LinkedName(module, name) => QueryKey::LinkedName(module.clone(), name.clone()),
         crate::checker::analysis::SemanticDependency::PublicExport(module, name) => QueryKey::PublicExport(module.clone(), name.clone()),
@@ -110,6 +111,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::EnumDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration.clone())),
         QueryKey::AssociatedSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::AssociatedSurface(declaration.clone())),
         QueryKey::TypeMemberDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::TypeMemberDeclaration(declaration.clone())),
+        QueryKey::StaticDomainCaseCatalog(domain) => Some(crate::checker::analysis::SemanticDependency::StaticDomainCaseCatalog(domain.clone())),
         QueryKey::ResolvedImport(site) => Some(crate::checker::analysis::SemanticDependency::ResolvedImport(site.clone())),
         QueryKey::LinkedName(module, name) => Some(crate::checker::analysis::SemanticDependency::LinkedName(module.clone(), name.clone())),
         QueryKey::PublicExport(module, name) => Some(crate::checker::analysis::SemanticDependency::PublicExport(module.clone(), name.clone())),
@@ -1059,6 +1061,37 @@ pub fn query_type_member_declaration(
     QueryOutcome::Ready(product)
 }
 
+/// Publishes source-structural case membership before payload signature checks.
+pub fn query_static_domain_case_catalog(
+    db: &mut SemanticDb,
+    product: Arc<crate::static_case::StaticDomainCaseCatalogProduct>,
+) -> QueryOutcome<Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
+    let key = QueryKey::StaticDomainCaseCatalog(product.domain.clone());
+    let input_fingerprint = crate::db::fingerprint::static_domain_case_catalog_input_fingerprint(&product);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_static_domain_case_catalog()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::static_domain_case_catalog_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::StaticDomainCaseCatalog(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
 /// Publishes the checked case set for one associated static-domain declaration.
 pub fn query_associated_static_domain_declaration(
     db: &mut SemanticDb,
@@ -1479,6 +1512,12 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
             unit_outcome(query_type_member_declaration(db, unit, product))
+        }
+        crate::checker::analysis::SemanticDependency::StaticDomainCaseCatalog(domain) => {
+            let Some(product) = inputs.base_resolver.resolve_static_case_catalog(domain) else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            unit_outcome(query_static_domain_case_catalog(db, product))
         }
     };
 

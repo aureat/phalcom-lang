@@ -2457,8 +2457,17 @@ impl<'source> Parser<'source> {
             KindSyntax::LabeledTypePack(range)
         } else if let Token::Identifier(name) = self.peek().clone() {
             self.advance();
+            let mut owner_members = Vec::new();
+            while self.eat(&Token::Dot) {
+                owner_members.push(self.expect_identifier(&["qualified kind owner"])?);
+            }
+            let associated = if self.eat(&Token::ColonColon) {
+                Some(self.expect_identifier(&["associated static domain"] )?)
+            } else {
+                None
+            };
             let range = (start..self.prev_end).into();
-            KindSyntax::Named { name, range }
+            KindSyntax::Named { name, owner_members, associated, range }
         } else {
             let err = self.error_here(vec![
                 "\"Type\"".to_string(),

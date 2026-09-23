@@ -231,7 +231,7 @@ fn collect_stable_record_row_lacks_inner(
         | TypeData::Nominal { .. }
         | TypeData::Parameter(_)
         | TypeData::Lambda(_)
-        | TypeData::SelfType(_) => {}
+        | TypeData::SelfType(_) | TypeData::StaticDomainForm { .. } => {}
     }
 }
 

@@ -195,6 +195,62 @@ fn alias_application_tracks_nominal_header_domain_edits_and_matches_cold_analysi
 }
 
 #[test]
+fn static_case_catalog_distinguishes_singleton_from_empty_constructor() {
+    use phalcom_common::selector::Selector;
+    use phalcom_semantic::identity::StaticDomainDeclarationId;
+
+    let module = module();
+    let source = "type data Shape { Scalar; Empty() }\ntype DefaultShape: Shape = Shape::Scalar\n";
+    let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
+    assert!(!result.snapshot.has_errors(), "diagnostics: {:?}", result.snapshot.diagnostics);
+    let domain = StaticDomainDeclarationId::Nominal(DeclarationId::new(module, "Shape".into()));
+    let catalog = result.snapshot.static_case_catalogs.get(&domain).expect("published catalog");
+    assert!(catalog.select(&Selector::getter("Scalar").unwrap()).is_some());
+    assert!(catalog.select(&Selector::method("Empty", []).unwrap()).is_some());
+    assert!(catalog.select(&Selector::getter("Empty").unwrap()).is_none());
+}
+
+#[test]
+fn static_case_rename_invalidates_alias_and_matches_cold_analysis() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module = module();
+    let before = "type data Shape { Scalar }\ntype DefaultShape: Shape = Shape::Scalar\n";
+    let after = "type data Shape { Vector }\ntype DefaultShape: Shape = Shape::Scalar\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    assert!(!incremental.update(single_module_input(module.clone(), before, 1)).snapshot.has_errors());
+    let updated = incremental.update(single_module_input(module.clone(), after, 2));
+    let cold = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), after, 1));
+    let codes = |snapshot: &phalcom_semantic::SemanticSnapshot| {
+        snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>()
+    };
+    assert_eq!(codes(&updated.snapshot), codes(&cold.snapshot));
+    assert!(codes(&updated.snapshot).contains(&DiagnosticCode::AnnotationUnresolved));
+    assert!(!updated.snapshot.type_aliases.contains_key(&DeclarationId::new(module, "DefaultShape".into())));
+}
+
+#[test]
+fn associated_static_case_alias_uses_domain_catalog() {
+    use phalcom_common::selector::Selector;
+    use phalcom_semantic::identity::{AssociatedStaticDomainDeclarationId, StaticDomainDeclarationId};
+
+    let module = module();
+    let source = "class Parser { type data State { Start; Done } }\ntype Initial = Parser::State::Start\n";
+    let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
+    println!("parsed: {:?}", phalcom_ast::parse(source, 0).errors);
+    println!("statements: {:?}", result.snapshot.sources.get(&module).map(|unit| unit.program.statements.len()));
+    assert!(!result.snapshot.has_errors(), "diagnostics: {:?}", result.snapshot.diagnostics);
+    assert!(
+        result.snapshot.type_aliases.contains_key(&DeclarationId::new(module.clone(), "Initial".into())),
+        "aliases: {:?}; diagnostics: {:?}", result.snapshot.type_aliases, result.snapshot.diagnostics,
+    );
+    let domain = StaticDomainDeclarationId::Associated(AssociatedStaticDomainDeclarationId::new(
+        DeclarationId::new(module, "Parser".into()), "State",
+    ));
+    assert!(result.snapshot.static_case_catalogs.get(&domain).unwrap().select(&Selector::getter("Start").unwrap()).is_some());
+}
+
+#[test]
 fn alias_and_type_member_signature_cycle_is_rejected_as_one_component() {
     use phalcom_semantic::diagnostic::DiagnosticCode;
 

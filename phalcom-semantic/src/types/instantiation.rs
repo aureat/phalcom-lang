@@ -279,7 +279,7 @@ fn materialize_type_inner(
                 .map_err(|_| TypeMaterializationError::TypeApplication)
         }
         TypeData::ConstInt(_) => Ok(ty),
-        TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => Ok(ty),
+        TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::StaticDomainForm { .. } | TypeData::ClassObject { .. } => Ok(ty),
     }
 }
 

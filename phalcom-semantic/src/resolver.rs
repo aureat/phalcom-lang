@@ -25,6 +25,7 @@ pub struct LinkedTypeResolver {
     alias_form_overrides: RefCell<BTreeMap<DeclarationId, Option<crate::types::id::TypeId>>>,
     trait_associated_types: Arc<BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>>,
     associated_type_members: Arc<RwLock<AssociatedTypeMemberProducts>>,
+    static_case_catalogs: Arc<RwLock<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>>,
 }
 
 impl LinkedTypeResolver {
@@ -49,6 +50,7 @@ impl LinkedTypeResolver {
             alias_form_overrides: RefCell::new(BTreeMap::new()),
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
+            static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
@@ -70,6 +72,7 @@ impl LinkedTypeResolver {
             alias_form_overrides: RefCell::new(BTreeMap::new()),
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
+            static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
@@ -105,9 +108,38 @@ impl LinkedTypeResolver {
             products.declarations = declarations.clone();
         }
     }
+
+    pub fn update_static_case_catalogs(
+        &self,
+        catalogs: &BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
+    ) {
+        if let Ok(mut current) = self.static_case_catalogs.write() {
+            *current = catalogs.clone();
+        }
+    }
 }
 
 impl TypeResolver for LinkedTypeResolver {
+    fn resolve_associated_static_domain(
+        &self,
+        owner: &DeclarationId,
+        name: &str,
+    ) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+        let products = self.associated_type_members.read().ok()?;
+        let family = products.surfaces.get(owner)?.families.get(&phalcom_common::selector::SelectorBase::Named(name.to_string()))?;
+        if family.kind != crate::associated::AssociatedFamilyKind::StaticDomain {
+            return None;
+        }
+        let crate::associated::AssociatedMemberId::StaticDomain(id) = family.members.first()? else { return None };
+        Some(id.clone())
+    }
+
+    fn resolve_static_case_catalog(
+        &self,
+        domain: &crate::identity::StaticDomainDeclarationId,
+    ) -> Option<Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
+        self.static_case_catalogs.read().ok()?.get(domain).cloned()
+    }
     fn resolve_associated_type_member(
         &self,
         owner: &DeclarationId,

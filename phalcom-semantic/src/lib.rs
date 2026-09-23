@@ -11,6 +11,7 @@ pub mod advisory;
 pub mod algebraic_semantics;
 pub mod associated;
 pub mod checker;
+pub mod static_case;
 pub mod contracts;
 pub mod control_summary;
 pub mod core_surface;

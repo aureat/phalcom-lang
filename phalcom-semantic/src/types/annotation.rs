@@ -167,6 +167,23 @@ pub trait TypeResolver {
     ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
         None
     }
+
+    /// Retrieves the declaration-owned case set for an already resolved static domain.
+    fn resolve_static_case_catalog(
+        &self,
+        _domain: &crate::identity::StaticDomainDeclarationId,
+    ) -> Option<std::sync::Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
+        None
+    }
+
+    /// Selects an associated static domain only through the owner's namespace surface.
+    fn resolve_associated_static_domain(
+        &self,
+        _owner: &DeclarationId,
+        _name: &str,
+    ) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+        None
+    }
 }
 
 /// A scoped type resolver overlaying lexical type parameters on top of a parent resolver.
@@ -210,6 +227,21 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
         selector: &TypeMemberSelector,
     ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
         self.parent.resolve_associated_type_member(owner, selector)
+    }
+
+    fn resolve_static_case_catalog(
+        &self,
+        domain: &crate::identity::StaticDomainDeclarationId,
+    ) -> Option<std::sync::Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
+        self.parent.resolve_static_case_catalog(domain)
+    }
+
+    fn resolve_associated_static_domain(
+        &self,
+        owner: &DeclarationId,
+        name: &str,
+    ) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+        self.parent.resolve_associated_static_domain(owner, name)
     }
 }
 
@@ -441,13 +473,20 @@ pub(crate) fn resolve_contextual_kind_syntax(
     kind: &KindSyntax,
 ) -> KindResolution {
     match kind {
-        KindSyntax::Named { name, .. } => {
+        KindSyntax::Named { name, owner_members, associated, .. } => {
             let (Some(declarations), Some(resolver)) = (declarations, resolver) else {
                 return KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax);
             };
-            let Some(declaration) = resolver.resolve_type_name(&site.module, name, &[]) else {
+            let Some(declaration) = resolver.resolve_type_name(&site.module, name, owner_members) else {
                 return KindResolution::Unresolved(TypeFormationUnresolved::Name(name.clone().into_boxed_str()));
             };
+            if let Some(associated) = associated {
+                let Some(id) = resolver.resolve_associated_static_domain(&declaration, associated) else {
+                    return KindResolution::Unresolved(TypeFormationUnresolved::Name(associated.clone().into_boxed_str()));
+                };
+                let domain = store.associated_static_domain(id, Box::new([]));
+                return KindResolution::Ready(store.static_domain_kind(domain));
+            }
             let Some(kind) = declarations.kind(&declaration) else {
                 return KindResolution::Missing(TypeFormationMissing::DeclarationProduct(declaration));
             };
@@ -479,6 +518,97 @@ pub(crate) fn static_domain_kind_of_form(store: &mut TypeStore, form: TypeId) ->
         }
     }
     store.kind_of(form)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_static_case_form(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn TypeResolver,
+    site: &TypeFormationSite,
+    enum_target: &TypeAnnotation,
+    variant_name: &str,
+    generic_arguments: &[TypeAnnotation],
+    payload_shape: Option<&phalcom_ast::ast::ExactCasePayloadSyntax>,
+    range: phalcom_common::range::SourceRange,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> Option<TypeFormResolution> {
+    // The parser deliberately keeps `A::B` ambiguous. Probe the semantic
+    // kind without leaking diagnostics into a non-static projection path.
+    let mut probe_diagnostics = Vec::new();
+    let TypeFormResolution::Ready(owner_form) = resolve_type_form(
+        store, declarations, resolver, site, enum_target, &mut probe_diagnostics,
+    ) else {
+        return None;
+    };
+    let KindData::StaticDomain(domain) = store.get_kind(store.kind_of(owner_form)) else {
+        return None;
+    };
+    let domain = *domain;
+    let identity = match store.static_domain(domain)? {
+        crate::types::store::StaticDomainData::Nominal { declaration } => {
+            crate::identity::StaticDomainDeclarationId::Nominal(declaration.clone())
+        }
+        crate::types::store::StaticDomainData::Associated { declaration, .. } => {
+            crate::identity::StaticDomainDeclarationId::Associated(declaration.clone())
+        }
+        crate::types::store::StaticDomainData::ConstInt => return None,
+    };
+    let Some(catalog) = resolver.resolve_static_case_catalog(&identity) else {
+        return Some(TypeFormResolution::Blocked(BlockReason::SuppressedDependency));
+    };
+    let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape);
+    let case = match crate::static_case::select_static_case(&catalog, &selector) {
+        Ok(case) => case,
+        Err(error) => {
+            let message = match error {
+                crate::static_case::StaticCaseSelectionError::Missing => format!("static case `{variant_name}` was not declared in this domain"),
+                crate::static_case::StaticCaseSelectionError::WrongShape => {
+                    format!("static case `{variant_name}` requires a different constructor shape")
+                }
+                crate::static_case::StaticCaseSelectionError::Ambiguous => {
+                    format!("static case `{variant_name}` is declared more than once")
+                }
+            };
+            diagnostics.push(SemanticDiagnostic::error_in(site.module.clone(), DiagnosticCode::AnnotationUnresolved, message, range));
+            return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
+        }
+    };
+    if !generic_arguments.is_empty() || payload_shape.is_some() {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            site.module.clone(), DiagnosticCode::AnnotationUnresolved,
+            "static case constructor arguments are not formed by exact-case target syntax", range,
+        ));
+        return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
+    }
+    let Some(term) = crate::static_case::materialize_static_singleton(store, domain, case) else {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            site.module.clone(), DiagnosticCode::AnnotationUnresolved,
+            format!("static case `{variant_name}` requires constructor arguments"), range,
+        ));
+        return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
+    };
+    Some(TypeFormResolution::Ready(term))
+}
+
+fn resolve_associated_static_domain_form(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn TypeResolver,
+    site: &TypeFormationSite,
+    owner_annotation: &TypeAnnotation,
+    name: &str,
+) -> Option<TypeFormResolution> {
+    let mut probe_diagnostics = Vec::new();
+    let TypeFormResolution::Ready(owner_form) = resolve_type_form(
+        store, declarations, resolver, site, owner_annotation, &mut probe_diagnostics,
+    ) else {
+        return None;
+    };
+    let (owner, arguments) = store.applied_nominal_static_parts(owner_form)?;
+    let declaration = resolver.resolve_associated_static_domain(&owner, name)?;
+    let domain = store.associated_static_domain(declaration, arguments.into_boxed_slice());
+    Some(TypeFormResolution::Ready(store.associated_static_domain_form(domain)))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1187,6 +1317,21 @@ fn lower_scoped_type_form(
             payload_shape,
             range,
         } => {
+            if let Some(result) = resolve_static_case_form(
+                store, declarations, resolver, site, enum_target, variant_name,
+                generic_arguments, payload_shape.as_ref(), *range, diagnostics,
+            ) {
+                let ty = scoped_ready_or_propagate!(result);
+                return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Free(ty)));
+            }
+            if generic_arguments.is_empty() && payload_shape.is_none() {
+                if let Some(result) = resolve_associated_static_domain_form(
+                    store, declarations, resolver, site, enum_target, variant_name,
+                ) {
+                    let ty = scoped_ready_or_propagate!(result);
+                    return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Free(ty)));
+                }
+            }
             if generic_arguments.is_empty() && payload_shape.is_none() {
                 let res = resolve_associated_type_projection(
                     store,
@@ -2303,6 +2448,19 @@ pub fn resolve_type_form(
             payload_shape,
             range,
         } => {
+            if let Some(result) = resolve_static_case_form(
+                store, declarations, resolver, site, enum_target, variant_name,
+                generic_arguments, payload_shape.as_ref(), *range, diagnostics,
+            ) {
+                return result;
+            }
+            if generic_arguments.is_empty() && payload_shape.is_none() {
+                if let Some(result) = resolve_associated_static_domain_form(
+                    store, declarations, resolver, site, enum_target, variant_name,
+                ) {
+                    return result;
+                }
+            }
             if generic_arguments.is_empty() && payload_shape.is_none() {
                 return resolve_associated_type_projection(
                     store,

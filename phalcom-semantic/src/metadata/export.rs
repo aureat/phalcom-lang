@@ -1387,7 +1387,7 @@ impl<'a> MetadataExporter<'a> {
                 })
             }
             TypeData::ClassObject { .. }
-            | TypeData::Family(_) => return Err(MetadataExportError::NonExportableForm(ty)),
+            | TypeData::Family(_) | TypeData::StaticDomainForm { .. } => return Err(MetadataExportError::NonExportableForm(ty)),
         };
 
         if let Some(&id) = self.type_map.get(&form) {

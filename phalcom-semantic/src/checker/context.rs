@@ -308,6 +308,27 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         }
         product
     }
+
+    fn resolve_static_case_catalog(
+        &self,
+        domain: &crate::identity::StaticDomainDeclarationId,
+    ) -> Option<std::sync::Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
+        let product = self.inner.resolve_static_case_catalog(domain);
+        if product.is_some() {
+            record_query_dependency(&self.dependencies, SemanticDependency::StaticDomainCaseCatalog(domain.clone()));
+        }
+        product
+    }
+
+    fn resolve_associated_static_domain(
+        &self,
+        owner: &DeclarationId,
+        name: &str,
+    ) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+        let selected = self.inner.resolve_associated_static_domain(owner, name);
+        record_query_dependency(&self.dependencies, SemanticDependency::AssociatedSurface(owner.clone()));
+        selected
+    }
 }
 
 /// Hierarchy wrapper that records each mutable direct edge consumed by body checking.
@@ -2994,20 +3015,6 @@ impl<'a> CheckingContext<'a> {
         self.semantic_dependencies
             .borrow_mut()
             .insert(crate::checker::analysis::SemanticDependency::AssociatedSurface(decl.clone()));
-    }
-
-    /// Records the declaration product that owns the selected static-domain case set.
-    pub fn record_static_domain_case_dependency(&self, domain: &crate::identity::StaticDomainDeclarationId) {
-        match domain {
-            crate::identity::StaticDomainDeclarationId::Nominal(owner) => {
-                if self.enum_info(owner).is_none() && self.data_info(owner).is_none() {
-                    record_declaration_shell_dependency(&self.semantic_dependencies, owner);
-                }
-            }
-            crate::identity::StaticDomainDeclarationId::Associated(declaration) => {
-                let _ = self.associated_surface(&declaration.owner);
-            }
-        }
     }
 
     pub fn validate_return_contract(

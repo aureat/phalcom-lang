@@ -2310,6 +2310,28 @@ pub fn type_member_declaration_product_fingerprint(product: &crate::db::product:
     finish_product(hasher)
 }
 
+/// Structural case membership changes independently of payload annotations.
+pub fn static_domain_case_catalog_input_fingerprint(product: &crate::static_case::StaticDomainCaseCatalogProduct) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.domain.hash(&mut hasher);
+    for case in product.cases.iter() {
+        case.id.hash(&mut hasher);
+        case.shape.hash(&mut hasher);
+        case.source_range.hash(&mut hasher);
+    }
+    finish_input(hasher)
+}
+
+pub fn static_domain_case_catalog_product_fingerprint(product: &crate::static_case::StaticDomainCaseCatalogProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.domain.hash(&mut hasher);
+    for case in product.cases.iter() {
+        case.id.hash(&mut hasher);
+        case.shape.hash(&mut hasher);
+    }
+    finish_product(hasher)
+}
+
 /// Fingerprints the checked source contribution and canonical case facts for one associated static domain.
 pub fn associated_static_domain_declaration_input_fingerprint(
     unit: &phalcom_modules::source::ParsedModuleUnit,

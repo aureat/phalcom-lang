@@ -369,7 +369,7 @@ impl TypeSubstitution {
                 store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
             }
             TypeData::ConstInt(_) => ty,
-            TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
+            TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::StaticDomainForm { .. } | TypeData::ClassObject { .. } => ty,
         }
     }
 }
@@ -617,6 +617,6 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
             store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
         }
         TypeData::ConstInt(_) => ty,
-        TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
+        TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::StaticDomainForm { .. } | TypeData::ClassObject { .. } => ty,
     }
 }

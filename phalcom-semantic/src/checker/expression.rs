@@ -1270,25 +1270,30 @@ fn resolve_static_domain_case(
         ),
         crate::types::store::StaticDomainData::ConstInt => return None,
     };
-    ctx.record_static_domain_case_dependency(&identity);
-    let constructor = ctx
-        .store
-        .static_constructor_ids_for_domain(domain)
-        .into_iter()
-        .find(|id| ctx.store.static_constructor(*id).is_some_and(|data| data.case_name.as_ref() == member.base));
-    let Some(constructor) = constructor else {
+    let Some(catalog) = ctx.resolver.resolve_static_case_catalog(&identity) else {
+        return None;
+    };
+    let selector = phalcom_common::selector::Selector::getter(&member.base).ok()?;
+    let selection = crate::static_case::select_static_case(&catalog, &selector);
+    let Some(case) = selection.ok() else {
+        let message = match selection.err() {
+            Some(crate::static_case::StaticCaseSelectionError::WrongShape) => {
+                format!("static case `{}` requires constructor arguments or a different lookup form", member.base)
+            }
+            Some(crate::static_case::StaticCaseSelectionError::Ambiguous) => {
+                format!("static case `{}` is declared more than once", member.base)
+            }
+            _ => format!("static case `{}` was not declared in this domain", member.base),
+        };
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::AssociatedMemberMissing,
-            format!("static case `{}` was not declared in this domain", member.base),
+            message,
             range,
         ));
         return None;
     };
-    let Some(metadata) = ctx.store.static_constructor(constructor).cloned() else {
-        return None;
-    };
-    if !metadata.parameter_kinds.is_empty() || !matches!(member.mode, AssociatedNamedMode::Getter) {
+    if !matches!(member.mode, AssociatedNamedMode::Getter) || case.shape != crate::static_case::StaticCaseShape::Singleton {
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::AssociatedMemberMissing,
@@ -1297,10 +1302,10 @@ fn resolve_static_domain_case(
         ));
         return None;
     }
-    let Ok(term) = ctx.store.static_data(domain, constructor, Box::new([])) else {
+    let Some(term) = crate::static_case::materialize_static_singleton(ctx.store, domain, case) else {
         return None;
     };
-    let case = crate::identity::StaticCaseId::new(identity, metadata.case_name.clone());
+    let case = case.id.clone();
     if let Some(expression) = ctx.current_expression_id() {
         ctx.record_associated_resolution(
             expression,

@@ -367,7 +367,7 @@ impl ModuleSourceIndex {
                 }
             } else if let Some(name) = match target {
                 SemanticTargetId::StaticDomain(crate::identity::StaticDomainDeclarationId::Associated(declaration)) => Some(declaration.name.as_ref()),
-                SemanticTargetId::StaticCase(case) => Some(case.name.as_ref()),
+                SemanticTargetId::StaticCase(case) => Some(case.name()),
                 _ => None,
             } {
                 for occurrence in &all {

@@ -660,7 +660,7 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                 store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
             }
             TypeData::ConstInt(_) => ty,
-            TypeData::Never | TypeData::Unit | TypeData::ClassObject { .. } | TypeData::Nominal { .. } | TypeData::Lambda(_) | TypeData::SelfType(_) => ty,
+            TypeData::Never | TypeData::Unit | TypeData::ClassObject { .. } | TypeData::Nominal { .. } | TypeData::StaticDomainForm { .. } | TypeData::Lambda(_) | TypeData::SelfType(_) => ty,
         };
         states.insert(ty, VisitState::Resolved(normalized));
         normalized
@@ -772,7 +772,7 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
         | TypeData::Nominal { .. }
         | TypeData::Family(_)
         | TypeData::Lambda(_)
-        | TypeData::SelfType(_) => {}
+        | TypeData::SelfType(_) | TypeData::StaticDomainForm { .. } => {}
     }
 }
 

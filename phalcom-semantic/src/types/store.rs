@@ -133,6 +133,8 @@ pub enum TypeData {
     ClassObject { declaration: DeclarationId },
     /// Canonical nominal class declaration type or constructor form.
     Nominal { declaration: DeclarationId },
+    /// Denotation of an associated static domain, distinct from its owner type.
+    StaticDomainForm { domain: StaticDomainId },
     /// Heterogeneous generic/static application (e.g. `List<Int>` or
     /// `Tensor<Float, Shape::Vector(3)>`).
     ///
@@ -697,6 +699,12 @@ impl TypeStore {
         })
     }
 
+    /// Interns the type-level form denoting one concrete associated static domain.
+    pub fn associated_static_domain_form(&mut self, domain: StaticDomainId) -> TypeId {
+        let kind = self.static_domain_kind(domain);
+        self.intern_with_kind(TypeData::StaticDomainForm { domain }, kind)
+    }
+
     /// Registers one static constructor or case and returns its store-local identity.
     pub fn intern_static_constructor(
         &mut self,
@@ -725,8 +733,8 @@ impl TypeStore {
     }
 
     /// Returns the canonical static constructors declared by one domain.
-    /// This is identity-based enumeration for semantic member selection; it is
-    /// not a separate name lookup authority.
+    /// This is an internal enumeration for metadata and diagnostics. Source
+    /// case membership is owned by `StaticDomainCaseCatalogProduct`.
     pub fn static_constructor_ids_for_domain(&self, domain: StaticDomainId) -> Vec<AlgebraicStaticConstructorId> {
         self.static_constructors
             .iter()
@@ -1447,6 +1455,7 @@ impl TypeStore {
             TypeData::StaticData(term) => format!("StaticData({:?}, {:?})", term.domain, term.constructor),
             TypeData::ClassObject { declaration } => format!("class {}", declaration.name),
             TypeData::Nominal { declaration } => declaration.name.to_string(),
+            TypeData::StaticDomainForm { domain } => format!("StaticDomain({domain:?})"),
             TypeData::Applied { origin, arguments } => {
                 let orig_str = self.format_type(*origin);
                 let args_str = arguments

@@ -32,12 +32,31 @@ pub enum StaticDomainDeclarationId {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticCaseId {
     pub domain: StaticDomainDeclarationId,
-    pub name: Box<str>,
+    pub selector: Selector,
 }
 
 impl StaticCaseId {
+    /// Constructs a singleton getter case identity.
     pub fn new(domain: StaticDomainDeclarationId, name: impl Into<Box<str>>) -> Self {
-        Self { domain, name: name.into() }
+        let name = name.into();
+        let selector = Selector::getter(name.as_ref()).unwrap_or_else(|_| Selector {
+            base: phalcom_common::selector::SelectorBase::Named(name.into_string()),
+            kind: phalcom_common::selector::SelectorKind::Getter,
+            slots: Box::new([]),
+        });
+        Self { domain, selector }
+    }
+
+    /// Constructs an identity preserving the case's structural selector.
+    pub fn with_selector(domain: StaticDomainDeclarationId, selector: Selector) -> Self {
+        Self { domain, selector }
+    }
+
+    pub fn name(&self) -> &str {
+        match &self.selector.base {
+            phalcom_common::selector::SelectorBase::Named(name) => name,
+            phalcom_common::selector::SelectorBase::Subscript => "",
+        }
     }
 }
 

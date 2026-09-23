@@ -297,7 +297,7 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
             store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
         }
         TypeData::ConstInt(_) => ty,
-        TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
+        TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::StaticDomainForm { .. } | TypeData::ClassObject { .. } => ty,
     }
 }
 

@@ -490,6 +490,10 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::EnumRequirements(declaration)
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
         QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
+        QueryKey::StaticDomainCaseCatalog(domain) => Some(match domain {
+            crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,
+            crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.owner.module,
+        }),
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
         QueryKey::ResolvedImport(site) => Some(&site.importer),
         QueryKey::LinkedName(module, _) | QueryKey::PublicExport(module, _) => Some(module),

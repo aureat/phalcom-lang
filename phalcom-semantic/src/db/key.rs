@@ -66,6 +66,8 @@ pub enum QueryKey {
     EnumRequirements(DeclarationId),
     /// Checked source declaration for one type member, keyed by stable owner/selector identity.
     TypeMemberDeclaration(TypeMemberDeclarationId),
+    /// Source-structural case membership, available before checked signatures.
+    StaticDomainCaseCatalog(crate::identity::StaticDomainDeclarationId),
     /// Checked associated static-domain declaration, keyed independently of owner specialization.
     AssociatedStaticDomainDeclaration(crate::identity::AssociatedStaticDomainDeclarationId),
     AssociatedSurface(DeclarationId),

@@ -186,6 +186,6 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
         | TypeData::CallableFromPacks { .. }
         | TypeData::TypeMemberProjection(_)
         | TypeData::ConstInt(_)
-        | TypeData::StaticData(_) => Err(SemanticExportError::NonExportableTypeForm { form }),
+        | TypeData::StaticData(_) | TypeData::StaticDomainForm { .. } => Err(SemanticExportError::NonExportableTypeForm { form }),
     }
 }

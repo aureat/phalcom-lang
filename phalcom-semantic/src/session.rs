@@ -23,6 +23,7 @@ use crate::db::query::{
     query_data_declaration, query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements,
     query_field_signature_with_inputs, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
     query_type_member_declaration, query_unlinked_interface,
+    query_static_domain_case_catalog,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{
@@ -2532,6 +2533,55 @@ impl SemanticWorkspaceSession {
             }
         }
         resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
+        // Case identity is structural source authority. Publish it before the
+        // alias/header/member signature scheduler reads any annotation.
+        let mut static_case_catalogs = BTreeMap::new();
+        for (module_id, shard) in &self.semantic_structure_shards {
+            let mut candidates = BTreeMap::<crate::identity::StaticDomainDeclarationId, Vec<&phalcom_ast::ast::AlgebraicDef>>::new();
+            for statement in &shard.source.program.statements {
+                match statement {
+                    Statement::Data(definition) if definition.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly => {
+                        let declaration = DeclarationId::new(module_id.clone(), definition.name.clone().into());
+                        candidates.entry(crate::identity::StaticDomainDeclarationId::Nominal(declaration)).or_default().push(definition);
+                    }
+                    Statement::Class(class_def) => {
+                        let owner = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        for definition in &class_def.associated_type_data {
+                            let id = crate::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), definition.name.clone());
+                            if associated_surface_admits(&associated_surfaces_table, &owner, &crate::associated::AssociatedMemberId::StaticDomain(id.clone())) {
+                                candidates.entry(crate::identity::StaticDomainDeclarationId::Associated(id)).or_default().push(definition);
+                            }
+                        }
+                    }
+                    Statement::Impl(impl_def) if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) => {
+                        if let Some(symbol) = impl_def.target.origin_symbol_ref() {
+                            let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                            if let Some(owner) = resolver.resolve_type_name(module_id, &symbol.root, &members) {
+                                for definition in &impl_def.associated_type_data {
+                                    let id = crate::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), definition.name.clone());
+                                    if associated_surface_admits(&associated_surfaces_table, &owner, &crate::associated::AssociatedMemberId::StaticDomain(id.clone())) {
+                                        candidates.entry(crate::identity::StaticDomainDeclarationId::Associated(id)).or_default().push(definition);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for (domain, definitions) in candidates {
+                let [definition] = definitions.as_slice() else { continue };
+                let product = Arc::new(crate::static_case::catalog_from_declaration(domain.clone(), definition));
+                match query_static_domain_case_catalog(&mut self.db, product) {
+                    QueryOutcome::Ready(product) => { static_case_catalogs.insert(domain, product); }
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
+            }
+        }
+        resolver.update_static_case_catalogs(&static_case_catalogs);
         let mut blocked_declarations = BTreeSet::new();
         let mut type_aliases = previous_snapshot
             .as_ref()
@@ -6340,6 +6390,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
         snapshot_obj = snapshot_obj.with_type_member_declarations(Arc::new(type_member_declarations_table));
         snapshot_obj = snapshot_obj.with_associated_static_domains(Arc::new(associated_static_domains_table));
+        snapshot_obj = snapshot_obj.with_static_case_catalogs(Arc::new(static_case_catalogs));
         snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
         snapshot_obj = snapshot_obj.with_trait_headers(Arc::new(trait_headers));
         snapshot_obj = snapshot_obj.with_trait_surfaces(Arc::new(trait_surfaces));
@@ -7123,8 +7174,8 @@ fn collect_kind_signature_header_dependencies(
     dependencies: &mut BTreeSet<DeclarationId>,
 ) {
     match syntax {
-        phalcom_ast::ast::KindSyntax::Named { name, .. } => {
-            if let Some(declaration) = resolver.resolve_type_name(module, name, &[])
+        phalcom_ast::ast::KindSyntax::Named { name, owner_members, .. } => {
+            if let Some(declaration) = resolver.resolve_type_name(module, name, owner_members)
                 && headers.contains(&declaration)
             {
                 dependencies.insert(declaration);
@@ -7153,8 +7204,8 @@ fn collect_kind_signature_alias_dependencies(
     dependencies: &mut BTreeSet<DeclarationId>,
 ) {
     match syntax {
-        phalcom_ast::ast::KindSyntax::Named { name, .. } => {
-            if let Some(declaration) = resolver.resolve_type_name(module, name, &[])
+        phalcom_ast::ast::KindSyntax::Named { name, owner_members, .. } => {
+            if let Some(declaration) = resolver.resolve_type_name(module, name, owner_members)
                 && aliases.contains(&declaration)
             {
                 dependencies.insert(declaration);
@@ -7641,6 +7692,10 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
         QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
+        QueryKey::StaticDomainCaseCatalog(domain) => Some(match domain {
+            crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,
+            crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.owner.module,
+        }),
         QueryKey::ResolvedImport(site) => Some(&site.importer),
         QueryKey::FieldSignature(field) => Some(&field.owner.module),
         QueryKey::CallableDefinition(callable)

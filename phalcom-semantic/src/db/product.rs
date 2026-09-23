@@ -189,6 +189,7 @@ pub enum SemanticProduct {
     EnumDeclaration(Arc<EnumDeclarationProduct>),
     EnumRequirements(Arc<EnumRequirementsProduct>),
     TypeMemberDeclaration(Arc<TypeMemberDeclarationProduct>),
+    StaticDomainCaseCatalog(Arc<crate::static_case::StaticDomainCaseCatalogProduct>),
     AssociatedStaticDomainDeclaration(Arc<AssociatedStaticDomainDeclarationProduct>),
     AssociatedSurface(Arc<AssociatedSurface>),
     ResolvedImport(Arc<phalcom_modules::resolver::ImportResolutionProduct>),
@@ -368,6 +369,13 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_static_domain_case_catalog(&self) -> Option<&Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
+        match self {
+            Self::StaticDomainCaseCatalog(product) => Some(product),
+            _ => None,
+        }
+    }
+
     pub fn as_associated_static_domain_declaration(&self) -> Option<&Arc<AssociatedStaticDomainDeclarationProduct>> {
         match self {
             Self::AssociatedStaticDomainDeclaration(product) => Some(product),
@@ -429,6 +437,7 @@ impl SemanticProduct {
             Self::EnumDeclaration(_) => b"enum-declaration".as_slice(),
             Self::EnumRequirements(_) => b"enum-requirements".as_slice(),
             Self::TypeMemberDeclaration(_) => b"type-member-declaration".as_slice(),
+            Self::StaticDomainCaseCatalog(_) => b"static-domain-case-catalog".as_slice(),
             Self::AssociatedStaticDomainDeclaration(_) => b"associated-static-domain-declaration".as_slice(),
             Self::AssociatedSurface(_) => b"associated-surface".as_slice(),
             Self::ResolvedImport(_) => b"resolved-import".as_slice(),

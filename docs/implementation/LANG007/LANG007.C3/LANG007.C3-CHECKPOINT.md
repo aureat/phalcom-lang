@@ -965,10 +965,21 @@ analysis before its incremental assertions. Zero-payload `ExactEnumCase`
 formation routes to contextual trait-associated projection, while checked
 nominal static-case products are built after aliases. The T5 static-alias
 example and T7 all-annotation contract therefore remain unimplemented.
-Decision: pending architectural consultation on early checked case publication,
-unified graph scheduling/cycles, and one selector shared by annotations and
-expressions. Do not add a store-history or source-spelling fallback.
-Status: OPEN / UNVERIFIED — no semantic correction attempted.
+Decision: accepted architectural verdict in the attached INC-C3-10 consultation.
+Publish a declaration-owned structural case catalog before signature checking;
+its stable IDs use the existing structural `Selector`, which distinguishes a
+singleton getter from an explicit-empty constructor. Checked payload signatures
+are separate products in the Alias/Header/Member/StaticCaseSignature graph.
+Only checked-signature SCCs containing a Member or StaticCaseSignature are
+rejected with one deterministic `TypeSignatureCycle`; catalog/header recursion
+is legal. Annotation and expression selection consume the same catalog; the
+store only materializes selected terms. Catalog and selected signature reads
+are exact dependencies, and associated namespace publication depends on the
+domain header rather than payload signatures.
+Plan amendment: apply this split in T7 before treating static alias, case
+selection, or incremental gates as accepted. Preserve catalog identity when a
+payload signature is invalid, and preserve cold/incremental parity.
+Status: ARCHITECTURE RESOLVED / IMPLEMENTATION IN PROGRESS / UNVERIFIED.
 
 Use entries:
 

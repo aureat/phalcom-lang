@@ -202,6 +202,8 @@ pub struct SemanticSnapshot {
     pub type_member_declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     /// Checked associated static-domain declarations keyed by stable owner/name identity.
     pub associated_static_domains: Arc<BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+    /// Source-structural static case membership, independent of payload validity.
+    pub static_case_catalogs: Arc<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
     /// Retained source-local semantic structure shards for incremental reuse.
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     pub status: SnapshotStatus,
@@ -260,6 +262,7 @@ impl SemanticSnapshot {
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
             type_member_declarations: Arc::new(BTreeMap::new()),
             associated_static_domains: Arc::new(BTreeMap::new()),
+            static_case_catalogs: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -319,6 +322,7 @@ impl SemanticSnapshot {
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
             type_member_declarations: Arc::new(BTreeMap::new()),
             associated_static_domains: Arc::new(BTreeMap::new()),
+            static_case_catalogs: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -362,6 +366,14 @@ impl SemanticSnapshot {
         domains: Arc<BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
     ) -> Self {
         self.associated_static_domains = domains;
+        self
+    }
+
+    pub fn with_static_case_catalogs(
+        mut self,
+        catalogs: Arc<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
+    ) -> Self {
+        self.static_case_catalogs = catalogs;
         self
     }
 

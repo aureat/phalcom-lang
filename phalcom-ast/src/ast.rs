@@ -1010,7 +1010,14 @@ pub enum TypeAnnotationExpr {
 /// The selector of a type member (e.g. `Positionals`, `Map`, `At`, or `[...]`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeMemberSelectorSyntax {
-    Named { name: String, range: SourceRange },
+    Named {
+        name: String,
+        /// Module-qualified owner path before an optional associated member.
+        owner_members: Vec<String>,
+        /// Associated static domain selected through the owner's namespace.
+        associated: Option<String>,
+        range: SourceRange,
+    },
     Subscript { range: SourceRange },
 }
 
