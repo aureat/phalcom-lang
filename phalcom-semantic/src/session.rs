@@ -691,7 +691,8 @@ impl SemanticWorkspaceSession {
         }
 
         let mut base_dispatch = SurfaceDispatchResolver::new();
-        let known_declarations: HashSet<DeclarationId> = base_declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
+        let mut known_declarations: HashSet<DeclarationId> = base_declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
+        known_declarations.extend(base_declarations.intrinsic_static_domain_declarations().cloned());
         let canonical_linked = canonical_universe_linked_program();
         let resolver = LinkedTypeResolver::new(canonical_linked.clone(), known_declarations, ModuleId::universe_root());
         let native_report = register_native_surfaces(&mut store, &base_declarations, &resolver, &ModuleId::universe_root(), &mut base_dispatch)
@@ -738,10 +739,9 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed.program.statements {
                 if let phalcom_ast::ast::Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
-                    if base_declarations.get(&decl_id).is_some() {
+                    if base_declarations.get(&decl_id).is_some() || base_declarations.is_intrinsic_static_domain(&decl_id) {
                         continue;
                     }
-
                     let mut parameter_ids = Vec::new();
                     let mut parameter_kinds = Vec::new();
                     for (index, parameter) in data_def.generic_parameters.iter().enumerate() {
@@ -800,6 +800,7 @@ impl SemanticWorkspaceSession {
         // declaration set available from the native/source bootstrap; source
         // products must see the complete canonical declaration universe.
         let mut known_declarations: HashSet<DeclarationId> = base_declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
+        known_declarations.extend(base_declarations.intrinsic_static_domain_declarations().cloned());
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
         for node in provider.nodes() {
             let path = phalcom_modules::ModulePath::from_components(
@@ -2257,7 +2258,13 @@ impl SemanticWorkspaceSession {
             let Some(shard) = self.semantic_structure_shards.get(module) else {
                 continue;
             };
-            initial_blueprints.extend(shard.declarations.iter().cloned());
+            initial_blueprints.extend(
+                shard
+                    .declarations
+                    .iter()
+                    .filter(|blueprint| !declarations.is_intrinsic_static_domain(&blueprint.id))
+                    .cloned(),
+            );
         }
 
         for module_id in &structural_recomputed_modules {
@@ -2292,6 +2299,9 @@ impl SemanticWorkspaceSession {
                     });
                 } else if let Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                    if data_def.is_intrinsic_facade() {
+                        continue;
+                    }
                     let retain_previous_header = previous_snapshot
                         .as_ref()
                         .is_some_and(|previous| !generic_header_work.contains(&decl_id) && previous.declarations.get(&decl_id).is_some());
@@ -2323,6 +2333,7 @@ impl SemanticWorkspaceSession {
 
         // 3. Construct LinkedTypeResolver
         let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
+        known_declarations.extend(declarations.intrinsic_static_domain_declarations().cloned());
 
         known_declarations.extend(alias_declarations.iter().cloned());
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
@@ -2533,6 +2544,7 @@ impl SemanticWorkspaceSession {
             &self.semantic_structure_shards,
             &previous_structure_shards,
             &resolver,
+            &declarations,
             &associated_surface_recompute_modules,
             &self.inherent_impl_surface_owners,
         );
@@ -2563,6 +2575,9 @@ impl SemanticWorkspaceSession {
             for statement in &shard.source.program.statements {
                 match statement {
                     Statement::Data(definition) if definition.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly => {
+                        if matches!(&definition.shape, phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_)) {
+                            continue;
+                        }
                         let declaration = DeclarationId::new(module_id.clone(), definition.name.clone().into());
                         candidates.entry(crate::identity::StaticDomainDeclarationId::Nominal(declaration)).or_default().push(definition);
                     }
@@ -3636,6 +3651,9 @@ impl SemanticWorkspaceSession {
                     }
                     declarations.insert(type_info);
                 } else if let Statement::Data(data_def) = stmt {
+                    if data_def.is_intrinsic_facade() {
+                        continue;
+                    }
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                     if type_signature_cycle_headers.contains(&decl_id) {
                         continue;
@@ -4027,6 +4045,9 @@ impl SemanticWorkspaceSession {
                     }
                 } else if let Statement::Data(data_def) = stmt {
                     let decl = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                    if data_def.is_intrinsic_facade() {
+                        continue;
+                    }
                     if blocked_declarations.contains(&decl) || (previous_snapshot.is_some() && !hierarchy_query_work.contains(&decl)) {
                         continue;
                     }
@@ -4299,6 +4320,18 @@ impl SemanticWorkspaceSession {
             let parsed_unit = &shard.source;
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Data(data_def) = stmt {
+                    if data_def.is_intrinsic_facade() {
+                        let declaration = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                        if !declarations.is_intrinsic_static_domain(&declaration) {
+                            diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                module_id.clone(),
+                                DiagnosticCode::KindExpectedType,
+                                format!("intrinsic type-data facade `{}` has no compiler authority binding", data_def.name),
+                                data_def.range,
+                            ));
+                        }
+                        continue;
+                    }
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                     let static_catalog = (data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly)
                         .then(|| static_case_catalogs.get(&crate::identity::StaticDomainDeclarationId::Nominal(decl_id.clone())))
@@ -7291,6 +7324,7 @@ fn static_case_payload_annotations<'a>(definition: &'a phalcom_ast::ast::Algebra
                 phalcom_ast::ast::CasePayloadSyntax::Record { components, .. } => Some(components.iter().map(|component| &component.annotation).collect()),
             }
         }
+        phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_) => None,
     }
 }
 
@@ -7589,6 +7623,7 @@ fn declaration_signature_source_fingerprints<'a>(
                         for source_case in match &definition.shape {
                             phalcom_ast::ast::AlgebraicShapeSyntax::Sum(sum) => sum.cases.iter().collect::<Vec<_>>(),
                             phalcom_ast::ast::AlgebraicShapeSyntax::Product(_) => Vec::new(),
+                            phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_) => Vec::new(),
                         } {
                             let selector = phalcom_ast::selector::selector_from_variant(source_case);
                             let id = crate::identity::StaticCaseId::with_selector(catalog.domain.clone(), selector);
@@ -7610,6 +7645,9 @@ fn declaration_signature_source_fingerprints<'a>(
                         );
                     }
                     if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                        if matches!(&data_def.shape, phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_)) {
+                            continue;
+                        }
                         let domain = crate::identity::StaticDomainDeclarationId::Nominal(declaration);
                         let catalog = crate::static_case::catalog_from_declaration(domain, data_def);
                         match &data_def.shape {
@@ -7633,6 +7671,7 @@ fn declaration_signature_source_fingerprints<'a>(
                                     );
                                 }
                             }
+                            phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_) => {}
                         }
                     }
                 }
@@ -7676,6 +7715,7 @@ fn declaration_signature_source_fingerprints<'a>(
                                         );
                                     }
                                 }
+                                phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_) => {}
                             }
                         }
                     }
@@ -7932,6 +7972,7 @@ fn build_source_associated_surfaces(
     shards: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
     previous_shards: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
     resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
     recomputed_modules: &BTreeSet<ModuleId>,
     previous_impl_owners: &BTreeMap<crate::identity::ImplId, DeclarationId>,
 ) -> (
@@ -7967,6 +8008,9 @@ fn build_source_associated_surfaces(
                         owners_to_recompute.insert(DeclarationId::new(module.clone(), class_def.name.clone().into()));
                     }
                     Statement::Data(data_def) => {
+                        if data_def.is_intrinsic_facade() {
+                            continue;
+                        }
                         owners_to_recompute.insert(DeclarationId::new(module.clone(), data_def.name.clone().into()));
                     }
                     Statement::Impl(implementation) if matches!(implementation.kind, phalcom_ast::ast::ImplKind::Inherent) => {
@@ -8047,7 +8091,11 @@ fn build_source_associated_surfaces(
                             }
                             crate::types::type_member::TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
                         };
-                        let kind = if crate::types::type_member::lookup_intrinsic_type_operation(&owner.name, &selector).is_some() {
+                        let kind = if declarations
+                            .intrinsic_type_owner(owner)
+                            .and_then(|owner| crate::types::type_member::lookup_intrinsic_type_operation(owner, &selector))
+                            .is_some()
+                        {
                             crate::associated::AssociatedFamilyKind::IntrinsicTypeMember
                         } else {
                             crate::associated::AssociatedFamilyKind::TypeMember
@@ -9154,7 +9202,8 @@ fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) ->
         | SemanticTargetId::DataComponent(_)
         | SemanticTargetId::StaticDomain(_)
         | SemanticTargetId::StaticCase(_)
-        | SemanticTargetId::AssociatedType(_) => AdvisoryOrigin::Constraint(site.clone()),
+        | SemanticTargetId::AssociatedType(_)
+        | SemanticTargetId::TypeMember(_) => AdvisoryOrigin::Constraint(site.clone()),
     };
     AdvisoryTargetResolution {
         target: target.clone(),

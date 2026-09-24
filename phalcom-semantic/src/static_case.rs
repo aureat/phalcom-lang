@@ -165,6 +165,7 @@ pub fn catalog_from_declaration(domain: StaticDomainDeclarationId, def: &Algebra
             let shape = StaticCaseShape::Constructor { slots: selector.slots.clone() };
             vec![StaticCaseHeader { id: StaticCaseId::with_selector(domain.clone(), selector), shape, source_range: def.name_range }]
         }
+        AlgebraicShapeSyntax::IntrinsicFacade(_) => Vec::new(),
     };
     StaticDomainCaseCatalogProduct { domain, cases: cases.into_boxed_slice() }
 }

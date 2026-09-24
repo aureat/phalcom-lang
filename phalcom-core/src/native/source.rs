@@ -217,7 +217,7 @@ impl NativeSourceIndex {
         roots.extend(
             self.units
                 .iter()
-                .filter(|unit| unit.program.statements.iter().any(|statement| !matches!(statement, Statement::Export(_))))
+                .filter(|unit| unit.program.statements.iter().any(is_runtime_bootstrap_root_statement))
                 .map(|unit| unit.id.clone()),
         );
         roots.into_iter().collect()
@@ -691,6 +691,13 @@ impl NativeSourceIndex {
     }
 }
 
+fn is_runtime_bootstrap_root_statement(statement: &Statement) -> bool {
+    !matches!(statement, Statement::Export(_))
+        && !matches!(statement, Statement::Data(data)
+            if data.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly
+                && matches!(&data.shape, phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_)))
+}
+
 fn native_visibility(visibility: Visibility) -> NativeVisibility {
     match visibility {
         Visibility::Public => NativeVisibility::Public,
@@ -768,6 +775,16 @@ mod tests {
         ));
         let error = NativeSourceIndex::from_program_at(&module, &program).expect_err("duplicate anchor must fail");
         assert!(error.contains("duplicate native member anchor"), "{error}");
+    }
+
+    #[test]
+    fn type_only_intrinsic_facades_are_not_runtime_bootstrap_roots() {
+        let program = parse_program("intrinsic type data TupleEntries\n");
+        let statement = program.statements.first().expect("facade declaration");
+        assert!(!is_runtime_bootstrap_root_statement(statement));
+
+        let runtime = parse_program("intrinsic data Unit()\n");
+        assert!(is_runtime_bootstrap_root_statement(runtime.statements.first().expect("runtime declaration")));
     }
 
     #[test]

@@ -28,8 +28,8 @@ pub mod type_member;
 pub mod variance;
 
 pub use type_member::{
-    ConstTerm, IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberDomain, TypeMemberId, TypeMemberParameter,
-    TypeMemberSelector, TypeMemberSignature, lookup_intrinsic_type_operation,
+    ConstTerm, IntrinsicTypeOperation, IntrinsicTypeOwner, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberDomain, TypeMemberId,
+    TypeMemberParameter, TypeMemberSelector, TypeMemberSignature, lookup_intrinsic_type_operation,
 };
 
 pub use annotation::{

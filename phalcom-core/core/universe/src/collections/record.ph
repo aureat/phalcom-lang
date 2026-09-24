@@ -1,3 +1,5 @@
+intrinsic type data RecordRow
+
 /// Immutable labeled collection with insertion-ordered fields.
 native class Record is Object {
   intrinsic type Map<F: Type -> Type>: Type

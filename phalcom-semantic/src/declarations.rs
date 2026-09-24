@@ -6,6 +6,7 @@ use crate::types::annotation::{KindResolution, resolve_kind_syntax};
 use crate::types::id::{KindId, TypeId};
 use crate::types::parameter::{GenericBinderHeader, GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner};
 use crate::types::store::TypeStore;
+use crate::types::type_member::IntrinsicTypeOwner;
 use phalcom_ast::ast::{ExpansionMode, GenericParameterSyntax, Statement};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvider};
 use phalcom_native_meta::types::KindSpec;
@@ -118,6 +119,8 @@ impl NominalDeclarationHeader {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DeclarationTypeTable {
     entries: HashMap<DeclarationId, DeclarationTypeInfo>,
+    intrinsic_static_domains: HashMap<DeclarationId, KindId>,
+    intrinsic_type_owners: HashMap<DeclarationId, IntrinsicTypeOwner>,
 }
 
 impl DeclarationTypeTable {
@@ -126,10 +129,51 @@ impl DeclarationTypeTable {
     }
 
     pub fn insert(&mut self, info: DeclarationTypeInfo) {
+        self.intrinsic_static_domains.remove(&info.declaration);
+        self.intrinsic_type_owners.remove(&info.declaration);
         self.entries.insert(info.declaration.clone(), info);
     }
 
+    /// Registers an authored intrinsic facade against an existing compiler-owned kind.
+    /// This deliberately does not create a type form or nominal static domain.
+    pub fn register_intrinsic_static_domain(&mut self, declaration: DeclarationId, kind: KindId) {
+        self.entries.remove(&declaration);
+        let owner = match kind {
+            KindId::TYPE_PACK => Some(IntrinsicTypeOwner::TypePack),
+            KindId::LABELED_TYPE_PACK => Some(IntrinsicTypeOwner::LabeledTypePack),
+            KindId::COMPLETE_TYPE_PACK => Some(IntrinsicTypeOwner::CompleteTypePack),
+            KindId::RECORD_ROW => Some(IntrinsicTypeOwner::RecordRow),
+            _ => None,
+        };
+        if let Some(owner) = owner {
+            self.intrinsic_type_owners.insert(declaration.clone(), owner);
+        }
+        self.intrinsic_static_domains.insert(declaration, kind);
+    }
+
+    pub fn register_intrinsic_type_owner(&mut self, declaration: DeclarationId, owner: IntrinsicTypeOwner) {
+        self.intrinsic_type_owners.insert(declaration, owner);
+    }
+
+    pub fn intrinsic_type_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicTypeOwner> {
+        self.intrinsic_type_owners.get(declaration).copied()
+    }
+
+    pub fn intrinsic_static_domain_kind(&self, declaration: &DeclarationId) -> Option<KindId> {
+        self.intrinsic_static_domains.get(declaration).copied()
+    }
+
+    pub fn intrinsic_static_domain_declarations(&self) -> impl Iterator<Item = &DeclarationId> {
+        self.intrinsic_static_domains.keys()
+    }
+
+    pub fn is_intrinsic_static_domain(&self, declaration: &DeclarationId) -> bool {
+        self.intrinsic_static_domains.contains_key(declaration)
+    }
+
     pub fn remove(&mut self, declaration: &DeclarationId) -> Option<DeclarationTypeInfo> {
+        self.intrinsic_static_domains.remove(declaration);
+        self.intrinsic_type_owners.remove(declaration);
         self.entries.remove(declaration)
     }
 
@@ -284,11 +328,26 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
                 Statement::Class(class_def) => {
                     source_nominals.insert((module.clone(), class_def.name.clone()));
                     let declaration = source_declaration_identity(&module, &class_def.name, universe_resolver);
+                    let tuple_module = source_module_id(&["collections", "tuple"]);
+                    let record_module = source_module_id(&["collections", "record"]);
+                    match (module.eq(&tuple_module), module.eq(&record_module), class_def.name.as_str()) {
+                        (true, _, "Tuple") => table.register_intrinsic_type_owner(declaration.clone(), IntrinsicTypeOwner::Tuple),
+                        (_, true, "Record") => table.register_intrinsic_type_owner(declaration.clone(), IntrinsicTypeOwner::Record),
+                        _ => {}
+                    }
                     insert_source_nominal(&mut table, store, declaration, &class_def.generic_parameters);
                 }
                 Statement::Data(data_def) => {
-                    source_nominals.insert((module.clone(), data_def.name.clone()));
                     let declaration = source_declaration_identity(&module, &data_def.name, universe_resolver);
+                    if data_def.implementation == phalcom_common::modifier::ImplementationKind::Intrinsic
+                        && matches!(&data_def.shape, phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_))
+                    {
+                        if let Some(kind) = intrinsic_static_facade_kind(&module, &data_def.name) {
+                            table.register_intrinsic_static_domain(declaration, kind);
+                        }
+                        continue;
+                    }
+                    source_nominals.insert((module.clone(), data_def.name.clone()));
                     insert_source_nominal(&mut table, store, declaration, &data_def.generic_parameters);
                 }
                 _ => {}
@@ -313,4 +372,16 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
     }
 
     table
+}
+
+fn intrinsic_static_facade_kind(module: &ModuleId, name: &str) -> Option<KindId> {
+    let tuple_module = source_module_id(&["collections", "tuple"]);
+    let record_module = source_module_id(&["collections", "record"]);
+    match (module, name) {
+        (module, "TypePack") if module == &tuple_module => Some(KindId::TYPE_PACK),
+        (module, "LabeledTypePack") if module == &tuple_module => Some(KindId::LABELED_TYPE_PACK),
+        (module, "TupleEntries") if module == &tuple_module => Some(KindId::COMPLETE_TYPE_PACK),
+        (module, "RecordRow") if module == &record_module => Some(KindId::RECORD_ROW),
+        _ => None,
+    }
 }

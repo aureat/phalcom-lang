@@ -295,11 +295,13 @@ pub enum AlgebraicPhase {
     TypeOnly,
 }
 
-/// The syntax shape of an algebraic declaration: product or sum.
+/// The syntax shape of an algebraic declaration, or an intrinsic declaration
+/// whose representation is supplied by compiler authority.
 #[derive(Debug, Clone)]
 pub enum AlgebraicShapeSyntax {
     Product(ProductShapeSyntax),
     Sum(SumShapeSyntax),
+    IntrinsicFacade(SourceRange),
 }
 
 impl AlgebraicShapeSyntax {
@@ -307,6 +309,7 @@ impl AlgebraicShapeSyntax {
         match self {
             Self::Product(product) => product.range(),
             Self::Sum(sum) => sum.range,
+            Self::IntrinsicFacade(range) => *range,
         }
     }
 }
@@ -449,17 +452,21 @@ impl AlgebraicDef {
         matches!(self.shape, AlgebraicShapeSyntax::Sum(_))
     }
 
+    pub fn is_intrinsic_facade(&self) -> bool {
+        matches!(&self.shape, AlgebraicShapeSyntax::IntrinsicFacade(_))
+    }
+
     pub fn product_shape(&self) -> Option<&ProductShapeSyntax> {
         match &self.shape {
             AlgebraicShapeSyntax::Product(p) => Some(p),
-            AlgebraicShapeSyntax::Sum(_) => None,
+            AlgebraicShapeSyntax::Sum(_) | AlgebraicShapeSyntax::IntrinsicFacade(_) => None,
         }
     }
 
     pub fn sum_shape(&self) -> Option<&SumShapeSyntax> {
         match &self.shape {
             AlgebraicShapeSyntax::Sum(s) => Some(s),
-            AlgebraicShapeSyntax::Product(_) => None,
+            AlgebraicShapeSyntax::Product(_) | AlgebraicShapeSyntax::IntrinsicFacade(_) => None,
         }
     }
 

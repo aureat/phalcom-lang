@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{CallableId, CallableParameterId, DeclarationId, ModuleId, SemanticTargetId, SourceSiteId};
 use crate::source_index::site::SourceSite;
+use crate::types::type_member::TypeMemberDeclarationId;
 use phalcom_common::range::SourceRange;
 
 /// Canonical source-level kind for a callable declaration.
@@ -58,6 +59,15 @@ pub struct FieldSourceInfo {
     pub name_range: SourceRange,
     pub declaration_range: SourceRange,
     pub has_explicit_annotation: bool,
+}
+
+/// Canonical source metadata for one intrinsic or user-declared type member.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypeMemberSourceInfo {
+    pub id: TypeMemberDeclarationId,
+    pub declaration_site: SourceSiteId,
+    pub name_range: SourceRange,
+    pub declaration_range: SourceRange,
 }
 
 /// Dense lexical scope identity within one source-index snapshot.
@@ -140,6 +150,7 @@ pub struct SourceScopeIndex {
     pub declaration_sources: BTreeMap<DeclarationId, DeclarationSourceInfo>,
     pub callable_sources: BTreeMap<CallableId, CallableSourceInfo>,
     pub field_sources: BTreeMap<crate::identity::FieldId, FieldSourceInfo>,
+    pub type_member_sources: BTreeMap<TypeMemberDeclarationId, TypeMemberSourceInfo>,
     /// Current source ranges for callable bodies and their expression order.
     /// These presentation facts remain current when a semantic callable
     /// product is reused across source-position movement.
@@ -177,6 +188,7 @@ impl SourceScopeIndex {
             declaration_sources: BTreeMap::new(),
             callable_sources: BTreeMap::new(),
             field_sources: BTreeMap::new(),
+            type_member_sources: BTreeMap::new(),
             callable_body_ranges: BTreeMap::new(),
             callable_expression_ranges: BTreeMap::new(),
             scope_order: vec![root],

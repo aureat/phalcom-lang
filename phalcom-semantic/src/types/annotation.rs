@@ -489,6 +489,14 @@ pub(crate) fn resolve_contextual_kind_syntax(
             let (Some(declarations), Some(resolver)) = (declarations, resolver) else {
                 return KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax);
             };
+            if let TypeAnnotationExpr::Reference(symbol) = &form.expr {
+                let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                if let Some(declaration) = resolver.resolve_type_name(&site.module, &symbol.root, &members)
+                    && let Some(kind) = declarations.intrinsic_static_domain_kind(&declaration)
+                {
+                    return KindResolution::Ready(kind);
+                }
+            }
             let ty = match resolve_type_form(store, declarations, resolver, site, form, diagnostics) {
                 TypeFormResolution::Ready(ty) => ty,
                 TypeFormResolution::Dynamic => return KindResolution::Dynamic,
@@ -2629,23 +2637,22 @@ fn resolve_type_member_projection(
         }
     }
 
-    let target_domain = match store.get(subject_ty) {
-        TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => "Tuple",
-        TypeData::Record(_) => "Record",
-        TypeData::TypePack(_) => "TypePack",
-        TypeData::LabeledTypePack(_) => "LabeledTypePack",
-        TypeData::Nominal { declaration } if declaration.name.as_ref() == "Tuple" => "Tuple",
-        TypeData::Nominal { declaration } if declaration.name.as_ref() == "Record" => "Record",
-        _ => "",
+    let intrinsic_owner = match store.get(subject_ty) {
+        TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => Some(crate::types::type_member::IntrinsicTypeOwner::Tuple),
+        TypeData::Record(_) => Some(crate::types::type_member::IntrinsicTypeOwner::Record),
+        TypeData::TypePack(_) => Some(crate::types::type_member::IntrinsicTypeOwner::TypePack),
+        TypeData::LabeledTypePack(_) => Some(crate::types::type_member::IntrinsicTypeOwner::LabeledTypePack),
+        TypeData::Nominal { declaration } => declarations.intrinsic_type_owner(declaration),
+        _ => None,
     };
+    let intrinsic = intrinsic_owner.and_then(|owner| lookup_intrinsic_type_operation(owner, &canonical_selector));
 
-    let mut kind = match lookup_intrinsic_type_operation(target_domain, &canonical_selector) {
+    let mut kind = match intrinsic {
         Some(IntrinsicTypeOperation::TuplePositionals) | Some(IntrinsicTypeOperation::TypePackMap) => KindId::TYPE_PACK,
         Some(IntrinsicTypeOperation::TupleLabeled) | Some(IntrinsicTypeOperation::LabeledTypePackMap) => KindId::LABELED_TYPE_PACK,
+        Some(IntrinsicTypeOperation::TupleEntries) => KindId::COMPLETE_TYPE_PACK,
         _ => KindId::TYPE,
     };
-
-    let intrinsic = lookup_intrinsic_type_operation(target_domain, &canonical_selector);
     let map_operation = matches!(
         intrinsic,
         Some(

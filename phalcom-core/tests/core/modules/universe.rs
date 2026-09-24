@@ -140,6 +140,12 @@ fn universe_package_intrinsics_match_provider_neutral_package_rules() {
 #[test]
 fn boot_01_bootstrap_measurement_separates_catalog_closure_and_execution() {
     let index = NativeSourceIndex::build().expect("canonical Universe source index builds");
+    for facade in ["TypePack", "LabeledTypePack", "TupleEntries", "RecordRow"] {
+        assert!(
+            index.census.classes.iter().all(|class| class.name != facade),
+            "TypeOnly intrinsic facade {facade} must not appear in runtime class census"
+        );
+    }
     let root = ModuleId::universe_root();
     let reachable = index
         .reachable_units_from_roots(std::slice::from_ref(&root))

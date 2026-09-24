@@ -603,6 +603,7 @@ pub enum SemanticTargetId {
     StaticDomain(StaticDomainDeclarationId),
     StaticCase(StaticCaseId),
     AssociatedType(crate::traits::AssociatedTypeRequirementId),
+    TypeMember(crate::types::type_member::TypeMemberDeclarationId),
 }
 
 /// Snapshot-local binding identity for local variables/parameters.

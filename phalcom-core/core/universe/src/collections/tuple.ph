@@ -1,9 +1,14 @@
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
+intrinsic type data TypePack
+intrinsic type data LabeledTypePack
+intrinsic type data TupleEntries
+
 /// Immutable fixed-arity product collection.
 native class Tuple is Collection {
   intrinsic type Positionals: TypePack
   intrinsic type Labeled: LabeledTypePack
+  intrinsic type Entries: TupleEntries
   intrinsic type At<I: Int>: Type
   intrinsic type Map<F: Type -> Type>: Type
 

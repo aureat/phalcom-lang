@@ -8,7 +8,7 @@ use crate::identity::{
 };
 use crate::source_index::scope::{
     CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind,
-    SourceDeclarationKind, SourceScopeId, SourceScopeIndex,
+    SourceDeclarationKind, SourceScopeId, SourceScopeIndex, TypeMemberSourceInfo,
 };
 use crate::source_index::site::{SourceSite, SourceSiteKind};
 use crate::traits::AssociatedTypeRequirementId;
@@ -1377,7 +1377,27 @@ impl SourceScopeBuilder<'_> {
                     self.visit_expr(parent, default);
                 }
             }
-            ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => {}
+            ClassMember::TypeMember(definition) => {
+                let selector = crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector);
+                let id = crate::types::type_member::TypeMemberDeclarationId::new(declaration.clone(), selector);
+                let name_range = definition.selector.range();
+                let site = self.allocate_site(
+                    SourceOwner::Module(self.index.module.clone()),
+                    name_range,
+                    SourceSiteKind::TypeMember(id.clone()),
+                );
+                self.index.register_target(site.clone(), SemanticTargetId::TypeMember(id.clone()));
+                self.index.type_member_sources.insert(
+                    id.clone(),
+                    TypeMemberSourceInfo {
+                        id,
+                        declaration_site: site,
+                        name_range,
+                        declaration_range: definition.range,
+                    },
+                );
+            }
+            ClassMember::Variant(_) | ClassMember::Delegation(_) => {}
         }
     }
 

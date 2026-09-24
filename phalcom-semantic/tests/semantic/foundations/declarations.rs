@@ -133,3 +133,85 @@ fn production_universe_declarations_keep_source_owned_identity() {
         );
     }
 }
+
+#[test]
+fn intrinsic_structural_source_facades_bind_existing_authorities_without_nominal_forms() {
+    use phalcom_modules::identity::{ModuleComponent, ModulePath};
+    use phalcom_semantic::types::store::StaticDomainData;
+    use phalcom_semantic::types::type_member::IntrinsicTypeOwner;
+
+    let mut store = TypeStore::new();
+    let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
+    let source_module = |parts: &[&str]| {
+        ModuleId::universe(ModulePath::from_components(
+            parts.iter().map(|part| ModuleComponent::from_identifier(part).expect("canonical component")).collect::<Vec<_>>(),
+        ))
+    };
+    let facades = [
+        (DeclarationId::new(source_module(&["collections", "tuple"]), "TypePack".into()), KindId::TYPE_PACK),
+        (DeclarationId::new(source_module(&["collections", "tuple"]), "LabeledTypePack".into()), KindId::LABELED_TYPE_PACK),
+        (DeclarationId::new(source_module(&["collections", "tuple"]), "TupleEntries".into()), KindId::COMPLETE_TYPE_PACK),
+        (DeclarationId::new(source_module(&["collections", "record"]), "RecordRow".into()), KindId::RECORD_ROW),
+    ];
+
+    for (declaration, expected_kind) in &facades {
+        assert_eq!(declarations.intrinsic_static_domain_kind(declaration), Some(*expected_kind));
+        let expected_owner = match *expected_kind {
+            KindId::TYPE_PACK => IntrinsicTypeOwner::TypePack,
+            KindId::LABELED_TYPE_PACK => IntrinsicTypeOwner::LabeledTypePack,
+            KindId::COMPLETE_TYPE_PACK => IntrinsicTypeOwner::CompleteTypePack,
+            KindId::RECORD_ROW => IntrinsicTypeOwner::RecordRow,
+            _ => unreachable!(),
+        };
+        assert_eq!(declarations.intrinsic_type_owner(declaration), Some(expected_owner));
+        assert!(declarations.form(declaration).is_none(), "facades do not acquire TypeId forms");
+        assert!(declarations.get(declaration).is_none(), "facades do not acquire nominal declaration records");
+        assert!(
+            store.static_domain_ids().all(|id| !matches!(store.static_domain(id), Some(StaticDomainData::Nominal { declaration: owner }) if owner == declaration)),
+            "facades do not allocate nominal static domains"
+        );
+    }
+    assert_eq!(declarations.intrinsic_type_owner(&universe_declaration(UniverseKey::Tuple)), Some(IntrinsicTypeOwner::Tuple));
+    assert_eq!(declarations.intrinsic_type_owner(&universe_declaration(UniverseKey::Record)), Some(IntrinsicTypeOwner::Record));
+}
+
+#[test]
+fn tuple_entries_kind_resolution_uses_its_canonical_facade_declaration() {
+    use phalcom_semantic::types::annotation::{
+        GenericBinderSite, SimpleTypeResolver, TypeFormationOutcome, TypeFormationSite, resolve_generic_signature,
+    };
+
+    let mut store = TypeStore::new();
+    let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
+    let tuple_module = ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(
+        ["collections", "tuple"]
+            .into_iter()
+            .map(|part| phalcom_modules::identity::ModuleComponent::from_identifier(part).unwrap())
+            .collect::<Vec<_>>(),
+    ));
+    let tuple_entries = DeclarationId::new(tuple_module, "TupleEntries".into());
+    let parsed = phalcom_ast::parse_source("class Carrier<T: TupleEntries> {}\n", 0).expect("carrier parses");
+    let phalcom_ast::ast::Statement::Class(class) = &parsed.statements[0] else {
+        panic!("expected class declaration");
+    };
+    let mut resolver = SimpleTypeResolver::new();
+    resolver.insert("TupleEntries", tuple_entries);
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Carrier".into());
+    let mut diagnostics = Vec::new();
+    let signature = resolve_generic_signature(
+        &mut store,
+        &declarations,
+        &resolver,
+        &TypeFormationSite::module(ModuleId::universe_root()),
+        TypeParameterOwner::Declaration(owner),
+        GenericBinderSite::NominalDeclaration,
+        &class.generic_parameters,
+        None,
+        &mut diagnostics,
+    );
+    let TypeFormationOutcome::Ready(signature) = signature else {
+        panic!("TupleEntries binder kind must resolve: {signature:?}; diagnostics={diagnostics:?}");
+    };
+    assert_eq!(store.type_parameter(signature.parameters[0]).kind, KindId::COMPLETE_TYPE_PACK);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}

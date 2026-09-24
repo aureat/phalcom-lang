@@ -126,6 +126,7 @@ impl OccurrenceIndex {
                     crate::source_index::site::SourceSiteKind::VariantField(_) => (OccurrenceKind::Field, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::DataComponent(_) => (OccurrenceKind::Field, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::AssociatedType(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
+                    crate::source_index::site::SourceSiteKind::TypeMember(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::Module
                     | crate::source_index::site::SourceSiteKind::Expression
                     | crate::source_index::site::SourceSiteKind::Occurrence => return None,

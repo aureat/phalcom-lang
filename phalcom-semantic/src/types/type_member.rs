@@ -78,6 +78,7 @@ pub struct TypeMemberParameter {
 pub enum IntrinsicTypeOperation {
     TuplePositionals,
     TupleLabeled,
+    TupleEntries,
     TupleAt,
     TupleMap,
     RecordMap,
@@ -91,6 +92,7 @@ impl IntrinsicTypeOperation {
         match self {
             Self::TuplePositionals => "Tuple::Positionals",
             Self::TupleLabeled => "Tuple::Labeled",
+            Self::TupleEntries => "Tuple::Entries",
             Self::TupleAt => "Tuple::At",
             Self::TupleMap => "Tuple::Map",
             Self::RecordMap => "Record::Map",
@@ -99,6 +101,18 @@ impl IntrinsicTypeOperation {
             Self::RecordRowMap => "RecordRow::Map",
         }
     }
+}
+
+/// Canonical compiler authority that owns a structural type-member family.
+/// Source declaration names are deliberately absent from dispatch decisions.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum IntrinsicTypeOwner {
+    Tuple,
+    Record,
+    TypePack,
+    LabeledTypePack,
+    CompleteTypePack,
+    RecordRow,
 }
 
 /// Canonical signature for a domain-native or compiler-intrinsic type member.
@@ -159,33 +173,34 @@ pub fn validate_type_member_arguments(
 pub struct TypeMemberId(pub u32);
 
 /// Lookup an intrinsic type operation for a target domain and selector.
-pub fn lookup_intrinsic_type_operation(target_domain: &str, selector: &TypeMemberSelector) -> Option<IntrinsicTypeOperation> {
-    match target_domain {
-        "Tuple" | "tuple" => match selector {
+pub fn lookup_intrinsic_type_operation(owner: IntrinsicTypeOwner, selector: &TypeMemberSelector) -> Option<IntrinsicTypeOperation> {
+    match owner {
+        IntrinsicTypeOwner::Tuple => match selector {
             TypeMemberSelector::Named(name) if name.as_ref() == "Positionals" => Some(IntrinsicTypeOperation::TuplePositionals),
             TypeMemberSelector::Named(name) if name.as_ref() == "Labeled" => Some(IntrinsicTypeOperation::TupleLabeled),
+            TypeMemberSelector::Named(name) if name.as_ref() == "Entries" => Some(IntrinsicTypeOperation::TupleEntries),
             TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::TupleMap),
             TypeMemberSelector::Named(name) if name.as_ref() == "At" => Some(IntrinsicTypeOperation::TupleAt),
             TypeMemberSelector::Subscript => Some(IntrinsicTypeOperation::TupleAt),
             _ => None,
         },
-        "Record" | "record" => match selector {
+        IntrinsicTypeOwner::Record => match selector {
             TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::RecordMap),
             _ => None,
         },
-        "TypePack" => match selector {
+        IntrinsicTypeOwner::TypePack => match selector {
             TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::TypePackMap),
             _ => None,
         },
-        "LabeledTypePack" => match selector {
+        IntrinsicTypeOwner::LabeledTypePack => match selector {
             TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::LabeledTypePackMap),
             _ => None,
         },
-        "RecordRow" => match selector {
+        IntrinsicTypeOwner::RecordRow => match selector {
             TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::RecordRowMap),
             _ => None,
         },
-        _ => None,
+        IntrinsicTypeOwner::CompleteTypePack => None,
     }
 }
 

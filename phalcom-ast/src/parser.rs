@@ -3902,10 +3902,13 @@ impl<'source> Parser<'source> {
         let name = self.expect_identifier(&["identifier"])?;
         let name_range = (name_start..self.prev_end).into();
 
-        self.skip_newlines();
+        self.skip_newlines_if_followed_by(&Token::Less);
         let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::NominalDeclaration)?;
 
-        self.skip_newlines();
+        let _ = self.skip_newlines_if_followed_by(&Token::Private)
+            || self.skip_newlines_if_followed_by(&Token::Module)
+            || self.skip_newlines_if_followed_by(&Token::Package)
+            || self.skip_newlines_if_followed_by(&Token::Internal);
         let (constructor_visibility, constructor_visibility_range) = self.parse_data_constructor_visibility()?;
 
         self.skip_newlines_if_followed_by(&Token::Where);
@@ -3932,6 +3935,8 @@ impl<'source> Parser<'source> {
                 where_clause = Some(self.parse_where_clause()?);
             }
             shape
+        } else if modifiers.implementation == ImplementationKind::Intrinsic {
+            AlgebraicShapeSyntax::IntrinsicFacade((name_start..self.prev_end).into())
         } else {
             return Err(self.error_here(strs(&["\"(\"", "\"{\""])));
         };

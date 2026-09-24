@@ -13,7 +13,8 @@ use crate::impls::{AssociatedTypeBindingValue, ConformanceAssociatedTypePlan, Co
 use crate::traits::{TraitRef, TraitSurfaceTable};
 use crate::types::parameter::TypeTerm;
 use crate::types::type_member::{
-    IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
+    IntrinsicTypeOperation, IntrinsicTypeOwner, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector,
+    lookup_intrinsic_type_operation,
 };
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -797,9 +798,9 @@ fn normalize_intrinsic_projection(
     symbolic_fallback: TypeId,
     context: &mut ProjectionNormalizationContext<'_>,
 ) -> Option<ProjectionNormalizationResult> {
-    let (target_domain, subject_data) = match subject {
+    let (owner, subject_data) = match subject {
         ProjectionSubject::Type(ty) => match store.get(*ty).clone() {
-            TypeData::Tuple(elems) => ("Tuple", Some(TypeData::Tuple(elems))),
+            TypeData::Tuple(elems) => (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(elems))),
             TypeData::TupleFromPacks { positionals, labeled } => match (store.get(positionals).clone(), store.get(labeled).clone()) {
                 (TypeData::TypePack(pos), TypeData::LabeledTypePack(lab)) => {
                     let mut elems = Vec::with_capacity(pos.len() + lab.len());
@@ -809,22 +810,26 @@ fn normalize_intrinsic_projection(
                     for l in lab.iter() {
                         elems.push(TupleTypeElement::labeled(l.label.clone(), l.element));
                     }
-                    ("Tuple", Some(TypeData::Tuple(elems.into_boxed_slice())))
+                    (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(elems.into_boxed_slice())))
                 }
-                _ => ("Tuple", Some(TypeData::TupleFromPacks { positionals, labeled })),
+                _ => (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::TupleFromPacks { positionals, labeled })),
             },
-            TypeData::Unit => ("Tuple", Some(TypeData::Tuple(Box::new([])))),
-            TypeData::Record(row_id) => ("Record", Some(TypeData::Record(row_id))),
-            TypeData::TypePack(elems) => ("TypePack", Some(TypeData::TypePack(elems))),
-            TypeData::LabeledTypePack(elems) => ("LabeledTypePack", Some(TypeData::LabeledTypePack(elems))),
-            TypeData::Nominal { declaration } if declaration.name.as_ref() == "Tuple" => ("Tuple", None),
-            TypeData::Nominal { declaration } if declaration.name.as_ref() == "Record" => ("Record", None),
-            _ => ("", None),
+            TypeData::Unit => (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(Box::new([])))),
+            TypeData::Record(row_id) => (Some(IntrinsicTypeOwner::Record), Some(TypeData::Record(row_id))),
+            TypeData::TypePack(elems) => (Some(IntrinsicTypeOwner::TypePack), Some(TypeData::TypePack(elems))),
+            TypeData::LabeledTypePack(elems) => (Some(IntrinsicTypeOwner::LabeledTypePack), Some(TypeData::LabeledTypePack(elems))),
+            TypeData::Nominal { declaration } if declaration == crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple) => {
+                (Some(IntrinsicTypeOwner::Tuple), None)
+            }
+            TypeData::Nominal { declaration } if declaration == crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Record) => {
+                (Some(IntrinsicTypeOwner::Record), None)
+            }
+            _ => (None, None),
         },
-        ProjectionSubject::RecordRow(_) => ("RecordRow", None),
+        ProjectionSubject::RecordRow(_) => (Some(IntrinsicTypeOwner::RecordRow), None),
     };
 
-    let intrinsic = lookup_intrinsic_type_operation(target_domain, selector)?;
+    let intrinsic = lookup_intrinsic_type_operation(owner?, selector)?;
 
     match intrinsic {
         IntrinsicTypeOperation::TuplePositionals => match subject {
@@ -837,6 +842,13 @@ fn normalize_intrinsic_projection(
         IntrinsicTypeOperation::TupleLabeled => match subject {
             ProjectionSubject::Type(subject_ty) => match store.project_labeled(*subject_ty) {
                 Ok(pack) => Some(ProjectionNormalizationResult::Normalized(pack)),
+                Err(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            },
+            ProjectionSubject::RecordRow(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+        },
+        IntrinsicTypeOperation::TupleEntries => match subject {
+            ProjectionSubject::Type(subject_ty) => match store.project_complete(*subject_ty) {
+                Ok(entries) => Some(ProjectionNormalizationResult::Normalized(entries)),
                 Err(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             },
             ProjectionSubject::RecordRow(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),

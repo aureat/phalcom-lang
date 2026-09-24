@@ -45,6 +45,39 @@ fn canonical_targets_survive_revision_changes() {
 }
 
 #[test]
+fn intrinsic_static_facade_source_site_targets_authored_declaration() {
+    let module = ModuleId::universe_root();
+    let parsed = parse("intrinsic type data TupleEntries\n", 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let declaration = DeclarationId::new(module.clone(), "TupleEntries".into());
+    let index = build_source_scope_index(module, &parsed.program, &SourceIndexContext::default());
+    let source = index.declaration_sources.get(&declaration).expect("facade source record");
+    assert!(matches!(
+        index.site(&source.declaration_site).map(|site| &site.kind),
+        Some(phalcom_semantic::SourceSiteKind::Declaration(target)) if target == &declaration
+    ));
+}
+
+#[test]
+fn intrinsic_type_member_source_site_targets_canonical_owner_and_selector() {
+    let module = ModuleId::universe_root();
+    let parsed = parse("intrinsic type data TupleEntries\nnative class Tuple { intrinsic type Entries: TupleEntries }\n", 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let owner = DeclarationId::new(module.clone(), "Tuple".into());
+    let id = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
+        owner,
+        phalcom_semantic::types::type_member::TypeMemberSelector::named("Entries"),
+    );
+    let index = build_source_scope_index(module, &parsed.program, &SourceIndexContext::default());
+    let source = index.type_member_sources.get(&id).expect("type member source record");
+    assert!(matches!(
+        index.site(&source.declaration_site).map(|site| &site.kind),
+        Some(phalcom_semantic::SourceSiteKind::TypeMember(target)) if target == &id
+    ));
+    assert_eq!(index.targets.get(&source.declaration_site), Some(&SemanticTargetId::TypeMember(id)));
+}
+
+#[test]
 fn source_site_ref_rejects_stale_snapshot() {
     let store = TypeStoreId::from_raw(7);
     let first_snapshot = SnapshotId::new(WorkspaceId::from_raw(1), SemanticRevision::from_raw(1), store);

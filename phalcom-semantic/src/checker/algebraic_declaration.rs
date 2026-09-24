@@ -50,6 +50,9 @@ pub fn build_algebraic_semantics_with_static_products(
     static_catalog: Option<&crate::static_case::StaticDomainCaseCatalogProduct>,
     static_signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
 ) -> Option<AlgebraicDeclarationProduct> {
+    if matches!(&def.shape, phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_)) {
+        return None;
+    }
     let mut diagnostics = Vec::new();
 
     let generic_sig = declarations.generic_signature(owner).cloned();
@@ -711,6 +714,7 @@ pub fn build_associated_static_domain_declaration_with_static_products(
                 def.range,
             ));
         }
+        phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_) => {}
     }
     }
 

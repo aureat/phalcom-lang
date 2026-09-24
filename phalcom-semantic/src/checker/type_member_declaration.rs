@@ -109,7 +109,9 @@ pub fn build_type_member_declaration(
     }
 
     let intrinsic = if definition.implementation == ImplementationKind::Intrinsic {
-        let operation = lookup_intrinsic_type_operation(&owner.name, &selector);
+        let operation = declarations
+            .intrinsic_type_owner(owner)
+            .and_then(|owner| lookup_intrinsic_type_operation(owner, &selector));
         if operation.is_none() {
             diagnostics.push(SemanticDiagnostic::error_in(
                 module.clone(),

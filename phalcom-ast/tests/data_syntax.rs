@@ -230,6 +230,24 @@ fn data_impossible_empty_sum() {
 }
 
 #[test]
+fn intrinsic_type_data_facade_has_no_algebraic_shape() {
+    let program = parse_source("intrinsic type data TupleEntries\n", 0).expect("intrinsic facade parses");
+    let Statement::Data(definition) = &program.statements[0] else {
+        panic!("expected data declaration");
+    };
+    assert_eq!(definition.phase, AlgebraicPhase::TypeOnly);
+    assert_eq!(definition.implementation, ImplementationKind::Intrinsic);
+    assert!(!definition.is_product());
+    assert!(!definition.is_sum());
+    assert!(matches!(&definition.shape, phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_)));
+}
+
+#[test]
+fn ordinary_bodiless_type_data_is_rejected() {
+    assert!(parse_source("type data NotIntrinsic\n", 0).is_err());
+}
+
+#[test]
 fn type_data_shape_syntax() {
     let source = "type data Shape {\n  Scalar\n  Vector(_ size: Int)\n}\n";
     let program = parse_source(source, 0).expect("type data parses");

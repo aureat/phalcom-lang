@@ -1,5 +1,6 @@
 use crate::identity::{CallableId, DataComponentId, DeclarationId, FieldId, SourceOwner, SourceSiteId, VariantFamilyId, VariantFieldId, VariantId};
 use crate::traits::AssociatedTypeRequirementId;
+use crate::types::type_member::TypeMemberDeclarationId;
 use phalcom_common::range::SourceRange;
 
 /// Kind of source location recorded in a compiler source index.
@@ -23,6 +24,8 @@ pub enum SourceSiteKind {
     DataComponent(DataComponentId),
     /// Trait-owned associated type declaration site.
     AssociatedType(AssociatedTypeRequirementId),
+    /// Type-member declaration site with canonical owner/selector identity.
+    TypeMember(TypeMemberDeclarationId),
     /// Binding declaration site; target attachment is published separately.
     BindingDeclaration,
     /// Expression site attached to a formal expression product.
