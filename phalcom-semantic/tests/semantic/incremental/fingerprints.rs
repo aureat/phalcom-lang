@@ -52,6 +52,7 @@ fn declaration_shell() -> DeclarationTypeInfo {
         form: TypeId(1),
         class_object_type: TypeId(2),
         kind: KindId::TYPE,
+        binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
         generic_binder_header: None,
         generic_signature: None,
         supertype_template: None,
@@ -256,6 +257,27 @@ fn declaration_shell_product_changes_when_kind_changes() {
 
     assert_ne!(declaration_shell_input_fingerprint(&left), declaration_shell_input_fingerprint(&right));
     assert_ne!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&right));
+}
+
+#[test]
+fn declaration_shell_fingerprint_tracks_intrinsic_application_and_runtime_owner() {
+    use phalcom_semantic::declarations::{DeclarationSemanticForm, IntrinsicRuntimeOwner, IntrinsicTypeApplication};
+
+    let ordinary = declaration_shell();
+    let mut intrinsic = ordinary.clone();
+    intrinsic.binding.semantic_form = DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Tuple);
+    assert_ne!(declaration_shell_input_fingerprint(&ordinary), declaration_shell_input_fingerprint(&intrinsic));
+    assert_ne!(
+        declaration_shell_product_fingerprint(&ordinary),
+        declaration_shell_product_fingerprint(&intrinsic)
+    );
+
+    intrinsic.binding.runtime_owner = Some(IntrinsicRuntimeOwner::Tuple);
+    assert_ne!(declaration_shell_input_fingerprint(&ordinary), declaration_shell_input_fingerprint(&intrinsic));
+    assert_ne!(
+        declaration_shell_product_fingerprint(&ordinary),
+        declaration_shell_product_fingerprint(&intrinsic)
+    );
 }
 
 #[test]

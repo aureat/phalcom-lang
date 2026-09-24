@@ -13,9 +13,9 @@ requires:
   - LANG007.C2
 prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
 prepared: 2026-09-22
-active_plan: null
-latest_completed_plan: LANG007.C3.P3
-next_plan: null
+active_plan: none
+latest_completed_plan: LANG007.C3.P4
+next_plan: none accepted
 ---
 
 # LANG007.C3 — Checkpoint Record
@@ -30,11 +30,11 @@ checkpoint: LANG007.C3
 status: COMPLETE
 completion: IMPLEMENTED
 verification: FOCUSED_TESTED
-active_plan: null
-latest_completed_plan: LANG007.C3.P3
-next_plan: null
-next_action: No successor checkpoint is currently accepted; await the next LANG007 objective.
-deferred: AST snapshots/selector diagnostic, impl witness-plan assertion, runtime constructor-reference failures, and formatter drift reproduce on clean predecessor or completed-P2 baseline; full semantic test-binary run remains incomplete
+active_plan: none
+latest_completed_plan: LANG007.C3.P4
+next_plan: none accepted
+next_action: Await the next explicitly scoped LANG007 objective.
+blocker: none
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -135,8 +135,11 @@ C3 is complete only when this statement is true:
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
 | `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T9 accepted; G-FINAL completed with documented clean-predecessor and formatter baselines; see P2 walkthrough/handoff |
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1-T10 accepted; generic-owner payload behavior fixed; all required C3 coverage has direct evidence or a clean-predecessor baseline disposition; see P3 walkthrough/handoff |
+| `LANG007.C3.P4` | Corrective closure: explicit intrinsic semantic application and runtime/native owner projections | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | user-adopted projections implemented and focused gates passed; see P4 walkthrough/handoff |
 
-No corrective P4 was required; C3 acceptance is complete at focused-tested level.
+P4 is a bounded corrective closure required by the explicit ruling supplied
+after P3 closure. It does not reopen unrelated P1/P2/P3 architecture or expand
+the language model.
 
 ### 4.1 P2 architecture amendment — static cases and static-domain kinds
 
@@ -532,9 +535,10 @@ P3 also owns:
 
 ## 14. Verification ledger
 
-C3 was closed as COMPLETE / IMPLEMENTED / FOCUSED_TESTED after P3 T10. The
-residual clean-predecessor and formatter baselines are recorded below; they do
-not invalidate the focused C3 acceptance evidence.
+C3 was closed as COMPLETE / IMPLEMENTED / FOCUSED_TESTED after P3 T10, then
+reopened for the bounded P4 correction adopted from the user's 2026-09-25
+ruling. P1/P2/P3 remain complete; current C3 closure depends on P4 separating
+the semantic application behavior from the runtime/native owner explicitly.
 
 | Gate | Scope | Result | Meaning |
 |---|---|---|---|
@@ -1066,27 +1070,25 @@ Tuple<***Es>` fails semantic bootstrap because native import cannot find a
 proper `Tuple` owner form after runtime-owner registration. Separately, the
 current type-lambda beta path accepts `TypeId` arguments and cannot apply a
 RecordRow argument to produce `TypeData::Record(RecordRowId)`.
-Decision: pending user consultation. The recommended path is one intrinsic-form
-application route backed by the existing runtime-owner binding: Tuple maps to
-`TupleFromPacks`, Record maps through the existing row-owned `RecordRowId`
-path, and native signature import continues to use the existing runtime class
-form.
-Plan amendment: none until the user adopts the application/runtime projection
-contract. The Tuple data experiment was reverted; do not migrate Tuple/Record
-data forms or weaken the TypeId/RecordRow boundary before then.
-Verification: parser and semantic inherent-impl member tests pass; Unit
-canonical bootstrap and exact existing-class reuse pass. The Tuple intrinsic
-data migration attempt fails as recorded in INC-C3-14.
-Decision-time status (superseded by the resolution below): ARCHITECTURE
-DECISION REQUIRED — T4/G4 remained partial pending user consultation.
+Decision-time status (superseded by the adopted user ruling): the recommended
+path was one intrinsic-form application route backed by the existing
+runtime-owner binding: Tuple maps to `TupleFromPacks`, Record maps through the
+existing row-owned `RecordRowId` path, and native signature import continues
+to use the existing runtime class form.
+Plan amendment: P4 records the adopted application/runtime projection
+contract. The Tuple data experiment was reverted before adoption; no
+TypeId/RecordRow boundary was weakened.
+Decision-time verification: parser and semantic inherent-impl member tests
+passed; Unit canonical bootstrap passed; the earlier Tuple migration attempt
+failed as recorded in INC-C3-14.
 
 Final resolution: the user adopted the recommended application/runtime
 projection contract and confirmed the inherent-impl type-member syntax path.
 Tuple application uses the existing CompleteTypePack/TupleFromPacks route,
 Record application retains RecordRowId, native imports use the existing
-runtime-class projection, and Unit remains store.unit(). T4/G4 and its focused
-structural/runtime/native regressions are complete; see the accepted decision
-in [INC-C3-14.md](INC-C3-14.md) and the final P3 ledger below.
+runtime-class projection, and Unit remains store.unit(). P4 owns the
+corrective semantic/runtime projection work and its focused regressions; see
+the accepted decision in [INC-C3-14.md](INC-C3-14.md) and the active P4 ledger.
 
 Use entries:
 
@@ -1601,25 +1603,23 @@ test with the new Tuple member compiled.
 Current:
 
 ```text
-active plan:
+    active plan:
     none
 
 latest completed plan:
-    LANG007.C3.P3
+    LANG007.C3.P4
 
 next task:
-    none currently accepted
+    none accepted
 
 next action:
-    C3 is complete at focused-tested level. No successor checkpoint is
-    currently accepted; await the next LANG007 objective. Preserve the
-    documented graph-build/SCC performance follow-up as a future performance
-    task only if separately accepted.
+    Await the next explicitly scoped LANG007 objective. P4 restores C3 closure
+    at focused-tested level; it does not claim release certification.
+```
 
-The paragraph above is a historical continuation snapshot and is superseded
-by the final T9/T10 certification state below. At that earlier point T9 was
-still open while the generic-owner payload contract and remaining certification
-were being investigated.
+P3's final T9/T10 certification section below records the previously completed
+P3 state. It is retained as historical evidence; P4 is the completed
+corrective closure and the current C3 lifecycle state is shown above.
 
 ## 21. P3 certification and closure checkpoint — 2026-09-25
 
@@ -1709,6 +1709,7 @@ C3 may be marked `COMPLETE` only when:
 [x] P1 complete
 [x] P2 complete
 [x] P3 complete
+[x] P4 corrective closure complete
 [x] unified algebraic source/semantic model implemented
 [x] type-data static domains implemented
 [x] heterogeneous static application implemented
@@ -1724,5 +1725,50 @@ C3 may be marked `COMPLETE` only when:
 [x] checkpoint state truthful
 [x] successor action explicit
 ```
+
+## 23. P4 corrective closure — 2026-09-25
+
+P4 reopens and resolves the binding-projection defect discovered at the P3
+T4 endpoint. One canonical `DeclarationTypeInfo` now retains semantic
+application behavior and optional runtime/native ownership as sibling fields.
+Semantic annotation formation selects Unit/Tuple/Record behavior from the
+semantic discriminator; native import and runtime facade lowering use the
+runtime owner. Ordinary declaration-shell refresh preserves already-registered
+projections, and the declaration-shell fingerprint includes both.
+
+The fixed authorities remain intact: Unit is `store.unit()` semantically and
+reuses its preinstalled VM class; Tuple consumes `CompleteTypePack` and
+canonicalizes through `TupleFromPacks`; Record consumes `RecordRowId` and
+produces the existing `TypeData::Record`; native Tuple surfaces resolve to the
+existing Tuple declaration/class; `AssociatedSurface` and type-member identity
+are unchanged. No extra runtime/semantic owner registry or RecordRow-to-TypeId
+conversion was introduced.
+
+P4 focused evidence:
+
+- semantic declarations: 8 passed;
+- semantic type annotations, including ordinary type-lambda applications and
+  Tuple/Record without a runtime projection: 51 passed;
+- semantic native Tuple runtime-owner import: 1 passed;
+- semantic declaration-shell fingerprints: 34 passed;
+- semantic associated/type-member closure, including `TupleEntries` over
+  concrete and symbolic Tuple: 10 passed;
+- semantic incremental type-member suite: 24 passed;
+- core Unit intrinsic facade reuses the preinstalled class: 1 passed.
+
+The first core rerun exposed that an ordinary shell refresh could erase the
+registered sibling projections. The `DeclarationTypeTable::insert` refresh
+path was corrected and regression-tested; the core Unit test then passed. The
+projection-isolation annotation fixtures now remove the existing declaration
+before inserting their intentionally owner-free copy. All listed focused gates
+pass on the final implementation. The read-only `cargo fmt --all -- --check`
+remains non-green with repository-wide formatter drift already classified on
+clean predecessors; no broad reformat was applied. No workspace/release
+certification was run; earlier clean-predecessor and incomplete full-binary
+baselines remain deferred and are not P4 blockers.
+
+Final checkpoint state: `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+P4 walkthrough: [LANG007.C3.P4-walkthrough.md](LANG007.C3.P4-walkthrough.md).
+P4 handoff: [LANG007.C3.P4-handoff.md](LANG007.C3.P4-handoff.md).
 
 Do not infer `RELEASE_COMPLETE` from this truth table.

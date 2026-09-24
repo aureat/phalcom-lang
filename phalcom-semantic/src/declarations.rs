@@ -34,22 +34,67 @@ impl GenericSupertypeTemplate {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeclarationTypeInfo {
     pub declaration: DeclarationId,
+    /// Bare/source declaration identity used by existing nominal consumers.
     pub form: TypeId,
     pub class_object_type: TypeId,
     pub kind: KindId,
+    /// Semantic application behavior and runtime/native ownership are sibling
+    /// projections. Intrinsic application never has to infer its behavior from
+    /// the runtime owner selected by native import.
+    pub binding: DeclarationTypeBinding,
     pub generic_binder_header: Option<GenericBinderHeader>,
     pub generic_signature: Option<GenericSignature>,
     pub supertype_template: Option<GenericSupertypeTemplate>,
 }
 
+/// Semantic type-application behavior for a canonical declaration.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum DeclarationSemanticForm {
+    /// Use the declaration's ordinary TypeId form and existing application rules.
+    #[default]
+    Ordinary,
+    /// Use the closed intrinsic structural application owned by this declaration.
+    Intrinsic(IntrinsicTypeApplication),
+}
+
+/// Compiler-owned application behavior exposed through an intrinsic declaration.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum IntrinsicTypeApplication {
+    /// The canonical zero-element product, represented by `TypeStore::unit`.
+    Unit,
+    /// A complete type pack applied through the existing TupleFromPacks family.
+    Tuple,
+    /// A RecordRow identity applied through the existing Record representation.
+    Record,
+}
+
 /// Existing runtime authority projected by an intrinsic structural data declaration.
 /// The declaration ID is only the authored source anchor; VM classes and structural
 /// TypeStore values remain owned by their existing subsystems.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum IntrinsicRuntimeOwner {
     Unit,
     Tuple,
     Record,
+}
+
+/// The two projections retained by one declaration type record.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct DeclarationTypeBinding {
+    /// Semantic application behavior. The base TypeId remains in `DeclarationTypeInfo::form`.
+    pub semantic_form: DeclarationSemanticForm,
+    /// Existing VM/native owner, when this declaration has one.
+    pub runtime_owner: Option<IntrinsicRuntimeOwner>,
+}
+
+impl DeclarationTypeBinding {
+    /// Ordinary declaration binding with no special application or runtime projection.
+    pub const fn ordinary() -> Self {
+        Self {
+            semantic_form: DeclarationSemanticForm::Ordinary,
+            runtime_owner: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -119,6 +164,7 @@ impl NominalDeclarationHeader {
             form: self.form,
             class_object_type: self.class_object_type,
             kind: self.kind,
+            binding: DeclarationTypeBinding::ordinary(),
             generic_binder_header: self.generic_binder_header,
             generic_signature: self.generic_signature,
             supertype_template,
@@ -131,7 +177,6 @@ pub struct DeclarationTypeTable {
     entries: HashMap<DeclarationId, DeclarationTypeInfo>,
     intrinsic_static_domains: HashMap<DeclarationId, KindId>,
     intrinsic_type_owners: HashMap<DeclarationId, IntrinsicTypeOwner>,
-    intrinsic_runtime_owners: HashMap<DeclarationId, IntrinsicRuntimeOwner>,
 }
 
 impl DeclarationTypeTable {
@@ -139,9 +184,30 @@ impl DeclarationTypeTable {
         Self::default()
     }
 
-    pub fn insert(&mut self, info: DeclarationTypeInfo) {
+    pub fn insert(&mut self, mut info: DeclarationTypeInfo) {
+        // Header/query products may refresh the ordinary declaration shell
+        // after Universe bootstrap. Preserve independently registered
+        // intrinsic projections when that refreshed shell carries only the
+        // ordinary default binding.
+        if let Some(existing) = self.entries.get(&info.declaration) {
+            if info.binding.semantic_form == DeclarationSemanticForm::Ordinary {
+                info.binding.semantic_form = existing.binding.semantic_form;
+            }
+            if info.binding.runtime_owner.is_none() {
+                info.binding.runtime_owner = existing.binding.runtime_owner;
+            }
+        }
         self.intrinsic_static_domains.remove(&info.declaration);
-        if !self.intrinsic_runtime_owners.contains_key(&info.declaration) {
+        if let Some(owner) = info.binding.runtime_owner {
+            let type_owner = match owner {
+                IntrinsicRuntimeOwner::Tuple => Some(IntrinsicTypeOwner::Tuple),
+                IntrinsicRuntimeOwner::Record => Some(IntrinsicTypeOwner::Record),
+                IntrinsicRuntimeOwner::Unit => None,
+            };
+            if let Some(type_owner) = type_owner {
+                self.intrinsic_type_owners.insert(info.declaration.clone(), type_owner);
+            }
+        } else {
             self.intrinsic_type_owners.remove(&info.declaration);
         }
         self.entries.insert(info.declaration.clone(), info);
@@ -170,25 +236,45 @@ impl DeclarationTypeTable {
 
     /// Registers an authored runtime facade against its existing platform owner.
     /// This association does not allocate a nominal data type or runtime class.
-    pub fn register_intrinsic_runtime_owner(&mut self, declaration: DeclarationId, owner: IntrinsicRuntimeOwner) {
-        self.intrinsic_static_domains.remove(&declaration);
+    /// Records only the declaration's semantic type-application behavior.
+    pub fn register_intrinsic_semantic_form(&mut self, declaration: &DeclarationId, semantic_form: DeclarationSemanticForm) -> bool {
+        let Some(info) = self.entries.get_mut(declaration) else {
+            return false;
+        };
+        info.binding.semantic_form = semantic_form;
+        self.intrinsic_static_domains.remove(declaration);
+        true
+    }
+
+    /// Adds the existing runtime/native owner without changing semantic form.
+    pub fn register_intrinsic_runtime_owner(&mut self, declaration: &DeclarationId, owner: IntrinsicRuntimeOwner) -> bool {
+        let Some(info) = self.entries.get_mut(declaration) else {
+            return false;
+        };
+        info.binding.runtime_owner = Some(owner);
         let type_owner = match owner {
-            IntrinsicRuntimeOwner::Unit => None,
             IntrinsicRuntimeOwner::Tuple => Some(IntrinsicTypeOwner::Tuple),
             IntrinsicRuntimeOwner::Record => Some(IntrinsicTypeOwner::Record),
+            IntrinsicRuntimeOwner::Unit => None,
         };
         if let Some(type_owner) = type_owner {
             self.intrinsic_type_owners.insert(declaration.clone(), type_owner);
         }
-        self.intrinsic_runtime_owners.insert(declaration, owner);
+        true
     }
 
     pub fn intrinsic_runtime_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicRuntimeOwner> {
-        self.intrinsic_runtime_owners.get(declaration).copied()
+        self.entries.get(declaration).and_then(|info| info.binding.runtime_owner)
     }
 
     pub fn intrinsic_runtime_declarations(&self) -> impl Iterator<Item = (&DeclarationId, IntrinsicRuntimeOwner)> {
-        self.intrinsic_runtime_owners.iter().map(|(declaration, owner)| (declaration, *owner))
+        self.entries
+            .iter()
+            .filter_map(|(declaration, info)| info.binding.runtime_owner.map(|owner| (declaration, owner)))
+    }
+
+    pub fn semantic_form(&self, declaration: &DeclarationId) -> Option<DeclarationSemanticForm> {
+        self.entries.get(declaration).map(|info| info.binding.semantic_form)
     }
 
     pub fn intrinsic_type_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicTypeOwner> {
@@ -210,7 +296,6 @@ impl DeclarationTypeTable {
     pub fn remove(&mut self, declaration: &DeclarationId) -> Option<DeclarationTypeInfo> {
         self.intrinsic_static_domains.remove(declaration);
         self.intrinsic_type_owners.remove(declaration);
-        self.intrinsic_runtime_owners.remove(declaration);
         self.entries.remove(declaration)
     }
 
@@ -229,6 +314,7 @@ impl DeclarationTypeTable {
     /// Returns the proper runtime class projection used by native surface import.
     /// Source type formation may use the same declaration's structural form.
     pub fn runtime_form(&self, store: &mut TypeStore, declaration: &DeclarationId) -> Option<TypeId> {
+        self.get(declaration)?;
         self.intrinsic_runtime_owner(declaration)
             .map(|_| store.nominal_type(declaration.clone()))
             .or_else(|| self.form(declaration))
@@ -335,6 +421,7 @@ fn insert_source_nominal(table: &mut DeclarationTypeTable, store: &mut TypeStore
         declaration,
         form,
         kind,
+        binding: DeclarationTypeBinding::ordinary(),
         generic_binder_header: generic_signature
             .as_ref()
             .map(|signature| GenericBinderHeader::from_signature(store, signature)),
@@ -373,10 +460,13 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
                 Statement::Class(class_def) => {
                     source_nominals.insert((module.clone(), class_def.name.clone()));
                     let declaration = source_declaration_identity(&module, &class_def.name, universe_resolver);
-                    if let Some(owner) = intrinsic_runtime_owner_for_source(&module, &class_def.name) {
-                        table.register_intrinsic_runtime_owner(declaration.clone(), owner);
-                    }
                     insert_source_nominal(&mut table, store, declaration.clone(), &class_def.generic_parameters);
+                    if let Some(binding) = intrinsic_binding_for_source(&module, &class_def.name) {
+                        table.register_intrinsic_semantic_form(&declaration, binding.semantic_form);
+                        if let Some(owner) = binding.runtime_owner {
+                            table.register_intrinsic_runtime_owner(&declaration, owner);
+                        }
+                    }
                     let tuple_module = source_module_id(&["collections", "tuple"]);
                     let record_module = source_module_id(&["collections", "record"]);
                     match (module.eq(&tuple_module), module.eq(&record_module), class_def.name.as_str()) {
@@ -392,15 +482,19 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
                             if let Some(kind) = intrinsic_static_facade_kind(&module, &data_def.name) {
                                 table.register_intrinsic_static_domain(declaration, kind);
                             }
-                        } else if let Some(owner) = intrinsic_runtime_owner_for_source(&module, &data_def.name) {
-                            table.register_intrinsic_runtime_owner(declaration.clone(), owner);
+                        } else if let Some(binding) = intrinsic_binding_for_source(&module, &data_def.name) {
                             source_nominals.insert((module.clone(), data_def.name.clone()));
                             insert_source_nominal(&mut table, store, declaration.clone(), &data_def.generic_parameters);
+                            let semantic_registered = table.register_intrinsic_semantic_form(&declaration, binding.semantic_form);
+                            let owner_registered = binding
+                                .runtime_owner
+                                .is_some_and(|owner| table.register_intrinsic_runtime_owner(&declaration, owner));
+                            debug_assert!(semantic_registered && owner_registered, "intrinsic data shell projections were just registered");
                             if let Some(info) = table.entries.get_mut(&declaration) {
-                                // GenericBinderHeader describes the structural
-                                // source application. The declaration form stays
-                                // the existing proper runtime class projection.
-                                info.form = match owner {
+                                // The binding owns semantic application behavior
+                                // independently; the base form remains the
+                                // existing bare/runtime class identity.
+                                info.form = match binding.runtime_owner.expect("canonical intrinsic runtime facade has an owner") {
                                     IntrinsicRuntimeOwner::Unit => store.unit(),
                                     IntrinsicRuntimeOwner::Tuple | IntrinsicRuntimeOwner::Record => store.nominal_type(declaration.clone()),
                                 };
@@ -438,14 +532,23 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
     table
 }
 
-fn intrinsic_runtime_owner_for_source(module: &ModuleId, name: &str) -> Option<IntrinsicRuntimeOwner> {
+fn intrinsic_binding_for_source(module: &ModuleId, name: &str) -> Option<DeclarationTypeBinding> {
     let unit_module = source_module_id(&["option", "unit"]);
     let tuple_module = source_module_id(&["collections", "tuple"]);
     let record_module = source_module_id(&["collections", "record"]);
     match (module, name) {
-        (module, "Unit") if module == &unit_module => Some(IntrinsicRuntimeOwner::Unit),
-        (module, "Tuple") if module == &tuple_module => Some(IntrinsicRuntimeOwner::Tuple),
-        (module, "Record") if module == &record_module => Some(IntrinsicRuntimeOwner::Record),
+        (module, "Unit") if module == &unit_module => Some(DeclarationTypeBinding {
+            semantic_form: DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Unit),
+            runtime_owner: Some(IntrinsicRuntimeOwner::Unit),
+        }),
+        (module, "Tuple") if module == &tuple_module => Some(DeclarationTypeBinding {
+            semantic_form: DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Tuple),
+            runtime_owner: Some(IntrinsicRuntimeOwner::Tuple),
+        }),
+        (module, "Record") if module == &record_module => Some(DeclarationTypeBinding {
+            semantic_form: DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Record),
+            runtime_owner: Some(IntrinsicRuntimeOwner::Record),
+        }),
         _ => None,
     }
 }

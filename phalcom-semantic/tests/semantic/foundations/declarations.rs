@@ -114,27 +114,76 @@ fn source_declared_runtime_support_class_remains_semantic_declaration() {
 
 #[test]
 fn runtime_structural_declarations_bind_canonical_platform_owners() {
-    use phalcom_semantic::declarations::IntrinsicRuntimeOwner;
+    use phalcom_semantic::declarations::{DeclarationSemanticForm, IntrinsicRuntimeOwner, IntrinsicTypeApplication};
 
     let mut store = TypeStore::new();
     let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
 
-    for (key, owner) in [
-        (UniverseKey::Unit, IntrinsicRuntimeOwner::Unit),
-        (UniverseKey::Tuple, IntrinsicRuntimeOwner::Tuple),
-        (UniverseKey::Record, IntrinsicRuntimeOwner::Record),
+    for (key, owner, application) in [
+        (UniverseKey::Unit, IntrinsicRuntimeOwner::Unit, IntrinsicTypeApplication::Unit),
+        (UniverseKey::Tuple, IntrinsicRuntimeOwner::Tuple, IntrinsicTypeApplication::Tuple),
+        (UniverseKey::Record, IntrinsicRuntimeOwner::Record, IntrinsicTypeApplication::Record),
     ] {
         let declaration = universe_declaration(key);
         assert_eq!(declarations.intrinsic_runtime_owner(&declaration), Some(owner));
+        assert_eq!(declarations.semantic_form(&declaration), Some(DeclarationSemanticForm::Intrinsic(application)));
+        assert_eq!(declarations.get(&declaration).unwrap().binding.runtime_owner, Some(owner));
         assert!(
             declarations.contains(&declaration),
-            "runtime source facade retains a semantic declaration projection"
+            "runtime source facade retains both declaration projections"
         );
+        let expected_runtime_form = store.nominal_type(declaration.clone());
+        assert_eq!(declarations.runtime_form(&mut store, &declaration), Some(expected_runtime_form));
     }
     assert_eq!(declarations.form(&universe_declaration(UniverseKey::Unit)), Some(store.unit()));
     let unit = universe_declaration(UniverseKey::Unit);
     let unit_runtime_form = store.nominal_type(unit.clone());
     assert_eq!(declarations.runtime_form(&mut store, &unit), Some(unit_runtime_form));
+}
+
+#[test]
+fn runtime_owner_registration_preserves_intrinsic_semantic_application() {
+    use phalcom_semantic::declarations::{
+        DeclarationSemanticForm, DeclarationTypeBinding, DeclarationTypeInfo, IntrinsicRuntimeOwner, IntrinsicTypeApplication,
+    };
+
+    let mut store = TypeStore::new();
+    let mut declarations = phalcom_semantic::declarations::DeclarationTypeTable::new();
+    let tuple = DeclarationId::new(ModuleId::universe_root(), "TupleFacade".into());
+    let form = store.nominal_type(tuple.clone());
+    declarations.insert(DeclarationTypeInfo {
+        declaration: tuple.clone(),
+        form,
+        class_object_type: store.class_object_type(tuple.clone()),
+        kind: KindId::TYPE,
+        binding: DeclarationTypeBinding {
+            semantic_form: DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Tuple),
+            runtime_owner: None,
+        },
+        generic_binder_header: None,
+        generic_signature: None,
+        supertype_template: None,
+    });
+
+    assert!(declarations.register_intrinsic_runtime_owner(&tuple, IntrinsicRuntimeOwner::Tuple));
+    let binding = &declarations.get(&tuple).unwrap().binding;
+    assert_eq!(binding.semantic_form, DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Tuple));
+    assert_eq!(binding.runtime_owner, Some(IntrinsicRuntimeOwner::Tuple));
+    assert_eq!(declarations.form(&tuple), Some(form));
+
+    declarations.insert(DeclarationTypeInfo {
+        declaration: tuple.clone(),
+        form,
+        class_object_type: store.class_object_type(tuple.clone()),
+        kind: KindId::TYPE,
+        binding: DeclarationTypeBinding::ordinary(),
+        generic_binder_header: None,
+        generic_signature: None,
+        supertype_template: None,
+    });
+    let refreshed = &declarations.get(&tuple).unwrap().binding;
+    assert_eq!(refreshed.semantic_form, DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Tuple));
+    assert_eq!(refreshed.runtime_owner, Some(IntrinsicRuntimeOwner::Tuple));
 }
 
 #[test]

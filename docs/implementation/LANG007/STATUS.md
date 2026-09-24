@@ -15,12 +15,12 @@ prepared: 2026-09-21
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
 | `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C3` | frozen C2 substrate |
-| `LANG007.C3` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | none accepted | frozen C3 substrate; deferred clean-predecessor and formatter baselines are recorded |
+| `LANG007.C3` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | none accepted | P4 corrective closure complete; historical clean-predecessor and formatter baselines remain recorded |
 
 ## Current program state
 
-LANG007.C1, C2, and C3 are complete and focused-tested. No successor
-checkpoint or plan is currently accepted.
+LANG007.C1, C2, and C3 are complete and focused-tested. P3's closure remains
+historical evidence; the adopted P4 corrective closure now completes C3.
 
 Current truth:
 
@@ -34,11 +34,11 @@ next_plan: No accepted successor checkpoint; await the next LANG007 objective.
 ```
 
 `LANG007.C1`, `C2`, and `C3` are complete at focused-tested level. P3 fixed
-the generic associated static-domain payload signature defect and certified
-the remaining coverage. Repository-wide formatter drift and the documented
-AST/impl-query/runtime failures reproduce on clean predecessors and remain
-deferred; the full semantic test-binary run is incomplete. This state does not
-claim release certification.
+the generic associated static-domain payload signature defect; P4 resolves the
+adopted intrinsic binding projection correction. Repository-wide formatter
+drift and documented AST/impl-query/runtime failures reproduce on clean
+predecessors and remain deferred; the full semantic test-binary run is
+incomplete. This state does not claim release certification.
 
 Implementation, focused testing, and release certification are separate evidence states.
 
@@ -74,6 +74,12 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 | `LANG007.C3.P1` | unified algebraic data declarations and type-data foundation | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P2` | general static domains, heterogeneous application/inference, associated type data | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P3` | intrinsic structural surface, Universe/corpus/tooling migration, certification and closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C3.P4` | explicit intrinsic semantic application and runtime/native owner projections | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+
+P4 corrective closeout records:
+
+- `LANG007.C3/LANG007.C3.P4-walkthrough.md`
+- `LANG007.C3/LANG007.C3.P4-handoff.md`
 
 P3 closeout records:
 

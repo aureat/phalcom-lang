@@ -609,4 +609,30 @@ mod tests {
         assert_eq!(report.fingerprint, catalog_fingerprint_for(&[GENERIC_RECORD]));
         assert_eq!(callable.owner, crate::core_surface::universe_declaration(UniverseKey::Object));
     }
+
+    #[test]
+    fn intrinsic_tuple_native_import_uses_runtime_owner_projection() {
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &crate::core_surface::universe_declaration);
+        let tuple = crate::core_surface::universe_declaration(UniverseKey::Tuple);
+        let mut tuple_info = declarations.get(&tuple).expect("canonical Tuple declaration").clone();
+        let semantic_only_form = store.unit();
+        tuple_info.form = semantic_only_form;
+        let mut declarations = declarations;
+        declarations.insert(tuple_info);
+        let runtime_form = declarations.runtime_form(&mut store, &tuple).expect("Tuple runtime projection");
+        assert_ne!(runtime_form, semantic_only_form);
+
+        let mut dispatch = SurfaceDispatchResolver::new();
+        let resolver = crate::types::annotation::SimpleTypeResolver::new();
+        let report = register_native_surfaces(&mut store, &declarations, &resolver, &crate::identity::ModuleId::universe_root(), &mut dispatch)
+            .expect("native catalog imports through the runtime projection");
+
+        assert!(
+            report.callable_signatures.iter().any(|(callable, _)| callable.owner == tuple),
+            "canonical Tuple native methods retain the Tuple declaration owner"
+        );
+        assert_eq!(dispatch.declaration_for_type(runtime_form), Some(&tuple));
+        assert_eq!(dispatch.declaration_for_type(semantic_only_form), None);
+    }
 }

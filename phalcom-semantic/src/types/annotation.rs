@@ -18,7 +18,7 @@ use super::type_member::{
     IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
 };
 use super::variance::Variance;
-use crate::declarations::DeclarationTypeTable;
+use crate::declarations::{DeclarationSemanticForm, DeclarationTypeTable, IntrinsicTypeApplication};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
@@ -962,22 +962,21 @@ fn lower_scoped_type_form(
             }
         }
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
-            let runtime_constructor = if let TypeAnnotationExpr::Reference(reference) = &origin.expr {
+            let intrinsic_constructor = if let TypeAnnotationExpr::Reference(reference) = &origin.expr {
                 let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
                 resolver
                     .resolve_type_name(current_module, &reference.root, &members)
-                    .filter(|declaration| declarations.intrinsic_runtime_owner(declaration).is_some())
+                    .filter(|declaration| matches!(declarations.semantic_form(declaration), Some(DeclarationSemanticForm::Intrinsic(_))))
                     .and_then(|declaration| declarations.form(&declaration))
             } else {
                 None
             };
-            let scoped_origin = if let Some(form) = runtime_constructor {
+            let scoped_origin = if let Some(form) = intrinsic_constructor {
                 intern_scoped_free(store, form)
             } else {
                 scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, origin, diagnostics))
             };
-            if intrinsic_runtime_owner_for_scoped_form(store, declarations, scoped_origin)
-                == Some(crate::declarations::IntrinsicRuntimeOwner::Record)
+            if intrinsic_type_application_for_scoped_form(store, declarations, scoped_origin) == Some(IntrinsicTypeApplication::Record)
                 && arguments.len() == 1
             {
                 if let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = &arguments[0] {
@@ -1100,8 +1099,7 @@ fn lower_scoped_type_form(
                         GenericParameterMode::Single => return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax),
                     });
                 }
-                if intrinsic_runtime_owner_for_scoped_form(store, declarations, scoped_origin)
-                    == Some(crate::declarations::IntrinsicRuntimeOwner::Tuple)
+                if intrinsic_type_application_for_scoped_form(store, declarations, scoped_origin) == Some(IntrinsicTypeApplication::Tuple)
                     && lowered.len() == 1
                 {
                     if let ScopedTypeData::CompleteTypePack { positionals, labeled } = store.arena().get_scoped(lowered[0]).clone() {
@@ -1619,13 +1617,16 @@ fn generic_application_contract(store: &TypeStore, declarations: &DeclarationTyp
     }
 }
 
-fn intrinsic_runtime_owner_for_form(
+fn intrinsic_type_application_for_form(
     store: &TypeStore,
     declarations: &DeclarationTypeTable,
     origin: TypeId,
-) -> Option<crate::declarations::IntrinsicRuntimeOwner> {
+) -> Option<IntrinsicTypeApplication> {
     let declaration = store.nominal_origin_declaration(origin)?;
-    declarations.intrinsic_runtime_owner(declaration)
+    match declarations.semantic_form(declaration)? {
+        DeclarationSemanticForm::Ordinary => None,
+        DeclarationSemanticForm::Intrinsic(application) => Some(application),
+    }
 }
 
 fn scoped_generic_application_contract(
@@ -1640,15 +1641,15 @@ fn scoped_generic_application_contract(
     }
 }
 
-fn intrinsic_runtime_owner_for_scoped_form(
+fn intrinsic_type_application_for_scoped_form(
     store: &TypeStore,
     declarations: &DeclarationTypeTable,
     origin: crate::types::id::ScopedTypeId,
-) -> Option<crate::declarations::IntrinsicRuntimeOwner> {
+) -> Option<IntrinsicTypeApplication> {
     let ScopedTypeData::Free(origin) = store.arena().get_scoped(origin) else {
         return None;
     };
-    intrinsic_runtime_owner_for_form(store, declarations, *origin)
+    intrinsic_type_application_for_form(store, declarations, *origin)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1973,10 +1974,7 @@ pub fn resolve_type_form(
 
             let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
             if let Some(decl) = resolver.resolve_type_name(current_module, &sym_ref.root, &members) {
-                let runtime_form = declarations
-                    .intrinsic_runtime_owner(&decl)
-                    .and_then(|_| declarations.runtime_form(store, &decl));
-                if let Some(form) = runtime_form.or_else(|| declarations.form(&decl)).or_else(|| resolver.resolve_alias_form(&decl)) {
+                if let Some(form) = declarations.form(&decl).or_else(|| resolver.resolve_alias_form(&decl)) {
                     TypeFormResolution::Ready(form)
                 } else {
                     TypeFormResolution::Missing(TypeFormationMissing::DeclarationProduct(decl))
@@ -1996,7 +1994,7 @@ pub fn resolve_type_form(
                 let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
                 resolver
                     .resolve_type_name(current_module, &reference.root, &members)
-                    .filter(|declaration| declarations.intrinsic_runtime_owner(declaration).is_some())
+                    .filter(|declaration| matches!(declarations.semantic_form(declaration), Some(DeclarationSemanticForm::Intrinsic(_))))
                     .and_then(|declaration| declarations.form(&declaration))
                     .map(TypeFormResolution::Ready)
                     .unwrap_or_else(|| resolve_type_form(store, declarations, resolver, site, origin, diagnostics))
@@ -2018,7 +2016,7 @@ pub fn resolve_type_form(
             // RecordRow is a separate semantic identity, not a TypeId generic
             // argument. Consume a bound row directly and form the existing
             // structural Record value at this declaration-owned boundary.
-            if intrinsic_runtime_owner_for_form(store, declarations, origin_ty) == Some(crate::declarations::IntrinsicRuntimeOwner::Record) {
+            if intrinsic_type_application_for_form(store, declarations, origin_ty) == Some(IntrinsicTypeApplication::Record) {
                 if arguments.len() != 1 {
                     return TypeFormResolution::Invalid(TypeFormationInvalid::TooManyTypeArguments);
                 }
@@ -2215,7 +2213,7 @@ pub fn resolve_type_form(
                             }
                         }
                     }
-                    if intrinsic_runtime_owner_for_form(store, declarations, origin_ty) == Some(crate::declarations::IntrinsicRuntimeOwner::Tuple)
+                    if intrinsic_type_application_for_form(store, declarations, origin_ty) == Some(IntrinsicTypeApplication::Tuple)
                         && canonical_arguments.len() == 1
                     {
                         let complete = canonical_arguments[0];

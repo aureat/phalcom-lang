@@ -1305,6 +1305,7 @@ fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
         form,
         class_object_type,
         kind,
+        binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
         generic_binder_header: Some(phalcom_semantic::types::parameter::GenericBinderHeader::from_signature(&env.store, &signature)),
         generic_signature: Some(signature),
         supertype_template: None,
@@ -1368,6 +1369,11 @@ fn tuple_pack_expansion_preserves_an_abstract_positional_lane() {
 fn intrinsic_tuple_application_reuses_the_complete_pack_structural_family() {
     let mut env = setup();
     let tuple = DeclarationId::new(env.module.clone(), "Tuple".into());
+    let mut tuple_binding = env.declarations.get(&tuple).expect("canonical Tuple binding").clone();
+    tuple_binding.binding.runtime_owner = None;
+    env.declarations.remove(&tuple);
+    env.declarations.insert(tuple_binding);
+    assert_eq!(env.declarations.intrinsic_runtime_owner(&tuple), None);
     env.resolver.insert("Tuple", tuple);
     let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "TupleAlias".into()));
     let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "P", KindId::TYPE_PACK));
@@ -1408,6 +1414,11 @@ fn intrinsic_tuple_application_reuses_the_complete_pack_structural_family() {
 fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() {
     let mut env = setup();
     let record = DeclarationId::new(env.module.clone(), "Record".into());
+    let mut record_binding = env.declarations.get(&record).expect("canonical Record binding").clone();
+    record_binding.binding.runtime_owner = None;
+    env.declarations.remove(&record);
+    env.declarations.insert(record_binding);
+    assert_eq!(env.declarations.intrinsic_runtime_owner(&record), None);
     env.resolver.insert("Record", record);
     let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "RecordAlias".into()));
     let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "R", KindId::RECORD_ROW));

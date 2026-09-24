@@ -658,6 +658,7 @@ impl SemanticWorkspaceSession {
                 form,
                 class_object_type,
                 kind: KindId::TYPE,
+                binding: crate::declarations::DeclarationTypeBinding::ordinary(),
                 generic_binder_header: None,
                 generic_signature: None,
                 supertype_template: None,
@@ -768,6 +769,7 @@ impl SemanticWorkspaceSession {
                         form,
                         class_object_type: store.class_object_type(decl_id.clone()),
                         kind,
+                        binding: crate::declarations::DeclarationTypeBinding::ordinary(),
                         generic_binder_header: generic_signature
                             .as_ref()
                             .map(|signature| GenericBinderHeader::from_signature(&store, signature)),
@@ -2271,6 +2273,7 @@ impl SemanticWorkspaceSession {
                         form,
                         class_object_type: class_obj_type,
                         kind,
+                        binding: crate::declarations::DeclarationTypeBinding::ordinary(),
                         generic_binder_header: None,
                         generic_signature: None,
                         supertype_template: None,
@@ -2300,6 +2303,7 @@ impl SemanticWorkspaceSession {
                         form,
                         class_object_type,
                         kind,
+                        binding: crate::declarations::DeclarationTypeBinding::ordinary(),
                         generic_binder_header: None,
                         generic_signature: None,
                         supertype_template: None,

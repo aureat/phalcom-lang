@@ -334,6 +334,7 @@ fn hash_generic_supertype_template(template: &GenericSupertypeTemplate, hasher: 
 fn hash_declaration_type_info(info: &DeclarationTypeInfo, hasher: &mut impl Hasher) {
     info.declaration.hash(hasher);
     info.kind.hash(hasher);
+    info.binding.hash(hasher);
     match &info.generic_binder_header {
         Some(header) => {
             1u8.hash(hasher);

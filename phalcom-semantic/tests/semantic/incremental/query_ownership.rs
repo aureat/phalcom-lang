@@ -260,6 +260,7 @@ class Owner {
         form: store.nominal_type(owner.clone()),
         class_object_type: store.class_object_type(owner.clone()),
         kind: KindId::TYPE,
+        binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
         generic_binder_header: None,
         generic_signature: None,
         supertype_template: None,

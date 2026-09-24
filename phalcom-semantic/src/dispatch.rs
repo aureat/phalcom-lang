@@ -309,6 +309,11 @@ impl SurfaceDispatchResolver {
         self.surfaces.get(decl_id)
     }
 
+    /// Returns the declaration selected as the runtime/native owner for a registered type form.
+    pub fn declaration_for_type(&self, ty: TypeId) -> Option<&DeclarationId> {
+        self.type_declarations.get(&ty)
+    }
+
     /// Returns the canonical owner/side traversal for one dispatch receiver.
     ///
     /// Class-object dispatch first walks the parallel class-side hierarchy.

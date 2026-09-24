@@ -57,8 +57,9 @@ Current numbered plans for C2:
 C3 establishes unified algebraic declarations (`data` for runtime products
 and sums, `type data` for type-level static domains), nominal static-domain
 identity, canonical static terms, heterogeneous static applications, and
-intrinsic structural-domain exposure. P3 closed C3 at focused-tested level;
-the program records deferred repository baselines and does not claim release
+intrinsic structural-domain exposure. P4 completes the adopted correction that
+separates intrinsic semantic application from runtime/native owner projection.
+Deferred repository baselines remain recorded; this does not claim release
 certification.
 
 Current numbered plans for C3:
@@ -66,9 +67,9 @@ Current numbered plans for C3:
 - `LANG007.C3.P1` — unified algebraic data declarations and type-data foundation — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C3.P2` — general static domains, heterogeneous application/inference, associated type data — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C3.P3` — intrinsic structural surface, Universe/corpus migration, certification and closure — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+- `LANG007.C3.P4` — explicit intrinsic semantic application and runtime/native owner projections — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 
-No successor checkpoint or plan is currently accepted. Do not invent a C4/P4;
-wait for the next scoped LANG007 objective.
+No successor checkpoint or plan is currently accepted; no C4 is implied.
 
 C1 is the first implementation checkpoint. It establishes the canonical domains, type-member identity/projection machinery, structural operations, persistence/inference integration, and runtime boundary required for:
 
@@ -170,15 +171,15 @@ verification: FOCUSED_TESTED
 active checkpoint: none
 active_plan: none
 next checkpoint: none accepted
-next task: none accepted
+next task: Await the next scoped LANG007 objective.
 ```
 
-`LANG007.C1`, `C2`, and `C3` are complete at focused-tested level. P3 fixed
-the generic associated static-domain payload signature defect and completed
-the planned focused certification. The checkpoint records inherited AST,
-impl-query, and runtime baselines, formatter drift, and the incomplete full
-semantic test-binary run. LANG007 remains in progress for future scoped work;
-this does not claim release certification.
+`LANG007.C1`, `C2`, and `C3` are complete at focused-tested level. P3 fixed the
+generic associated static-domain payload signature defect; P4 corrected and
+focused-tested the declaration projection contract. The checkpoint records
+inherited AST, impl-query, and runtime baselines, formatter drift, and the
+incomplete full semantic test-binary run. LANG007 remains in progress for
+future scoped work; this does not claim release certification.
 
 ## Canonical records
 

@@ -661,6 +661,7 @@ fn test_metadata_generic_signature_and_supertype_template_export() {
         form: names_form,
         class_object_type: store.class_object_type(decl.clone()),
         kind: store.kind_of(names_form),
+        binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
         generic_binder_header: None,
         generic_signature: Some(GenericSignature::with_constraints(
             TypeParameterOwner::Declaration(decl.clone()),
