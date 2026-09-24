@@ -4,7 +4,7 @@ category: LANG
 kind: implementation
 status: IN_PROGRESS
 completion: PARTIAL
-verification: BASELINE_BLOCKED
+verification: FOCUSED_TESTED
 repository: aureat/phalcom-lang
 prepared: 2026-09-21
 ---
@@ -52,15 +52,23 @@ Current numbered plans for C2:
 
 ### C3 — Type Data and Unified Algebraic Static Domains
 
-**State:** `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`
+**State:** `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`
 
-C3 establishes unified algebraic declarations (`data` for runtime products and sums, `type data` for type-level static domains), nominal static domain identity, canonical static terms, heterogeneous static applications, and intrinsic structural domain exposure.
+C3 establishes unified algebraic declarations (`data` for runtime products
+and sums, `type data` for type-level static domains), nominal static-domain
+identity, canonical static terms, heterogeneous static applications, and
+intrinsic structural-domain exposure. P3 closed C3 at focused-tested level;
+the program records deferred repository baselines and does not claim release
+certification.
 
 Current numbered plans for C3:
 
 - `LANG007.C3.P1` — unified algebraic data declarations and type-data foundation — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C3.P2` — general static domains, heterogeneous application/inference, associated type data — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
-- `LANG007.C3.P3` — intrinsic structural surface, Universe/corpus migration, certification and closure — `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` (T1-T8 implementation work done; T9/G9-G11 remains open because the generic associated static-domain payload case fails on both current and clean predecessor revisions).
+- `LANG007.C3.P3` — intrinsic structural surface, Universe/corpus migration, certification and closure — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+
+No successor checkpoint or plan is currently accepted. Do not invent a C4/P4;
+wait for the next scoped LANG007 objective.
 
 C1 is the first implementation checkpoint. It establishes the canonical domains, type-member identity/projection machinery, structural operations, persistence/inference integration, and runtime boundary required for:
 
@@ -158,14 +166,19 @@ These are architectural constraints inherited by LANG007 work unless a later acc
 program: LANG007
 status: IN_PROGRESS
 completion: PARTIAL
-verification: BASELINE_BLOCKED
-active checkpoint: LANG007.C3
-active_plan: LANG007.C3.P3
-next checkpoint: LANG007.C3
-next task: LANG007.C3.P3.T9 / G9-G11
+verification: FOCUSED_TESTED
+active checkpoint: none
+active_plan: none
+next checkpoint: none accepted
+next task: none accepted
 ```
 
-`LANG007.C1` and `LANG007.C2` are complete. `LANG007.C3.P1` and `LANG007.C3.P2` are complete at the `FOCUSED_TESTED` level. P3 T1-T8 implementation work is done. T9 has passing workspace build, type-meta, focused source-index/LSP, ADT matching, and runtime migration evidence. Formatting is baseline-blocked by pre-existing workspace drift. The generic associated static-domain payload acceptance test fails on both the active tree and clean predecessor `9b4ca55d`. Continue at T9/G9-G11; do not close C3 until this blocker is dispositioned and remaining certification is complete.
+`LANG007.C1`, `C2`, and `C3` are complete at focused-tested level. P3 fixed
+the generic associated static-domain payload signature defect and completed
+the planned focused certification. The checkpoint records inherited AST,
+impl-query, and runtime baselines, formatter drift, and the incomplete full
+semantic test-binary run. LANG007 remains in progress for future scoped work;
+this does not claim release certification.
 
 ## Canonical records
 
@@ -201,4 +214,5 @@ Numbered plans describe intended work; they do not replace checkpoint state.
 
 ## Next action
 
-Execute `LANG007.C2.P2` source variadic generic binding and structural/callable type expansion using the established P1 substrate.
+No successor LANG007 checkpoint or plan is currently accepted. Await the next
+scoped objective; do not infer C4/P4 from C3 closure.

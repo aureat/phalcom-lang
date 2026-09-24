@@ -4,9 +4,9 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C3
 kind: implementation-plan
-status: IN_PROGRESS
-completion: PARTIAL
-verification: BASELINE_BLOCKED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on:
   - LANG007.C3.P2
   - LANG007.C3.P1
@@ -47,14 +47,15 @@ focused-tested. The user adopted the T4/G4 extension in
 impls and publish them through the existing owner `AssociatedSurface` and
 `TypeMemberDeclarationId` path before migrating Unit/Tuple/Record source.
 
-T4/G4 reached INC-C3-14 on 2026-09-24. Unit now uses its intrinsic runtime
-facade and Tuple/Record intrinsic type members publish from inherent impls.
-However, migrating Tuple to `intrinsic data Tuple<***Es>` made canonical
-semantic bootstrap fail because native surface import lost the proper runtime
-class form; the source experiment was reverted. Record also cannot use the
-current TypeLambda TypeId-only beta path for its row-owned RecordRowId argument.
-Tuple/Record data-source migration is paused pending the structural-application
-and runtime-class projection decision in `INC-C3-14.md`.
+Decision-time snapshot from before the user adopted INC-C3-14: Unit used its
+intrinsic runtime facade and Tuple/Record intrinsic type members published
+from inherent impls, but Tuple/Record source migration was paused after a
+bounded experiment exposed missing structural-application and runtime-class
+projection paths. The user subsequently adopted the recommended architecture
+recorded in `INC-C3-14.md`; T4/G4 then completed with Tuple backed by
+CompleteTypePack/TupleFromPacks, Record backed by RecordRowId, and native import
+using the existing runtime-class projection. See the final T4 evidence and
+checkpoint closure ledger below.
 
 The parser-backed enum census and exact T2–T8 takeover map are recorded in
 `LANG007.C3-CHECKPOINT.md` under “P3 takeover and migration manifest”. The
@@ -3055,25 +3056,31 @@ Mandatory after each coherent certification gate. Record commands, outcomes, wha
 
 ---
 
-## T9 certification status — 2026-09-25
+## T9 certification result — 2026-09-25
 
-T1-T8 implementation work is present and their focused gates are recorded in
-`LANG007.C3-CHECKPOINT.md`. T9 is incomplete and the checkpoint remains open.
+T1-T8 implementation and T9/G9-G11 certification are complete at
+`FOCUSED_TESTED` strength; detailed commands and baseline classifications are
+recorded in `LANG007.C3-CHECKPOINT.md`.
 
 Passing current evidence includes the workspace/all-target build, the
 `phalcom-type-meta` schema suite, source-index static-domain publication, LSP
 semantic rename/navigation, migrated ADT matching, metadata round-trip,
 import/incremental cold parity, TypeOnly runtime rejection, VS Code e2e (11
-passing with `target/debug` on PATH), and the repaired nested ADT runtime
-fixture. `cargo fmt --all -- --check` remains baseline-blocked by repository
-format drift. Universe bootstrap counters match the P3 starting revision:
-106 discovered, 37 root-reachable, and 101 executed units.
+passing with `target/debug` on PATH), Unit runtime-class reuse, and the repaired
+nested ADT runtime fixture. Associated generic-header signature invalidation
+matches cold analysis. `cargo fmt --all -- --check` remains baseline-blocked by
+repository format drift. Universe bootstrap counters match the P3 starting
+revision: 106 discovered, 37 root-reachable, and 101 executed units.
 
 The generic associated static-domain payload failure at predecessor `9b4ca55d`
 is resolved: catalog-backed case signatures now accept proper `Type` payload
 kinds, consistent with the existing associated builder and T0869/T0870. The
-regression and full semantic ADT suite pass. Do not claim C3 closure while the
-remaining T9 coverage and baseline classifications are still open.
+regression and full semantic ADT suite pass. The remaining AST, impl-query, and
+VM failures reproduce at clean predecessor `9b4ca55d`, and formatter drift is
+inherited from P2; these are recorded as D-class baselines outside the P3
+implementation. The full semantic test-binary run remains incomplete after its
+high-fanout stress tests exceeded the useful gate window. No C3 acceptance
+failure remains unresolved.
 
 Two core constructor-reference tests fail with invocation-layout errors on both
 the current tree and clean predecessor `9b4ca55d`; they are inherited VM
@@ -3084,10 +3091,9 @@ after high-fanout incremental stress cases exceeded the useful gate window and
 is recorded as incomplete. Full details and classifications are in the shared
 checkpoint record.
 
-Resume at T9/G9-G11: reconcile remaining plan coverage and workspace gates.
-Metadata/import/incremental, runtime-negative, bootstrap-counter, VS Code e2e,
-and generic-owner payload checks have direct passing evidence. T10 and terminal
-P3 walkthrough/handoff are not yet complete.
+T9 passes: every C3 coverage obligation has direct evidence or a clean-predecessor
+baseline disposition. P3 and C3 may close at `COMPLETE / IMPLEMENTED /
+FOCUSED_TESTED`; this does not claim `RELEASE_COMPLETE`.
 
 ## T10 — Close P3 and LANG007.C3 lifecycle records truthfully
 
@@ -3222,6 +3228,27 @@ Lifecycle records are internally consistent, reflect the actual final revision/e
 ### Checkpoint update
 
 This task is the final checkpoint update.
+
+### T10 closure result — 2026-09-25
+
+T10 is complete. The checkpoint, program status, and status index now report
+P3/C3 as `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`, with no active plan and no
+accepted successor. The walkthrough records the starting and implementation
+revisions, migrated architecture, amendment decisions, focused evidence,
+baseline dispositions, and incomplete/deferred release gates. The terminal
+handoff freezes the C3 substrate. The generic-owner payload failure is fixed;
+remaining failures are clean-predecessor or inherited formatter baselines, and
+the full semantic test-binary run is accurately recorded as incomplete. No
+acceptance-overlapping blocker remains unresolved. This is checkpoint closure,
+not `RELEASE_COMPLETE`.
+
+Lifecycle artifacts produced:
+
+- `LANG007.C3.P3-walkthrough.md`
+- `LANG007.C3.P3-handoff.md`
+- final updates to `LANG007.C3-CHECKPOINT.md`, `PROGRAM.md`, and `STATUS.md`
+
+Next LANG007 action: none currently accepted; await the next scoped objective.
 
 ---
 

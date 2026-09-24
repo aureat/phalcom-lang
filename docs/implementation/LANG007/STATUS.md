@@ -4,7 +4,7 @@ category: LANG
 kind: implementation-status
 status: IN_PROGRESS
 completion: PARTIAL
-verification: BASELINE_BLOCKED
+verification: FOCUSED_TESTED
 repository: aureat/phalcom-lang
 prepared: 2026-09-21
 ---
@@ -15,24 +15,30 @@ prepared: 2026-09-21
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
 | `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C3` | frozen C2 substrate |
-| `LANG007.C3` | `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` | active: `LANG007.C3.P3` | continue T9/G9-G11; generic associated static-domain payload failure overlaps C3 acceptance and reproduces on clean predecessor |
+| `LANG007.C3` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | none accepted | frozen C3 substrate; deferred clean-predecessor and formatter baselines are recorded |
 
 ## Current program state
 
-LANG007 has completed and focused-tested `LANG007.C1` and `LANG007.C2`. Active checkpoint is `LANG007.C3`.
+LANG007.C1, C2, and C3 are complete and focused-tested. No successor
+checkpoint or plan is currently accepted.
 
 Current truth:
 
 ```yaml
 status: IN_PROGRESS
 completion: PARTIAL
-verification: BASELINE_BLOCKED
-active_checkpoint: LANG007.C3
-active_plan: LANG007.C3.P3
-next_plan: LANG007.C3.P3.T9 / G9-G11 — finish certification and disposition inherited C3-critical failure
+verification: FOCUSED_TESTED
+active_checkpoint: null
+active_plan: null
+next_plan: No accepted successor checkpoint; await the next LANG007 objective.
 ```
 
-`LANG007.C1` and `LANG007.C2` are complete. C3 P1 and P2 are complete at focused-tested level. P3 T1-T8 implementation work is done. T9 is open because an inherited generic associated static-domain payload failure overlaps C3 acceptance and reproduces on clean predecessor `9b4ca55d`; workspace formatting is also baseline-blocked by the drift recorded in the P2 handoff.
+`LANG007.C1`, `C2`, and `C3` are complete at focused-tested level. P3 fixed
+the generic associated static-domain payload signature defect and certified
+the remaining coverage. Repository-wide formatter drift and the documented
+AST/impl-query/runtime failures reproduce on clean predecessors and remain
+deferred; the full semantic test-binary run is incomplete. This state does not
+claim release certification.
 
 Implementation, focused testing, and release certification are separate evidence states.
 
@@ -67,7 +73,12 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 | `LANG007.C2.P3` | whole-pack inference, persistence, incremental certification, checkpoint closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P1` | unified algebraic data declarations and type-data foundation | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P2` | general static domains, heterogeneous application/inference, associated type data | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
-| `LANG007.C3.P3` | intrinsic structural surface, Universe/corpus/tooling migration, certification and closure | `IN_PROGRESS` | `PARTIAL` | `BASELINE_BLOCKED` |
+| `LANG007.C3.P3` | intrinsic structural surface, Universe/corpus/tooling migration, certification and closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+
+P3 closeout records:
+
+- `LANG007.C3/LANG007.C3.P3-walkthrough.md`
+- `LANG007.C3/LANG007.C3.P3-handoff.md`
 
 P2 closeout records:
 
@@ -122,15 +133,15 @@ release certification
 
 Workspace-wide test/clippy certification is not required by P1/P2 focused acceptance unless later requested.
 
-## Known blockers
+## Deferred findings and next action
 
-The generic associated static-domain payload failure blocks C3 closure pending a bounded disposition. Two runtime constructor-reference failures are inherited clean-predecessor baselines outside this change.
+The generic associated static-domain payload signature defect was fixed in P3
+and its owner-kind incremental regression passes with cold-analysis parity.
+The AST snapshot/selector diagnostic, impl witness-plan assertion, core
+constructor-reference failures, and formatter drift are documented as
+clean-predecessor or inherited formatting baselines in the C3 checkpoint. The
+full semantic test-binary run is incomplete. None is an unresolved C3
+acceptance blocker; none supports `RELEASE_COMPLETE`.
 
-## Next action
-
-`LANG007.C3.P1` and `LANG007.C3.P2` are `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
-Canonical runtime algebraic `data` products/sums, nominal type-data static
-domains, heterogeneous static application/inference, associated type-data,
-canonical metadata, runtime-negative rejection, and focused cold/incremental
-parity are established. C3 remains active because P3 owns intrinsic structural
-facades, Universe/source/tooling migration, and checkpoint certification.
+`LANG007.C1`, `C2`, and `C3` are complete at focused-tested level. No successor
+checkpoint or plan is accepted; await the next scoped LANG007 objective.

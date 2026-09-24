@@ -1,92 +1,61 @@
 ---
 id: LANG007.C3.P3
-kind: continuation-handoff
-status: IN_PROGRESS
-completion: PARTIAL
-verification: BASELINE_BLOCKED
+kind: terminal-checkpoint-handoff
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 ---
 
-# LANG007.C3.P3 continuation handoff
+# LANG007.C3.P3 terminal handoff
 
-This is a continuation handoff, not terminal P3/C3 closure. It records the
-current stop point after T1-T8 implementation work and a partial T9
-certification attempt.
+P3 and checkpoint C3 are complete at `FOCUSED_TESTED`. The shared authority is
+[`LANG007.C3-CHECKPOINT.md`](LANG007.C3-CHECKPOINT.md); read it before making
+changes to this substrate. P3 began at completed-P2 revision `518f66d1`; the
+implementation/evidence revision is `db6c60ab`. The lifecycle records are
+being committed separately and do not alter the implementation revision.
 
-## Current state
+## Frozen architecture
 
-- T1/G1 through T8/G8 implementation work is complete. T8's authoritative
-  specification ownership/search gate passes.
-- T9/G9-G11 is open. Do not run T10 or claim P3/C3 completion until remaining
-  acceptance coverage and baseline classifications are reconciled.
-- The P3 amendments INC-C3-12, INC-C3-13, and INC-C3-14 are accepted and their
-  architecture is implemented; preserve their owner-binding, inherent-impl
-  type-member, CompleteTypePack projection, RecordRow, and runtime-class
-  projection decisions.
+- Intrinsic source declarations bind to existing semantic and runtime owners;
+  they add no second type, row, or runtime registry.
+- Unit reuses the preinstalled runtime class identity. Tuple projections remain
+  backed by `CompleteTypePack` / `TupleFromPacks`; Record remains backed by
+  `RecordRowId`. No TypeId/RecordRow identity boundary was weakened.
+- Intrinsic type members in inherent impls publish through the existing
+  `TypeMemberDeclarationId` and `AssociatedSurface` path.
+- TypeOnly declarations and terms remain outside runtime value lowering.
+- Runtime ADTs use canonical `data`; `enum` syntax and repository-owned active
+  source migrated. Metadata schema remains v8; P3 required no schema bump.
+- Source index and LSP consume semantic declaration/reference identities for
+  navigation, rename, and editor features.
 
-## Resolved generic-owner payload failure
+The accepted amendments INC-C3-12, INC-C3-13, and INC-C3-14 are recorded in the
+checkpoint and their incident records. The generic-owner payload correction
+aligns checked catalog signatures with the existing Type-or-static-domain
+builder contract from T0869/T0870. Its cold/incremental owner-kind regression
+passes.
 
-`associated_static_domain_payload_uses_owner_generic_parameter_kind` expects
-one constructor for `class Container<T: Type> { type data State { Box(_ value:
-T) } }`. The same test failed at clean predecessor `9b4ca55d`. The catalog-backed
-signature builder rejected kind `Type` while the existing associated-domain
-builder accepted `Type` or a static-domain kind; the checked signature was
-therefore absent and the catalog omitted its constructor. T0869/T0870 define the
-constructor input kind as `K`. The catalog path and fallback path now both
-accept proper `Type` and static-domain kinds. The regression asserts the
-published constructor payload kind is `Type`, and the full semantic ADT suite
-passes (277 passed, 25 intentionally ignored).
+## Verification and deferred evidence
 
-## Verification evidence
+Focused evidence includes the all-target workspace build; semantic ADTs (277
+passed, 25 ignored); incremental type members (24 passed); associated payload
+kind and cold-parity regressions; metadata/import identity and invalidation;
+proper-Type/static-domain and TypeOnly runtime boundaries; Unit runtime-class
+reuse; type-meta (14 passed); source index/LSP/rename checks; VS Code LSP e2e
+(11 passed); and unchanged bootstrap counts (106 discovered, 37 root-reachable,
+101 executed) from revision `518f66d1`.
 
-- `cargo fmt --all -- --check` — baseline-blocked by pre-existing workspace
-  formatting drift documented in the P2 handoff; repository-wide formatting
-  churn was discarded.
-- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo build --workspace --all-targets` — pass.
-- `cargo test -p phalcom-type-meta` — 14 schema tests pass.
-- `cargo test -p phalcom-ast` — 53 unit and 261 integration pass; six stale
-  `associated_type_data: []` snapshots and one selector-diagnostic assertion
-  fail; one ignored. The same seven failures reproduce at clean predecessor
-  `9b4ca55d` (53 unit + 270 integration pass; one ignored). Generated
-  `.snap.new` files were removed.
-- `cargo test -q -p phalcom-semantic --test semantic semantic::adts` — 277
-  pass, 25 ignored; the generic-owner payload failure is fixed.
-- `cargo test -p phalcom-semantic --test semantic semantic::impls::queries` —
-  54 pass, one data-component witness-plan assertion failure; that exact test
-  reproduces at clean predecessor `9b4ca55d`.
-- `cargo test -q -p phalcom-core --test core language::algebraic_data` — 42
-  pass, two invocation-layout constructor-reference failures, 19 ignored. Both
-  exact failures reproduce at clean predecessor `9b4ca55d`. The nested ADT
-  fixture's second `enum` was migrated to `data` and now passes.
-- The static-domain source-index test (including impl-associated domain/case
-  identities) passes; the focused LSP navigation/symbol/rename test passes.
-- Focused T9 checks pass for metadata identity round-trip, imported static-domain
-  provider invalidation with cold parity, type-data edit cold/incremental parity,
-  and rejection of a TypeOnly case as a runtime value.
-- The generic-owner payload regression passes after aligning catalog-backed
-  constructor signatures with the existing Type-or-static-domain payload rule.
-  `cargo test -q -p phalcom-semantic --test semantic semantic::adts` passes 277
-  tests, with 25 intentionally ignored.
-- `associated_static_case_payload_tracks_generic_owner_kind_edit_with_cold_parity`
-  passes: changing the owner's `T` kind from `Type` to `Shape` rebuilds the
-  payload signature and matches cold analysis. The associated type-member
-  incremental module passes 24/24.
-- Universe bootstrap counters match the P3 starting revision `518f66d1`:
-  106 discovered units, 37 root-reachable units, 101 executed units. The
-  intrinsic facade migration adds no measured bootstrap work.
-- `PATH=target/debug:$PATH npm run test:lsp:e2e` passes all 11 tests. The first
-  run omitted the built LSP binary directory from PATH and logged `phalcom-lsp`
-  spawn errors; the corrected run had no such errors.
-- A full semantic test-binary run was started and then stopped after
-  high-fanout incremental stress tests exceeded the useful gate window. It is
-  incomplete, not a pass.
+Deferred findings remain classified in the checkpoint: six stale AST snapshots
+and one selector diagnostic, one impl witness-plan assertion, and two core
+runtime invocation-layout failures reproduce on clean predecessor `9b4ca55d`;
+formatter drift is inherited from the completed-P2 baseline. The full semantic
+test-binary run is incomplete. These findings are outside C3 acceptance and do
+not support `RELEASE_COMPLETE`; workspace-wide test and clippy certification
+were not run.
 
-The shared checkpoint has the fuller gate ledger and baseline classification.
+## Next action
 
-## Next actions
-
-1. Reconcile the remaining T9 plan coverage and workspace gates; metadata,
-   import/incremental, runtime-negative, bootstrap-counter, and VS Code e2e
-   checks listed above are complete. The generic-owner payload acceptance
-   failure is fixed and its incremental owner-kind change matches cold analysis.
-2. Keep P3/C3 open until T9 and all T10 conditions pass; do not create terminal
-   completion records while required T9 coverage remains open.
+No successor LANG007 checkpoint or plan is accepted. Preserve the frozen C3
+interfaces and wait for the next scoped objective. Do not invent C4/P4. Reopen
+C3 only if an accepted corrective scope identifies a concrete acceptance gap;
+record performance follow-ups separately if later accepted.
