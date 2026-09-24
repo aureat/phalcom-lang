@@ -55,6 +55,15 @@ weaken its expectation or infer that the behavior is out of scope.
   `adt_run_06_nested_adt_match_extracts_inner_value` passes.
 - The static-domain source-index test (including impl-associated domain/case
   identities) passes; the focused LSP navigation/symbol/rename test passes.
+- Focused T9 checks pass for metadata identity round-trip, imported static-domain
+  provider invalidation with cold parity, type-data edit cold/incremental parity,
+  and rejection of a TypeOnly case as a runtime value.
+- Universe bootstrap counters match the P3 starting revision `518f66d1`:
+  106 discovered units, 37 root-reachable units, 101 executed units. The
+  intrinsic facade migration adds no measured bootstrap work.
+- `PATH=target/debug:$PATH npm run test:lsp:e2e` passes all 11 tests. The first
+  run omitted the built LSP binary directory from PATH and logged `phalcom-lsp`
+  spawn errors; the corrected run had no such errors.
 - A full semantic test-binary run was started and then stopped after
   high-fanout incremental stress tests exceeded the useful gate window. It is
   incomplete, not a pass.
@@ -63,10 +72,11 @@ The shared checkpoint has the fuller gate ledger and baseline classification.
 
 ## Next actions
 
-1. Finish T9 metadata round-trip/import/incremental, runtime-negative/resource
-   measurements, and remaining workspace/editor gates from the P3 plan.
+1. Reconcile the remaining T9 plan coverage and workspace gates; metadata,
+   import/incremental, runtime-negative, bootstrap-counter, and VS Code e2e
+   checks listed above are complete.
 2. Investigate the generic associated static-domain payload blocker with a
    clean-predecessor comparison and source-backed causal evidence. Consult if
    resolving it requires changing semantic ownership or generic specialization.
-3. Update the checkpoint and this handoff with evidence. Create the terminal
-   walkthrough/handoff only after T9 and all T10 conditions pass.
+3. Keep P3/C3 open until T9 and all T10 conditions pass; do not create terminal
+   completion records while the C3 acceptance blocker remains unresolved.

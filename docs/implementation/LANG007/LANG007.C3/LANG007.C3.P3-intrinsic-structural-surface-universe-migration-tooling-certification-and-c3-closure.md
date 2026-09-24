@@ -3060,10 +3060,14 @@ Mandatory after each coherent certification gate. Record commands, outcomes, wha
 T1-T8 implementation work is present and their focused gates are recorded in
 `LANG007.C3-CHECKPOINT.md`. T9 is incomplete and the checkpoint remains open.
 
-Passing current evidence includes workspace/all-target build, formatter check,
-the `phalcom-type-meta` schema suite, source-index static-domain publication,
-LSP semantic rename/navigation, migrated ADT matching, and the repaired nested
-ADT runtime fixture.
+Passing current evidence includes the workspace/all-target build, the
+`phalcom-type-meta` schema suite, source-index static-domain publication, LSP
+semantic rename/navigation, migrated ADT matching, metadata round-trip,
+import/incremental cold parity, TypeOnly runtime rejection, VS Code e2e (11
+passing with `target/debug` on PATH), and the repaired nested ADT runtime
+fixture. `cargo fmt --all -- --check` remains baseline-blocked by repository
+format drift. Universe bootstrap counters match the P3 starting revision:
+106 discovered, 37 root-reachable, and 101 executed units.
 
 T9 cannot pass while
 `associated_static_domain_payload_uses_owner_generic_parameter_kind` fails:
@@ -3082,10 +3086,11 @@ after high-fanout incremental stress cases exceeded the useful gate window and
 is recorded as incomplete. Full details and classifications are in the shared
 checkpoint record.
 
-Resume at T9/G9-G11: finish metadata/import/incremental, runtime-negative and
-resource measurements, and remaining workspace/editor checks; then disposition
-the generic associated payload blocker. T10 and terminal P3 walkthrough/handoff
-are not yet complete.
+Resume at T9/G9-G11: reconcile remaining plan coverage and workspace gates,
+then disposition the generic associated payload blocker. Metadata/import/
+incremental, runtime-negative, bootstrap-counter, and VS Code e2e checks have
+direct passing evidence. T10 and terminal P3 walkthrough/handoff are not yet
+complete.
 
 ## T10 — Close P3 and LANG007.C3 lifecycle records truthfully
 

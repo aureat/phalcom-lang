@@ -1613,11 +1613,12 @@ Advanced-agent continuation prompt: [LANG007.C3.P2-advanced-agent-handoff.md](LA
 
 P2 implementation, focused acceptance, and lifecycle records are complete. P3
 has completed T1-T8 implementation work. T9 is `BASELINE_BLOCKED`: the
-workspace/all-target build, formatter check, type-meta suite, targeted
-source-index/LSP tests, and ADT migration tests provide positive evidence, but
-one inherited associated generic-owner static-domain payload failure overlaps
-C3 acceptance. The full semantic run was stopped after unrelated high-fanout
-incremental tests exceeded the useful gate window; record it as incomplete.
+workspace/all-target build, type-meta suite, targeted source-index/LSP tests,
+and ADT migration tests provide positive evidence. The formatter check remains
+baseline-blocked, and one inherited associated generic-owner static-domain
+payload failure overlaps C3 acceptance. The full semantic run was stopped after
+unrelated high-fanout incremental tests exceeded the useful gate window; record
+it as incomplete.
 
 ## 21. P3 certification checkpoint — 2026-09-25
 
@@ -1639,6 +1640,12 @@ Completed gates and evidence:
 | Core algebraic-data suite | 41 pass, 2 clean-predecessor runtime constructor-reference failures, 19 ignored; the third initial failure was an unconverted second `enum` in a migrated test fixture and now passes as `data` |
 | Source-index static-domain test incl. inherent-impl associated case | PASS |
 | LSP workspace indexing/rename/navigation test | PASS |
+| Metadata round-trip: static alias and associated term identity | PASS; `snapshot_metadata_round_trip_preserves_static_alias_and_associated_term_identity` |
+| Imported static-domain provider edit invalidation and cold parity | PASS; `imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold` |
+| Type-data case edit incremental/cold parity | PASS; `type_data_case_edit_matches_cold_static_domain_analysis` |
+| TypeOnly case runtime-value rejection | PASS; `type_data_case_cannot_be_used_as_a_runtime_value` |
+| Universe bootstrap/resource counters | PASS; starting revision `518f66d1` and current tree both report 106 discovered, 37 root-reachable, 101 executed; no measured increase |
+| VS Code LSP e2e | PASS; `PATH=target/debug:$PATH npm run test:lsp:e2e`, 11 passing; initial run without the binary directory on PATH logged `phalcom-lsp ENOENT`, resolved by supplying the built binary path |
 | Full semantic test binary | INCOMPLETE; stopped after repository high-fanout stress tests exceeded the useful gate window; multiple unrelated baseline failures appeared before stop |
 
 The associated static-domain payload failure is not treated as resolved merely
@@ -1648,9 +1655,12 @@ slots for Method(0)` and reproduce on the same clean predecessor, so they are
 recorded as inherited VM baselines. The stale AST snapshots and selector
 diagnostic, plus the impl witness failure, were not introduced by this plan.
 
-T9/G9-G11 remains open. Metadata round-trip/import/incremental coverage,
-runtime-negative/resource counts, and the remaining workspace/editor evidence
-must be completed or explicitly dispositioned before T10 can close P3/C3.
+The focused metadata round-trip, imported-provider invalidation, cold/incremental
+parity, runtime-negative, bootstrap-counter, and VS Code e2e obligations now
+have direct evidence. The bootstrap counters are unchanged from P3's starting
+revision. T9/G9-G11 remains open: the generic-owner payload failure still blocks
+C3 acceptance, the broad semantic run remains incomplete, and the remaining
+plan-mandated suite coverage must be reconciled before T10 can close P3/C3.
 ```
 
 At P1 start:
