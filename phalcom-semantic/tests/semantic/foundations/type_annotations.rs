@@ -865,6 +865,152 @@ fn nested_type_lambda_beta_reduction_avoids_capture() {
 }
 
 #[test]
+fn fresh_captured_nested_lambda_is_applied_during_outer_reduction() {
+    let mut env = setup();
+    let inner_body = TypeAnnotation {
+        expr: TypeAnnotationExpr::Tuple {
+            elements: vec![
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
+                    label: None,
+                    ty: reference("T"),
+                    range: RANGE,
+                }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
+                    label: None,
+                    ty: reference("U"),
+                    range: RANGE,
+                }),
+            ],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let outer = type_lambda(&["T"], application(type_lambda(&["U"], inner_body), vec![reference("String")]));
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(outer_ty) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &outer, &mut diagnostics)
+    else {
+        panic!("expected outer type lambda")
+    };
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let result = env
+        .store
+        .apply_type_form(outer_ty, &[int_ty])
+        .expect("fresh inner lambda is applied in the same reduction");
+    let TypeData::Tuple(elements) = env.store.get(result) else {
+        panic!("expected reduced tuple")
+    };
+    let string_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
+    assert_eq!(elements[0].ty, int_ty);
+    assert_eq!(elements[1].ty, string_ty);
+}
+
+#[test]
+fn type_lambda_applications_preserve_canonical_identity() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(lambda_ty) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &type_lambda(&["T", "U"], application(reference("List"), vec![reference("T")])),
+        &mut diagnostics,
+    ) else {
+        panic!("expected type lambda")
+    };
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let string_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
+
+    let first_residual = env.store.apply_type_form(lambda_ty, &[int_ty]).unwrap();
+    let second_residual = env.store.apply_type_form(lambda_ty, &[int_ty]).unwrap();
+    assert_eq!(first_residual, second_residual, "the same prefix application must reuse its residual lambda");
+    let first_full = env.store.apply_type_form(first_residual, &[string_ty]).unwrap();
+    let second_full = env.store.apply_type_form(lambda_ty, &[int_ty, string_ty]).unwrap();
+    assert_eq!(first_full, second_full, "equivalent full applications must canonicalize to one type")
+}
+
+#[test]
+fn checked_lambda_application_failure_restores_the_active_arena() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+    let resolve = |env: &mut TestEnv, syntax: TypeAnnotation, diagnostics: &mut Vec<_>| {
+        let TypeFormResolution::Ready(ty) =
+            phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &syntax, diagnostics)
+        else {
+            panic!("expected type lambda")
+        };
+        ty
+    };
+    let first = resolve(&mut env, type_lambda(&["T"], reference("T")), &mut diagnostics);
+    let second = resolve(&mut env, type_lambda(&["U"], reference("U")), &mut diagnostics);
+    let TypeData::Lambda(first_id) = env.store.get(first) else { panic!() };
+    let TypeData::Lambda(second_id) = env.store.get(second) else { panic!() };
+    let first_id = *first_id;
+    let second_id = *second_id;
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let list_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "List".into())).unwrap();
+
+    assert!(matches!(
+        env.store.apply_type_form(first, &[list_ty]),
+        Err(phalcom_semantic::TypeApplicationError::ArgumentKindMismatch { index: 0, .. })
+    ));
+    assert_eq!(env.store.arena().get_lambda(first_id).parameter_kinds.len(), 1);
+    assert_eq!(env.store.arena().get_lambda(second_id).parameter_kinds.len(), 1);
+    assert_eq!(env.store.apply_type_form(first, &[int_ty]).unwrap(), int_ty);
+}
+
+#[test]
+fn free_capture_specialization_threads_nested_lambda_applications() {
+    let mut env = setup();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "CapturedOwner".into()));
+    let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "T", KindId::TYPE));
+    let captured_parameter = env.store.parameter_form(parameter);
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let list_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "List".into())).unwrap();
+    let nested_identity = {
+        let arena = env.store.arena_mut();
+        let bound = arena.intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+        arena.intern_lambda(Box::new([KindId::TYPE]), bound, KindId::TYPE, None)
+    };
+    let constructor_kind = env.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let nested_lambda_ty = env.store.intern_with_kind(TypeData::Lambda(nested_identity), constructor_kind);
+    let nested_application = env.store.intern_with_kind(
+        TypeData::Applied {
+            origin: nested_lambda_ty,
+            arguments: vec![phalcom_semantic::types::store::StaticArgument::Term(int_ty)].into_boxed_slice(),
+        },
+        KindId::TYPE,
+    );
+    let captured_type = env.store.tuple(Box::new([phalcom_semantic::types::store::TupleTypeElement {
+        label: None,
+        ty: nested_application,
+    }]));
+
+    let arena = env.store.arena_mut();
+    let captured = arena.intern_scoped(ScopedTypeData::Free(captured_parameter));
+    let list = arena.intern_scoped(ScopedTypeData::Free(list_ty));
+    let body = arena.intern_scoped(ScopedTypeData::Applied {
+        origin: list,
+        arguments: vec![captured].into_boxed_slice(),
+    });
+    let lambda_id = arena.intern_lambda(Box::new([KindId::TYPE]), body, KindId::TYPE, None);
+    let mut substitution = TypeSubstitution::new();
+    substitution.bind(parameter, captured_type);
+
+    let specialized_ty = env.store.substitute_type_lambda(lambda_id, &substitution);
+    let same_specialized_ty = env.store.substitute_type_lambda(lambda_id, &substitution);
+    assert_eq!(specialized_ty, same_specialized_ty, "repeated free-capture specialization must canonicalize");
+    let string_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
+    let result = env.store.apply_type_form(specialized_ty, &[string_ty]).unwrap();
+    let expected = env.store.apply_type_form(list_ty, &[captured_type]).unwrap();
+    assert_eq!(
+        result, expected,
+        "the captured nested lambda application must reduce before the outer application completes"
+    );
+}
+
+#[test]
 fn higher_kinded_type_lambda_applies_constructor_and_argument() {
     let mut env = setup();
     let lambda = typed_type_lambda(

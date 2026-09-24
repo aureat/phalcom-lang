@@ -4,8 +4,8 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C3
 kind: implementation-plan
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 depends_on:
   - LANG007.C3.P1

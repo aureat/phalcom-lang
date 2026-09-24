@@ -430,9 +430,7 @@ impl TypeStore {
 
     /// Returns a canonical lambda with its captured free types specialized.
     pub fn substitute_type_lambda(&mut self, lambda_id: TypeLambdaId, substitution: &super::substitution::TypeSubstitution) -> TypeId {
-        let mut arena = self.lambda_arena.clone();
-        let specialized = arena.substitute_free_types(lambda_id, substitution, self);
-        self.lambda_arena = arena;
+        let specialized = self.with_active_lambda_arena(|store, arena| arena.substitute_free_types(lambda_id, substitution, store));
         self.type_lambda(specialized)
     }
 
@@ -822,6 +820,31 @@ impl TypeStore {
             return Ok(origin);
         }
 
+        self.with_active_lambda_arena(|store, arena| store.apply_static_form_with_arena(arena, origin, arguments))
+    }
+
+    /// Runs one semantic operation with the store's lambda arena temporarily
+    /// moved out, restoring it on every ordinary return path.
+    pub(crate) fn with_active_lambda_arena<R>(&mut self, operation: impl FnOnce(&mut TypeStore, &mut TypeLambdaArena) -> R) -> R {
+        let mut arena = std::mem::take(&mut self.lambda_arena);
+        let result = operation(self, &mut arena);
+        self.lambda_arena = arena;
+        result
+    }
+
+    /// Applies a form while retaining the caller's active lambda arena through
+    /// recursive beta-reduction. Callers that move the arena out of the store
+    /// must use this entry point for every nested application.
+    pub(crate) fn apply_static_form_with_arena(
+        &mut self,
+        arena: &mut TypeLambdaArena,
+        origin: TypeId,
+        arguments: &[StaticArgument],
+    ) -> Result<TypeId, TypeApplicationError> {
+        if arguments.is_empty() {
+            return Ok(origin);
+        }
+
         // If origin is a TypeLambda, perform beta-reduction directly
         if let TypeData::Lambda(lambda_id) = self.get(origin).clone() {
             let mut type_arguments = Vec::with_capacity(arguments.len());
@@ -831,13 +854,17 @@ impl TypeStore {
                 };
                 type_arguments.push(*argument);
             }
-            let mut arena = self.lambda_arena.clone();
             let res = arena.beta_reduce(lambda_id, &type_arguments, self);
-            self.lambda_arena = arena;
             match res {
                 Ok(BetaResult::Canonical(can)) => return Ok(can),
                 Ok(BetaResult::ResidualLambda(res_id)) => {
-                    return Ok(self.type_lambda(res_id));
+                    let residual = arena.get_lambda(res_id).clone();
+                    let kind = if residual.parameter_kinds.is_empty() {
+                        residual.result_kind
+                    } else {
+                        self.arrow_kind(residual.parameter_kinds, residual.result_kind)
+                    };
+                    return Ok(self.intern_with_kind(TypeData::Lambda(res_id), kind));
                 }
                 Err(BetaReductionError::TooManyArguments { expected, actual }) => {
                     return Err(TypeApplicationError::TooManyArguments {
@@ -912,6 +939,16 @@ impl TypeStore {
     pub fn apply_type_form(&mut self, origin: TypeId, arguments: &[TypeId]) -> Result<TypeId, TypeApplicationError> {
         let arguments = arguments.iter().copied().map(StaticArgument::Term).collect::<Vec<_>>();
         self.apply_static_form(origin, &arguments)
+    }
+
+    pub(crate) fn apply_type_form_with_arena(
+        &mut self,
+        arena: &mut TypeLambdaArena,
+        origin: TypeId,
+        arguments: &[TypeId],
+    ) -> Result<TypeId, TypeApplicationError> {
+        let arguments = arguments.iter().copied().map(StaticArgument::Term).collect::<Vec<_>>();
+        self.apply_static_form_with_arena(arena, origin, &arguments)
     }
 
     /// Interns a tuple type with full validation.

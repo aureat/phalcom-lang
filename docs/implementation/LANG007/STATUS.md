@@ -15,7 +15,7 @@ prepared: 2026-09-21
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
 | `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C3` | frozen C2 substrate |
-| `LANG007.C3` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | active: `LANG007.C3.P2` | generalized static domains and associated type-data application |
+| `LANG007.C3` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | successor: `LANG007.C3.P3` | plan P3 intrinsic structural surface and certification |
 
 ## Current program state
 
@@ -28,10 +28,11 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
 active_checkpoint: LANG007.C3
-active_plan: LANG007.C3.P2
+active_plan: null
+next_plan: LANG007.C3.P3
 ```
 
-`LANG007.C1` is complete. The program remains `IN_PROGRESS` because future roadmap topics (such as variadic pack expansion and bounded pack inference) remain for subsequent checkpoints.
+`LANG007.C1` and `LANG007.C2` are complete. C3 P1 and P2 are complete at focused-tested level; P3 remains proposed and is the next plan.
 
 Implementation, focused testing, and release certification are separate evidence states.
 
@@ -65,6 +66,12 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 | `LANG007.C2.P2` | source variadic generic binding and structural/callable type expansion | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C2.P3` | whole-pack inference, persistence, incremental certification, checkpoint closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P1` | unified algebraic data declarations and type-data foundation | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C3.P2` | general static domains, heterogeneous application/inference, associated type data | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+
+P2 closeout records:
+
+- `LANG007.C3/LANG007.C3.P2-walkthrough.md`
+- `LANG007.C3/LANG007.C3.P2-handoff.md`
 
 P1 lifecycle records:
 

@@ -13,9 +13,9 @@ requires:
   - LANG007.C2
 prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
 prepared: 2026-09-22
-active_plan: LANG007.C3.P2
-latest_completed_plan: LANG007.C3.P1
-next_plan: LANG007.C3.P2
+active_plan: null
+latest_completed_plan: LANG007.C3.P2
+next_plan: LANG007.C3.P3
 ---
 
 # LANG007.C3 — Checkpoint Record
@@ -30,10 +30,10 @@ checkpoint: LANG007.C3
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: LANG007.C3.P2
-latest_completed_plan: LANG007.C3.P1
-next_plan: LANG007.C3.P2
-blockers: none known at planning time
+active_plan: null
+latest_completed_plan: LANG007.C3.P2
+next_plan: LANG007.C3.P3
+blockers: none; documented clean-predecessor baselines and graph-build performance follow-up remain non-blocking
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -132,7 +132,7 @@ C3 is complete only when this statement is true:
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
-| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | active; T1–T8 acceptance reconciled with focused evidence and explicit baseline classifications; T9 is active and paused at the mandatory beta-reduction resource consultation |
+| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T9 accepted; G-FINAL completed with documented clean-predecessor and formatter baselines; see P2 walkthrough/handoff |
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P2 |
 
 No additional P4 is planned.
@@ -1284,12 +1284,11 @@ path. The resource audit found `self.lambda_arena.clone()` in
 `TypeStore::apply_static_form`, which conflicts with canonical P2 `INV-P2-22` and
 corrective `INV-24` / `CL-35`.
 
-`INC-C3-11` is open and mandatory consultation is required before changing that path.
-`TypeLambdaArena::beta_reduce` recursively canonicalizes scoped applications through
-`TypeStore::apply_type_form`; a direct move-out of the arena may make existing lambda
-IDs unavailable to recursive normalization or change where new IDs are interned. No
-speculative code change was made. T9 final G-FINAL and lifecycle closure remain
-pending this decision. P2 stays `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
+`INC-C3-11` is IMPLEMENTED / FOCUSED_TESTED. The architect's ruling is implemented:
+one active `TypeLambdaArena` is threaded through recursive reduction and free-capture
+specialization, and public TypeStore boundaries restore it on ordinary returns. Both
+whole-arena clone sites are removed. No transaction, journal, or rollback behavior was
+added.
 
 Focused evidence acquired during this P2 continuation:
 
@@ -1339,19 +1338,43 @@ semantic incremental/adts                                          PASS (13; 3 i
 semantic imported nominal static-case resolution                  PASS (1; clean worktree)
 ```
 
+Final T9 / G-FINAL evidence acquired 2026-09-24:
+
+```text
+semantic foundations/type_annotations                               PASS (49; includes four INC-C3-11 regressions)
+semantic foundations/record_row_inference                           PASS (6)
+semantic foundations/static_domain_inference                        PASS (6)
+semantic foundations/generic_application                            PASS (11)
+semantic foundations/generics_core                                  PASS (8)
+semantic foundations/substitution                                   PASS (7)
+semantic foundations/kinds                                          PASS (18)
+semantic adts/associated                                            PASS (22; 5 ignored/gated)
+semantic incremental/type_members                                   PASS (23)
+semantic integration/imported_resolution                           PASS (14)
+semantic integration/source_index                                   PASS (22)
+semantic incremental/adts                                           PASS (13; 3 ignored/gated)
+type-meta schema_compat                                              PASS (14)
+core crate check                                                    PASS
+semantic integration/metadata                                       BASELINE_BLOCKED (24 pass, 1 clean-predecessor failure)
+semantic integration/record_row_polymorphism                        BASELINE_BLOCKED (8 pass, 3 clean-predecessor failures)
+workspace formatter                                                 BASELINE_BLOCKED (formatter drift already present in the four touched Rust files at HEAD; additional workspace drift)
+```
+
+The focused failures and formatter differences are clean-predecessor baselines and are
+not attributed to the arena correction. The source audit finds no whole `TypeLambdaArena`
+clone in TypeStore application, substitution, or beta-reduction paths. Runtime isolation,
+ProperType, and Applied-consumer audits remain as previously recorded. P2 is
+`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; C3 remains partial because P3 is proposed.
+
 The type-member publication slice is committed and pushed as
 `f2a6e3d8 lang007: publish checked type-member declarations`. The repository-wide
 formatter check reports differences in untouched AST/core/checker files; no formatting
 changes from that check were retained.
 
-This is partial P2 evidence, not P2 acceptance. The T8 nominal-case target slice is
-implemented and focused-tested (INC-C3-4), and the ratified static-case/kind-form T7
-slice now has focused behavioral evidence recorded above. Full-graph edge reconstruction
-and SCC traversal remain a performance concern. Other open P2 work includes T4
-heterogeneous row-argument inference, remaining static type-member domain convergence,
-cross-module metadata/import plus cold/incremental identity certification, and final T9
-stabilization. T4 has historical focused semantic tests; the library unit-test filter
-remains blocked by BASELINE-003.
+The paragraph above is a historical continuation snapshot and is superseded by the final
+T9/G-FINAL state recorded here. The library unit-test filter remains blocked by
+BASELINE-003. Full-graph edge reconstruction and SCC traversal remain a performance
+follow-up, not a P2 correctness blocker.
 
 ### P3 evidence
 
@@ -1378,28 +1401,21 @@ Current:
 
 ```text
 active plan:
-    LANG007.C3.P2
+    none
 
 next plan:
-    LANG007.C3.P2
+    LANG007.C3.P3
 
 next action:
-    obtain and record the INC-C3-11 architectural decision for the beta-reduction
-    resource invariant; then complete the remaining T9 focused gate and lifecycle
-    records. Keep T7's graph-build/SCC full-traversal performance concern open.
+    plan LANG007.C3.P3. Keep the T7 graph-build/SCC full-traversal performance
+    follow-up and the documented predecessor baselines visible; do not reopen
+    accepted P2 architecture without new evidence.
 
 Advanced-agent continuation prompt: [LANG007.C3.P2-advanced-agent-handoff.md](LANG007.C3.P2-advanced-agent-handoff.md).
 
-P2 started from the completed P1 commit `79e6726093349d3269460a29a7c1c4c3035ec2cf`
-with a clean working tree; that revision was pushed to `origin/main` before P2
-implementation continued. The T5 canonical-Int and source-publication slices are
-focused-tested; P2 remains partial and is not complete. T6 has focused publication and
-identity evidence under the user-ratified INC-C3-2 amendment. T7 has focused static-domain,
-singleton-term, and field/alias/generic-header source-member projection evidence under
-the INC-C3-3 seam, plus the user-ratified INC-C3-6 cycle rule. The shell-built surface and
-reverse-invalidation path are now implemented; focused incremental/cold-parity evidence
-and graph-build performance work remain. The T8 nominal-case slice is focused-tested
-under INC-C3-4; cross-module and broader identity gates remain.
+P2 implementation, focused acceptance, and lifecycle records are complete. The P2→P3
+handoff records accepted evidence, focused predecessor failures, formatter baseline,
+and the deferred graph-build/SCC performance follow-up.
 ```
 
 At P1 start:

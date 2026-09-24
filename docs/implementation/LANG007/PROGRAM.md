@@ -59,7 +59,7 @@ C3 establishes unified algebraic declarations (`data` for runtime products and s
 Current numbered plans for C3:
 
 - `LANG007.C3.P1` — unified algebraic data declarations and type-data foundation — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
-- `LANG007.C3.P2` — general static domains, heterogeneous application/inference, associated type data — `PROPOSED / NOT_STARTED / UNVERIFIED`.
+- `LANG007.C3.P2` — general static domains, heterogeneous application/inference, associated type data — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C3.P3` — intrinsic structural surface, Universe/corpus migration, certification and closure — `PROPOSED / NOT_STARTED / UNVERIFIED`.
 
 C1 is the first implementation checkpoint. It establishes the canonical domains, type-member identity/projection machinery, structural operations, persistence/inference integration, and runtime boundary required for:
@@ -159,13 +159,13 @@ program: LANG007
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active checkpoint: LANG007.C2
+active checkpoint: LANG007.C3
 active_plan: null
-next checkpoint: LANG007.C2
-next plan: LANG007.C2.P2
+next checkpoint: LANG007.C3
+next plan: LANG007.C3.P3
 ```
 
-The program is `IN_PROGRESS` with `LANG007.C1` fully complete at the `FOCUSED_TESTED` level. `LANG007.C2.P1` is complete and focused-tested; C2 source elaboration remains for P2/P3.
+`LANG007.C1` and `LANG007.C2` are complete. `LANG007.C3.P1` and `LANG007.C3.P2` are complete at the `FOCUSED_TESTED` level. C3 remains active because P3 owns intrinsic structural exposure, Universe/corpus migration, and checkpoint certification.
 
 ## Canonical records
 

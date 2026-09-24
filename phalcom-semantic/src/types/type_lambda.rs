@@ -376,7 +376,7 @@ impl TypeLambdaArena {
         match self.get_scoped(scoped).clone() {
             ScopedTypeData::Bound { .. } => scoped,
             ScopedTypeData::Free(ty) => {
-                let replacement = substitution.apply(store, ty);
+                let replacement = substitution.apply_with_arena(store, self, ty);
                 self.intern_scoped(ScopedTypeData::Free(replacement))
             }
             ScopedTypeData::Applied { origin, arguments } => {
@@ -532,7 +532,9 @@ impl TypeLambdaArena {
                     .iter()
                     .map(|&a| self.subst_scoped_to_canonical(a, depth, args, store))
                     .collect::<Result<_, _>>()?;
-                store.apply_type_form(can_origin, &can_args).map_err(BetaReductionError::Application)
+                store
+                    .apply_type_form_with_arena(self, can_origin, &can_args)
+                    .map_err(BetaReductionError::Application)
             }
             ScopedTypeData::Union(members) => {
                 let can_members: Vec<TypeId> = members
@@ -677,10 +679,9 @@ impl TypeLambdaArena {
                 let scoped_body = self.subst_scoped_partial(nested.body, depth + 1, args, store);
                 let parameter_kinds = nested.parameter_kinds.clone();
                 let new_lid = self.intern_lambda_with_modes(parameter_kinds.clone(), nested.parameter_modes, scoped_body, nested.result_kind, None);
-                // `self` is the cloned arena used by `TypeStore::apply_type_form`.
-                // Intern the denotation against that arena's ID; calling
-                // `store.type_lambda` here would read the pre-clone arena and
-                // can address a lambda that is not present there yet.
+                // Keep the new lambda ID in this same active arena. The
+                // enclosing TypeStore boundary restores this arena only after
+                // all recursive canonical applications have completed.
                 let kind = if parameter_kinds.is_empty() {
                     nested.result_kind
                 } else {

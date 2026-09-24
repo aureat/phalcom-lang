@@ -8,7 +8,8 @@
 - Task/Gate: `T9`, `CL-35`, `CV-P2-21`
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Branch: `main`
-- Starting/current revision: `9c150747262275b34e52cb7b6642d7d3ceb4ad4d` (local implementation changes are uncommitted)
+- Incident starting revision: `9c150747262275b34e52cb7b6642d7d3ceb4ad4d`
+- Current revision at ruling: `d24f7097be5cc5fa353309ea1ecbcaadea50e867`
 
 ## 2. Escalation trigger
 
@@ -93,34 +94,83 @@ available to nested canonicalization. Removing it safely likely requires
 threading the active arena through nested application/materialization or
 introducing an equivalent local mutation boundary.
 
-## 11. Alternative hypotheses
+## 11. Architectural ruling
 
-1. A move-out/restore implementation is sufficient if nested lambda reduction
-   can be routed through the moved arena without changing stable IDs.
-2. A local arena transaction/journal can avoid whole-arena copying while
-   preserving rollback/commit behavior.
-3. The current copy boundary is required by an implicit identity/capture
-   invariant, in which case the P2 plan needs a material amendment rather than
-   an unreviewed workaround.
+The architect ruled `ARCHITECTURE_RESOLVED / IMPLEMENTATION_REQUIRED /
+UNVERIFIED`, with resume authorized. Use exactly one active `TypeLambdaArena`
+through each recursive beta-reduction or lambda-specialization operation.
+Public `TypeStore` operations may move the arena out and restore it on every
+ordinary `Result` path. Private active-arena-aware application helpers must
+thread that same arena through every nested application.
 
-## 12. Attempts already made
+Do not use a transaction or journal: interning is monotonic and checked
+failures currently commit any interned nodes. Do not defer `INV-P2-22` / `INV-24`.
+Apply the same active-arena protocol to `substitute_type_lambda`, the second
+whole-arena clone site. `TypeStore` remains canonical `TypeId` authority;
+`TypeLambdaArena` remains scoped/lambda interning authority.
 
-No correction attempt was made. The nested `ScopedTypeData::Applied` call path
-shows that a direct `mem::take` substitution could make existing lambda IDs
-unavailable to recursive application; experimenting with that architecture
-would cross the plan's explicit semantic boundary.
+## 12. Implementation and attempts
 
-## 13. Why local authority is insufficient
+Before the ruling, no correction attempt was made. The nested
+`ScopedTypeData::Applied` call path showed that a direct `mem::take` substitution
+could make existing lambda IDs unavailable to recursive application. The
+approved solution now explicitly threads one active arena through those paths.
 
-The change may alter the canonical owner of newly interned lambda IDs, the
-availability of captured nested lambdas during recursive application, and the
-failure/commit behavior of beta reduction. These are stable-identity and
-representation consequences, not a local borrow-checker adjustment.
+## 13. Required focused regressions
 
-## 14. Decision requested
+Retain the existing capture, shadowing, higher-kinded application, and partial
+application tests. Add coverage for:
 
-Choose the safe architecture for satisfying `INV-24`: should beta reduction
-thread one active arena through nested application, use a local transaction
-mechanism, or should the plan be amended to defer this invariant? Please also
-specify the minimum identity/capture regression cases required before the
-implementer resumes this portion of T9.
+1. A freshly specialized nested lambda immediately applied in the same outer
+   reduction, yielding the expected canonical type.
+2. Repeated full application and repeated partial application producing
+   canonical identities.
+3. A checked wrong-kind failure restoring the arena while preserving existing
+   lambda IDs and permitting a later valid application.
+4. Free-capture specialization with a nested lambda/application, repeated
+   canonical specialization, and successful subsequent application.
+
+The focused source audit must find no `self.lambda_arena.clone()` in
+`apply_static_form` or `substitute_type_lambda`. Local immutable node copies are
+allowed; copying the complete accumulated arena is not.
+
+## 14. Status
+
+```yaml
+status: ARCHITECTURE_RESOLVED
+implementation: REQUIRED
+verification: UNVERIFIED
+resume_authorized: true
+strategy: one-active-TypeLambdaArena
+mechanism: active-arena threading with bounded move-out/restore at TypeStore boundary
+transaction_or_journal: REJECTED
+defer_INV_24: REJECTED
+```
+
+## 15. Implementation result (2026-09-24)
+
+Implemented and focused-tested under the architect's ruling. `TypeStore` moves its
+single lambda arena out at public operation boundaries and restores it on every ordinary
+return. Private active-arena-aware application helpers carry that same arena through
+recursive beta reduction, canonicalization, substitution, and free-capture lambda
+specialization. No transaction, journal, rollback, or panic recovery was introduced.
+
+The four new regressions and existing lambda regression group pass as part of
+`foundations::type_annotations` (49/49): fresh captured nested lambda application,
+repeated full/partial canonical identity, checked wrong-kind restoration with existing
+IDs preserved, and nested-lambda free-capture specialization followed by application.
+Both former clone sites are absent; a source search over `phalcom-semantic/src/types`
+finds no whole `TypeLambdaArena` clone.
+
+Final incident status:
+
+```yaml
+status: IMPLEMENTED
+implementation: COMPLETE
+verification: FOCUSED_TESTED
+resume_authorized: true
+strategy: one-active-TypeLambdaArena
+mechanism: active-arena threading with bounded move-out/restore at TypeStore boundary
+transaction_or_journal: REJECTED
+defer_INV_24: REJECTED
+```
