@@ -7367,11 +7367,11 @@ fn build_static_case_signature(
             return (None, diagnostics);
         };
         let kind = crate::types::annotation::static_domain_kind_of_form(store, form);
-        if !matches!(store.get_kind(kind), crate::types::kind::KindData::StaticDomain(_)) {
+        if kind != KindId::TYPE && !matches!(store.get_kind(kind), crate::types::kind::KindData::StaticDomain(_)) {
             diagnostics.push(SemanticDiagnostic::error_in(
                 module.clone(),
                 DiagnosticCode::KindExpectedType,
-                "type-data payload must have a supported static domain",
+                "type-data payload must have kind Type or a supported static domain",
                 annotation.range,
             ));
             return (None, diagnostics);

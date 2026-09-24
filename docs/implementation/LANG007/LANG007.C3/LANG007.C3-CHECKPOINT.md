@@ -1598,27 +1598,25 @@ next task:
     LANG007.C3.P3.T9 / G9-G11 continuation
 
 next action:
-    Continue T9's remaining metadata/import, runtime-negative/resource, and
-    workspace integration certification. The source-index/LSP/editor and
-    closed-sum source migrations are implemented; T8/G8 is closed. Do not close
-    C3 while `associated_static_domain_payload_uses_owner_generic_parameter_kind`
-    fails: it reports zero constructors on both the current worktree and clean
-    predecessor `9b4ca55d`, but directly overlaps generic-owner static-domain
-    payload acceptance. Keep this P2/C3 baseline visible for the next bounded
-    disposition. Two runtime constructor-reference failures were also reproduced
-    on `9b4ca55d` and remain outside the changed implementation. Preserve the
-    documented graph-build/SCC performance follow-up.
+    Reconcile the remaining T9 coverage and baseline classifications. The
+    catalog-backed static-case signature path now accepts proper Type payload
+    kinds, matching the existing associated-domain builder and type-data
+    constructor-kind law; the generic-owner regression, associated owner-kind
+    incremental/cold parity, and semantic ADT suite pass. Keep T9 open for the
+    documented AST/VM/impl-query baselines, formatter drift, and incomplete full
+    semantic run until every C3-critical item is resolved or explicitly proven
+    outside acceptance. Preserve the documented graph-build/SCC performance
+    follow-up.
 
 Advanced-agent continuation prompt: [LANG007.C3.P2-advanced-agent-handoff.md](LANG007.C3.P2-advanced-agent-handoff.md).
 
 P2 implementation, focused acceptance, and lifecycle records are complete. P3
 has completed T1-T8 implementation work. T9 is `BASELINE_BLOCKED`: the
 workspace/all-target build, type-meta suite, targeted source-index/LSP tests,
-and ADT migration tests provide positive evidence. The formatter check remains
-baseline-blocked, and one inherited associated generic-owner static-domain
-payload failure overlaps C3 acceptance. The full semantic run was stopped after
-unrelated high-fanout incremental tests exceeded the useful gate window; record
-it as incomplete.
+and ADT migration tests provide positive evidence, including the repaired
+generic-owner static-domain payload contract. The formatter check remains
+baseline-blocked. The full semantic run was stopped after unrelated high-fanout
+incremental tests exceeded the useful gate window; record it as incomplete.
 
 ## 21. P3 certification checkpoint — 2026-09-25
 
@@ -1634,23 +1632,31 @@ Completed gates and evidence:
 | `cargo fmt --all -- --check` | BASELINE_BLOCKED; reports pre-existing workspace formatting drift, already documented at P2 handoff. No repository-wide formatting rewrite retained |
 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo build --workspace --all-targets` | PASS |
 | `cargo test -p phalcom-type-meta` | PASS, 14 schema tests |
-| AST crate | 53 unit + 261 integration pass; 7 inherited failures (6 stale `associated_type_data: []` snapshots; 1 legacy selector-diagnostic assertion); 1 ignored |
-| Semantic ADT module | 276 pass, 1 fail, 25 ignored; the single failing generic associated static-domain payload case also fails at clean predecessor `9b4ca55d` |
-| Semantic impl query module | 54 pass, 1 unrelated data-component witness baseline failure |
-| Core algebraic-data suite | 41 pass, 2 clean-predecessor runtime constructor-reference failures, 19 ignored; the third initial failure was an unconverted second `enum` in a migrated test fixture and now passes as `data` |
+| AST crate | Current tree: 53 unit + 261 integration pass; 6 stale `associated_type_data: []` snapshots and 1 legacy selector-diagnostic assertion fail; 1 ignored. Clean predecessor `9b4ca55d` reproduces the same 7 failures (53 unit + 270 integration pass; 1 ignored), confirming they predate this continuation |
+| Semantic ADT module | 277 pass, 25 ignored; the inherited generic associated static-domain payload failure was fixed by accepting proper `Type` payload kinds in the checked catalog-signature path, consistent with the existing associated builder and T0869/T0870 |
+| Semantic impl query module | 54 pass, 1 data-component witness-plan assertion failure; the exact test also fails at clean predecessor `9b4ca55d`, outside the P3 static-domain payload change |
+| Core algebraic-data suite | 42 pass, 2 clean-predecessor runtime constructor-reference failures, 19 ignored; both exact failures reproduce at `9b4ca55d`. The nested fixture's second `enum` was migrated to `data` and now passes |
 | Source-index static-domain test incl. inherent-impl associated case | PASS |
 | LSP workspace indexing/rename/navigation test | PASS |
 | Metadata round-trip: static alias and associated term identity | PASS; `snapshot_metadata_round_trip_preserves_static_alias_and_associated_term_identity` |
 | Imported static-domain provider edit invalidation and cold parity | PASS; `imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold` |
 | Type-data case edit incremental/cold parity | PASS; `type_data_case_edit_matches_cold_static_domain_analysis` |
+| Associated static-case signature owner-kind edit and cold parity | PASS; `associated_static_case_payload_tracks_generic_owner_kind_edit_with_cold_parity`; associated type-member incremental module is 24/24 |
 | TypeOnly case runtime-value rejection | PASS; `type_data_case_cannot_be_used_as_a_runtime_value` |
 | Universe bootstrap/resource counters | PASS; starting revision `518f66d1` and current tree both report 106 discovered, 37 root-reachable, 101 executed; no measured increase |
 | VS Code LSP e2e | PASS; `PATH=target/debug:$PATH npm run test:lsp:e2e`, 11 passing; initial run without the binary directory on PATH logged `phalcom-lsp ENOENT`, resolved by supplying the built binary path |
 | Full semantic test binary | INCOMPLETE; stopped after repository high-fanout stress tests exceeded the useful gate window; multiple unrelated baseline failures appeared before stop |
 
-The associated static-domain payload failure is not treated as resolved merely
-because it is inherited. It remains the C3 acceptance blocker. Runtime
-constructor-reference failures report `invocation layout has 1/2 structural
+The generic associated static-domain payload failure was reproduced on clean
+predecessor `9b4ca55d` and resolved in this continuation: the catalog-signature
+path had rejected proper `Type` payloads even though the existing associated
+builder accepted them and T0869/T0870 permit a constructor input kind `K`. The
+existing regression now asserts the constructor publishes with parameter kind
+`Type`; all 302 selected semantic ADT tests pass, with 25 intentionally ignored.
+The associated owner-kind incremental regression also passes: changing the
+owner parameter kind from `Type` to `Shape` rebuilds the checked signature and
+matches cold analysis; the type-member incremental module passes 24/24.
+Runtime constructor-reference failures report `invocation layout has 1/2 structural
 slots for Method(0)` and reproduce on the same clean predecessor, so they are
 recorded as inherited VM baselines. The stale AST snapshots and selector
 diagnostic, plus the impl witness failure, were not introduced by this plan.
@@ -1658,9 +1664,10 @@ diagnostic, plus the impl witness failure, were not introduced by this plan.
 The focused metadata round-trip, imported-provider invalidation, cold/incremental
 parity, runtime-negative, bootstrap-counter, and VS Code e2e obligations now
 have direct evidence. The bootstrap counters are unchanged from P3's starting
-revision. T9/G9-G11 remains open: the generic-owner payload failure still blocks
-C3 acceptance, the broad semantic run remains incomplete, and the remaining
-plan-mandated suite coverage must be reconciled before T10 can close P3/C3.
+revision. T9/G9-G11 remains open: the generic-owner payload failure is resolved,
+but the broad semantic run remains incomplete and remaining plan-mandated suite
+coverage and baseline classifications must be reconciled before T10 can close
+P3/C3.
 ```
 
 At P1 start:

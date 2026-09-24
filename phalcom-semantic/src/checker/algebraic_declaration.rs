@@ -892,13 +892,13 @@ fn static_payload_kind(
         return None;
     };
     let kind = crate::types::annotation::static_domain_kind_of_form(store, payload);
-    if matches!(store.get_kind(kind), KindData::StaticDomain(_)) {
+    if kind == KindId::TYPE || matches!(store.get_kind(kind), KindData::StaticDomain(_)) {
         Some(kind)
     } else {
         diagnostics.push(SemanticDiagnostic::error_in(
             module_id.clone(),
             DiagnosticCode::KindExpectedType,
-            "type-data payload must have a supported static domain",
+            "type-data payload must have kind Type or a supported static domain",
             range,
         ));
         None

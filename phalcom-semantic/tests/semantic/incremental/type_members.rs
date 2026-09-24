@@ -656,6 +656,50 @@ fn associated_static_case_signature_edit_invalidates_and_matches_cold_analysis()
 }
 
 #[test]
+fn associated_static_case_payload_tracks_generic_owner_kind_edit_with_cold_parity() {
+    use phalcom_semantic::identity::{AssociatedStaticDomainDeclarationId, StaticDomainDeclarationId};
+    use phalcom_semantic::static_case::StaticCaseShape;
+    use phalcom_semantic::types::id::KindId;
+    use phalcom_semantic::types::kind::KindData;
+    use std::sync::Arc;
+
+    let module = module();
+    let source_type =
+        "type data Shape { Scalar }\nclass Container<T: Type> { type data State { Box(_ value: T) } }\n";
+    let source_shape =
+        "type data Shape { Scalar }\nclass Container<T: Shape> { type data State { Box(_ value: T) } }\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let initial = incremental.update(single_module_input(module.clone(), source_type, 1));
+    assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
+
+    let domain = StaticDomainDeclarationId::Associated(AssociatedStaticDomainDeclarationId::new(
+        DeclarationId::new(module.clone(), "Container".into()),
+        "State",
+    ));
+    let case = initial.snapshot.static_case_catalogs[&domain]
+        .cases
+        .iter()
+        .find(|case| matches!(case.shape, StaticCaseShape::Constructor { .. }))
+        .expect("Box constructor case")
+        .id
+        .clone();
+    let first_signature = initial.snapshot.static_case_signatures.get(&case).expect("Type payload signature");
+    assert_eq!(first_signature.parameter_kinds.as_ref(), &[KindId::TYPE]);
+
+    let updated = incremental.update(single_module_input(module.clone(), source_shape, 2));
+    assert!(!updated.snapshot.has_errors(), "updated diagnostics: {:?}", updated.snapshot.diagnostics);
+    let updated_signature = updated.snapshot.static_case_signatures.get(&case).expect("Shape payload signature");
+    assert!(!Arc::ptr_eq(first_signature, updated_signature), "owner header edit must rebuild the payload signature");
+    assert_ne!(updated_signature.parameter_kinds.as_ref(), &[KindId::TYPE]);
+    assert!(matches!(updated.snapshot.store.get_kind(updated_signature.parameter_kinds[0]), KindData::StaticDomain(_)));
+
+    let cold = SemanticWorkspaceSession::new().update(single_module_input(module, source_shape, 1));
+    assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
+    let cold_signature = cold.snapshot.static_case_signatures.get(&case).expect("cold Shape payload signature");
+    assert_eq!(updated_signature.parameter_kinds, cold_signature.parameter_kinds, "incremental and cold owner-kind facts must agree");
+}
+
+#[test]
 fn inherent_impl_static_case_signature_edit_invalidates_and_matches_cold_analysis() {
     use phalcom_semantic::identity::{AssociatedStaticDomainDeclarationId, StaticDomainDeclarationId};
     use phalcom_semantic::static_case::StaticCaseShape;
