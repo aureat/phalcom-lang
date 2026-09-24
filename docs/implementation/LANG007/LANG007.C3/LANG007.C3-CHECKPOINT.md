@@ -13,7 +13,7 @@ requires:
   - LANG007.C2
 prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
 prepared: 2026-09-22
-active_plan: null
+active_plan: LANG007.C3.P3
 latest_completed_plan: LANG007.C3.P2
 next_plan: LANG007.C3.P3
 ---
@@ -30,9 +30,9 @@ checkpoint: LANG007.C3
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: null
+active_plan: LANG007.C3.P3
 latest_completed_plan: LANG007.C3.P2
-next_plan: LANG007.C3.P3
+next_plan: LANG007.C3.P3.T2 / G2
 blockers: none; documented clean-predecessor baselines and graph-build performance follow-up remain non-blocking
 ```
 
@@ -133,7 +133,7 @@ C3 is complete only when this statement is true:
 |---|---|---|---|---|---|
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
 | `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T9 accepted; G-FINAL completed with documented clean-predecessor and formatter baselines; see P2 walkthrough/handoff |
-| `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P2 |
+| `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | IN_PROGRESS | PARTIAL | UNVERIFIED | T1/G1, T2/G2, and T3/G3 passed; T4/G4 awaits INC-C3-12 runtime-facade binding decision |
 
 No additional P4 is planned.
 
@@ -1002,6 +1002,32 @@ selection, or incremental gates as accepted. Preserve catalog identity when a
 payload signature is invalid, and preserve cold/incremental parity.
 Status: ARCHITECTURE RESOLVED / IMPLEMENTATION IN PROGRESS / UNVERIFIED.
 
+### INC-C3-12 — runtime intrinsic facade binding prerequisite
+
+Incident report: [INC-C3-12.md](INC-C3-12.md)
+
+Plan/task: LANG007.C3.P3 / T4/G4 — Unit/Tuple/Record intrinsic runtime facade migration.
+Trigger: mandatory triggers 1, 2, 7, and 12; T4's prerequisite and P3's ordered
+  migration rule require a runtime facade binding that is not established by T2/G2.
+Observed: the declaration table registers TypeOnly intrinsic kinds and existing
+  Tuple/Record class-owner descriptors, but no runtime intrinsic Data declaration
+  for Unit/Tuple/Record. Runtime product `Statement::Data` goes through
+  `compile_data`, which emits `Bytecode::Data` / `FinalizeData`; native source
+  presentations are indexed from Class and sum declarations. Existing structural
+  TypeStore and runtime class authorities are present.
+Decision: user ratified on 2026-09-24 that T4 first establishes and tests the
+  declaration-identity binding and existing-owner compiler/runtime reuse path,
+  then migrates source presentation. Keep within T4/G4 as a Level 1 sequencing
+  clarification; no corrective plan.
+Architecture impact: do not migrate Unit/Tuple/Record source or add speculative
+  compiler/runtime handling until the binding ownership and reuse path are ratified.
+Plan amendment: Level 1 clarification recorded in INC-C3-12.md and the active
+  P3 plan. T4/G4 may resume.
+Verification required: prove facade declarations resolve to the existing canonical
+  Unit/Tuple/Record semantic/runtime identities, do not emit generic data lowering,
+  retain native descriptor/source targets, and preserve exact runtime census.
+Status: ADOPTED — T4/G4 implementation resumed.
+
 Use entries:
 
 ```text
@@ -1364,7 +1390,7 @@ The focused failures and formatter differences are clean-predecessor baselines a
 not attributed to the arena correction. The source audit finds no whole `TypeLambdaArena`
 clone in TypeStore application, substitution, or beta-reduction paths. Runtime isolation,
 ProperType, and Applied-consumer audits remain as previously recorded. P2 is
-`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; C3 remains partial because P3 is proposed.
+`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; C3 remains partial because P3 work is active.
 
 The type-member publication slice is committed and pushed as
 `f2a6e3d8 lang007: publish checked type-member declarations`. The repository-wide
@@ -1395,27 +1421,143 @@ Workspace/release-wide certification is not implied by `FOCUSED_TESTED`.
 
 ---
 
+## P3 takeover and migration manifest
+
+T1/G1 completed at starting revision:
+
+```text
+repository: aureat/phalcom-lang
+branch: main
+revision: 518f66d19941eb24e379e60f64aa89df66643a8a
+subject: fix(semantic): thread active type lambda arena
+worktree: one unrelated untracked directory, phalcom-core/tests/integration/; preserved
+metadata schema: 8
+P1: COMPLETE / IMPLEMENTED / FOCUSED_TESTED
+P2: COMPLETE / IMPLEMENTED / FOCUSED_TESTED
+```
+
+The P2 hard predecessor contract is verified against the completed-P2 handoff,
+checkpoint evidence, and live source symbols. Stable owners include `TypeStore`
+and `TypeId`; `ProperTypeId`; `KindId` / `KindData`; `StaticDomainId`;
+`StaticArgument::{Term, RecordRow}`; `RecordRowId` and the separate row solver;
+`TypeStore::complete_type_pack` / `project_complete`;
+`TypeData::CompleteTypePack`; `AssociatedSurface`; semantic editor
+`target_at`/definition/reference products; metadata schema v8; the active
+`TypeLambdaArena` move-out/restore boundary; and
+`UniverseBootstrapMeasurement::{discovered_units, root_reachable_units,
+executed_units}`. No missing predecessor authority was found.
+
+Exact source/tooling anchors for follow-on tasks:
+
+| Surface | Live anchor | T1 finding |
+|---|---|---|
+| Tuple and pack presentation | `phalcom-core/core/universe/src/collections/tuple.ph` | `native class Tuple`; exposes Positionals/Labeled/At/Map; no Entries |
+| Record presentation | `phalcom-core/core/universe/src/collections/record.ph` | `native class Record` |
+| Unit presentation | `phalcom-core/core/universe/src/option/unit.ph` | `native class Unit` |
+| closed sums | `phalcom-core/core/universe/src/option/option.ph`, `errors/result.ph`, `object/ordering.ph` | `Option`, `Result`, `Ordering` remain `native enum` |
+| other Universe sums | `time/calendar/date.ph`, `month.ph`, `weekday.ph`, `datetime.ph` | DateOverflow, Month, Weekday, LocalTimeDisambiguation, LocalTimeResolution |
+| source index | `phalcom-semantic/src/source_index/scope.rs`, `symbol.rs`, `builder.rs`, `mod.rs` | SourceDeclarationKind and EditorSymbolKind still include Enum; builder has `visit_enum` |
+| intrinsic operation dispatch | `phalcom-semantic/src/types/type_member.rs` | `lookup_intrinsic_type_operation` still dispatches by owner string |
+| LSP navigation | `phalcom-lsp/src/backend.rs`; tests in `module_navigation.rs`, `workspace_indexing.rs` | definition/references substrate exists; no rename/prepareRename implementation or capability |
+| editor syntax | `tools/vsphalcom/syntaxes/phalcom.tmLanguage.json`; tests in `src/test/suite/lsp.e2e.test.ts` | grammar retains enum/ADT declaration wording; no rename lane identified |
+| bootstrap baseline | `phalcom-core/src/vm/mod.rs`; `tests/core/modules/universe.rs` | counters and measurement test exist; retain before/after counts at T4 certification |
+
+Parser-backed census: a temporary external helper used `phalcom_ast::parse`
+and `AlgebraicDef::legacy_enum_keyword_range` over repository `.ph` files,
+excluding hidden directories and build output. It found these current declarations:
+
+| Category | Parser-confirmed declarations / source | Treatment |
+|---|---|---|
+| A — canonical Universe | 8 declarations in `option/option.ph` (Option), `errors/result.ph` (Result), `object/ordering.ph` (Ordering), `time/calendar/date.ph` (DateOverflow), `month.ph` (Month), `weekday.ph` (Weekday), and `datetime.ph` (LocalTimeDisambiguation, LocalTimeResolution) | migrate in T5 |
+| B — first-party examples and parser project sources | `examples/phalcom-parser/src/lex/token.ph` (Keyword, TokenKind); `syntax/ast.ph` (14 parsed sums); `syntax/diagnostic.ph` (DiagnosticKind); `examples/either.ph` has declaration-shaped source but current parser reports errors before yielding it | migrate active owned source; account for parser limitations explicitly |
+| C — active positive test sources | `tests/core/typing_integration/sources/either.ph` (Either), `expression.ph` (Expression) | migrate with identity-preserving source changes |
+| D — editor golden | `examples/ide-golden/phalcom-enum-highlighting-showcase.ph`; parser recovered Direction and reports errors on competing legacy forms; it contains seven showcase declaration spellings (four Direction variants plus Option, Result, Expr) | migrate/replace as editor migration fixture in T5/T6 |
+| E — benchmarks/sample packages | no parser-confirmed declarations found | none at T1 |
+| F — active authoritative specs/docs | prose and examples remain to be inventoried during T8; excluded from `.ph` AST census | update in T8 |
+| G — embedded/generated/self-hosted source | `examples/phalcom_parser.ph` is a self-hosted embedded parser listing legacy syntax and has extensive current-parser errors; `examples/phalcom-parser/src/lex/lexer.ph` has enum-related text but no enum AST declaration | determine whether active/generated and migrate or document its generated source owner before T7 |
+| H — intentional negative fixtures | `tests/fixtures/language/errors/annotation_variant_global_reference.ph` (Ordering), `annotation_variant_visitor_exhaustive.ph` (Shape) | retain as rejection/diagnostic coverage and update expectations at T7 |
+
+The census also found parser limitations: `examples/either.ph` reports
+`EnumBehaviorUnsupported`; `examples/phalcom-parser/src/lex/token.ph` reports
+recovery errors after two parsed declarations; the IDE showcase reports errors
+after its first recovered declaration; `examples/phalcom_parser.ph` and the
+self-hosted lexer do not parse cleanly with the current parser. These are
+path-classified source migration candidates, not evidence that the files are
+historical or negative. T5/T7 must re-run the census and prove no positive
+source route remains before parser retirement. The P3 plan’s §7.12 A–F census
+categories are extended here with G (embedded/generated/self-hosted) and H
+(intentional negative fixtures), resolving the supplied audit’s A–H wording.
+
+Inherited P2 baseline ledger carried forward without new reproduction:
+
+- one metadata alpha-equivalence failure;
+- three record-row-polymorphism failures;
+- two trait-suite failures;
+- formatter drift already present at completed-P2 HEAD;
+- full declaration signature graph/SCC traversal retained as a performance follow-up.
+
+G1 result: PASS. The completed-P2 revision, required lifecycle records,
+predecessor architecture, metadata schema, source identity substrate, and
+bootstrap measurement hook were present.
+
+T2/G2 result: PASS. Canonical Universe source now authors bodiless
+`intrinsic type data` anchors for `TypePack`, `LabeledTypePack`, `TupleEntries`,
+and `RecordRow` in the existing tuple/record modules. `DeclarationTypeTable`
+holds declaration-identity bindings to `TYPE_PACK`, `LABELED_TYPE_PACK`,
+`COMPLETE_TYPE_PACK`, and `RECORD_ROW`; the facades have no TypeId form and do
+not allocate nominal `StaticDomainId`s. Session declaration/shell, nominal
+hierarchy, static-case catalog, and fingerprint passes exclude registered
+facades. Source indexing targets each authored declaration. The parser accepts
+the no-shape form only for intrinsic data declarations. Core bootstrap-root
+selection and runtime class census exclude TypeOnly facades.
+
+T2/G2 focused evidence: AST `data_syntax` (27 tests); semantic intrinsic
+facade authority, TupleEntries kind resolution, and source declaration target
+tests; core TypeOnly-root unit test; and the core
+`boot_01_bootstrap_measurement_separates_catalog_closure_and_execution` test.
+That VM gate first exposed a session predeclaration path that rebuilt a
+registered facade as a nominal type; after excluding intrinsic facades from
+the nominal passes, the gate passed. The P2 starting-revision control passed
+the same gate, confirming the first failure was introduced by P3 and was
+corrected within T2.
+
+T3/G3 result: PASS. `Tuple::Entries` is an intrinsic member whose public result
+kind is `COMPLETE_TYPE_PACK` and whose normalization delegates to
+`TypeStore::project_complete`; metadata still uses `CompleteTypePack`. Intrinsic
+member selection consumes canonical `IntrinsicTypeOwner` descriptors populated
+by declaration identity. `TypeMemberDeclarationId` is now a source-index target
+for member definitions. Concrete and symbolic Entries projections pass, as do
+the existing At/Map and symbolic projection cases. Focused evidence:
+semantic `type_member_closure` (10 tests), the source-index type-member target
+test, semantic crate check, and the canonical Universe bootstrap measurement
+test with the new Tuple member compiled.
+
+---
+
 ## 20. Active plan and next action
 
 Current:
 
 ```text
 active plan:
-    none
-
-next plan:
     LANG007.C3.P3
 
+next task:
+    LANG007.C3.P3.T4 / G4
+
 next action:
-    plan LANG007.C3.P3. Keep the T7 graph-build/SCC full-traversal performance
-    follow-up and the documented predecessor baselines visible; do not reopen
-    accepted P2 architecture without new evidence.
+    Implement the ratified T4/G4 binding/reuse gate from INC-C3-12, then migrate
+    Unit/Tuple/Record source presentation. Preserve existing TypeStore/runtime
+    class identities, native descriptor census, and P3's static/runtime
+    separation. Keep the T7 graph-build/SCC full-traversal performance follow-up
+    and documented predecessor baselines visible.
 
 Advanced-agent continuation prompt: [LANG007.C3.P2-advanced-agent-handoff.md](LANG007.C3.P2-advanced-agent-handoff.md).
 
-P2 implementation, focused acceptance, and lifecycle records are complete. The P2→P3
-handoff records accepted evidence, focused predecessor failures, formatter baseline,
-and the deferred graph-build/SCC performance follow-up.
+P2 implementation, focused acceptance, and lifecycle records are complete. P3
+has passed T1/G1, T2/G2, and T3/G3 at the active P3 worktree. The P2→P3
+handoff records accepted evidence, focused predecessor failures, formatter
+baseline, and the deferred graph-build/SCC performance follow-up.
 ```
 
 At P1 start:

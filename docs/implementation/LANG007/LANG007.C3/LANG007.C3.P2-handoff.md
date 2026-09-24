@@ -13,9 +13,9 @@ verification: FOCUSED_TESTED
 
 ## State
 
-P2 is complete and focused-tested. C3 remains partial and active; P3 is proposed and
-is the next planning action. The implementation and records are present as uncommitted
-worktree changes on top of `d24f7097be5cc5fa353309ea1ecbcaadea50e867`.
+P2 is complete and focused-tested at committed revision
+`518f66d19941eb24e379e60f64aa89df66643a8a` (`fix(semantic): thread active type
+lambda arena`). C3 remains partial and active; P3 is the active successor plan.
 
 Read the canonical state and evidence first:
 
@@ -66,6 +66,7 @@ known failures are listed in the walkthrough/checkpoint. Specifically:
 
 ## Next action
 
-Plan `LANG007.C3.P3` for intrinsic structural surface exposure, Universe/corpus/tooling
-migration, and C3 certification. Preserve the accepted P2 architecture and baseline
-classifications. Do not claim C3 closure until P3 and its checkpoint gates are complete.
+Continue `LANG007.C3.P3` at T2/G2 for intrinsic static-domain facade registration
+and canonical source anchors. T1/G1 passed at the completed-P2 revision. Preserve
+the accepted P2 architecture and baseline classifications. Do not claim C3 closure
+until P3 and its checkpoint gates are complete.

@@ -13,12 +13,11 @@ verification: FOCUSED_TESTED
 
 ## Final state
 
-P2 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. The repository was at
-`d24f7097be5cc5fa353309ea1ecbcaadea50e867` when the INC-C3-11 correction began;
-the implementation and lifecycle edits in this walkthrough are in the current
-uncommitted worktree. C3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 is
-proposed and owns intrinsic structural exposure, Universe/corpus migration, and C3
-certification.
+P2 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` at committed revision
+`518f66d19941eb24e379e60f64aa89df66643a8a` (`fix(semantic): thread active type
+lambda arena`). The INC-C3-11 correction and lifecycle records are committed.
+C3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 is active and owns
+intrinsic structural exposure, Universe/corpus migration, and C3 certification.
 
 P2 closes generalized static domains, heterogeneous application and inference,
 associated `type data`, metadata representation, module/import identity, incremental
@@ -122,5 +121,6 @@ does not claim one.
 ## Lifecycle
 
 P2 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. C3 remains
-`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The next action is P3 planning; do not reopen
-the accepted P2 architecture without new source/spec evidence.
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. P3 T1/G1 has passed at
+`518f66d19941eb24e379e60f64aa89df66643a8a`; T2/G2 is next. Do not reopen the
+accepted P2 architecture without new source/spec evidence.

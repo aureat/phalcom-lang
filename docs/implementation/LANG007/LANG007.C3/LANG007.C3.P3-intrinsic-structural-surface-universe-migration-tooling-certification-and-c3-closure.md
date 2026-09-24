@@ -4,8 +4,8 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C3
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 depends_on:
   - LANG007.C3.P2
@@ -19,6 +19,32 @@ prepared_against_revision: 60a27f79d69aa3e79c22e3d19df221466c7db920
 prepared: 2026-09-22
 title: "Intrinsic Structural Surface, Universe Migration, Tooling, Certification, and C3 Closure"
 ---
+
+## Live execution baseline amendment — 2026-09-24
+
+The planning baseline in the front matter remains historical authorship
+information. P3 execution is authorized from completed-P2 revision
+`518f66d19941eb24e379e60f64aa89df66643a8a` (`fix(semantic): thread active type
+lambda arena`). P1 and P2 are both `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`;
+the completed-P2 handoff and checkpoint record carry the predecessor evidence.
+
+T1 clarified that the intrinsic binding path must be general before the static
+facades are registered: declaration identity maps to existing compiler
+authority for both static structural facades (T2/T3) and runtime structural
+facades (T4). This is a binding association only, not another kind, type, row,
+or runtime registry. Execution stops after T1/G1 in this first implementation
+slice, before feature edits.
+
+T4 precondition audit on 2026-09-24 found that T2/G2 established only the
+static-facade bindings; runtime `intrinsic data` declarations are not registered
+or routed to existing runtime classes. The user ratified the Level 1 amendment in
+[INC-C3-12.md](INC-C3-12.md): T4 first establishes and tests the declaration
+binding and existing-owner compiler/runtime reuse path, then migrates source.
+
+The parser-backed enum census and exact T2–T8 takeover map are recorded in
+`LANG007.C3-CHECKPOINT.md` under “P3 takeover and migration manifest”. The
+initial T1/G1-only execution slice was honored; subsequent authorized sessions
+completed T2/G2 and T3/G3.
 
 # LANG007.C3.P3 — Intrinsic Structural Surface, Universe Migration, Tooling, Certification, and C3 Closure
 
@@ -929,6 +955,8 @@ C. active test fixtures
 D. editor golden fixtures
 E. benchmarks/first-party sample packages
 F. active authoritative specs/docs
+G. embedded, generated, or self-hosted Phalcom source
+H. intentional negative fixtures
 ```
 
 Do not mass-rewrite:
@@ -941,6 +969,12 @@ intentional negative fixtures
 migration diagnostics/messages
 private file names solely for cosmetic cleanup
 ```
+
+When the current parser cannot produce an `AlgebraicDef` for a candidate
+because of unrelated parser recovery or intentionally unsupported enum-body
+syntax, record that limitation and classify the candidate by its owning
+project/fixture purpose. Do not treat absence of an AST node as proof the source
+is historical or negative.
 
 Before T7 parser retirement, prove:
 
@@ -1935,12 +1969,23 @@ Full workspace, runtime ADT suites, LSP full crate, enum migration corpus.
 ### Acceptance
 
 ```text
-[ ] four canonical source declarations exist
-[ ] each maps one-to-one to existing authority
-[ ] no duplicate term/domain representation exists
-[ ] source index can target each declaration
-[ ] no runtime class/value/bootstrap side effect is introduced
+[x] four canonical source declarations exist
+[x] each maps one-to-one to existing authority
+[x] no duplicate term/domain representation exists
+[x] source index can target each declaration
+[x] no runtime class/value/bootstrap side effect is introduced
 ```
+
+G2: PASS. Bodiless `intrinsic type data` has an intrinsic-only AST shape;
+canonical declarations map by `DeclarationId` to the existing four kinds and
+row authority. Semantic bootstrap and session predeclaration skip those IDs as
+nominal forms/static-case domains. Source definitions target their authored
+declarations, and TypeOnly facades are excluded from runtime roots and class
+census. Focused evidence: AST `data_syntax` (27 tests), facade authority and
+TupleEntries-kind semantic tests, source-index declaration test, core no-root
+unit test, and `modules_universe::boot_01_bootstrap_measurement_separates_catalog_closure_and_execution`.
+An initial bootstrap failure exposed session-side nominal re-predeclaration;
+that causal path was corrected, and the same bootstrap gate passes afterward.
 
 ### Local STOP / CONSULT triggers
 
@@ -2062,12 +2107,21 @@ Runtime Tuple migration, full metadata suite, LSP, workspace tests.
 ### Acceptance
 
 ```text
-[ ] Tuple::Entries exists as canonical source/member identity
-[ ] normalization delegates to CompleteTypePack projection
-[ ] concrete and symbolic equivalences pass
-[ ] existing structural members remain unchanged
-[ ] metadata uses existing complete-pack representation
+[x] Tuple::Entries exists as canonical source/member identity
+[x] normalization delegates to CompleteTypePack projection
+[x] concrete and symbolic equivalences pass
+[x] existing structural members remain unchanged
+[x] metadata uses existing complete-pack representation
 ```
+
+G3: PASS. Intrinsic operation selection now consumes canonical owner
+descriptors; source index publishes `TypeMemberDeclarationId` targets. The
+`Entries` operation delegates to `project_complete`, reports
+`COMPLETE_TYPE_PACK`, and emits no new metadata term. Focused evidence:
+`type_member_closure` (10 tests), the source-index type-member target test, and
+the canonical Universe bootstrap measurement test, which also compiles the new
+Tuple anchor. Existing `At`/`Map` and symbolic projection regressions remain
+green.
 
 ### Local STOP / CONSULT triggers
 
@@ -2090,7 +2144,7 @@ Replace class-style source presentation of compiler-owned structural runtime con
 ### Preconditions
 
 - T2/G2 and T3/G3 passed.
-- intrinsic runtime facade registration path exists and is proven not to route through ordinary generic data storage.
+- intrinsic runtime facade registration path exists and is proven not to route through ordinary generic data storage. **Amended execution:** this is the first implementation/gate inside T4/G4; complete it before changing Unit/Tuple/Record source. See `INC-C3-12.md`.
 
 ### Consumes
 
@@ -2136,15 +2190,16 @@ Tuple/Record/Unit runtime tests
 
 ### Required implementation shape
 
-1. Migrate source representation only after semantic intrinsic binding is available.
-2. Bind `Unit` source declaration to existing canonical Unit type/runtime authority.
-3. Bind `Tuple` source declaration to existing structural tuple type family and runtime Tuple class.
-4. Bind `Record` source declaration to existing `TypeData::Record(RecordRowId)` and runtime Record class.
-5. Move behavior from class bodies to `impl` blocks when required by final grammar, retaining native/Phalcom implementation provenance per member.
-6. Preserve runtime hierarchy (`Tuple -> Collection`, `Unit -> Object`, `Record -> Object`, or live equivalents) through canonical platform metadata rather than fabricating source superclass syntax.
-7. Adapt source/native census so moved native members remain associated with their canonical source owner.
-8. Ensure TypeOnly structural domains from T2 do not leak into runtime census.
-9. Preserve package/catalog/prelude exposure and canonical source URIs.
+1. Establish and test the semantic/runtime intrinsic binding and existing-owner compiler reuse path. No generic `Bytecode::Data` lowering or new `DataObject` is permitted.
+2. Migrate source representation only after semantic intrinsic binding is available.
+3. Bind `Unit` source declaration to existing canonical Unit type/runtime authority.
+4. Bind `Tuple` source declaration to existing structural tuple type family and runtime Tuple class.
+5. Bind `Record` source declaration to existing `TypeData::Record(RecordRowId)` and runtime Record class.
+6. Move behavior from class bodies to `impl` blocks when required by final grammar, retaining native/Phalcom implementation provenance per member.
+7. Preserve runtime hierarchy (`Tuple -> Collection`, `Unit -> Object`, `Record -> Object`, or live equivalents) through canonical platform metadata rather than fabricating source superclass syntax.
+8. Adapt source/native census so moved native members remain associated with their canonical source owner.
+9. Ensure TypeOnly structural domains from T2 do not leak into runtime census.
+10. Preserve package/catalog/prelude exposure and canonical source URIs.
 
 ### Forbidden approaches
 

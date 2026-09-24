@@ -15,7 +15,7 @@ prepared: 2026-09-21
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
 | `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C3` | frozen C2 substrate |
-| `LANG007.C3` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | successor: `LANG007.C3.P3` | plan P3 intrinsic structural surface and certification |
+| `LANG007.C3` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | active: `LANG007.C3.P3` | establish T4/G4 runtime-facade binding/reuse path, then migrate source |
 
 ## Current program state
 
@@ -28,11 +28,11 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
 active_checkpoint: LANG007.C3
-active_plan: null
-next_plan: LANG007.C3.P3
+active_plan: LANG007.C3.P3
+next_plan: LANG007.C3.P3.T4 / G4 — binding/reuse gate first per INC-C3-12
 ```
 
-`LANG007.C1` and `LANG007.C2` are complete. C3 P1 and P2 are complete at focused-tested level; P3 remains proposed and is the next plan.
+`LANG007.C1` and `LANG007.C2` are complete. C3 P1 and P2 are complete at focused-tested level. P3 is active at `518f66d1`; T1/G1, T2/G2, and T3/G3 passed. The user ratified INC-C3-12: establish and test runtime-facade binding/reuse first within T4/G4, then migrate source.
 
 Implementation, focused testing, and release certification are separate evidence states.
 
@@ -67,6 +67,7 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 | `LANG007.C2.P3` | whole-pack inference, persistence, incremental certification, checkpoint closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P1` | unified algebraic data declarations and type-data foundation | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P2` | general static domains, heterogeneous application/inference, associated type data | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C3.P3` | intrinsic structural surface, Universe/corpus/tooling migration, certification and closure | `IN_PROGRESS` | `PARTIAL` | `UNVERIFIED` |
 
 P2 closeout records:
 
@@ -127,9 +128,9 @@ No implementation blocker is currently recorded.
 
 ## Next action
 
-`LANG007.C3.P1` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Canonical runtime
-algebraic `data` products/sums, legacy enum identity convergence, nominal
-type-data static domains, canonical static-term metadata, runtime-negative
-rejection, and focused cold/incremental parity are established. C3 remains
-active because P2 still owns generalized heterogeneous static application,
-inference, and associated type-data lookup.
+`LANG007.C3.P1` and `LANG007.C3.P2` are `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+Canonical runtime algebraic `data` products/sums, nominal type-data static
+domains, heterogeneous static application/inference, associated type-data,
+canonical metadata, runtime-negative rejection, and focused cold/incremental
+parity are established. C3 remains active because P3 owns intrinsic structural
+facades, Universe/source/tooling migration, and checkpoint certification.
