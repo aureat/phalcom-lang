@@ -43,7 +43,7 @@ fn nested_adt_payload_edges_survive_then_collect_with_outer_case() {
 #[test]
 fn registered_hidden_case_classes_remain_gc_roots() {
     let source = r#"
-enum Shape {
+data Shape {
   @variant None
   @variant Pair(_ value: Int)
 }

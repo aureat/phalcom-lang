@@ -46,10 +46,13 @@ fn either_monad_projects_exact_constructor_through_full_generic_hierarchy() {
         panic!("expected Either<String, Int>, got {:?}", store.get(applied))
     };
     assert_eq!(*origin, f.ty("Either"));
-    assert_eq!(arguments.as_ref(), [
-        phalcom_semantic::types::store::StaticArgument::Term(string),
-        phalcom_semantic::types::store::StaticArgument::Term(int),
-    ]);
+    assert_eq!(
+        arguments.as_ref(),
+        [
+            phalcom_semantic::types::store::StaticArgument::Term(string),
+            phalcom_semantic::types::store::StaticArgument::Term(int),
+        ]
+    );
 }
 
 /// MON-INHERIT-05: substitution composes correctly through an additional
@@ -91,8 +94,11 @@ fn concrete_subclass_hop_preserves_exact_higher_kinded_specialization() {
         panic!("expected Either<String, Int>, got {:?}", store.get(applied))
     };
     assert_eq!(*origin, f.ty("Either"));
-    assert_eq!(arguments.as_ref(), [
-        phalcom_semantic::types::store::StaticArgument::Term(string),
-        phalcom_semantic::types::store::StaticArgument::Term(int),
-    ]);
+    assert_eq!(
+        arguments.as_ref(),
+        [
+            phalcom_semantic::types::store::StaticArgument::Term(string),
+            phalcom_semantic::types::store::StaticArgument::Term(int),
+        ]
+    );
 }

@@ -74,12 +74,12 @@ async fn impl_target_and_member_navigation_use_canonical_definitions() {
 #[tokio::test]
 async fn enum_exact_case_and_root_impl_navigation() {
     let uri = "file:///enum-impl-navigation.ph";
-    let source = "enum Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\n";
+    let source = "data Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\n";
     let mut lsp = TestLsp::start().await;
     lsp.initialize(None).await;
     lsp.open_and_wait(uri, source).await;
 
-    // 1. Navigation on Expr in `impl Expr` -> points to `enum Expr` at line 0, char 5
+    // 1. Navigation on Expr in `impl Expr` -> points to `data Expr` at line 0, char 5
     let root_target = lsp
         .request(
             "textDocument/definition",

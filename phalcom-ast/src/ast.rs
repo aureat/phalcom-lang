@@ -346,7 +346,12 @@ impl ProductShapeSyntax {
 
     pub fn constructor_visibility_range(&self) -> Option<SourceRange> {
         match self {
-            Self::Tuple { constructor_visibility_range, .. } | Self::Record { constructor_visibility_range, .. } => *constructor_visibility_range,
+            Self::Tuple {
+                constructor_visibility_range, ..
+            }
+            | Self::Record {
+                constructor_visibility_range, ..
+            } => *constructor_visibility_range,
         }
     }
 
@@ -376,10 +381,7 @@ pub enum CasePayloadSyntax {
         range: SourceRange,
     },
     /// Record-shaped payload case (e.g. `Request { method: Method, path: String }`).
-    Record {
-        components: Vec<DataComponentSyntax>,
-        range: SourceRange,
-    },
+    Record { components: Vec<DataComponentSyntax>, range: SourceRange },
 }
 
 /// A declared case inside an algebraic sum.
@@ -439,8 +441,6 @@ pub struct AlgebraicDef {
     pub shape: AlgebraicShapeSyntax,
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
-    /// Span of the legacy `enum` keyword if parsed from `enum`.
-    pub legacy_enum_keyword_range: Option<SourceRange>,
 }
 
 impl AlgebraicDef {
@@ -1022,10 +1022,7 @@ pub enum TypeAnnotationExpr {
 /// The selector of a type member (e.g. `Positionals`, `Map`, `At`, or `[...]`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeMemberSelectorSyntax {
-    Named {
-        name: String,
-        range: SourceRange,
-    },
+    Named { name: String, range: SourceRange },
     Subscript { range: SourceRange },
 }
 

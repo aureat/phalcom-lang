@@ -191,11 +191,7 @@ fn intrinsic_unit_facade_reuses_the_preinstalled_runtime_class() {
             .map(|part| ModuleComponent::from_identifier(part).expect("valid module component"))
             .collect::<Vec<_>>(),
     ));
-    let module = vm
-        .module_registry
-        .get(&module_id)
-        .expect("Unit source module is materialized")
-        .object;
+    let module = vm.module_registry.get(&module_id).expect("Unit source module is materialized").object;
     let before = vm.universe_global(&["option", "unit"], "Unit").expect("Unit is bootstrapped");
     let declaration = DeclarationId::new(module_id.clone(), "Unit".into());
     let mut lowering = ModuleLoweringSemantics::new(module_id);
@@ -212,7 +208,10 @@ fn intrinsic_unit_facade_reuses_the_preinstalled_runtime_class() {
         .compile_closure_as(module, "intrinsic data Unit()\n", UnitKind::Repl)
         .expect("intrinsic Unit facade compiles against its existing owner");
     let code = &vm.heap.closure(closure).callable.chunk.code;
-    assert!(!code.iter().any(|op| matches!(op, phalcom_core::bytecode::Bytecode::Data(_) | phalcom_core::bytecode::Bytecode::FinalizeData(_))));
+    assert!(!code.iter().any(|op| matches!(
+        op,
+        phalcom_core::bytecode::Bytecode::Data(_) | phalcom_core::bytecode::Bytecode::FinalizeData(_)
+    )));
     vm.run_cell(module, closure).expect("facade rebind executes");
     let after = vm.universe_global(&["option", "unit"], "Unit").expect("Unit binding remains present");
     assert_eq!(after, before, "the source facade must reuse the canonical runtime class object");

@@ -12,7 +12,7 @@ fn associated_variant_forms_keep_value_and_constructor_invocation_distinct() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker()
   @variant Marker(_ value: Int)

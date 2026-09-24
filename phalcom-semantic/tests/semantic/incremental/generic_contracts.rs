@@ -242,7 +242,7 @@ class Store {
 fn variant_generic_payload_and_result_edits_invalidate_construction_and_match() {
     let module = module(604);
     let source_a = r#"
-enum Expr<T> {
+data Expr<T> {
   @variant Wrap<U>(_ value: U) -> Expr<Int>
 }
 class Producer {
@@ -255,7 +255,7 @@ class Evaluator {
 }
 "#;
     let source_b = r#"
-enum Expr<T> {
+data Expr<T> {
   @variant Wrap<U>(_ value: List<U>) -> Expr<List<U>> where U <: Object
 }
 class Producer {
@@ -319,7 +319,7 @@ class Evaluator {
 fn cold_and_incremental_variant_openings_are_alpha_equivalent() {
     let module = module(605);
     let source_a = r#"
-enum Expr<T> {
+data Expr<T> {
   @variant Wrap<U>(_ value: U) -> Expr<List<U>> where U <: Object
 }
 class Evaluator {
@@ -329,7 +329,7 @@ class Evaluator {
 }
 "#;
     let source_b = r#"
-enum Expr<T> {
+data Expr<T> {
   @variant Wrap<U>(_ value: U) -> Expr<List<U>> where U <: Object
 }
 class Evaluator {

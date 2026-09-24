@@ -205,7 +205,7 @@ impl Point {
 fn test_enum_root_inherent_impl_body() {
     let module = test_module();
     let src = r#"
-enum Status {
+data Status {
   @variant Active
   @variant Inactive
 }

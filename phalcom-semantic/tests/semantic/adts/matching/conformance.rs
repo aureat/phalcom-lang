@@ -10,13 +10,13 @@ fn test_module() -> ModuleId {
 #[test]
 fn match_matrix_simple_and_generic_enums() {
     let source = r#"
-enum Status {
+data Status {
     @variant Active -> Status
     @variant Inactive -> Status
     @variant Pending -> Status
 }
 
-enum Result<T, E> {
+data Result<T, E> {
     @variant Ok(_ value: T) -> Result<T, E>
     @variant Err(_ error: E) -> Result<T, E>
 }
@@ -51,11 +51,11 @@ class Test {
 #[test]
 fn match_matrix_multi_type_parameter_gadts() {
     let source = r#"
-enum Equal<A, B> {
+data Equal<A, B> {
     @variant Refl -> Equal<A, A>
 }
 
-enum Expr<T> {
+data Expr<T> {
     @variant LitInt(_ v: Int) -> Expr<Int>
     @variant LitBool(_ b: Bool) -> Expr<Bool>
     @variant Add(_ left: Expr<Int>, right: Expr<Int>) -> Expr<Int>
@@ -83,7 +83,7 @@ class Test {
 #[test]
 fn match_matrix_tuples_nested_or_and_wildcard_catch_alls() {
     let source = r#"
-enum Color {
+data Color {
     @variant Red -> Color
     @variant Green -> Color
     @variant Blue -> Color
@@ -113,7 +113,7 @@ class Test {
 #[test]
 fn match_matrix_selector_patterns_with_gaps_and_labels() {
     let source = r#"
-enum Command {
+data Command {
     @variant Move(_ x: Int, y: Int, speed: Int) -> Command
     @variant Stop -> Command
 }
@@ -140,7 +140,7 @@ class Test {
 #[test]
 fn review_x_01_malformed_pattern_cannot_prove_false_exhaustiveness() {
     let case = super::super::support::analyze_adt(
-        "enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n",
+        "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n",
     );
     assert!(
         !case
@@ -154,7 +154,7 @@ fn review_x_01_malformed_pattern_cannot_prove_false_exhaustiveness() {
 #[test]
 #[ignore = "GATED: typed semantic-to-lowering rejection seam is required"]
 fn review_x_02_invalid_semantic_match_never_reaches_lowering() {
-    let case = super::super::support::analyze_adt("enum Choice { @variant A }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n");
+    let case = super::super::support::analyze_adt("data Choice { @variant A }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n");
     assert!(
         case.diagnostics()
             .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved)
@@ -164,7 +164,7 @@ fn review_x_02_invalid_semantic_match_never_reaches_lowering() {
 #[test]
 fn review_x_03_gadt_theorem_remains_present_in_semantic_match_product() {
     let case = super::super::support::analyze_adt(
-        "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
+        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
     );
     let handle = case.only_match();
     assert!(handle.resolution().arms.iter().all(|arm| !arm.proof.is_empty()));
@@ -173,7 +173,7 @@ fn review_x_03_gadt_theorem_remains_present_in_semantic_match_product() {
 #[test]
 fn review_x_04_witness_structure_is_separate_from_presentation() {
     let case =
-        super::super::support::analyze_adt("enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
+        super::super::support::analyze_adt("data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
     let diagnostic = case.diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::MatchNonExhaustive);
     assert!(matches!(
         case.only_match().resolution().exhaustiveness,

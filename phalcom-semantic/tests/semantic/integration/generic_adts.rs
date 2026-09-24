@@ -11,7 +11,7 @@ fn explicit_generic_enum_owner_specializes_direct_and_family_resolution() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Option<T> {
+data Option<T> {
   @variant Some(_ value: T)
   @variant None
 }

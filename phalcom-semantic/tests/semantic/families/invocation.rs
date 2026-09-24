@@ -12,7 +12,7 @@ fn immediate_family_call_publishes_static_application_resolution() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker()
   @variant Marker(_ value: Int)
@@ -40,7 +40,7 @@ fn stored_family_call_publishes_static_application_resolution() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker()
   @variant Marker(_ value: Int)
@@ -71,7 +71,7 @@ fn stored_family_dynamic_pack_publishes_frozen_candidates() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker()
   @variant Marker(_ value: Int)
@@ -204,7 +204,7 @@ fn generic_associated_variant_family_recovers_constructor_signature() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Option<T> {
+data Option<T> {
   @variant Some(_ value: T) -> Option<T>
 }
 
@@ -248,7 +248,7 @@ fn family_wrong_shape_reports_associated_call_shape() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Weird {
+data Weird {
   @variant Marker(_ value: Int)
 }
 

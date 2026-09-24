@@ -4886,11 +4886,11 @@ mod tests {
         let inferred = session.fresh_variable(KindId::TYPE);
         let left = InferenceTerm::Applied {
             origin: Box::new(InferenceTerm::Canonical(form)),
-            arguments: Box::new([InferenceTerm::Var(inferred)]),
+            arguments: super::inference_arguments_from_terms(&[InferenceTerm::Var(inferred)]),
         };
         let right = InferenceTerm::Applied {
             origin: Box::new(InferenceTerm::Canonical(form)),
-            arguments: Box::new([InferenceTerm::Canonical(number)]),
+            arguments: super::inference_arguments_from_terms(&[InferenceTerm::Canonical(number)]),
         };
         session.add_constraint(InferenceRelation::Subtype(left, right), ConstraintOrigin::Explicit, None);
         session.add_constraint(
@@ -4937,11 +4937,11 @@ mod tests {
             InferenceRelation::Subtype(
                 InferenceTerm::Applied {
                     origin: Box::new(InferenceTerm::Canonical(producer)),
-                    arguments: Box::new([InferenceTerm::Var(covariant_var)]),
+                    arguments: super::inference_arguments_from_terms(&[InferenceTerm::Var(covariant_var)]),
                 },
                 InferenceTerm::Applied {
                     origin: Box::new(InferenceTerm::Canonical(producer)),
-                    arguments: Box::new([InferenceTerm::Canonical(number)]),
+                    arguments: super::inference_arguments_from_terms(&[InferenceTerm::Canonical(number)]),
                 },
             ),
             ConstraintOrigin::Explicit,
@@ -4961,11 +4961,11 @@ mod tests {
             InferenceRelation::Subtype(
                 InferenceTerm::Applied {
                     origin: Box::new(InferenceTerm::Canonical(consumer)),
-                    arguments: Box::new([InferenceTerm::Canonical(number)]),
+                    arguments: super::inference_arguments_from_terms(&[InferenceTerm::Canonical(number)]),
                 },
                 InferenceTerm::Applied {
                     origin: Box::new(InferenceTerm::Canonical(consumer)),
-                    arguments: Box::new([InferenceTerm::Var(contravariant_var)]),
+                    arguments: super::inference_arguments_from_terms(&[InferenceTerm::Var(contravariant_var)]),
                 },
             ),
             ConstraintOrigin::Explicit,
@@ -5038,11 +5038,11 @@ mod tests {
         let argument = session.fresh_variable(KindId::TYPE);
         let applied = InferenceTerm::Applied {
             origin: Box::new(InferenceTerm::Var(constructor)),
-            arguments: Box::new([InferenceTerm::Var(argument)]),
+            arguments: super::inference_arguments_from_terms(&[InferenceTerm::Var(argument)]),
         };
         let concrete = InferenceTerm::Applied {
             origin: Box::new(InferenceTerm::Canonical(list)),
-            arguments: Box::new([InferenceTerm::Canonical(int)]),
+            arguments: super::inference_arguments_from_terms(&[InferenceTerm::Canonical(int)]),
         };
         session.add_constraint(InferenceRelation::Equivalent(applied, concrete), ConstraintOrigin::Explicit, None);
         assert!(session.solve(&mut store, &crate::types::relation::MapTypeHierarchy::new()).is_solved());
@@ -5058,7 +5058,7 @@ mod tests {
             .materialize(
                 &InferenceTerm::Applied {
                     origin: Box::new(InferenceTerm::Canonical(int)),
-                    arguments: Box::new([InferenceTerm::Canonical(int)]),
+                    arguments: super::inference_arguments_from_terms(&[InferenceTerm::Canonical(int)]),
                 },
                 &mut store,
             )
@@ -5083,12 +5083,12 @@ mod tests {
         let symbolic = InferenceTerm::StaticData {
             domain: shape_domain,
             constructor,
-            arguments: vec![InferenceTerm::Var(width_var)].into_boxed_slice(),
+            arguments: super::inference_arguments_from_terms(&[InferenceTerm::Var(width_var)]),
         };
         let concrete = InferenceTerm::StaticData {
             domain: shape_domain,
             constructor,
-            arguments: vec![InferenceTerm::Canonical(width)].into_boxed_slice(),
+            arguments: super::inference_arguments_from_terms(&[InferenceTerm::Canonical(width)]),
         };
 
         session.add_constraint(InferenceRelation::Equivalent(symbolic, concrete), ConstraintOrigin::Explicit, None);
@@ -5143,7 +5143,7 @@ mod tests {
         let nested = session.fresh_variable(KindId::TYPE);
         let term = InferenceTerm::Applied {
             origin: Box::new(InferenceTerm::Canonical(form)),
-            arguments: Box::new([InferenceTerm::Var(nested)]),
+            arguments: super::inference_arguments_from_terms(&[InferenceTerm::Var(nested)]),
         };
 
         assert_eq!(

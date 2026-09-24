@@ -191,7 +191,9 @@ class Generic<T> {
     let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(*result) else {
         panic!("class-side Self must remain nested in Box");
     };
-    assert!(matches!(fixture.analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only argument")), TypeData::SelfType(term) if term.side == DispatchSide::Class));
+    assert!(
+        matches!(fixture.analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only argument")), TypeData::SelfType(term) if term.side == DispatchSide::Class)
+    );
 
     let class_generic = fixture
         .analysis

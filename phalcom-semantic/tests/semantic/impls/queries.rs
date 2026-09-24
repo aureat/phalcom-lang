@@ -297,7 +297,7 @@ fn trait_dispatch_distinct_conformance_witnesses_are_ambiguous() {
 #[test]
 fn trait_dispatch_exact_enum_case_does_not_propagate_to_root_or_sibling() {
     let module = test_module();
-    let source = "trait Tagged { code -> Int }\nenum Status { Ready Waiting }\nimpl Tagged for Status::Ready { code -> Int { 1 } }\n";
+    let source = "trait Tagged { code -> Int }\ndata Status { Ready Waiting }\nimpl Tagged for Status::Ready { code -> Int { 1 } }\n";
     let mut session = SemanticWorkspaceSession::new();
     let output = session.update(single_module_input(module.clone(), source));
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
@@ -1009,7 +1009,7 @@ fn conformance_witness_plan_prefers_compatible_inherent_member_before_default() 
 #[test]
 fn conformance_plan_retains_exact_case_inherent_applicability_evidence() {
     let module = test_module();
-    let source = "trait Tagged { code -> Int }\nenum Status { Ready }\nimpl Status::Ready { code -> Int { 1 } }\nimpl Tagged for Status::Ready {}\n";
+    let source = "trait Tagged { code -> Int }\ndata Status { Ready }\nimpl Status::Ready { code -> Int { 1 } }\nimpl Tagged for Status::Ready {}\n";
     let mut session = SemanticWorkspaceSession::new();
     let output = session.update(single_module_input(module.clone(), source));
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
@@ -1443,7 +1443,7 @@ fn distinct_trait_reference_arguments_remain_distinct_conformance_domains() {
 #[test]
 fn exact_enum_case_conformance_retains_variant_identity() {
     let module = test_module();
-    let source = "trait Tagged {}\nenum Result { Ok }\nimpl Tagged for Result::Ok {}\n";
+    let source = "trait Tagged {}\ndata Result { Ok }\nimpl Tagged for Result::Ok {}\n";
     let mut session = SemanticWorkspaceSession::new();
     let output = session.update(single_module_input(module.clone(), source));
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
@@ -1956,12 +1956,12 @@ fn moving_impl_target_retires_old_callable_and_publishes_new_target() {
 fn incremental_adding_variant_invalidates_closed_requirement_completeness() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
-    let source_v1 = "enum Expr {\n  Lit(val: Int)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\n";
+    let source_v1 = "data Expr {\n  Lit(val: Int)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\n";
     let first = session.update(single_module_input(module.clone(), source_v1));
     assert!(!first.snapshot.has_errors(), "v1 must have no diagnostics: {:?}", first.snapshot.diagnostics);
 
     // Adding Add variant without an exact case implementation for eval() must emit missing requirement diagnostic
-    let source_v2 = "enum Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\n";
+    let source_v2 = "data Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\n";
     let second = session.update(single_module_input(module.clone(), source_v2));
     assert!(second.snapshot.has_errors(), "v2 must produce missing requirement error for Add");
 
@@ -1976,7 +1976,7 @@ fn incremental_adding_variant_invalidates_closed_requirement_completeness() {
 fn incremental_exact_case_body_edit_preserves_unrelated_products() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
-    let source_v1 = "enum Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\nimpl Expr::Add(left: _, right: _) {\n  eval() -> Int { self.left.eval() + self.right.eval() }\n}\n";
+    let source_v1 = "data Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\nimpl Expr::Add(left: _, right: _) {\n  eval() -> Int { self.left.eval() + self.right.eval() }\n}\n";
     let first = session.update(single_module_input(module.clone(), source_v1));
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
 
@@ -1992,7 +1992,7 @@ fn incremental_exact_case_body_edit_preserves_unrelated_products() {
     let first_lit_analysis = first.snapshot.callable_analyses.get(&lit_callable).cloned().expect("lit body analysis");
 
     // Edit only Lit body
-    let source_v2 = "enum Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val + 1 }\n}\nimpl Expr::Add(left: _, right: _) {\n  eval() -> Int { self.left.eval() + self.right.eval() }\n}\n";
+    let source_v2 = "data Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val + 1 }\n}\nimpl Expr::Add(left: _, right: _) {\n  eval() -> Int { self.left.eval() + self.right.eval() }\n}\n";
     let second = session.update(single_module_input(module.clone(), source_v2));
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
 
@@ -2008,7 +2008,7 @@ fn incremental_exact_case_body_edit_preserves_unrelated_products() {
 fn incremental_case_only_member_leaves_root_surface_unchanged() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
-    let source_v1 = "enum Choice {\n  A\n  B\n}\nimpl Choice::A {\n  aOnly() -> Int { 42 }\n}\n";
+    let source_v1 = "data Choice {\n  A\n  B\n}\nimpl Choice::A {\n  aOnly() -> Int { 42 }\n}\n";
     let first = session.update(single_module_input(module.clone(), source_v1));
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let root_surface_v1 = surface_fingerprint(&first, &owner("Choice"));
@@ -2017,7 +2017,7 @@ fn incremental_case_only_member_leaves_root_surface_unchanged() {
     assert_eq!(first.snapshot.dispatch.get_conditional_members(&a_target).map(|set| set.members.len()), Some(1));
 
     // Add another case-only member to B
-    let source_v2 = "enum Choice {\n  A\n  B\n}\nimpl Choice::A {\n  aOnly() -> Int { 42 }\n}\nimpl Choice::B {\n  bOnly() -> Int { 99 }\n}\n";
+    let source_v2 = "data Choice {\n  A\n  B\n}\nimpl Choice::A {\n  aOnly() -> Int { 42 }\n}\nimpl Choice::B {\n  bOnly() -> Int { 99 }\n}\n";
     let second = session.update(single_module_input(module.clone(), source_v2));
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     let root_surface_v2 = surface_fingerprint(&second, &owner("Choice"));
@@ -2037,7 +2037,7 @@ fn incremental_case_only_member_leaves_root_surface_unchanged() {
         "case-only members must not alter root enum declaration surface"
     );
 
-    let third = session.update(single_module_input(module, "enum Choice {\n  A\n  B\n}\n"));
+    let third = session.update(single_module_input(module, "data Choice {\n  A\n  B\n}\n"));
     assert!(
         !third.snapshot.has_errors(),
         "removal must not leave diagnostics: {:?}",
@@ -2050,7 +2050,7 @@ fn incremental_case_only_member_leaves_root_surface_unchanged() {
 #[test]
 fn exact_case_conditional_precedence_shadows_root_requirement() {
     let module = test_module();
-    let source = "enum Status { Ready Done }\nimpl Status { code() -> Int }\nimpl Status::Ready { code() -> Int { 1 } }\nimpl Status::Done { code() -> Int { 2 } }\nclass Probe { run() -> Int { Status::Ready.code() } }\n";
+    let source = "data Status { Ready Done }\nimpl Status { code() -> Int }\nimpl Status::Ready { code() -> Int { 1 } }\nimpl Status::Done { code() -> Int { 2 } }\nclass Probe { run() -> Int { Status::Ready.code() } }\n";
     let mut session = SemanticWorkspaceSession::new();
     let output = session.update(single_module_input(module.clone(), source));
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);

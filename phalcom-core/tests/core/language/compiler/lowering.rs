@@ -22,7 +22,7 @@ fn compile_inline(source: &str) -> Result<(VM, CompiledProgram, phalcom_core::he
 #[test]
 fn enum_lowering_projects_shapes_and_payload_slots_from_formal_semantics() {
     let source = r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker()
   @variant Marker(_ left: Int, _ right: Int)
@@ -173,7 +173,7 @@ class Probe<T> {
 #[test]
 fn family_application_lowering_projects_static_and_dynamic_records() {
     let source = r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker()
   @variant Marker(_ value: Int)

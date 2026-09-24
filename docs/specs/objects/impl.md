@@ -193,7 +193,7 @@ impl declaration module
 target declaration module
 ```
 
-For an exact enum case, the owning module is the module that owns the enum declaration.
+For an exact closed-sum case, the owning module is the module that owns the data declaration.
 
 This rule applies regardless of where the target is imported or re-exported.
 
@@ -215,14 +215,14 @@ An authorized implementation may contain members with restricted visibility acco
 
 # Legal Inherent Targets
 
-An inherent implementation target must be a nominal semantic target owned by a declaration, or an exact enum case defined by such a declaration.
+An inherent implementation target must be a nominal semantic target owned by a declaration, or an exact case of a closed-sum `data` declaration.
 
 Legal target categories are:
 
 ```text
 data object type
-enum root
-exact enum case
+closed-sum data root
+exact data case
 class type
 covering generic application of an eligible nominal type
 ```
@@ -275,9 +275,9 @@ not authorize source code to reopen that shape with `impl`.
 
 ---
 
-# Exact Enum Case Targets
+# Exact Closed-Sum Case Targets
 
-An exact enum case may be an inherent implementation target:
+An exact closed-sum case may be an inherent implementation target:
 
 ```phalcom
 impl Option::Some(_) {
@@ -316,8 +316,8 @@ It cannot introduce:
 ```text
 class instance fields
 data components
-enum variants
-enum payload components
+closed-sum cases
+case payload components
 superclass relationships
 layout declarations
 hidden semantic instance state
@@ -333,11 +333,11 @@ impl
     contributes behavior only
 ```
 
-For enums:
+For closed-sum data:
 
 ```text
-enum declaration
-    owns variants and their payload state
+sum-shaped data declaration
+    owns cases and their payload state
 
 impl
     contributes behavior only
@@ -363,7 +363,7 @@ An inherent implementation may declare behavior categories supported by the ordi
 
 Associated/class-side behavior may be declared through `impl` only where the ordinary associated-member specification defines that member category for the target.
 
-Primary data constructors and enum variant constructors retain their own semantic categories. An implementation declaration cannot reclassify or replace them with an ordinary associated member.
+Primary data constructors and closed-sum case constructors retain their own semantic categories. An implementation declaration cannot reclassify or replace them with an ordinary associated member.
 
 Metatype-target implementation syntax is not defined by this specification.
 
@@ -461,7 +461,7 @@ An implementation cannot override, shadow, or reclassify a data component.
 
 Variant constructors retain associated-constructor identity.
 
-An associated member introduced through an `impl` cannot silently hide or replace an enum variant constructor with a colliding selector.
+An associated member introduced through an `impl` cannot silently hide or replace a closed-sum case constructor with a colliding selector.
 
 ## Conflict detection is semantic
 
@@ -659,7 +659,7 @@ impl<T> Point<T> {
 
 Here, `Self` denotes `Point<T>` in the implementation environment.
 
-For an exact enum case implementation:
+For an exact closed-sum case implementation:
 
 ```phalcom
 impl Expression::Literal(_) {
@@ -742,7 +742,7 @@ The data-object specification defines construction, immutability, exactness, and
 
 # Interaction with Enums
 
-An implementation targeting an enum root contributes enum-root behavior:
+An implementation targeting a closed-sum root contributes root behavior:
 
 ```phalcom
 impl Expression {
@@ -881,7 +881,7 @@ An inherent implementation declared outside the target's owning module is invali
 
 ## Invalid target
 
-A target that is not an eligible nominal target or exact enum case is invalid.
+A target that is not an eligible nominal target or exact closed-sum case is invalid.
 
 ## Structural target
 
@@ -892,7 +892,7 @@ domains. Those members are not ordinary inherent implementation fragments.
 
 ## Representation contribution
 
-An implementation cannot declare fields, data components, enum variants, superclass relationships, or other semantic representation state.
+An implementation cannot declare fields, data components, closed-sum cases, superclass relationships, or other semantic representation state.
 
 ## Duplicate selector
 
@@ -904,7 +904,7 @@ An implementation member cannot collide with a data component's reserved selecto
 
 ## Associated-constructor collision
 
-An implementation member cannot hide or replace a primary data constructor or enum variant constructor where the associated-member namespace would collide.
+An implementation member cannot hide or replace a primary data constructor or closed-sum case constructor where the associated-member namespace would collide.
 
 ## Invalid generic mapping
 
@@ -1025,7 +1025,7 @@ A future specification may introduce any of these deliberately. Their absence do
 
 > **Nominal targeting**
 >
-> Inherent implementations target nominal declarations or exact enum cases, not anonymous structural types.
+> Inherent implementations target nominal declarations or exact closed-sum cases, not anonymous structural types.
 
 > **Representation preservation**
 >

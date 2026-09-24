@@ -3426,6 +3426,7 @@ mod tests {
             form: owner_form,
             class_object_type: owner_class_object,
             kind: crate::types::id::KindId::TYPE,
+            generic_binder_header: None,
             generic_signature: None,
             supertype_template: None,
         });

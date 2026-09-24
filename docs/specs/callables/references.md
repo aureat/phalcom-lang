@@ -592,7 +592,7 @@ The capability retains the associated callable identity under the owner rather t
 For a variant payload constructor:
 
 ```phalcom
-enum Option<T> {
+data Option<T> {
   @variant Some(_ value: T)
 }
 ```

@@ -8,7 +8,7 @@ use phalcom_semantic::tooling::GeneratedMatchPlan;
 #[test]
 fn test_vertical_gadt_architecture_proof() {
     let source = r#"
-enum Expr<T> {
+data Expr<T> {
     @variant Int(_ value: Int) -> Expr<Int>
     @variant Bool(_ value: Bool) -> Expr<Bool>
 }

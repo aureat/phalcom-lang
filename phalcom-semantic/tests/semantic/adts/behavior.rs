@@ -9,7 +9,7 @@ use phalcom_semantic::identity::{CallableOwnerId, DeclarationId, VariantId};
 fn adt_beh_01_enum_wide_method_is_published_as_root_default_and_requirement() {
     let case = analyze_adt(
         r#"
-enum Shape {
+data Shape {
     @variant Circle
     @variant Square
 }
@@ -52,7 +52,7 @@ impl Shape::Square {
 fn adt_beh_02_variant_override_has_exact_case_dispatch_target() {
     let case = analyze_adt(
         r#"
-enum Shape {
+data Shape {
     @variant Circle
     @variant Square
 }
@@ -76,7 +76,7 @@ impl Shape::Circle { describe() -> String { "circle" } }
 fn adt_beh_03_case_only_method_is_not_promised_by_root_type() {
     let case = analyze_adt(
         r#"
-enum Shape {
+data Shape {
     @variant Circle
     @variant Square
 }

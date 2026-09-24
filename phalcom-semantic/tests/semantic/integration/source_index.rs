@@ -59,15 +59,70 @@ fn intrinsic_static_facade_source_site_targets_authored_declaration() {
 }
 
 #[test]
+fn type_data_and_associated_type_data_publish_static_domain_and_case_targets() {
+    let module = ModuleId::universe_root();
+    let parsed = parse(
+        "type data State { Ready Failed(_ code: Int) }\nclass Owner { type data Local { Here } }\nimpl Owner { type data ImplState { There } }\n",
+        0,
+    );
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let mut context = SourceIndexContext::default();
+    let owner = DeclarationId::new(module.clone(), "Owner".into());
+    for statement in &parsed.program.statements {
+        if let phalcom_ast::ast::Statement::Impl(implementation) = statement {
+            context
+                .type_reference_targets
+                .insert((module.clone(), implementation.target_range), owner.clone());
+        }
+    }
+    let index = build_source_scope_index(module.clone(), &parsed.program, &context);
+
+    let nominal = DeclarationId::new(module.clone(), "State".into());
+    let nominal_source = index.declaration_sources.get(&nominal).expect("type-data source record");
+    assert_eq!(nominal_source.kind, phalcom_semantic::source_index::SourceDeclarationKind::TypeData);
+    assert_eq!(
+        index.targets.get(&nominal_source.declaration_site),
+        Some(&SemanticTargetId::StaticDomain(phalcom_semantic::identity::StaticDomainDeclarationId::Nominal(
+            nominal.clone()
+        )))
+    );
+    let ready = phalcom_semantic::identity::StaticCaseId::new(phalcom_semantic::identity::StaticDomainDeclarationId::Nominal(nominal), "Ready");
+    assert!(index.sites.values().any(|site| {
+        matches!(&site.kind, phalcom_semantic::SourceSiteKind::StaticCase(id) if id == &ready)
+            && index.targets.get(&site.id) == Some(&SemanticTargetId::StaticCase(ready.clone()))
+    }));
+
+    let associated = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner, "Local");
+    let domain = phalcom_semantic::identity::StaticDomainDeclarationId::Associated(associated);
+    assert!(index.sites.values().any(|site| {
+        matches!(&site.kind, phalcom_semantic::SourceSiteKind::StaticDomain(id) if id == &domain)
+            && index.targets.get(&site.id) == Some(&SemanticTargetId::StaticDomain(domain.clone()))
+    }));
+
+    let impl_associated = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(DeclarationId::new(module.clone(), "Owner".into()), "ImplState");
+    let impl_domain = phalcom_semantic::identity::StaticDomainDeclarationId::Associated(impl_associated);
+    let there = phalcom_semantic::identity::StaticCaseId::new(impl_domain.clone(), "There");
+    assert!(index.sites.values().any(|site| {
+        matches!(&site.kind, phalcom_semantic::SourceSiteKind::StaticDomain(id) if id == &impl_domain)
+            && index.targets.get(&site.id) == Some(&SemanticTargetId::StaticDomain(impl_domain.clone()))
+    }));
+    assert!(index.sites.values().any(|site| {
+        matches!(&site.kind, phalcom_semantic::SourceSiteKind::StaticCase(id) if id == &there)
+            && index.targets.get(&site.id) == Some(&SemanticTargetId::StaticCase(there.clone()))
+    }));
+}
+
+#[test]
 fn intrinsic_type_member_source_site_targets_canonical_owner_and_selector() {
     let module = ModuleId::universe_root();
-    let parsed = parse("intrinsic type data TupleEntries\nnative class Tuple { intrinsic type Entries: TupleEntries }\n", 0);
+    let parsed = parse(
+        "intrinsic type data TupleEntries\nnative class Tuple { intrinsic type Entries: TupleEntries }\n",
+        0,
+    );
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let owner = DeclarationId::new(module.clone(), "Tuple".into());
-    let id = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
-        owner,
-        phalcom_semantic::types::type_member::TypeMemberSelector::named("Entries"),
-    );
+    let id =
+        phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(owner, phalcom_semantic::types::type_member::TypeMemberSelector::named("Entries"));
     let index = build_source_scope_index(module, &parsed.program, &SourceIndexContext::default());
     let source = index.type_member_sources.get(&id).expect("type member source record");
     assert!(matches!(
@@ -120,7 +175,10 @@ fn canonical_tuple_intrinsic_impl_member_publishes_through_associated_surface() 
             analysis.snapshot.diagnostics.get(&owner.module),
         )
     });
-    assert!(member.signature.intrinsic.is_some(), "intrinsic operation must be attached to its canonical owner and selector");
+    assert!(
+        member.signature.intrinsic.is_some(),
+        "intrinsic operation must be attached to its canonical owner and selector"
+    );
     let family = analysis.snapshot.associated_surfaces.surfaces[&owner]
         .families
         .get(&phalcom_common::selector::SelectorBase::Named("Entries".into()))
@@ -464,7 +522,7 @@ fn production_import_indexing_fails_closed_without_canonical_product() {
 
 #[test]
 fn source_index_covers_enum_variants_fields_and_behaviors() {
-    let source = "enum Option { Some(_ value: Int) }\nimpl Option::Some(_) { run() { self.value } }\n";
+    let source = "data Option { Some(_ value: Int) }\nimpl Option::Some(_) { run() { self.value } }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let variant = match &parsed.program.statements[0] {
@@ -476,7 +534,7 @@ fn source_index_covers_enum_variants_fields_and_behaviors() {
     let owner = DeclarationId::new(module.clone(), "Option".into());
     assert!(matches!(
         index.declaration_sources.get(&owner).map(|source| source.kind),
-        Some(phalcom_semantic::source_index::SourceDeclarationKind::Enum)
+        Some(phalcom_semantic::source_index::SourceDeclarationKind::Data)
     ));
     assert!(matches!(
         index.site(&index.declaration_sources[&owner].declaration_site).map(|site| &site.kind),
@@ -542,7 +600,7 @@ fn source_index_projects_trait_and_members_to_canonical_targets() {
 #[test]
 fn type_reference_index_covers_enum_headers_variants_and_behaviors() {
     let source = r#"
-enum Choice<T> {
+data Choice<T> {
   Item<U>(_ value: Box<U>) -> Choice<Box<U>> where U <: Base
 }
 impl<T> Choice<T> {

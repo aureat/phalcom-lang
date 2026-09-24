@@ -186,8 +186,14 @@ fn test_alias_identity_subscript_and_at_converge() {
     assert_eq!(sel_named, sel_subscript);
 
     // 2. Verify canonical Tuple owner lookup produces IntrinsicTypeOperation::TupleAt for both
-    assert_eq!(lookup_intrinsic_type_operation(IntrinsicTypeOwner::Tuple, &sel_named), Some(IntrinsicTypeOperation::TupleAt));
-    assert_eq!(lookup_intrinsic_type_operation(IntrinsicTypeOwner::Tuple, &sel_subscript), Some(IntrinsicTypeOperation::TupleAt));
+    assert_eq!(
+        lookup_intrinsic_type_operation(IntrinsicTypeOwner::Tuple, &sel_named),
+        Some(IntrinsicTypeOperation::TupleAt)
+    );
+    assert_eq!(
+        lookup_intrinsic_type_operation(IntrinsicTypeOwner::Tuple, &sel_subscript),
+        Some(IntrinsicTypeOperation::TupleAt)
+    );
 
     // 3. Verify resolution of T[0] and T::At<0> yield identical canonical proper type Int
     let res_subscript_0 = resolve_type_annotation(
@@ -272,14 +278,9 @@ fn test_domain_identity_map_members_remain_distinct() {
 #[test]
 fn tuple_entries_is_complete_pack_projection_for_concrete_and_symbolic_tuples() {
     let mut env = setup();
-    let tuple_syntax = tuple_ann(vec![
-        (None, ref_ann("Int")),
-        (None, ref_ann("String")),
-        (Some("name"), ref_ann("Bool")),
-    ]);
+    let tuple_syntax = tuple_ann(vec![(None, ref_ann("Int")), (None, ref_ann("String")), (Some("name"), ref_ann("Bool"))]);
     let mut diagnostics = Vec::new();
-    let TypeFormResolution::Ready(tuple) =
-        resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &tuple_syntax, &mut diagnostics)
+    let TypeFormResolution::Ready(tuple) = resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &tuple_syntax, &mut diagnostics)
     else {
         panic!("concrete tuple form must resolve");
     };
@@ -299,8 +300,12 @@ fn tuple_entries_is_complete_pack_projection_for_concrete_and_symbolic_tuples() 
     assert_eq!(entries, env.store.project_complete(tuple).expect("complete projection"));
 
     let owner = TypeParameterOwner::Declaration(decl("SymbolicTuple"));
-    let positionals = env.store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK));
-    let labeled = env.store.intern_type_parameter(TypeParameterData::new(owner.clone(), 1, "L", KindId::LABELED_TYPE_PACK));
+    let positionals = env
+        .store
+        .intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", KindId::TYPE_PACK));
+    let labeled = env
+        .store
+        .intern_type_parameter(TypeParameterData::new(owner.clone(), 1, "L", KindId::LABELED_TYPE_PACK));
     let positional_form = env.store.parameter_form(positionals);
     let labeled_form = env.store.parameter_form(labeled);
     let symbolic_tuple = env.store.tuple_from_packs(positional_form, labeled_form).expect("symbolic tuple from packs");
@@ -329,7 +334,10 @@ fn tuple_entries_is_complete_pack_projection_for_concrete_and_symbolic_tuples() 
         hierarchy: &empty_hierarchy,
     };
     let mut context = ProjectionNormalizationContext::new(mode, &mut budget, &cancel);
-    assert_eq!(normalize_type(&mut env.store, projection, &mut context), ProjectionNormalizationResult::Normalized(expected));
+    assert_eq!(
+        normalize_type(&mut env.store, projection, &mut context),
+        ProjectionNormalizationResult::Normalized(expected)
+    );
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 

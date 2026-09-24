@@ -72,7 +72,7 @@ fn associated_lookup_resolves_variant_invocation_and_singleton_getter() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Option<T> {
+data Option<T> {
   @variant Some(_ value: T)
   @variant None
 }
@@ -239,7 +239,7 @@ fn associated_owner_rejects_conflicting_gadt_specialization() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Expr<T> {
+data Expr<T> {
   @variant IntLit(_ value: Int) -> Expr<Int>
   @variant BoolLit(_ value: Bool) -> Expr<Bool>
 }
@@ -277,7 +277,7 @@ fn associated_reification_rejects_unconstrained_generic_owner() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Option<T> {
+data Option<T> {
   @variant Some(_ value: T)
   @variant None
 }

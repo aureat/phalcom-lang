@@ -4,7 +4,7 @@ category: LANG
 kind: implementation-status
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 repository: aureat/phalcom-lang
 prepared: 2026-09-21
 ---
@@ -15,7 +15,7 @@ prepared: 2026-09-21
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
 | `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C3` | frozen C2 substrate |
-| `LANG007.C3` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | active: `LANG007.C3.P3` | establish T4/G4 runtime-facade binding/reuse path, then migrate source |
+| `LANG007.C3` | `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` | active: `LANG007.C3.P3` | continue T9/G9-G11; generic associated static-domain payload failure overlaps C3 acceptance and reproduces on clean predecessor |
 
 ## Current program state
 
@@ -26,13 +26,13 @@ Current truth:
 ```yaml
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 active_checkpoint: LANG007.C3
 active_plan: LANG007.C3.P3
-next_plan: LANG007.C3.P3.T4 / G4 — binding/reuse gate first per INC-C3-12
+next_plan: LANG007.C3.P3.T9 / G9-G11 — finish certification and disposition inherited C3-critical failure
 ```
 
-`LANG007.C1` and `LANG007.C2` are complete. C3 P1 and P2 are complete at focused-tested level. P3 is active at `518f66d1`; T1/G1, T2/G2, and T3/G3 passed. The user ratified INC-C3-12: establish and test runtime-facade binding/reuse first within T4/G4, then migrate source.
+`LANG007.C1` and `LANG007.C2` are complete. C3 P1 and P2 are complete at focused-tested level. P3 T1-T8 implementation work is done. T9 is open because an inherited generic associated static-domain payload failure overlaps C3 acceptance and reproduces on clean predecessor `9b4ca55d`; workspace formatting is also baseline-blocked by the drift recorded in the P2 handoff.
 
 Implementation, focused testing, and release certification are separate evidence states.
 
@@ -67,7 +67,7 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 | `LANG007.C2.P3` | whole-pack inference, persistence, incremental certification, checkpoint closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P1` | unified algebraic data declarations and type-data foundation | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P2` | general static domains, heterogeneous application/inference, associated type data | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
-| `LANG007.C3.P3` | intrinsic structural surface, Universe/corpus/tooling migration, certification and closure | `IN_PROGRESS` | `PARTIAL` | `UNVERIFIED` |
+| `LANG007.C3.P3` | intrinsic structural surface, Universe/corpus/tooling migration, certification and closure | `IN_PROGRESS` | `PARTIAL` | `BASELINE_BLOCKED` |
 
 P2 closeout records:
 
@@ -124,7 +124,7 @@ Workspace-wide test/clippy certification is not required by P1/P2 focused accept
 
 ## Known blockers
 
-No implementation blocker is currently recorded.
+The generic associated static-domain payload failure blocks C3 closure pending a bounded disposition. Two runtime constructor-reference failures are inherited clean-predecessor baselines outside this change.
 
 ## Next action
 

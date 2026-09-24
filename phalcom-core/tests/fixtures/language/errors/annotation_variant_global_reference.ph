@@ -2,7 +2,7 @@
 // spec: annotations-data.md @variant / this implementation specification
 // status: PASS
 
-enum Ordering {
+data Ordering {
   @variant Less
   @variant Greater
 }

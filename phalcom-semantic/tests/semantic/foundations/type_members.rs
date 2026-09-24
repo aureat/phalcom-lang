@@ -159,11 +159,7 @@ fn source_type_member_projection_uses_surface_identity_and_checks_argument_domai
     env.resolver.associated_surfaces.insert(owner, std::sync::Arc::new(surface));
     env.resolver.type_member_declarations.insert(member_id.clone(), product);
 
-    let good = proj_ann(
-        ref_ann("Geometry"),
-        "Choose",
-        vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("Geometry"))],
-    );
+    let good = proj_ann(ref_ann("Geometry"), "Choose", vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("Geometry"))]);
     let mut diagnostics = Vec::new();
     let projection = match resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &good, &mut diagnostics) {
         TypeFormResolution::Ready(projection) => projection,
@@ -175,7 +171,11 @@ fn source_type_member_projection_uses_surface_identity_and_checks_argument_domai
     assert_eq!(projection_data.source_declaration.as_ref(), Some(&member_id));
     assert!(diagnostics.is_empty());
 
-    let wrong = proj_ann(ref_ann("Geometry"), "Choose", vec![TypeMemberArgumentSyntax::IntLiteral { value: 1, range: RANGE }]);
+    let wrong = proj_ann(
+        ref_ann("Geometry"),
+        "Choose",
+        vec![TypeMemberArgumentSyntax::IntLiteral { value: 1, range: RANGE }],
+    );
     let mut diagnostics = Vec::new();
     assert!(matches!(
         resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &wrong, &mut diagnostics),

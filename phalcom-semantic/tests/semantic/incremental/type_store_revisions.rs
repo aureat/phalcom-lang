@@ -556,16 +556,26 @@ fn snapshot_metadata_catalog_excludes_stale_static_case_history() {
     use phalcom_type_meta::identity::StableStaticDomainDeclarationRef;
     use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
 
-    let module = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("metadata_case_history").unwrap()]));
+    let module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("metadata_case_history").unwrap(),
+    ]));
     let owner = DeclarationId::new(module.clone(), "Shape".into());
     let mut session = SemanticWorkspaceSession::new();
     let revision_a = session.update(single_module_input(module.clone(), "type data Shape { Old }\n", 1));
-    assert!(!revision_a.snapshot.has_errors(), "revision A diagnostics: {:?}", revision_a.snapshot.diagnostics);
+    assert!(
+        !revision_a.snapshot.has_errors(),
+        "revision A diagnostics: {:?}",
+        revision_a.snapshot.diagnostics
+    );
     let old_info = revision_a.snapshot.enum_semantics.enum_info(&owner).expect("revision A Shape");
     let old_constructor = old_info.static_data.as_ref().expect("revision A static domain").constructors[0];
 
     let revision_b = session.update(single_module_input(module, "type data Shape { New }\n", 2));
-    assert!(!revision_b.snapshot.has_errors(), "revision B diagnostics: {:?}", revision_b.snapshot.diagnostics);
+    assert!(
+        !revision_b.snapshot.has_errors(),
+        "revision B diagnostics: {:?}",
+        revision_b.snapshot.diagnostics
+    );
     let live_old_constructor = revision_b
         .snapshot
         .store
@@ -589,9 +599,11 @@ fn snapshot_metadata_catalog_excludes_stale_static_case_history() {
     let catalog = bundle
         .static_domains
         .iter()
-        .find(|record| matches!(&record.declaration,
+        .find(|record| {
+            matches!(&record.declaration,
             StableStaticDomainDeclarationRef::Nominal(declaration)
-                if declaration.path.last().is_some_and(|name| name.as_ref() == "Shape")))
+                if declaration.path.last().is_some_and(|name| name.as_ref() == "Shape"))
+        })
         .expect("current Shape static-domain catalog entry");
     assert_eq!(catalog.cases.len(), 1);
     assert_eq!(catalog.cases[0].name.as_ref(), "New");
@@ -616,9 +628,12 @@ fn nominal_static_case_rename_invalidates_source_selection_and_preserves_unrelat
     let final_source = "class Geometry { type Keep<T: Type>: Type }\ntype data Shape { Atom }\nclass Probe { @class status() { Shape::Atom } }\n";
     let mut incremental = SemanticWorkspaceSession::new();
     let first = incremental.update(single_module_input(module.clone(), initial, 1));
-    assert!(first.snapshot.all_diagnostics().any(|diagnostic| {
-        diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue
-    }));
+    assert!(
+        first
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| { diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue })
+    );
     let geometry = DeclarationId::new(module.clone(), "Geometry".into());
     let keep = TypeMemberDeclarationId::new(geometry, TypeMemberSelector::named("Keep"));
     let first_keep = first.snapshot.type_member_declarations.get(&keep).expect("Keep declaration product");
@@ -628,15 +643,21 @@ fn nominal_static_case_rename_invalidates_source_selection_and_preserves_unrelat
     let first_body_fingerprint = incremental.db().ready_product_fingerprint(&body_key).expect("initial body product");
 
     let updated = incremental.update(single_module_input(module.clone(), final_source, 2));
-    assert!(updated.snapshot.all_diagnostics().any(|diagnostic| {
-        diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue
-    }));
+    assert!(
+        updated
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| { diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue })
+    );
     let second_body_fingerprint = incremental.db().ready_product_fingerprint(&body_key).expect("updated body product");
-    assert_ne!(first_body_fingerprint, second_body_fingerprint, "renamed case must invalidate its selecting body");
-    assert!(Arc::ptr_eq(
-        first_keep,
-        updated.snapshot.type_member_declarations.get(&keep).expect("retained Keep product")
-    ), "unrelated type-member product should remain reusable");
+    assert_ne!(
+        first_body_fingerprint, second_body_fingerprint,
+        "renamed case must invalidate its selecting body"
+    );
+    assert!(
+        Arc::ptr_eq(first_keep, updated.snapshot.type_member_declarations.get(&keep).expect("retained Keep product")),
+        "unrelated type-member product should remain reusable"
+    );
 
     let index = updated.snapshot.source_index.module(&module).expect("updated source index");
     let updated_case_target = index
@@ -652,10 +673,11 @@ fn nominal_static_case_rename_invalidates_source_selection_and_preserves_unrelat
     );
     assert!(
         !index.occurrences.exact_targets().values().any(|target| {
-            target == &SemanticTargetId::StaticCase(StaticCaseId::new(
-                StaticDomainDeclarationId::Nominal(DeclarationId::new(module.clone(), "Shape".into())),
-                "Scalar",
-            ))
+            target
+                == &SemanticTargetId::StaticCase(StaticCaseId::new(
+                    StaticDomainDeclarationId::Nominal(DeclarationId::new(module.clone(), "Shape".into())),
+                    "Scalar",
+                ))
         }),
         "removed case target must not survive the edit"
     );

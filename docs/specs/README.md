@@ -25,7 +25,7 @@ They include:
 - [`structural-products.md`](structural-products.md) — static structural Tuple/Record typing and closed structural type operations;
 - [`generic-constraints.md`](generic-constraints.md) — generic `where` constraints, conformance bounds, associated specialization, generic projection, equivalence, and subtyping constraints;
 - [`associated-types.md`](associated-types.md) — trait-owned associated declarations, conformance bindings, and the trait specialization of general type members;
-- [`objects/`](objects/) — values, data objects, enums, traits, and implementation declarations;
+- [`objects/`](objects/) — values, runtime algebraic data, traits, and implementation declarations;
 - [`callables/`](callables/) — selectors, arguments, methods, callable values, closures, references, families, dispatch, execution context, binding, and callable reflection.
 
 A conforming implementation may choose different internal representations or algorithms provided that the language semantics remain unchanged.
@@ -92,7 +92,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | Source declaration modifiers, access domains, implementation origin, and legacy namespace retirement | [`source-declarations.md`](source-declarations.md) |
 | Foundational value/object semantics and exactness | [`objects/values.md`](objects/values.md) |
 | Nominal transparent data objects | [`objects/data-objects.md`](objects/data-objects.md) |
-| Enums, variants, exact cases, and variant construction | [`objects/enums.md`](objects/enums.md) |
+| Runtime closed sums, cases, exact-case semantics, and case construction | [`objects/enums.md`](objects/enums.md) |
 | Traits, requirements, witnesses, defaults, conformance, coherence | [`objects/traits.md`](objects/traits.md) |
 | Inherent and conformance `impl` declarations | [`objects/impl.md`](objects/impl.md) |
 | Callable specification index | [`callables/INDEX.md`](callables/INDEX.md) |

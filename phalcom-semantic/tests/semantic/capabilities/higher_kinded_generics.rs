@@ -10,7 +10,7 @@ use phalcom_semantic::types::evidence::EvidenceStatus;
 fn expected_result_selects_hkt_constructor_without_value_evidence() {
     let fixture = Fixture::new(
         r#"
-enum Either<L, R> {
+data Either<L, R> {
   @variant Left(_ value: L)
   @variant Right(_ value: R)
 }

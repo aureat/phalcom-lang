@@ -11,7 +11,7 @@ use phalcom_semantic::types::store::TypeData;
 fn direct_escape_source(branch: &str, return_type: &str) -> String {
     format!(
         r#"
-enum Expr<T> {{
+data Expr<T> {{
   @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }}
 
@@ -43,7 +43,7 @@ fn structural_wrapper_cannot_hide_local_existential_escape() {
 fn outer_assignment_rejects_local_existential_value() {
     let fixture = Fixture::new(
         r#"
-enum Expr<T> {
+data Expr<T> {
   @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }
 
@@ -65,7 +65,7 @@ class Eval {
 fn incompatible_call_argument_rejects_local_existential_value() {
     let fixture = Fixture::new(
         r#"
-enum Expr<T> {
+data Expr<T> {
   @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }
 
@@ -97,7 +97,7 @@ fn rigid_free_expected_supertype_allows_sound_widening() {
 fn closure_capture_cannot_package_local_existential() {
     let fixture = Fixture::new(
         r#"
-enum Expr<T> {
+data Expr<T> {
   @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }
 
@@ -118,7 +118,7 @@ class Eval {
 fn exact_case_elimination_reopens_hidden_locals_without_changing_canonical_case() {
     let fixture = Fixture::new(
         r#"
-enum Expr<T> {
+data Expr<T> {
   @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }
 

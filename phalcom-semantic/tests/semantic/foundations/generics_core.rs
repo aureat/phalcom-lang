@@ -2,9 +2,9 @@
 //! Tests Gates 01.5-A through 01.5-H and mathematical property laws in §29.
 
 use phalcom_modules::identity::ModuleId;
+use phalcom_semantic::checker::inference::InferenceStaticArgument;
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate};
 use phalcom_semantic::identity::DeclarationId;
-use phalcom_semantic::checker::inference::InferenceStaticArgument;
 use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};

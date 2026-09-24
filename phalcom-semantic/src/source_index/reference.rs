@@ -44,9 +44,11 @@ impl ModuleReferenceContribution {
 
         // 1. Declarations / definitions from source structure
         for decl in structure.declaration_sources.values() {
-            defs.entry(SemanticTargetId::Declaration(decl.id.clone()))
-                .or_default()
-                .push(decl.declaration_site.clone());
+            let target = structure
+                .target_for(&decl.declaration_site)
+                .cloned()
+                .unwrap_or_else(|| SemanticTargetId::Declaration(decl.id.clone()));
+            defs.entry(target).or_default().push(decl.declaration_site.clone());
         }
         for callable in structure.callable_sources.values() {
             defs.entry(SemanticTargetId::Callable(callable.id.clone()))
@@ -74,6 +76,12 @@ impl ModuleReferenceContribution {
             match &site.kind {
                 crate::source_index::SourceSiteKind::Variant(id) => {
                     defs.entry(SemanticTargetId::Variant(id.clone())).or_default().push(site.id.clone());
+                }
+                crate::source_index::SourceSiteKind::StaticDomain(id) => {
+                    defs.entry(SemanticTargetId::StaticDomain(id.clone())).or_default().push(site.id.clone());
+                }
+                crate::source_index::SourceSiteKind::StaticCase(id) => {
+                    defs.entry(SemanticTargetId::StaticCase(id.clone())).or_default().push(site.id.clone());
                 }
                 crate::source_index::SourceSiteKind::VariantFamily(id) => {
                     defs.entry(SemanticTargetId::VariantFamily(id.clone())).or_default().push(site.id.clone());

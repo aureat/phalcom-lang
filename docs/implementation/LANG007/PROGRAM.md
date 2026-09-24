@@ -4,7 +4,7 @@ category: LANG
 kind: implementation
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 repository: aureat/phalcom-lang
 prepared: 2026-09-21
 ---
@@ -52,7 +52,7 @@ Current numbered plans for C2:
 
 ### C3 — Type Data and Unified Algebraic Static Domains
 
-**State:** `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`
+**State:** `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`
 
 C3 establishes unified algebraic declarations (`data` for runtime products and sums, `type data` for type-level static domains), nominal static domain identity, canonical static terms, heterogeneous static applications, and intrinsic structural domain exposure.
 
@@ -60,7 +60,7 @@ Current numbered plans for C3:
 
 - `LANG007.C3.P1` — unified algebraic data declarations and type-data foundation — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C3.P2` — general static domains, heterogeneous application/inference, associated type data — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
-- `LANG007.C3.P3` — intrinsic structural surface, Universe/corpus migration, certification and closure — `IN_PROGRESS / PARTIAL / UNVERIFIED` (T1/G1, T2/G2, T3/G3 passed; T4/G4 binding/reuse gate first per ratified INC-C3-12).
+- `LANG007.C3.P3` — intrinsic structural surface, Universe/corpus migration, certification and closure — `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` (T1-T8 implementation work done; T9/G9-G11 remains open because the generic associated static-domain payload case fails on both current and clean predecessor revisions).
 
 C1 is the first implementation checkpoint. It establishes the canonical domains, type-member identity/projection machinery, structural operations, persistence/inference integration, and runtime boundary required for:
 
@@ -158,14 +158,14 @@ These are architectural constraints inherited by LANG007 work unless a later acc
 program: LANG007
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 active checkpoint: LANG007.C3
 active_plan: LANG007.C3.P3
 next checkpoint: LANG007.C3
-next task: LANG007.C3.P3.T4 / G4
+next task: LANG007.C3.P3.T9 / G9-G11
 ```
 
-`LANG007.C1` and `LANG007.C2` are complete. `LANG007.C3.P1` and `LANG007.C3.P2` are complete at the `FOCUSED_TESTED` level. P3 T1/G1, T2/G2, and T3/G3 have passed; the user ratified INC-C3-12 to establish and test the runtime-facade binding/reuse path first within T4/G4, then migrate source. C3 remains active because P3 owns intrinsic structural exposure, Universe/corpus migration, tooling, and checkpoint certification.
+`LANG007.C1` and `LANG007.C2` are complete. `LANG007.C3.P1` and `LANG007.C3.P2` are complete at the `FOCUSED_TESTED` level. P3 T1-T8 implementation work is done. T9 has passing workspace build, type-meta, focused source-index/LSP, ADT matching, and runtime migration evidence. Formatting is baseline-blocked by pre-existing workspace drift. The generic associated static-domain payload acceptance test fails on both the active tree and clean predecessor `9b4ca55d`. Continue at T9/G9-G11; do not close C3 until this blocker is dispositioned and remaining certification is complete.
 
 ## Canonical records
 

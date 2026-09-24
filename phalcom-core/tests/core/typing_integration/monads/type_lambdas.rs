@@ -90,10 +90,13 @@ fn specialized_constructor_beta_reduces_to_either_string_int() {
         panic!("expected Either<String, Int>, got {:?}", store.get(applied))
     };
     assert_eq!(*origin, f.ty("Either"));
-    assert_eq!(arguments.as_ref(), [
-        phalcom_semantic::types::store::StaticArgument::Term(string),
-        phalcom_semantic::types::store::StaticArgument::Term(int),
-    ]);
+    assert_eq!(
+        arguments.as_ref(),
+        [
+            phalcom_semantic::types::store::StaticArgument::Term(string),
+            phalcom_semantic::types::store::StaticArgument::Term(int),
+        ]
+    );
 }
 
 /// MON-LAMBDA-05: alpha-renaming a closed constructor lambda does not change

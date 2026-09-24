@@ -1392,7 +1392,7 @@ Applying it to an incompatible value is invalid execution and MUST fail rather t
 
 # 26. Data declaration instructions
 
-`data` declarations use a product-like runtime construction model parallel to, but distinct from, enum variants.
+Product-shaped `data` declarations use a product-like runtime construction model. Sum-shaped `data` declarations use the closed-sum case construction model described above.
 
 ### `Data(sem)`
 

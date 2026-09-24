@@ -8,7 +8,7 @@ fn associated_expression_attaches_to_one_formal_source_site() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum State {
+data State {
   @variant Ready
 }
 class Probe {

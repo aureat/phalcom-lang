@@ -1053,7 +1053,9 @@ fn workspace_generic_class_and_callable_signature_publication() {
         panic!("Box superclass should be applied Container<U>");
     };
     assert_eq!(*origin, container_info.form);
-    assert!(matches!(analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only superclass argument")), TypeData::Parameter(parameter) if *parameter == box_parameter));
+    assert!(
+        matches!(analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only superclass argument")), TypeData::Parameter(parameter) if *parameter == box_parameter)
+    );
     let int = analysis
         .snapshot
         .declarations

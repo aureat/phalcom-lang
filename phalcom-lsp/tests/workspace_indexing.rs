@@ -53,7 +53,7 @@ async fn indexed_navigation_symbols_and_request_work_are_bounded() {
     let workspace = ScratchWorkspace::new();
     let provider_uri = workspace.uri("provider.ph");
     let main_uri = workspace.uri("main.ph");
-    let provider = "class Circle { area() -> Int { 1 } }\nenum Mood { @variant Happy }\ntype Alias = Circle\nexport Circle\n";
+    let provider = "class Circle { area() -> Int { 1 } }\ndata Mood { @variant Happy }\ntype Alias = Circle\nexport Circle\n";
     let main = "from .provider import Circle as Shape\nlet value = Shape\nlet second = Shape\nlet third = Shape\n";
     std::fs::write(workspace.root.join("provider.ph"), provider).expect("write provider");
     std::fs::write(workspace.root.join("main.ph"), main).expect("write main");
@@ -137,6 +137,42 @@ async fn indexed_navigation_symbols_and_request_work_are_bounded() {
         "semantic upstream references must include the importing module: {upstream_references:#?}"
     );
 
+    let prepare_rename = lsp
+        .request(
+            "textDocument/prepareRename",
+            json!({
+                "textDocument": { "uri": provider_uri },
+                "position": { "line": 1, "character": 5 }
+            }),
+        )
+        .await;
+    assert_eq!(prepare_rename["result"]["placeholder"], "Mood", "prepareRename: {prepare_rename:#?}");
+    let renamed = lsp
+        .request(
+            "textDocument/rename",
+            json!({
+                "textDocument": { "uri": provider_uri },
+                "position": { "line": 1, "character": 5 },
+                "newName": "Feeling"
+            }),
+        )
+        .await;
+    assert_eq!(
+        renamed["result"]["changes"][provider_uri.as_str()][0]["newText"],
+        "Feeling",
+        "rename: {renamed:#?}"
+    );
+    let invalid_rename = lsp
+        .request(
+            "textDocument/rename",
+            json!({
+                "textDocument": { "uri": provider_uri },
+                "position": { "line": 1, "character": 5 },
+                "newName": "not valid"
+            }),
+        )
+        .await;
+    assert!(invalid_rename["result"].is_null(), "invalid rename: {invalid_rename:#?}");
     let before_symbols = lsp.counter_snapshot();
     let symbols = lsp.request("workspace/symbol", json!({ "query": "Circle" })).await;
     assert!(
@@ -145,12 +181,12 @@ async fn indexed_navigation_symbols_and_request_work_are_bounded() {
             .is_some_and(|entries| entries.iter().any(|entry| entry["name"] == "Circle")),
         "symbols: {symbols:#?}"
     );
-    let enum_symbols = lsp.request("workspace/symbol", json!({ "query": "Mood" })).await;
+    let data_symbols = lsp.request("workspace/symbol", json!({ "query": "Mood" })).await;
     assert!(
-        enum_symbols["result"]
+        data_symbols["result"]
             .as_array()
-            .is_some_and(|entries| entries.iter().any(|entry| entry["kind"] == 10)),
-        "enum symbols: {enum_symbols:#?}"
+            .is_some_and(|entries| entries.iter().any(|entry| entry["kind"] == 23)),
+        "data symbols: {data_symbols:#?}"
     );
     let alias_symbols = lsp.request("workspace/symbol", json!({ "query": "Alias" })).await;
     assert!(
@@ -162,7 +198,7 @@ async fn indexed_navigation_symbols_and_request_work_are_bounded() {
 
     let after_symbols = lsp.counter_snapshot();
     assert!(
-        after_symbols.reference_source_modules_converted <= 5,
+        after_symbols.reference_source_modules_converted <= 8,
         "reference conversion must stay bounded: {after_symbols:#?}"
     );
     assert!(

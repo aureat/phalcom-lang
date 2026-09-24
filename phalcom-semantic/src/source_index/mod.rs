@@ -223,9 +223,9 @@ impl CallableSourceAttachment {
                     AssociatedResolutionKind::StaticDomain {
                         member: AssociatedMemberId::StaticDomain(declaration),
                         ..
-                    } => Some(SemanticTargetId::StaticDomain(
-                        crate::identity::StaticDomainDeclarationId::Associated(declaration.clone()),
-                    )),
+                    } => Some(SemanticTargetId::StaticDomain(crate::identity::StaticDomainDeclarationId::Associated(
+                        declaration.clone(),
+                    ))),
                     AssociatedResolutionKind::StaticTerm { case, .. } => Some(SemanticTargetId::StaticCase(case.clone())),
                     _ => None,
                 };
@@ -452,19 +452,23 @@ impl ModuleSourceIndex {
 fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[WorkspaceSymbolEntry]> {
     let mut symbols = Vec::new();
     for decl in structure.declaration_sources.values() {
+        let target = structure
+            .target_for(&decl.declaration_site)
+            .cloned()
+            .unwrap_or_else(|| SemanticTargetId::Declaration(decl.id.clone()));
         symbols.push(WorkspaceSymbolEntry {
             id: WorkspaceSymbolId {
-                target: SemanticTargetId::Declaration(decl.id.clone()),
+                target: target.clone(),
                 site: decl.declaration_site.clone(),
             },
             name: decl.name.clone(),
             normalized_name: decl.name.to_lowercase().into_boxed_str(),
-            target: SemanticTargetId::Declaration(decl.id.clone()),
+            target,
             declaration_site: decl.declaration_site.clone(),
             kind: match decl.kind {
                 SourceDeclarationKind::Class => EditorSymbolKind::Class,
-                SourceDeclarationKind::Enum => EditorSymbolKind::Enum,
                 SourceDeclarationKind::Data => EditorSymbolKind::Data,
+                SourceDeclarationKind::TypeData => EditorSymbolKind::TypeData,
                 SourceDeclarationKind::Trait => EditorSymbolKind::Trait,
                 SourceDeclarationKind::TypeAlias => EditorSymbolKind::TypeAlias,
             },
@@ -518,6 +522,39 @@ fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[Workspac
                     container_name: Some(id.owner.name.clone()),
                 });
             }
+            SourceSiteKind::StaticCase(id) => {
+                let name = id.selector.encode().into_boxed_str();
+                symbols.push(WorkspaceSymbolEntry {
+                    id: WorkspaceSymbolId {
+                        target: SemanticTargetId::StaticCase(id.clone()),
+                        site: site.id.clone(),
+                    },
+                    name: name.clone(),
+                    normalized_name: name.to_lowercase().into_boxed_str(),
+                    target: SemanticTargetId::StaticCase(id.clone()),
+                    declaration_site: site.id.clone(),
+                    kind: EditorSymbolKind::Variant,
+                    container_name: Some(static_domain_name(&id.domain).into()),
+                });
+            }
+            SourceSiteKind::StaticDomain(id) if matches!(id, crate::identity::StaticDomainDeclarationId::Associated(_)) => {
+                let name = static_domain_name(id).to_owned().into_boxed_str();
+                symbols.push(WorkspaceSymbolEntry {
+                    id: WorkspaceSymbolId {
+                        target: SemanticTargetId::StaticDomain(id.clone()),
+                        site: site.id.clone(),
+                    },
+                    name: name.clone(),
+                    normalized_name: name.to_lowercase().into_boxed_str(),
+                    target: SemanticTargetId::StaticDomain(id.clone()),
+                    declaration_site: site.id.clone(),
+                    kind: EditorSymbolKind::TypeData,
+                    container_name: match id {
+                        crate::identity::StaticDomainDeclarationId::Associated(declaration) => Some(declaration.owner.name.clone()),
+                        crate::identity::StaticDomainDeclarationId::Nominal(_) => None,
+                    },
+                });
+            }
             SourceSiteKind::VariantField(id) => {
                 let name = format!("{}:{}", id.variant.selector.encode(), id.index).into_boxed_str();
                 symbols.push(WorkspaceSymbolEntry {
@@ -568,6 +605,13 @@ fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[Workspac
     }
     symbols.sort_by(|a, b| a.id.cmp(&b.id));
     Arc::from(symbols.into_boxed_slice())
+}
+
+fn static_domain_name(domain: &crate::identity::StaticDomainDeclarationId) -> &str {
+    match domain {
+        crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.name,
+        crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.name,
+    }
 }
 
 fn expression_products(

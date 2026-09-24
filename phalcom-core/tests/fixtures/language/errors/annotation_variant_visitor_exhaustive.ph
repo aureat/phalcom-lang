@@ -2,7 +2,7 @@
 // spec: annotations-data.md @variant / this implementation specification
 // status: PASS
 
-enum Shape {
+data Shape {
   @variant Circle(radius: Int)
   @variant Rect(w: Int, h: Int)
 }

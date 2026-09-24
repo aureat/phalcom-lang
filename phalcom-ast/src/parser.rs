@@ -426,7 +426,7 @@ impl<'source> Parser<'source> {
     fn at_top_level_item_boundary(&self) -> bool {
         matches!(
             self.peek(),
-            Token::At | Token::Class | Token::Enum | Token::Data | Token::Trait | Token::Impl | Token::TypeKw | Token::Let | Token::Const | Token::Return
+            Token::At | Token::Class | Token::Data | Token::Trait | Token::Impl | Token::TypeKw | Token::Let | Token::Const | Token::Return
         )
     }
 
@@ -1308,7 +1308,7 @@ impl<'source> Parser<'source> {
         if !header_attrs.is_empty()
             || modifiers.implementation_range.is_some()
             || modifiers.visibility_range.is_some()
-            || ((matches!(self.peek(), Token::Class | Token::Enum | Token::Data | Token::Trait) && matches!(self.peek_next(), Token::Identifier(_)))
+            || ((matches!(self.peek(), Token::Class | Token::Data | Token::Trait) && matches!(self.peek_next(), Token::Identifier(_)))
                 || matches!(self.peek(), Token::Impl)
                 || (matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data)))
         {
@@ -1327,9 +1327,7 @@ impl<'source> Parser<'source> {
                     range,
                 });
             }
-            let stmt = if matches!(self.peek(), Token::Enum) {
-                self.parse_enum(header_attrs, modifiers)?
-            } else if matches!(self.peek(), Token::Data) {
+            let stmt = if matches!(self.peek(), Token::Data) {
                 if modifiers.implementation == ImplementationKind::Foreign {
                     let k = modifiers.implementation.as_str();
                     return Err(SyntaxError {
@@ -1377,7 +1375,7 @@ impl<'source> Parser<'source> {
             } else if matches!(self.peek(), Token::Class) {
                 self.parse_class(header_attrs, modifiers)?
             } else {
-                return Err(self.error_here(strs(&["\"class\"", "\"enum\"", "\"data\"", "\"trait\"", "\"impl\"", "\"type\""])));
+                return Err(self.error_here(strs(&["\"class\"", "\"data\"", "\"trait\"", "\"impl\"", "\"type\""])));
             };
             out.push(stmt);
             // A compound statement requires a NEWLINE terminator, not EOF.
@@ -1411,7 +1409,7 @@ impl<'source> Parser<'source> {
     ///
     /// Consumes a terminating newline or `;` (so the next statement starts
     /// fresh) and stops — without consuming — at a `}`, end-of-file, or a
-    /// statement-introducing keyword (`class`, `enum`, `let`, `return`).
+    /// statement-introducing keyword (`class`, `data`, `let`, `return`).
     fn synchronize(&mut self) {
         loop {
             match self.peek() {
@@ -1420,16 +1418,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class
-                | Token::Enum
-                | Token::Data
-                | Token::Impl
-                | Token::TypeKw
-                | Token::Let
-                | Token::Const
-                | Token::Return
-                | Token::Import
-                | Token::Export => return,
+                Token::Class | Token::Data | Token::Impl | Token::TypeKw | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
                 _ => {
                     self.advance();
                 }
@@ -1453,7 +1442,6 @@ impl<'source> Parser<'source> {
                 }
             }
             Token::Data => self.parse_data(Vec::new(), ParsedModifiers::default(), AlgebraicPhase::Runtime),
-            Token::Enum => self.parse_enum(Vec::new(), ParsedModifiers::default()),
             Token::Let => self.parse_binding(BindingKind::Let),
             Token::Const => self.parse_binding(BindingKind::Const),
             Token::Return => self.parse_return(),
@@ -1520,11 +1508,7 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["type alias name"])?;
         let name_range = (name_start..self.prev_end).into();
-        let result_kind = if self.eat(&Token::Colon) {
-            Some(self.parse_kind_expression()?)
-        } else {
-            None
-        };
+        let result_kind = if self.eat(&Token::Colon) { Some(self.parse_kind_expression()?) } else { None };
         let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Alias)?;
         self.skip_newlines_if_followed_by(&Token::Where);
         let where_clause = if matches!(self.peek(), Token::Where) {
@@ -2469,7 +2453,10 @@ impl<'source> Parser<'source> {
             ]);
             self.advance();
             let range = (start..self.prev_end).into();
-            return Ok(KindSyntax::Invalid { message: format!("{:?}", err.kind), range });
+            return Ok(KindSyntax::Invalid {
+                message: format!("{:?}", err.kind),
+                range,
+            });
         };
 
         if self.eat(&Token::Arrow) {
@@ -3484,7 +3471,6 @@ impl<'source> Parser<'source> {
             Token::Const => "const",
             Token::Fn => "fn",
             Token::Class => "class",
-            Token::Enum => "enum",
             Token::Data => "data",
             Token::Trait => "trait",
             Token::Impl => "impl",
@@ -3876,7 +3862,7 @@ impl<'source> Parser<'source> {
         let kw_start = self.cur_start();
         self.expect(&Token::TypeKw, &["\"type\""])?;
         self.skip_newlines();
-        self.parse_data_inner(header_attrs, modifiers, AlgebraicPhase::TypeOnly, None, kw_start)
+        self.parse_data_inner(header_attrs, modifiers, AlgebraicPhase::TypeOnly, kw_start)
     }
 
     fn parse_data(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers, phase: AlgebraicPhase) -> ParserResult<Statement> {
@@ -3885,7 +3871,7 @@ impl<'source> Parser<'source> {
             self.skip_newlines();
         }
         let kw_start = self.cur_start();
-        self.parse_data_inner(header_attrs, modifiers, phase, None, kw_start)
+        self.parse_data_inner(header_attrs, modifiers, phase, kw_start)
     }
 
     fn parse_data_inner(
@@ -3893,7 +3879,6 @@ impl<'source> Parser<'source> {
         header_attrs: Vec<Attribute>,
         modifiers: ParsedModifiers,
         phase: AlgebraicPhase,
-        legacy_enum_keyword_range: Option<SourceRange>,
         kw_start: usize,
     ) -> ParserResult<Statement> {
         let start = modifiers.implementation_range.map(|r| r.start).unwrap_or(kw_start);
@@ -3954,7 +3939,6 @@ impl<'source> Parser<'source> {
             shape,
             attributes: header_attrs,
             range,
-            legacy_enum_keyword_range,
         }))
     }
 
@@ -4376,61 +4360,6 @@ impl<'source> Parser<'source> {
         })
     }
 
-    fn parse_enum(&mut self, mut header_attrs: Vec<Attribute>, modifiers: ParsedModifiers) -> ParserResult<Statement> {
-        while matches!(self.peek(), Token::At) {
-            header_attrs.push(self.parse_attribute()?);
-            self.skip_newlines();
-        }
-        let start = modifiers.implementation_range.map(|r| r.start).unwrap_or_else(|| self.cur_start());
-        let enum_kw_start = self.cur_start();
-        self.expect(&Token::Enum, &["\"enum\""])?;
-        let enum_kw_range = Some((enum_kw_start..self.prev_end).into());
-        let name_start = self.cur_start();
-        let name = self.expect_identifier(&["identifier"])?;
-        let name_range = (name_start..self.prev_end).into();
-
-        // The enum body is mandatory, so header newlines are formatting after
-        // the declaration name and between each optional header component.
-        self.skip_newlines();
-        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::NominalDeclaration)?;
-
-        self.skip_newlines();
-
-        let where_clause = if matches!(self.peek(), Token::Where) {
-            Some(self.parse_where_clause()?)
-        } else {
-            None
-        };
-
-        self.skip_newlines();
-
-        let body_start = self.cur_start();
-        self.expect(&Token::LBrace, &["\"{\""])?;
-        let cases = self.parse_sum_cases()?;
-        self.expect(&Token::RBrace, &["\"}\""])?;
-        let body_range = (body_start..self.prev_end).into();
-        let range = (start..self.prev_end).into();
-
-        let shape = AlgebraicShapeSyntax::Sum(SumShapeSyntax {
-            cases,
-            range: body_range,
-        });
-
-        Ok(Statement::Data(AlgebraicDef {
-            name,
-            name_range,
-            phase: AlgebraicPhase::Runtime,
-            implementation: modifiers.implementation,
-            implementation_range: modifiers.implementation_range,
-            generic_parameters,
-            where_clause,
-            shape,
-            attributes: header_attrs,
-            range,
-            legacy_enum_keyword_range: enum_kw_range,
-        }))
-    }
-
     fn parse_sum_case(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<AlgebraicCaseSyntax> {
         let variant_attr = pending_attrs.iter().find(|a| a.name == "variant").cloned();
         let variant_marker_range = variant_attr.as_ref().map(|a| a.range);
@@ -4541,10 +4470,7 @@ impl<'source> Parser<'source> {
                 }
             }
             let r_range = (r_start..self.prev_end).into();
-            CasePayloadSyntax::Record {
-                components,
-                range: r_range,
-            }
+            CasePayloadSyntax::Record { components, range: r_range }
         } else {
             CasePayloadSyntax::Singleton
         };
@@ -4662,53 +4588,14 @@ impl<'source> Parser<'source> {
         } else {
             if let Some(range) = constructor_visibility_range {
                 return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("data.constructor_visibility.sum: primary constructor visibility modifiers are not supported on sum declarations".to_string()),
+                    kind: SyntaxErrorKind::Message(
+                        "data.constructor_visibility.sum: primary constructor visibility modifiers are not supported on sum declarations".to_string(),
+                    ),
                     range: range.start..range.end,
                 });
             }
-            Ok(AlgebraicShapeSyntax::Sum(SumShapeSyntax {
-                cases,
-                range: body_range,
-            }))
+            Ok(AlgebraicShapeSyntax::Sum(SumShapeSyntax { cases, range: body_range }))
         }
-    }
-
-    fn parse_sum_cases(&mut self) -> ParserResult<Vec<AlgebraicCaseSyntax>> {
-        let mut cases = Vec::new();
-        let mut pending_attrs: Vec<Attribute> = Vec::new();
-        loop {
-            self.skip_newlines();
-            match self.peek() {
-                Token::RBrace if pending_attrs.is_empty() => break,
-                Token::RBrace => return Err(self.dangling_attribute_error(&pending_attrs)),
-                Token::Eof if !pending_attrs.is_empty() => return Err(self.dangling_attribute_error(&pending_attrs)),
-                Token::At => {
-                    let attr = self.parse_attribute()?;
-                    self.skip_newlines();
-                    pending_attrs.push(attr);
-                    continue;
-                }
-                Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
-                _ => {}
-            }
-
-            if pending_attrs.iter().any(|a| a.name == "class" || a.name == "static") || matches!(self.peek(), Token::LBracket) {
-                let start = pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start());
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::EnumBehaviorUnsupported,
-                    range: start..self.cur_start() + 1,
-                });
-            }
-
-            let case = self.parse_sum_case(std::mem::take(&mut pending_attrs))?;
-            cases.push(case);
-
-            self.skip_newlines();
-            if self.eat(&Token::Comma) || self.eat(&Token::Semicolon) {
-                self.skip_newlines();
-            }
-        }
-        Ok(cases)
     }
 
     /// Returns whether the current token is the contextual word `word`.
@@ -6151,7 +6038,7 @@ impl<'source> Parser<'source> {
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
                 // class-declaration path.
-                Token::At | Token::Class | Token::Enum | Token::Data | Token::Trait | Token::Impl | Token::TypeKw
+                Token::At | Token::Class | Token::Data | Token::Trait | Token::Impl | Token::TypeKw
                     if matches!(self.peek(), Token::At)
                         || matches!(self.peek_next(), Token::Identifier(_))
                         || matches!(self.peek(), Token::Impl)
@@ -6162,14 +6049,11 @@ impl<'source> Parser<'source> {
                         header_attrs.push(self.parse_attribute()?);
                         self.skip_newlines();
                     }
-                    let is_enum = matches!(self.peek(), Token::Enum);
                     let is_data = matches!(self.peek(), Token::Data);
                     let is_type_data = matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data);
                     let is_trait = matches!(self.peek(), Token::Trait);
                     let is_impl = matches!(self.peek(), Token::Impl);
-                    let stmt = if is_enum {
-                        self.parse_enum(header_attrs, ParsedModifiers::default())?
-                    } else if is_type_data {
+                    let stmt = if is_type_data {
                         self.parse_type_data(header_attrs, ParsedModifiers::default())?
                     } else if is_data {
                         self.parse_data(header_attrs, ParsedModifiers::default(), AlgebraicPhase::Runtime)?
@@ -6183,9 +6067,7 @@ impl<'source> Parser<'source> {
                     let (keyword_start, kw_len, decl_kind) = match &stmt {
                         Statement::Class(class_def) => (class_def.range.start, "class".len(), "class"),
                         Statement::Data(data_def) => {
-                            if data_def.legacy_enum_keyword_range.is_some() {
-                                (data_def.range.start, "enum".len(), "enum")
-                            } else if data_def.phase == AlgebraicPhase::TypeOnly {
+                            if data_def.phase == AlgebraicPhase::TypeOnly {
                                 (data_def.range.start, "type data".len(), "type data")
                             } else {
                                 (data_def.range.start, "data".len(), "data")
@@ -8008,7 +7890,6 @@ impl<'source> Parser<'source> {
         let name = match self.peek().clone() {
             Token::Identifier(name) | Token::FieldIdentifier(name) => name,
             Token::Class => "class".to_string(),
-            Token::Enum => "enum".to_string(),
             // `try` is a genuine reserved keyword (statement-leading, ADR-0031
             // §4) but must still resolve as an ordinary selector in message
             // position — `fiber.try(...)`/`fiber.try` (`Fiber#try`, ADR-0030)
@@ -10283,7 +10164,7 @@ native class NativeClass is Object {
     private _field: Int = 42
     internal const _const_field: Int = 100
 }
-native enum NativeEnum {
+native data NativeEnum {
     A
     B
 }

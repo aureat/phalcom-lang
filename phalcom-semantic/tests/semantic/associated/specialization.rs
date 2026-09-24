@@ -8,7 +8,7 @@ use phalcom_semantic::diagnostic::DiagnosticCode;
 fn generic_associated_owner_conflict_reports_gadt_mismatch_only() {
     let source: Arc<str> = Arc::from(
         r#"
-enum Expr<T> {
+data Expr<T> {
   @variant IntLit(_ value: Int) -> Expr<Int>
   @variant BoolLit(_ value: Bool) -> Expr<Bool>
 }

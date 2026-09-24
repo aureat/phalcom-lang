@@ -303,7 +303,7 @@ fn enum_declaration_publishes_structural_enum_product() {
     let module = test_module();
     let source: Arc<str> = Arc::from(
         r#"
-enum Option<T> {
+data Option<T> {
   @variant Some(value: T)
   @variant None
 }
@@ -373,7 +373,11 @@ class Container<T: Type> {
     let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner, "State");
     let declaration = analysis.snapshot.associated_static_domains.get(&id).expect("published declaration");
     assert_eq!(declaration.constructors.len(), 1);
-    let constructor = analysis.snapshot.store.static_constructor(declaration.constructors[0]).expect("constructor metadata");
+    let constructor = analysis
+        .snapshot
+        .store
+        .static_constructor(declaration.constructors[0])
+        .expect("constructor metadata");
     assert_eq!(constructor.parameter_kinds.as_ref(), &[KindId::TYPE]);
 }
 
@@ -396,8 +400,26 @@ impl Packet {
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
     let owner = DeclarationId::new(module, "Packet".into());
     let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
-    assert_eq!(analysis.snapshot.associated_static_domains.get(&id).expect("published declaration").constructors.len(), 2);
-    assert!(analysis.snapshot.associated_surfaces.surfaces.get(&owner).unwrap().families.contains_key(&SelectorBase::Named("State".into())));
+    assert_eq!(
+        analysis
+            .snapshot
+            .associated_static_domains
+            .get(&id)
+            .expect("published declaration")
+            .constructors
+            .len(),
+        2
+    );
+    assert!(
+        analysis
+            .snapshot
+            .associated_surfaces
+            .surfaces
+            .get(&owner)
+            .unwrap()
+            .families
+            .contains_key(&SelectorBase::Named("State".into()))
+    );
 }
 
 #[test]
@@ -416,7 +438,14 @@ impl Packet { type data State { Parsed } }
     let owner = DeclarationId::new(module, "Packet".into());
     let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
     assert!(!analysis.snapshot.associated_static_domains.contains_key(&id));
-    assert!(analysis.snapshot.diagnostics.values().flat_map(|diagnostics| diagnostics.iter()).any(|diagnostic| diagnostic.code == DiagnosticCode::EnumFamilyCategoryConflict));
+    assert!(
+        analysis
+            .snapshot
+            .diagnostics
+            .values()
+            .flat_map(|diagnostics| diagnostics.iter())
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::EnumFamilyCategoryConflict)
+    );
 }
 
 #[test]
@@ -437,9 +466,14 @@ impl Marker for Packet {
     let owner = DeclarationId::new(module, "Packet".into());
     let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner, "State");
     assert!(!analysis.snapshot.associated_static_domains.contains_key(&id));
-    assert!(analysis.snapshot.diagnostics.values().flat_map(|diagnostics| diagnostics.iter()).any(|diagnostic| {
-        diagnostic.message.contains("not permitted in a conformance impl")
-    }));
+    assert!(
+        analysis
+            .snapshot
+            .diagnostics
+            .values()
+            .flat_map(|diagnostics| diagnostics.iter())
+            .any(|diagnostic| { diagnostic.message.contains("not permitted in a conformance impl") })
+    );
 }
 
 #[test]
@@ -459,18 +493,24 @@ class Parser {
     let owner = DeclarationId::new(module.clone(), "Parser".into());
     let status = CallableId::new(owner, Selector::method("status", []).expect("status selector"), DispatchSide::Class);
     let callable = analysis.snapshot.callable_analyses.get(&status).expect("status analysis");
-    assert!(callable.associated_resolutions.values().any(|resolution| matches!(
-        resolution.kind,
-        phalcom_semantic::checker::AssociatedResolutionKind::StaticDomain { .. }
-    )));
-    assert!(callable.associated_resolutions.values().any(|resolution| matches!(
-        resolution.kind,
-        phalcom_semantic::checker::AssociatedResolutionKind::StaticTerm { .. }
-    )));
-    assert!(!callable.associated_resolutions.values().any(|resolution| matches!(
-        resolution.kind,
-        phalcom_semantic::checker::AssociatedResolutionKind::StaticInvoke { .. }
-    )));
+    assert!(
+        callable
+            .associated_resolutions
+            .values()
+            .any(|resolution| matches!(resolution.kind, phalcom_semantic::checker::AssociatedResolutionKind::StaticDomain { .. }))
+    );
+    assert!(
+        callable
+            .associated_resolutions
+            .values()
+            .any(|resolution| matches!(resolution.kind, phalcom_semantic::checker::AssociatedResolutionKind::StaticTerm { .. }))
+    );
+    assert!(
+        !callable
+            .associated_resolutions
+            .values()
+            .any(|resolution| matches!(resolution.kind, phalcom_semantic::checker::AssociatedResolutionKind::StaticInvoke { .. }))
+    );
 }
 
 #[test]
@@ -496,7 +536,11 @@ class Probe {
     let int_method = CallableId::new(probe.clone(), Selector::method("intState", []).expect("selector"), DispatchSide::Class);
     let string_method = CallableId::new(probe, Selector::method("stringState", []).expect("selector"), DispatchSide::Class);
     let domain_for = |callable: &CallableId| {
-        analysis.snapshot.callable_analyses.get(callable).expect("callable analysis")
+        analysis
+            .snapshot
+            .callable_analyses
+            .get(callable)
+            .expect("callable analysis")
             .associated_resolutions
             .values()
             .find_map(|resolution| match &resolution.kind {
@@ -511,8 +555,12 @@ class Probe {
     let int_domain = domain_for(&int_method);
     let string_domain = domain_for(&string_method);
     assert_ne!(int_domain, string_domain);
-    assert!(matches!(analysis.snapshot.store.static_domain(int_domain), Some(phalcom_semantic::types::store::StaticDomainData::Associated { declaration: id, .. }) if id == &declaration));
-    assert!(matches!(analysis.snapshot.store.static_domain(string_domain), Some(phalcom_semantic::types::store::StaticDomainData::Associated { declaration: id, .. }) if id == &declaration));
+    assert!(
+        matches!(analysis.snapshot.store.static_domain(int_domain), Some(phalcom_semantic::types::store::StaticDomainData::Associated { declaration: id, .. }) if id == &declaration)
+    );
+    assert!(
+        matches!(analysis.snapshot.store.static_domain(string_domain), Some(phalcom_semantic::types::store::StaticDomainData::Associated { declaration: id, .. }) if id == &declaration)
+    );
 }
 
 #[test]
@@ -524,7 +572,7 @@ class Probe {
   @class run() { State::Ready }
 }
 
-enum State {
+data State {
   @variant Ready
 }
 "#,
@@ -567,7 +615,7 @@ class Probe {
   @class run() { State::Value(value: 1) }
 }
 
-enum State {
+data State {
   @variant Value(value: Int)
 }
 "#,
@@ -606,7 +654,7 @@ enum State {
 
 #[test]
 fn adt_decl_01_ordinary_closed_enum_publishes_owner_and_ordered_variants() {
-    let case = super::support::analyze_adt("enum Status {\n  @variant Active -> Status\n  @variant Inactive -> Status\n}\n");
+    let case = super::support::analyze_adt("data Status {\n  @variant Active -> Status\n  @variant Inactive -> Status\n}\n");
     let info = case.enum_info("Status");
     assert_eq!(info.variants.len(), 2);
     assert_eq!(info.variants[0].owner.name.as_ref(), "Status");
@@ -618,7 +666,7 @@ fn adt_decl_01_ordinary_closed_enum_publishes_owner_and_ordered_variants() {
 
 #[test]
 fn adt_decl_02_generic_parameter_is_owned_by_enum_and_reused_by_case() {
-    let case = super::support::analyze_adt("enum Option<T> {\n  @variant Some(_ value: T) -> Option<T>\n  @variant None -> Option<T>\n}\n");
+    let case = super::support::analyze_adt("data Option<T> {\n  @variant Some(_ value: T) -> Option<T>\n  @variant None -> Option<T>\n}\n");
     let owner = &case.declaration("Option").declaration;
     let signature = case.declaration("Option").generic_signature.as_ref().expect("generic signature");
     assert_eq!(signature.parameter_count(), 1);
@@ -639,7 +687,7 @@ fn adt_decl_02_generic_parameter_is_owned_by_enum_and_reused_by_case() {
 
 #[test]
 fn adt_decl_03_multi_parameter_result_keeps_parameter_order_and_roles() {
-    let case = super::support::analyze_adt("enum Result<T, E> {\n  @variant Ok(_ value: T) -> Result<T, E>\n  @variant Err(_ error: E) -> Result<T, E>\n}\n");
+    let case = super::support::analyze_adt("data Result<T, E> {\n  @variant Ok(_ value: T) -> Result<T, E>\n  @variant Err(_ error: E) -> Result<T, E>\n}\n");
     let declaration = case.declaration("Result");
     let signature = declaration.generic_signature.as_ref().expect("Result generic signature");
     assert_eq!(signature.parameter_count(), 2);
@@ -660,7 +708,7 @@ fn adt_decl_03_multi_parameter_result_keeps_parameter_order_and_roles() {
 
 #[test]
 fn adt_decl_04_gadt_result_templates_publish_case_environments() {
-    let case = super::support::analyze_adt("enum Expr<T> {\n  @variant Int(_ value: Int) -> Expr<Int>\n  @variant Bool(_ value: Bool) -> Expr<Bool>\n}\n");
+    let case = super::support::analyze_adt("data Expr<T> {\n  @variant Int(_ value: Int) -> Expr<Int>\n  @variant Bool(_ value: Bool) -> Expr<Bool>\n}\n");
     let expr = case.enum_info("Expr");
     assert_eq!(expr.variants.len(), 2);
     let int = case.variant("Expr", Selector::method("Int", [SelectorSlot::Positional]).expect("Int selector"));
@@ -673,7 +721,7 @@ fn adt_decl_04_gadt_result_templates_publish_case_environments() {
 #[test]
 fn adt_decl_05_same_base_distinct_selector_declarations_do_not_collapse() {
     let case =
-        super::support::analyze_adt("enum Animal {\n  @variant Dog\n  @variant Dog()\n  @variant Dog(_ name: String)\n  @variant Dog(named age: Int)\n}\n");
+        super::support::analyze_adt("data Animal {\n  @variant Dog\n  @variant Dog()\n  @variant Dog(_ name: String)\n  @variant Dog(named age: Int)\n}\n");
     let info = case.enum_info("Animal");
     assert_eq!(info.variants.len(), 4);
     let selectors = info.variants.iter().map(|variant| variant.selector.encode()).collect::<Vec<_>>();
@@ -686,14 +734,14 @@ fn adt_decl_05_same_base_distinct_selector_declarations_do_not_collapse() {
 
 #[test]
 fn adt_decl_06_duplicate_exact_selector_reports_specific_diagnostic() {
-    let case = super::support::analyze_adt("enum Duplicate {\n  @variant A\n  @variant A\n}\n");
+    let case = super::support::analyze_adt("data Duplicate {\n  @variant A\n  @variant A\n}\n");
     assert_eq!(case.diagnostics_for(DiagnosticCode::EnumVariantDuplicate).len(), 1);
     assert_eq!(case.enum_info("Duplicate").variants.len(), 2);
 }
 
 #[test]
 fn adt_decl_08_source_ranges_cover_enum_and_variant_metadata() {
-    let case = super::support::analyze_adt("enum Status {\n  @variant Active(_ code: Int) -> Status\n}\n");
+    let case = super::support::analyze_adt("data Status {\n  @variant Active(_ code: Int) -> Status\n}\n");
     let info = case.enum_info("Status");
     assert!(info.source.as_ref().is_some_and(|span| span.range.start < span.range.end));
     let variant = case.variant("Status", Selector::method("Active", [SelectorSlot::Positional]).expect("Active selector"));
@@ -703,7 +751,7 @@ fn adt_decl_08_source_ranges_cover_enum_and_variant_metadata() {
 
 #[test]
 fn equivalent_legacy_enum_and_data_produce_equal_semantic_facts() {
-    let enum_case = super::support::analyze_adt("enum State {\n  Ready\n  Failed(_ error: Int)\n}\n");
+    let enum_case = super::support::analyze_adt("data State {\n  Ready\n  Failed(_ error: Int)\n}\n");
     let data_case = super::support::analyze_adt("data State {\n  Ready\n  Failed(_ error: Int)\n}\n");
 
     let enum_info = enum_case.enum_info("State");
@@ -753,23 +801,15 @@ fn record_payload_case_produces_labeled_constructor_and_fields() {
 #[test]
 fn associated_static_domain_and_case_paths_have_stable_source_index_targets() {
     let module = test_module();
-    let source: Arc<str> = Arc::from(
-        "class Parser {\n  type data State { Start; Done }\n  @class status() { Parser::State::Done }\n}\n",
-    );
+    let source: Arc<str> = Arc::from("class Parser {\n  type data State { Start; Done }\n  @class status() { Parser::State::Done }\n}\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
     let index = analysis.snapshot.source_index.module(&module).expect("module source index");
-    let domain_id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(
-        DeclarationId::new(module, "Parser".into()),
-        "State",
-    );
+    let domain_id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(DeclarationId::new(module, "Parser".into()), "State");
 
     let state_offset = source.find("State::Done").expect("associated domain path") + 1;
-    let state_target = index
-        .occurrences
-        .occurrence_at(state_offset)
-        .and_then(|occurrence| occurrence.target.cloned());
+    let state_target = index.occurrences.occurrence_at(state_offset).and_then(|occurrence| occurrence.target.cloned());
     assert_eq!(
         state_target,
         Some(phalcom_semantic::identity::SemanticTargetId::StaticDomain(
@@ -778,17 +818,11 @@ fn associated_static_domain_and_case_paths_have_stable_source_index_targets() {
     );
 
     let case_offset = source.rfind("Done").expect("static case path") + 1;
-    let case_target = index
-        .occurrences
-        .occurrence_at(case_offset)
-        .and_then(|occurrence| occurrence.target.cloned());
+    let case_target = index.occurrences.occurrence_at(case_offset).and_then(|occurrence| occurrence.target.cloned());
     assert_eq!(
         case_target,
         Some(phalcom_semantic::identity::SemanticTargetId::StaticCase(
-            phalcom_semantic::identity::StaticCaseId::new(
-                phalcom_semantic::identity::StaticDomainDeclarationId::Associated(domain_id),
-                "Done",
-            )
+            phalcom_semantic::identity::StaticCaseId::new(phalcom_semantic::identity::StaticDomainDeclarationId::Associated(domain_id), "Done",)
         ))
     );
 }
@@ -798,22 +832,22 @@ fn nominal_static_case_publishes_canonical_target_before_runtime_rejection() {
     use phalcom_semantic::identity::{SemanticTargetId, StaticCaseId, StaticDomainDeclarationId};
 
     let module = test_module();
-    let source: Arc<str> = Arc::from(
-        "type data Shape { Scalar }\nclass Probe {\n  @class status() { Shape::Scalar }\n}\n",
-    );
+    let source: Arc<str> = Arc::from("type data Shape { Scalar }\nclass Probe {\n  @class status() { Shape::Scalar }\n}\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
-    assert!(analysis.snapshot.all_diagnostics().any(|diagnostic| {
-        diagnostic.code == DiagnosticCode::TypeOnlyRuntimeValue
-    }), "runtime use must remain rejected: {:?}", analysis.snapshot.diagnostics);
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::TypeOnlyRuntimeValue }),
+        "runtime use must remain rejected: {:?}",
+        analysis.snapshot.diagnostics
+    );
 
     let index = analysis.snapshot.source_index.module(&module).expect("module source index");
     let case_offset = source.rfind("Scalar").expect("case path") + 1;
-    let case_target = index
-        .occurrences
-        .occurrence_at(case_offset)
-        .and_then(|occurrence| occurrence.target.cloned());
+    let case_target = index.occurrences.occurrence_at(case_offset).and_then(|occurrence| occurrence.target.cloned());
     assert_eq!(
         case_target,
         Some(SemanticTargetId::StaticCase(StaticCaseId::new(
@@ -825,30 +859,33 @@ fn nominal_static_case_publishes_canonical_target_before_runtime_rejection() {
     let owner = DeclarationId::new(test_module(), "Probe".into());
     let status = CallableId::new(owner, Selector::method("status", []).expect("selector"), DispatchSide::Class);
     let callable = analysis.snapshot.callable_analyses.get(&status).expect("status analysis");
-    assert!(callable.associated_resolutions.values().any(|resolution| matches!(
-        resolution.kind,
-        AssociatedResolutionKind::StaticTerm { .. }
-    )), "canonical static-term resolution must coexist with the runtime diagnostic");
+    assert!(
+        callable
+            .associated_resolutions
+            .values()
+            .any(|resolution| matches!(resolution.kind, AssociatedResolutionKind::StaticTerm { .. })),
+        "canonical static-term resolution must coexist with the runtime diagnostic"
+    );
 }
 
 #[test]
 fn missing_nominal_static_case_has_no_source_target() {
     let module = test_module();
-    let source: Arc<str> = Arc::from(
-        "type data Shape { Scalar }\nclass Probe {\n  @class status() { Shape::Missing }\n}\n",
-    );
+    let source: Arc<str> = Arc::from("type data Shape { Scalar }\nclass Probe {\n  @class status() { Shape::Missing }\n}\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
-    assert!(analysis.snapshot.all_diagnostics().any(|diagnostic| {
-        diagnostic.code == DiagnosticCode::AssociatedMemberMissing
-    }), "missing case must be diagnosed: {:?}", analysis.snapshot.diagnostics);
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::AssociatedMemberMissing }),
+        "missing case must be diagnosed: {:?}",
+        analysis.snapshot.diagnostics
+    );
 
     let index = analysis.snapshot.source_index.module(&module).expect("module source index");
     let case_offset = source.rfind("Missing").expect("missing case path") + 1;
-    let case_target = index
-        .occurrences
-        .occurrence_at(case_offset)
-        .and_then(|occurrence| occurrence.target.cloned());
+    let case_target = index.occurrences.occurrence_at(case_offset).and_then(|occurrence| occurrence.target.cloned());
     assert!(case_target.is_none(), "missing case must not produce a semantic target: {case_target:?}");
 }

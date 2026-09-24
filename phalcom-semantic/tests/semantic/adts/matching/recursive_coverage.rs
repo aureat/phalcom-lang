@@ -5,7 +5,7 @@ use phalcom_semantic::match_semantics::PatternUsefulness;
 fn recursive_binary_adt_outer_patterns_terminate_and_are_exhaustive() {
     let case = analyze_adt(
         r#"
-enum Tree<T> {
+data Tree<T> {
     @variant Leaf(_ value: T) -> Tree<T>
     @variant Node(_ left: Tree<T>, _ right: Tree<T>) -> Tree<T>
 }
@@ -30,7 +30,7 @@ class Eval {
 fn indexed_recursive_apply_outer_match() {
     let case = analyze_adt(
         r#"
-enum Expr<T> {
+data Expr<T> {
     @variant IntLit(_ value: Int) -> Expr<Int>
     @variant Apply<A, B>(
         _ function: Expr<(A) -> B>,
@@ -58,7 +58,7 @@ class Eval {
 fn explicit_nested_recursive_pattern_requires_only_source_depth() {
     let case = analyze_adt(
         r#"
-enum Tree<T> {
+data Tree<T> {
     @variant Leaf(_ value: T) -> Tree<T>
     @variant Node(_ left: Tree<T>, _ right: Tree<T>) -> Tree<T>
 }
@@ -85,7 +85,7 @@ class Eval {
 fn recursive_uninhabited_family_is_vacuously_exhaustive() {
     let case = analyze_adt(
         r#"
-enum Loop {
+data Loop {
     @variant Next(_ next: Loop) -> Loop
 }
 
@@ -103,7 +103,7 @@ class Check {
 fn recursive_family_with_base_constructor_is_inhabited() {
     let case = analyze_adt(
         r#"
-enum Tree {
+data Tree {
     @variant Leaf -> Tree
     @variant Next(_ next: Tree) -> Tree
 }

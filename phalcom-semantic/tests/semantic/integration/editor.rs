@@ -179,7 +179,7 @@ class Caller { run(_ person: Person) -> String { person.name } }
 fn exact_case_trait_dispatch_expression_retains_selection() {
     let source = r#"
 trait Tagged { tag -> String }
-enum Result<T> {
+data Result<T> {
   Ok(_ value: T)
   Error(_ message: String)
 }

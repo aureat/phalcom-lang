@@ -32,6 +32,11 @@ The structural mapping algebra is:
 | Tuple proper type | pack plus labeled pack | ordered labels | ordered | Tuple proper type |
 | Record proper type | row | record keys | unordered key set | Record proper type |
 
+Universe publishes intrinsic `type data` anchors for `TypePack`,
+`LabeledTypePack`, `TupleEntries`, and `RecordRow`. `TupleEntries` names the
+existing `CompleteTypePack` domain. It is a source/reflection facade and does
+not add a kind or change the semantic identity used by `***T`.
+
 ## 2. Tuple formation
 
 A positive-arity Tuple type consists of an ordered positional prefix followed by

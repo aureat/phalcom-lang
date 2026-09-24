@@ -106,20 +106,32 @@ nominal owner.
 Associated static cases belong to the associated domain. They are static terms,
 not runtime values, methods, or invocation targets.
 
-The initial compiler-intrinsic structural declaration surface is:
+The compiler-intrinsic structural declaration surface is:
 
 ```phalcom
-intrinsic type Positionals: TypePack
-intrinsic type Labeled: LabeledTypePack
-intrinsic type At<I: Int>: Type
-intrinsic type Map<F: Type -> Type>: Type
+intrinsic data Tuple<***Es>
+intrinsic data Record<R: RecordRow>
+
+impl Tuple {
+  intrinsic type Entries: TupleEntries
+  intrinsic type Positionals: TypePack
+  intrinsic type Labeled: LabeledTypePack
+  intrinsic type At<I: Int>: Type
+  intrinsic type Map<F: Type -> Type>: Type
+}
+
+impl Record {
+  intrinsic type Map<F: Type -> Type>: Type
+}
 ```
 
-These declarations may be authored on canonical Universe anchors for discovery,
-documentation, and reflection while remaining semantically owned by the
-structural domain. The canonical semantic member for integer indexing is the
-type-level Subscript member; `T[I]` is its direct presentation and `At<I>` is
-the canonical named presentation alias.
+The declarations live on the canonical Universe anchors for discovery,
+documentation, and reflection while semantic applications reuse the existing
+Tuple/Record structural domains. `Tuple::Entries` is the public name for
+`CompleteTypePack`; `Tuple::Positionals`, `Tuple::Labeled`, and `Tuple::Entries`
+project the existing positional, labeled, and complete packs. The canonical
+semantic member for integer indexing is the type-level Subscript member;
+`T[I]` and `Tuple::At<I>` are presentations of that operation.
 
 ## 3. Identity
 

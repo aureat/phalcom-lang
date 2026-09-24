@@ -5,6 +5,13 @@
 **Implementation checkpoint:** LANG005.C5, extended by LANG005.C6 generic evidence  
 **Specification role:** Authoritative language specification for associated type declarations, bindings, projections, and normalization
 
+Trait-associated types are evidence-bound declarations owned by a trait. The
+separate `type data` form declares a compiler-known static domain, and an
+inherent associated `type data` remains owned by its nominal target. These
+domains do not create trait conformance evidence. See
+[Type-Level Domains](type-level-domains.md) for static-domain ownership and
+application rules.
+
 Associated types are trait-owned type requirements whose concrete meaning is supplied by a conformance.
 
 ```phalcom
@@ -883,12 +890,12 @@ Selecting a default does not convert it into an inherent member of the target.
 
 ---
 
-## 15. Exact enum-case subjects
+## 15. Exact closed-sum case subjects
 
-An exact enum case may be a conformance subject where the trait and enum specifications permit it.
+An exact case of a closed-sum `data` declaration may be a conformance subject where the trait and closed-sum specifications permit it.
 
 ```phalcom
-enum Result<T> {
+data Result<T> {
   Ok(_ value: T)
   Error(_ message: String)
 }
@@ -1119,7 +1126,7 @@ A program is invalid when, among other ordinary trait/conformance failures:
   result domain;
 - associated bindings form a recursive dependency cycle;
 - a behavioral witness is incompatible after associated specialization;
-- an exact-case binding is incorrectly treated as a binding for the enum root or another exact case;
+- an exact-case binding is incorrectly treated as a binding for the closed-sum root or another exact case;
 - generic projection syntax is used without the evidence required by the generic-constraint specification.
 
 ---

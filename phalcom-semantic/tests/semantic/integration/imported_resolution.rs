@@ -365,12 +365,7 @@ fn imported_static_domain_case_publishes_provider_identity_before_runtime_reject
     )));
 }
 
-fn static_domain_provider_input(
-    provider_name: &str,
-    provider_source: &str,
-    consumer_source: &str,
-    generation: u64,
-) -> SemanticWorkspaceInput {
+fn static_domain_provider_input(provider_name: &str, provider_source: &str, consumer_source: &str, generation: u64) -> SemanticWorkspaceInput {
     let shapes_module = ModuleId::universe(ModulePath::from_components(vec![
         ModuleComponent::from_identifier("app").unwrap(),
         ModuleComponent::from_identifier("shapes").unwrap(),
@@ -416,10 +411,7 @@ fn static_domain_provider_input(
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([
-                ("Selected".into(), GlobalBindingId(0)),
-                ("Probe".into(), GlobalBindingId(1)),
-            ]),
+            local_globals: BTreeMap::from([("Selected".into(), GlobalBindingId(0)), ("Probe".into(), GlobalBindingId(1))]),
             imports: BTreeMap::from([(provider_name.into(), ImportBindingId(0))]),
         },
         linked_reads: vec![LinkedReadSpec::Binding(provider_symbol)],
@@ -474,10 +466,12 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
     let source_a = provider("Scalar; Vector(_ size: Shape)");
     let mut session = SemanticWorkspaceSession::new();
     let revision_a = session.update(static_domain_provider_input("Shape", &source_a, consumer, 1));
-    assert!(revision_a
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue));
+    assert!(
+        revision_a
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue)
+    );
     assert!(revision_a.snapshot.internal_incidents.is_empty());
 
     let shapes_module = ModuleId::universe(ModulePath::from_components(vec![
@@ -501,7 +495,10 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
     let index_a = revision_a.snapshot.source_index.module(&consumer_module).expect("consumer source index");
     let scalar_offset = consumer.rfind("Scalar").expect("Scalar source occurrence") + 1;
     assert_eq!(
-        index_a.occurrences.occurrence_at(scalar_offset).and_then(|occurrence| occurrence.target.cloned()),
+        index_a
+            .occurrences
+            .occurrence_at(scalar_offset)
+            .and_then(|occurrence| occurrence.target.cloned()),
         Some(SemanticTargetId::StaticCase(StaticCaseId::new(
             StaticDomainDeclarationId::Nominal(shape.clone()),
             "Scalar"
@@ -523,10 +520,12 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
     let provider_catalog = bundle
         .static_domains
         .iter()
-        .find(|record| matches!(&record.declaration,
+        .find(|record| {
+            matches!(&record.declaration,
             StableStaticDomainDeclarationRef::Nominal(declaration)
                 if declaration.path.last().is_some_and(|name| name.as_ref() == "Shape")
-                    && declaration.module.path.iter().any(|part| part.as_ref() == "shapes")))
+                    && declaration.module.path.iter().any(|part| part.as_ref() == "shapes"))
+        })
         .expect("provider Shape catalog");
     assert!(provider_catalog.cases.iter().any(|case| case.name.as_ref() == "Vector(_)"));
     let selected = bundle
@@ -560,12 +559,7 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
         codes
     };
     assert_eq!(diagnostic_codes(&revision_b.snapshot), diagnostic_codes(&cold_revision_b.snapshot));
-    let alias_form = |snapshot: &phalcom_semantic::SemanticSnapshot| {
-        snapshot
-            .type_aliases
-            .form(&selected_alias)
-            .map(|form| snapshot.store.format_type(form))
-    };
+    let alias_form = |snapshot: &phalcom_semantic::SemanticSnapshot| snapshot.type_aliases.form(&selected_alias).map(|form| snapshot.store.format_type(form));
     assert_ne!(
         alias_form(&revision_a.snapshot),
         alias_form(&revision_b.snapshot),
@@ -580,12 +574,30 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
     let cold_revision_c = cold_c.update(static_domain_provider_input("Shape", &source_c, consumer, 1));
     assert_eq!(diagnostic_codes(&revision_c.snapshot), diagnostic_codes(&cold_revision_c.snapshot));
     assert_eq!(alias_form(&revision_c.snapshot), alias_form(&cold_revision_c.snapshot));
-    let index_c = revision_c.snapshot.source_index.module(&consumer_module).expect("updated consumer source index");
+    let index_c = revision_c
+        .snapshot
+        .source_index
+        .module(&consumer_module)
+        .expect("updated consumer source index");
     assert!(
-        index_c.occurrences.occurrence_at(scalar_offset).is_none_or(|occurrence| occurrence.target.is_none()),
+        index_c
+            .occurrences
+            .occurrence_at(scalar_offset)
+            .is_none_or(|occurrence| occurrence.target.is_none()),
         "renamed provider singleton no longer has a current source target"
     );
-    assert!(!revision_c.snapshot.enum_semantics.enum_info(&shape).unwrap().static_data.as_ref().unwrap().constructors.is_empty());
+    assert!(
+        !revision_c
+            .snapshot
+            .enum_semantics
+            .enum_info(&shape)
+            .unwrap()
+            .static_data
+            .as_ref()
+            .unwrap()
+            .constructors
+            .is_empty()
+    );
 }
 
 #[test]

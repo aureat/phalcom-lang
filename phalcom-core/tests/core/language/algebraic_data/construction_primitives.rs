@@ -18,7 +18,7 @@ fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError>
 #[test]
 fn adt_case_primitives_cover_singletons_heap_cases_and_non_adt_values() {
     let source = r#"
-enum Shape {
+data Shape {
   @variant None
   @variant Pair(_ left: Int, _ right: Int)
 }

@@ -42,7 +42,7 @@ This document does **not** redefine the uniform `Value` representation, `ObjRef`
 This document also does not replace the source-language specifications for:
 
 - `data` declaration syntax;
-- enum/GADT syntax;
+- `data` sum/GADT syntax;
 - associated variant lookup;
 - generic inference;
 - match syntax and exhaustiveness;
@@ -1275,7 +1275,7 @@ A generalized algebraic data type extends ordinary enum semantics by attaching a
 For example:
 
 ```phalcom
-enum Expr<T> {
+data Expr<T> {
     IntLit(_ value: Int) -> Expr<Int>
     BoolLit(_ value: Bool) -> Expr<Bool>
 }

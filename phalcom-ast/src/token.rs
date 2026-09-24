@@ -40,8 +40,6 @@ pub enum Token {
     Fn,
     /// The `class` keyword introducing a class declaration.
     Class,
-    /// The `enum` keyword introducing an algebraic data type declaration.
-    Enum,
     /// The `data` keyword introducing a first-class nominal immutable data declaration (PDR-0035).
     Data,
     /// The `trait` keyword introducing a behavioral contract declaration.

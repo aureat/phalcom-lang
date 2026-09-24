@@ -17,8 +17,8 @@ pub struct WorkspaceSymbolId {
 pub enum EditorSymbolKind {
     Module,
     Class,
-    Enum,
     Data,
+    TypeData,
     Trait,
     DataComponent,
     TypeAlias,

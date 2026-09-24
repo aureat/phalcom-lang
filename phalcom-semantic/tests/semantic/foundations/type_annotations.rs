@@ -158,7 +158,9 @@ fn lowers_list_and_map_applications() {
     assert_eq!(*origin, env.declarations.form(&DeclarationId::new(env.module.clone(), "List".into())).unwrap());
     assert_eq!(
         arguments.as_ref(),
-        &[phalcom_semantic::types::store::StaticArgument::Term(env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap())]
+        &[phalcom_semantic::types::store::StaticArgument::Term(
+            env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap()
+        )]
     );
 
     let map_string_int = resolve(&mut env, &application(reference("Map"), vec![reference("String"), reference("Int")])).0;
@@ -1387,19 +1389,19 @@ fn intrinsic_tuple_application_reuses_the_complete_pack_structural_family() {
         range: RANGE,
     };
     let mut diagnostics = Vec::new();
-    let TypeFormResolution::Ready(applied) = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &application,
-        &mut diagnostics,
-    ) else {
+    let TypeFormResolution::Ready(applied) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &application, &mut diagnostics)
+    else {
         panic!("expected intrinsic Tuple application to resolve")
     };
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    assert!(matches!(env.store.get(applied), TypeData::TupleFromPacks { positionals: actual, labeled: actual_labeled } if *actual == positional && *actual_labeled == labeled));
-    assert!(!matches!(env.store.get(applied), TypeData::Applied { .. }), "intrinsic application must not remain nominal `Applied` data");
+    assert!(
+        matches!(env.store.get(applied), TypeData::TupleFromPacks { positionals: actual, labeled: actual_labeled } if *actual == positional && *actual_labeled == labeled)
+    );
+    assert!(
+        !matches!(env.store.get(applied), TypeData::Applied { .. }),
+        "intrinsic application must not remain nominal `Applied` data"
+    );
 }
 
 #[test]
@@ -1412,14 +1414,9 @@ fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() 
     env.resolver.insert_record_row_binding("R", parameter);
     let application = application(reference("Record"), vec![reference("R")]);
     let mut diagnostics = Vec::new();
-    let TypeFormResolution::Ready(applied) = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &application,
-        &mut diagnostics,
-    ) else {
+    let TypeFormResolution::Ready(applied) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &application, &mut diagnostics)
+    else {
         panic!("expected intrinsic Record application to resolve")
     };
     assert!(diagnostics.is_empty(), "{diagnostics:?}");

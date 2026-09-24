@@ -84,7 +84,7 @@ identity, and projection rules from [Type Members](../type-members.md).
 Conformance completeness, bindings, witnesses, and evidence remain owned by
 this specification and [Associated Types](../associated-types.md).
 
-A trait declaration cannot contain instance fields, data components, enum variants, or other instance representation.
+A trait declaration cannot contain instance fields, data components, closed-sum cases, or other instance representation.
 
 A trait does not define a superclass relationship.
 
@@ -415,11 +415,11 @@ It is not merely a boolean annotation and not an inherent member fragment.
 
 ## Conformance targets
 
-A conformance target must be a declaration-owned nominal target or an exact enum case whose semantics admit conformance. This includes data object types, class types, enum roots, and exact enum cases.
+A conformance target must be a declaration-owned nominal target or an exact closed-sum case whose semantics admit conformance. This includes data object types, class types, closed-sum roots, and exact closed-sum cases.
 
 Anonymous structural Tuple, Record, function, and other structural type expressions are not direct conformance targets under this specification. Conformance is nominal and explicit.
 
-For an exact enum case, the enum specification determines the case type environment while this specification determines trait requirement satisfaction.
+For an exact closed-sum case, the closed-sum specification determines the case type environment while this specification determines trait requirement satisfaction.
 
 ---
 
@@ -458,7 +458,7 @@ conformance declaration module
     == target declaration module
 ```
 
-For an exact enum case, target ownership is inherited from the enum declaration's module.
+For an exact closed-sum case, target ownership is inherited from its `data` declaration's module.
 
 This trait-or-target ownership rule prevents unrelated third-party modules from introducing globally competing conformances between two declarations they do not own.
 
@@ -860,7 +860,7 @@ The generic-constraint specification defines the source syntax and solver integr
 Trait conformance composes with neighboring object categories without changing their representation model:
 
 - data components may witness compatible readable property requirements, but conformance cannot add hidden data-object state and an immutable component alone cannot satisfy a mutable property requirement;
-- enum roots and exact cases may conform independently of the enum's closed-case contracts; one callable may witness both systems only when independently valid, and the requirement identities remain distinct;
+- closed-sum roots and exact cases may conform independently of closed-case contracts; one callable may witness both systems only when independently valid, and the requirement identities remain distinct;
 - class inheritance and trait conformance are separate; inherited effective behavior may witness a requirement when it satisfies the ordinary compatibility rules;
 - inherent `impl` contributes target-owned behavior, while `impl Trait for Target` establishes conformance evidence. An inherent member may be reused as a witness without becoming trait-owned behavior.
 

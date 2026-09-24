@@ -126,7 +126,10 @@ fn runtime_structural_declarations_bind_canonical_platform_owners() {
     ] {
         let declaration = universe_declaration(key);
         assert_eq!(declarations.intrinsic_runtime_owner(&declaration), Some(owner));
-        assert!(declarations.contains(&declaration), "runtime source facade retains a semantic declaration projection");
+        assert!(
+            declarations.contains(&declaration),
+            "runtime source facade retains a semantic declaration projection"
+        );
     }
     assert_eq!(declarations.form(&universe_declaration(UniverseKey::Unit)), Some(store.unit()));
     let unit = universe_declaration(UniverseKey::Unit);
@@ -170,14 +173,29 @@ fn intrinsic_structural_source_facades_bind_existing_authorities_without_nominal
     let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
     let source_module = |parts: &[&str]| {
         ModuleId::universe(ModulePath::from_components(
-            parts.iter().map(|part| ModuleComponent::from_identifier(part).expect("canonical component")).collect::<Vec<_>>(),
+            parts
+                .iter()
+                .map(|part| ModuleComponent::from_identifier(part).expect("canonical component"))
+                .collect::<Vec<_>>(),
         ))
     };
     let facades = [
-        (DeclarationId::new(source_module(&["collections", "tuple"]), "TypePack".into()), KindId::TYPE_PACK),
-        (DeclarationId::new(source_module(&["collections", "tuple"]), "LabeledTypePack".into()), KindId::LABELED_TYPE_PACK),
-        (DeclarationId::new(source_module(&["collections", "tuple"]), "TupleEntries".into()), KindId::COMPLETE_TYPE_PACK),
-        (DeclarationId::new(source_module(&["collections", "record"]), "RecordRow".into()), KindId::RECORD_ROW),
+        (
+            DeclarationId::new(source_module(&["collections", "tuple"]), "TypePack".into()),
+            KindId::TYPE_PACK,
+        ),
+        (
+            DeclarationId::new(source_module(&["collections", "tuple"]), "LabeledTypePack".into()),
+            KindId::LABELED_TYPE_PACK,
+        ),
+        (
+            DeclarationId::new(source_module(&["collections", "tuple"]), "TupleEntries".into()),
+            KindId::COMPLETE_TYPE_PACK,
+        ),
+        (
+            DeclarationId::new(source_module(&["collections", "record"]), "RecordRow".into()),
+            KindId::RECORD_ROW,
+        ),
     ];
 
     for (declaration, expected_kind) in &facades {
@@ -193,19 +211,25 @@ fn intrinsic_structural_source_facades_bind_existing_authorities_without_nominal
         assert!(declarations.form(declaration).is_none(), "facades do not acquire TypeId forms");
         assert!(declarations.get(declaration).is_none(), "facades do not acquire nominal declaration records");
         assert!(
-            store.static_domain_ids().all(|id| !matches!(store.static_domain(id), Some(StaticDomainData::Nominal { declaration: owner }) if owner == declaration)),
+            store
+                .static_domain_ids()
+                .all(|id| !matches!(store.static_domain(id), Some(StaticDomainData::Nominal { declaration: owner }) if owner == declaration)),
             "facades do not allocate nominal static domains"
         );
     }
-    assert_eq!(declarations.intrinsic_type_owner(&universe_declaration(UniverseKey::Tuple)), Some(IntrinsicTypeOwner::Tuple));
-    assert_eq!(declarations.intrinsic_type_owner(&universe_declaration(UniverseKey::Record)), Some(IntrinsicTypeOwner::Record));
+    assert_eq!(
+        declarations.intrinsic_type_owner(&universe_declaration(UniverseKey::Tuple)),
+        Some(IntrinsicTypeOwner::Tuple)
+    );
+    assert_eq!(
+        declarations.intrinsic_type_owner(&universe_declaration(UniverseKey::Record)),
+        Some(IntrinsicTypeOwner::Record)
+    );
 }
 
 #[test]
 fn tuple_entries_kind_resolution_uses_its_canonical_facade_declaration() {
-    use phalcom_semantic::types::annotation::{
-        GenericBinderSite, SimpleTypeResolver, TypeFormationOutcome, TypeFormationSite, resolve_generic_signature,
-    };
+    use phalcom_semantic::types::annotation::{GenericBinderSite, SimpleTypeResolver, TypeFormationOutcome, TypeFormationSite, resolve_generic_signature};
 
     let mut store = TypeStore::new();
     let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);

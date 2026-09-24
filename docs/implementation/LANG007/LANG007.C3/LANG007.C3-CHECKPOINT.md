@@ -7,7 +7,7 @@ kind: checkpoint-record
 title: "Type Data and Unified Algebraic Static Domains"
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 requires:
   - LANG007.C1
   - LANG007.C2
@@ -29,11 +29,11 @@ program: LANG007
 checkpoint: LANG007.C3
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 active_plan: LANG007.C3.P3
 latest_completed_plan: LANG007.C3.P2
-next_plan: LANG007.C3.P3.T2 / G2
-blockers: none; documented clean-predecessor baselines and graph-build performance follow-up remain non-blocking
+next_plan: LANG007.C3.P3.T9 / G9-G11
+blockers: inherited associated generic-owner static-case payload failure overlaps C3 acceptance; runtime constructor-reference failures are proven clean-predecessor baselines
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -133,7 +133,7 @@ C3 is complete only when this statement is true:
 |---|---|---|---|---|---|
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
 | `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T9 accepted; G-FINAL completed with documented clean-predecessor and formatter baselines; see P2 walkthrough/handoff |
-| `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | IN_PROGRESS | PARTIAL | UNVERIFIED | T1/G1, T2/G2, and T3/G3 passed; T4/G4 awaits INC-C3-14 intrinsic structural application/runtime-class projection decision |
+| `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | T1-T8 implemented/focused-gated; T9 has passing build, metadata, and focused tooling/runtime evidence, but C3 generic associated-domain payload acceptance remains blocked by a clean-predecessor failure |
 
 No additional P4 is planned.
 
@@ -1595,25 +1595,62 @@ active plan:
     LANG007.C3.P3
 
 next task:
-    LANG007.C3.P3.T4 / G4
+    LANG007.C3.P3.T9 / G9-G11 continuation
 
 next action:
-    Await the INC-C3-14 decision on intrinsic Tuple/Record structural application
-    alongside runtime-class forms. The inherent-impl type-member bridge is
-    focused-tested, Unit is migrated to an intrinsic runtime facade, and Tuple/
-    Record type members now live in inherent impls. A Tuple intrinsic-data
-    migration experiment exposed missing semantic runtime-class form ownership
-    and was reverted. Do not migrate Tuple/Record data declarations until this
-    identity/application seam is resolved. Keep the T7 graph-build/SCC
-    full-traversal performance follow-up and documented predecessor baselines
-    visible.
+    Continue T9's remaining metadata/import, runtime-negative/resource, and
+    workspace integration certification. The source-index/LSP/editor and
+    closed-sum source migrations are implemented; T8/G8 is closed. Do not close
+    C3 while `associated_static_domain_payload_uses_owner_generic_parameter_kind`
+    fails: it reports zero constructors on both the current worktree and clean
+    predecessor `9b4ca55d`, but directly overlaps generic-owner static-domain
+    payload acceptance. Keep this P2/C3 baseline visible for the next bounded
+    disposition. Two runtime constructor-reference failures were also reproduced
+    on `9b4ca55d` and remain outside the changed implementation. Preserve the
+    documented graph-build/SCC performance follow-up.
 
 Advanced-agent continuation prompt: [LANG007.C3.P2-advanced-agent-handoff.md](LANG007.C3.P2-advanced-agent-handoff.md).
 
 P2 implementation, focused acceptance, and lifecycle records are complete. P3
-has passed T1/G1, T2/G2, and T3/G3 at the active P3 worktree. The P2→P3
-handoff records accepted evidence, focused predecessor failures, formatter
-baseline, and the deferred graph-build/SCC performance follow-up.
+has completed T1-T8 implementation work. T9 is `BASELINE_BLOCKED`: the
+workspace/all-target build, formatter check, type-meta suite, targeted
+source-index/LSP tests, and ADT migration tests provide positive evidence, but
+one inherited associated generic-owner static-domain payload failure overlaps
+C3 acceptance. The full semantic run was stopped after unrelated high-fanout
+incremental tests exceeded the useful gate window; record it as incomplete.
+
+## 21. P3 certification checkpoint — 2026-09-25
+
+Starting revision for this continuation: `9b4ca55d` (P3 T4/T5 delivery,
+pushed to `origin/main`). Final code revision will be recorded by delivery.
+
+Completed gates and evidence:
+
+| Gate / evidence | Outcome |
+|---|---|
+| T1/G1 through T7/G7 | PASS; see implementation/amendment entries above and focused source/AST tests |
+| T8/G8 authoritative spec ownership and syntax contradiction search | PASS; closed-sum `data`, TypeOnly/intrinsic facades, TupleEntries, associated `type data`, and Universe ownership documented; no current spec calls `enum` canonical |
+| `cargo fmt --all -- --check` | BASELINE_BLOCKED; reports pre-existing workspace formatting drift, already documented at P2 handoff. No repository-wide formatting rewrite retained |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo build --workspace --all-targets` | PASS |
+| `cargo test -p phalcom-type-meta` | PASS, 14 schema tests |
+| AST crate | 53 unit + 261 integration pass; 7 inherited failures (6 stale `associated_type_data: []` snapshots; 1 legacy selector-diagnostic assertion); 1 ignored |
+| Semantic ADT module | 276 pass, 1 fail, 25 ignored; the single failing generic associated static-domain payload case also fails at clean predecessor `9b4ca55d` |
+| Semantic impl query module | 54 pass, 1 unrelated data-component witness baseline failure |
+| Core algebraic-data suite | 41 pass, 2 clean-predecessor runtime constructor-reference failures, 19 ignored; the third initial failure was an unconverted second `enum` in a migrated test fixture and now passes as `data` |
+| Source-index static-domain test incl. inherent-impl associated case | PASS |
+| LSP workspace indexing/rename/navigation test | PASS |
+| Full semantic test binary | INCOMPLETE; stopped after repository high-fanout stress tests exceeded the useful gate window; multiple unrelated baseline failures appeared before stop |
+
+The associated static-domain payload failure is not treated as resolved merely
+because it is inherited. It remains the C3 acceptance blocker. Runtime
+constructor-reference failures report `invocation layout has 1/2 structural
+slots for Method(0)` and reproduce on the same clean predecessor, so they are
+recorded as inherited VM baselines. The stale AST snapshots and selector
+diagnostic, plus the impl witness failure, were not introduced by this plan.
+
+T9/G9-G11 remains open. Metadata round-trip/import/incremental coverage,
+runtime-negative/resource counts, and the remaining workspace/editor evidence
+must be completed or explicitly dispositioned before T10 can close P3/C3.
 ```
 
 At P1 start:

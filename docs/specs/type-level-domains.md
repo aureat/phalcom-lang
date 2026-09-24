@@ -95,6 +95,21 @@ Its cases denote static terms in that domain. Specializing a generic owner uses
 the canonical owner arguments to produce the corresponding concrete static
 domain; it does not create a new source declaration.
 
+An intrinsic static facade uses the same `type data` declaration model while
+binding source identity to an existing compiler-owned domain:
+
+```phalcom
+intrinsic type data TypePack
+intrinsic type data LabeledTypePack
+intrinsic type data TupleEntries
+intrinsic type data RecordRow
+```
+
+`TupleEntries` names the existing complete tuple-pack domain
+(`CompleteTypePack`); it does not create a second pack kind or representation.
+Intrinsic declarations expose canonical compiler operations and terms but do
+not add runtime values or a runtime static evaluator.
+
 ## 3. Compile-time value domains
 
 Restricted compile-time values use a separate judgment:

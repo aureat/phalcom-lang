@@ -8,7 +8,7 @@ use phalcom_semantic::types::store::TypeData;
 fn generic_constructor_metadata_keeps_owner_and_payload_specialization() {
     let case = analyze_adt(
         r#"
-enum Option<T> {
+data Option<T> {
     @variant Some(_ value: T) -> Option<T>
     @variant None -> Option<T>
 }

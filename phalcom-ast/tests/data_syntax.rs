@@ -1,7 +1,5 @@
 use phalcom_ast::{
-    ast::{
-        AlgebraicPhase, Expr, ImplementationKind, ProductShapeSyntax, Statement, Visibility,
-    },
+    ast::{AlgebraicPhase, Expr, ImplementationKind, ProductShapeSyntax, Statement, Visibility},
     error::SyntaxErrorKind,
     parse_source,
 };
@@ -294,27 +292,14 @@ fn intrinsic_type_data_syntax() {
 }
 
 #[test]
-fn legacy_enum_equivalent_canonicalizes_to_runtime_sum() {
-    let enum_source = "enum State {\n  Ready\n  Failed(_ error: Error)\n}\n";
-    let data_source = "data State {\n  Ready\n  Failed(_ error: Error)\n}\n";
-    let enum_prog = parse_source(enum_source, 0).expect("enum parses");
-    let data_prog = parse_source(data_source, 0).expect("data parses");
-
-    let Statement::Data(enum_def) = &enum_prog.statements[0] else {
+fn runtime_sum_data_uses_runtime_phase() {
+    let program = parse_source("data State {\n  Ready\n  Failed(_ error: Error)\n}\n", 0).expect("data sum parses");
+    let Statement::Data(data_def) = &program.statements[0] else {
         panic!("expected data");
     };
-    let Statement::Data(data_def) = &data_prog.statements[0] else {
-        panic!("expected data");
-    };
-
-    assert_eq!(enum_def.name, data_def.name);
-    assert_eq!(enum_def.phase, data_def.phase);
-    assert_eq!(enum_def.phase, AlgebraicPhase::Runtime);
-    assert!(enum_def.legacy_enum_keyword_range.is_some());
-    assert!(data_def.legacy_enum_keyword_range.is_none());
-    assert!(enum_def.is_sum());
+    assert_eq!(data_def.phase, AlgebraicPhase::Runtime);
     assert!(data_def.is_sum());
-    assert_eq!(enum_def.cases().unwrap().len(), data_def.cases().unwrap().len());
+    assert_eq!(data_def.cases().unwrap().len(), 2);
 }
 
 #[test]

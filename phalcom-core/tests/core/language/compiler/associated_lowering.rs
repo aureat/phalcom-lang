@@ -21,7 +21,7 @@ fn compile_inline(source: &str) -> Result<(VM, CompiledProgram, phalcom_core::he
 #[test]
 fn three_variant_forms_use_distinct_lowering_paths() {
     let source = r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker()
   @variant Marker(_ value: Int)
@@ -59,7 +59,7 @@ let payload = Weird::Marker(1)
 #[test]
 fn family_application_calls_emit_associated_family_bytecodes() {
     let source = r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker()
   @variant Marker(_ value: Int)
@@ -110,7 +110,7 @@ let dynamic_value = make(*args)
 #[test]
 fn family_application_without_formal_record_errors_before_ordinary_call_lowering() {
     let source = r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker(_ value: Int)
 }

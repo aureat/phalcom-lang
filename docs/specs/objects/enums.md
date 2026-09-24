@@ -1,29 +1,28 @@
-# Phalcom Language Specification — Enumerated Types and Variants
+# Phalcom Language Specification — Runtime Closed Sums and Cases
 
 ## Compatibility status
 
-The canonical runtime algebraic declaration form is `data`. A `data` declaration
-may define either a product or a closed sum. The legacy `enum` keyword remains
-accepted as compatibility syntax for a sum-shaped `data` declaration and is
-lowered to the same semantic declaration and case identities as equivalent
-`data` source. Consequently, the rules below describe closed-sum behavior and
-exact-case semantics; they do not define a second canonical algebraic
-declaration category.
+The canonical runtime algebraic declaration form is `data`. A `data`
+declaration may define either a product or a closed sum. A sum-shaped `data`
+declaration owns its cases and exact-case semantics. The spelling `enum` is an
+ordinary identifier and is not a Phalcom declaration keyword. This document
+owns closed-sum behavior; it does not define a second algebraic declaration
+category.
 
 ## Overview
 
-An `enum` declaration introduces a **nominal closed sum type**. The declaration defines the complete set of variants that constitute the sum. Each variant has its own semantic identity and may carry a payload whose components form the variant's case-specific product state.
+A `data` declaration with a sum body introduces a **nominal closed sum type**. The declaration defines the complete set of cases that constitute the sum. Each case has its own semantic identity and may carry a payload whose components form that case's product state.
 
 ```phalcom
-enum Expression {
+data Expression {
   Literal(_ value: Int)
   Add(_ left: Expression, _ right: Expression)
 }
 ```
 
-`Expression` is the enum root type. `Expression::Literal(_)` and `Expression::Add(_, _)` identify distinct variants and induce distinct exact-case semantics.
+`Expression` is the closed-sum root type. `Expression::Literal(_)` and `Expression::Add(_, _)` identify distinct cases and induce distinct exact-case semantics.
 
-An enum declaration defines **which cases exist**. It does not define behavioral members inside the enum body. Behavior is declared separately through implementation declarations.
+A sum-shaped `data` declaration defines **which cases exist**. It does not define behavioral members inside the data body. Behavior is declared separately through implementation declarations.
 
 ```phalcom
 impl Expression {
@@ -51,22 +50,22 @@ impl Expression::Add(_, _) {
 }
 ```
 
-The enum root may declare closed-case requirements and defaults through an inherent `impl`. Exact-case implementations may satisfy those requirements, override defaults, or introduce behavior that exists only for that exact case.
+The closed-sum root may declare closed-case requirements and defaults through an inherent `impl`. Exact-case implementations may satisfy those requirements, override defaults, or introduce behavior that exists only for that exact case.
 
 > **Core invariant**
 >
-> An enum is a nominal closed sum. Its declaration owns the closed set of variants; its implementation declarations own behavior. Variant identity, exact-case type identity, behavior identity, and physical representation are distinct concepts.
+> A sum-shaped `data` declaration is a nominal closed sum. It owns the closed set of cases; its implementation declarations own behavior. Case identity, exact-case type identity, behavior identity, and physical representation are distinct concepts.
 
 ---
 
 # Semantic Category
 
-## Enum declarations
+## Sum-shaped `data` declarations
 
-An **enum declaration** introduces a nominal enum type and its complete set of variants.
+A sum-shaped **data declaration** introduces a nominal closed-sum type and its complete set of cases.
 
 ```phalcom
-enum Result<T, E> {
+data Result<T, E> {
   Ok(_ value: T)
   Error(_ error: E)
 }
@@ -75,34 +74,34 @@ enum Result<T, E> {
 The declaration establishes:
 
 - the nominal identity of `Result`;
-- the enum's generic parameters;
-- the closed set of variants;
-- the payload shape of each variant;
-- any variant-local generic parameters;
-- any variant-specific result specialization permitted by the type system.
+- the data type's generic parameters;
+- the closed set of cases;
+- the payload shape of each case;
+- any case-local generic parameters;
+- any case-specific result specialization permitted by the type system.
 
 The declaration body contains variant declarations only.
 
-Behavioral methods, getters, setters, index behavior, root requirements, and root defaults are not declared inside the enum body. They are expressed through `impl`.
+Behavioral methods, getters, setters, index behavior, root requirements, and root defaults are not declared inside the data body. They are expressed through `impl`.
 
 > **Variants-only invariant**
 >
-> The enum body defines the closed sum. It does not serve as a mixed representation-and-behavior body.
+> The data body defines the closed sum. It does not serve as a mixed representation-and-behavior body.
 
 ## Enum root type
 
-The type introduced by the enum declaration is the **enum root type**.
+The type introduced by the sum-shaped data declaration is the **closed-sum root type**.
 
 For:
 
 ```phalcom
-enum Option<T> {
+data Option<T> {
   Some(_ value: T)
   None
 }
 ```
 
-`Option<T>` is the enum root type.
+`Option<T>` is the closed-sum root type.
 
 The root type denotes values that may belong to any variant allowed by the exact applied enum type.
 
@@ -115,7 +114,7 @@ A **variant** is one alternative of an enum's closed sum.
 For:
 
 ```phalcom
-enum Result<T, E> {
+data Result<T, E> {
   Ok(_ value: T)
   Error(_ error: E)
 }
@@ -134,7 +133,7 @@ A variant has stable semantic identity independent of:
 Two variants remain distinct even when they carry payloads of identical type and shape.
 
 ```phalcom
-enum Token {
+data Token {
   Identifier(_ text: String)
   Keyword(_ text: String)
 }
@@ -193,7 +192,7 @@ Closed-case behavior completeness is quantified over applicable exact cases. Thi
 The variants declared in an enum declaration form the complete variant set of that enum.
 
 ```phalcom
-enum Direction {
+data Direction {
   North
   South
   East
@@ -228,7 +227,7 @@ The source declaration must therefore not be interpreted as defining a stable AB
 A variant may carry a payload.
 
 ```phalcom
-enum Expression {
+data Expression {
   Literal(_ value: Int)
   Add(_ left: Expression, _ right: Expression)
 }
@@ -365,7 +364,7 @@ then `side2()` executes before `side1()` when that is the source evaluation orde
 A variant may carry no payload.
 
 ```phalcom
-enum Option<T> {
+data Option<T> {
   Some(_ value: T)
   None
 }
@@ -395,7 +394,7 @@ The exact spelling and associated-reference behavior of nullary variant construc
 Enums participate in the ordinary Phalcom generic type system.
 
 ```phalcom
-enum Result<T, E> {
+data Result<T, E> {
   Ok(_ value: T)
   Error(_ error: E)
 }
@@ -781,7 +780,7 @@ For every root requirement, each applicable exact case must provide a compatible
 Given:
 
 ```phalcom
-enum Expression {
+data Expression {
   Literal(_ value: Int)
   Add(_ left: Expression, _ right: Expression)
 }

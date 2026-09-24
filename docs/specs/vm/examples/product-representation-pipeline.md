@@ -670,7 +670,7 @@ Canonical physical storage MUST NOT accidentally reorder user-observable present
 Consider:
 
 ```phalcom
-enum Result<T, E> {
+data Result<T, E> {
     Ok(_ value: T)
     Error(_ error: E)
 }
@@ -811,7 +811,7 @@ The exact bytecode sequence belongs to `bytecodes.md`.
 Consider:
 
 ```phalcom
-enum Expr<T> {
+data Expr<T> {
     IntLit(_ value: Int) -> Expr<Int>
     BoolLit(_ value: Bool) -> Expr<Bool>
 }
@@ -1452,7 +1452,7 @@ Empty Record stops at the canonical zero product.
 ## 71. ADT
 
 ```text
-enum declaration
+sum-shaped `data` declaration
  -> semantic enum/VariantId
  -> RuntimeEnumId/RuntimeVariantId
  -> CaseDiscriminant

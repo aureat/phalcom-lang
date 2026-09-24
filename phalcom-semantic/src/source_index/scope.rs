@@ -22,8 +22,8 @@ pub enum SourceCallableKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceDeclarationKind {
     Class,
-    Enum,
     Data,
+    TypeData,
     Trait,
     TypeAlias,
 }

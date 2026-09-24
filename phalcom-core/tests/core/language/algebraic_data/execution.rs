@@ -19,7 +19,7 @@ fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError>
 #[test]
 fn enum_singletons_are_canonical_and_constructors_allocate_cases() {
     let src = r#"
-enum Status {
+data Status {
   @variant Pending
   @variant Active(code: Int)
 }
@@ -42,7 +42,7 @@ let diff_constructors = not (a1 === a2)
 #[test]
 fn singleton_access_and_nullary_construction_have_distinct_identity_laws() {
     let src = r#"
-enum CustomOption {
+data CustomOption {
   @variant None
   @variant Nullary()
 }
@@ -65,7 +65,7 @@ let nullaries_distinct = not (n1 === n2)
 #[test]
 fn enum_case_payloads_are_readable_by_declared_field() {
     let src = r#"
-enum Shape {
+data Shape {
   @variant Circle(r: Int)
   @variant Rectangle(w: Int, h: Int)
 }
@@ -88,7 +88,7 @@ let c_r = c.r
 #[test]
 fn enum_root_instantiation_is_rejected() {
     let src = r#"
-enum Status {
+data Status {
   @variant Pending
   @variant Active(code: Int)
 }
@@ -102,7 +102,7 @@ let s = Status.new()
 #[test]
 fn enum_case_payload_mutation_is_rejected() {
     let src = r#"
-enum Status {
+data Status {
   @variant Active(code: Int)
 }
 
@@ -116,7 +116,7 @@ a.code = 99
 #[test]
 fn enum_case_methods_dispatch_through_nested_payloads() {
     let src = r#"
-enum Expr {
+data Expr {
   Lit(val: Int)
   Add(left: Expr, right: Expr)
 }
@@ -163,7 +163,7 @@ let sum = MathUtils.add(a: 10, b: 20)
 fn enum_product_storage_keeps_case_identity_and_traces_mixed_payloads() {
     let (mut vm, module) = run_inline(
         r#"
-enum Packed {
+data Packed {
   @variant First(_ f: Float, _ flag: Bool, _ text: String)
   @variant Second(_ f: Float, _ flag: Bool, _ text: String)
   @variant Big(_ value: Int)
@@ -199,7 +199,7 @@ let exact = big.value == 9223372036854775808
 fn enum_variants_sharing_layout_retain_distinct_case_identity() {
     let (vm, module) = run_inline(
         r#"
-enum Shapes {
+data Shapes {
   @variant Rect(w: Int, h: Int)
   @variant Bounds(w: Int, h: Int)
 }

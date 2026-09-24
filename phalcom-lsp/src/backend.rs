@@ -35,11 +35,12 @@ use tower_lsp::lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, FileChangeType, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint, InlayHintOptions,
-    InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind, ReferenceParams,
-    Registration, SemanticTokensDelta, SemanticTokensDeltaParams, SemanticTokensEdit, SemanticTokensFullDeltaResult, SemanticTokensFullOptions,
-    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelp,
-    SignatureHelpOptions, SignatureHelpParams, SymbolInformation, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
-    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
+    InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind,
+    PrepareRenameResponse, ReferenceParams, Registration, RenameParams, SemanticTokensDelta, SemanticTokensDeltaParams, SemanticTokensEdit,
+    SemanticTokensFullDeltaResult, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelp, SignatureHelpOptions, SignatureHelpParams, SymbolInformation, SymbolKind,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit, WorkspaceFoldersServerCapabilities,
+    WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -877,8 +878,8 @@ impl Backend {
         for entry in entries {
             let kind = match entry.kind {
                 phalcom_semantic::EditorSymbolKind::Class => SymbolKind::CLASS,
-                phalcom_semantic::EditorSymbolKind::Enum => SymbolKind::ENUM,
                 phalcom_semantic::EditorSymbolKind::Data => SymbolKind::STRUCT,
+                phalcom_semantic::EditorSymbolKind::TypeData => SymbolKind::TYPE_PARAMETER,
                 phalcom_semantic::EditorSymbolKind::Trait => SymbolKind::INTERFACE,
                 phalcom_semantic::EditorSymbolKind::TypeAlias => SymbolKind::TYPE_PARAMETER,
                 phalcom_semantic::EditorSymbolKind::Callable => SymbolKind::METHOD,
@@ -1101,6 +1102,15 @@ impl Backend {
     }
 }
 
+fn is_identifier(value: &str) -> bool {
+    use phalcom_ast::token::Token;
+
+    let Ok(tokens) = phalcom_ast::lexer::Lexer::new(value).collect::<std::result::Result<Vec<_>, _>>() else {
+        return false;
+    };
+    matches!(tokens.as_slice(), [(_, Token::Identifier(name), end), (_, Token::Eof, _)] if name == value && *end == value.len())
+}
+
 /// Recovers semantic structure lost when a live member-access expression ends
 /// at the cursor, e.g. `_client.` inside a method body. The user-facing parse
 /// and diagnostics stay untouched; only the semantic snapshot sees the dot
@@ -1248,6 +1258,10 @@ impl LanguageServer for Backend {
                 position_encoding: Some(PositionEncodingKind::UTF16),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(tower_lsp::lsp_types::RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
                     // `.` triggers member completion; the client also
@@ -1551,6 +1565,97 @@ impl LanguageServer for Backend {
         }
 
         Ok(None)
+    }
+
+    async fn prepare_rename(&self, params: TextDocumentPositionParams) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+        let Some(request) = self.request_context(&uri) else { return Ok(None) };
+        if !matches!(request.source_match, SourceMatch::Exact) {
+            return Ok(None);
+        }
+        let offset = request.document.line_index.offset(position);
+        let Some(target) = self.compiler_target_at_request(&request, offset) else {
+            return Ok(None);
+        };
+        let Some(compiler) = request.compiler.as_deref() else { return Ok(None) };
+        let [phalcom_semantic::SemanticDefinitionLocation::SourceSite(_)] = compiler.editor().definition_locations(&target).as_slice() else {
+            return Ok(None);
+        };
+        let Some(module) = request.compiler_module() else { return Ok(None) };
+        let Some(occurrence) = compiler.occurrence_at(module, offset) else {
+            return Ok(None);
+        };
+        let range = request
+            .document
+            .line_index
+            .range(occurrence.occurrence.range.start..occurrence.occurrence.range.end);
+        let Some(placeholder) = request.document.text.get(occurrence.occurrence.range.start..occurrence.occurrence.range.end) else {
+            return Ok(None);
+        };
+        if placeholder.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range,
+            placeholder: placeholder.to_owned(),
+        }))
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let Some(request) = self.request_context(&uri) else { return Ok(None) };
+        if !matches!(request.source_match, SourceMatch::Exact) || !is_identifier(&params.new_name) {
+            return Ok(None);
+        }
+        let offset = request.document.line_index.offset(position);
+        let Some(target) = self.compiler_target_at_request(&request, offset) else {
+            return Ok(None);
+        };
+        let Some(compiler) = request.compiler.as_deref() else { return Ok(None) };
+        let definitions = compiler.editor().definition_locations(&target);
+        let [phalcom_semantic::SemanticDefinitionLocation::SourceSite(_)] = definitions.as_slice() else {
+            return Ok(None);
+        };
+
+        let mut sites = compiler.editor().reference_sites(&target);
+        sites.extend(compiler.editor().definition_sites(&target).iter().cloned());
+        sites.sort();
+        sites.dedup();
+        if sites.is_empty() {
+            return Ok(None);
+        }
+        let mut mapper = SnapshotLocationMapper::new_with_counters_and_cache(compiler, self.perf_counters(), self.line_index_cache.clone());
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        let mut seen = BTreeSet::new();
+        for site in sites {
+            let Some(location) = mapper.site_location(&site) else { continue };
+            let key = (
+                location.uri.to_string(),
+                location.range.start.line,
+                location.range.start.character,
+                location.range.end.line,
+                location.range.end.character,
+            );
+            if seen.insert(key) {
+                changes.entry(location.uri).or_default().push(TextEdit {
+                    range: location.range,
+                    new_text: params.new_name.clone(),
+                });
+            }
+        }
+        if changes.is_empty() {
+            return Ok(None);
+        }
+        for edits in changes.values_mut() {
+            edits.sort_by_key(|edit| (edit.range.start.line, edit.range.start.character, edit.range.end.line, edit.range.end.character));
+        }
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }))
     }
 
     /// Answers `workspace/symbol` from compiler-owned source declarations

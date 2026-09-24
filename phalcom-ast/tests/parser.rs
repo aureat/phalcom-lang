@@ -111,13 +111,18 @@ fn associated_type_data_parses_in_class_body_and_inherent_impl() {
     assert_eq!(implementation.associated_type_data[0].phase, phalcom_ast::ast::AlgebraicPhase::TypeOnly);
 
     let nested = parse_source("Parser::State::Done\n", 0).expect("nested associated static-case path parses");
-    assert!(matches!(nested.statements.first(), Some(Statement::Expr { expr: Expr::AssociatedLookup(_), .. })));
+    assert!(matches!(
+        nested.statements.first(),
+        Some(Statement::Expr {
+            expr: Expr::AssociatedLookup(_),
+            ..
+        })
+    ));
 }
 
 #[test]
 fn associated_type_data_is_not_part_of_runtime_data_representation_body() {
-    let error = parse_source("data Packet { type data State { Unread } }\n", 0)
-        .expect_err("runtime data representation bodies reject nested type data");
+    let error = parse_source("data Packet { type data State { Unread } }\n", 0).expect_err("runtime data representation bodies reject nested type data");
     assert!(error.to_string().contains("case name"), "unexpected parser diagnostic: {error}");
 }
 
@@ -269,7 +274,7 @@ fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
     };
     assert_eq!(named.base, "method");
 
-    let source = "enum Shape {\n  @variant Circle(radius: Float)\n}\n";
+    let source = "data Shape {\n  @variant Circle(radius: Float)\n}\n";
     let program = parse_source(source, 0).expect("variant enum parses");
     let Statement::Data(enum_def) = &program.statements[0] else {
         panic!("expected data");
@@ -1553,7 +1558,7 @@ class Foo<T> is Base<Option<Result<T, Error>>>
 {
 }
 
-enum Bar<T>
+data Bar<T>
     where T <: Object
 {
     A
@@ -1648,7 +1653,7 @@ fn generic_class_header_is_layout_insensitive() {
 
 #[test]
 fn enum_header_is_layout_insensitive() {
-    let source = "enum Result\n\n<T>\n\nwhere\n\nT == Y\n\n{\n    Ok\n}\n";
+    let source = "data Result\n\n<T>\n\nwhere\n\nT == Y\n\n{\n    Ok\n}\n";
     let program = parse_source(source, 0).expect("multiline enum header should parse");
     let Statement::Data(enumeration) = &program.statements[0] else {
         panic!("expected data");

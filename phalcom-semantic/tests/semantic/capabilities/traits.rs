@@ -70,19 +70,31 @@ impl Tagged<Shape::Scalar> for Box {}
     let trait_declaration = fixture.decl("main", "Tagged");
     let diagnostics = fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>();
 
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnsupported
-            && diagnostic.message.contains("trait generic parameters over user-defined static domains")
-    }), "expected targeted unsupported-domain diagnostic, got {diagnostics:#?}");
+    assert!(
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnsupported
+                && diagnostic.message.contains("trait generic parameters over user-defined static domains")
+        }),
+        "expected targeted unsupported-domain diagnostic, got {diagnostics:#?}"
+    );
     assert!(
         !fixture.analysis.snapshot.trait_headers.contains(&trait_declaration),
         "invalid trait header must not be published as a zero-parameter trait"
     );
     assert!(
-        !fixture.analysis.snapshot.conformance_index.iter().any(|(_, contribution)| contribution.trait_ref.declaration == trait_declaration),
+        !fixture
+            .analysis
+            .snapshot
+            .conformance_index
+            .iter()
+            .any(|(_, contribution)| contribution.trait_ref.declaration == trait_declaration),
         "an invalid trait header must not publish conformance evidence"
     );
-    assert!(fixture.analysis.snapshot.internal_incidents.is_empty(), "unexpected internal incidents: {:#?}", fixture.analysis.snapshot.internal_incidents);
+    assert!(
+        fixture.analysis.snapshot.internal_incidents.is_empty(),
+        "unexpected internal incidents: {:#?}",
+        fixture.analysis.snapshot.internal_incidents
+    );
 }
 
 #[test]
@@ -958,7 +970,11 @@ impl<T> Sequence for List<T> {
     };
     assert_eq!(arguments.len(), 1);
     assert_eq!(
-        fixture.analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only Collection argument")),
+        fixture
+            .analysis
+            .snapshot
+            .store
+            .get(arguments[0].as_type_id().expect("type-only Collection argument")),
         fixture.analysis.snapshot.store.get(*element_type)
     );
 
@@ -974,7 +990,11 @@ impl<T> Sequence for List<T> {
     };
     assert_eq!(arguments.len(), 1);
     assert_eq!(
-        fixture.analysis.snapshot.store.get(arguments[0].as_type_id().expect("type-only Option argument")),
+        fixture
+            .analysis
+            .snapshot
+            .store
+            .get(arguments[0].as_type_id().expect("type-only Option argument")),
         fixture.analysis.snapshot.store.get(*element_type)
     );
     assert_eq!(plan.associated_type_plan.failures.len(), 0);
@@ -1548,7 +1568,7 @@ fn exact_projection_normalization_preserves_exact_enum_case_identity() {
   type Item
 }
 
-enum Status {
+data Status {
   Ready
   Waiting
 }

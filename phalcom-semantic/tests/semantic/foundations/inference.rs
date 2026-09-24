@@ -715,7 +715,10 @@ fn constructor_alignment_accepts_binary_kind() {
         InferenceRelation::Equivalent(
             InferenceTerm::Applied {
                 origin: Box::new(InferenceTerm::Var(constructor)),
-                arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(first)), InferenceStaticArgument::Term(InferenceTerm::Var(second))]),
+                arguments: Box::new([
+                    InferenceStaticArgument::Term(InferenceTerm::Var(first)),
+                    InferenceStaticArgument::Term(InferenceTerm::Var(second)),
+                ]),
             },
             InferenceTerm::Canonical(actual),
         ),
@@ -832,7 +835,10 @@ fn sc4_red_constructor_alignment_must_support_fixed_middle_positions() {
         InferenceRelation::Equivalent(
             InferenceTerm::Applied {
                 origin: Box::new(InferenceTerm::Var(constructor)),
-                arguments: Box::new([InferenceStaticArgument::Term(InferenceTerm::Var(first)), InferenceStaticArgument::Term(InferenceTerm::Var(second))]),
+                arguments: Box::new([
+                    InferenceStaticArgument::Term(InferenceTerm::Var(first)),
+                    InferenceStaticArgument::Term(InferenceTerm::Var(second)),
+                ]),
             },
             InferenceTerm::Canonical(actual),
         ),

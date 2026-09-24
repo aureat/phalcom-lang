@@ -13,7 +13,7 @@ fn named(vm: &phalcom_core::vm::VM, module: phalcom_core::heap::ObjRef, name: &s
 fn exact_enum_case_conformance_executes_without_leaking_to_sibling() {
     let source = r#"
 trait Tagged { tag -> String }
-enum Result<T> {
+data Result<T> {
   Ok(_ value: T)
   Error(_ message: String)
 }
@@ -189,7 +189,7 @@ trait PayloadView {
   type Item
   reveal(_ value: Self::Item) -> Self::Item { value }
 }
-enum Payload<T> {
+data Payload<T> {
   Ok(_ value: T)
   Error(_ message: String)
 }
@@ -524,7 +524,7 @@ impl<T> DenseCell for DenseBox<T> {
   type Item = T
   transform(_ value: Self::Item) -> Self::Item { value }
 }
-enum Payload<T> {
+data Payload<T> {
   Ok(_ value: T)
   Error(_ message: String)
 }
@@ -627,7 +627,7 @@ class Box<T> { @constructor new() {} }
 impl<T> Box<T> where T <: NumericBase { tag -> String { "numeric" } }
 impl<T> BoxLabel for Box<T> {}
 
-enum Result<T> { Ok(_ value: T) Error(_ message: String) }
+data Result<T> { Ok(_ value: T) Error(_ message: String) }
 impl Tagged for Result<Int>::Ok(_) { tag -> String { "ok" } }
 
 class Counter {

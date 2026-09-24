@@ -341,7 +341,7 @@ trait StatusReport {
   report -> String
 }
 
-enum Status {
+data Status {
   @variant Active
   @variant Inactive
 }

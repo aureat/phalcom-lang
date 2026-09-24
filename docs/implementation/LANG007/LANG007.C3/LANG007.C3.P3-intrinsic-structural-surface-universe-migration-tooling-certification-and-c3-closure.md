@@ -6,7 +6,7 @@ checkpoint: LANG007.C3
 kind: implementation-plan
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: BASELINE_BLOCKED
 depends_on:
   - LANG007.C3.P2
   - LANG007.C3.P1
@@ -3054,6 +3054,38 @@ T9 passes only when every required coverage obligation CV-01–CV-28 has explici
 Mandatory after each coherent certification gate. Record commands, outcomes, what they prove, and baseline classifications—not every individual test invocation.
 
 ---
+
+## T9 certification status — 2026-09-25
+
+T1-T8 implementation work is present and their focused gates are recorded in
+`LANG007.C3-CHECKPOINT.md`. T9 is incomplete and the checkpoint remains open.
+
+Passing current evidence includes workspace/all-target build, formatter check,
+the `phalcom-type-meta` schema suite, source-index static-domain publication,
+LSP semantic rename/navigation, migrated ADT matching, and the repaired nested
+ADT runtime fixture.
+
+T9 cannot pass while
+`associated_static_domain_payload_uses_owner_generic_parameter_kind` fails:
+it publishes zero constructors rather than the one expected for a generic
+owner payload. A detached clean worktree at predecessor `9b4ca55d` reproduces
+the same failure. This is an inherited baseline but directly overlaps C3's
+associated generic static-domain contract, so it remains an acceptance blocker
+pending a bounded disposition. Do not claim C3 closure.
+
+Two core constructor-reference tests fail with invocation-layout errors on both
+the current tree and clean predecessor `9b4ca55d`; they are inherited VM
+baselines. AST certification has six stale snapshots and one selector
+diagnostic assertion failure, and the semantic impl-query suite has one
+unrelated data-component witness failure. The full semantic suite was stopped
+after high-fanout incremental stress cases exceeded the useful gate window and
+is recorded as incomplete. Full details and classifications are in the shared
+checkpoint record.
+
+Resume at T9/G9-G11: finish metadata/import/incremental, runtime-negative and
+resource measurements, and remaining workspace/editor checks; then disposition
+the generic associated payload blocker. T10 and terminal P3 walkthrough/handoff
+are not yet complete.
 
 ## T10 — Close P3 and LANG007.C3 lifecycle records truthfully
 

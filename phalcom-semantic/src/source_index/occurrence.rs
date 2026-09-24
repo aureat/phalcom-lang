@@ -119,9 +119,11 @@ impl OccurrenceIndex {
                 let (kind, role) = match site.kind {
                     crate::source_index::site::SourceSiteKind::BindingDeclaration => (OccurrenceKind::Binding, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::Declaration(_) => (OccurrenceKind::Declaration, OccurrenceRole::Declaration),
+                    crate::source_index::site::SourceSiteKind::StaticDomain(_) => (OccurrenceKind::Declaration, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::Callable(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::Field(_) => (OccurrenceKind::Field, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::Variant(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
+                    crate::source_index::site::SourceSiteKind::StaticCase(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::VariantFamily(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::VariantField(_) => (OccurrenceKind::Field, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::DataComponent(_) => (OccurrenceKind::Field, OccurrenceRole::Declaration),

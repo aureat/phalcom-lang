@@ -12,7 +12,7 @@ fn gadt_constructor_resolution_refines_owner_and_keeps_runtime_result_known() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Expr<T> {
+data Expr<T> {
   @variant IntLit(_ value: Int) -> Expr<Int>
   @variant BoolLit(_ value: Bool) -> Expr<Bool>
 }

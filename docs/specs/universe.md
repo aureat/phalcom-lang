@@ -505,8 +505,8 @@ Universe declarations use the same formal type system as user declarations.
 For example:
 
 ```phalcom
-enum Option<T> { ... }
-enum Result<T, E> { ... }
+data Option<T> { ... }
+data Result<T, E> { ... }
 class List<T> { ... }
 ```
 
@@ -552,11 +552,11 @@ Result<T, E>
 Ordering
 ```
 
-are canonical source-owned enums.
+are canonical source-owned closed sums declared with `data`.
 
 Their source declarations determine:
 
-- nominal enum identity;
+- nominal data identity;
 - generic binders;
 - variant identities;
 - constructor selectors;
@@ -648,9 +648,41 @@ reflection
     same nominal Result identity
 ```
 
-The runtime must not allocate another enum root merely because generic ADT registration also needs a class.
+The runtime must not allocate another closed-sum root merely because generic ADT registration also needs a class.
 
 Variant behavior classes may be distinct runtime objects, but they must attach to the same canonical enum/variant semantics.
+
+### 10.2 Intrinsic structural facades
+
+Universe exposes the compiler-owned structural domains through intrinsic source
+declarations. `Unit` uses its canonical zero-product identity; `Tuple` and
+`Record` retain their existing structural applications and specialized runtime
+classes. The declarations publish source, reflection, and tooling anchors; they
+do not mint replacement semantic domains or runtime classes.
+
+```phalcom
+intrinsic type data TypePack
+intrinsic type data LabeledTypePack
+intrinsic type data TupleEntries
+intrinsic type data RecordRow
+
+intrinsic data Unit()
+intrinsic data Tuple<***Es>
+intrinsic data Record<R: RecordRow>
+
+impl Tuple {
+  intrinsic type Entries: TupleEntries
+  intrinsic type Positionals: TypePack
+  intrinsic type Labeled: LabeledTypePack
+  intrinsic type At<I: Int>: Type
+  intrinsic type Map<F: Type -> Type>: Type
+}
+```
+
+`TupleEntries` is the public facade for the existing `CompleteTypePack`
+domain. `Tuple::Entries` and `***T` therefore share its established
+canonicalization and projection path. Record's `Map` member is likewise the
+existing row-backed operation.
 
 ---
 
@@ -1026,7 +1058,7 @@ Required: `json` has a module semantic target for `universe.json`.
 ### User homonym
 
 ```phalcom
-enum Result {
+data Result {
     @variant Ok(_ value: Int)
     @variant Failure(_ message: String)
 }

@@ -185,7 +185,11 @@ class Consumer {
 }
 "#;
     let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
-    assert!(!result.snapshot.has_errors(), "callable annotations should retain type-member types: {:?}", result.snapshot.diagnostics);
+    assert!(
+        !result.snapshot.has_errors(),
+        "callable annotations should retain type-member types: {:?}",
+        result.snapshot.diagnostics
+    );
 
     let consumer = DeclarationId::new(module.clone(), "Consumer".into());
     let selector = Selector::method("transform", [SelectorSlot::Positional]).expect("method selector");
@@ -198,7 +202,10 @@ class Consumer {
         signature.declared_return.canonical_type().expect("return annotation"),
     ] {
         let TypeData::TypeMemberProjection(projection) = result.snapshot.store.get(ty) else {
-            panic!("callable annotation should preserve the canonical projection, got {:?}", result.snapshot.store.get(ty));
+            panic!(
+                "callable annotation should preserve the canonical projection, got {:?}",
+                result.snapshot.store.get(ty)
+            );
         };
         assert_eq!(projection.source_declaration.as_ref(), Some(&expected_member));
     }
@@ -221,12 +228,14 @@ fn alias_application_tracks_nominal_header_domain_edits_and_matches_cold_analysi
     let updated = incremental.update(single_module_input(module.clone(), source_b, 2));
     let mut cold = SemanticWorkspaceSession::new();
     let cold_result = cold.update(single_module_input(module.clone(), source_b, 1));
-    let codes = |result: &phalcom_semantic::session::SemanticWorkspaceUpdate| {
-        result.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>()
-    };
+    let codes =
+        |result: &phalcom_semantic::session::SemanticWorkspaceUpdate| result.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>();
     assert_eq!(codes(&updated), codes(&cold_result), "header edit must match cold diagnostics");
     assert!(codes(&updated).contains(&DiagnosticCode::ApplicationArgumentKindMismatch));
-    assert_eq!(updated.snapshot.type_aliases.get(&unrelated).expect("retained unrelated alias").form, unrelated_form);
+    assert_eq!(
+        updated.snapshot.type_aliases.get(&unrelated).expect("retained unrelated alias").form,
+        unrelated_form
+    );
 }
 
 #[test]
@@ -340,9 +349,7 @@ fn static_case_rename_invalidates_alias_and_matches_cold_analysis() {
     assert!(!incremental.update(single_module_input(module.clone(), before, 1)).snapshot.has_errors());
     let updated = incremental.update(single_module_input(module.clone(), after, 2));
     let cold = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), after, 1));
-    let codes = |snapshot: &phalcom_semantic::SemanticSnapshot| {
-        snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>()
-    };
+    let codes = |snapshot: &phalcom_semantic::SemanticSnapshot| snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>();
     assert_eq!(codes(&updated.snapshot), codes(&cold.snapshot));
     assert!(codes(&updated.snapshot).contains(&DiagnosticCode::AnnotationUnresolved));
     assert!(!updated.snapshot.type_aliases.contains_key(&DeclarationId::new(module, "DefaultShape".into())));
@@ -357,16 +364,27 @@ fn associated_static_case_alias_uses_domain_catalog() {
     let source = "class Parser { type data State { Start; Done } }\ntype Initial = Parser::State::Start\n";
     let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
     println!("parsed: {:?}", phalcom_ast::parse(source, 0).errors);
-    println!("statements: {:?}", result.snapshot.sources.get(&module).map(|unit| unit.program.statements.len()));
+    println!(
+        "statements: {:?}",
+        result.snapshot.sources.get(&module).map(|unit| unit.program.statements.len())
+    );
     assert!(!result.snapshot.has_errors(), "diagnostics: {:?}", result.snapshot.diagnostics);
     assert!(
         result.snapshot.type_aliases.contains_key(&DeclarationId::new(module.clone(), "Initial".into())),
-        "aliases: {:?}; diagnostics: {:?}", result.snapshot.type_aliases, result.snapshot.diagnostics,
+        "aliases: {:?}; diagnostics: {:?}",
+        result.snapshot.type_aliases,
+        result.snapshot.diagnostics,
     );
-    let domain = StaticDomainDeclarationId::Associated(AssociatedStaticDomainDeclarationId::new(
-        DeclarationId::new(module, "Parser".into()), "State",
-    ));
-    assert!(result.snapshot.static_case_catalogs.get(&domain).unwrap().select(&Selector::getter("Start").unwrap()).is_some());
+    let domain = StaticDomainDeclarationId::Associated(AssociatedStaticDomainDeclarationId::new(DeclarationId::new(module, "Parser".into()), "State"));
+    assert!(
+        result
+            .snapshot
+            .static_case_catalogs
+            .get(&domain)
+            .unwrap()
+            .select(&Selector::getter("Start").unwrap())
+            .is_some()
+    );
 }
 
 #[test]
@@ -444,7 +462,11 @@ fn associated_collision_introduction_and_removal_refresh_incrementally_with_cold
             .map(|diagnostic| (diagnostic.code, diagnostic.message.clone(), diagnostic.primary_range))
             .collect::<Vec<_>>()
     };
-    assert!(codes(&revision_b).iter().any(|(code, _, _)| *code == DiagnosticCode::EnumFamilyCategoryConflict));
+    assert!(
+        codes(&revision_b)
+            .iter()
+            .any(|(code, _, _)| *code == DiagnosticCode::EnumFamilyCategoryConflict)
+    );
     let mut cold_b = SemanticWorkspaceSession::new();
     let cold_b = cold_b.update(single_module_input(module.clone(), source_b, 1));
     assert_eq!(codes(&revision_b), codes(&cold_b), "collision diagnostics should match cold analysis");

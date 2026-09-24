@@ -1,13 +1,13 @@
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectUniverse};
+use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::SemanticSourceSpan;
 use phalcom_semantic::identity::{CallableId, DispatchSide};
 use phalcom_semantic::metadata::MetadataExportError;
 use phalcom_semantic::metadata::MetadataExporter;
 use phalcom_semantic::metadata::stable_identity::StableIdentityContext;
-use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::signature::{CallableParameterSemantic, CallableSemanticSignature, ReturnContractValidation};
 use phalcom_semantic::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_semantic::type_alias::{TypeAliasInfo, TypeAliasTable};
@@ -18,8 +18,8 @@ use phalcom_semantic::types::parameter::{
 use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
 use phalcom_semantic::types::store::{StaticArgument, TypeStore};
 use phalcom_semantic::types::variance::Variance;
-use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::declaration::{AlgebraicPhaseRef, AlgebraicShapeRef};
+use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::header::MetadataProfile;
 use phalcom_type_meta::identity::StableProjectRef;
 use phalcom_type_meta::kind::{KindNode, StaticDomainRef};
@@ -145,11 +145,23 @@ fn metadata_exports_and_validates_static_domain_and_type_data_identity() {
     let bundle = exporter.build_bundle(&[]).unwrap();
 
     assert!(bundle.header.features.static_domains);
-    assert!(bundle.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(StaticDomainRef::Nominal { .. }))));
-    assert!(bundle.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(StaticDomainRef::ConstInt))));
+    assert!(
+        bundle
+            .kinds
+            .iter()
+            .any(|entry| matches!(entry.node, KindNode::StaticDomain(StaticDomainRef::Nominal { .. })))
+    );
+    assert!(
+        bundle
+            .kinds
+            .iter()
+            .any(|entry| matches!(entry.node, KindNode::StaticDomain(StaticDomainRef::ConstInt)))
+    );
     assert!(matches!(bundle.types[const_int_id.0 as usize].form, TypeNode::ConstInt(3)));
     assert!(matches!(bundle.types[static_data_id.0 as usize].form, TypeNode::StaticData(_)));
-    assert!(matches!(&bundle.types[tensor_value_id.0 as usize].form, TypeNode::Applied { arguments, .. } if matches!(arguments.as_ref(), [StaticArgumentRef::Term(_), StaticArgumentRef::Term(_)])));
+    assert!(
+        matches!(&bundle.types[tensor_value_id.0 as usize].form, TypeNode::Applied { arguments, .. } if matches!(arguments.as_ref(), [StaticArgumentRef::Term(_), StaticArgumentRef::Term(_)]))
+    );
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
 }
 
@@ -158,10 +170,8 @@ fn metadata_projection_retains_selected_source_type_member_identity() {
     let mut store = TypeStore::new();
     let owner = dummy_decl("Geometry");
     let subject = store.nominal_type(owner.clone());
-    let member = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
-        owner,
-        phalcom_semantic::types::type_member::TypeMemberSelector::named("Transform"),
-    );
+    let member =
+        phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(owner, phalcom_semantic::types::type_member::TypeMemberSelector::named("Transform"));
     let projection = store.type_member_projection(
         phalcom_semantic::types::type_member::TypeLevelProjection {
             subject: phalcom_semantic::types::type_member::ProjectionSubject::Type(subject),
@@ -191,12 +201,7 @@ fn metadata_exports_associated_static_domain_identity_and_owner_environment() {
 
     let mut store = TypeStore::new();
     let owner = dummy_decl("Packet");
-    store.intern_type_parameter(TypeParameterData::new(
-        TypeParameterOwner::Declaration(owner.clone()),
-        0,
-        "T",
-        KindId::TYPE,
-    ));
+    store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner.clone()), 0, "T", KindId::TYPE));
     let declaration = AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
     let int = store.nominal_type(dummy_decl("Int"));
     let term_domain = store.associated_static_domain(declaration.clone(), vec![StaticArgument::Term(int)].into_boxed_slice());
@@ -211,10 +216,14 @@ fn metadata_exports_associated_static_domain_identity_and_owner_environment() {
         KindId::RECORD_ROW,
     ));
     let row_declaration = AssociatedStaticDomainDeclarationId::new(row_owner.clone(), "State");
-    let row = store.record_row_checked(Vec::new(), phalcom_semantic::types::row::RecordRowTail::Closed).unwrap();
+    let row = store
+        .record_row_checked(Vec::new(), phalcom_semantic::types::row::RecordRowTail::Closed)
+        .unwrap();
     let row_domain = store.associated_static_domain(row_declaration, vec![StaticArgument::RecordRow(row)].into_boxed_slice());
     let row_constructor = store.intern_static_constructor(row_domain, row_owner, "Parsed", Box::new([]));
-    let row_term = store.static_data(row_domain, row_constructor, Box::new([])).expect("row-specialized associated singleton");
+    let row_term = store
+        .static_data(row_domain, row_constructor, Box::new([]))
+        .expect("row-specialized associated singleton");
 
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let term_id = exporter.export_type_form(term).unwrap();
@@ -223,7 +232,11 @@ fn metadata_exports_associated_static_domain_identity_and_owner_environment() {
     let TypeNode::StaticData(term_data) = &bundle.types[term_id.0 as usize].form else {
         panic!("expected associated static data node");
     };
-    let StaticDomainRef::Associated { declaration, owner_environment } = &term_data.domain else {
+    let StaticDomainRef::Associated {
+        declaration,
+        owner_environment,
+    } = &term_data.domain
+    else {
         panic!("expected associated static-domain reference");
     };
     assert_eq!(declaration.name.as_ref(), "State");
@@ -237,7 +250,10 @@ fn metadata_exports_associated_static_domain_identity_and_owner_environment() {
 
     let json = encode_metadata_json(&bundle).unwrap();
     let decoded = decode_metadata_json(&json, &ValidationLimits::default()).unwrap();
-    assert_eq!(decoded, bundle, "associated identity and row owner environment must survive metadata round-trip");
+    assert_eq!(
+        decoded, bundle,
+        "associated identity and row owner environment must survive metadata round-trip"
+    );
 }
 
 #[test]
@@ -330,18 +346,22 @@ fn snapshot_metadata_round_trip_preserves_static_alias_and_associated_term_ident
     let shape_catalog = bundle
         .static_domains
         .iter()
-        .find(|record| matches!(&record.declaration,
+        .find(|record| {
+            matches!(&record.declaration,
             StableStaticDomainDeclarationRef::Nominal(declaration)
-                if declaration.path.last().is_some_and(|name| name.as_ref() == "Shape")))
+                if declaration.path.last().is_some_and(|name| name.as_ref() == "Shape"))
+        })
         .expect("Shape catalog");
     assert!(shape_catalog.cases.iter().any(|case| case.name.as_ref() == "Empty()"));
     assert!(!shape_catalog.cases.iter().any(|case| case.name.as_ref() == "Empty"));
     let singleton_catalog = bundle
         .static_domains
         .iter()
-        .find(|record| matches!(&record.declaration,
+        .find(|record| {
+            matches!(&record.declaration,
             StableStaticDomainDeclarationRef::Nominal(declaration)
-                if declaration.path.last().is_some_and(|name| name.as_ref() == "ShapeSingleton")))
+                if declaration.path.last().is_some_and(|name| name.as_ref() == "ShapeSingleton"))
+        })
         .expect("singleton Shape catalog");
     assert!(singleton_catalog.cases.iter().any(|case| case.name.as_ref() == "Empty"));
     assert_ne!(
@@ -399,9 +419,7 @@ fn metadata_round_trip_preserves_heterogeneous_application_and_scoped_static_dom
         .apply_static_form(tensor, &[StaticArgument::Term(int), StaticArgument::RecordRow(row)])
         .expect("heterogeneous Tensor application");
 
-    let bound = store
-        .arena_mut()
-        .intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+    let bound = store.arena_mut().intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
     let lambda = store.lambda(vec![shape_kind].into_boxed_slice(), bound, shape_kind);
 
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
@@ -415,10 +433,14 @@ fn metadata_round_trip_preserves_heterogeneous_application_and_scoped_static_dom
     let TypeNode::TypeLambda(lambda) = &bundle.types[lambda_id.0 as usize].form else {
         panic!("expected type lambda metadata");
     };
-    assert!(matches!(bundle.scoped_types[lambda.body.0 as usize].form,
-        ScopedTypeNode::Bound { depth: 0, index: 0 }));
-    assert!(matches!(bundle.kinds[lambda.parameter_kinds[0].0 as usize].node,
-        KindNode::StaticDomain(StaticDomainRef::Nominal { .. })));
+    assert!(matches!(
+        bundle.scoped_types[lambda.body.0 as usize].form,
+        ScopedTypeNode::Bound { depth: 0, index: 0 }
+    ));
+    assert!(matches!(
+        bundle.kinds[lambda.parameter_kinds[0].0 as usize].node,
+        KindNode::StaticDomain(StaticDomainRef::Nominal { .. })
+    ));
 
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("heterogeneous scoped metadata validates");
     let json = encode_metadata_json(&bundle).expect("encode heterogeneous scoped metadata");
@@ -447,7 +469,7 @@ fn metadata_keeps_legacy_enum_and_equivalent_data_identity_neutral() {
         .unwrap()
     }
 
-    let legacy = export("enum MetaCompat { A; B(_ value: Int) }\n");
+    let legacy = export("data MetaCompat { A; B(_ value: Int) }\n");
     let canonical = export("data MetaCompat { A; B(_ value: Int) }\n");
     assert_eq!(legacy.header.interface_fingerprint, canonical.header.interface_fingerprint);
     let legacy_record = legacy

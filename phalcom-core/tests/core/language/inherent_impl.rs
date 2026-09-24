@@ -101,7 +101,7 @@ let result = Point(2, 3).sum()
 #[test]
 fn enum_root_impl_method_is_available_on_each_case() {
     let source = r#"
-enum Status {
+data Status {
   @variant Ready
   @variant Failed
 }
@@ -126,7 +126,7 @@ impl User { label() -> String { "user" } }
 data Point(_ x: Int, _ y: Int)
 impl Point { sum() -> Int { self.x + self.y } }
 
-enum Status {
+data Status {
   @variant Ready
   @variant Failed(reason: String)
 }
@@ -195,7 +195,7 @@ fn impl_compilation_without_semantic_lowering_fails_closed() {
 #[test]
 fn exact_enum_case_impl_dispatches_with_defaults_overrides_and_payloads() {
     let source = r#"
-enum Expr {
+data Expr {
   Lit(_ value: Int)
   Add(_ left: Expr, _ right: Expr)
   Zero
@@ -268,7 +268,7 @@ let lit1_tag = lit1.litOnly()
 #[test]
 fn bodyless_requirements_produce_no_lowering_members_or_method_objects() {
     let source = r#"
-enum Status {
+data Status {
   Ready
   Done
 }
@@ -306,7 +306,7 @@ let d = Status::Done.code()
 #[test]
 fn exact_case_impl_emits_variant_method_bytecode() {
     let source = r#"
-enum Choice {
+data Choice {
   Yes
   No
 }

@@ -1,4 +1,7 @@
-use crate::identity::{CallableId, DataComponentId, DeclarationId, FieldId, SourceOwner, SourceSiteId, VariantFamilyId, VariantFieldId, VariantId};
+use crate::identity::{
+    CallableId, DataComponentId, DeclarationId, FieldId, SourceOwner, SourceSiteId, StaticCaseId, StaticDomainDeclarationId, VariantFamilyId, VariantFieldId,
+    VariantId,
+};
 use crate::traits::AssociatedTypeRequirementId;
 use crate::types::type_member::TypeMemberDeclarationId;
 use phalcom_common::range::SourceRange;
@@ -16,6 +19,10 @@ pub enum SourceSiteKind {
     Field(FieldId),
     /// Variant declaration site with canonical variant identity.
     Variant(VariantId),
+    /// Static constructor/singleton declaration belonging to a `type data` domain.
+    StaticCase(StaticCaseId),
+    /// Nominal or associated `type data` declaration site.
+    StaticDomain(StaticDomainDeclarationId),
     /// Variant family site with canonical variant family identity.
     VariantFamily(VariantFamilyId),
     /// Variant field declaration site with canonical field identity.

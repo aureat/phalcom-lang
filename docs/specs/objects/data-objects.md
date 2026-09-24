@@ -849,7 +849,7 @@ Reflection must preserve the semantic distinctions established by data declarati
 Where the reflection system exposes the relevant concepts, it must be possible to distinguish:
 
 - a data declaration from a class declaration;
-- a data declaration from an enum declaration;
+- a product-shaped data declaration from a sum-shaped data declaration;
 - nominal data from structural Tuple and Record types;
 - a generic declaration from an exact applied data object type;
 - individual data components;
@@ -952,10 +952,9 @@ A virtualized, flattened, boxed, scalar-replaced, or rematerialized `Point<Int>`
 Runtime `data` declarations are nominal algebraic domains: product-shaped data
 objects and sum-shaped data cases share declaration ownership while retaining
 their distinct semantic shapes. Tuple and Record remain structural products;
-ordinary classes remain opaque nominal object abstractions. The legacy `enum`
-surface is compatibility syntax for the sum-shaped `data` model, not a second
-canonical semantic category. Reusing runtime layout or dispatch machinery does
-not collapse these distinctions.
+ordinary classes remain opaque nominal object abstractions. Both runtime
+products and closed sums use the `data` declaration form. Reusing runtime
+layout or dispatch machinery does not collapse their distinct semantic shapes.
 
 Data objects may conform to traits, but conformance is neither inheritance nor representation extension. It cannot add components or hidden semantic instance state. Component/witness compatibility and conformance coherence remain owned by the trait specification.
 

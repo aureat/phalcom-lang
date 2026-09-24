@@ -167,7 +167,6 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Const
         | Token::Fn
         | Token::Class
-        | Token::Enum
         | Token::Data
         | Token::Trait
         | Token::Match

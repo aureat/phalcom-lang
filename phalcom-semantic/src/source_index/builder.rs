@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{
     CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner,
-    SourceSiteId, SourceSiteLocalId, VariantFieldId, VariantId,
+    SourceSiteId, SourceSiteLocalId, StaticCaseId, StaticDomainDeclarationId, VariantFieldId, VariantId,
 };
 use crate::source_index::scope::{
     CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind,
@@ -196,7 +196,7 @@ impl TypeReferenceTargetCollector<'_> {
             }
             Statement::Data(data_def) => {
                 if data_def.is_sum() {
-                    self.enum_definition(data_def, bound);
+                    self.sum_data_definition(data_def, bound);
                 } else {
                     let mut data_bound = bound.clone();
                     data_bound.extend(data_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
@@ -409,12 +409,12 @@ impl TypeReferenceTargetCollector<'_> {
         }
     }
 
-    fn enum_definition(&mut self, enum_def: &EnumDef, bound: &BTreeSet<String>) {
+    fn sum_data_definition(&mut self, data_def: &EnumDef, bound: &BTreeSet<String>) {
         let mut enum_bound = bound.clone();
-        enum_bound.extend(enum_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
-        self.where_clause(enum_def.where_clause.as_ref(), &enum_bound);
+        enum_bound.extend(data_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+        self.where_clause(data_def.where_clause.as_ref(), &enum_bound);
 
-        for variant in enum_def.cases().unwrap_or_default() {
+        for variant in data_def.cases().unwrap_or_default() {
             let mut variant_bound = enum_bound.clone();
             variant_bound.extend(variant.generic_parameters.iter().map(|parameter| parameter.name.clone()));
             self.where_clause(variant.where_clause.as_ref(), &variant_bound);
@@ -859,8 +859,10 @@ impl SourceScopeBuilder<'_> {
                 Statement::Class(class) => self.visit_class(scope, class),
                 Statement::TypeAlias(alias) => self.visit_type_alias(scope, alias),
                 Statement::Data(data_def) => {
-                    if data_def.is_sum() {
-                        self.visit_enum(scope, data_def);
+                    if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                        self.type_data_definition(data_def);
+                    } else if data_def.is_sum() {
+                        self.visit_sum_data(scope, data_def);
                     } else {
                         self.visit_data(scope, data_def);
                     }
@@ -882,6 +884,11 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn visit_impl(&mut self, parent: SourceScopeId, statement_index: usize, impl_def: &phalcom_ast::ast::ImplDef) {
+        if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent)
+            && let Some(SemanticTargetId::Declaration(owner)) = self.type_reference_semantic_target(&impl_def.target)
+        {
+            self.visit_associated_type_data(&owner, &impl_def.associated_type_data);
+        }
         if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. }) {
             if let phalcom_ast::ast::ImplKind::Conformance { trait_ref, .. } = &impl_def.kind
                 && let Some(target) = self.type_reference_semantic_target(trait_ref)
@@ -1032,6 +1039,7 @@ impl SourceScopeBuilder<'_> {
                 declaration_range: class.range,
             },
         );
+        self.visit_associated_type_data(&declaration, &class.associated_type_data);
         for member in &class.members {
             self.visit_member(parent, &declaration, member);
         }
@@ -1101,11 +1109,11 @@ impl SourceScopeBuilder<'_> {
         );
     }
 
-    fn visit_enum(&mut self, _parent: SourceScopeId, enum_def: &EnumDef) {
-        let declaration = DeclarationId::new(self.index.module.clone(), enum_def.name.clone().into());
+    fn visit_sum_data(&mut self, _parent: SourceScopeId, data_def: &EnumDef) {
+        let declaration = DeclarationId::new(self.index.module.clone(), data_def.name.clone().into());
         let declaration_site = self.allocate_site(
             SourceOwner::Module(self.index.module.clone()),
-            enum_def.name_range,
+            data_def.name_range,
             SourceSiteKind::Declaration(declaration.clone()),
         );
         self.index
@@ -1114,15 +1122,15 @@ impl SourceScopeBuilder<'_> {
             declaration.clone(),
             DeclarationSourceInfo {
                 id: declaration.clone(),
-                name: enum_def.name.clone().into(),
-                kind: SourceDeclarationKind::Enum,
+                name: data_def.name.clone().into(),
+                kind: SourceDeclarationKind::Data,
                 declaration_site,
-                name_range: enum_def.name_range,
-                declaration_range: enum_def.range,
+                name_range: data_def.name_range,
+                declaration_range: data_def.range,
             },
         );
 
-        for variant in enum_def.cases().unwrap_or_default() {
+        for variant in data_def.cases().unwrap_or_default() {
             let variant_id = VariantId::new(declaration.clone(), phalcom_ast::selector::selector_from_variant(variant));
             let variant_site = self.allocate_site(
                 SourceOwner::Module(self.index.module.clone()),
@@ -1166,6 +1174,66 @@ impl SourceScopeBuilder<'_> {
         }
     }
 
+    fn type_data_definition(&mut self, data_def: &EnumDef) {
+        let declaration = DeclarationId::new(self.index.module.clone(), data_def.name.clone().into());
+        let domain = StaticDomainDeclarationId::Nominal(declaration.clone());
+        let site = self.allocate_site(
+            SourceOwner::Module(self.index.module.clone()),
+            data_def.name_range,
+            SourceSiteKind::Declaration(declaration.clone()),
+        );
+        self.index.register_target(site.clone(), SemanticTargetId::StaticDomain(domain.clone()));
+        self.index.declaration_sources.insert(
+            declaration.clone(),
+            DeclarationSourceInfo {
+                id: declaration.clone(),
+                name: data_def.name.clone().into(),
+                kind: SourceDeclarationKind::TypeData,
+                declaration_site: site,
+                name_range: data_def.name_range,
+                declaration_range: data_def.range,
+            },
+        );
+        self.visit_static_cases(&domain, data_def);
+        for (index, component) in data_def.components().unwrap_or_default().iter().enumerate() {
+            let component_id = DataComponentId::new(declaration.clone(), index as u32);
+            let site = self.allocate_site(
+                SourceOwner::Module(self.index.module.clone()),
+                component.name_range,
+                SourceSiteKind::DataComponent(component_id.clone()),
+            );
+            self.index.register_target(site, SemanticTargetId::DataComponent(component_id));
+        }
+    }
+
+    fn visit_associated_type_data(&mut self, owner: &DeclarationId, definitions: &[EnumDef]) {
+        for definition in definitions {
+            let domain = StaticDomainDeclarationId::Associated(crate::identity::AssociatedStaticDomainDeclarationId::new(
+                owner.clone(),
+                definition.name.clone(),
+            ));
+            let site = self.allocate_site(
+                SourceOwner::Module(self.index.module.clone()),
+                definition.name_range,
+                SourceSiteKind::StaticDomain(domain.clone()),
+            );
+            self.index.register_target(site, SemanticTargetId::StaticDomain(domain.clone()));
+            self.visit_static_cases(&domain, definition);
+        }
+    }
+
+    fn visit_static_cases(&mut self, domain: &StaticDomainDeclarationId, definition: &EnumDef) {
+        for case in definition.cases().unwrap_or_default() {
+            let id = StaticCaseId::with_selector(domain.clone(), phalcom_ast::selector::selector_from_variant(case));
+            let site = self.allocate_site(
+                SourceOwner::Module(self.index.module.clone()),
+                case.name_range,
+                SourceSiteKind::StaticCase(id.clone()),
+            );
+            self.index.register_target(site, SemanticTargetId::StaticCase(id));
+        }
+    }
+
     fn visit_data(&mut self, _parent: SourceScopeId, data_def: &phalcom_ast::ast::DataDef) {
         let declaration = DeclarationId::new(self.index.module.clone(), data_def.name.clone().into());
         let declaration_site = self.allocate_site(
@@ -1186,7 +1254,6 @@ impl SourceScopeBuilder<'_> {
                 declaration_range: data_def.range,
             },
         );
-
         let components = data_def.components().unwrap_or_default();
         for (index, component) in components.iter().enumerate() {
             let component_id = DataComponentId::new(declaration.clone(), index as u32);

@@ -11,7 +11,7 @@ fn weird_variant_forms_compose_into_one_associated_family_with_three_resolutions
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-enum Weird {
+data Weird {
   @variant Marker
   @variant Marker()
   @variant Marker(_ value: Int)

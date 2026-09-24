@@ -1,12 +1,12 @@
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::identity::{AssociatedStaticDomainDeclarationId, DeclarationId};
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::diagnostic::DiagnosticCode;
+use phalcom_semantic::identity::{AssociatedStaticDomainDeclarationId, DeclarationId};
 use phalcom_semantic::types::application::TypeApplicationError;
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::kind::KindData;
-use phalcom_semantic::types::store::{StaticArgument, StaticDataFormationError, TypeData, TypeStore};
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+use phalcom_semantic::types::store::{StaticArgument, StaticDataFormationError, TypeData, TypeStore};
 use phalcom_semantic::types::substitution::{TypeSubstitution, TypeSubstitutionError};
 use std::sync::Arc;
 
@@ -66,9 +66,7 @@ fn heterogeneous_static_application_preserves_domain_terms_and_flattens() {
     let tensor = store.nominal_form(test_decl("Tensor"), tensor_kind);
     let float = store.nominal_type(test_decl("Float"));
 
-    let partial = store
-        .apply_static_form(tensor, &[StaticArgument::Term(float)])
-        .expect("Tensor<Float, _>");
+    let partial = store.apply_static_form(tensor, &[StaticArgument::Term(float)]).expect("Tensor<Float, _>");
     let nested = store
         .apply_static_form(partial, &[StaticArgument::Term(shape_vector)])
         .expect("Tensor<Float, Shape::Vector(3)>");
@@ -95,9 +93,7 @@ fn heterogeneous_static_application_rejects_wrong_domain_without_coercion() {
     let integer = store.nominal_form(test_decl("Integer"), integer_kind);
     let bits = store.nominal_type(test_decl("Bits"));
     let endian_term = store.intern_static_constructor(endian, test_decl("Endian"), "Big", Box::new([]));
-    let endian_big = store
-        .static_data(endian, endian_term, Box::new([]))
-        .expect("Endian::Big");
+    let endian_big = store.static_data(endian, endian_term, Box::new([])).expect("Endian::Big");
 
     assert!(matches!(
         store.apply_static_form(integer, &[StaticArgument::Term(bits), StaticArgument::Term(endian_big)]),
@@ -282,12 +278,7 @@ fn static_data_is_canonical_and_rejects_wrong_domain_or_payload_kind() {
     let other_domain = store.nominal_static_domain(test_decl("OtherShape"));
     let const_int = store.const_int(3);
     let const_kind = store.kind_of(const_int);
-    let constructor = store.intern_static_constructor(
-        domain,
-        owner,
-        "Vector",
-        vec![const_kind].into_boxed_slice(),
-    );
+    let constructor = store.intern_static_constructor(domain, owner, "Vector", vec![const_kind].into_boxed_slice());
 
     let first = store
         .static_data(domain, constructor, vec![StaticArgument::Term(const_int)].into_boxed_slice())
@@ -322,7 +313,10 @@ fn source_type_data_publishes_a_static_domain_kind() {
 
     let declaration = DeclarationId::new(module, "Width".into());
     let form = analysis.snapshot.declarations.form(&declaration).expect("type data declaration form");
-    assert!(matches!(analysis.snapshot.store.get_kind(analysis.snapshot.store.kind_of(form)), KindData::StaticDomain(_)));
+    assert!(matches!(
+        analysis.snapshot.store.get_kind(analysis.snapshot.store.kind_of(form)),
+        KindData::StaticDomain(_)
+    ));
     assert!(!analysis.snapshot.store.is_proper_type(form));
     assert_eq!(analysis.snapshot.store.static_constructor_count(), 1);
 }
@@ -339,7 +333,13 @@ fn source_generic_binder_resolves_named_static_domain_kind() {
     let tensor = DeclarationId::new(module, "Tensor".into());
     let signature = analysis.snapshot.declarations.generic_signature(&tensor).expect("Tensor generic signature");
     assert_eq!(analysis.snapshot.store.type_parameter(signature.parameters[0]).kind, KindId::TYPE);
-    assert!(matches!(analysis.snapshot.store.get_kind(analysis.snapshot.store.type_parameter(signature.parameters[1]).kind), KindData::StaticDomain(_)));
+    assert!(matches!(
+        analysis
+            .snapshot
+            .store
+            .get_kind(analysis.snapshot.store.type_parameter(signature.parameters[1]).kind),
+        KindData::StaticDomain(_)
+    ));
 }
 
 #[test]
@@ -384,7 +384,10 @@ fn type_data_case_cannot_be_used_as_a_runtime_value() {
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
     let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
     assert!(
-        analysis.snapshot.all_diagnostics().any(|diagnostic| matches!(diagnostic.code, DiagnosticCode::TypeOnlyRuntimeValue)),
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| matches!(diagnostic.code, DiagnosticCode::TypeOnlyRuntimeValue)),
         "type-data case must be rejected in runtime value position: {:?}",
         analysis.snapshot.diagnostics
     );
