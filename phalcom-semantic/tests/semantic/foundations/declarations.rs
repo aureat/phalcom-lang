@@ -106,6 +106,29 @@ fn source_declared_runtime_support_class_remains_semantic_declaration() {
         declarations.get(&unit).is_some(),
         "Unit is declared in canonical Universe source and must not disappear merely because native metadata classifies it as runtime support"
     );
+    assert_eq!(
+        declarations.intrinsic_runtime_owner(&unit),
+        Some(phalcom_semantic::declarations::IntrinsicRuntimeOwner::Unit),
+    );
+}
+
+#[test]
+fn runtime_structural_declarations_bind_canonical_platform_owners() {
+    use phalcom_semantic::declarations::IntrinsicRuntimeOwner;
+
+    let mut store = TypeStore::new();
+    let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
+
+    for (key, owner) in [
+        (UniverseKey::Unit, IntrinsicRuntimeOwner::Unit),
+        (UniverseKey::Tuple, IntrinsicRuntimeOwner::Tuple),
+        (UniverseKey::Record, IntrinsicRuntimeOwner::Record),
+    ] {
+        let declaration = universe_declaration(key);
+        assert_eq!(declarations.intrinsic_runtime_owner(&declaration), Some(owner));
+        assert!(declarations.contains(&declaration), "runtime source facade retains a semantic declaration projection");
+    }
+    assert_eq!(declarations.form(&universe_declaration(UniverseKey::Unit)), Some(store.unit()));
 }
 
 #[test]

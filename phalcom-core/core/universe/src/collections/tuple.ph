@@ -4,14 +4,16 @@ intrinsic type data TypePack
 intrinsic type data LabeledTypePack
 intrinsic type data TupleEntries
 
-/// Immutable fixed-arity product collection.
-native class Tuple is Collection {
+impl Tuple {
   intrinsic type Positionals: TypePack
   intrinsic type Labeled: LabeledTypePack
   intrinsic type Entries: TupleEntries
   intrinsic type At<I: Int>: Type
   intrinsic type Map<F: Type -> Type>: Type
+}
 
+/// Immutable fixed-arity product collection.
+native class Tuple is Collection {
   @class
   internal native rawFromList(_ value: List<Dynamic>) -> Tuple
   internal native rawSize -> Int

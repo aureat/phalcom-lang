@@ -244,6 +244,20 @@ impl TypeReferenceTargetCollector<'_> {
                     return;
                 }
                 for impl_member in &impl_def.members {
+                    if let phalcom_ast::ast::ImplMember::TypeMember(type_member) = impl_member {
+                        let mut type_member_bound = impl_bound.clone();
+                        type_member_bound.extend(type_member.parameters.iter().map(|parameter| parameter.name.clone()));
+                        for parameter in &type_member.parameters {
+                            if let phalcom_ast::ast::TypeMemberParameterDomainSyntax::ConstType(annotation) = &parameter.domain {
+                                self.annotation(annotation, &type_member_bound);
+                            }
+                        }
+                        if let phalcom_ast::ast::TypeMemberResultSyntax::Type(annotation) = &type_member.result {
+                            self.annotation(annotation, &type_member_bound);
+                        }
+                        self.where_clause(type_member.where_clause.as_ref(), &type_member_bound);
+                        continue;
+                    }
                     let Some(member) = impl_member.behavior() else {
                         continue;
                     };
@@ -966,6 +980,30 @@ impl SourceScopeBuilder<'_> {
             }
         };
         for impl_member in &impl_def.members {
+            if let phalcom_ast::ast::ImplMember::TypeMember(definition) = impl_member {
+                let CallableOwnerId::Declaration(declaration) = &owner else { continue };
+                let id = crate::types::type_member::TypeMemberDeclarationId::new(
+                    declaration.clone(),
+                    crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector),
+                );
+                let name_range = definition.selector.range();
+                let site = self.allocate_site(
+                    SourceOwner::Module(self.index.module.clone()),
+                    name_range,
+                    SourceSiteKind::TypeMember(id.clone()),
+                );
+                self.index.register_target(site.clone(), SemanticTargetId::TypeMember(id.clone()));
+                self.index.type_member_sources.insert(
+                    id.clone(),
+                    TypeMemberSourceInfo {
+                        id,
+                        declaration_site: site,
+                        name_range,
+                        declaration_range: definition.range,
+                    },
+                );
+                continue;
+            }
             let Some(member) = impl_member.behavior() else {
                 continue;
             };

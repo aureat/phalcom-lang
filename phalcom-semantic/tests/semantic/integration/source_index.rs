@@ -78,6 +78,58 @@ fn intrinsic_type_member_source_site_targets_canonical_owner_and_selector() {
 }
 
 #[test]
+fn intrinsic_impl_type_member_source_site_keeps_owner_and_selector_identity() {
+    let module = ModuleId::universe_root();
+    let parsed = parse("class Tuple {}\nimpl Tuple { intrinsic type Entries: TupleEntries }\n", 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let id = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
+        DeclarationId::new(module.clone(), "Tuple".into()),
+        phalcom_semantic::types::type_member::TypeMemberSelector::named("Entries"),
+    );
+    let index = build_source_scope_index(module, &parsed.program, &SourceIndexContext::default());
+    let source = index.type_member_sources.get(&id).expect("impl type-member source record");
+    assert!(matches!(
+        index.site(&source.declaration_site).map(|site| &site.kind),
+        Some(phalcom_semantic::SourceSiteKind::TypeMember(target)) if target == &id
+    ));
+    assert_eq!(index.targets.get(&source.declaration_site), Some(&SemanticTargetId::TypeMember(id)));
+}
+
+#[test]
+fn canonical_tuple_intrinsic_impl_member_publishes_through_associated_surface() {
+    let module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("collections").unwrap(),
+        ModuleComponent::from_identifier("tuple").unwrap(),
+    ]));
+    let source: Arc<str> = Arc::from(
+        "intrinsic type data TypePack\nintrinsic type data LabeledTypePack\nintrinsic type data TupleEntries\nnative class Tuple {}\nimpl Tuple { intrinsic type Entries: TupleEntries }\n",
+    );
+    let parsed = parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let analysis = phalcom_semantic::analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let owner = DeclarationId::new(module, "Tuple".into());
+    let id = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
+        owner.clone(),
+        phalcom_semantic::types::type_member::TypeMemberSelector::named("Entries"),
+    );
+    let member = analysis.snapshot.type_member_declarations.get(&id).unwrap_or_else(|| {
+        panic!(
+            "published type-member product; keys={:?}; families={:?}; diagnostics={:?}",
+            analysis.snapshot.type_member_declarations.keys().collect::<Vec<_>>(),
+            analysis.snapshot.associated_surfaces.surfaces.get(&owner),
+            analysis.snapshot.diagnostics.get(&owner.module),
+        )
+    });
+    assert!(member.signature.intrinsic.is_some(), "intrinsic operation must be attached to its canonical owner and selector");
+    let family = analysis.snapshot.associated_surfaces.surfaces[&owner]
+        .families
+        .get(&phalcom_common::selector::SelectorBase::Named("Entries".into()))
+        .expect("associated family admission");
+    assert_eq!(family.kind, phalcom_semantic::associated::AssociatedFamilyKind::IntrinsicTypeMember);
+    assert_eq!(family.members.as_ref(), &[phalcom_semantic::associated::AssociatedMemberId::TypeMember(id)]);
+}
+
+#[test]
 fn source_site_ref_rejects_stale_snapshot() {
     let store = TypeStoreId::from_raw(7);
     let first_snapshot = SnapshotId::new(WorkspaceId::from_raw(1), SemanticRevision::from_raw(1), store);

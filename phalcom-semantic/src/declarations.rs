@@ -42,6 +42,16 @@ pub struct DeclarationTypeInfo {
     pub supertype_template: Option<GenericSupertypeTemplate>,
 }
 
+/// Existing runtime authority projected by an intrinsic structural data declaration.
+/// The declaration ID is only the authored source anchor; VM classes and structural
+/// TypeStore values remain owned by their existing subsystems.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IntrinsicRuntimeOwner {
+    Unit,
+    Tuple,
+    Record,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TypeDeclarationShell {
     Nominal(DeclarationTypeInfo),
@@ -121,6 +131,7 @@ pub struct DeclarationTypeTable {
     entries: HashMap<DeclarationId, DeclarationTypeInfo>,
     intrinsic_static_domains: HashMap<DeclarationId, KindId>,
     intrinsic_type_owners: HashMap<DeclarationId, IntrinsicTypeOwner>,
+    intrinsic_runtime_owners: HashMap<DeclarationId, IntrinsicRuntimeOwner>,
 }
 
 impl DeclarationTypeTable {
@@ -130,7 +141,9 @@ impl DeclarationTypeTable {
 
     pub fn insert(&mut self, info: DeclarationTypeInfo) {
         self.intrinsic_static_domains.remove(&info.declaration);
-        self.intrinsic_type_owners.remove(&info.declaration);
+        if !self.intrinsic_runtime_owners.contains_key(&info.declaration) {
+            self.intrinsic_type_owners.remove(&info.declaration);
+        }
         self.entries.insert(info.declaration.clone(), info);
     }
 
@@ -155,6 +168,30 @@ impl DeclarationTypeTable {
         self.intrinsic_type_owners.insert(declaration, owner);
     }
 
+    /// Registers an authored runtime facade against its existing platform owner.
+    /// This association does not allocate a nominal data type or runtime class.
+    pub fn register_intrinsic_runtime_owner(&mut self, declaration: DeclarationId, owner: IntrinsicRuntimeOwner) {
+        self.entries.remove(&declaration);
+        self.intrinsic_static_domains.remove(&declaration);
+        let type_owner = match owner {
+            IntrinsicRuntimeOwner::Unit => None,
+            IntrinsicRuntimeOwner::Tuple => Some(IntrinsicTypeOwner::Tuple),
+            IntrinsicRuntimeOwner::Record => Some(IntrinsicTypeOwner::Record),
+        };
+        if let Some(type_owner) = type_owner {
+            self.intrinsic_type_owners.insert(declaration.clone(), type_owner);
+        }
+        self.intrinsic_runtime_owners.insert(declaration, owner);
+    }
+
+    pub fn intrinsic_runtime_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicRuntimeOwner> {
+        self.intrinsic_runtime_owners.get(declaration).copied()
+    }
+
+    pub fn intrinsic_runtime_declarations(&self) -> impl Iterator<Item = (&DeclarationId, IntrinsicRuntimeOwner)> {
+        self.intrinsic_runtime_owners.iter().map(|(declaration, owner)| (declaration, *owner))
+    }
+
     pub fn intrinsic_type_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicTypeOwner> {
         self.intrinsic_type_owners.get(declaration).copied()
     }
@@ -174,6 +211,7 @@ impl DeclarationTypeTable {
     pub fn remove(&mut self, declaration: &DeclarationId) -> Option<DeclarationTypeInfo> {
         self.intrinsic_static_domains.remove(declaration);
         self.intrinsic_type_owners.remove(declaration);
+        self.intrinsic_runtime_owners.remove(declaration);
         self.entries.remove(declaration)
     }
 
@@ -328,6 +366,10 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
                 Statement::Class(class_def) => {
                     source_nominals.insert((module.clone(), class_def.name.clone()));
                     let declaration = source_declaration_identity(&module, &class_def.name, universe_resolver);
+                    if let Some(owner) = intrinsic_runtime_owner_for_source(&module, &class_def.name) {
+                        table.register_intrinsic_runtime_owner(declaration.clone(), owner);
+                    }
+                    insert_source_nominal(&mut table, store, declaration.clone(), &class_def.generic_parameters);
                     let tuple_module = source_module_id(&["collections", "tuple"]);
                     let record_module = source_module_id(&["collections", "record"]);
                     match (module.eq(&tuple_module), module.eq(&record_module), class_def.name.as_str()) {
@@ -335,15 +377,27 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
                         (_, true, "Record") => table.register_intrinsic_type_owner(declaration.clone(), IntrinsicTypeOwner::Record),
                         _ => {}
                     }
-                    insert_source_nominal(&mut table, store, declaration, &class_def.generic_parameters);
                 }
                 Statement::Data(data_def) => {
                     let declaration = source_declaration_identity(&module, &data_def.name, universe_resolver);
-                    if data_def.implementation == phalcom_common::modifier::ImplementationKind::Intrinsic
-                        && matches!(&data_def.shape, phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_))
-                    {
-                        if let Some(kind) = intrinsic_static_facade_kind(&module, &data_def.name) {
-                            table.register_intrinsic_static_domain(declaration, kind);
+                    if data_def.implementation == phalcom_common::modifier::ImplementationKind::Intrinsic {
+                        if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
+                            if let Some(kind) = intrinsic_static_facade_kind(&module, &data_def.name) {
+                                table.register_intrinsic_static_domain(declaration, kind);
+                            }
+                        } else if let Some(owner) = intrinsic_runtime_owner_for_source(&module, &data_def.name) {
+                            table.register_intrinsic_runtime_owner(declaration.clone(), owner);
+                            if owner == IntrinsicRuntimeOwner::Unit {
+                                table.insert(DeclarationTypeInfo {
+                                    declaration: declaration.clone(),
+                                    form: store.unit(),
+                                    class_object_type: store.class_object_type(declaration),
+                                    kind: KindId::TYPE,
+                                    generic_binder_header: None,
+                                    generic_signature: None,
+                                    supertype_template: None,
+                                });
+                            }
                         }
                         continue;
                     }
@@ -362,7 +416,8 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
         if binding.kind == UniverseBindingKind::Class {
             let source_owner = source_module_id(binding.key.source_path());
             assert!(
-                source_nominals.contains(&(source_owner.clone(), binding.key.name().to_string())),
+                source_nominals.contains(&(source_owner.clone(), binding.key.name().to_string()))
+                    || table.intrinsic_runtime_owner(&universe_resolver(binding.key)).is_some(),
                 "ordinary native Universe binding {:?} has no canonical source declaration at {}::{}",
                 binding.key,
                 source_owner,
@@ -372,6 +427,18 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
     }
 
     table
+}
+
+fn intrinsic_runtime_owner_for_source(module: &ModuleId, name: &str) -> Option<IntrinsicRuntimeOwner> {
+    let unit_module = source_module_id(&["option", "unit"]);
+    let tuple_module = source_module_id(&["collections", "tuple"]);
+    let record_module = source_module_id(&["collections", "record"]);
+    match (module, name) {
+        (module, "Unit") if module == &unit_module => Some(IntrinsicRuntimeOwner::Unit),
+        (module, "Tuple") if module == &tuple_module => Some(IntrinsicRuntimeOwner::Tuple),
+        (module, "Record") if module == &record_module => Some(IntrinsicRuntimeOwner::Record),
+        _ => None,
+    }
 }
 
 fn intrinsic_static_facade_kind(module: &ModuleId, name: &str) -> Option<KindId> {

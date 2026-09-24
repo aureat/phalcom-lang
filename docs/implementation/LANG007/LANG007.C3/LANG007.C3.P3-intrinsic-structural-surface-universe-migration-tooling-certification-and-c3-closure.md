@@ -41,6 +41,21 @@ or routed to existing runtime classes. The user ratified the Level 1 amendment i
 [INC-C3-12.md](INC-C3-12.md): T4 first establishes and tests the declaration
 binding and existing-owner compiler/runtime reuse path, then migrates source.
 
+T4/G4 began under the adopted amendment and its binding/reuse path is now
+focused-tested. The user adopted the T4/G4 extension in
+[INC-C3-13.md](INC-C3-13.md): add intrinsic type-member declarations to inherent
+impls and publish them through the existing owner `AssociatedSurface` and
+`TypeMemberDeclarationId` path before migrating Unit/Tuple/Record source.
+
+T4/G4 reached INC-C3-14 on 2026-09-24. Unit now uses its intrinsic runtime
+facade and Tuple/Record intrinsic type members publish from inherent impls.
+However, migrating Tuple to `intrinsic data Tuple<***Es>` made canonical
+semantic bootstrap fail because native surface import lost the proper runtime
+class form; the source experiment was reverted. Record also cannot use the
+current TypeLambda TypeId-only beta path for its row-owned RecordRowId argument.
+Tuple/Record data-source migration is paused pending the structural-application
+and runtime-class projection decision in `INC-C3-14.md`.
+
 The parser-backed enum census and exact T2–T8 takeover map are recorded in
 `LANG007.C3-CHECKPOINT.md` under “P3 takeover and migration manifest”. The
 initial T1/G1-only execution slice was honored; subsequent authorized sessions

@@ -133,7 +133,7 @@ C3 is complete only when this statement is true:
 |---|---|---|---|---|---|
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
 | `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T9 accepted; G-FINAL completed with documented clean-predecessor and formatter baselines; see P2 walkthrough/handoff |
-| `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | IN_PROGRESS | PARTIAL | UNVERIFIED | T1/G1, T2/G2, and T3/G3 passed; T4/G4 awaits INC-C3-12 runtime-facade binding decision |
+| `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | IN_PROGRESS | PARTIAL | UNVERIFIED | T1/G1, T2/G2, and T3/G3 passed; T4/G4 awaits INC-C3-14 intrinsic structural application/runtime-class projection decision |
 
 No additional P4 is planned.
 
@@ -1028,6 +1028,58 @@ Verification required: prove facade declarations resolve to the existing canonic
   retain native descriptor/source targets, and preserve exact runtime census.
 Status: ADOPTED — T4/G4 implementation resumed.
 
+### INC-C3-13 — intrinsic type members in inherent impls
+
+Incident report: [INC-C3-13.md](INC-C3-13.md)
+
+Plan/task: LANG007.C3.P3 / T4/G4 — migrate Tuple/Record source members while
+preserving intrinsic type-member identity.
+Trigger: mandatory triggers 1, 2, 8, 12, and 18; the planned source shape puts
+intrinsic type members in inherent impls, but `ImplMember` cannot represent
+type-member declarations and semantic publication currently owns them through
+class member syntax.
+Observed: behavior/native method anchors can move through existing impl support;
+type members cannot. Extending that syntax changes associated-surface publication
+and cannot safely be treated as a mechanical migration.
+Decision: user chose to extend `ImplMember` and the semantic associated-surface/
+type-member pipeline for intrinsic type members on inherent impls, retaining
+owner-plus-selector identity and one `AssociatedSurface` authority.
+Architecture impact: T4 includes the bounded AST/parser and semantic/source-index
+extension before Unit/Tuple/Record source migration.
+Plan amendment: T4/G4 amended in INC-C3-13.md; no corrective plan.
+Verification: semantic owner-binding test, compiler existing-Unit-class reuse
+test, native Tuple facade/impl-anchor test, intrinsic type-member parser
+regression, canonical Tuple associated-surface publication, and source-index
+target regression each passed.
+Status: ADOPTED — T4/G4 implementation resumed.
+
+### INC-C3-14 — intrinsic structural application and runtime class projection
+
+Incident report: [INC-C3-14.md](INC-C3-14.md)
+
+Plan/task: LANG007.C3.P3 / T4/G4 — Tuple/Record intrinsic data migration.
+Trigger: mandatory triggers 1, 3, 5, 7, 11, and 12; the P3 endpoint needs
+structural generic applications while native method import needs the existing
+runtime class type, and Record's argument remains row-owned.
+Observed: Unit intrinsic migration and inherent-impl type-member publication
+pass focused checks. Replacing canonical Tuple with `intrinsic data
+Tuple<***Es>` fails semantic bootstrap because native import cannot find a
+proper `Tuple` owner form after runtime-owner registration. Separately, the
+current type-lambda beta path accepts `TypeId` arguments and cannot apply a
+RecordRow argument to produce `TypeData::Record(RecordRowId)`.
+Decision: pending user consultation. The recommended path is one intrinsic-form
+application route backed by the existing runtime-owner binding: Tuple maps to
+`TupleFromPacks`, Record maps through the existing row-owned `RecordRowId`
+path, and native signature import continues to use the existing runtime class
+form.
+Plan amendment: none until the user adopts the application/runtime projection
+contract. The Tuple data experiment was reverted; do not migrate Tuple/Record
+data forms or weaken the TypeId/RecordRow boundary before then.
+Verification: parser and semantic inherent-impl member tests pass; Unit
+canonical bootstrap and exact existing-class reuse pass. The Tuple intrinsic
+data migration attempt fails as recorded in INC-C3-14.
+Status: ARCHITECTURE DECISION REQUIRED — T4/G4 remains partial.
+
 Use entries:
 
 ```text
@@ -1546,11 +1598,15 @@ next task:
     LANG007.C3.P3.T4 / G4
 
 next action:
-    Implement the ratified T4/G4 binding/reuse gate from INC-C3-12, then migrate
-    Unit/Tuple/Record source presentation. Preserve existing TypeStore/runtime
-    class identities, native descriptor census, and P3's static/runtime
-    separation. Keep the T7 graph-build/SCC full-traversal performance follow-up
-    and documented predecessor baselines visible.
+    Await the INC-C3-14 decision on intrinsic Tuple/Record structural application
+    alongside runtime-class forms. The inherent-impl type-member bridge is
+    focused-tested, Unit is migrated to an intrinsic runtime facade, and Tuple/
+    Record type members now live in inherent impls. A Tuple intrinsic-data
+    migration experiment exposed missing semantic runtime-class form ownership
+    and was reverted. Do not migrate Tuple/Record data declarations until this
+    identity/application seam is resolved. Keep the T7 graph-build/SCC
+    full-traversal performance follow-up and documented predecessor baselines
+    visible.
 
 Advanced-agent continuation prompt: [LANG007.C3.P2-advanced-agent-handoff.md](LANG007.C3.P2-advanced-agent-handoff.md).
 

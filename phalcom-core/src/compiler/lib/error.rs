@@ -330,6 +330,14 @@ pub enum CompilerError {
     #[error("internal: data declaration has no formal lowering semantics")]
     MissingDataLoweringSemantics(SourceRange),
 
+    /// A runtime intrinsic structural declaration lacks its canonical owner binding.
+    #[error("runtime intrinsic declaration '{0}' has no canonical facade binding.")]
+    MissingIntrinsicRuntimeFacadeSemantics(String),
+
+    /// The canonical runtime facade is bound, but its existing owner class is absent.
+    #[error("runtime intrinsic declaration '{0}' has no preinstalled owner class.")]
+    MissingIntrinsicRuntimeOwnerClass(String),
+
     /// No formal lowering record for this associated expression.
     #[error("internal: associated expression has no formal lowering record")]
     MissingAssociatedResolution(SourceRange),

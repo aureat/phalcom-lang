@@ -883,6 +883,8 @@ impl<'vm> Compiler<'vm> {
             Statement::Data(data_def) => {
                 if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
                     // TypeOnly declarations have no runtime inhabitants and are not compiled to runtime bytecode
+                } else if data_def.implementation == phalcom_common::modifier::ImplementationKind::Intrinsic {
+                    self.compile_intrinsic_runtime_data(&data_def)?;
                 } else if data_def.is_sum() {
                     self.compile_enum(&data_def)?;
                 } else {

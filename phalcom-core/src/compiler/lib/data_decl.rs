@@ -8,6 +8,40 @@ use phalcom_ast::ast::DataDef;
 use std::sync::Arc;
 
 impl<'vm> Compiler<'vm> {
+    /// Binds an intrinsic structural data declaration to its existing runtime
+    /// class. The semantic declaration is an authored facade anchor only: no
+    /// class or data descriptor is allocated by this path.
+    pub(crate) fn compile_intrinsic_runtime_data(&mut self, data_def: &DataDef) -> Result<(), CompilerError> {
+        let module = self.vm.heap.module(self.module).id.clone();
+        let declaration = phalcom_modules::DeclarationId::new(module.clone(), data_def.name.clone().into_boxed_str());
+        let facade = self
+            .lowering()
+            .and_then(|lowering| lowering.intrinsic_runtime_facades.iter().find(|facade| facade.declaration == declaration))
+            .cloned()
+            .ok_or_else(|| CompilerError::MissingIntrinsicRuntimeFacadeSemantics(data_def.name.clone()))?;
+
+        // Intrinsic runtime source keeps the existing exact module/name class
+        // identity. Reuse must fail closed if bootstrap did not install it.
+        let name_sym = self.vm.interner.intern(&data_def.name);
+        let class_key = self.class_key(name_sym);
+        let class = self
+            .vm
+            .classes
+            .get(&class_key)
+            .copied()
+            .ok_or_else(|| CompilerError::MissingIntrinsicRuntimeOwnerClass(data_def.name.clone()))?;
+
+        self.known_globals.insert(name_sym);
+        self.declare_global(name_sym, false)?;
+        let class_idx = self.add_constant(Value::obj(class), data_def.range)?;
+        self.emit(Bytecode::Constant(class_idx), data_def.range);
+        self.install_accepted_inherent_impl_members(&facade.declaration)?;
+        self.emit(Bytecode::FinalizeClass, data_def.range);
+        let name_idx = self.add_constant(Value::symbol(name_sym), data_def.range)?;
+        self.emit(Bytecode::DefineGlobal(name_idx), data_def.range);
+        Ok(())
+    }
+
     /// Compiles a data declaration into runtime data behavior class and descriptor.
     pub fn compile_data(&mut self, data_def: &DataDef) -> Result<(), CompilerError> {
         let name_sym = self.vm.interner.intern(&data_def.name);

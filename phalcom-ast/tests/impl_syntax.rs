@@ -162,6 +162,24 @@ fn c5p1_associated_type_binding_preserves_value_and_ranges() {
 }
 
 #[test]
+fn intrinsic_type_member_declaration_parses_in_inherent_impl() {
+    let source = "impl Tuple { intrinsic type Entries: TupleEntries }\n";
+    let program = parse_source(source, 0).expect("intrinsic type member parses in inherent impl");
+    let Statement::Impl(impl_def) = &program.statements[0] else {
+        panic!("expected impl")
+    };
+    let ImplMember::TypeMember(member) = &impl_def.members[0] else {
+        panic!("expected impl type member")
+    };
+    assert_eq!(member.implementation, phalcom_common::modifier::ImplementationKind::Intrinsic);
+    assert!(matches!(member.selector, phalcom_ast::ast::TypeMemberSelectorSyntax::Named { ref name, .. } if name == "Entries"));
+    assert!(matches!(member.result, phalcom_ast::ast::TypeMemberResultSyntax::Kind(phalcom_ast::ast::KindSyntax::StaticDomain { .. })));
+
+    let conformance = "impl Marker for Tuple { intrinsic type Entries: TupleEntries }\n";
+    assert!(parse_source(conformance, 0).is_err(), "conformance impl cannot define intrinsic owner type members");
+}
+
+#[test]
 fn c5p1_direct_field_delegation_parses_in_class_and_impl() {
     let source = r#"class Counter {
   mut _count: Int

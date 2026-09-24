@@ -2731,16 +2731,34 @@ impl SemanticWorkspaceSession {
         let mut source_member_ids = BTreeSet::new();
         for (module_id, shard) in &self.semantic_structure_shards {
             for statement in &shard.source.program.statements {
-                let Statement::Class(class_def) = statement else { continue };
-                let owner = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                for member in &class_def.members {
-                    let ClassMember::TypeMember(definition) = member else { continue };
-                    let id = crate::types::type_member::TypeMemberDeclarationId::new(
-                        owner.clone(),
-                        crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector),
-                    );
-                    source_member_ids.insert(id.clone());
-                    member_definitions.insert(id, (module_id.clone(), definition));
+                match statement {
+                    Statement::Class(class_def) => {
+                        let owner = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        for member in &class_def.members {
+                            let ClassMember::TypeMember(definition) = member else { continue };
+                            let id = crate::types::type_member::TypeMemberDeclarationId::new(
+                                owner.clone(),
+                                crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector),
+                            );
+                            source_member_ids.insert(id.clone());
+                            member_definitions.insert(id, (module_id.clone(), definition));
+                        }
+                    }
+                    Statement::Impl(implementation) if matches!(implementation.kind, phalcom_ast::ast::ImplKind::Inherent) => {
+                        let Some(symbol) = implementation.target.origin_symbol_ref() else { continue };
+                        let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                        let Some(owner) = resolver.resolve_type_name(module_id, &symbol.root, &members) else { continue };
+                        for member in &implementation.members {
+                            let phalcom_ast::ast::ImplMember::TypeMember(definition) = member else { continue };
+                            let id = crate::types::type_member::TypeMemberDeclarationId::new(
+                                owner.clone(),
+                                crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector),
+                            );
+                            source_member_ids.insert(id.clone());
+                            member_definitions.insert(id, (module_id.clone(), definition));
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -8042,6 +8060,34 @@ fn build_source_associated_surfaces(
             current_impl_owners.insert(impl_id, owner.clone());
             let (shells, behavior_bases) = impl_shells.entry(owner.clone()).or_default();
             for member in &implementation.members {
+                if let phalcom_ast::ast::ImplMember::TypeMember(definition) = member {
+                    let selector = crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector);
+                    let base = match &selector {
+                        crate::types::type_member::TypeMemberSelector::Named(name) => {
+                            phalcom_common::selector::SelectorBase::Named(name.to_string())
+                        }
+                        crate::types::type_member::TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
+                    };
+                    let kind = if declarations
+                        .intrinsic_type_owner(&owner)
+                        .and_then(|owner| crate::types::type_member::lookup_intrinsic_type_operation(owner, &selector))
+                        .is_some()
+                    {
+                        crate::associated::AssociatedFamilyKind::IntrinsicTypeMember
+                    } else {
+                        crate::associated::AssociatedFamilyKind::TypeMember
+                    };
+                    shells.push(crate::associated::AssociatedMemberShell {
+                        base,
+                        kind,
+                        member: crate::associated::AssociatedMemberId::TypeMember(
+                            crate::types::type_member::TypeMemberDeclarationId::new(owner.clone(), selector),
+                        ),
+                        module: module_id.clone(),
+                        source_range: definition.range,
+                    });
+                    continue;
+                }
                 let Some(behavior) = member.behavior() else { continue };
                 let class_member = match behavior {
                     phalcom_ast::ast::BehaviorMember::Method(method) => phalcom_ast::ast::ClassMember::Method(method.clone()),
@@ -8418,7 +8464,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
                             phalcom_ast::ast::ImplMember::Behavior(behavior) => {
                                 collect_associated_projection_targets_from_behavior(behavior, module, surface, &mut context.associated_projection_targets);
                             }
-                            phalcom_ast::ast::ImplMember::Delegation(_) => {}
+                            phalcom_ast::ast::ImplMember::Delegation(_) | phalcom_ast::ast::ImplMember::TypeMember(_) => {}
                         }
                     }
                 }

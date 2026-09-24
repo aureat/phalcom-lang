@@ -8,7 +8,7 @@ use phalcom_modules::builtin::UniverseSourceProvider;
 use phalcom_modules::identity::{ModuleId, ModulePath};
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
 use phalcom_modules::{FilesystemSourceProvider, ModuleResolver, ProjectUniverse};
-use phalcom_native_meta::{NativeDispatch, NativeVisibility, UniverseKey};
+use phalcom_native_meta::{NativeDispatch, NativeVisibility, UNIVERSE_CLASS_RELATIONS, UniverseKey};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
@@ -334,10 +334,70 @@ impl NativeSourceIndex {
         for stmt in &program.statements {
             match stmt {
                 Statement::Class(class_def) => self.index_class(module, class_def)?,
+                Statement::Data(data_def)
+                    if data_def.phase == phalcom_ast::ast::AlgebraicPhase::Runtime
+                        && data_def.implementation == ImplementationKind::Intrinsic =>
+                {
+                    self.index_intrinsic_runtime_data(module, data_def)?;
+                }
                 Statement::Data(data_def) if data_def.is_sum() => self.index_enum(module, data_def)?,
                 Statement::Impl(impl_def) => self.index_impl(module, impl_def)?,
                 _ => {}
             }
+        }
+        Ok(())
+    }
+
+    fn index_intrinsic_runtime_data(&mut self, module: &ModuleId, data_def: &phalcom_ast::ast::DataDef) -> Result<(), String> {
+        let named_key = UniverseKey::from_name(&data_def.name);
+        let universe_key = named_key.filter(|key| {
+            matches!(key, UniverseKey::Unit | UniverseKey::Tuple | UniverseKey::Record)
+                && module.path
+                    == ModulePath::from_components(
+                        key.source_path()
+                            .iter()
+                            .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("valid component"))
+                            .collect::<Vec<_>>(),
+                    )
+        });
+        let Some(key) = universe_key else {
+            return Err(format!("intrinsic runtime data {} is not a canonical Unit/Tuple/Record source declaration", data_def.name));
+        };
+        let superclass = UNIVERSE_CLASS_RELATIONS
+            .iter()
+            .find(|relation| relation.class == key)
+            .and_then(|relation| relation.superclass)
+            .map(|superclass| superclass.name().to_owned());
+        let row = UniverseClassRow {
+            module: module.clone(),
+            name: data_def.name.clone(),
+            range: data_def.range,
+            universe_key: Some(key),
+            native: true,
+            superclass: superclass.clone(),
+            documented: false,
+        };
+        if self.census.classes.iter().any(|existing| existing.universe_key == Some(key)) {
+            return Err(format!("duplicate universe class presentation for {}", key.name()));
+        }
+        self.presentations.insert(key, row);
+        self.census.classes.push(UniverseClassRow {
+            module: module.clone(),
+            name: data_def.name.clone(),
+            range: data_def.range,
+            universe_key: Some(key),
+            native: true,
+            superclass: superclass.clone(),
+            documented: false,
+        });
+        let anchor = NativeClassAnchor {
+            name: data_def.name.clone(),
+            universe_key: key,
+            superclass,
+            range: data_def.range,
+        };
+        if self.classes.insert(key, anchor).is_some() {
+            return Err(format!("duplicate native class anchor for {}", key.name()));
         }
         Ok(())
     }
@@ -785,6 +845,30 @@ mod tests {
 
         let runtime = parse_program("intrinsic data Unit()\n");
         assert!(is_runtime_bootstrap_root_statement(runtime.statements.first().expect("runtime declaration")));
+    }
+
+    #[test]
+    fn intrinsic_runtime_facade_anchors_existing_native_class_and_impl_members() {
+        let program = parse_program(
+            "intrinsic data Tuple<***Es>\nimpl Tuple<***Es> {\n  internal native rawSize -> Int\n}\n",
+        );
+        let module = ModuleId::universe(ModulePath::from_components(
+            ["collections", "tuple"]
+                .into_iter()
+                .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
+                .collect::<Vec<_>>(),
+        ));
+        let index = NativeSourceIndex::from_program_at(&module, &program).expect("intrinsic runtime facade indexes");
+        let class = index.presentations.get(&UniverseKey::Tuple).expect("canonical Tuple presentation");
+        assert_eq!(class.superclass.as_deref(), Some("Collection"));
+        assert!(index.classes.contains_key(&UniverseKey::Tuple));
+        let key = NativeMemberKey {
+            owner: UniverseKey::Tuple,
+            side: NativeDispatch::Instance,
+            selector: "rawSize".to_owned(),
+        };
+        assert!(index.members.contains_key(&key), "impl member retains its native source anchor");
+        assert!(!index.census.classes.iter().any(|row| row.universe_key == Some(UniverseKey::Tuple) && !row.native));
     }
 
     #[test]

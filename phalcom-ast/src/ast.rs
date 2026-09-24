@@ -608,6 +608,9 @@ pub enum ImplMember {
     Delegation(DelegatedAccessorDef),
     /// An associated type binding.
     AssociatedTypeBinding(AssociatedTypeBinding),
+    /// An owner-qualified type member declaration. The declaration identity
+    /// remains owner plus selector and is published through AssociatedSurface.
+    TypeMember(TypeMemberDef),
 }
 
 impl ImplMember {
@@ -615,7 +618,7 @@ impl ImplMember {
     pub fn behavior(&self) -> Option<&BehaviorMember> {
         match self {
             Self::Behavior(member) => Some(member),
-            Self::Delegation(_) | Self::AssociatedTypeBinding(_) => None,
+            Self::Delegation(_) | Self::AssociatedTypeBinding(_) | Self::TypeMember(_) => None,
         }
     }
 
@@ -625,6 +628,7 @@ impl ImplMember {
             Self::Behavior(member) => member.range(),
             Self::Delegation(delegation) => delegation.range,
             Self::AssociatedTypeBinding(binding) => binding.range,
+            Self::TypeMember(member) => member.range,
         }
     }
 
@@ -634,6 +638,7 @@ impl ImplMember {
             Self::Behavior(member) => member.name_range(),
             Self::Delegation(delegation) => delegation.name_range,
             Self::AssociatedTypeBinding(binding) => binding.name_range,
+            Self::TypeMember(member) => member.selector.range(),
         }
     }
 }

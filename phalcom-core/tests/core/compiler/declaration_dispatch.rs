@@ -9,8 +9,11 @@ use phalcom_core::heap::Object;
 use phalcom_core::interpret::Interpreter;
 use phalcom_core::method::{MethodKind, RestLayout, RestMode};
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+use phalcom_core::modules::semantic_lowering::{IntrinsicRuntimeFacadeLoweringSpec, ModuleLoweringSemantics};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath};
+use phalcom_semantic::declarations::IntrinsicRuntimeOwner;
 use std::sync::Arc;
 
 fn native_stub(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -177,6 +180,42 @@ let result = Receiver.new().collect(*(1..=3))
     .expect("canonical Iterable spread should compile");
     let mut vm = VM::new();
     vm.run_compiled(&program).expect("canonical Iterable spread should execute");
+}
+
+#[test]
+fn intrinsic_unit_facade_reuses_the_preinstalled_runtime_class() {
+    let mut vm = VM::new();
+    let module_id = ModuleId::universe(ModulePath::from_components(
+        ["option", "unit"]
+            .into_iter()
+            .map(|part| ModuleComponent::from_identifier(part).expect("valid module component"))
+            .collect::<Vec<_>>(),
+    ));
+    let module = vm
+        .module_registry
+        .get(&module_id)
+        .expect("Unit source module is materialized")
+        .object;
+    let before = vm.universe_global(&["option", "unit"], "Unit").expect("Unit is bootstrapped");
+    let declaration = DeclarationId::new(module_id.clone(), "Unit".into());
+    let mut lowering = ModuleLoweringSemantics::new(module_id);
+    lowering.intrinsic_runtime_facades = vec![IntrinsicRuntimeFacadeLoweringSpec {
+        declaration,
+        owner: IntrinsicRuntimeOwner::Unit,
+    }]
+    .into_boxed_slice();
+    vm.heap.module_mut(module).lowering = Some(Arc::new(lowering));
+
+    // Recompile a replacement to exercise the compiler path after canonical
+    // Universe bootstrap has already loaded the migrated Unit source facade.
+    let closure = vm
+        .compile_closure_as(module, "intrinsic data Unit()\n", UnitKind::Repl)
+        .expect("intrinsic Unit facade compiles against its existing owner");
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(!code.iter().any(|op| matches!(op, phalcom_core::bytecode::Bytecode::Data(_) | phalcom_core::bytecode::Bytecode::FinalizeData(_))));
+    vm.run_cell(module, closure).expect("facade rebind executes");
+    let after = vm.universe_global(&["option", "unit"], "Unit").expect("Unit binding remains present");
+    assert_eq!(after, before, "the source facade must reuse the canonical runtime class object");
 }
 
 // --- Duplicate Selector Checks ---

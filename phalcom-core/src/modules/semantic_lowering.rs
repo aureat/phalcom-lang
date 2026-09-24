@@ -194,6 +194,14 @@ pub struct DataDeclarationLoweringSpec {
     pub components: Box<[DataComponentLoweringSpec]>,
 }
 
+/// Canonical source declaration bound to an existing runtime structural owner.
+/// The compiler uses this association to reuse the preinstalled Universe class.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IntrinsicRuntimeFacadeLoweringSpec {
+    pub declaration: DeclarationId,
+    pub owner: phalcom_semantic::declarations::IntrinsicRuntimeOwner,
+}
+
 /// Data construction lowering specification.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DataConstructionLoweringSpec {
@@ -492,6 +500,7 @@ pub struct ModuleLoweringSemantics {
     pub call_environment_recipes: BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
     pub enums: Box<[EnumLoweringSpec]>,
     pub data_decls: Box<[DataDeclarationLoweringSpec]>,
+    pub intrinsic_runtime_facades: Box<[IntrinsicRuntimeFacadeLoweringSpec]>,
     pub inherent_impls: Box<[InherentImplLoweringSpec]>,
     pub associated: BTreeMap<LoweringSite, AssociatedLoweringSpec>,
     pub callable_references: BTreeMap<LoweringSite, CallableReferenceLoweringSpec>,
@@ -547,6 +556,7 @@ impl ModuleLoweringSemantics {
             call_environment_recipes: BTreeMap::new(),
             enums: Box::new([]),
             data_decls: Box::new([]),
+            intrinsic_runtime_facades: Box::new([]),
             inherent_impls: Box::new([]),
             associated: BTreeMap::new(),
             callable_references: BTreeMap::new(),
@@ -869,6 +879,17 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         });
     }
     data_decls.sort_by(|a, b| a.owner.cmp(&b.owner));
+
+    let mut intrinsic_runtime_facades = snapshot
+        .declarations
+        .intrinsic_runtime_declarations()
+        .filter(|(declaration, _)| &declaration.module == module)
+        .map(|(declaration, owner)| IntrinsicRuntimeFacadeLoweringSpec {
+            declaration: declaration.clone(),
+            owner,
+        })
+        .collect::<Vec<_>>();
+    intrinsic_runtime_facades.sort_by(|a, b| a.declaration.cmp(&b.declaration));
 
     // 2b. Project the semantic owner's exact accepted inherent definitions.
     // Source locations locate bodies; they never establish authorization.
@@ -1293,6 +1314,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         call_environment_recipes: runtime_call_environment_recipes.clone(),
         enums: enums.into_boxed_slice(),
         data_decls: data_decls.into_boxed_slice(),
+        intrinsic_runtime_facades: intrinsic_runtime_facades.into_boxed_slice(),
         inherent_impls: inherent_impls.into_boxed_slice(),
         associated,
         callable_references,

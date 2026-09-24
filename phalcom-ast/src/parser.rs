@@ -4067,7 +4067,7 @@ impl<'source> Parser<'source> {
                 self.skip_newlines();
                 continue;
             }
-            let member = self.parse_impl_member(std::mem::take(&mut pending_attrs))?;
+            let member = self.parse_impl_member(std::mem::take(&mut pending_attrs), matches!(&kind, ImplKind::Inherent))?;
             members.push(member);
             self.skip_newlines();
         }
@@ -4894,7 +4894,23 @@ impl<'source> Parser<'source> {
 
     /// Parses an impl member, preserving non-behavior categories for later
     /// semantic elaboration while retaining the existing behavior grammar.
-    fn parse_impl_member(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<ImplMember> {
+    fn parse_impl_member(&mut self, pending_attrs: Vec<Attribute>, is_inherent: bool) -> ParserResult<ImplMember> {
+        if matches!(self.peek(), Token::Intrinsic) && matches!(self.peek_next(), Token::TypeKw) {
+            let modifiers = self.parse_declaration_modifiers()?;
+            let start = modifiers.implementation_range.map_or_else(|| self.cur_start(), |range| range.start);
+            if !is_inherent {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("intrinsic type members are only allowed in inherent impls".to_string()),
+                    range: start..self.prev_end,
+                });
+            }
+            self.expect(&Token::TypeKw, &["\"type\""])?;
+            let ClassMember::TypeMember(mut member) = self.parse_type_member_decl(start, modifiers)? else {
+                unreachable!("type-member parser returns ClassMember::TypeMember")
+            };
+            member.attributes = pending_attrs;
+            return Ok(ImplMember::TypeMember(member));
+        }
         if matches!(self.peek(), Token::TypeKw) {
             return self.parse_associated_type_binding(pending_attrs);
         }
@@ -5615,7 +5631,7 @@ impl<'source> Parser<'source> {
     fn looks_like_kind_expression(&self) -> bool {
         match self.peek() {
             Token::LParen => true,
-            Token::Identifier(s) => s == "Type" || s == "RecordRow" || s == "TypePack" || s == "LabeledTypePack",
+            Token::Identifier(s) => s == "Type" || s == "RecordRow" || s == "TypePack" || s == "LabeledTypePack" || s == "TupleEntries",
             _ => false,
         }
     }
