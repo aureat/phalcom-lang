@@ -1,10 +1,11 @@
-data CheckoutServices<F, Fx, Exec, Gateway>
-where
+data CheckoutServices<
     F: Type -> Type,
     Fx: Effect<F>,
     Exec: CommandExecutor<F>,
+    Gateway: PaymentGateway<F, Count(3)>
+>
+where
     Exec::Error == InfrastructureError,
-    Gateway: PaymentGateway<F, Count(3)>,
     Gateway::Error == PaymentError
 {
     effects: Fx

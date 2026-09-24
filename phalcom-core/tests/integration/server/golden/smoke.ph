@@ -8,11 +8,11 @@ runTasks1Through10Smoke -> Result<SmokeResult, String> {
     let draft = FixtureFactory.draftOrder
 
     let submitted = match submit(draft) {
-        .Err(_) => {
-            return .Err("submit failed")
+        Err(_) => {
+            return Err("submit failed")
         }
 
-        .Ok(value) => value
+        Ok(value) => value
     }
 
     expectType<Order<Submitted>>(submitted)
@@ -22,11 +22,11 @@ runTasks1Through10Smoke -> Result<SmokeResult, String> {
     }
 
     let paid = match pay(submitted, authorization) {
-        .Err(_) => {
-            return .Err("payment failed")
+        Err(_) => {
+            return Err("payment failed")
         }
 
-        .Ok(value) => value
+        Ok(value) => value
     }
 
     expectType<Order<Paid>>(paid)
@@ -60,7 +60,7 @@ runTasks1Through10Smoke -> Result<SmokeResult, String> {
     }
     expectType<RetryPolicy<Count(3)>>(retry)
 
-    .Ok(
+    Ok(
         SmokeResult {
             orderId: paid.id,
             finalOrder: paid,

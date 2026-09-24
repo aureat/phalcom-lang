@@ -10,9 +10,7 @@ prepareCheckoutContext<
     {
         requestId: RequestId,
         user: User,
-        params: {
-            orderId: OrderId
-        },
+        params: { orderId: OrderId },
         body: CheckoutRequest,
         method: Method,
         path: String,
