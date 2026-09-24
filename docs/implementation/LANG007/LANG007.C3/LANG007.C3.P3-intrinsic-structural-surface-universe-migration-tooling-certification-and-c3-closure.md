@@ -603,51 +603,51 @@ P3 may begin only if the completed-P2 tree and handoff establish all of the foll
 #### Canonical static term/application substrate
 
 ```text
-[ ] TypeId remains canonical for non-row static terms
-[ ] ProperTypeId still proves KindId::TYPE
-[ ] StaticDomainId is canonical for user nominal static domains
-[ ] StaticArgument is the canonical heterogeneous application envelope
-[ ] TypeData::Applied preserves heterogeneous arguments
-[ ] RecordRow remains row-owned
-[ ] generic binder domains use one KindId classification system
+[x] TypeId remains canonical for non-row static terms
+[x] ProperTypeId still proves KindId::TYPE
+[x] StaticDomainId is canonical for user nominal static domains
+[x] StaticArgument is the canonical heterogeneous application envelope
+[x] TypeData::Applied preserves heterogeneous arguments
+[x] RecordRow remains row-owned
+[x] generic binder domains use one KindId classification system
 ```
 
 #### Static inference/substitution
 
 ```text
-[ ] non-row static inference reuses InferVarId(kind)
-[ ] type-data unification is structural/first-order
-[ ] checked substitution/materialization re-canonicalizes
-[ ] static aliases/result domains work
-[ ] type-member Int/user-domain semantics use canonical static terms
+[x] non-row static inference reuses InferVarId(kind)
+[x] type-data unification is structural/first-order
+[x] checked substitution/materialization re-canonicalizes
+[x] static aliases/result domains work
+[x] type-member Int/user-domain semantics use canonical static terms
 ```
 
 #### Associated domains
 
 ```text
-[ ] associated type-data declarations exist
-[ ] associated-domain declaration identity is stable
-[ ] generic-owner specialization is declaration + canonical environment
-[ ] AssociatedSurface owns :: collision/lookup semantics
-[ ] source index can attach associated static identities
+[x] associated type-data declarations exist
+[x] associated-domain declaration identity is stable
+[x] generic-owner specialization is declaration + canonical environment
+[x] AssociatedSurface owns :: collision/lookup semantics
+[x] source index can attach associated static identities
 ```
 
 #### Persistence
 
 ```text
-[ ] static domains/terms/applications round-trip through stable metadata
-[ ] imported static domains preserve identity
-[ ] incremental and cold P2 products converge
-[ ] query-local IDs do not enter durable products
+[x] static domains/terms/applications round-trip through stable metadata
+[x] imported static domains preserve identity
+[x] incremental and cold P2 products converge
+[x] query-local IDs do not enter durable products
 ```
 
 #### Runtime boundary
 
 ```text
-[ ] type-data terms have no runtime inhabitants
-[ ] no VM static solver exists
-[ ] arbitrary runtime code is not executed for static identity
-[ ] runtime proper-Type consumers still validate ProperType
+[x] type-data terms have no runtime inhabitants
+[x] no VM static solver exists
+[x] arbitrary runtime code is not executed for static identity
+[x] runtime proper-Type consumers still validate ProperType
 ```
 
 If any item is false, P3 stops. Do not implement the missing semantic substrate locally in P3.
@@ -1860,13 +1860,13 @@ All P3 feature/runtime/LSP/corpus tests.
 T1 passes when:
 
 ```text
-[ ] P1/P2 lifecycle states are confirmed
-[ ] every §6.1 predecessor contract item is true
-[ ] completed-P2 revision is recorded
-[ ] migration census/manifest is exact enough to execute T2–T8
-[ ] actual baseline failures are recorded
-[ ] bootstrap/resource baseline is available
-[ ] checkpoint says P3 active
+[x] P1/P2 lifecycle states are confirmed
+[x] every §6.1 predecessor contract item is true
+[x] completed-P2 revision is recorded
+[x] migration census/manifest is exact enough to execute T2–T8
+[x] actual baseline failures are recorded
+[x] bootstrap/resource baseline is available
+[x] checkpoint says P3 active
 ```
 
 ### Local STOP / CONSULT triggers
@@ -2254,12 +2254,22 @@ Option/Result/Ordering migration, enum parser retirement, full LSP, full workspa
 ### Acceptance
 
 ```text
-[ ] canonical source uses intrinsic data for Unit/Tuple/Record
-[ ] semantic/runtime identities are unchanged
-[ ] behavior moved to impl where required without identity churn
-[ ] specialized runtime representations are unchanged
-[ ] runtime class relations/census remain exact
+[x] canonical source uses intrinsic data for Unit/Tuple/Record
+[x] semantic/runtime identities are unchanged
+[x] behavior moved to impl where required without identity churn
+[x] specialized runtime representations are unchanged
+[x] runtime class relations/census remain exact
 ```
+
+G4: PASS after the adopted INC-C3-14/P4 correction separated intrinsic
+semantic application from runtime/native ownership. Unit/Tuple/Record retain
+their canonical representations; Tuple application consumes
+`CompleteTypePack` through `TupleFromPacks`, Record retains `RecordRowId`, and
+native imports resolve the existing runtime class. Evidence is in the P4
+walkthrough and checkpoint §23: all 51 type-annotation tests, native Tuple
+owner import, Unit preinstalled-class reuse, type-member closure (10), and
+incremental type-members (24) passed. The runtime migration and census evidence
+from the P3 G4 closeout remain recorded in checkpoint §21.
 
 ### Local STOP / CONSULT triggers
 
@@ -2368,12 +2378,21 @@ Final enum rejection tests (T7), full LSP/editor, final workspace build.
 ### Acceptance
 
 ```text
-[ ] Option/Result/Ordering use canonical data source syntax
-[ ] their semantic/runtime identities are preserved
-[ ] all active positive first-party .ph enum declarations are migrated
-[ ] mature ADT/GADT behavior remains green
-[ ] only explicit negative/historical/non-Phalcom uses of "enum" remain
+[x] Option/Result/Ordering use canonical data source syntax
+[x] their semantic/runtime identities are preserved
+[x] all active positive first-party .ph enum declarations are migrated
+[x] mature ADT/GADT behavior remains green
+[x] only explicit negative/historical/non-Phalcom uses of "enum" remain
 ```
+
+Category G census disposition: `examples/phalcom_parser.ph` and
+`examples/phalcom-parser/` are explicitly labeled design/implementation
+drafts, are not referenced by a workspace/package/test entrypoint, and are not
+active compiler or language-corpus inputs. Their internal enum-oriented
+sketches are retained as historical design material; they do not define the
+current source grammar. The only other `.ph` match is the editor highlighting
+fixture comment. The final source scan found no positive `.ph` enum declaration
+forms. The P3 census manifest in the checkpoint records this treatment.
 
 ### Local STOP / CONSULT triggers
 
@@ -2543,11 +2562,11 @@ Final enum lexer/parser retirement and full checkpoint certification.
 ### Acceptance
 
 ```text
-[ ] no user-facing current Enum declaration category remains
-[ ] all final C3 target categories have canonical source identities
-[ ] rename/prepareRename use semantic target/reference products only
-[ ] hover/def/refs/completion agree on targets
-[ ] semantic tokens/grammar reflect final C3 terminology
+[x] no user-facing current Enum declaration category remains
+[x] all final C3 target categories have canonical source identities
+[x] rename/prepareRename use semantic target/reference products only
+[x] hover/def/refs/completion agree on targets
+[x] semantic tokens/grammar reflect final C3 terminology
 ```
 
 ### Local STOP / CONSULT triggers
@@ -2665,11 +2684,11 @@ Full metadata/incremental/runtime/resource certification and workspace build unt
 ### Acceptance
 
 ```text
-[ ] active positive source census remains clean
-[ ] no accepted semantic enum declaration path exists
-[ ] final data syntax covers all accepted runtime sums/GADTs
-[ ] old enum tests now prove rejection/retirement
-[ ] editor/token classifiers no longer present enum as current syntax
+[x] active positive source census remains clean
+[x] no accepted semantic enum declaration path exists
+[x] final data syntax covers all accepted runtime sums/GADTs
+[x] old enum tests now prove rejection/retirement
+[x] editor/token classifiers no longer present enum as current syntax
 ```
 
 ### Local STOP / CONSULT triggers
@@ -2769,12 +2788,20 @@ Final full C3 certification gate in T9.
 ### Acceptance
 
 ```text
-[ ] docs/specs ownership map is coherent
-[ ] no active authoritative spec describes enum as canonical sum declaration
-[ ] data Product/Sum semantics are current
-[ ] type data / intrinsic facades / TupleEntries / associated type data are documented
-[ ] historical trees remain historical
+[x] docs/specs ownership map is coherent
+[x] no active authoritative spec describes enum as canonical sum declaration
+[x] data Product/Sum semantics are current
+[x] type data / intrinsic facades / TupleEntries / associated type data are documented
+[x] historical trees remain historical
 ```
+
+G8 closeout audit found that `objects/enums.md` already declared `data` as the
+current syntax but retained several normative phrases referring to an “enum
+declaration.” Those phrases were revised to identify the sum-shaped `data`
+declaration as the owner; the document now explicitly distinguishes the
+closed-sum language category from remaining runtime/semantic uses of “enum.”
+The Universe spec's source-semantic reference now uses “closed-sum/case.” The
+README ownership map continues to assign closed sums to this sole owner.
 
 ### Local STOP / CONSULT triggers
 
@@ -3761,127 +3788,127 @@ P3 may be marked complete only when all are true:
 ### Predecessors
 
 ```text
-[ ] P1 complete / implemented / focused-tested
-[ ] P2 complete / implemented / focused-tested
-[ ] completed-P2 hard predecessor contract verified
+[x] P1 complete / implemented / focused-tested
+[x] P2 complete / implemented / focused-tested
+[x] completed-P2 hard predecessor contract verified
 ```
 
 ### Language surface
 
 ```text
-[ ] data is canonical runtime Product/Sum keyword
-[ ] type data is canonical TypeOnly static-domain form
-[ ] enum declaration syntax is no longer accepted
-[ ] intrinsic data/type-data structural facades are source-visible
+[x] data is canonical runtime Product/Sum keyword
+[x] type data is canonical TypeOnly static-domain form
+[x] enum declaration syntax is no longer accepted
+[x] intrinsic data/type-data structural facades are source-visible
 ```
 
 ### Structural static domains
 
 ```text
-[ ] TypePack facade maps to TypePack authority
-[ ] LabeledTypePack facade maps to LabeledTypePack authority
-[ ] TupleEntries facade maps to CompleteTypePack
-[ ] RecordRow facade maps to row authority
-[ ] no duplicate structural static domains exist
+[x] TypePack facade maps to TypePack authority
+[x] LabeledTypePack facade maps to LabeledTypePack authority
+[x] TupleEntries facade maps to CompleteTypePack
+[x] RecordRow facade maps to row authority
+[x] no duplicate structural static domains exist
 ```
 
 ### Structural runtime data
 
 ```text
-[ ] Unit facade preserves Unit identity/runtime
-[ ] Tuple facade preserves structural Tuple identity/runtime
-[ ] Record facade preserves row-backed Record identity/runtime
-[ ] no generic DataObject migration occurred
+[x] Unit facade preserves Unit identity/runtime
+[x] Tuple facade preserves structural Tuple identity/runtime
+[x] Record facade preserves row-backed Record identity/runtime
+[x] no generic DataObject migration occurred
 ```
 
 ### Structural members
 
 ```text
-[ ] Tuple::Entries exists
-[ ] Entries == complete pack projection
-[ ] Positionals/Labeled/At/Map preserved
-[ ] structural domain Map members preserved
-[ ] source anchors use canonical member identity
-[ ] * / ** / *** equivalences certified
+[x] Tuple::Entries exists
+[x] Entries == complete pack projection
+[x] Positionals/Labeled/At/Map preserved
+[x] structural domain Map members preserved
+[x] source anchors use canonical member identity
+[x] * / ** / *** equivalences certified
 ```
 
 ### Runtime sums/corpus
 
 ```text
-[ ] Option migrated to data with identity preserved
-[ ] Result migrated to data with identity preserved
-[ ] Ordering migrated to data with identity preserved
-[ ] all active positive Universe enums migrated
-[ ] all active first-party positive .ph enums migrated
-[ ] exact-case/GADT behavior preserved
+[x] Option migrated to data with identity preserved
+[x] Result migrated to data with identity preserved
+[x] Ordering migrated to data with identity preserved
+[x] all active positive Universe enums migrated
+[x] all active first-party positive .ph enums migrated
+[x] exact-case/GADT behavior preserved
 ```
 
 ### P2 semantics
 
 ```text
-[ ] heterogeneous application still passes
-[ ] static inference still passes
-[ ] aliases/type members still pass
-[ ] associated type data still passes
-[ ] trait unsupported boundary still explicit where applicable
+[x] heterogeneous application still passes
+[x] static inference still passes
+[x] aliases/type members still pass
+[x] associated type data still passes
+[x] trait unsupported boundary still explicit where applicable
 ```
 
 ### Persistence/incremental
 
 ```text
-[ ] metadata round trip passes
-[ ] stable declaration identity passes
-[ ] interface fingerprints are intentional
-[ ] no raw local IDs are serialized
-[ ] cold/incremental parity passes
-[ ] no global invalidation workaround exists
+[x] metadata round trip passes
+[x] stable declaration identity passes
+[x] interface fingerprints are intentional
+[x] no raw local IDs are serialized
+[x] cold/incremental parity passes
+[x] no global invalidation workaround exists
 ```
 
 ### Tooling
 
 ```text
-[ ] source-index final categories/targets exist
-[ ] hover passes
-[ ] definition passes
-[ ] references pass
-[ ] completion passes
-[ ] prepareRename/rename pass
-[ ] diagnostics pass
-[ ] semantic tokens pass
-[ ] VS Code grammar is current
+[x] source-index final categories/targets exist
+[x] hover passes
+[x] definition passes
+[x] references pass
+[x] completion passes
+[x] prepareRename/rename pass
+[x] diagnostics pass
+[x] semantic tokens pass
+[x] VS Code grammar is current
 ```
 
 ### Specs
 
 ```text
-[ ] docs/specs ownership map is coherent
-[ ] no active authoritative enum-as-canonical specification remains
-[ ] type-level/type-member/associated/structural/Universe specs reflect final C3
+[x] docs/specs ownership map is coherent
+[x] no active authoritative enum-as-canonical specification remains
+[x] type-level/type-member/associated/structural/Universe specs reflect final C3
 ```
 
 ### Runtime/resource
 
 ```text
-[ ] no runtime TypeOnly inhabitants/classes
-[ ] no static VM solver/opcodes
-[ ] Tuple/Record/Option representations preserved
-[ ] Unit identity preserved
-[ ] Universe bootstrap/resource evidence acceptable
-[ ] ordinary static operations remain within accepted complexity
+[x] no runtime TypeOnly inhabitants/classes
+[x] no static VM solver/opcodes
+[x] Tuple/Record/Option representations preserved
+[x] Unit identity preserved
+[x] Universe bootstrap/resource evidence acceptable
+[x] ordinary static operations remain within accepted complexity
 ```
 
 ### Verification/lifecycle
 
 ```text
-[ ] all mandatory P3 gates passed
-[ ] A/B failures resolved or architecturally escalated
-[ ] acceptance-overlapping C failures resolved
-[ ] deferred D failures recorded
-[ ] P3 walkthrough complete
-[ ] P3 handoff complete
-[ ] C3 checkpoint record truthful
-[ ] PROGRAM.md / STATUS.md truthful
-[ ] next LANG007 action explicit
+[x] all mandatory P3 gates passed
+[x] A/B failures resolved or architecturally escalated
+[x] acceptance-overlapping C failures resolved
+[x] deferred D failures recorded
+[x] P3 walkthrough complete
+[x] P3 handoff complete
+[x] C3 checkpoint record truthful
+[x] PROGRAM.md / STATUS.md truthful
+[x] next LANG007 action explicit
 ```
 
 Only then may:

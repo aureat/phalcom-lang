@@ -650,7 +650,8 @@ reflection
 
 The runtime must not allocate another closed-sum root merely because generic ADT registration also needs a class.
 
-Variant behavior classes may be distinct runtime objects, but they must attach to the same canonical enum/variant semantics.
+Variant behavior classes may be distinct runtime objects, but they must attach
+to the same canonical closed-sum/case semantics.
 
 ### 10.2 Intrinsic structural facades
 
@@ -767,7 +768,7 @@ module:      universe.scalar.number
 source:      phalcom://universe/scalar/number
 ```
 
-Reflecting on `Result<T,E>` preserves its enum identity, generic parameters, exact module, variants, and relevant native/runtime implementation metadata.
+Reflecting on `Result<T,E>` preserves its closed-sum identity, generic parameters, exact module, cases, and relevant native/runtime implementation metadata.
 
 Reflection must not expose obsolete semantic ownership such as a `core` module or separate `builtin_std` project.
 
@@ -1104,9 +1105,9 @@ The exact repository organization may change, but responsibility should remain a
 | declaration identity | module + semantic identity |
 | prelude mapping | semantic/bootstrap policy |
 | nominal/generic type meaning | semantic analyzer |
-| enum/variant semantic identity | semantic analyzer |
+| closed-sum/case semantic identity | semantic analyzer |
 | executable ADT identity lowering | semantic lowering |
-| runtime enum/class association | VM/runtime ADT registry |
+| runtime closed-sum/class association | VM/runtime ADT registry |
 | native implementation association | canonical native metadata plus the category-appropriate compiler/runtime registry |
 | source definitions/occurrences | semantic source index |
 | canonical Universe URI codec | module system |

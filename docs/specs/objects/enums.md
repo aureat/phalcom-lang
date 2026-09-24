@@ -9,6 +9,11 @@ ordinary identifier and is not a Phalcom declaration keyword. This document
 owns closed-sum behavior; it does not define a second algebraic declaration
 category.
 
+In this document, **closed sum** names the language semantic category and its
+root type. Remaining uses of *enum* in descriptive terms such as *enum root*
+refer to the corresponding runtime/semantic concept, not to source syntax or
+a distinct declaration category. The filename is retained for stable links.
+
 ## Overview
 
 A `data` declaration with a sum body introduces a **nominal closed sum type**. The declaration defines the complete set of cases that constitute the sum. Each case has its own semantic identity and may carry a payload whose components form that case's product state.
@@ -88,7 +93,7 @@ Behavioral methods, getters, setters, index behavior, root requirements, and roo
 >
 > The data body defines the closed sum. It does not serve as a mixed representation-and-behavior body.
 
-## Enum root type
+## Closed-sum root type
 
 The type introduced by the sum-shaped data declaration is the **closed-sum root type**.
 
@@ -189,7 +194,8 @@ Closed-case behavior completeness is quantified over applicable exact cases. Thi
 
 ## The variant set is closed
 
-The variants declared in an enum declaration form the complete variant set of that enum.
+The cases declared by a sum-shaped `data` declaration form the complete case
+set of that closed sum.
 
 ```phalcom
 data Direction {
@@ -206,7 +212,8 @@ The set of variants is therefore available to static reasoning such as exhaustiv
 
 > **Closed-world invariant**
 >
-> The variant set belongs exclusively to the enum declaration and cannot be extended by behavior declarations.
+> The case set belongs exclusively to the sum-shaped `data` declaration and
+> cannot be extended by behavior declarations.
 
 ## Variant order and identity
 
@@ -280,7 +287,8 @@ Construction and pattern matching operate on logical component identity and argu
 
 ## Associated construction
 
-A payload-bearing variant is constructed through associated lookup on the enum declaration.
+A payload-bearing case is constructed through associated lookup on its
+sum-shaped `data` declaration.
 
 ```phalcom
 Option::Some(42)
@@ -519,7 +527,8 @@ The exact exhaustiveness algorithm is not part of the source-language contract, 
 
 Where type refinement proves that a variant cannot occur for a particular scrutinee type, the corresponding pattern may be diagnosed as unreachable according to the general pattern-matching rules.
 
-Moving behavior out of enum declarations does not change pattern semantics.
+Moving behavior out of sum-shaped `data` declarations does not change pattern
+semantics.
 
 > **Separation invariant**
 >
@@ -527,11 +536,11 @@ Moving behavior out of enum declarations does not change pattern semantics.
 
 ---
 
-# Behavior Outside the Enum Declaration
+# Behavior Outside the Data Declaration
 
 Enum behavior is declared using implementation declarations.
 
-The enum declaration remains variants-only.
+The sum-shaped `data` declaration remains cases-only.
 
 For the root:
 
@@ -1012,7 +1021,8 @@ Enum root and exact-case `impl` declarations follow the general ownership/cohere
 
 They do not create open enums or runtime extension semantics.
 
-Loading another module must not mutate the canonical enum behavior surface through import order.
+Loading another module must not mutate the canonical closed-sum behavior
+surface through import order.
 
 An exact-case `impl` may contribute behavior to the exact case, but it cannot:
 
@@ -1048,7 +1058,7 @@ The physical representation of a variant does not define its semantic identity.
 The following concepts remain distinct:
 
 ```text
-enum declaration identity
+sum-shaped data declaration identity
 variant identity
 exact-case type identity
 runtime variant identity
@@ -1150,7 +1160,7 @@ Where Phalcom reflection exposes enum semantics, it must preserve the distinctio
 
 Reflection must be capable, through the broader reflection model, of distinguishing:
 
-- the enum declaration;
+- the sum-shaped `data` declaration;
 - an exact applied enum type;
 - a variant declaration;
 - an exact-case type or equivalent case descriptor;
@@ -1238,7 +1248,8 @@ The following categories are invalid under the enum semantics defined here.
 
 ## Behavior inside the enum body
 
-Under the variants-only model, ordinary behavioral declarations do not belong inside the enum declaration body.
+Under the cases-only model, ordinary behavioral declarations do not belong
+inside the sum-shaped `data` declaration body.
 
 Legacy syntax, if temporarily supported for migration, is not part of the normative language model described by this specification.
 
@@ -1342,7 +1353,8 @@ The representation-independence requirements of this document still apply to any
 
 ## Stable ABI and discriminants
 
-No stable numeric discriminant or binary layout is implied by an ordinary enum declaration.
+No stable numeric discriminant or binary layout is implied by an ordinary
+sum-shaped `data` declaration.
 
 Any FFI or stable-representation feature requires a separate explicit language contract.
 

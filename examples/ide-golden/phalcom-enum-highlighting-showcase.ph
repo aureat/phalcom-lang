@@ -1,5 +1,5 @@
-// Enum / ADT / GADT syntax-highlighting showcase.
-// This file intentionally contains competing enum syntaxes for visual comparison.
+// Closed-sum / GADT syntax-highlighting showcase.
+// This file intentionally contains competing data spellings for visual comparison.
 
 data Direction {
     .Up

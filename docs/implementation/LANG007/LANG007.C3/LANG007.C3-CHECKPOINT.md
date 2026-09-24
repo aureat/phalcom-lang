@@ -1538,7 +1538,7 @@ excluding hidden directories and build output. It found these current declaratio
 | D — editor golden | `examples/ide-golden/phalcom-enum-highlighting-showcase.ph`; parser recovered Direction and reports errors on competing legacy forms; it contains seven showcase declaration spellings (four Direction variants plus Option, Result, Expr) | migrate/replace as editor migration fixture in T5/T6 |
 | E — benchmarks/sample packages | no parser-confirmed declarations found | none at T1 |
 | F — active authoritative specs/docs | prose and examples remain to be inventoried during T8; excluded from `.ph` AST census | update in T8 |
-| G — embedded/generated/self-hosted source | `examples/phalcom_parser.ph` is a self-hosted embedded parser listing legacy syntax and has extensive current-parser errors; `examples/phalcom-parser/src/lex/lexer.ph` has enum-related text but no enum AST declaration | determine whether active/generated and migrate or document its generated source owner before T7 |
+| G — embedded/generated/self-hosted source | `examples/phalcom_parser.ph` identifies itself as a self-hosted parser design draft; `examples/phalcom-parser/README.md` labels its package a design/implementation draft; no workspace, package, or test entrypoint references either draft | T7 disposition: excluded from the active source census as non-executable design drafts; retained as historical material, not a current lexical authority |
 | H — intentional negative fixtures | `tests/fixtures/language/errors/annotation_variant_global_reference.ph` (Ordering), `annotation_variant_visitor_exhaustive.ph` (Shape) | retain as rejection/diagnostic coverage and update expectations at T7 |
 
 The census also found parser limitations: `examples/either.ph` reports
@@ -1687,6 +1687,29 @@ projection; metadata still traverses canonical type/domain graph nodes; and
 signature invalidation remains dependency-directed, with the associated
 generic-header dependency regression passing. Bootstrap counters are identical
 at the P3 starting revision and current tree (106/37/101).
+
+### P3 completion audit follow-up — 2026-09-25
+
+The final checklist audit found stale unchecked boxes in the P3 hard-predecessor,
+T1, T4–T8, and completion truth-table sections. They are now checked against
+the gate and coverage evidence above, accepted amendments INC-C3-12 through
+INC-C3-14, and the P3 walkthrough/handoff. This is lifecycle record repair;
+it does not change the P3 verification classification.
+
+The T5 source-census category G disposition is explicit: the self-hosted parser
+files are design/implementation drafts, have no workspace/package/test
+entrypoint, and remain historical material rather than active lexical
+authority. The editor showcase's header now describes its current closed-sum
+`data` examples without presenting `enum` as current syntax.
+
+The T8 audit corrected normative `objects/enums.md` wording that still called
+the source owner an “enum declaration,” despite its compatibility header and
+examples already establishing `data` as canonical. The document now assigns
+closed-sum cases and behavior to sum-shaped `data` declarations and explains
+that remaining enum terminology refers only to runtime/semantic concepts. The
+Universe ownership text likewise uses closed-sum/case terminology. A targeted
+spec scan found no remaining claims that enum declarations, enum syntax, or
+enum keywords are current canonical Phalcom source.
 ```
 
 Historical P1-start checklist (retained for audit context; no longer an active
