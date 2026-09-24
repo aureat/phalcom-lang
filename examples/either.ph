@@ -1,4 +1,4 @@
-enum Either<L, R> {
+data Either<L, R> {
 
     @variant
     Left(_ value: L)

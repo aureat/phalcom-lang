@@ -1,4 +1,4 @@
-enum Weekday {
+data Weekday {
   Monday
   Tuesday
   Wednesday

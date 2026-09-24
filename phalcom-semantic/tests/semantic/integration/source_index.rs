@@ -102,7 +102,7 @@ fn canonical_tuple_intrinsic_impl_member_publishes_through_associated_surface() 
         ModuleComponent::from_identifier("tuple").unwrap(),
     ]));
     let source: Arc<str> = Arc::from(
-        "intrinsic type data TypePack\nintrinsic type data LabeledTypePack\nintrinsic type data TupleEntries\nnative class Tuple {}\nimpl Tuple { intrinsic type Entries: TupleEntries }\n",
+        "intrinsic type data TypePack\nintrinsic type data LabeledTypePack\nintrinsic type data TupleEntries\nintrinsic data Tuple<***Es>\nimpl Tuple { intrinsic type Entries: TupleEntries\n intrinsic type At<I: Int>: Type\n [_ index] -> Dynamic { Dynamic } }\n",
     );
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);

@@ -1,7 +1,7 @@
 from core.domains import Natural
 from core.source import SourceText, Span
 
-enum Keyword {
+data Keyword {
     As
     Break
     Class
@@ -33,7 +33,7 @@ enum Keyword {
 }
 
 
-enum TokenKind {
+data TokenKind {
     Identifier
     Integer
     Float

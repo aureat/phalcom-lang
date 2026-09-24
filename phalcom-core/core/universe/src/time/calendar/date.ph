@@ -4,7 +4,7 @@ from universe.time.calendar.weekday import Weekday
 from universe.time.timezone import TimeZone
 from universe.time.timestamp import Timestamp
 
-enum DateOverflow {
+data DateOverflow {
   Constrain
   Reject
 }

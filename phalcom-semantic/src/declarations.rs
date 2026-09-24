@@ -171,7 +171,6 @@ impl DeclarationTypeTable {
     /// Registers an authored runtime facade against its existing platform owner.
     /// This association does not allocate a nominal data type or runtime class.
     pub fn register_intrinsic_runtime_owner(&mut self, declaration: DeclarationId, owner: IntrinsicRuntimeOwner) {
-        self.entries.remove(&declaration);
         self.intrinsic_static_domains.remove(&declaration);
         let type_owner = match owner {
             IntrinsicRuntimeOwner::Unit => None,
@@ -225,6 +224,14 @@ impl DeclarationTypeTable {
 
     pub fn form(&self, declaration: &DeclarationId) -> Option<TypeId> {
         self.entries.get(declaration).map(|info| info.form)
+    }
+
+    /// Returns the proper runtime class projection used by native surface import.
+    /// Source type formation may use the same declaration's structural form.
+    pub fn runtime_form(&self, store: &mut TypeStore, declaration: &DeclarationId) -> Option<TypeId> {
+        self.intrinsic_runtime_owner(declaration)
+            .map(|_| store.nominal_type(declaration.clone()))
+            .or_else(|| self.form(declaration))
     }
 
     pub fn class_object_type(&self, declaration: &DeclarationId) -> Option<TypeId> {
@@ -387,16 +394,18 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
                             }
                         } else if let Some(owner) = intrinsic_runtime_owner_for_source(&module, &data_def.name) {
                             table.register_intrinsic_runtime_owner(declaration.clone(), owner);
-                            if owner == IntrinsicRuntimeOwner::Unit {
-                                table.insert(DeclarationTypeInfo {
-                                    declaration: declaration.clone(),
-                                    form: store.unit(),
-                                    class_object_type: store.class_object_type(declaration),
-                                    kind: KindId::TYPE,
-                                    generic_binder_header: None,
-                                    generic_signature: None,
-                                    supertype_template: None,
-                                });
+                            source_nominals.insert((module.clone(), data_def.name.clone()));
+                            insert_source_nominal(&mut table, store, declaration.clone(), &data_def.generic_parameters);
+                            if let Some(info) = table.entries.get_mut(&declaration) {
+                                // GenericBinderHeader describes the structural
+                                // source application. The declaration form stays
+                                // the existing proper runtime class projection.
+                                info.form = match owner {
+                                    IntrinsicRuntimeOwner::Unit => store.unit(),
+                                    IntrinsicRuntimeOwner::Tuple | IntrinsicRuntimeOwner::Record => store.nominal_type(declaration.clone()),
+                                };
+                                info.kind = KindId::TYPE;
+                                info.generic_signature = None;
                             }
                         }
                         continue;

@@ -83,11 +83,11 @@ impl DateTime {
 
 }
 
-enum LocalTimeDisambiguation { Reject Earlier Later Compatible }
+data LocalTimeDisambiguation { Reject Earlier Later Compatible }
 
 data ZonedDateTime private(_ timestamp: Timestamp, _ timeZone: TimeZone)
 
-enum LocalTimeResolution {
+data LocalTimeResolution {
   @variant Unique(value: ZonedDateTime)
   @variant Ambiguous(earlier: ZonedDateTime, later: ZonedDateTime)
   @variant Gap(before: ZonedDateTime, after: ZonedDateTime)

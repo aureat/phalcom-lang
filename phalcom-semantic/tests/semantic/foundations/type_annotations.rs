@@ -1363,6 +1363,73 @@ fn tuple_pack_expansion_preserves_an_abstract_positional_lane() {
 }
 
 #[test]
+fn intrinsic_tuple_application_reuses_the_complete_pack_structural_family() {
+    let mut env = setup();
+    let tuple = DeclarationId::new(env.module.clone(), "Tuple".into());
+    env.resolver.insert("Tuple", tuple);
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "TupleAlias".into()));
+    let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "P", KindId::TYPE_PACK));
+    let positional = env.store.parameter_form(parameter);
+    let labeled = env.store.labeled_type_pack(Box::new([])).unwrap();
+    let complete = env.store.complete_type_pack(positional, labeled).unwrap();
+    env.resolver.insert_type_form_binding("Es", complete);
+    let application = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("Tuple")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Complete,
+                operator_range: RANGE,
+                operand: reference("Es"),
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(applied) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &application,
+        &mut diagnostics,
+    ) else {
+        panic!("expected intrinsic Tuple application to resolve")
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert!(matches!(env.store.get(applied), TypeData::TupleFromPacks { positionals: actual, labeled: actual_labeled } if *actual == positional && *actual_labeled == labeled));
+    assert!(!matches!(env.store.get(applied), TypeData::Applied { .. }), "intrinsic application must not remain nominal `Applied` data");
+}
+
+#[test]
+fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() {
+    let mut env = setup();
+    let record = DeclarationId::new(env.module.clone(), "Record".into());
+    env.resolver.insert("Record", record);
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "RecordAlias".into()));
+    let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "R", KindId::RECORD_ROW));
+    env.resolver.insert_record_row_binding("R", parameter);
+    let application = application(reference("Record"), vec![reference("R")]);
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(applied) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &application,
+        &mut diagnostics,
+    ) else {
+        panic!("expected intrinsic Record application to resolve")
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Record(row) = env.store.get(applied) else {
+        panic!("Record<R> must normalize to its structural RecordRowId")
+    };
+    assert_eq!(env.store.record_row(*row).tail, RecordRowTail::Parameter(parameter));
+}
+
+#[test]
 fn generic_constraint_substitution_preserves_parameter_identity() {
     let mut env = setup();
     let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "Constrained".into()));

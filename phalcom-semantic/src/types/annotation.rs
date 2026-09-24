@@ -943,7 +943,10 @@ fn lower_scoped_type_form(
 
             let members: Vec<String> = sym_ref.members.iter().map(|member| member.name.clone()).collect();
             if let Some(declaration) = resolver.resolve_type_name(current_module, &sym_ref.root, &members) {
-                if let Some(form) = declarations.form(&declaration).or_else(|| resolver.resolve_alias_form(&declaration)) {
+                let runtime_form = declarations
+                    .intrinsic_runtime_owner(&declaration)
+                    .and_then(|_| declarations.runtime_form(store, &declaration));
+                if let Some(form) = runtime_form.or_else(|| declarations.form(&declaration)).or_else(|| resolver.resolve_alias_form(&declaration)) {
                     TypeFormationOutcome::Ready(intern_scoped_free(store, form))
                 } else {
                     TypeFormationOutcome::Missing(TypeFormationMissing::DeclarationProduct(declaration))
@@ -959,7 +962,51 @@ fn lower_scoped_type_form(
             }
         }
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
-            let scoped_origin = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, origin, diagnostics));
+            let runtime_constructor = if let TypeAnnotationExpr::Reference(reference) = &origin.expr {
+                let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                resolver
+                    .resolve_type_name(current_module, &reference.root, &members)
+                    .filter(|declaration| declarations.intrinsic_runtime_owner(declaration).is_some())
+                    .and_then(|declaration| declarations.form(&declaration))
+            } else {
+                None
+            };
+            let scoped_origin = if let Some(form) = runtime_constructor {
+                intern_scoped_free(store, form)
+            } else {
+                scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, origin, diagnostics))
+            };
+            if intrinsic_runtime_owner_for_scoped_form(store, declarations, scoped_origin)
+                == Some(crate::declarations::IntrinsicRuntimeOwner::Record)
+                && arguments.len() == 1
+            {
+                if let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = &arguments[0] {
+                    if let TypeAnnotationExpr::Reference(reference) = &argument.expr
+                        && reference.members.is_empty()
+                    {
+                        if let Some((depth, index, KindId::RECORD_ROW)) = binders.resolve(reference.leaf_name()) {
+                            return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
+                                fields: Box::new([]),
+                                tail: ScopedRecordTail::Bound { depth, index },
+                            })));
+                        }
+                        if let Some(TypeLevelBinding::RecordRow(parameter)) = resolver.resolve_type_level_binding(reference.leaf_name()) {
+                            return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
+                                fields: Box::new([]),
+                                tail: ScopedRecordTail::FreeParameter(parameter),
+                            })));
+                        }
+                    }
+                    let lowered = scoped_ready_or_propagate!(lower_scoped_type_form(
+                        store, declarations, resolver, site, binders, argument, diagnostics,
+                    ));
+                    if matches!(store.arena().get_scoped(lowered), ScopedTypeData::Free(ty) if matches!(store.get(*ty), TypeData::Record(_))) {
+                        return TypeFormationOutcome::Ready(lowered);
+                    }
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                }
+                return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+            }
             if let Some(contract) = scoped_generic_application_contract(store, declarations, scoped_origin)
                 && contract.has_variadic_binder()
             {
@@ -1052,6 +1099,15 @@ fn lower_scoped_type_form(
                         GenericParameterMode::CompletePack => store.arena_mut().intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled }),
                         GenericParameterMode::Single => return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax),
                     });
+                }
+                if intrinsic_runtime_owner_for_scoped_form(store, declarations, scoped_origin)
+                    == Some(crate::declarations::IntrinsicRuntimeOwner::Tuple)
+                    && lowered.len() == 1
+                {
+                    if let ScopedTypeData::CompleteTypePack { positionals, labeled } = store.arena().get_scoped(lowered[0]).clone() {
+                        return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::TupleFromPacks { positionals, labeled }));
+                    }
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
                 }
                 let origin_kind = scoped_ready_or_propagate!(scoped_kind(store, scoped_origin, binders));
                 let mut argument_kinds = Vec::with_capacity(lowered.len());
@@ -1563,6 +1619,15 @@ fn generic_application_contract(store: &TypeStore, declarations: &DeclarationTyp
     }
 }
 
+fn intrinsic_runtime_owner_for_form(
+    store: &TypeStore,
+    declarations: &DeclarationTypeTable,
+    origin: TypeId,
+) -> Option<crate::declarations::IntrinsicRuntimeOwner> {
+    let declaration = store.nominal_origin_declaration(origin)?;
+    declarations.intrinsic_runtime_owner(declaration)
+}
+
 fn scoped_generic_application_contract(
     store: &TypeStore,
     declarations: &DeclarationTypeTable,
@@ -1573,6 +1638,17 @@ fn scoped_generic_application_contract(
         ScopedTypeData::Lambda(lambda) => Some(GenericApplicationContract::from_type_lambda(store.arena().get_lambda(*lambda))),
         _ => None,
     }
+}
+
+fn intrinsic_runtime_owner_for_scoped_form(
+    store: &TypeStore,
+    declarations: &DeclarationTypeTable,
+    origin: crate::types::id::ScopedTypeId,
+) -> Option<crate::declarations::IntrinsicRuntimeOwner> {
+    let ScopedTypeData::Free(origin) = store.arena().get_scoped(origin) else {
+        return None;
+    };
+    intrinsic_runtime_owner_for_form(store, declarations, *origin)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1897,7 +1973,10 @@ pub fn resolve_type_form(
 
             let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
             if let Some(decl) = resolver.resolve_type_name(current_module, &sym_ref.root, &members) {
-                if let Some(form) = declarations.form(&decl).or_else(|| resolver.resolve_alias_form(&decl)) {
+                let runtime_form = declarations
+                    .intrinsic_runtime_owner(&decl)
+                    .and_then(|_| declarations.runtime_form(store, &decl));
+                if let Some(form) = runtime_form.or_else(|| declarations.form(&decl)).or_else(|| resolver.resolve_alias_form(&decl)) {
                     TypeFormResolution::Ready(form)
                 } else {
                     TypeFormResolution::Missing(TypeFormationMissing::DeclarationProduct(decl))
@@ -1913,7 +1992,17 @@ pub fn resolve_type_form(
             }
         }
         TypeAnnotationExpr::Application { origin, arguments, range: _ } => {
-            let origin_res = resolve_type_form(store, declarations, resolver, site, origin, diagnostics);
+            let origin_res = if let TypeAnnotationExpr::Reference(reference) = &origin.expr {
+                let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                resolver
+                    .resolve_type_name(current_module, &reference.root, &members)
+                    .filter(|declaration| declarations.intrinsic_runtime_owner(declaration).is_some())
+                    .and_then(|declaration| declarations.form(&declaration))
+                    .map(TypeFormResolution::Ready)
+                    .unwrap_or_else(|| resolve_type_form(store, declarations, resolver, site, origin, diagnostics))
+            } else {
+                resolve_type_form(store, declarations, resolver, site, origin, diagnostics)
+            };
             let origin_ty = match origin_res {
                 TypeFormResolution::Ready(ty) => ty,
                 TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
@@ -1925,6 +2014,45 @@ pub fn resolve_type_form(
                 TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
                 TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
             };
+
+            // RecordRow is a separate semantic identity, not a TypeId generic
+            // argument. Consume a bound row directly and form the existing
+            // structural Record value at this declaration-owned boundary.
+            if intrinsic_runtime_owner_for_form(store, declarations, origin_ty) == Some(crate::declarations::IntrinsicRuntimeOwner::Record) {
+                if arguments.len() != 1 {
+                    return TypeFormResolution::Invalid(TypeFormationInvalid::TooManyTypeArguments);
+                }
+                let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = &arguments[0] else {
+                    return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                };
+                let row_parameter = match &argument.expr {
+                    TypeAnnotationExpr::Reference(reference) if reference.members.is_empty() => {
+                        match resolver.resolve_type_level_binding(reference.leaf_name()) {
+                            Some(TypeLevelBinding::RecordRow(parameter)) => Some(parameter),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(parameter) = row_parameter {
+                    let row = match store.record_row_checked(Vec::new(), RecordRowTail::Parameter(parameter)) {
+                        Ok(row) => row,
+                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                    };
+                    return TypeFormResolution::Ready(store.record_type(row));
+                }
+                let applied_argument = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, argument, diagnostics));
+                if let TypeData::Record(row) = store.get(applied_argument) {
+                    return TypeFormResolution::Ready(store.record_type(*row));
+                }
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
+                    DiagnosticCode::KindExpectedType,
+                    "Record application requires a RecordRow argument",
+                    argument.range,
+                ));
+                return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+            }
 
             // Canonical origins retain application mode independently from
             // their arrow kind. This also covers residual alias lambdas.
@@ -2086,6 +2214,23 @@ pub fn resolve_type_form(
                                 return TypeFormResolution::InternalFailure("non-prefix fixed generic binder escaped signature validation".into());
                             }
                         }
+                    }
+                    if intrinsic_runtime_owner_for_form(store, declarations, origin_ty) == Some(crate::declarations::IntrinsicRuntimeOwner::Tuple)
+                        && canonical_arguments.len() == 1
+                    {
+                        let complete = canonical_arguments[0];
+                        let positionals = match store.project_positionals(complete) {
+                            Ok(pack) => pack,
+                            Err(_error) => return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                        };
+                        let labeled = match store.project_labeled(complete) {
+                            Ok(pack) => pack,
+                            Err(_error) => return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                        };
+                        return match store.tuple_from_packs(positionals, labeled) {
+                            Ok(tuple) => TypeFormResolution::Ready(tuple),
+                            Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+                        };
                     }
                     return match store.apply_type_form(origin_ty, &canonical_arguments) {
                         Ok(applied) => TypeFormResolution::Ready(applied),

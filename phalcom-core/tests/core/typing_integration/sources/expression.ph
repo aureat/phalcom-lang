@@ -1,4 +1,4 @@
-enum Expression<F: Type -> Type, T> {
+data Expression<F: Type -> Type, T> {
     @variant
     Pure<A>(_ value: A) -> Expression<F, A>
 

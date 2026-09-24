@@ -1,30 +1,30 @@
 // Enum / ADT / GADT syntax-highlighting showcase.
 // This file intentionally contains competing enum syntaxes for visual comparison.
 
-enum Direction {
+data Direction {
     .Up
     .Down
     .Left
     .Right
 }
 
-enum Direction {
+data Direction {
     case Up, Down, Left, Right
 }
 
-enum Direction {
+data Direction {
     .North = 0
     .West = 1
     .East = 2
     .South = 3
 }
 
-enum Direction {
+data Direction {
     case North = 0
     case West => 1
 }
 
-enum Option<T> {
+data Option<T> {
     .Some<T>(_ value: T)
     .None
 
@@ -39,7 +39,7 @@ enum Option<T> {
 }
 
 // Ratified @variant-style ADT syntax.
-enum Result<T, E> {
+data Result<T, E> {
     case Ok(const _ value: T) {
         unwrap -> T {
             value
@@ -57,7 +57,7 @@ enum Result<T, E> {
 }
 
 // GADT constructor result types + constructor-local generics.
-enum Expr<T> {
+data Expr<T> {
     @variant Int(const _ value: Int) -> Expr<Int>
 
     @variant Bool(const _ value: Bool) -> Expr<Bool>

@@ -1,7 +1,7 @@
 from core.source import Span
 from lex.token import TokenKind
 
-enum DiagnosticKind {
+data DiagnosticKind {
     UnexpectedToken
     ExpectedToken(TokenKind)
     ExpectedExpression

@@ -91,7 +91,7 @@ class Gregorian {
   }
 }
 
-enum Month {
+data Month {
   January
   February
   March

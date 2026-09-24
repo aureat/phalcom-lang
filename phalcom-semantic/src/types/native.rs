@@ -74,7 +74,7 @@ pub fn resolve_native_type_form(
         TypeExprSpec::Universe(UniverseKey::Unit) => Ok(store.unit()),
         TypeExprSpec::Universe(key) => {
             let decl = universe_resolver(*key);
-            if let Some(mut form) = declarations.form(&decl) {
+            if let Some(mut form) = declarations.runtime_form(store, &decl) {
                 while !store.is_proper_type(form) {
                     let kind_id = store.kind_of(form);
                     if let crate::types::kind::KindData::Arrow { parameters: ref params, .. } = store.get_kind(kind_id).clone() {
@@ -108,7 +108,7 @@ pub fn resolve_native_type_form(
             let origin_form = match origin {
                 TypeExprSpec::Universe(key) => {
                     let decl = universe_resolver(*key);
-                    declarations.form(&decl).ok_or(NativeTypeResolutionError::MissingDeclaration(decl))?
+                    declarations.runtime_form(store, &decl).ok_or(NativeTypeResolutionError::MissingDeclaration(decl))?
                 }
                 _ => resolve_native_type_form(store, declarations, parameters, universe_resolver, origin)?,
             };
@@ -335,11 +335,12 @@ pub fn register_native_surfaces_from_records(
         }
 
         let decl = crate::core_surface::universe_declaration(record.owner());
-        if declarations.form(&decl).is_none() {
+        let runtime_form = declarations.runtime_form(store, &decl);
+        if runtime_form.is_none() {
             return Err(NativeSurfaceImportError::OwnerMissing { key: record.surface.key });
         }
 
-        if let Some(t_self) = declarations.form(&decl) {
+        if let Some(t_self) = runtime_form {
             dispatch.register_type(t_self, decl.clone());
         }
 

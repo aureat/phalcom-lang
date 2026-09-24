@@ -4340,11 +4340,11 @@ impl SemanticWorkspaceSession {
                 if let Statement::Data(data_def) = stmt {
                     if data_def.is_intrinsic_facade() {
                         let declaration = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
-                        if !declarations.is_intrinsic_static_domain(&declaration) {
+                        if !declarations.is_intrinsic_static_domain(&declaration) && declarations.intrinsic_runtime_owner(&declaration).is_none() {
                             diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
                                 module_id.clone(),
                                 DiagnosticCode::KindExpectedType,
-                                format!("intrinsic type-data facade `{}` has no compiler authority binding", data_def.name),
+                                format!("intrinsic data facade `{}` has no compiler authority binding", data_def.name),
                                 data_def.range,
                             ));
                         }

@@ -117,9 +117,24 @@ domain or runtime class.
 - Tuple data-facade migration experiment: canonical bootstrap failed with the
   `Tuple#rawAt(_)` owner-missing error above.
 
-## 11. Status
+## 11. Adopted decision and status
 
-ARCHITECTURE DECISION REQUIRED — T4/G4 remains partial. Do not continue Tuple or
-Record intrinsic data source migration until this decision is adopted. Unit
-migration and the inherent-impl type-member bridge are implemented and focused
-tested; this is not T4/G4 completion or P3 certification.
+ADOPTED by the user on 2026-09-24. T4 will add the intrinsic structural
+application path using the existing `IntrinsicRuntimeOwner` association:
+
+- Tuple application consumes the existing canonical `CompleteTypePack`,
+  projects its two existing lanes, and returns `TupleFromPacks`.
+- Record application consumes an existing `RecordRowId` directly and returns
+  `TypeData::Record(row)`. It must not convert a row into a `TypeId` argument or
+  extend `TypeLambdaArena`'s TypeId-only beta contract.
+- Native signature import uses the runtime class projection of the same
+  declaration, while source type formation uses its structural application.
+- Unit remains canonical `store.unit()` and keeps its existing runtime class.
+- Tuple/Record intrinsic type members are declared in inherent `impl` blocks
+  and continue through owner-plus-selector `TypeMemberDeclarationId` and the
+  existing `AssociatedSurface` authority. No parallel member registry is added.
+
+The source syntax mismatch is resolved by accepting intrinsic type-member
+declarations in inherent impls. T4/G4 remains in progress until Tuple and Record
+source migration and the focused runtime/native/structural regressions pass.
+This decision does not certify P3 or C3.

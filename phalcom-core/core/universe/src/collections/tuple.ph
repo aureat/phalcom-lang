@@ -4,6 +4,8 @@ intrinsic type data TypePack
 intrinsic type data LabeledTypePack
 intrinsic type data TupleEntries
 
+intrinsic data Tuple<***Es>
+
 impl Tuple {
   intrinsic type Positionals: TypePack
   intrinsic type Labeled: LabeledTypePack
@@ -13,7 +15,7 @@ impl Tuple {
 }
 
 /// Immutable fixed-arity product collection.
-native class Tuple is Collection {
+impl Tuple {
   @class
   internal native rawFromList(_ value: List<Dynamic>) -> Tuple
   internal native rawSize -> Int

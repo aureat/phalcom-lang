@@ -126,9 +126,14 @@ pub fn extend_associated_surface_with_shells(
     }
     for shell in shells {
         let base = shell.base.clone();
+        // Intrinsic type members form the `::` namespace. A structural
+        // intrinsic selector such as Tuple::At can share its canonical
+        // selector with the runtime `[]` behavior family because the two
+        // operations are selected in different semantic planes.
+        let behavior_collision = behavior_bases.contains(&base) && shell.kind != AssociatedFamilyKind::IntrinsicTypeMember;
         if counts.get(&base).copied().unwrap_or_default() > 1
             || surface.families.contains_key(&base)
-            || behavior_bases.contains(&base)
+            || behavior_collision
             || inherited_class_bases.contains(&base)
         {
             diagnostics.push(SemanticDiagnostic::error_in(

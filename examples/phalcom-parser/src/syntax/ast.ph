@@ -2,7 +2,7 @@ from core.domains import ExprId, StmtId, TypeExprId, PatternId, RefinementExprId
 from core.source import Span
 from lex.token import Token
 
-enum UnaryOperator {
+data UnaryOperator {
     Positive
     Negative
     LogicalNot
@@ -10,7 +10,7 @@ enum UnaryOperator {
 }
 
 
-enum BinaryOperator {
+data BinaryOperator {
     Add
     Subtract
     Multiply
@@ -53,7 +53,7 @@ data MatchArm(
 )
 
 
-enum Expr {
+data Expr {
     Integer {
         token: Token,
         span: Span
@@ -156,7 +156,7 @@ enum Expr {
 }
 
 
-enum Stmt {
+data Stmt {
     Let {
         mutable: Bool,
         name: Token,
@@ -190,13 +190,13 @@ enum Stmt {
 }
 
 
-enum TypeArgument {
+data TypeArgument {
     Type(TypeExprId)
     Value(ExprId)
 }
 
 
-enum TupleTypeElement {
+data TupleTypeElement {
     Positional(TypeExprId)
 
     Named {
@@ -206,7 +206,7 @@ enum TupleTypeElement {
 }
 
 
-enum TypeExpr {
+data TypeExpr {
     Name {
         name: Token,
         span: Span
@@ -259,7 +259,7 @@ enum TypeExpr {
 }
 
 
-enum Pattern {
+data Pattern {
     Wildcard {
         span: Span
     }
@@ -314,14 +314,14 @@ enum Pattern {
 }
 
 
-enum RefinementUnaryOperator {
+data RefinementUnaryOperator {
     Positive
     Negative
     Not
 }
 
 
-enum RefinementBinaryOperator {
+data RefinementBinaryOperator {
     Add
     Subtract
     Multiply
@@ -341,7 +341,7 @@ enum RefinementBinaryOperator {
 }
 
 
-enum RefinementExpr {
+data RefinementExpr {
     Name {
         name: Token,
         span: Span
@@ -403,7 +403,7 @@ data DataField(
 )
 
 
-enum EnumVariantDecl {
+data EnumVariantDecl {
     Unit {
         name: Token,
         span: Span
@@ -430,7 +430,7 @@ data MethodParameter(
 )
 
 
-enum ConstraintSyntax {
+data ConstraintSyntax {
     Refinement(RefinementExprId)
 
     Conformance {
@@ -450,7 +450,7 @@ enum ConstraintSyntax {
 }
 
 
-enum Decl {
+data Decl {
     Class {
         name: Token,
         generics: List<GenericParameter>,

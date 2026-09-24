@@ -4427,9 +4427,7 @@ pub fn resolve_inherent_impl_target(
 
             // Collect used impl params across all arguments
             let mut used_impl_params = HashSet::new();
-            for arg_ty in arguments.iter().filter_map(|argument| argument.as_type_id()) {
-                collect_impl_params_in_type(ctx.store, arg_ty, impl_id, &mut used_impl_params);
-            }
+            collect_impl_params_in_type(ctx.store, target_type, impl_id, &mut used_impl_params);
 
             // Check for unused impl parameters
             for &impl_param in &impl_type_parameter_ids {
@@ -4781,6 +4779,14 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
             }
         } else if !is_exact_case {
             if !syntax.has_body() {
+                if syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native
+                    && ctx.declarations.intrinsic_runtime_owner(target_owner.declaration()).is_some()
+                {
+                    // The canonical native surface catalog owns the checked
+                    // signature and dispatch descriptor. This impl declaration
+                    // is its source anchor after structural facade migration.
+                    continue;
+                }
                 diagnostics.push(SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     DiagnosticCode::ImplBodylessMemberUnsupported,

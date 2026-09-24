@@ -1,7 +1,8 @@
 intrinsic type data RecordRow
+intrinsic data Record<R: RecordRow>
 
 /// Immutable labeled collection with insertion-ordered fields.
-native class Record is Object {
+impl Record {
   internal native rawSize -> Int
   internal native rawLabelAt(_ index: Int) -> Symbol
   internal native rawValueAt(_ index: Int) -> Dynamic

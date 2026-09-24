@@ -15,7 +15,7 @@
 /// values while `None` propagates through the operation.
 ///
 /// @typeparam T The type of value carried by `Some`.
-native enum Option<T> {
+native data Option<T> {
 
   /// An `Option` containing a value.
   ///

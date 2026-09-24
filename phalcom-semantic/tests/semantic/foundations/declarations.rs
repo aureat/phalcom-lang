@@ -129,6 +129,9 @@ fn runtime_structural_declarations_bind_canonical_platform_owners() {
         assert!(declarations.contains(&declaration), "runtime source facade retains a semantic declaration projection");
     }
     assert_eq!(declarations.form(&universe_declaration(UniverseKey::Unit)), Some(store.unit()));
+    let unit = universe_declaration(UniverseKey::Unit);
+    let unit_runtime_form = store.nominal_type(unit.clone());
+    assert_eq!(declarations.runtime_form(&mut store, &unit), Some(unit_runtime_form));
 }
 
 #[test]
