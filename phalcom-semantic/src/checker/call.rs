@@ -14,11 +14,11 @@ use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature
 use crate::identity::{CallableId, ExplanationId};
 use crate::types::evidence::DynamicReason;
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason, join_type_knowledge};
-use crate::types::id::{TypeId, TypeParameterId};
+use crate::types::id::{RecordRowId, ScopedTypeId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId};
 use crate::types::instantiation::TypeMaterializationError;
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner, TypeTerm};
 use crate::types::row::RecordRowFormationError;
-use crate::types::store::{TypeData, TypeStore};
+use crate::types::store::{StaticArgument, StaticDomainData, TypeData, TypeStore};
 use phalcom_ast::ast::{Expr, PackItem, PackLabel, RestMode};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -2083,35 +2083,163 @@ fn generic_conflict_message(conflict: &crate::checker::inference::InferenceConfl
 }
 
 fn type_contains_any_parameter(store: &TypeStore, ty: TypeId, parameters: &[TypeParameterId]) -> bool {
-    match store.get(ty) {
-        TypeData::Parameter(parameter) => parameters.contains(parameter),
-        TypeData::Applied { origin, arguments } => {
-            type_contains_any_parameter(store, *origin, parameters)
-                || arguments
-                    .iter()
-                    .any(|argument| argument.as_type_id().is_some_and(|argument| type_contains_any_parameter(store, argument, parameters)))
+    ParameterUseWalker::new(store, parameters).visit_type(ty)
+}
+
+/// Finds declaration-owned parameters anywhere in a canonical semantic form,
+/// including non-Type arguments and associated static-domain owner environments.
+struct ParameterUseWalker<'a> {
+    store: &'a TypeStore,
+    parameters: &'a [TypeParameterId],
+    seen_types: std::collections::HashSet<TypeId>,
+    seen_rows: std::collections::HashSet<RecordRowId>,
+    seen_domains: std::collections::HashSet<StaticDomainId>,
+    seen_lambdas: std::collections::HashSet<TypeLambdaId>,
+    seen_scoped_types: std::collections::HashSet<ScopedTypeId>,
+}
+
+impl<'a> ParameterUseWalker<'a> {
+    fn new(store: &'a TypeStore, parameters: &'a [TypeParameterId]) -> Self {
+        Self {
+            store,
+            parameters,
+            seen_types: std::collections::HashSet::new(),
+            seen_rows: std::collections::HashSet::new(),
+            seen_domains: std::collections::HashSet::new(),
+            seen_lambdas: std::collections::HashSet::new(),
+            seen_scoped_types: std::collections::HashSet::new(),
         }
-        TypeData::Union(members) => members.iter().any(|&member| type_contains_any_parameter(store, member, parameters)),
-        TypeData::Tuple(elements) => elements.iter().any(|element| type_contains_any_parameter(store, element.ty, parameters)),
-        TypeData::Record(row_id) => store
-            .record_row(*row_id)
-            .fields
-            .iter()
-            .any(|field| type_contains_any_parameter(store, field.ty, parameters)),
-        TypeData::Callable(callable) => {
-            callable
-                .parameters
-                .iter()
-                .any(|parameter| type_contains_any_parameter(store, parameter.ty, parameters))
-                || type_contains_any_parameter(store, callable.return_type, parameters)
+    }
+
+    fn visit_type(&mut self, ty: TypeId) -> bool {
+        if !self.seen_types.insert(ty) {
+            return false;
         }
-        TypeData::Family(family_id) => store
-            .get_family(*family_id)
-            .members
-            .iter()
-            .any(|member| type_contains_any_parameter(store, member.ty, parameters)),
-        TypeData::ExactCase { enum_type, .. } => type_contains_any_parameter(store, *enum_type, parameters),
-        _ => false,
+        match self.store.get(ty).clone() {
+            TypeData::Parameter(parameter) => self.parameters.contains(&parameter),
+            TypeData::Applied { origin, arguments } => {
+                self.visit_type(origin) || arguments.iter().copied().any(|argument| self.visit_static_argument(argument))
+            }
+            TypeData::StaticDomainForm { domain } => self.visit_static_domain(domain),
+            TypeData::StaticData(term) => {
+                self.visit_static_domain(term.domain) || term.arguments.iter().copied().any(|argument| self.visit_static_argument(argument))
+            }
+            TypeData::Union(members) => members.iter().copied().any(|member| self.visit_type(member)),
+            TypeData::Tuple(elements) => elements.iter().any(|element| self.visit_type(element.ty)),
+            TypeData::Record(row) => self.visit_row(row),
+            TypeData::TypePack(elements) | TypeData::TypePackConcat(elements) | TypeData::LabeledTypePackConcat(elements) => {
+                elements.iter().copied().any(|element| self.visit_type(element))
+            }
+            TypeData::LabeledTypePack(elements) => elements.iter().any(|element| self.visit_type(element.element)),
+            TypeData::CompleteTypePack { positionals, labeled } | TypeData::TupleFromPacks { positionals, labeled } => {
+                self.visit_type(positionals) || self.visit_type(labeled)
+            }
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => self.visit_type(positionals) || self.visit_type(labeled) || self.visit_type(return_type),
+            TypeData::Callable(callable) => callable.parameters.iter().any(|parameter| self.visit_type(parameter.ty)) || self.visit_type(callable.return_type),
+            TypeData::Family(family_id) => self.store.get_family(family_id).members.iter().any(|member| self.visit_type(member.ty)),
+            TypeData::ExactCase { enum_type, .. } => self.visit_type(enum_type),
+            TypeData::AssociatedProjection(projection) => {
+                self.visit_type(projection.subject) || projection.trait_ref.arguments.iter().copied().any(|arg| self.visit_type(arg))
+            }
+            TypeData::TypeMemberProjection(projection) => {
+                use crate::types::type_member::{ProjectionSubject, TypeMemberArgument};
+                let subject_contains = match projection.subject {
+                    ProjectionSubject::Type(subject) => self.visit_type(subject),
+                    ProjectionSubject::RecordRow(row) => self.visit_row(row),
+                };
+                subject_contains
+                    || projection.arguments.iter().any(|argument| match argument {
+                        TypeMemberArgument::Type(ty) => self.visit_type(*ty),
+                        TypeMemberArgument::RecordRow(row) => self.visit_row(*row),
+                        TypeMemberArgument::Const(_) => false,
+                    })
+            }
+            TypeData::Lambda(lambda) => self.visit_lambda(lambda),
+            TypeData::Never | TypeData::Unit | TypeData::ClassObject { .. } | TypeData::Nominal { .. } | TypeData::SelfType(_) | TypeData::ConstInt(_) => false,
+        }
+    }
+
+    fn visit_static_argument(&mut self, argument: StaticArgument) -> bool {
+        match argument {
+            StaticArgument::Term(ty) => self.visit_type(ty),
+            StaticArgument::RecordRow(row) => self.visit_row(row),
+        }
+    }
+
+    fn visit_static_domain(&mut self, domain: StaticDomainId) -> bool {
+        if !self.seen_domains.insert(domain) {
+            return false;
+        }
+        let Some(StaticDomainData::Associated { owner_arguments, .. }) = self.store.static_domain(domain).cloned() else {
+            return false;
+        };
+        owner_arguments.iter().copied().any(|argument| self.visit_static_argument(argument))
+    }
+
+    fn visit_row(&mut self, row_id: RecordRowId) -> bool {
+        use crate::types::row::RecordRowTail;
+
+        if !self.seen_rows.insert(row_id) {
+            return false;
+        }
+        let row = self.store.record_row(row_id).clone();
+        row.fields.iter().any(|field| self.visit_type(field.ty))
+            || match row.tail {
+                RecordRowTail::Closed => false,
+                RecordRowTail::Parameter(parameter) => self.parameters.contains(&parameter),
+                RecordRowTail::Projection(projection) => self.visit_type(projection),
+            }
+    }
+
+    fn visit_lambda(&mut self, lambda: TypeLambdaId) -> bool {
+        if !self.seen_lambdas.insert(lambda) {
+            return false;
+        }
+        let body = self.store.arena().get_lambda(lambda).body;
+        self.visit_scoped_type(body)
+    }
+
+    fn visit_scoped_type(&mut self, scoped: ScopedTypeId) -> bool {
+        use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
+
+        if !self.seen_scoped_types.insert(scoped) {
+            return false;
+        }
+        match self.store.arena().get_scoped(scoped).clone() {
+            ScopedTypeData::Bound { .. } => false,
+            ScopedTypeData::Free(ty) => self.visit_type(ty),
+            ScopedTypeData::Applied { origin, arguments } => {
+                self.visit_scoped_type(origin) || arguments.iter().copied().any(|argument| self.visit_scoped_type(argument))
+            }
+            ScopedTypeData::Union(members) | ScopedTypeData::TypePack(members) | ScopedTypeData::LabeledTypePackConcat(members) => {
+                members.iter().copied().any(|member| self.visit_scoped_type(member))
+            }
+            ScopedTypeData::Tuple(elements) => elements.iter().any(|element| self.visit_scoped_type(element.ty)),
+            ScopedTypeData::Record(fields) => fields.iter().any(|field| self.visit_scoped_type(field.ty)),
+            ScopedTypeData::OpenRecord(record) => {
+                record.fields.iter().any(|field| self.visit_scoped_type(field.ty))
+                    || matches!(record.tail, ScopedRecordTail::FreeParameter(parameter) if self.parameters.contains(&parameter))
+            }
+            ScopedTypeData::Callable(callable) => {
+                callable.parameters.iter().any(|parameter| self.visit_scoped_type(parameter.ty)) || self.visit_scoped_type(callable.return_type)
+            }
+            ScopedTypeData::LabeledTypePack(elements) => elements.iter().any(|element| self.visit_scoped_type(element.element)),
+            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+                self.visit_scoped_type(positionals) || self.visit_scoped_type(labeled)
+            }
+            ScopedTypeData::TypePackConcat(segments) => segments.iter().copied().any(|segment| self.visit_scoped_type(segment)),
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => self.visit_scoped_type(positionals) || self.visit_scoped_type(labeled) || self.visit_scoped_type(return_type),
+            ScopedTypeData::PackProjection { subject, .. } => self.visit_scoped_type(subject),
+            ScopedTypeData::Lambda(lambda) => self.visit_lambda(lambda),
+        }
     }
 }
 
@@ -3651,5 +3779,110 @@ mod tests {
         assert_eq!(plan_comp.bindings.len(), 2);
         assert_eq!(plan_comp.bindings[0].parameter_index, 0);
         assert_eq!(plan_comp.bindings[1].parameter_index, 0);
+    }
+}
+
+#[cfg(test)]
+mod parameter_use_tests {
+    use super::{CallableApplicationTarget, effective_declaration_generics, type_contains_any_parameter};
+    use crate::checker::context::CheckingContext;
+    use crate::declarations::DeclarationTypeTable;
+    use crate::dispatch::{CallableParameter, CallableSignature};
+    use crate::identity::{AssociatedStaticDomainDeclarationId, CallableId, DeclarationId, DispatchSide, ModuleId};
+    use crate::types::id::{KindId, TypeParameterId};
+    use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use crate::types::row::RecordRowTail;
+    use crate::types::store::{StaticArgument, TypeData, TypeStore};
+    use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
+
+    fn owner(name: &str) -> DeclarationId {
+        DeclarationId::new(ModuleId::universe_root(), name.into())
+    }
+
+    fn row_parameter(store: &mut TypeStore) -> TypeParameterId {
+        store.intern_type_parameter(TypeParameterData::new(
+            TypeParameterOwner::Declaration(owner("RowCarrier")),
+            0,
+            "R",
+            KindId::RECORD_ROW,
+        ))
+    }
+
+    fn open_row(store: &mut TypeStore, parameter: TypeParameterId) -> crate::types::id::RecordRowId {
+        store
+            .record_row_checked(Vec::new(), RecordRowTail::Parameter(parameter))
+            .expect("valid open row")
+    }
+
+    #[test]
+    fn parameter_use_walk_reaches_a_record_rows_parameter_only_in_its_tail() {
+        let mut store = TypeStore::new();
+        let parameter = row_parameter(&mut store);
+        let row = open_row(&mut store, parameter);
+        let ty = store.record_type(row);
+
+        assert!(type_contains_any_parameter(&store, ty, &[parameter]));
+    }
+
+    #[test]
+    fn row_tail_only_declaration_parameter_keeps_call_inference_domain_active() {
+        let mut store = TypeStore::new();
+        let owner = owner("RowCarrier");
+        let parameter_owner = TypeParameterOwner::Declaration(owner.clone());
+        let parameter = store.intern_type_parameter(TypeParameterData::new(parameter_owner.clone(), 0, "R", KindId::RECORD_ROW));
+        let row_type = store.record_row_type_checked(Vec::new(), RecordRowTail::Parameter(parameter)).expect("open row type");
+        let selector = phalcom_common::selector::Selector::getter("value").expect("getter selector");
+        let signature = CallableSignature::new(
+            selector.clone(),
+            vec![CallableParameter::new("value", TypeKnowledge::established(row_type, EvidenceOrigin::CallableSignature))],
+            TypeKnowledge::established(row_type, EvidenceOrigin::CallableSignature),
+        );
+        let target = CallableApplicationTarget::exact(CallableId::new(owner.clone(), selector, DispatchSide::Instance), signature)
+            .with_declaration_generics(crate::types::parameter::GenericSignature::new(parameter_owner, Box::new([parameter])));
+        let hierarchy = crate::types::relation::MapTypeHierarchy::new();
+        let resolver = crate::types::annotation::SimpleTypeResolver::new();
+        let declarations = DeclarationTypeTable::new();
+        let ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, ModuleId::universe_root());
+
+        assert!(effective_declaration_generics(&ctx, &target).is_some());
+    }
+
+    #[test]
+    fn parameter_use_walk_reaches_record_row_arguments_in_applied_and_static_data() {
+        let mut store = TypeStore::new();
+        let parameter = row_parameter(&mut store);
+        let row = open_row(&mut store, parameter);
+        let origin = store.nominal_type(owner("Applied"));
+        let applied = store.intern_with_kind(
+            TypeData::Applied {
+                origin,
+                arguments: vec![StaticArgument::RecordRow(row)].into_boxed_slice(),
+            },
+            KindId::TYPE,
+        );
+        assert!(type_contains_any_parameter(&store, applied, &[parameter]));
+
+        let domain = store.nominal_static_domain(owner("Shape"));
+        let constructor = store.intern_static_constructor(domain, owner("Shape"), "Row", vec![KindId::RECORD_ROW].into_boxed_slice());
+        let static_data = store
+            .static_data(domain, constructor, vec![StaticArgument::RecordRow(row)].into_boxed_slice())
+            .expect("valid row-valued static argument");
+        assert!(type_contains_any_parameter(&store, static_data, &[parameter]));
+    }
+
+    #[test]
+    fn parameter_use_walk_reaches_associated_static_domain_owner_arguments() {
+        let mut store = TypeStore::new();
+        let parameter = row_parameter(&mut store);
+        let row = open_row(&mut store, parameter);
+        let owner = owner("Container");
+        let declaration = AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+        let domain = store.associated_static_domain(declaration, vec![StaticArgument::RecordRow(row)].into_boxed_slice());
+        let domain_form = store.associated_static_domain_form(domain);
+        assert!(type_contains_any_parameter(&store, domain_form, &[parameter]));
+
+        let constructor = store.intern_static_constructor(domain, owner, "Ready", Box::new([]));
+        let static_data = store.static_data(domain, constructor, Box::new([])).expect("valid associated case");
+        assert!(type_contains_any_parameter(&store, static_data, &[parameter]));
     }
 }

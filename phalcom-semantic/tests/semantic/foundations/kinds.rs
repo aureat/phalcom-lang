@@ -137,6 +137,35 @@ fn associated_static_domain_declaration_identity_survives_owner_specialization()
 }
 
 #[test]
+fn associated_static_domain_owner_preserves_mixed_term_row_and_constant_arguments() {
+    use phalcom_semantic::types::row::RecordRowTail;
+    use phalcom_semantic::types::store::StaticDomainData;
+
+    let mut store = TypeStore::new();
+    let owner = test_decl("Container");
+    let declaration = AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+    let int = store.nominal_type(test_decl("Int"));
+    let count = store.const_int(3);
+    let row = store.record_row_checked(Vec::new(), RecordRowTail::Closed).expect("closed owner row argument");
+    let owner_arguments = vec![StaticArgument::Term(int), StaticArgument::RecordRow(row), StaticArgument::Term(count)].into_boxed_slice();
+
+    let domain = store.associated_static_domain(declaration.clone(), owner_arguments.clone());
+    let same_domain = store.associated_static_domain(declaration.clone(), owner_arguments.clone());
+    assert_eq!(domain, same_domain, "canonical owner environments reuse the domain identity");
+    assert!(matches!(
+        store.static_domain(domain),
+        Some(StaticDomainData::Associated { declaration: current, owner_arguments: current_arguments })
+            if current == &declaration && current_arguments == &owner_arguments
+    ));
+
+    let domain_form = store.associated_static_domain_form(domain);
+    assert_eq!(store.kind_of(domain_form), store.static_domain_kind(domain));
+    let constructor = store.intern_static_constructor(domain, owner, "Ready", Box::new([]));
+    let ready = store.static_data(domain, constructor, Box::new([])).expect("associated case");
+    assert!(matches!(store.get(ready), TypeData::StaticData(term) if term.domain == domain));
+}
+
+#[test]
 fn checked_substitution_reports_invalid_heterogeneous_application() {
     let mut store = TypeStore::new();
     let owner = TypeParameterOwner::Declaration(test_decl("Owner"));

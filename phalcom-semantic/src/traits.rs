@@ -709,6 +709,10 @@ impl TraitHeaderTable {
         self.entries.contains_key(declaration)
     }
 
+    pub fn remove(&mut self, declaration: &DeclarationId) {
+        self.entries.remove(declaration);
+    }
+
     pub fn remove_module(&mut self, module: &ModuleId) {
         self.entries.retain(|declaration, _| &declaration.module != module);
     }

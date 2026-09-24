@@ -354,6 +354,7 @@ pub enum TypeFormationInvalid {
     InvalidVariance,
     RecordRowTailKindMismatch { actual: KindId },
     UnsupportedRecordRowBinderSite,
+    UnsupportedTraitStaticDomainBinder,
 }
 
 /// Result of resolving an AST type annotation into a type form.
@@ -689,6 +690,7 @@ pub enum GenericBinderSite {
     Callable,
     TypeAlias,
     Impl,
+    Trait,
 }
 
 #[derive(Clone, Debug)]
@@ -3002,7 +3004,19 @@ pub fn resolve_generic_binder_header_with_context(
             ));
             return TypeFormationOutcome::Invalid(TypeFormationInvalid::UnsupportedRecordRowBinderSite);
         }
-        if binder_site != GenericBinderSite::NominalDeclaration && variance != Variance::Invariant {
+        let uses_user_static_domain = matches!(store.get_kind(kind), KindData::StaticDomain(domain)
+            if matches!(store.static_domain(*domain),
+                Some(super::store::StaticDomainData::Nominal { .. } | super::store::StaticDomainData::Associated { .. })));
+        if binder_site == GenericBinderSite::Trait && uses_user_static_domain {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnsupported,
+                "trait generic parameters over user-defined static domains are unsupported until trait evidence is generalized",
+                p.range,
+            ));
+            return TypeFormationOutcome::Invalid(TypeFormationInvalid::UnsupportedTraitStaticDomainBinder);
+        }
+        if !matches!(binder_site, GenericBinderSite::NominalDeclaration | GenericBinderSite::Trait) && variance != Variance::Invariant {
             diagnostics.push(SemanticDiagnostic::error_in(
                 current_module.clone(),
                 DiagnosticCode::AnnotationUnsupported,

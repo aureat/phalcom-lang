@@ -18,6 +18,7 @@ fn generic_trait_publishes_declaration_owned_header_without_nominal_type_entry()
             r#"trait Display<T> where T <: Object {
   render(_ value: T) -> T
 }
+
 "#,
         )
         .analyze();
@@ -52,6 +53,36 @@ fn generic_trait_publishes_declaration_owned_header_without_nominal_type_entry()
             .iter()
             .any(|blueprint| blueprint.id == declaration && blueprint.kind == phalcom_modules::DeclarationKind::Trait)
     );
+}
+
+#[test]
+fn user_static_domain_trait_binder_is_targeted_and_not_published_as_trait_evidence() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"type data Shape { Scalar }
+trait Tagged<S: Shape> {}
+class Box {}
+impl Tagged<Shape::Scalar> for Box {}
+"#,
+        )
+        .analyze();
+    let trait_declaration = fixture.decl("main", "Tagged");
+    let diagnostics = fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>();
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnsupported
+            && diagnostic.message.contains("trait generic parameters over user-defined static domains")
+    }), "expected targeted unsupported-domain diagnostic, got {diagnostics:#?}");
+    assert!(
+        !fixture.analysis.snapshot.trait_headers.contains(&trait_declaration),
+        "invalid trait header must not be published as a zero-parameter trait"
+    );
+    assert!(
+        !fixture.analysis.snapshot.conformance_index.iter().any(|(_, contribution)| contribution.trait_ref.declaration == trait_declaration),
+        "an invalid trait header must not publish conformance evidence"
+    );
+    assert!(fixture.analysis.snapshot.internal_incidents.is_empty(), "unexpected internal incidents: {:#?}", fixture.analysis.snapshot.internal_incidents);
 }
 
 #[test]

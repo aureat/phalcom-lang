@@ -1,5 +1,5 @@
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::diagnostic::{ModuleDiagnostic, ModuleDiagnosticKind};
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
@@ -363,6 +363,306 @@ fn imported_static_domain_case_publishes_provider_identity_before_runtime_reject
         phalcom_semantic::checker::associated::AssociatedResolutionKind::StaticTerm { domain, .. }
             if matches!(analysis.snapshot.store.static_domain(*domain), Some(phalcom_semantic::types::store::StaticDomainData::Nominal { declaration }) if declaration == &shape)
     )));
+}
+
+fn static_domain_provider_input(
+    provider_name: &str,
+    provider_source: &str,
+    consumer_source: &str,
+    generation: u64,
+) -> SemanticWorkspaceInput {
+    let shapes_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("app").unwrap(),
+        ModuleComponent::from_identifier("shapes").unwrap(),
+    ]));
+    let consumer_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("app").unwrap(),
+        ModuleComponent::from_identifier("consumer").unwrap(),
+    ]));
+    let provider_source: Arc<str> = Arc::from(provider_source);
+    let consumer_source: Arc<str> = Arc::from(consumer_source);
+    let provider_parsed = phalcom_ast::parse(&provider_source, 0);
+    let consumer_parsed = phalcom_ast::parse(&consumer_source, 0);
+    assert!(provider_parsed.errors.is_empty(), "provider parse errors: {:#?}", provider_parsed.errors);
+    assert!(consumer_parsed.errors.is_empty(), "consumer parse errors: {:#?}", consumer_parsed.errors);
+    let provider_symbol = SymbolId {
+        module: shapes_module.clone(),
+        name: provider_name.into(),
+    };
+    let provider_export = LinkedExport {
+        public_name: provider_name.into(),
+        target: LinkedExportTarget::Binding(provider_symbol.clone()),
+        range: Default::default(),
+    };
+    let provider_linked = LinkedModule {
+        interface: LinkedModuleInterface {
+            module: shapes_module.clone(),
+            kind: ModuleKind::Module,
+            exports: BTreeMap::from([(provider_name.into(), provider_export)]),
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout {
+            local_globals: BTreeMap::from([(provider_name.into(), GlobalBindingId(0))]),
+            imports: BTreeMap::new(),
+        },
+        linked_reads: Vec::new(),
+        runtime_dependencies: Vec::new(),
+    };
+    let consumer_linked = LinkedModule {
+        interface: LinkedModuleInterface {
+            module: consumer_module.clone(),
+            kind: ModuleKind::Module,
+            exports: BTreeMap::new(),
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout {
+            local_globals: BTreeMap::from([
+                ("Selected".into(), GlobalBindingId(0)),
+                ("Probe".into(), GlobalBindingId(1)),
+            ]),
+            imports: BTreeMap::from([(provider_name.into(), ImportBindingId(0))]),
+        },
+        linked_reads: vec![LinkedReadSpec::Binding(provider_symbol)],
+        runtime_dependencies: vec![shapes_module.clone()],
+    };
+    let sources = BTreeMap::from([
+        (
+            shapes_module.clone(),
+            Arc::new(ParsedModuleUnit::new(
+                shapes_module.clone(),
+                ModuleKind::Module,
+                None,
+                provider_source,
+                Arc::new(provider_parsed.program),
+            )),
+        ),
+        (
+            consumer_module.clone(),
+            Arc::new(ParsedModuleUnit::new(
+                consumer_module.clone(),
+                ModuleKind::Module,
+                None,
+                consumer_source,
+                Arc::new(consumer_parsed.program),
+            )),
+        ),
+    ]);
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(ProjectUniverse::new()),
+        modules: BTreeMap::from([(shapes_module.clone(), provider_linked), (consumer_module.clone(), consumer_linked)]),
+        graphs: Default::default(),
+        entry: consumer_module.clone(),
+        initialization_order: vec![shapes_module, consumer_module],
+    });
+    SemanticWorkspaceInput::new(linked, sources, generation)
+}
+
+#[test]
+fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold() {
+    use phalcom_semantic::db::QueryKey;
+    use phalcom_semantic::identity::{DeclarationId, SemanticTargetId, StaticCaseId, StaticDomainDeclarationId};
+    use phalcom_semantic::metadata::MetadataExporter;
+    use phalcom_semantic::session::SemanticWorkspaceSession;
+    use phalcom_type_meta::header::MetadataProfile;
+    use phalcom_type_meta::identity::StableStaticDomainDeclarationRef;
+    use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
+
+    let provider = |cases: &str| format!("type data Shape {{ {cases} }}\nexport Shape\n");
+    let consumer = "import app.shapes.Shape\n\
+                   type Selected: Shape = Shape::Vector<Shape::Scalar>(_)\n\
+                   class Probe { @class status() { Shape::Scalar } }\n";
+    let source_a = provider("Scalar; Vector(_ size: Shape)");
+    let mut session = SemanticWorkspaceSession::new();
+    let revision_a = session.update(static_domain_provider_input("Shape", &source_a, consumer, 1));
+    assert!(revision_a
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeOnlyRuntimeValue));
+    assert!(revision_a.snapshot.internal_incidents.is_empty());
+
+    let shapes_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("app").unwrap(),
+        ModuleComponent::from_identifier("shapes").unwrap(),
+    ]));
+    let consumer_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("app").unwrap(),
+        ModuleComponent::from_identifier("consumer").unwrap(),
+    ]));
+    let shape = DeclarationId::new(shapes_module.clone(), "Shape".into());
+    let selected_alias = DeclarationId::new(consumer_module.clone(), "Selected".into());
+    let provider_key = QueryKey::EnumDeclaration(shape.clone());
+    let vector_case_key = QueryKey::StaticCaseSignature(StaticCaseId::with_selector(
+        StaticDomainDeclarationId::Nominal(shape.clone()),
+        Selector::method("Vector", [SelectorSlot::Positional]).expect("Vector constructor selector"),
+    ));
+    let provider_fp_a = session.db().ready_product_fingerprint(&provider_key).expect("provider vA product");
+    let case_fp_a = session.db().ready_product_fingerprint(&vector_case_key).expect("provider Vector signature vA");
+
+    let index_a = revision_a.snapshot.source_index.module(&consumer_module).expect("consumer source index");
+    let scalar_offset = consumer.rfind("Scalar").expect("Scalar source occurrence") + 1;
+    assert_eq!(
+        index_a.occurrences.occurrence_at(scalar_offset).and_then(|occurrence| occurrence.target.cloned()),
+        Some(SemanticTargetId::StaticCase(StaticCaseId::new(
+            StaticDomainDeclarationId::Nominal(shape.clone()),
+            "Scalar"
+        )))
+    );
+
+    let bundle = MetadataExporter::new(
+        &revision_a.snapshot.store,
+        Some(&revision_a.snapshot.declarations),
+        None,
+        None,
+        MetadataProfile::RuntimePublic,
+    )
+    .with_algebraic_semantics(&revision_a.snapshot.data_semantics, &revision_a.snapshot.enum_semantics)
+    .with_associated_static_domains(&revision_a.snapshot.associated_static_domains)
+    .with_aliases(&revision_a.snapshot.type_aliases)
+    .build_bundle(&[])
+    .expect("multi-module provider metadata");
+    let provider_catalog = bundle
+        .static_domains
+        .iter()
+        .find(|record| matches!(&record.declaration,
+            StableStaticDomainDeclarationRef::Nominal(declaration)
+                if declaration.path.last().is_some_and(|name| name.as_ref() == "Shape")
+                    && declaration.module.path.iter().any(|part| part.as_ref() == "shapes")))
+        .expect("provider Shape catalog");
+    assert!(provider_catalog.cases.iter().any(|case| case.name.as_ref() == "Vector(_)"));
+    let selected = bundle
+        .aliases
+        .iter()
+        .find(|alias| alias.declaration.path.last().is_some_and(|name| name.as_ref() == "Selected"))
+        .expect("consumer alias metadata");
+    assert!(matches!(&bundle.types[selected.target.0 as usize].form,
+        phalcom_type_meta::type_node::TypeNode::StaticData(data)
+            if matches!(&data.domain, phalcom_type_meta::kind::StaticDomainRef::Nominal { declaration }
+                if declaration.module.path.iter().any(|part| part.as_ref() == "shapes"))
+                && data.constructor.case_name.as_ref() == "Vector(_)"));
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("composed provider metadata validates");
+
+    let source_b = provider("Scalar; Vector(_ size: Int)");
+    let revision_b = session.update(static_domain_provider_input("Shape", &source_b, consumer, 2));
+    assert!(revision_b.snapshot.internal_incidents.is_empty());
+    let provider_fp_b = session.db().ready_product_fingerprint(&provider_key).expect("provider payload product");
+    let case_fp_b = session.db().ready_product_fingerprint(&vector_case_key).expect("provider Vector signature vB");
+    assert_ne!(provider_fp_a, provider_fp_b, "provider payload-kind edit changes its declaration product");
+    assert_ne!(case_fp_a, case_fp_b, "provider Vector payload edit changes its checked signature");
+
+    let mut cold_b = SemanticWorkspaceSession::new();
+    let cold_revision_b = cold_b.update(static_domain_provider_input("Shape", &source_b, consumer, 1));
+    let diagnostic_codes = |snapshot: &phalcom_semantic::SemanticSnapshot| {
+        let mut codes = snapshot
+            .all_diagnostics()
+            .map(|diagnostic| (format!("{:?}", diagnostic.code), diagnostic.primary_range.start))
+            .collect::<Vec<_>>();
+        codes.sort();
+        codes
+    };
+    assert_eq!(diagnostic_codes(&revision_b.snapshot), diagnostic_codes(&cold_revision_b.snapshot));
+    let alias_form = |snapshot: &phalcom_semantic::SemanticSnapshot| {
+        snapshot
+            .type_aliases
+            .form(&selected_alias)
+            .map(|form| snapshot.store.format_type(form))
+    };
+    assert_ne!(
+        alias_form(&revision_a.snapshot),
+        alias_form(&revision_b.snapshot),
+        "provider signature edit changes or rejects the imported consumer alias form",
+    );
+    assert_eq!(alias_form(&revision_b.snapshot), alias_form(&cold_revision_b.snapshot));
+
+    let source_c = provider("Atom; Sized(_ size: Int)");
+    let revision_c = session.update(static_domain_provider_input("Shape", &source_c, consumer, 3));
+    assert!(revision_c.snapshot.internal_incidents.is_empty());
+    let mut cold_c = SemanticWorkspaceSession::new();
+    let cold_revision_c = cold_c.update(static_domain_provider_input("Shape", &source_c, consumer, 1));
+    assert_eq!(diagnostic_codes(&revision_c.snapshot), diagnostic_codes(&cold_revision_c.snapshot));
+    assert_eq!(alias_form(&revision_c.snapshot), alias_form(&cold_revision_c.snapshot));
+    let index_c = revision_c.snapshot.source_index.module(&consumer_module).expect("updated consumer source index");
+    assert!(
+        index_c.occurrences.occurrence_at(scalar_offset).is_none_or(|occurrence| occurrence.target.is_none()),
+        "renamed provider singleton no longer has a current source target"
+    );
+    assert!(!revision_c.snapshot.enum_semantics.enum_info(&shape).unwrap().static_data.as_ref().unwrap().constructors.is_empty());
+}
+
+#[test]
+fn imported_associated_static_domain_retains_provider_owner_specialization() {
+    use phalcom_semantic::identity::DeclarationId;
+    use phalcom_semantic::metadata::MetadataExporter;
+    use phalcom_semantic::session::SemanticWorkspaceSession;
+    use phalcom_type_meta::header::MetadataProfile;
+    use phalcom_type_meta::identity::StableStaticDomainDeclarationRef;
+    use phalcom_type_meta::kind::StaticDomainRef;
+    use phalcom_type_meta::type_node::TypeNode;
+    use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
+
+    let provider_source = "class Container<T: Type> { type data State { Ready } }\nexport Container\n";
+    let consumer_source = "import app.shapes.Container\ntype Selected: Container<Int>::State = Container<Int>::State::Ready\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(static_domain_provider_input("Container", provider_source, consumer_source, 1));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+    assert!(update.snapshot.internal_incidents.is_empty());
+
+    let shapes_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("app").unwrap(),
+        ModuleComponent::from_identifier("shapes").unwrap(),
+    ]));
+    let consumer_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("app").unwrap(),
+        ModuleComponent::from_identifier("consumer").unwrap(),
+    ]));
+    let owner = DeclarationId::new(shapes_module, "Container".into());
+    let selected = DeclarationId::new(consumer_module, "Selected".into());
+    let form = update.snapshot.type_aliases.form(&selected).expect("consumer static alias");
+    let phalcom_semantic::types::store::TypeData::StaticData(term) = update.snapshot.store.get(form) else {
+        panic!("associated case alias should retain static data: {}", update.snapshot.store.format_type(form));
+    };
+    let phalcom_semantic::types::store::StaticDomainData::Associated { declaration, owner_arguments } =
+        update.snapshot.store.static_domain(term.domain).expect("associated domain")
+    else {
+        panic!("associated static domain specialization expected");
+    };
+    assert_eq!(declaration.owner, owner);
+    assert_eq!(declaration.name.as_ref(), "State");
+    assert_eq!(owner_arguments.len(), 1);
+    assert_eq!(update.snapshot.store.static_constructor(term.constructor).unwrap().case_name.as_ref(), "Ready");
+
+    let bundle = MetadataExporter::new(
+        &update.snapshot.store,
+        Some(&update.snapshot.declarations),
+        None,
+        None,
+        MetadataProfile::RuntimePublic,
+    )
+    .with_algebraic_semantics(&update.snapshot.data_semantics, &update.snapshot.enum_semantics)
+    .with_associated_static_domains(&update.snapshot.associated_static_domains)
+    .with_aliases(&update.snapshot.type_aliases)
+    .build_bundle(&[])
+    .expect("cross-module associated static metadata");
+    let alias = bundle
+        .aliases
+        .iter()
+        .find(|alias| alias.declaration.path.last().is_some_and(|name| name.as_ref() == "Selected"))
+        .expect("Selected metadata alias");
+    let TypeNode::StaticData(metadata_term) = &bundle.types[alias.target.0 as usize].form else {
+        panic!("expected associated static term metadata");
+    };
+    assert_eq!(metadata_term.constructor.case_name.as_ref(), "Ready");
+    assert!(matches!(&metadata_term.domain, StaticDomainRef::Associated { declaration, owner_environment }
+        if declaration.name.as_ref() == "State"
+            && declaration.owner.path.last().is_some_and(|name| name.as_ref() == "Container")
+            && declaration.owner.module.path.iter().any(|name| name.as_ref() == "shapes")
+            && matches!(owner_environment.as_ref(), [phalcom_type_meta::type_node::StaticArgumentRef::Term(_)])));
+    assert!(bundle.static_domains.iter().any(|record| matches!(&record.declaration,
+        StableStaticDomainDeclarationRef::Associated(declaration)
+            if declaration.name.as_ref() == "State"
+                && declaration.owner.path.last().is_some_and(|name| name.as_ref() == "Container")
+                && declaration.owner.module.path.iter().any(|name| name.as_ref() == "shapes")
+                && record.cases.iter().any(|case| case.name.as_ref() == "Ready"))));
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("provider associated metadata validates");
 }
 
 #[test]

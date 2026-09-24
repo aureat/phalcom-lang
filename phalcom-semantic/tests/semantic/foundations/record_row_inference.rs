@@ -1,14 +1,58 @@
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::checker::{GenericApplicationSession, InferenceRecordTail, InferenceTerm};
-use phalcom_semantic::identity::DeclarationId;
-use phalcom_semantic::types::id::KindId;
+use phalcom_semantic::identity::{AssociatedStaticDomainDeclarationId, DeclarationId};
+use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
 use phalcom_semantic::types::outcome::{CancellationToken, QueryBudget};
 use phalcom_semantic::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
-use phalcom_semantic::types::store::{RecordTypeField, TypeData, TypeStore};
+use phalcom_semantic::types::store::{RecordTypeField, StaticArgument, TypeData, TypeStore};
 
 fn declaration(name: &str) -> DeclarationId {
     DeclarationId::new(ModuleId::universe_root(), name.into())
+}
+
+fn row_parameter(store: &mut TypeStore) -> TypeParameterId {
+    store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(declaration("Probe")),
+        0,
+        "R",
+        KindId::RECORD_ROW,
+    ))
+}
+
+fn prefixed_row(store: &mut TypeStore, parameter: TypeParameterId) -> phalcom_semantic::types::id::RecordRowId {
+    let int = store.nominal(declaration("Int"));
+    store
+        .record_row_checked(vec![RecordRowField { name: "known".into(), ty: int }], RecordRowTail::Parameter(parameter))
+        .expect("valid prefixed row")
+}
+
+fn assert_nested_lack_rejects_duplicate_extension(store: &mut TypeStore, parameter: TypeParameterId, nested: TypeId) {
+    let signature = GenericSignature::new(TypeParameterOwner::Declaration(declaration("Probe")), Box::new([parameter]));
+    let mut session = GenericApplicationSession::new(&signature, store);
+    session.constrain_signature_type_lacks(nested, store).expect("nested stable lack");
+
+    let formal = store
+        .record_row_type_checked(Vec::new(), RecordRowTail::Parameter(parameter))
+        .expect("formal open row");
+    let int = store.nominal(declaration("Int"));
+    let actual = store
+        .record_row_type_checked(vec![RecordRowField { name: "known".into(), ty: int }], RecordRowTail::Closed)
+        .expect("actual row with duplicate field");
+    let InferenceTerm::Record(formal_record) = session.type_term(formal, store) else {
+        panic!("expected formal row inference term")
+    };
+    session
+        .constrain_known_record_argument(actual, &formal_record, store)
+        .expect("known record constraint");
+    let mut budget = QueryBudget::default();
+    let cancellation = CancellationToken::new();
+    assert!(matches!(
+        session.solve_rows(store, &mut budget, &cancellation),
+        phalcom_semantic::types::row_solver::RecordRowSolveResult::Rejected(
+            phalcom_semantic::types::row_solver::RecordRowFailure::LacksViolation { field, .. }
+        ) if field.as_ref() == "known"
+    ));
 }
 
 #[test]
@@ -153,4 +197,47 @@ fn return_record_prefix_contributes_signature_lacks_to_row_inference() {
             phalcom_semantic::types::row_solver::RecordRowFailure::LacksViolation { field, .. }
         ) if field.as_ref() == "tag"
     ));
+}
+
+#[test]
+fn heterogeneous_applied_row_argument_preserves_nested_stable_lacks() {
+    let mut store = TypeStore::new();
+    let parameter = row_parameter(&mut store);
+    let row = prefixed_row(&mut store, parameter);
+    let kind = store.arrow_kind(vec![KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+    let origin = store.nominal_form(declaration("Applied"), kind);
+    let applied = store
+        .apply_static_form(origin, &[StaticArgument::RecordRow(row)])
+        .expect("heterogeneous row application");
+
+    assert_nested_lack_rejects_duplicate_extension(&mut store, parameter, applied);
+}
+
+#[test]
+fn static_data_row_argument_preserves_nested_stable_lacks() {
+    let mut store = TypeStore::new();
+    let parameter = row_parameter(&mut store);
+    let row = prefixed_row(&mut store, parameter);
+    let declaration = declaration("Shape");
+    let domain = store.nominal_static_domain(declaration.clone());
+    let constructor = store.intern_static_constructor(domain, declaration, "Row", vec![KindId::RECORD_ROW].into_boxed_slice());
+    let static_data = store
+        .static_data(domain, constructor, vec![StaticArgument::RecordRow(row)].into_boxed_slice())
+        .expect("row-valued static constructor argument");
+
+    assert_nested_lack_rejects_duplicate_extension(&mut store, parameter, static_data);
+}
+
+#[test]
+fn associated_static_domain_owner_row_argument_preserves_nested_stable_lacks() {
+    let mut store = TypeStore::new();
+    let parameter = row_parameter(&mut store);
+    let row = prefixed_row(&mut store, parameter);
+    let owner = declaration("Container");
+    let associated = AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+    let domain = store.associated_static_domain(associated, vec![StaticArgument::RecordRow(row)].into_boxed_slice());
+    let constructor = store.intern_static_constructor(domain, owner, "Ready", Box::new([]));
+    let static_data = store.static_data(domain, constructor, Box::new([])).expect("associated static case");
+
+    assert_nested_lack_rejects_duplicate_extension(&mut store, parameter, static_data);
 }

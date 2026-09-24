@@ -4623,13 +4623,36 @@ impl InferenceCoordinator {
 
     pub(crate) fn row_solution_for_roots(
         &self,
+        frame: InferenceFrameId,
         roots: &[RecordRowVarId],
         budget: &mut QueryBudget,
         cancellation: &CancellationToken,
     ) -> RecordRowSolveResult<InferenceTerm> {
         let mut solver = self.rows.borrow().clone();
-        match solver.solve_shapes_for_roots(&[], roots, budget, cancellation) {
-            RecordRowShapeSolveResult::Solved { solution, .. } => RecordRowSolveResult::Solved(solution),
+        match solver.solve_shapes_for_roots(&[], &[], budget, cancellation) {
+            RecordRowShapeSolveResult::Solved { solution, .. } => {
+                let mut unresolved = Vec::new();
+                for root in roots {
+                    let normalized = solver.normalize_term(&RecordRowTerm {
+                        fields: Box::new([]),
+                        tail: RecordRowTermTail::Var(*root),
+                    });
+                    if let RecordRowTermTail::Var(tail) = normalized.tail
+                        && !self.row_variable_is_owned_by_ancestor_frame(tail, frame)
+                    {
+                        unresolved.push(*root);
+                    }
+                }
+                unresolved.sort_unstable();
+                unresolved.dedup();
+                if unresolved.is_empty() {
+                    RecordRowSolveResult::Solved(solution)
+                } else {
+                    RecordRowSolveResult::Underconstrained(crate::types::row_solver::RecordRowUnderconstrained {
+                        variables: unresolved.into_boxed_slice(),
+                    })
+                }
+            }
             RecordRowShapeSolveResult::Underconstrained(result) => RecordRowSolveResult::Underconstrained(result),
             RecordRowShapeSolveResult::Rejected(error) => RecordRowSolveResult::Rejected(error),
             RecordRowShapeSolveResult::Blocked(reason) => RecordRowSolveResult::Blocked(reason),
@@ -5216,5 +5239,429 @@ mod tests {
                 return_type: Box::new(InferenceTerm::Var(result)),
             })
         );
+    }
+}
+
+#[cfg(test)]
+mod coordinated_row_completion_tests {
+    use super::{InferenceCoordinator, InferenceRecord, InferenceRecordField, InferenceRecordTail, InferenceStaticArgument, InferenceTerm};
+    use crate::checker::context::CheckerControl;
+    use crate::identity::DeclarationId;
+    use crate::types::id::{KindId, TypeId};
+    use crate::types::outcome::{CancellationToken, QueryBudget};
+    use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use crate::types::row::RecordRowField;
+    use crate::types::row_solver::{RecordRowShapeSolveResult, RecordRowSolveResult, RecordRowTerm, RecordRowTermTail};
+    use crate::types::store::TypeStore;
+    use crate::types::relation::MapTypeHierarchy;
+    use phalcom_modules::identity::ModuleId;
+
+    fn nominal(store: &mut TypeStore, name: &str) -> TypeId {
+        store.nominal(DeclarationId::new(ModuleId::universe_root(), name.into()))
+    }
+
+    fn row(fields: Vec<(&str, TypeId)>, tail: RecordRowTermTail) -> RecordRowTerm<InferenceTerm> {
+        RecordRowTerm::new(
+            fields
+                .into_iter()
+                .map(|(name, ty)| RecordRowField {
+                    name: name.into(),
+                    ty: InferenceTerm::Canonical(ty),
+                })
+                .collect(),
+            tail,
+        )
+        .expect("test row fields are unique")
+    }
+
+    fn solve_shape_equations(coordinator: &mut InferenceCoordinator, equations: &[(RecordRowTerm<InferenceTerm>, RecordRowTerm<InferenceTerm>)]) {
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+        assert!(matches!(
+            coordinator.rows.borrow_mut().solve_shapes_for_roots(equations, &[], &mut budget, &cancellation),
+            RecordRowShapeSolveResult::Solved { .. }
+        ));
+    }
+
+    fn propagate(coordinator: &mut InferenceCoordinator, store: &mut TypeStore) -> Result<bool, Box<super::InferenceOutcome>> {
+        coordinator.propagate_with_control(store, &MapTypeHierarchy::new(), &CheckerControl::default())
+    }
+
+    fn solved_row_for(
+        coordinator: &InferenceCoordinator,
+        frame: super::InferenceFrameId,
+        variable: crate::types::row_solver::RecordRowVarId,
+    ) -> crate::types::row_solver::RecordRowSolution<InferenceTerm> {
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+        let RecordRowSolveResult::Solved(solution) = coordinator.row_solution_for_roots(frame, &[variable], &mut budget, &cancellation) else {
+            panic!("expected completed row");
+        };
+        solution
+    }
+
+    #[test]
+    fn direct_local_row_root_without_evidence_is_underconstrained() {
+        let mut coordinator = InferenceCoordinator::new();
+        let frame = coordinator.root_frame();
+        let root = coordinator.fresh_record_row_variable_in_frame(frame);
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+
+        let result = coordinator.row_solution_for_roots(frame, &[root], &mut budget, &cancellation);
+        assert!(matches!(result, RecordRowSolveResult::Underconstrained(value) if value.variables.as_ref() == [root]));
+    }
+
+    #[test]
+    fn transitive_solver_internal_row_tail_is_underconstrained() {
+        let mut coordinator = InferenceCoordinator::new();
+        let frame = coordinator.root_frame();
+        let root = coordinator.fresh_record_row_variable_in_frame(frame);
+        let residual = coordinator.rows.borrow_mut().fresh_var();
+        let mut store = TypeStore::new();
+        let int = nominal(&mut store, "Int");
+        solve_shape_equations(
+            &mut coordinator,
+            &[(
+                RecordRowTerm::new(Vec::new(), RecordRowTermTail::Var(root)).unwrap(),
+                row(vec![("a", int)], RecordRowTermTail::Var(residual)),
+            )],
+        );
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+
+        let result = coordinator.row_solution_for_roots(frame, &[root], &mut budget, &cancellation);
+        assert!(matches!(result, RecordRowSolveResult::Underconstrained(value) if value.variables.as_ref() == [root]));
+    }
+
+    #[test]
+    fn child_row_retains_unresolved_ancestor_dependency_until_parent_solves() {
+        let mut coordinator = InferenceCoordinator::new();
+        let parent = coordinator.root_frame();
+        let ancestor = coordinator.fresh_record_row_variable_in_frame(parent);
+        let child = coordinator.begin_frame(Some(parent));
+        let local = coordinator.fresh_record_row_variable_in_frame(child);
+        let mut store = TypeStore::new();
+        let bool_ty = nominal(&mut store, "Bool");
+        solve_shape_equations(
+            &mut coordinator,
+            &[(
+                RecordRowTerm::new(Vec::new(), RecordRowTermTail::Var(local)).unwrap(),
+                row(vec![("mapped", bool_ty)], RecordRowTermTail::Var(ancestor)),
+            )],
+        );
+
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+        let child_solution = coordinator.row_solution_for_roots(child, &[local], &mut budget, &cancellation);
+        let RecordRowSolveResult::Solved(child_solution) = child_solution else {
+            panic!("ancestor dependency must remain symbolic")
+        };
+        let child_term = InferenceTerm::Record(InferenceRecord {
+            fields: Box::new([]),
+            tail: super::InferenceRecordTail::Var(local),
+        });
+        assert!(coordinator.term_has_unresolved_ancestor_row(&child_term, &child_solution, child));
+
+        let string_ty = nominal(&mut store, "String");
+        solve_shape_equations(
+            &mut coordinator,
+            &[(
+                RecordRowTerm::new(Vec::new(), RecordRowTermTail::Var(ancestor)).unwrap(),
+                row(vec![("cached", bool_ty), ("name", string_ty)], RecordRowTermTail::Closed),
+            )],
+        );
+        let mut budget = QueryBudget::default();
+        let resolved = coordinator.row_solution_for_roots(child, &[local], &mut budget, &cancellation);
+        let RecordRowSolveResult::Solved(resolved) = resolved else {
+            panic!("parent evidence closes child row")
+        };
+        assert!(!coordinator.term_has_unresolved_ancestor_row(&child_term, &resolved, child));
+        let term = resolved.term_for(local).expect("child root has a normalized solution");
+        assert_eq!(term.tail, RecordRowTermTail::Closed);
+        assert_eq!(
+            term.fields.iter().map(|field| field.name.as_ref()).collect::<Vec<_>>(),
+            ["cached", "mapped", "name"]
+        );
+    }
+
+    #[test]
+    fn row_occurs_check_finds_ordinary_type_that_already_contains_the_row() {
+        let mut coordinator = InferenceCoordinator::new();
+        let frame = coordinator.root_frame();
+        let row_var = coordinator.fresh_record_row_variable_in_frame(frame);
+        let type_var = coordinator.fresh_variable_in_frame(frame, KindId::TYPE);
+        let mut store = TypeStore::new();
+        let recursive_type = InferenceTerm::Record(InferenceRecord {
+            fields: Box::new([]),
+            tail: InferenceRecordTail::Var(row_var),
+        });
+        coordinator
+            .unify_terms(&InferenceTerm::Var(type_var), &recursive_type, &mut store)
+            .expect("ordinary term first retains the row reference");
+
+        let row_state = coordinator.rows.borrow().clone();
+        let var_terms = &coordinator.types.var_terms;
+        let aliases = &coordinator.types.var_aliases;
+        let equation = (
+            RecordRowTerm::new(Vec::new(), RecordRowTermTail::Var(row_var)).unwrap(),
+            RecordRowTerm {
+                fields: vec![RecordRowField {
+                    name: "x".into(),
+                    ty: InferenceTerm::Var(type_var),
+                }]
+                .into_boxed_slice(),
+                tail: RecordRowTermTail::Closed,
+            },
+        );
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+        let outcome =
+            coordinator
+                .rows
+                .borrow_mut()
+                .solve_shapes_for_roots_with_payload_occurs(&[equation], &[], &mut budget, &cancellation, |target, payload| {
+                    super::inference_term_contains_row_variable(payload, target, &row_state, var_terms, aliases, &mut std::collections::HashSet::new())
+                });
+        assert!(
+            matches!(outcome, RecordRowShapeSolveResult::Rejected(crate::types::row_solver::RecordRowFailure::OccursCheckFailed { var, .. }) if var == row_var)
+        );
+    }
+
+    #[test]
+    fn ordinary_occurs_check_finds_row_payload_type_in_later_heterogeneous_application() {
+        let mut coordinator = InferenceCoordinator::new();
+        let frame = coordinator.root_frame();
+        let row_var = coordinator.fresh_record_row_variable_in_frame(frame);
+        let type_var = coordinator.fresh_variable_in_frame(frame, KindId::TYPE);
+        let mut store = TypeStore::new();
+        let payload = InferenceTerm::Var(type_var);
+        let equation = (
+            RecordRowTerm::new(Vec::new(), RecordRowTermTail::Var(row_var)).unwrap(),
+            RecordRowTerm {
+                fields: vec![RecordRowField { name: "x".into(), ty: payload }].into_boxed_slice(),
+                tail: RecordRowTermTail::Closed,
+            },
+        );
+        solve_shape_equations(&mut coordinator, &[equation]);
+
+        let declaration = DeclarationId::new(ModuleId::universe_root(), "RowCarrier".into());
+        let owner = TypeParameterOwner::Declaration(declaration.clone());
+        let _row_parameter = store.intern_type_parameter(TypeParameterData::new(owner, 0, "R", KindId::RECORD_ROW));
+        let constructor_kind = store.arrow_kind(vec![KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+        let constructor = store.nominal_form(declaration, constructor_kind);
+        let application = InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(constructor)),
+            arguments: Box::new([InferenceStaticArgument::RecordRow(InferenceRecord {
+                fields: Box::new([]),
+                tail: InferenceRecordTail::Var(row_var),
+            })]),
+        };
+
+        assert!(matches!(
+            coordinator.unify_terms(&InferenceTerm::Var(type_var), &application, &mut store),
+            Err(super::InferenceFailureReason::OccursCheck { var }) if var == type_var
+        ));
+    }
+
+    #[test]
+    fn heterogeneous_applied_routes_term_row_and_static_data_children() {
+        let mut coordinator = InferenceCoordinator::new();
+        let frame = coordinator.root_frame();
+        let type_var = coordinator.fresh_variable_in_frame(frame, KindId::TYPE);
+        let field_var = coordinator.fresh_variable_in_frame(frame, KindId::TYPE);
+        let row_var = coordinator.fresh_record_row_variable_in_frame(frame);
+        let mut store = TypeStore::new();
+        let int = nominal(&mut store, "Int");
+        let string = nominal(&mut store, "String");
+        let shape_decl = DeclarationId::new(ModuleId::universe_root(), "Shape".into());
+        let shape = store.nominal_static_domain(shape_decl.clone());
+        let width = store.const_int(3);
+        let width_kind = store.kind_of(width);
+        let vector = store.intern_static_constructor(shape, shape_decl, "Vector", vec![width_kind].into_boxed_slice());
+        let width_var = coordinator.fresh_variable_in_frame(frame, width_kind);
+        let applied_decl = DeclarationId::new(ModuleId::universe_root(), "AppliedCarrier".into());
+        let shape_kind = store.static_domain_kind(shape);
+        let applied_kind = store.arrow_kind(vec![KindId::TYPE, KindId::RECORD_ROW, shape_kind].into_boxed_slice(), KindId::TYPE);
+        let applied_form = store.nominal_form(applied_decl, applied_kind);
+        let symbolic_static = InferenceTerm::StaticData {
+            domain: shape,
+            constructor: vector,
+            arguments: vec![InferenceStaticArgument::Term(InferenceTerm::Var(width_var))].into_boxed_slice(),
+        };
+        let concrete_static = InferenceTerm::StaticData {
+            domain: shape,
+            constructor: vector,
+            arguments: vec![InferenceStaticArgument::Term(InferenceTerm::Canonical(width))].into_boxed_slice(),
+        };
+        let left = InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(applied_form)),
+            arguments: vec![
+                InferenceStaticArgument::Term(InferenceTerm::Var(type_var)),
+                InferenceStaticArgument::RecordRow(InferenceRecord {
+                    fields: vec![InferenceRecordField { name: "x".into(), term: InferenceTerm::Var(field_var) }].into_boxed_slice(),
+                    tail: InferenceRecordTail::Var(row_var),
+                }),
+                InferenceStaticArgument::Term(symbolic_static),
+            ]
+            .into_boxed_slice(),
+        };
+        let right = InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(applied_form)),
+            arguments: vec![
+                InferenceStaticArgument::Term(InferenceTerm::Canonical(int)),
+                InferenceStaticArgument::RecordRow(InferenceRecord {
+                    fields: vec![
+                        InferenceRecordField { name: "x".into(), term: InferenceTerm::Canonical(int) },
+                        InferenceRecordField { name: "y".into(), term: InferenceTerm::Canonical(string) },
+                    ]
+                    .into_boxed_slice(),
+                    tail: InferenceRecordTail::Closed,
+                }),
+                InferenceStaticArgument::Term(concrete_static),
+            ]
+            .into_boxed_slice(),
+        };
+
+        coordinator.unify_terms(&left, &right, &mut store).expect("heterogeneous applied terms have matching categories");
+        assert!(propagate(&mut coordinator, &mut store).expect("coordinated solving"));
+        assert!(coordinator.finish_root().is_solved());
+        assert_eq!(coordinator.materialize(&InferenceTerm::Var(type_var), &mut store), Ok(int));
+        assert_eq!(coordinator.materialize(&InferenceTerm::Var(field_var), &mut store), Ok(int));
+        assert_eq!(coordinator.materialize(&InferenceTerm::Var(width_var), &mut store), Ok(width));
+        let solution = solved_row_for(&coordinator, frame, row_var);
+        let remainder = solution.term_for(row_var).expect("row root solution");
+        assert_eq!(remainder.tail, RecordRowTermTail::Closed);
+        assert_eq!(remainder.fields.as_ref(), &[RecordRowField { name: "y".into(), ty: InferenceTerm::Canonical(string) }]);
+    }
+
+    #[test]
+    fn heterogeneous_static_data_routes_row_and_term_children() {
+        let mut coordinator = InferenceCoordinator::new();
+        let frame = coordinator.root_frame();
+        let type_var = coordinator.fresh_variable_in_frame(frame, KindId::TYPE);
+        let field_var = coordinator.fresh_variable_in_frame(frame, KindId::TYPE);
+        let row_var = coordinator.fresh_record_row_variable_in_frame(frame);
+        let mut store = TypeStore::new();
+        let int = nominal(&mut store, "Int");
+        let string = nominal(&mut store, "String");
+        let declaration = DeclarationId::new(ModuleId::universe_root(), "RecordShape".into());
+        let domain = store.nominal_static_domain(declaration.clone());
+        let constructor = store.intern_static_constructor(domain, declaration, "Tagged", vec![KindId::RECORD_ROW, KindId::TYPE].into_boxed_slice());
+        let left = InferenceTerm::StaticData {
+            domain,
+            constructor,
+            arguments: vec![
+                InferenceStaticArgument::RecordRow(InferenceRecord {
+                    fields: vec![InferenceRecordField { name: "x".into(), term: InferenceTerm::Var(field_var) }].into_boxed_slice(),
+                    tail: InferenceRecordTail::Var(row_var),
+                }),
+                InferenceStaticArgument::Term(InferenceTerm::Var(type_var)),
+            ]
+            .into_boxed_slice(),
+        };
+        let right = InferenceTerm::StaticData {
+            domain,
+            constructor,
+            arguments: vec![
+                InferenceStaticArgument::RecordRow(InferenceRecord {
+                    fields: vec![
+                        InferenceRecordField { name: "x".into(), term: InferenceTerm::Canonical(int) },
+                        InferenceRecordField { name: "y".into(), term: InferenceTerm::Canonical(string) },
+                    ]
+                    .into_boxed_slice(),
+                    tail: InferenceRecordTail::Closed,
+                }),
+                InferenceStaticArgument::Term(InferenceTerm::Canonical(int)),
+            ]
+            .into_boxed_slice(),
+        };
+
+        coordinator.unify_terms(&left, &right, &mut store).expect("static constructor children have matching categories");
+        propagate(&mut coordinator, &mut store).expect("coordinated solving");
+        assert!(coordinator.finish_root().is_solved());
+        assert_eq!(coordinator.materialize(&InferenceTerm::Var(type_var), &mut store), Ok(int));
+        assert_eq!(coordinator.materialize(&InferenceTerm::Var(field_var), &mut store), Ok(int));
+        let solution = solved_row_for(&coordinator, frame, row_var);
+        let remainder = solution.term_for(row_var).expect("row root solution");
+        assert_eq!(remainder.tail, RecordRowTermTail::Closed);
+        assert_eq!(remainder.fields.as_ref(), &[RecordRowField { name: "y".into(), ty: InferenceTerm::Canonical(string) }]);
+    }
+
+    #[test]
+    fn row_extension_payload_materializes_after_ordinary_variable_solves() {
+        let mut coordinator = InferenceCoordinator::new();
+        let frame = coordinator.root_frame();
+        let payload = coordinator.fresh_variable_in_frame(frame, KindId::TYPE);
+        let row_var = coordinator.fresh_record_row_variable_in_frame(frame);
+        let mut store = TypeStore::new();
+        let string = nominal(&mut store, "String");
+        let applied_kind = store.arrow_kind(vec![KindId::TYPE, KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+        let applied_form = store.nominal_form(DeclarationId::new(ModuleId::universe_root(), "RowPayloadCarrier".into()), applied_kind);
+        let left = InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(applied_form)),
+            arguments: vec![
+                InferenceStaticArgument::Term(InferenceTerm::Var(payload)),
+                InferenceStaticArgument::RecordRow(InferenceRecord {
+                    fields: Box::new([]),
+                    tail: InferenceRecordTail::Var(row_var),
+                }),
+            ]
+            .into_boxed_slice(),
+        };
+        let right = InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(applied_form)),
+            arguments: vec![
+                InferenceStaticArgument::Term(InferenceTerm::Canonical(string)),
+                InferenceStaticArgument::RecordRow(InferenceRecord {
+                    fields: vec![InferenceRecordField { name: "extra".into(), term: InferenceTerm::Var(payload) }].into_boxed_slice(),
+                    tail: InferenceRecordTail::Closed,
+                }),
+            ]
+            .into_boxed_slice(),
+        };
+
+        coordinator.unify_terms(&left, &right, &mut store).expect("row extension and ordinary payload are compatible");
+        propagate(&mut coordinator, &mut store).expect("coordinated solving");
+        assert!(coordinator.finish_root().is_solved());
+        let materialized = coordinator
+            .materialize(
+                &InferenceTerm::Record(InferenceRecord { fields: Box::new([]), tail: InferenceRecordTail::Var(row_var) }),
+                &mut store,
+            )
+            .expect("solved residual row materializes");
+        let crate::types::store::TypeData::Record(row) = store.get(materialized) else {
+            panic!("expected materialized residual record");
+        };
+        assert_eq!(store.record_row(*row).fields.as_ref(), &[crate::types::row::RecordRowField { name: "extra".into(), ty: string }]);
+    }
+
+    #[test]
+    fn conflicting_same_label_payloads_are_semantic_inference_conflicts() {
+        let mut coordinator = InferenceCoordinator::new();
+        coordinator.root_frame();
+        let mut store = TypeStore::new();
+        let int = nominal(&mut store, "Int");
+        let string = nominal(&mut store, "String");
+        let conflict_kind = store.arrow_kind(vec![KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+        let form = store.nominal_form(DeclarationId::new(ModuleId::universe_root(), "ConflictCarrier".into()), conflict_kind);
+        let left = InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(form)),
+            arguments: Box::new([InferenceStaticArgument::RecordRow(InferenceRecord {
+                fields: vec![InferenceRecordField { name: "x".into(), term: InferenceTerm::Canonical(int) }].into_boxed_slice(),
+                tail: InferenceRecordTail::Closed,
+            })]),
+        };
+        let right = InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(form)),
+            arguments: Box::new([InferenceStaticArgument::RecordRow(InferenceRecord {
+                fields: vec![InferenceRecordField { name: "x".into(), term: InferenceTerm::Canonical(string) }].into_boxed_slice(),
+                tail: InferenceRecordTail::Closed,
+            })]),
+        };
+
+        coordinator.unify_terms(&left, &right, &mut store).expect("row payload equality is deferred to ordinary inference");
+        let outcome = propagate(&mut coordinator, &mut store).expect_err("incompatible payloads reject semantically");
+        assert!(matches!(*outcome, super::InferenceOutcome::Conflicting(_)));
     }
 }

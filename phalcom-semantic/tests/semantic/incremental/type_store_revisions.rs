@@ -549,6 +549,61 @@ fn type_data_case_edit_matches_cold_static_domain_analysis() {
 }
 
 #[test]
+fn snapshot_metadata_catalog_excludes_stale_static_case_history() {
+    use phalcom_semantic::metadata::MetadataExporter;
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::header::MetadataProfile;
+    use phalcom_type_meta::identity::StableStaticDomainDeclarationRef;
+    use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
+
+    let module = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("metadata_case_history").unwrap()]));
+    let owner = DeclarationId::new(module.clone(), "Shape".into());
+    let mut session = SemanticWorkspaceSession::new();
+    let revision_a = session.update(single_module_input(module.clone(), "type data Shape { Old }\n", 1));
+    assert!(!revision_a.snapshot.has_errors(), "revision A diagnostics: {:?}", revision_a.snapshot.diagnostics);
+    let old_info = revision_a.snapshot.enum_semantics.enum_info(&owner).expect("revision A Shape");
+    let old_constructor = old_info.static_data.as_ref().expect("revision A static domain").constructors[0];
+
+    let revision_b = session.update(single_module_input(module, "type data Shape { New }\n", 2));
+    assert!(!revision_b.snapshot.has_errors(), "revision B diagnostics: {:?}", revision_b.snapshot.diagnostics);
+    let live_old_constructor = revision_b
+        .snapshot
+        .store
+        .static_constructor(old_constructor)
+        .expect("old constructor remains interned in TypeStore history");
+    assert_eq!(live_old_constructor.case_name.as_ref(), "Old");
+
+    let bundle = MetadataExporter::new(
+        &revision_b.snapshot.store,
+        Some(&revision_b.snapshot.declarations),
+        None,
+        None,
+        MetadataProfile::RuntimePublic,
+    )
+    .with_algebraic_semantics(&revision_b.snapshot.data_semantics, &revision_b.snapshot.enum_semantics)
+    .with_associated_static_domains(&revision_b.snapshot.associated_static_domains)
+    .with_aliases(&revision_b.snapshot.type_aliases)
+    .build_bundle(&[])
+    .expect("revision B snapshot metadata");
+
+    let catalog = bundle
+        .static_domains
+        .iter()
+        .find(|record| matches!(&record.declaration,
+            StableStaticDomainDeclarationRef::Nominal(declaration)
+                if declaration.path.last().is_some_and(|name| name.as_ref() == "Shape")))
+        .expect("current Shape static-domain catalog entry");
+    assert_eq!(catalog.cases.len(), 1);
+    assert_eq!(catalog.cases[0].name.as_ref(), "New");
+    assert!(!catalog.cases.iter().any(|case| case.name.as_ref() == "Old"));
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("revision B metadata validates");
+
+    let json = encode_metadata_json(&bundle).expect("encode snapshot metadata");
+    let decoded = decode_metadata_json(&json, &ValidationLimits::default()).expect("decode snapshot metadata");
+    assert_eq!(decoded, bundle, "current declaration/case identity survives metadata round trip");
+}
+
+#[test]
 fn nominal_static_case_rename_invalidates_source_selection_and_preserves_unrelated_member() {
     use phalcom_semantic::identity::{CallableId, DispatchSide, SemanticTargetId, StaticCaseId, StaticDomainDeclarationId};
     use phalcom_semantic::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};

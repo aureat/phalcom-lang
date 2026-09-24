@@ -132,7 +132,7 @@ C3 is complete only when this statement is true:
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
-| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | active; ratified static-case signature and type-form-kind slice passes focused semantic/parser checks; T4/T8 and full P2 gates remain open |
+| `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | active; T1–T8 acceptance reconciled with focused evidence and explicit baseline classifications; T9 is active and paused at the mandatory beta-reduction resource consultation |
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | PROPOSED | NOT_STARTED | UNVERIFIED | waits on P2 |
 
 No additional P4 is planned.
@@ -969,6 +969,13 @@ semantic, and core libraries. No tests were run. Cross-module catalog compositio
 import reconstruction, provider invalidation, and cold/incremental parity remain open.
 Status: IMPLEMENTED / UNVERIFIED — schema and exporter slice compiles; T8 remains partial.
 
+Resolution update (2026-09-24): schema-v8 acceptance is now focused-tested. The
+compatibility suite passes 14/14. The metadata integration module passes its new
+round-trip/scoped cases; its one unrelated alpha-equivalence failure reproduces at the
+clean `9c150747` predecessor. Cross-module provider/cold parity, source-index identity,
+incremental ADT refresh, and TypeStore-history exclusion gates also pass. `INC-C3-9`
+is RESOLVED / ACCEPTED with the baseline failure retained below as nonblocking evidence.
+
 ### INC-C3-10 — static cases in declaration annotations
 
 Incident report: [INC-C3-10.md](INC-C3-10.md)
@@ -1180,7 +1187,109 @@ T8 partial
     import reconstruction, provider edit invalidation, and cold/incremental parity
     remain open. The source index retains the prior focused nominal-case identity
     evidence; it does not close the broader T8 contract.
+
+### Corrective closeout activation
+
+`LANG007.C3.P2.R1-closeout-corrective-patch-grade-implementation-plan.md` is the
+active execution companion for closing the remaining P2 acceptance gaps. Its
+preflight started at `9c150747262275b34e52cb7b6642d7d3ceb4ad4d` with a clean
+worktree. The two commits since the plan's `2ea4f3a1` repository anchor contain
+the unrelated LANG004 setter-lane delivery and this corrective plan; neither
+changes P2 semantic implementation. Live inspection confirms the three T4 gaps
+remain: heterogeneous generic-parameter reachability, stable row-lacks traversal,
+and transitive/frame-aware row-root completion.
+
+### Corrective closeout execution progress
+
+T2 implementation is applied. `type_contains_any_parameter` now traverses
+heterogeneous `StaticArgument`s, record-row tails, associated static-domain owner
+arguments, and scoped type-lambda bodies. Stable row-lacks collection follows the
+same heterogeneous argument and owner paths. No `RecordRowVarId` is emitted into
+stable facts. The direct RecordRow generic syntax attempted for a non-callable
+declaration is rejected by the live checker (`RecordRow generic binders are
+supported only on callable declarations`); no grammar was inferred or added. Tail
+reachability is therefore covered by semantic construction beside the private
+helper, rather than a fabricated source form.
+
+T3 implementation is applied at the coordinator boundary. Requested roots are
+normalized transitively before completion classification: local and solver-internal
+residual tails remain underconstrained, while an unresolved ancestor-owned tail is
+retained as a symbolic solution. The row solver remains frame-agnostic, roots remain
+call-scoped, and ordinary/row variable identities remain separate. The focused
+coordinator matrix passes in a disposable validation worktree: local and transitive
+underconstraint, child-to-parent symbolic retention and later resolution, both
+cross-domain occurs insertion orders, heterogeneous `Applied` and `StaticData`
+children, inferred row-extension payload materialization, and semantic same-label
+conflict reporting. The existing nested generic-closure row integration test also
+passes.
+
+The library unit-test target in the primary checkout remains blocked by stale,
+unrelated test-only initializers (`DeclarationTypeInfo.generic_binder_header` and
+legacy `InferenceStaticArgument` construction). For the isolated coordinator/helper
+test run, only those test-harness compatibility sites were adjusted in a disposable
+worktree; active implementation sources and new tests were copied unchanged. The
+temporary worktrees were removed afterward.
+
+The call-parameter helper matrix passes (4 tests), the stable row-lacks helper matrix
+passes (3 tests), and the frame/coordinator matrix passes (9 tests). The focused
+foundation gates pass: static-domain inference (6), row inference (6), generic
+application (11), and generic core controls (8). `cargo check -p phalcom-semantic
+--lib` passes. The focused record-row integration group selects 11 tests: 8 pass,
+and these three
+failures reproduce unchanged at the clean `9c150747` predecessor, so they are
+classified as baseline: `repeated_row_parameter_conflict_is_rejected`,
+`row_conflict_message_does_not_expose_solver_variables`, and
+`return_record_prefix_contributes_lacks_constraint_to_row_inference`. T2/T3 are
+implemented and focused-tested with the stated unit-harness limitation. CL-01's
+row-tail-only case exercises declaration-generic selection with a constructed
+canonical callable signature because the corresponding non-callable source binder
+is rejected by the live language. T4's corrective matrix is accepted with those
+three baseline failures explicitly classified. T5/T7 acceptance is now focused
+tested: `incremental::type_members` selects 23 and passes, `adts::associated`
+selects 27 (22 pass, 5 fixture-gated ignored), `associated::invocation` selects
+1 and passes, and `foundations::kinds` selects 18 and passes. Evidence includes
+callable parameter/return type-member projection, A/B/C associated-surface
+collision refresh with cold parity, and a canonical mixed Term/RecordRow/constant
+associated-owner specialization. T7 is accepted.
 ```
+
+### Corrective closeout continuation — T8 accepted; T9 consultation open (2026-09-24)
+
+T1–T8 are accepted for the P2 pre-T9 gate. This is implementation acceptance with
+focused evidence, not release certification. T4's three record-row integration
+failures remain classified as clean-predecessor baseline failures. T8 schema/import
+coverage is complete: `phalcom-type-meta` passes 14/14; schema-v8 static alias,
+associated-term, heterogeneous row application, scoped-bound, and stale-TypeStore
+history regressions pass; provider payload edit/rename and associated owner
+specialization tests pass; `integration::imported_resolution` passes 14/14,
+`integration::source_index` 22/22, `incremental::adts` 13/13 selected non-gated tests,
+and `incremental::type_store_revisions` 22/22.
+
+The trait boundary rejects user-defined static-domain generic binders with a targeted
+diagnostic, withholds the invalid header and conformance contribution, and retires a
+previously published valid header after an incremental invalid edit. Both new focused
+tests pass. `capabilities::traits` selects 39 tests: 37 pass and two dependency
+assertions fail identically at clean predecessor `9c150747` because non-generic trait
+defaults acquire a Universe `Bool` declaration-shell dependency. These are baseline
+failures, not trait-boundary regressions.
+
+T9 has started its audits. Runtime isolation found no P2 runtime static evaluator or
+new VM static-domain execution contract. The P2 code does not weaken ProperType
+admission; general heterogeneous consumers preserve `Term`/`RecordRow`, while
+projection normalization and rigid/runtime-only consumers explicitly require
+Type-valued arguments or return symbolic/reject. The different-origin supertype
+projection path remains type-only and conservatively does not project heterogeneous
+owner arguments; no required P2 acceptance case needs row inheritance through that
+path. The resource audit found `self.lambda_arena.clone()` in
+`TypeStore::apply_static_form`, which conflicts with canonical P2 `INV-P2-22` and
+corrective `INV-24` / `CL-35`.
+
+`INC-C3-11` is open and mandatory consultation is required before changing that path.
+`TypeLambdaArena::beta_reduce` recursively canonicalizes scoped applications through
+`TypeStore::apply_type_form`; a direct move-out of the arena may make existing lambda
+IDs unavailable to recursive normalization or change where new IDs are interned. No
+speculative code change was made. T9 final G-FINAL and lifecycle closure remain
+pending this decision. P2 stays `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
 
 Focused evidence acquired during this P2 continuation:
 
@@ -1275,11 +1384,9 @@ next plan:
     LANG007.C3.P2
 
 next action:
-    obtain focused behavioral evidence for T4's mixed row/type inference and nested
-    ancestor-row resolution; obtain T7's incremental/cold-parity evidence for the
-    retained graph and behavior-only inherent-impl surface refresh; then close T8's
-    cross-module metadata/import and cold/incremental identity gates. Keep T7's
-    graph-build/SCC full-traversal performance concern open.
+    obtain and record the INC-C3-11 architectural decision for the beta-reduction
+    resource invariant; then complete the remaining T9 focused gate and lifecycle
+    records. Keep T7's graph-build/SCC full-traversal performance concern open.
 
 Advanced-agent continuation prompt: [LANG007.C3.P2-advanced-agent-handoff.md](LANG007.C3.P2-advanced-agent-handoff.md).
 

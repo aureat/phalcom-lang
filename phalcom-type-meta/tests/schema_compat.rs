@@ -1,4 +1,5 @@
 use phalcom_type_meta::bundle::SemanticMetadataBundle;
+use phalcom_type_meta::declaration::{StaticDomainCaseRecord, StaticDomainDeclarationRecord, StaticDomainParameterRecord};
 use phalcom_type_meta::encode::decode_metadata_json;
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::generic::{GenericParameterModeRef, StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef};
@@ -6,10 +7,10 @@ use phalcom_type_meta::header::{
     ArtifactIdentityScheme, MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
     SEMANTIC_MODEL_VERSION, SemanticMetadataHeader, TYPE_METADATA_SCHEMA_VERSION,
 };
-use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef, StableStaticDomainDeclarationRef};
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId, StaticDomainRef};
 use phalcom_type_meta::scoped_type::{ScopedOpenRecordTypeRef, ScopedRecordTailRef, ScopedTypeNode, ScopedTypeNodeEntry, ScopedTypeNodeId};
-use phalcom_type_meta::type_node::{OpenRecordTypeRef, RecordFieldRef, TypeNode, TypeNodeEntry, TypeNodeId};
+use phalcom_type_meta::type_node::{OpenRecordTypeRef, RecordFieldRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, TypeNode, TypeNodeEntry, TypeNodeId};
 use phalcom_type_meta::validate::{MetadataValidationError, ValidationLimits, validate_metadata_bundle};
 
 fn sample_header(version: u32, record_rows: bool) -> SemanticMetadataHeader {
@@ -59,6 +60,305 @@ fn sample_bundle(version: u32, record_rows: bool) -> SemanticMetadataBundle {
         occurrences: Box::new([]),
         extensions: Box::new([]),
     }
+}
+
+fn schema_v8_static_declaration(name: &str) -> StableDeclarationRef {
+    StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "schema-v8".into(),
+                version: "1".into(),
+            },
+            path: Box::new(["types".into()]),
+        },
+        path: Box::new([name.into()]),
+    }
+}
+
+fn schema_v8_nominal_domain_bundle(version: u32) -> (SemanticMetadataBundle, StableDeclarationRef) {
+    let declaration = schema_v8_static_declaration("Shape");
+    let mut bundle = sample_bundle(version, false);
+    bundle.header.features.static_domains = true;
+    bundle.kinds = Box::new([
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::StaticDomain(StaticDomainRef::Nominal {
+                declaration: declaration.clone(),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    (bundle, declaration)
+}
+
+fn schema_v8_domain_record(
+    declaration: &StableDeclarationRef,
+    cases: Box<[StaticDomainCaseRecord]>,
+) -> StaticDomainDeclarationRecord {
+    StaticDomainDeclarationRecord {
+        declaration: StableStaticDomainDeclarationRef::Nominal(declaration.clone()),
+        owner_parameters: Box::new([]),
+        cases,
+    }
+}
+
+fn schema_v8_value_data_bundle() -> (SemanticMetadataBundle, StableDeclarationRef) {
+    let (mut bundle, declaration) = schema_v8_nominal_domain_bundle(8);
+    bundle.types = Box::new([
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Unit,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(1),
+            form: TypeNode::StaticData(StaticDataRef {
+                domain: StaticDomainRef::Nominal {
+                    declaration: declaration.clone(),
+                },
+                constructor: StaticConstructorRef {
+                    declaration: declaration.clone(),
+                    case_name: "Value".into(),
+                },
+                arguments: Box::new([StaticArgumentRef::Term(TypeNodeId(0))]),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle.static_domains = Box::new([schema_v8_domain_record(
+        &declaration,
+        Box::new([StaticDomainCaseRecord {
+            name: "Value".into(),
+            parameter_kinds: Box::new([KindNodeId(0)]),
+        }]),
+    )]);
+    (bundle, declaration)
+}
+
+#[test]
+fn schema_v8_requires_a_catalog_for_nominal_and_associated_static_domain_kinds() {
+    let limits = ValidationLimits::default();
+    let (nominal, declaration) = schema_v8_nominal_domain_bundle(8);
+    assert_eq!(
+        validate_metadata_bundle(&nominal, &limits).unwrap_err(),
+        MetadataValidationError::MissingStaticDomainCatalogEntry(
+            StableStaticDomainDeclarationRef::Nominal(declaration)
+        )
+    );
+
+    let mut associated = sample_bundle(8, false);
+    associated.header.features.static_domains = true;
+    let owner = schema_v8_static_declaration("Container");
+    let associated_declaration = phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
+        owner,
+        name: "State".into(),
+    };
+    associated.kinds = Box::new([KindNodeEntry {
+        node: KindNode::StaticDomain(StaticDomainRef::Associated {
+            declaration: associated_declaration.clone(),
+            owner_environment: Box::new([]),
+        }),
+        structural_fingerprint: Fingerprint128::ZERO,
+    }]);
+    assert_eq!(
+        validate_metadata_bundle(&associated, &limits).unwrap_err(),
+        MetadataValidationError::MissingStaticDomainCatalogEntry(
+            StableStaticDomainDeclarationRef::Associated(associated_declaration)
+        )
+    );
+}
+
+#[test]
+fn schema_v8_rejects_duplicate_declarations_and_duplicate_or_unsorted_cases() {
+    let limits = ValidationLimits::default();
+    let (mut bundle, declaration) = schema_v8_nominal_domain_bundle(8);
+    let record = schema_v8_domain_record(&declaration, Box::new([]));
+    bundle.static_domains = Box::new([record.clone(), record]);
+    assert_eq!(
+        validate_metadata_bundle(&bundle, &limits).unwrap_err(),
+        MetadataValidationError::DuplicateStaticDomainCatalogEntry(
+            StableStaticDomainDeclarationRef::Nominal(declaration.clone())
+        )
+    );
+
+    let (mut duplicate_cases, declaration) = schema_v8_nominal_domain_bundle(8);
+    duplicate_cases.static_domains = Box::new([schema_v8_domain_record(
+        &declaration,
+        Box::new([
+            StaticDomainCaseRecord {
+                name: "A".into(),
+                parameter_kinds: Box::new([]),
+            },
+            StaticDomainCaseRecord {
+                name: "A".into(),
+                parameter_kinds: Box::new([]),
+            },
+        ]),
+    )]);
+    assert!(matches!(
+        validate_metadata_bundle(&duplicate_cases, &limits),
+        Err(MetadataValidationError::DuplicateStaticDomainCase { case, .. }) if case.as_ref() == "A"
+    ));
+
+    let (mut unsorted_cases, declaration) = schema_v8_nominal_domain_bundle(8);
+    unsorted_cases.static_domains = Box::new([schema_v8_domain_record(
+        &declaration,
+        Box::new([
+            StaticDomainCaseRecord {
+                name: "Z".into(),
+                parameter_kinds: Box::new([]),
+            },
+            StaticDomainCaseRecord {
+                name: "A".into(),
+                parameter_kinds: Box::new([]),
+            },
+        ]),
+    )]);
+    assert!(matches!(
+        validate_metadata_bundle(&unsorted_cases, &limits),
+        Err(MetadataValidationError::Malformed(message)) if message.contains("static-domain cases must be sorted")
+    ));
+}
+
+#[test]
+fn schema_v8_validates_owner_parameter_modes_and_owner_environment_kinds() {
+    let limits = ValidationLimits::default();
+    let (mut invalid_mode, declaration) = schema_v8_nominal_domain_bundle(8);
+    invalid_mode.static_domains = Box::new([StaticDomainDeclarationRecord {
+        declaration: StableStaticDomainDeclarationRef::Nominal(declaration),
+        owner_parameters: Box::new([StaticDomainParameterRecord {
+            kind: KindNodeId(0),
+            mode: GenericParameterModeRef::PositionalPack,
+        }]),
+        cases: Box::new([]),
+    }]);
+    assert!(matches!(
+        validate_metadata_bundle(&invalid_mode, &limits),
+        Err(MetadataValidationError::Malformed(message)) if message.contains("owner parameter mode")
+    ));
+
+    let owner = schema_v8_static_declaration("Container");
+    let associated_declaration = phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
+        owner,
+        name: "State".into(),
+    };
+    let mut wrong_environment = sample_bundle(8, false);
+    wrong_environment.header.features.static_domains = true;
+    wrong_environment.kinds = Box::new([
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::RecordRow,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::StaticDomain(StaticDomainRef::Associated {
+                declaration: associated_declaration.clone(),
+                owner_environment: Box::new([StaticArgumentRef::Term(TypeNodeId(0))]),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    wrong_environment.types = Box::new([TypeNodeEntry {
+        kind: KindNodeId(0),
+        form: TypeNode::Unit,
+        structural_fingerprint: Fingerprint128::ZERO,
+    }]);
+    wrong_environment.static_domains = Box::new([StaticDomainDeclarationRecord {
+        declaration: StableStaticDomainDeclarationRef::Associated(associated_declaration),
+        owner_parameters: Box::new([StaticDomainParameterRecord {
+            kind: KindNodeId(1),
+            mode: GenericParameterModeRef::Single,
+        }]),
+        cases: Box::new([]),
+    }]);
+    assert!(matches!(
+        validate_metadata_bundle(&wrong_environment, &limits),
+        Err(MetadataValidationError::StaticDomainOwnerKindMismatch { .. })
+    ));
+}
+
+#[test]
+fn schema_v8_validates_static_data_case_membership_arity_and_payload_kind() {
+    let limits = ValidationLimits::default();
+    let (mut valid_shape, declaration) = schema_v8_value_data_bundle();
+    assert!(validate_metadata_bundle(&valid_shape, &limits).is_ok());
+
+    let mut missing_case = valid_shape.clone();
+    missing_case.static_domains = Box::new([schema_v8_domain_record(
+        &declaration,
+        Box::new([]),
+    )]);
+    assert!(matches!(
+        validate_metadata_bundle(&missing_case, &limits),
+        Err(MetadataValidationError::MissingStaticDomainCase { case, .. }) if case.as_ref() == "Value"
+    ));
+
+    valid_shape.types[1].form = TypeNode::StaticData(StaticDataRef {
+        domain: StaticDomainRef::Nominal {
+            declaration: declaration.clone(),
+        },
+        constructor: StaticConstructorRef {
+            declaration: declaration.clone(),
+            case_name: "Value".into(),
+        },
+        arguments: Box::new([]),
+    });
+    assert!(matches!(
+        validate_metadata_bundle(&valid_shape, &limits),
+        Err(MetadataValidationError::StaticDomainCaseArityMismatch { .. })
+    ));
+
+    let (mut wrong_kind, declaration) = schema_v8_value_data_bundle();
+    wrong_kind.kinds = Box::new([
+        wrong_kind.kinds[0].clone(),
+        wrong_kind.kinds[1].clone(),
+        KindNodeEntry {
+            node: KindNode::StaticDomain(StaticDomainRef::ConstInt),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    let mut static_data = wrong_kind.types[1].clone();
+    static_data.form = TypeNode::StaticData(StaticDataRef {
+        domain: StaticDomainRef::Nominal {
+            declaration: declaration.clone(),
+        },
+        constructor: StaticConstructorRef {
+            declaration,
+            case_name: "Value".into(),
+        },
+        arguments: Box::new([StaticArgumentRef::Term(TypeNodeId(1))]),
+    });
+    wrong_kind.types = Box::new([
+        wrong_kind.types[0].clone(),
+        TypeNodeEntry {
+            kind: KindNodeId(2),
+            form: TypeNode::ConstInt(7),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        static_data,
+    ]);
+    assert!(matches!(
+        validate_metadata_bundle(&wrong_kind, &limits),
+        Err(MetadataValidationError::StaticDomainCaseKindMismatch { .. })
+    ));
+}
+
+#[test]
+fn schema_v7_keeps_pre_catalog_static_domain_compatibility_floor() {
+    let limits = ValidationLimits::default();
+    let (v7, declaration) = schema_v8_nominal_domain_bundle(7);
+    assert!(validate_metadata_bundle(&v7, &limits).is_ok());
+    assert!(v7.static_domains.is_empty());
+    assert_eq!(
+        v7.kinds[1].node,
+        KindNode::StaticDomain(StaticDomainRef::Nominal { declaration })
+    );
 }
 
 #[test]

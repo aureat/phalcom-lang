@@ -170,6 +170,41 @@ fn source_type_member_projection_is_available_in_generic_header_annotations() {
 }
 
 #[test]
+fn source_type_member_projection_is_available_in_callable_parameter_and_return_annotations() {
+    use phalcom_common::selector::{Selector, SelectorSlot};
+    use phalcom_semantic::types::store::TypeData;
+    use phalcom_semantic::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};
+
+    let module = module();
+    let source = r#"
+class Geometry {
+  type Wrap<T: Type>: Type
+}
+class Consumer {
+  transform(_ value: Geometry::Wrap<Int>) -> Geometry::Wrap<Int> { value }
+}
+"#;
+    let result = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
+    assert!(!result.snapshot.has_errors(), "callable annotations should retain type-member types: {:?}", result.snapshot.diagnostics);
+
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let selector = Selector::method("transform", [SelectorSlot::Positional]).expect("method selector");
+    let callable = CallableId::new(consumer, selector, DispatchSide::Instance);
+    let signature = result.snapshot.callable_signatures.get(&callable).expect("published transform signature");
+    let expected_member = TypeMemberDeclarationId::new(DeclarationId::new(module, "Geometry".into()), TypeMemberSelector::named("Wrap"));
+
+    for ty in [
+        signature.parameters[0].declared_type.canonical_type().expect("parameter annotation"),
+        signature.declared_return.canonical_type().expect("return annotation"),
+    ] {
+        let TypeData::TypeMemberProjection(projection) = result.snapshot.store.get(ty) else {
+            panic!("callable annotation should preserve the canonical projection, got {:?}", result.snapshot.store.get(ty));
+        };
+        assert_eq!(projection.source_declaration.as_ref(), Some(&expected_member));
+    }
+}
+
+#[test]
 fn alias_application_tracks_nominal_header_domain_edits_and_matches_cold_analysis() {
     use phalcom_semantic::diagnostic::DiagnosticCode;
 
@@ -378,6 +413,46 @@ fn associated_surface_rejects_type_member_collision_with_owner_behavior() {
         "expected same-owner type-member collision diagnostic: {:?}",
         result.snapshot.diagnostics
     );
+}
+
+#[test]
+fn associated_collision_introduction_and_removal_refresh_incrementally_with_cold_parity() {
+    use phalcom_common::selector::SelectorBase;
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module = module();
+    let source_a = "type data Shape { Scalar }\nclass Geometry {\n  type Transform<S: Shape>: Shape\n}\n";
+    let source_b = "type data Shape { Scalar }\nclass Geometry {\n  type Transform<S: Shape>: Shape\n  Transform() -> Int { 1 }\n}\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let revision_a = incremental.update(single_module_input(module.clone(), source_a, 1));
+    let revision_b = incremental.update(single_module_input(module.clone(), source_b, 2));
+    let revision_c = incremental.update(single_module_input(module.clone(), source_a, 3));
+
+    let owner = DeclarationId::new(module.clone(), "Geometry".into());
+    let family_key = SelectorBase::Named("Transform".into());
+    assert!(revision_a.snapshot.associated_surfaces.surfaces[&owner].families.contains_key(&family_key));
+    assert!(!revision_b.snapshot.associated_surfaces.surfaces[&owner].families.contains_key(&family_key));
+    assert!(revision_c.snapshot.associated_surfaces.surfaces[&owner].families.contains_key(&family_key));
+
+    let codes = |result: &phalcom_semantic::session::SemanticWorkspacePublication| {
+        result
+            .snapshot
+            .diagnostics
+            .get(&module)
+            .into_iter()
+            .flat_map(|diagnostics| diagnostics.iter())
+            .map(|diagnostic| (diagnostic.code, diagnostic.message.clone(), diagnostic.primary_range))
+            .collect::<Vec<_>>()
+    };
+    assert!(codes(&revision_b).iter().any(|(code, _, _)| *code == DiagnosticCode::EnumFamilyCategoryConflict));
+    let mut cold_b = SemanticWorkspaceSession::new();
+    let cold_b = cold_b.update(single_module_input(module.clone(), source_b, 1));
+    assert_eq!(codes(&revision_b), codes(&cold_b), "collision diagnostics should match cold analysis");
+
+    let mut cold_c = SemanticWorkspaceSession::new();
+    let cold_c = cold_c.update(single_module_input(module.clone(), source_a, 1));
+    assert_eq!(codes(&revision_c), codes(&cold_c), "collision removal should match cold analysis");
+    assert!(codes(&revision_c).is_empty());
 }
 
 #[test]

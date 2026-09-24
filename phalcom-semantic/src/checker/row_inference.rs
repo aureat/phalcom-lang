@@ -105,133 +105,264 @@ fn lift_canonical_row_failure(failure: RecordRowFailure<TypeId>) -> RecordRowFai
 }
 
 pub(crate) fn collect_stable_record_row_lacks(store: &TypeStore, ty: TypeId) -> Vec<StableRecordRowLack> {
-    let mut lacks = Vec::new();
-    let mut visited = HashSet::new();
-    let mut emitted = HashSet::new();
-    collect_stable_record_row_lacks_inner(store, ty, &mut visited, &mut emitted, &mut lacks);
-    lacks
+    StableRowLackCollector::new(store).collect(ty)
 }
 
-fn collect_stable_record_row_lacks_inner(
-    store: &TypeStore,
-    ty: TypeId,
-    visited: &mut HashSet<TypeId>,
-    emitted: &mut HashSet<(TypeParameterId, Box<str>)>,
-    lacks: &mut Vec<StableRecordRowLack>,
-) {
-    if !visited.insert(ty) {
-        return;
+struct StableRowLackCollector<'a> {
+    store: &'a TypeStore,
+    visited_types: HashSet<TypeId>,
+    visited_rows: HashSet<crate::types::id::RecordRowId>,
+    visited_domains: HashSet<crate::types::id::StaticDomainId>,
+    visited_lambdas: HashSet<crate::types::id::TypeLambdaId>,
+    visited_scoped_types: HashSet<crate::types::id::ScopedTypeId>,
+    emitted: HashSet<(TypeParameterId, Box<str>)>,
+    lacks: Vec<StableRecordRowLack>,
+}
+
+impl<'a> StableRowLackCollector<'a> {
+    fn new(store: &'a TypeStore) -> Self {
+        Self {
+            store,
+            visited_types: HashSet::new(),
+            visited_rows: HashSet::new(),
+            visited_domains: HashSet::new(),
+            visited_lambdas: HashSet::new(),
+            visited_scoped_types: HashSet::new(),
+            emitted: HashSet::new(),
+            lacks: Vec::new(),
+        }
     }
 
-    match store.get(ty) {
-        TypeData::Record(row_id) => {
-            let row = store.record_row(*row_id);
-            if let RecordRowTail::Parameter(parameter) = row.tail {
-                for field in row.fields.iter() {
-                    let key = (parameter, field.name.clone());
-                    if emitted.insert(key) {
-                        lacks.push(StableRecordRowLack {
-                            parameter,
-                            field: field.name.clone(),
-                        });
+    fn collect(mut self, ty: TypeId) -> Vec<StableRecordRowLack> {
+        self.visit_type(ty);
+        self.lacks
+    }
+
+    fn visit_type(&mut self, ty: TypeId) {
+        if !self.visited_types.insert(ty) {
+            return;
+        }
+        match self.store.get(ty).clone() {
+            TypeData::Record(row) => self.visit_row(row),
+            TypeData::Applied { origin, arguments } => {
+                self.visit_type(origin);
+                for argument in arguments.iter().copied() {
+                    self.visit_static_argument(argument);
+                }
+            }
+            TypeData::StaticDomainForm { domain } => self.visit_static_domain(domain),
+            TypeData::StaticData(term) => {
+                self.visit_static_domain(term.domain);
+                for argument in term.arguments.iter().copied() {
+                    self.visit_static_argument(argument);
+                }
+            }
+            TypeData::ExactCase { enum_type, .. } => self.visit_type(enum_type),
+            TypeData::Union(members) => {
+                for member in members.iter().copied() {
+                    self.visit_type(member);
+                }
+            }
+            TypeData::Tuple(elements) => {
+                for element in elements.iter() {
+                    self.visit_type(element.ty);
+                }
+            }
+            TypeData::Callable(callable) => {
+                for parameter in callable.parameters.iter() {
+                    self.visit_type(parameter.ty);
+                }
+                self.visit_type(callable.return_type);
+            }
+            TypeData::Family(family_id) => {
+                for member in self.store.get_family(family_id).members.iter() {
+                    self.visit_type(member.ty);
+                }
+            }
+            TypeData::AssociatedProjection(projection) => {
+                self.visit_type(projection.subject);
+                for argument in projection.trait_ref.arguments.iter().copied() {
+                    self.visit_type(argument);
+                }
+            }
+            TypeData::TypeMemberProjection(projection) => {
+                use crate::types::type_member::{ProjectionSubject, TypeMemberArgument};
+                match projection.subject {
+                    ProjectionSubject::Type(subject) => self.visit_type(subject),
+                    ProjectionSubject::RecordRow(row) => self.visit_row(row),
+                }
+                for argument in projection.arguments.iter() {
+                    match argument {
+                        TypeMemberArgument::Type(ty) => self.visit_type(*ty),
+                        TypeMemberArgument::RecordRow(row) => self.visit_row(*row),
+                        TypeMemberArgument::Const(_) => {}
                     }
                 }
             }
+            TypeData::TypePack(elements) | TypeData::TypePackConcat(elements) | TypeData::LabeledTypePackConcat(elements) => {
+                for element in elements.iter().copied() {
+                    self.visit_type(element);
+                }
+            }
+            TypeData::LabeledTypePack(elements) => {
+                for element in elements.iter() {
+                    self.visit_type(element.element);
+                }
+            }
+            TypeData::TupleFromPacks { positionals, labeled } | TypeData::CompleteTypePack { positionals, labeled } => {
+                self.visit_type(positionals);
+                self.visit_type(labeled);
+            }
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.visit_type(positionals);
+                self.visit_type(labeled);
+                self.visit_type(return_type);
+            }
+            TypeData::Lambda(lambda) => self.visit_lambda(lambda),
+            TypeData::Never
+            | TypeData::Unit
+            | TypeData::ClassObject { .. }
+            | TypeData::Nominal { .. }
+            | TypeData::Parameter(_)
+            | TypeData::SelfType(_)
+            | TypeData::ConstInt(_) => {}
+        }
+    }
+
+    fn visit_static_argument(&mut self, argument: crate::types::store::StaticArgument) {
+        match argument {
+            crate::types::store::StaticArgument::Term(ty) => self.visit_type(ty),
+            crate::types::store::StaticArgument::RecordRow(row) => self.visit_row(row),
+        }
+    }
+
+    fn visit_static_domain(&mut self, domain: crate::types::id::StaticDomainId) {
+        use crate::types::store::StaticDomainData;
+        if !self.visited_domains.insert(domain) {
+            return;
+        }
+        let Some(StaticDomainData::Associated { owner_arguments, .. }) = self.store.static_domain(domain).cloned() else {
+            return;
+        };
+        for argument in owner_arguments.iter().copied() {
+            self.visit_static_argument(argument);
+        }
+    }
+
+    fn visit_row(&mut self, row_id: crate::types::id::RecordRowId) {
+        use crate::types::row::RecordRowTail;
+        if !self.visited_rows.insert(row_id) {
+            return;
+        }
+        let row = self.store.record_row(row_id).clone();
+        if let RecordRowTail::Parameter(parameter) = row.tail {
             for field in row.fields.iter() {
-                collect_stable_record_row_lacks_inner(store, field.ty, visited, emitted, lacks);
-            }
-        }
-        TypeData::Applied { origin, arguments } => {
-            collect_stable_record_row_lacks_inner(store, *origin, visited, emitted, lacks);
-            for argument in arguments.iter().filter_map(|argument| argument.as_type_id()) {
-                collect_stable_record_row_lacks_inner(store, argument, visited, emitted, lacks);
-            }
-        }
-        TypeData::ExactCase { enum_type, .. } => collect_stable_record_row_lacks_inner(store, *enum_type, visited, emitted, lacks),
-        TypeData::Union(members) => {
-            for &member in members.iter() {
-                collect_stable_record_row_lacks_inner(store, member, visited, emitted, lacks);
-            }
-        }
-        TypeData::Tuple(elements) => {
-            for element in elements.iter() {
-                collect_stable_record_row_lacks_inner(store, element.ty, visited, emitted, lacks);
-            }
-        }
-        TypeData::Callable(callable) => {
-            for parameter in callable.parameters.iter() {
-                collect_stable_record_row_lacks_inner(store, parameter.ty, visited, emitted, lacks);
-            }
-            collect_stable_record_row_lacks_inner(store, callable.return_type, visited, emitted, lacks);
-        }
-        TypeData::Family(family_id) => {
-            for member in store.get_family(*family_id).members.iter() {
-                collect_stable_record_row_lacks_inner(store, member.ty, visited, emitted, lacks);
-            }
-        }
-        TypeData::AssociatedProjection(projection) => {
-            collect_stable_record_row_lacks_inner(store, projection.subject, visited, emitted, lacks);
-            for &argument in projection.trait_ref.arguments.iter() {
-                collect_stable_record_row_lacks_inner(store, argument, visited, emitted, lacks);
-            }
-        }
-        TypeData::TypeMemberProjection(projection) => {
-            if let crate::types::type_member::ProjectionSubject::Type(ty) = projection.subject {
-                collect_stable_record_row_lacks_inner(store, ty, visited, emitted, lacks);
-            }
-            for argument in projection.arguments.iter() {
-                if let crate::types::type_member::TypeMemberArgument::Type(ty) = argument {
-                    collect_stable_record_row_lacks_inner(store, *ty, visited, emitted, lacks);
+                let key = (parameter, field.name.clone());
+                if self.emitted.insert(key) {
+                    self.lacks.push(StableRecordRowLack {
+                        parameter,
+                        field: field.name.clone(),
+                    });
                 }
             }
         }
-        TypeData::TypePack(elements) => {
-            for &element in elements.iter() {
-                collect_stable_record_row_lacks_inner(store, element, visited, emitted, lacks);
-            }
+        for field in row.fields.iter() {
+            self.visit_type(field.ty);
         }
-        TypeData::LabeledTypePack(elements) => {
-            for element in elements.iter() {
-                collect_stable_record_row_lacks_inner(store, element.element, visited, emitted, lacks);
-            }
+        if let RecordRowTail::Projection(projection) = row.tail {
+            self.visit_type(projection);
         }
-        TypeData::TupleFromPacks { positionals, labeled } => {
-            collect_stable_record_row_lacks_inner(store, *positionals, visited, emitted, lacks);
-            collect_stable_record_row_lacks_inner(store, *labeled, visited, emitted, lacks);
+    }
+
+    fn visit_lambda(&mut self, lambda: crate::types::id::TypeLambdaId) {
+        if !self.visited_lambdas.insert(lambda) {
+            return;
         }
-        TypeData::CallableFromPacks {
-            positionals,
-            labeled,
-            return_type,
-        } => {
-            collect_stable_record_row_lacks_inner(store, *positionals, visited, emitted, lacks);
-            collect_stable_record_row_lacks_inner(store, *labeled, visited, emitted, lacks);
-            collect_stable_record_row_lacks_inner(store, *return_type, visited, emitted, lacks);
+        let body = self.store.arena().get_lambda(lambda).body;
+        self.visit_scoped_type(body);
+    }
+
+    fn visit_scoped_type(&mut self, scoped: crate::types::id::ScopedTypeId) {
+        use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
+        if !self.visited_scoped_types.insert(scoped) {
+            return;
         }
-        TypeData::CompleteTypePack { positionals, labeled } => {
-            collect_stable_record_row_lacks_inner(store, *positionals, visited, emitted, lacks);
-            collect_stable_record_row_lacks_inner(store, *labeled, visited, emitted, lacks);
-        }
-        TypeData::TypePackConcat(segments) | TypeData::LabeledTypePackConcat(segments) => {
-            for &segment in segments.iter() {
-                collect_stable_record_row_lacks_inner(store, segment, visited, emitted, lacks);
-            }
-        }
-        TypeData::StaticData(term) => {
-            for argument in term.arguments.iter() {
-                if let crate::types::store::StaticArgument::Term(argument) = argument {
-                    collect_stable_record_row_lacks_inner(store, *argument, visited, emitted, lacks);
+        match self.store.arena().get_scoped(scoped).clone() {
+            ScopedTypeData::Bound { .. } => {}
+            ScopedTypeData::Free(ty) => self.visit_type(ty),
+            ScopedTypeData::Applied { origin, arguments } => {
+                self.visit_scoped_type(origin);
+                for argument in arguments.iter().copied() {
+                    self.visit_scoped_type(argument);
                 }
             }
+            ScopedTypeData::Union(members) | ScopedTypeData::TypePack(members) | ScopedTypeData::LabeledTypePackConcat(members) => {
+                for member in members.iter().copied() {
+                    self.visit_scoped_type(member);
+                }
+            }
+            ScopedTypeData::Tuple(elements) => {
+                for element in elements.iter() {
+                    self.visit_scoped_type(element.ty);
+                }
+            }
+            ScopedTypeData::Record(fields) => {
+                for field in fields.iter() {
+                    self.visit_scoped_type(field.ty);
+                }
+            }
+            ScopedTypeData::OpenRecord(record) => {
+                if let ScopedRecordTail::FreeParameter(parameter) = record.tail {
+                    for field in record.fields.iter() {
+                        let key = (parameter, field.name.clone());
+                        if self.emitted.insert(key) {
+                            self.lacks.push(StableRecordRowLack {
+                                parameter,
+                                field: field.name.clone(),
+                            });
+                        }
+                    }
+                }
+                for field in record.fields.iter() {
+                    self.visit_scoped_type(field.ty);
+                }
+            }
+            ScopedTypeData::Callable(callable) => {
+                for parameter in callable.parameters.iter() {
+                    self.visit_scoped_type(parameter.ty);
+                }
+                self.visit_scoped_type(callable.return_type);
+            }
+            ScopedTypeData::LabeledTypePack(elements) => {
+                for element in elements.iter() {
+                    self.visit_scoped_type(element.element);
+                }
+            }
+            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+                self.visit_scoped_type(positionals);
+                self.visit_scoped_type(labeled);
+            }
+            ScopedTypeData::TypePackConcat(segments) => {
+                for segment in segments.iter().copied() {
+                    self.visit_scoped_type(segment);
+                }
+            }
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.visit_scoped_type(positionals);
+                self.visit_scoped_type(labeled);
+                self.visit_scoped_type(return_type);
+            }
+            ScopedTypeData::PackProjection { subject, .. } => self.visit_scoped_type(subject),
+            ScopedTypeData::Lambda(lambda) => self.visit_lambda(lambda),
         }
-        TypeData::ConstInt(_) => {}
-        TypeData::Never
-        | TypeData::Unit
-        | TypeData::ClassObject { .. }
-        | TypeData::Nominal { .. }
-        | TypeData::Parameter(_)
-        | TypeData::Lambda(_)
-        | TypeData::SelfType(_) | TypeData::StaticDomainForm { .. } => {}
     }
 }
 
@@ -586,7 +717,10 @@ impl GenericApplicationSession {
                 GenericInferenceBinding::Type(_) | GenericInferenceBinding::FixedType(_) | GenericInferenceBinding::UntrackedType => None,
             })
             .collect::<Vec<_>>();
-        session.borrow().row_solution_for_roots(&roots, budget, cancellation)
+        let Some(frame) = self.query_frame else {
+            return RecordRowSolveResult::InternalFailure(crate::types::row_solver::IncidentId(0));
+        };
+        session.borrow().row_solution_for_roots(frame, &roots, budget, cancellation)
     }
 
     pub fn has_pending_ancestor_row_dependency(&self, solution: &RecordRowSolution<InferenceTerm>, term: &InferenceTerm) -> bool {
@@ -699,5 +833,112 @@ impl GenericApplicationSession {
             }
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod stable_row_lacks_tests {
+    use super::{GenericApplicationSession, StableRecordRowLack, collect_stable_record_row_lacks};
+    use crate::identity::{AssociatedStaticDomainDeclarationId, DeclarationId, ModuleId};
+    use crate::types::id::{KindId, TypeParameterId};
+    use crate::types::outcome::{CancellationToken, QueryBudget};
+    use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
+    use crate::types::row::{RecordRowField, RecordRowTail};
+    use crate::types::row_solver::{RecordRowFailure, RecordRowSolveResult};
+    use crate::types::store::{RecordTypeField, StaticArgument, TypeData, TypeStore};
+
+    fn owner(name: &str) -> DeclarationId {
+        DeclarationId::new(ModuleId::universe_root(), name.into())
+    }
+
+    fn row_parameter(store: &mut TypeStore) -> (TypeParameterOwner, TypeParameterId) {
+        let parameter_owner = TypeParameterOwner::Declaration(owner("RowOwner"));
+        let parameter = store.intern_type_parameter(TypeParameterData::new(parameter_owner.clone(), 0, "R", KindId::RECORD_ROW));
+        (parameter_owner, parameter)
+    }
+
+    fn prefixed_open_row(store: &mut TypeStore, parameter: TypeParameterId) -> crate::types::id::RecordRowId {
+        let int = store.nominal_type(owner("Int"));
+        store
+            .record_row_checked(vec![RecordRowField { name: "known".into(), ty: int }], RecordRowTail::Parameter(parameter))
+            .expect("valid prefixed row")
+    }
+
+    fn assert_nested_lack_rejects_duplicate_extension(store: &mut TypeStore, parameter: TypeParameterId, nested: crate::types::id::TypeId) {
+        assert_eq!(
+            collect_stable_record_row_lacks(store, nested),
+            vec![StableRecordRowLack {
+                parameter,
+                field: "known".into(),
+            }]
+        );
+
+        let parameter_owner = TypeParameterOwner::Declaration(owner("RowOwner"));
+        let signature = GenericSignature::new(parameter_owner, Box::new([parameter]));
+        let mut session = GenericApplicationSession::new(&signature, store);
+        session.constrain_signature_type_lacks(nested, store).expect("nested stable lack should bind");
+
+        let formal = store
+            .record_row_type_checked(Vec::new(), RecordRowTail::Parameter(parameter))
+            .expect("formal open row");
+        let int = store.nominal_type(owner("Int"));
+        let actual = store
+            .record_row_type_checked(vec![RecordTypeField { name: "known".into(), ty: int }], RecordRowTail::Closed)
+            .expect("actual row with duplicate field");
+        let crate::checker::InferenceTerm::Record(formal_record) = session.type_term(formal, store) else {
+            panic!("expected formal row inference term")
+        };
+        session
+            .constrain_known_record_argument(actual, &formal_record, store)
+            .expect("known record constraint should be enqueued");
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+        assert!(matches!(
+            session.solve_rows(store, &mut budget, &cancellation),
+            RecordRowSolveResult::Rejected(RecordRowFailure::LacksViolation { field, .. }) if field.as_ref() == "known"
+        ));
+    }
+
+    #[test]
+    fn applied_record_row_argument_preserves_nested_prefix_lacks() {
+        let mut store = TypeStore::new();
+        let (_owner, parameter) = row_parameter(&mut store);
+        let row = prefixed_open_row(&mut store, parameter);
+        let origin = store.nominal_type(owner("Applied"));
+        let applied = store.intern_with_kind(
+            TypeData::Applied {
+                origin,
+                arguments: vec![StaticArgument::RecordRow(row)].into_boxed_slice(),
+            },
+            KindId::TYPE,
+        );
+        assert_nested_lack_rejects_duplicate_extension(&mut store, parameter, applied);
+    }
+
+    #[test]
+    fn static_data_record_row_argument_preserves_nested_prefix_lacks() {
+        let mut store = TypeStore::new();
+        let (_owner, parameter) = row_parameter(&mut store);
+        let row = prefixed_open_row(&mut store, parameter);
+        let declaration = owner("Shape");
+        let domain = store.nominal_static_domain(declaration.clone());
+        let constructor = store.intern_static_constructor(domain, declaration, "Row", vec![KindId::RECORD_ROW].into_boxed_slice());
+        let static_data = store
+            .static_data(domain, constructor, vec![StaticArgument::RecordRow(row)].into_boxed_slice())
+            .expect("valid row static argument");
+        assert_nested_lack_rejects_duplicate_extension(&mut store, parameter, static_data);
+    }
+
+    #[test]
+    fn associated_static_domain_owner_row_argument_preserves_nested_prefix_lacks() {
+        let mut store = TypeStore::new();
+        let (_owner, parameter) = row_parameter(&mut store);
+        let row = prefixed_open_row(&mut store, parameter);
+        let owner = owner("Container");
+        let declaration = AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+        let domain = store.associated_static_domain(declaration, vec![StaticArgument::RecordRow(row)].into_boxed_slice());
+        let constructor = store.intern_static_constructor(domain, owner, "Ready", Box::new([]));
+        let static_data = store.static_data(domain, constructor, Box::new([])).expect("valid associated static case");
+        assert_nested_lack_rejects_duplicate_extension(&mut store, parameter, static_data);
     }
 }

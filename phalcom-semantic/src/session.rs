@@ -3736,6 +3736,10 @@ impl SemanticWorkspaceSession {
             for stmt in &shard.source.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };
                 let decl_id = DeclarationId::new(module_id.clone(), trait_def.name.clone().into());
+                // The prior snapshot may contain a valid header for this
+                // declaration. Retire it before rebuilding so an invalid
+                // edited binder cannot leave stale trait evidence published.
+                trait_headers.remove(&decl_id);
                 if type_signature_cycle_headers.contains(&decl_id) {
                     continue;
                 }
@@ -3750,7 +3754,7 @@ impl SemanticWorkspaceSession {
                         &resolver,
                         &formation_site,
                         TypeParameterOwner::Declaration(decl_id.clone()),
-                        GenericBinderSite::NominalDeclaration,
+                        GenericBinderSite::Trait,
                         &trait_def.generic_parameters,
                         trait_def.where_clause.as_ref(),
                         diags_by_module.entry(module_id.clone()).or_default(),
@@ -3765,10 +3769,7 @@ impl SemanticWorkspaceSession {
                 } else {
                     None
                 };
-                if (!trait_def.generic_parameters.is_empty() || trait_def.where_clause.is_some())
-                    && generic_signature.is_none()
-                    && trait_def.where_clause.as_ref().is_some_and(|w| !w.constraints.is_empty())
-                {
+                if (!trait_def.generic_parameters.is_empty() || trait_def.where_clause.is_some()) && generic_signature.is_none() {
                     continue;
                 }
                 let header = Arc::new(TraitHeader {

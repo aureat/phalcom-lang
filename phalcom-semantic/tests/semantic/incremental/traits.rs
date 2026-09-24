@@ -156,6 +156,30 @@ fn trait_bodyless_to_bodyful_preserves_requirement_and_source_callable_identity(
 }
 
 #[test]
+fn invalidated_static_domain_trait_binder_retires_previous_header() {
+    let module = module_id();
+    let declaration = DeclarationId::new(module.clone(), "Tagged".into());
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(input(module.clone(), "trait Tagged<T> {}\n", 1));
+    assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
+    assert!(first.snapshot.trait_headers.contains(&declaration));
+
+    let second = session.update(input(module, "type data Shape { Scalar }\ntrait Tagged<S: Shape> {}\n", 2));
+    assert!(
+        second.snapshot.all_diagnostics().any(|diagnostic| {
+            diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnsupported
+                && diagnostic.message.contains("trait generic parameters over user-defined static domains")
+        }),
+        "expected targeted binder diagnostic: {:?}",
+        second.snapshot.diagnostics
+    );
+    assert!(
+        !second.snapshot.trait_headers.contains(&declaration),
+        "an invalid edit must not retain the prior snapshot's generic header"
+    );
+}
+
+#[test]
 fn trait_incremental_signature_and_header_edits_match_cold_diagnostics() {
     let module = module_id();
     let source_a = r#"

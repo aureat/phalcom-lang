@@ -295,6 +295,138 @@ fn metadata_publishes_stable_algebraic_phase_and_shape() {
 }
 
 #[test]
+fn snapshot_metadata_round_trip_preserves_static_alias_and_associated_term_identity() {
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::identity::StableStaticDomainDeclarationRef;
+
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        "type data Shape { Scalar; Empty() }\n\
+         type data ShapeSingleton { Empty }\n\
+         type Current: Shape = Shape::Scalar\n\
+         type EmptyShape: Shape = Shape::Empty()\n\
+         type SingletonShape: ShapeSingleton = ShapeSingleton::Empty\n\
+         class Container<T: Type> { type data State { Ready; Done } }\n\
+         type CurrentState: Container<Int>::State = Container<Int>::State::Ready\n",
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
+
+    let bundle = MetadataExporter::new(
+        &analysis.snapshot.store,
+        Some(&analysis.snapshot.declarations),
+        None,
+        None,
+        MetadataProfile::RuntimePublic,
+    )
+    .with_algebraic_semantics(&analysis.snapshot.data_semantics, &analysis.snapshot.enum_semantics)
+    .with_associated_static_domains(analysis.snapshot.associated_static_domains.as_ref())
+    .with_aliases(&analysis.snapshot.type_aliases)
+    .build_bundle(&[])
+    .expect("snapshot-backed static metadata");
+
+    let shape_catalog = bundle
+        .static_domains
+        .iter()
+        .find(|record| matches!(&record.declaration,
+            StableStaticDomainDeclarationRef::Nominal(declaration)
+                if declaration.path.last().is_some_and(|name| name.as_ref() == "Shape")))
+        .expect("Shape catalog");
+    assert!(shape_catalog.cases.iter().any(|case| case.name.as_ref() == "Empty()"));
+    assert!(!shape_catalog.cases.iter().any(|case| case.name.as_ref() == "Empty"));
+    let singleton_catalog = bundle
+        .static_domains
+        .iter()
+        .find(|record| matches!(&record.declaration,
+            StableStaticDomainDeclarationRef::Nominal(declaration)
+                if declaration.path.last().is_some_and(|name| name.as_ref() == "ShapeSingleton")))
+        .expect("singleton Shape catalog");
+    assert!(singleton_catalog.cases.iter().any(|case| case.name.as_ref() == "Empty"));
+    assert_ne!(
+        singleton_catalog.cases[0].name,
+        shape_catalog.cases.iter().find(|case| case.name.as_ref() == "Empty()").unwrap().name,
+        "singleton Empty and explicit-empty Empty() need distinct stable selectors",
+    );
+
+    let alias_target = |name: &str| {
+        let alias = bundle
+            .aliases
+            .iter()
+            .find(|alias| alias.declaration.path.last().is_some_and(|component| component.as_ref() == name))
+            .unwrap_or_else(|| panic!("missing alias metadata for {name}"));
+        &bundle.types[alias.target.0 as usize].form
+    };
+    assert!(matches!(alias_target("Current"), TypeNode::StaticData(data)
+        if matches!(&data.domain, StaticDomainRef::Nominal { declaration } if declaration.path.last().is_some_and(|part| part.as_ref() == "Shape"))
+            && data.constructor.case_name.as_ref() == "Scalar"));
+    assert!(matches!(alias_target("EmptyShape"), TypeNode::StaticData(data)
+        if data.constructor.case_name.as_ref() == "Empty()"));
+    assert!(matches!(alias_target("CurrentState"), TypeNode::StaticData(data)
+        if matches!(&data.domain, StaticDomainRef::Associated { declaration, owner_environment }
+            if declaration.name.as_ref() == "State"
+                && declaration.owner.path.last().is_some_and(|part| part.as_ref() == "Container")
+                && owner_environment.len() == 1)
+            && data.constructor.case_name.as_ref() == "Ready"));
+
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("snapshot metadata validates");
+    let json = encode_metadata_json(&bundle).expect("encode snapshot metadata");
+    let decoded = decode_metadata_json(&json, &ValidationLimits::default()).expect("decode snapshot metadata");
+    assert_eq!(decoded, bundle, "static alias and associated identities round-trip");
+}
+
+#[test]
+fn metadata_round_trip_preserves_heterogeneous_application_and_scoped_static_domain_bound() {
+    use phalcom_semantic::types::type_lambda::ScopedTypeData;
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::scoped_type::ScopedTypeNode;
+    use phalcom_type_meta::type_node::StaticArgumentRef;
+
+    let mut store = TypeStore::new();
+    let shape_owner = dummy_decl("Shape");
+    let shape_domain = store.nominal_static_domain(shape_owner.clone());
+    let shape_kind = store.static_domain_kind(shape_domain);
+    store.intern_static_constructor(shape_domain, shape_owner, "Scalar", Box::new([]));
+
+    let int = store.nominal_type(dummy_decl("Int"));
+    let row = store
+        .record_row_checked(vec![RecordRowField { name: "value".into(), ty: int }], RecordRowTail::Closed)
+        .expect("closed row argument");
+    let tensor_kind = store.arrow_kind(vec![KindId::TYPE, KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+    let tensor = store.nominal_form(dummy_decl("Tensor"), tensor_kind);
+    let applied = store
+        .apply_static_form(tensor, &[StaticArgument::Term(int), StaticArgument::RecordRow(row)])
+        .expect("heterogeneous Tensor application");
+
+    let bound = store
+        .arena_mut()
+        .intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+    let lambda = store.lambda(vec![shape_kind].into_boxed_slice(), bound, shape_kind);
+
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let applied_id = exporter.export_type_form(applied).expect("heterogeneous application export");
+    let lambda_id = exporter.export_type_form(lambda).expect("static-domain lambda export");
+    let bundle = exporter.build_bundle(&[]).expect("canonical metadata bundle");
+
+    assert!(matches!(&bundle.types[applied_id.0 as usize].form, TypeNode::Applied { arguments, .. }
+        if matches!(arguments.as_ref(), [StaticArgumentRef::Term(_), StaticArgumentRef::RecordRow(row)]
+            if row.fields.len() == 1 && row.fields[0].name.as_ref() == "value")));
+    let TypeNode::TypeLambda(lambda) = &bundle.types[lambda_id.0 as usize].form else {
+        panic!("expected type lambda metadata");
+    };
+    assert!(matches!(bundle.scoped_types[lambda.body.0 as usize].form,
+        ScopedTypeNode::Bound { depth: 0, index: 0 }));
+    assert!(matches!(bundle.kinds[lambda.parameter_kinds[0].0 as usize].node,
+        KindNode::StaticDomain(StaticDomainRef::Nominal { .. })));
+
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("heterogeneous scoped metadata validates");
+    let json = encode_metadata_json(&bundle).expect("encode heterogeneous scoped metadata");
+    let decoded = decode_metadata_json(&json, &ValidationLimits::default()).expect("decode heterogeneous scoped metadata");
+    assert_eq!(decoded, bundle, "RecordRow arguments and scoped static-domain binder round-trip");
+}
+
+#[test]
 fn metadata_keeps_legacy_enum_and_equivalent_data_identity_neutral() {
     fn export(source: &str) -> phalcom_type_meta::bundle::SemanticMetadataBundle {
         let module = ModuleId::universe_root();

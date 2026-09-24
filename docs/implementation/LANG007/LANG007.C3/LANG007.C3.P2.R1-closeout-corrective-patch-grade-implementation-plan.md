@@ -4,8 +4,8 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C3
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 plan_revision: corrective-closeout-2026-09-23
 depends_on:
@@ -22,7 +22,7 @@ p2_predecessor_revision: 60a27f79d69aa3e79c22e3d19df221466c7db920
 
 # LANG007.C3.P2 — Corrective Closeout Patch-Grade Implementation Plan
 
-> **Execution status:** proposed corrective-closeout execution companion for the still-active `LANG007.C3.P2`.  
+> **Execution status:** active corrective-closeout execution companion for the still-active `LANG007.C3.P2`.
 > **Repository anchor:** `main` at `2ea4f3a171d8d6353497ad13882b4864bb322416` (`fix semantic static domain signatures`).  
 > **P2 predecessor anchor:** completed P1 at `60a27f79d69aa3e79c22e3d19df221466c7db920`.  
 > **Intended executor:** GPT-5.6 Luna High/Extra High or an equivalent implementation agent operating under the existing Phalcom consultation protocol.  
