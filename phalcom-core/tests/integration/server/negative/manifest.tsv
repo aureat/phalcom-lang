@@ -1,0 +1,30 @@
+fixture	phase	semantic_class	principal_reason
+wrong_typestate_pay.ph	type-check	typestate.specialization-mismatch	Order<Draft> cannot satisfy Order<Submitted>
+wrong_typestate_submit.ph	type-check	typestate.specialization-mismatch	Order<Paid> cannot satisfy Order<Draft>
+wrong_response_status.ph	type-check	static.specialization-mismatch	Response<Created,...> cannot satisfy Response<Ok,...>
+wrong_retry_identity.ph	type-check	static.parameterized-identity-mismatch	Count(4) cannot satisfy Count(3)
+wrong_effect_kind.ph	kind-check	kind.mismatch	Type cannot satisfy Type -> Type
+invalid_hkt_application.ph	kind-check	kind.argument-mismatch	Count(3) is not a Type argument to F
+wrong_repository_id.ph	type-check	associated-type.constraint-mismatch	Repository Id resolves to UserId instead of OrderId
+missing_authentication_context.ph	row-solve	row.missing-field	checkout handler requires user: User
+missing_body_context.ph	row-solve	row.missing-field	checkout handler requires body: CheckoutRequest
+wrong_nested_order_id.ph	row-solve	row.nested-field-mismatch	params.orderId is UserId instead of OrderId
+dropped_row_field.ph	row-solve	row.missing-field	middleware reconstruction dropped rawBody
+incompatible_row_reuse.ph	row-solve	row.incompatible-reuse	one row variable is constrained to incompatible user fields
+recursive_row.ph	row-solve	row.occurs-check	R cannot contain itself
+ordinary_recursive_inference.ph	type-check	type.occurs-check	T cannot equal Option<T>
+cross_domain_recursive_constraint.ph	type-check	inference.cross-domain-occurs-check	type and row variables form one recursive cycle
+broken_command_load.ph	type-check	gadt.branch-result-mismatch	LoadDraft refines R to Option<Order<Draft>>
+broken_command_save.ph	type-check	gadt.branch-result-mismatch	SavePaid refines R to Order<Paid>
+broken_command_publish.ph	type-check	gadt.branch-result-mismatch	PublishPaid refines R to ()
+missing_command_case.ph	exhaustiveness	match.non-exhaustive	PublishPaid is not covered
+wrong_checkout_retry.ph	type-check	static.specialization-mismatch	CheckoutServices requires Count(3)
+tuple_pack_mismatch.ph	type-check	tuple-pack.element-mismatch	heterogeneous tuple tail has wrong final element
+sequence_pack_mismatch.ph	type-check	sequence-pack.element-mismatch	sequence rest contains String where OrderItem is required
+wrong_fiber_result.ph	type-check	generic.specialization-mismatch	Fiber<String> cannot satisfy Fiber<TestReport>
+wrong_final_type_witness.ph	type-check	witness.mismatch	Response<Created,...> cannot satisfy Response<Ok,...>
+wrong_static_case_domain.ph	kind-check	static.domain-mismatch	Ok belongs to Status rather than OrderState
+closure_result_mismatch.ph	type-check	closure.result-mismatch	map closure branches cannot infer one result type
+incompatible_handler_input.ph	type-check	function.parameter-incompatibility	Admin-only handler cannot satisfy User handler contract
+runtime_refinement_escape.ph	flow-check	refinement.out-of-scope	OrderPaid fields are inaccessible after branch refinement ends
+closed_row_extra_fields.ph	row-solve	row.exact-width-mismatch	extra path field cannot satisfy an exact one-field record

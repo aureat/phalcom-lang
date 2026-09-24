@@ -1,0 +1,3 @@
+trait RequestIdFactory {
+    next -> RequestId
+}

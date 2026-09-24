@@ -1,0 +1,34 @@
+PHALCOM TYPING GOLDEN: PASS
+
+request:
+  id: req-0001
+  user: usr-001
+  order: ord-123
+
+order:
+  Draft -> Submitted -> Paid
+
+response:
+  status: Ok
+  order: ord-123
+  state: paid
+  total: 42.50
+
+repository:
+  FindDraft(ord-123)
+  SavePaid(ord-123)
+
+events:
+  OrderPaid(ord-123)
+
+typing:
+  static-domains: PASS
+  typestate: PASS
+  higher-kinds: PASS
+  associated-types: PASS
+  rows: PASS
+  tuple-packs: PASS
+  sequence-packs: PASS
+  command-refinement: PASS
+  reflection: PASS
+  runtime-refinement: PASS

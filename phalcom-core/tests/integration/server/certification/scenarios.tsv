@@ -1,0 +1,8 @@
+scenario	task	acceptance
+clean-build	35	Clean compile, link, execution, exact stable output, and zero exit status
+persistence-build	36	Fresh consumer session reconstructs all advanced semantic information from persisted imports
+incremental-noop	37	No-op rebuild preserves types/output while safely reusing artifacts
+incremental-leaf	37	Leaf change does not cause unrelated semantic drift
+incremental-implementation	37	Implementation-only change preserves exported semantic identity
+incremental-signature	37	Public type change invalidates stale consumers and exposes the new type error
+negative-corpus	34	Every mutation fails in its intended phase/class for its principal reason
