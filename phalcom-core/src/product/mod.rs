@@ -114,7 +114,7 @@ pub fn finish_tuple_value(vm: &mut VM, positionals: Vec<Value>, labeled: Vec<(Sy
 pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(Symbol, Value)>) -> Result<Value, ProductBuildError> {
     unique(&fields)?;
     if fields.is_empty() {
-        return Ok(Value::unit());
+        return Ok(Value::empty_record());
     }
     let (labels, values): (Vec<_>, Vec<_>) = fields.into_iter().unzip();
     let shape = RecordProductShape::from_presentation_labels(labels.into_boxed_slice(), |left, right| vm.resolve_symbol(left).cmp(vm.resolve_symbol(right)));
@@ -210,7 +210,7 @@ pub(crate) fn finish_record_from_spec(
     if total == 0 || source_values.len() != total || logical_labels.len() != total || source_to_logical.len() != total || spec.layout.components.len() != total
     {
         return if total == 0 && source_values.is_empty() {
-            Ok(Value::unit())
+            Ok(Value::empty_record())
         } else {
             Err(ProductBuildError::InvalidSpec)
         };

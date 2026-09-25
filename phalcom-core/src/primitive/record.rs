@@ -8,6 +8,9 @@ use crate::vm::VM;
 
 #[phalcom_native_macros::primitive(Record, "rawSize", visibility = internal)]
 pub fn record_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    if receiver.is_empty_record() {
+        return Ok(Value::int(0));
+    }
     let id = expect_record(vm, receiver)?;
     let len = vm
         .record_view(id)
@@ -18,6 +21,9 @@ pub fn record_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 
 #[phalcom_native_macros::primitive(Record, "rawLabelAt(_)", visibility = internal)]
 pub fn record_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    if receiver.is_empty_record() {
+        return Ok(vm.none_value());
+    }
     let id = expect_record(vm, receiver)?;
     let index = expect_index(&args[0])?;
     Ok(vm
@@ -32,6 +38,9 @@ pub fn record_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
 
 #[phalcom_native_macros::primitive(Record, "rawValueAt(_)", visibility = internal)]
 pub fn record_raw_value_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    if receiver.is_empty_record() {
+        return Ok(vm.none_value());
+    }
     let id = expect_record(vm, receiver)?;
     let index = expect_index(&args[0])?;
     Ok(vm

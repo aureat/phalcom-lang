@@ -1150,7 +1150,7 @@ impl<'vm> Compiler<'vm> {
             Expr::RecordLiteral(record_expr) => {
                 let record_expr = *record_expr;
                 if record_expr.entries.is_empty() {
-                    let idx = self.add_constant(Value::unit(), record_expr.range)?;
+                    let idx = self.add_constant(Value::empty_record(), record_expr.range)?;
                     self.emit(Bytecode::Constant(idx), record_expr.range);
                     return Ok(());
                 }

@@ -366,22 +366,20 @@ fn source_module_id(path: &[&str]) -> ModuleId {
 }
 
 fn source_parameter_kind(store: &mut TypeStore, parameter: &GenericParameterSyntax) -> KindId {
-    match parameter.mode {
-        Some(ExpansionMode::Positional) => return KindId::TYPE_PACK,
-        Some(ExpansionMode::Labeled) => return KindId::LABELED_TYPE_PACK,
-        Some(ExpansionMode::Complete) => return KindId::COMPLETE_TYPE_PACK,
-        None => {}
+    if let Some(syntax) = parameter.kind.as_ref() {
+        match resolve_kind_syntax(store, syntax) {
+            KindResolution::Ready(kind) => return kind,
+            other => panic!(
+                "canonical Universe generic parameter {} has non-ready kind during bootstrap: {other:?}",
+                parameter.name
+            ),
+        }
     }
-    match parameter
-        .kind
-        .as_ref()
-        .map_or(KindResolution::Ready(KindId::TYPE), |syntax| resolve_kind_syntax(store, syntax))
-    {
-        KindResolution::Ready(kind) => kind,
-        other => panic!(
-            "canonical Universe generic parameter {} has non-ready kind during bootstrap: {other:?}",
-            parameter.name
-        ),
+    match parameter.mode {
+        Some(ExpansionMode::Positional) => KindId::TYPE_PACK,
+        Some(ExpansionMode::Labeled) => KindId::LABELED_TYPE_PACK,
+        Some(ExpansionMode::Complete) => KindId::COMPLETE_TYPE_PACK,
+        None => KindId::TYPE,
     }
 }
 
@@ -559,7 +557,9 @@ fn intrinsic_static_facade_kind(module: &ModuleId, name: &str) -> Option<KindId>
     match (module, name) {
         (module, "TypePack") if module == &tuple_module => Some(KindId::TYPE_PACK),
         (module, "LabeledTypePack") if module == &tuple_module => Some(KindId::LABELED_TYPE_PACK),
+        (module, "CompleteTypePack") if module == &tuple_module => Some(KindId::COMPLETE_TYPE_PACK),
         (module, "TupleEntries") if module == &tuple_module => Some(KindId::COMPLETE_TYPE_PACK),
+        (module, "RecordFields") if module == &record_module => Some(KindId::RECORD_ROW),
         (module, "RecordRow") if module == &record_module => Some(KindId::RECORD_ROW),
         _ => None,
     }

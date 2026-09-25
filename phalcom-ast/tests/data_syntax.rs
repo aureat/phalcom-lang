@@ -15,9 +15,8 @@ fn data_positional_tuple_syntax() {
     assert_eq!(data_def.constructor_visibility(), Visibility::Public);
     assert!(data_def.constructor_visibility_range().is_none());
     assert_eq!(data_def.generic_parameters.len(), 2);
-    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
-        panic!("expected tuple shape");
-    };
+    assert!(data_def.product_shape().is_some());
+    let components = data_def.components().unwrap();
     assert_eq!(components.len(), 2);
     assert_eq!(components[0].local_name, "first");
     assert!(components[0].external_label.is_none());
@@ -35,9 +34,8 @@ fn data_labeled_tuple_with_where_clause() {
     assert_eq!(data_def.name, "Point");
     assert_eq!(data_def.generic_parameters.len(), 1);
     assert!(data_def.where_clause.is_some());
-    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
-        panic!("expected tuple shape");
-    };
+    assert!(data_def.product_shape().is_some());
+    let components = data_def.components().unwrap();
     assert_eq!(components.len(), 2);
     assert_eq!(components[0].local_name, "x");
     assert_eq!(components[0].external_label.as_deref(), Some("x"));
@@ -97,9 +95,8 @@ fn data_record_syntax() {
         panic!("expected data");
     };
     assert_eq!(data_def.name, "Person");
-    let Some(ProductShapeSyntax::Record { components, .. }) = data_def.product_shape() else {
-        panic!("expected record shape");
-    };
+    assert!(data_def.product_shape().is_some());
+    let components = data_def.components().unwrap();
     assert_eq!(components.len(), 2);
     assert_eq!(components[0].local_name, "name");
     assert_eq!(components[0].external_label.as_deref(), Some("name"));
@@ -116,9 +113,8 @@ fn data_nullary_tuple_syntax() {
     };
     assert_eq!(data_def.name, "Signal");
     assert_eq!(data_def.generic_parameters.len(), 1);
-    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
-        panic!("expected tuple shape");
-    };
+    assert!(data_def.product_shape().is_some());
+    let components = data_def.components().unwrap();
     assert!(components.is_empty());
 }
 
@@ -131,9 +127,7 @@ fn data_point_tuple_syntax() {
     };
     assert_eq!(data_def.name, "Point");
     assert!(data_def.is_product());
-    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
-        panic!("expected tuple shape");
-    };
+    let components = data_def.components().unwrap();
     assert_eq!(components.len(), 2);
     assert_eq!(components[0].local_name, "x");
     assert_eq!(components[1].local_name, "y");
@@ -272,9 +266,7 @@ fn intrinsic_data_unit_syntax() {
     assert_eq!(data_def.phase, AlgebraicPhase::Runtime);
     assert_eq!(data_def.implementation, ImplementationKind::Intrinsic);
     assert!(data_def.is_product());
-    let Some(ProductShapeSyntax::Tuple { components, .. }) = data_def.product_shape() else {
-        panic!("expected tuple shape");
-    };
+    let components = data_def.components().unwrap();
     assert!(components.is_empty());
 }
 

@@ -1,58 +1,54 @@
+# LANG007.C3.P4 Continuation Handoff — Intrinsic Structural Data, Structural Kinds, and Product-Shape Expansion
+
+> **Program:** `LANG007` (Type Data and Unified Algebraic Static Domains)  
+> **Checkpoint:** `LANG007.C3` (Status: `IN_PROGRESS` / `PARTIAL` / `UNVERIFIED`)  
+> **Active Plan:** [`LANG007.C3.P4`](file:///Users/altunhasanli/dev/phalcom/phalcom/docs/implementation/LANG007/LANG007.C3/LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md)  
+> **Checkpoint Authority:** [`LANG007.C3-CHECKPOINT.md`](file:///Users/altunhasanli/dev/phalcom/phalcom/docs/implementation/LANG007/LANG007.C3/LANG007.C3-CHECKPOINT.md)  
+> **Predecessor Walkthrough:** [`LANG007.C3.P4-walkthrough.md`](file:///Users/altunhasanli/dev/phalcom/phalcom/docs/implementation/LANG007/LANG007.C3/LANG007.C3.P4-walkthrough.md)  
+> **Author:** Antigravity (Pair Programmer)  
+> **Date:** 2026-09-25  
+
 ---
-id: LANG007.C3.P4
-category: LANG
-program: LANG007
-checkpoint: LANG007.C3
-kind: handoff
-status: COMPLETE
-completion: IMPLEMENTED
-verification: FOCUSED_TESTED
-repository: aureat/phalcom-lang
-prepared: 2026-09-25
+
+## 1. Plan & Context State
+
+The implementation of [`LANG007.C3.P4`](file:///Users/altunhasanli/dev/phalcom/phalcom/docs/implementation/LANG007/LANG007.C3/LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md) is currently in progress.
+
+### Accomplished Invariants
+1. **VM Representation**: `ValueTag::EmptyRecord = 10` is implemented as a 16-byte immediate tag. Nullary `Record<>` evaluates to `Value::empty_record()`.
+2. **Unit / EmptyRecord Disambiguation**:
+   - `Value::is_unit()` maps to `Tuple` class (`tuple_class`).
+   - `Value::is_empty_record()` maps to `Record` class (`record_class`).
+   - `Unit != EmptyRecord` holds at both value tag and class level.
+   - `unit_class` was completely retired from core runtime structures.
+3. **AST & Parser Repairs**:
+   - Fixed `parse_record_literal` in [`phalcom-ast/src/parser.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/phalcom-ast/src/parser.rs) so `parse_product_label()` double-colon consumption bug is resolved.
+   - Updated statement returns in `timestamp.ph` and `month.ph` to use `return { ... }`.
+
 ---
 
-# LANG007.C3.P4 handoff
+## 2. Immediate Next Steps for Next Agent / Session
 
-## State
+1. **Step 2 (Universe Source Declarations)**:
+   - Update [`phalcom-core/core/universe/src/collections/tuple.ph`](file:///Users/altunhasanli/dev/phalcom/phalcom/phalcom-core/core/universe/src/collections/tuple.ph):
+     - Replace `TupleEntries` with `intrinsic type data CompleteTypePack`.
+     - Declare `intrinsic data Tuple<***Es: CompleteTypePack>(***Es)`.
+   - Update [`phalcom-core/core/universe/src/collections/record.ph`](file:///Users/altunhasanli/dev/phalcom/phalcom/phalcom-core/core/universe/src/collections/record.ph):
+     - Declare `intrinsic type data RecordFields`.
+     - Declare `intrinsic data Record<**Fs: RecordFields> { **Fs }`.
+     - Add `pub type EmptyRecord = Record<>`.
+   - Update [`phalcom-core/core/universe/src/option/unit.ph`](file:///Users/altunhasanli/dev/phalcom/phalcom/phalcom-core/core/universe/src/option/unit.ph):
+     - Declare `pub type Unit = Tuple<>`.
 
-P4 completed the corrective closure and restored C3 to
-`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. There is no accepted successor
-plan. Workspace/release certification remains unclaimed.
+2. **Step 3 (Semantic Member Operations & Type Projections)**:
+   - In [`phalcom-semantic/src/types/type_member.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/phalcom-semantic/src/types/type_member.rs), register projections for `TupleElement`, `RecordFields`, `RecordValue`.
+   - In [`phalcom-semantic/src/types/projection.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/phalcom-semantic/src/types/projection.rs), implement normalization reductions.
 
-## Stable model
+3. **Step 4 (Checker Integration)**:
+   - In `synthesize_map_literal` ([`phalcom-semantic/src/checker/expression.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/phalcom-semantic/src/checker/expression.rs)), ensure type arguments are respected.
+   - In [`phalcom-semantic/src/checker/pattern.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/phalcom-semantic/src/checker/pattern.rs), bind record pattern remainders against open record types.
 
-`DeclarationTypeInfo::binding` is the canonical owner of two sibling
-projections:
+4. **Step 5 (Verification Gates G2/G3)**:
+   - Execute focused test suites serially (`cargo test -p phalcom-ast`, `cargo test -p phalcom-semantic`, `cargo test -p phalcom-core`).
 
-- `semantic_form`: ordinary application or intrinsic Unit/Tuple/Record
-  application behavior;
-- `runtime_owner`: optional existing VM/native Unit/Tuple/Record owner.
-
-Semantic annotation formation consumes `semantic_form`. Native surface import,
-runtime form selection, and runtime facade lowering consume `runtime_owner`.
-Declaration-shell replacement preserves a registered projection when an
-ordinary shell refresh carries the default binding. Fingerprints include the
-complete binding.
-
-Keep the established identities and boundaries: Tuple application flows
-through `CompleteTypePack` to `TupleFromPacks`; Record receives `RecordRowId`
-and produces `TypeData::Record`; Unit semantics remain `store.unit()` while
-runtime lowering reuses the installed class. Do not add another owner registry
-or route RecordRow through `TypeId`/`TypeLambdaArena`.
-
-## Evidence
-
-The final focused evidence is listed in
-[the P4 walkthrough](LANG007.C3.P4-walkthrough.md) and the checkpoint's P4
-closure section. One initial core failure identified projection loss during
-ordinary shell refresh; the preservation path and its regression are now
-green. The initial owner-free annotation fixtures were updated to remove the
-existing declaration before inserting the projection-isolated copy.
-
-## Residual state
-
-Previously classified AST/impl-query/runtime and formatter baselines, plus the
-incomplete broad semantic test-binary run, remain deferred as recorded in the
-C3 checkpoint. They do not block the P4 focused acceptance objective.
-
-Next action: await the next explicitly scoped LANG007 objective.
+---

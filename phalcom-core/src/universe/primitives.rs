@@ -826,7 +826,6 @@ fn validate_native_surface(vm: &VM) {
         classes.option_class,
         classes.some_class,
         classes.none_class,
-        classes.unit_class,
         classes.collection_class,
         classes.list_class,
         classes.map_class,

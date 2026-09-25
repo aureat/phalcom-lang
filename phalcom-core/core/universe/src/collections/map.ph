@@ -109,8 +109,8 @@ native class Map<K, V> is Collection {
   /// Builds a mutable map from a record's labels and values.
   @class
   from(_ record) {
-    if record is not Record and record is not Unit {
-      throw ArgumentError.new("Map.from: argument must be a Record or Unit")
+    if record is not Record {
+      throw ArgumentError.new("Map.from: argument must be a Record")
     }
     let result = Map<Dynamic, Dynamic>.new()
     if record is Record {

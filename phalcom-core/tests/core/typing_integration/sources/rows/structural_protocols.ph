@@ -1,9 +1,9 @@
 class RowCapabilities {
     @class
-    port<R: RecordRow>(_ environment: #{ config: #{ port: Int }, | R }) -> Int {
+    port<R: RecordFields>(_ environment: { config: { port: Int }, **R }) -> Int {
         match environment {
-            #{ config: c } => match c {
-                #{ port: p } => p
+            { config: c } => match c {
+                { port: p } => p
                 _ => 0
             }
             _ => 0
@@ -11,10 +11,10 @@ class RowCapabilities {
     }
 
     @class
-    host<R: RecordRow>(_ environment: #{ config: #{ host: String }, | R }) -> String {
+    host<R: RecordFields>(_ environment: { config: { host: String }, **R }) -> String {
         match environment {
-            #{ config: c } => match c {
-                #{ host: h } => h
+            { config: c } => match c {
+                { host: h } => h
                 _ => ""
             }
             _ => ""
@@ -25,7 +25,7 @@ class RowCapabilities {
 class RowStructuralProbe {
     @class
     widthAndDepth() {
-        let env = #{ config: #{ port: 8080, host: "localhost", debug: true }, cache: "redis", requestId: "req-123" }
+        let env = { config: { port: 8080, host: "localhost", debug: true }, cache: "redis", requestId: "req-123" }
         let port = RowCapabilities.port(env)
         let host = RowCapabilities.host(env)
         port
@@ -33,7 +33,7 @@ class RowStructuralProbe {
 
     @class
     widthOnly() {
-        let env = #{ config: #{ port: 9000 }, extra: "value" }
+        let env = { config: { port: 9000 }, extra: "value" }
         RowCapabilities.port(env)
     }
 }

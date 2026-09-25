@@ -1,7 +1,10 @@
 //! Semantic analysis and product construction for unified algebraic declarations.
 
 use crate::algebraic_semantics::{AlgebraicDeclarationInfo, AlgebraicRepresentation, AlgebraicSumInfo, StaticAlgebraicDeclarationInfo};
-use crate::data_semantics::{DataComponentSemantic, DataConstructorParameter, DataConstructorSignature, DataInfo, DataShape};
+use crate::data_semantics::{
+    DataComponentSemantic, DataConstructorParameter, DataConstructorParameterContribution, DataConstructorSignature, DataConstructorTemplate, DataInfo,
+    DataProductContribution, DataProductExpansionSemantic, DataProductShapeTemplate, DataShape,
+};
 use crate::db::product::AlgebraicDeclarationProduct;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::DeclarationTypeTable;
@@ -16,13 +19,13 @@ use crate::identity::{
 };
 use crate::resolver::LinkedTypeResolver;
 use crate::surface::MemberVisibility;
-use crate::types::annotation::{ScopedTypeResolver, TypeFormationSite, resolve_type_annotation, resolve_type_form, type_level_binding_for_parameter};
+use crate::types::annotation::{ScopedTypeResolver, TypeFormationSite, TypeLevelBinding, TypeResolver, resolve_type_annotation, resolve_type_form, type_level_binding_for_parameter};
 use crate::types::case_environment::{CaseEnvironmentError, CaseTypeEnvironment, derive_case_environment};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::{AlgebraicDef, AlgebraicPhase, CasePayloadSyntax, ProductShapeSyntax};
+use phalcom_ast::ast::{AlgebraicDef, AlgebraicPhase, CasePayloadSyntax, DataProductContributionSyntax, ProductShapeSyntax};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -79,80 +82,150 @@ pub fn build_algebraic_semantics_with_static_products(
         let result_type_template = if generic_params.is_empty() {
             root_form
         } else {
-            let param_forms: Vec<TypeId> = generic_params.iter().map(|&p| store.parameter_form(p)).collect();
-            store.apply_type_form(root_form, &param_forms).unwrap_or(root_form)
+            let static_args: Vec<crate::types::store::StaticArgument> = generic_params
+                .iter()
+                .map(|&p| {
+                    let kind = store.type_parameter(p).kind;
+                    if kind == KindId::RECORD_ROW {
+                        let row = store
+                            .record_row_checked(Vec::new(), crate::types::row::RecordRowTail::Parameter(p))
+                            .expect("a parameter-only record row is canonical");
+                        crate::types::store::StaticArgument::RecordRow(row)
+                    } else {
+                        crate::types::store::StaticArgument::Term(store.parameter_form(p))
+                    }
+                })
+                .collect();
+            store.apply_static_form(root_form, &static_args).unwrap_or(root_form)
         };
 
-        let (shape, components_syntax) = match product_shape {
-            ProductShapeSyntax::Tuple { components, .. } => (DataShape::Tuple, components.as_slice()),
-            ProductShapeSyntax::Record { components, .. } => (DataShape::Record, components.as_slice()),
+        let shape = match product_shape {
+            ProductShapeSyntax::Tuple { .. } => DataShape::Tuple,
+            ProductShapeSyntax::Record { .. } => DataShape::Record,
         };
 
         let mut seen_names: HashSet<String> = HashSet::new();
         let mut seen_labels: HashSet<String> = HashSet::new();
-        let mut component_semantics = Vec::with_capacity(components_syntax.len());
-        let mut constructor_params = Vec::with_capacity(components_syntax.len());
+        let mut component_semantics = Vec::new();
+        let mut constructor_params = Vec::new();
+        let mut shape_contributions = Vec::new();
+        let mut constructor_param_contributions = Vec::new();
+        let mut next_comp_idx = 0u32;
 
-        for (idx, comp) in components_syntax.iter().enumerate() {
-            let comp_id = DataComponentId::new(owner.clone(), idx as u32);
-            let local_name: Box<str> = comp.local_name.clone().into_boxed_str();
-            let external_label: Option<Box<str>> = comp.external_label.clone().map(String::into_boxed_str);
+        for contrib in product_shape.contributions() {
+            match contrib {
+                DataProductContributionSyntax::Component(comp) => {
+                    let comp_id = DataComponentId::new(owner.clone(), next_comp_idx);
+                    next_comp_idx += 1;
+                    let local_name: Box<str> = comp.local_name.clone().into_boxed_str();
+                    let external_label: Option<Box<str>> = comp.external_label.clone().map(String::into_boxed_str);
 
-            match shape {
-                DataShape::Record => {
-                    if !seen_names.insert(comp.local_name.clone()) {
-                        diagnostics.push(SemanticDiagnostic::error_in(
-                            module_id.clone(),
-                            DiagnosticCode::DataDuplicateComponent,
-                            format!("duplicate component `{}` in data `{}`", comp.local_name, owner.name),
-                            comp.range,
-                        ));
-                    }
-                }
-                DataShape::Tuple => {
-                    if let Some(ref label) = comp.external_label {
-                        if !seen_labels.insert(label.clone()) {
-                            diagnostics.push(SemanticDiagnostic::error_in(
-                                module_id.clone(),
-                                DiagnosticCode::DataDuplicateComponent,
-                                format!("duplicate component label `{}` in data `{}`", label, owner.name),
-                                comp.range,
-                            ));
+                    match shape {
+                        DataShape::Record => {
+                            if !seen_names.insert(comp.local_name.clone()) {
+                                diagnostics.push(SemanticDiagnostic::error_in(
+                                    module_id.clone(),
+                                    DiagnosticCode::DataDuplicateComponent,
+                                    format!("duplicate component `{}` in data `{}`", comp.local_name, owner.name),
+                                    comp.range,
+                                ));
+                            }
+                        }
+                        DataShape::Tuple => {
+                            if let Some(ref label) = comp.external_label {
+                                if !seen_labels.insert(label.clone()) {
+                                    diagnostics.push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::DataDuplicateComponent,
+                                        format!("duplicate component label `{}` in data `{}`", label, owner.name),
+                                        comp.range,
+                                    ));
+                                }
+                            }
                         }
                     }
+
+                    let mut ann_diags = Vec::new();
+                    let raw_knowledge = resolve_algebraic_payload_annotation(
+                        store, declarations, &scoped_resolver, &formation_site, &comp.annotation, def.phase == AlgebraicPhase::TypeOnly, &mut ann_diags,
+                    );
+                    diagnostics.extend(ann_diags);
+
+                    let declared_type = match raw_knowledge {
+                        TypeKnowledge::Known(evidence) => DeclaredTypeFact {
+                            state: DeclaredTypeState::Known(crate::types::parameter::TypeTerm::Canonical(evidence.ty())),
+                            basis: DeclaredTypeBasis::SourceAnnotation,
+                        },
+                        _ => DeclaredTypeFact::from_knowledge(&raw_knowledge),
+                    };
+
+                    let source = Some(SemanticSourceSpan::new(module_id.clone(), comp.range));
+
+                    let comp_sem = DataComponentSemantic {
+                        id: comp_id.clone(),
+                        local_name: local_name.clone(),
+                        external_label: external_label.clone(),
+                        declared_type: declared_type.clone(),
+                        source,
+                    };
+                    component_semantics.push(comp_sem.clone());
+                    shape_contributions.push(DataProductContribution::Component(comp_sem));
+
+                    let param = DataConstructorParameter {
+                        component: comp_id,
+                        external_label,
+                        local_name,
+                        declared_type,
+                    };
+                    constructor_params.push(param.clone());
+                    constructor_param_contributions.push(DataConstructorParameterContribution::Parameter(param));
+                }
+                DataProductContributionSyntax::Expansion(exp) => {
+                    let operand_name = match &exp.operand.expr {
+                        phalcom_ast::ast::TypeAnnotationExpr::Reference(sym) if sym.is_bare() => Some(sym.root.as_str()),
+                        _ => None,
+                    };
+                    let raw_knowledge = if let Some(name) = operand_name {
+                        if let Some(TypeLevelBinding::RecordRow(parameter)) = scoped_resolver.resolve_type_level_binding(name) {
+                            let row_ty = store
+                                .record_row_type_checked(Vec::new(), crate::types::row::RecordRowTail::Parameter(parameter))
+                                .expect("open row type");
+                            TypeKnowledge::established(row_ty, crate::types::evidence::EvidenceOrigin::DeclarationSemantics)
+                        } else {
+                            let mut ann_diags = Vec::new();
+                            let rk = resolve_algebraic_payload_annotation(
+                                store, declarations, &scoped_resolver, &formation_site, &exp.operand, def.phase == AlgebraicPhase::TypeOnly, &mut ann_diags,
+                            );
+                            diagnostics.extend(ann_diags);
+                            rk
+                        }
+                    } else {
+                        let mut ann_diags = Vec::new();
+                        let rk = resolve_algebraic_payload_annotation(
+                            store, declarations, &scoped_resolver, &formation_site, &exp.operand, def.phase == AlgebraicPhase::TypeOnly, &mut ann_diags,
+                        );
+                        diagnostics.extend(ann_diags);
+                        rk
+                    };
+
+                    let declared_type = match raw_knowledge {
+                        TypeKnowledge::Known(evidence) => DeclaredTypeFact {
+                            state: DeclaredTypeState::Known(crate::types::parameter::TypeTerm::Canonical(evidence.ty())),
+                            basis: DeclaredTypeBasis::SourceAnnotation,
+                        },
+                        _ => DeclaredTypeFact::from_knowledge(&raw_knowledge),
+                    };
+
+                    let exp_source = Some(SemanticSourceSpan::new(module_id.clone(), exp.range));
+                    let exp_sem = DataProductExpansionSemantic {
+                        mode: exp.mode,
+                        operand: declared_type,
+                        source: exp_source,
+                    };
+                    shape_contributions.push(DataProductContribution::Expansion(exp_sem.clone()));
+                    constructor_param_contributions.push(DataConstructorParameterContribution::Expansion(exp_sem));
                 }
             }
-
-            let mut ann_diags = Vec::new();
-            let raw_knowledge = resolve_algebraic_payload_annotation(
-                store, declarations, &scoped_resolver, &formation_site, &comp.annotation, def.phase == AlgebraicPhase::TypeOnly, &mut ann_diags,
-            );
-            diagnostics.extend(ann_diags);
-
-            let declared_type = match raw_knowledge {
-                TypeKnowledge::Known(evidence) => DeclaredTypeFact {
-                    state: DeclaredTypeState::Known(crate::types::parameter::TypeTerm::Canonical(evidence.ty())),
-                    basis: DeclaredTypeBasis::SourceAnnotation,
-                },
-                _ => DeclaredTypeFact::from_knowledge(&raw_knowledge),
-            };
-
-            let source = Some(SemanticSourceSpan::new(module_id.clone(), comp.range));
-
-            component_semantics.push(DataComponentSemantic {
-                id: comp_id.clone(),
-                local_name: local_name.clone(),
-                external_label: external_label.clone(),
-                declared_type: declared_type.clone(),
-                source,
-            });
-
-            constructor_params.push(DataConstructorParameter {
-                component: comp_id,
-                external_label,
-                local_name,
-                declared_type,
-            });
         }
 
         let constructor = DataConstructorSignature {
@@ -163,6 +236,23 @@ pub fn build_algebraic_semantics_with_static_products(
             source: Some(SemanticSourceSpan::new(module_id.clone(), def.name_range)),
         };
 
+        let shape_template = DataProductShapeTemplate {
+            shape,
+            contributions: shape_contributions.into_boxed_slice(),
+        };
+
+        let constructor_template = if shape_template.has_expansions() {
+            Some(DataConstructorTemplate {
+                constructor: DataConstructorId::new(owner.clone()),
+                visibility: def.constructor_visibility(),
+                parameters: constructor_param_contributions.into_boxed_slice(),
+                result_type_template,
+                source: Some(SemanticSourceSpan::new(module_id.clone(), def.name_range)),
+            })
+        } else {
+            None
+        };
+
         let data_info = DataInfo {
             owner: owner.clone(),
             root_form,
@@ -171,6 +261,8 @@ pub fn build_algebraic_semantics_with_static_products(
             shape,
             components: component_semantics.into_boxed_slice(),
             constructor,
+            shape_template,
+            constructor_template,
             source: Some(SemanticSourceSpan::new(module_id.clone(), def.range)),
         };
 
@@ -179,8 +271,21 @@ pub fn build_algebraic_semantics_with_static_products(
         let default_result_type = if generic_params.is_empty() {
             root_form
         } else {
-            let param_forms: Vec<TypeId> = generic_params.iter().map(|&p| store.parameter_form(p)).collect();
-            store.apply_type_form(root_form, &param_forms).unwrap_or(root_form)
+            let static_args: Vec<crate::types::store::StaticArgument> = generic_params
+                .iter()
+                .map(|&p| {
+                    let kind = store.type_parameter(p).kind;
+                    if kind == KindId::RECORD_ROW {
+                        let row = store
+                            .record_row_checked(Vec::new(), crate::types::row::RecordRowTail::Parameter(p))
+                            .expect("a parameter-only record row is canonical");
+                        crate::types::store::StaticArgument::RecordRow(row)
+                    } else {
+                        crate::types::store::StaticArgument::Term(store.parameter_form(p))
+                    }
+                })
+                .collect();
+            store.apply_static_form(root_form, &static_args).unwrap_or(root_form)
         };
 
         let mut variant_ids = Vec::new();

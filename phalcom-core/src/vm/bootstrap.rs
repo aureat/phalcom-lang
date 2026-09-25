@@ -532,7 +532,6 @@ impl VM {
         add_class!(some_class);
         add_class!(result_class);
         add_class!(ordering_class);
-        add_class!(unit_class);
         {
             let some_sym = self.interner.intern(&self.heap.class(self.universe.classes.some_class).name.clone());
             let some_key = crate::vm::ClassKey { module: m, name: some_sym };
@@ -980,7 +979,6 @@ impl VM {
             c.option_class,
             c.some_class,
             c.none_class,
-            c.unit_class,
             c.list_class,
             c.map_class,
             c.set_class,

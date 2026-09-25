@@ -1,5 +1,5 @@
 ---
-id: LANG007.C3.P4
+id: LANG007.C3.P3.R1
 category: LANG
 program: LANG007
 checkpoint: LANG007.C3
@@ -15,7 +15,7 @@ prepared: 2026-09-25
 title: "Intrinsic Semantic Application and Runtime Owner Corrective Closure"
 ---
 
-# LANG007.C3.P4 — Intrinsic Semantic Application and Runtime Owner
+# LANG007.C3.P3.R1 — Intrinsic Semantic Application and Runtime Owner
 
 ## Objective
 

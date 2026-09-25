@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 670
 expression: "parse(\"class Point {\\n  @pure\\n  x() {\\n    return 1\\n  }\\n}\\n\")"
 ---
 Program {
@@ -18,6 +19,7 @@ Program {
                 generic_parameters: [],
                 superclass: None,
                 where_clause: None,
+                associated_type_data: [],
                 members: [
                     Method(
                         MethodDef {

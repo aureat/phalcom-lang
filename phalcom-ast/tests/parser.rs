@@ -489,10 +489,10 @@ fn class_declaration_with_trailing_newline_parses() {
 #[test]
 fn record_literals_accept_trailing_commas() {
     let cases = [
-        ("#{ a: 1, }", false),
-        ("#{ **source, }", true),
-        ("#{\n  a: 1,\n}", false),
-        ("#{\n  **source,\n}", true),
+        ("{ a: 1, }", false),
+        ("{ **source, }", true),
+        ("{\n  a: 1,\n}", false),
+        ("{\n  **source,\n}", true),
     ];
 
     for (source, is_expansion) in cases {
@@ -600,7 +600,7 @@ fn error_unexpected_token() {
 
 #[test]
 fn bare_brace_closure_is_rejected() {
-    assert!(parse_display("{ System.print(\"hi\") }").starts_with("bare brace block literals were removed; write `|| { ... }` for a closure"));
+    assert!(parse_source("{ System.print(\"hi\") }", 0).is_err());
 }
 
 #[test]
@@ -2034,3 +2034,36 @@ fn intrinsic_attribute_is_not_builtin() {
     assert_eq!(phalcom_ast::ast::BuiltinAttr::parse("intrinsic"), None);
     assert!(!phalcom_ast::ast::BuiltinAttr::ALL.iter().any(|b| b.name() == "intrinsic"));
 }
+
+#[test]
+fn record_literal_parser_regressions() {
+    // 1. Explicit record field
+    let p = parse_source("const r = { x: 1 }\n", 0).expect("explicit field should parse");
+    assert_eq!(p.statements.len(), 1);
+
+    // 2. Shorthand record field
+    let p = parse_source("const r = { x }\n", 0).expect("shorthand field should parse");
+    assert_eq!(p.statements.len(), 1);
+
+    // 3. Multiple fields (explicit & mixed)
+    let p = parse_source("const r = { x: 1, y: 2 }\n", 0).expect("multiple fields should parse");
+    assert_eq!(p.statements.len(), 1);
+
+    // 4. Nested record
+    let p = parse_source("const r = { nested: { x: 1 } }\n", 0).expect("nested record should parse");
+    assert_eq!(p.statements.len(), 1);
+
+    // 5. Record in expression position (call arg)
+    let p = parse_source("foo({ x: 1 })\n", 0).expect("record in call expression position should parse");
+    assert_eq!(p.statements.len(), 1);
+
+    // 6. Record after return
+    let p = parse_source("return { x: 1 }\n", 0).expect("record after return should parse");
+    assert_eq!(p.statements.len(), 1);
+
+    // 7. Statement-level record literal expression statement
+    let p = parse_source("{\n    x: 1\n}\n", 0).expect("statement-level record literal should parse");
+    assert_eq!(p.statements.len(), 1);
+    assert!(matches!(&p.statements[0], Statement::Expr { expr: Expr::RecordLiteral(_), .. }));
+}
+

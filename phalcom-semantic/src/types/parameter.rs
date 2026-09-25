@@ -26,6 +26,15 @@ pub enum GenericParameterMode {
     CompletePack,
 }
 
+pub fn expansion_mode_accepts_kind(mode: GenericParameterMode, kind: KindId) -> bool {
+    match mode {
+        GenericParameterMode::Single => true,
+        GenericParameterMode::PositionalPack => kind == KindId::TYPE_PACK,
+        GenericParameterMode::LabeledPack => kind == KindId::LABELED_TYPE_PACK || kind == KindId::RECORD_ROW,
+        GenericParameterMode::CompletePack => kind == KindId::COMPLETE_TYPE_PACK,
+    }
+}
+
 /// Constraint-free declaration binder product published with a nominal shell.
 ///
 /// This is deliberately distinct from [`GenericSignature`]: it establishes
@@ -313,27 +322,19 @@ impl GenericSignature {
                     signature_mode: mode,
                 });
             }
-            let expected_kind = match mode {
-                GenericParameterMode::Single => None,
-                GenericParameterMode::PositionalPack => Some(KindId::TYPE_PACK),
-                GenericParameterMode::LabeledPack => Some(KindId::LABELED_TYPE_PACK),
-                GenericParameterMode::CompletePack => Some(KindId::COMPLETE_TYPE_PACK),
-            };
-            if let Some(expected_kind) = expected_kind {
-                if data.kind != expected_kind {
-                    return Err(GenericSignaturePublicationError::ParameterModeKindMismatch {
-                        parameter,
-                        mode,
-                        kind: data.kind,
-                    });
-                }
-                if data.variance != Variance::Invariant {
-                    return Err(GenericSignaturePublicationError::PackParameterVariance {
-                        parameter,
-                        mode,
-                        variance: data.variance,
-                    });
-                }
+            if !expansion_mode_accepts_kind(mode, data.kind) {
+                return Err(GenericSignaturePublicationError::ParameterModeKindMismatch {
+                    parameter,
+                    mode,
+                    kind: data.kind,
+                });
+            }
+            if mode != GenericParameterMode::Single && data.variance != Variance::Invariant {
+                return Err(GenericSignaturePublicationError::PackParameterVariance {
+                    parameter,
+                    mode,
+                    variance: data.variance,
+                });
             }
         }
 

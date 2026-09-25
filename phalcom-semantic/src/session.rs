@@ -7771,8 +7771,10 @@ fn collect_kind_signature_header_dependencies(
         }
         phalcom_ast::ast::KindSyntax::Type(_)
         | phalcom_ast::ast::KindSyntax::RecordRow(_)
+        | phalcom_ast::ast::KindSyntax::RecordFields(_)
         | phalcom_ast::ast::KindSyntax::TypePack(_)
         | phalcom_ast::ast::KindSyntax::LabeledTypePack(_)
+        | phalcom_ast::ast::KindSyntax::CompleteTypePack(_)
         | phalcom_ast::ast::KindSyntax::Invalid { .. } => {}
     }
 }
@@ -7799,8 +7801,10 @@ fn collect_kind_signature_alias_dependencies(
         }
         phalcom_ast::ast::KindSyntax::Type(_)
         | phalcom_ast::ast::KindSyntax::RecordRow(_)
+        | phalcom_ast::ast::KindSyntax::RecordFields(_)
         | phalcom_ast::ast::KindSyntax::TypePack(_)
         | phalcom_ast::ast::KindSyntax::LabeledTypePack(_)
+        | phalcom_ast::ast::KindSyntax::CompleteTypePack(_)
         | phalcom_ast::ast::KindSyntax::Invalid { .. } => {}
     }
 }

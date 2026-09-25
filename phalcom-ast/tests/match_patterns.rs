@@ -216,6 +216,7 @@ fn review_ast_02_record_and_map_patterns_keep_distinct_discriminants() {
             pattern: Pattern::Wildcard { range },
             range,
         }],
+        rest: None,
         range,
     };
     let map = Pattern::Map {

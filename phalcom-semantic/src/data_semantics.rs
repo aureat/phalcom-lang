@@ -44,6 +44,51 @@ pub struct DataConstructorSignature {
     pub source: Option<SemanticSourceSpan>,
 }
 
+/// Semantic model of an expansion contribution within a data declaration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataProductExpansionSemantic {
+    pub mode: phalcom_ast::ast::ExpansionMode,
+    pub operand: DeclaredTypeFact,
+    pub source: Option<SemanticSourceSpan>,
+}
+
+/// Semantic contribution to a data product shape.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DataProductContribution {
+    Component(DataComponentSemantic),
+    Expansion(DataProductExpansionSemantic),
+}
+
+/// Structural template for a product shape, preserving fixed components and expansions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataProductShapeTemplate {
+    pub shape: DataShape,
+    pub contributions: Box<[DataProductContribution]>,
+}
+
+impl DataProductShapeTemplate {
+    pub fn has_expansions(&self) -> bool {
+        self.contributions.iter().any(|c| matches!(c, DataProductContribution::Expansion(_)))
+    }
+}
+
+/// Semantic contribution to a data constructor's parameter list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DataConstructorParameterContribution {
+    Parameter(DataConstructorParameter),
+    Expansion(DataProductExpansionSemantic),
+}
+
+/// Structural template for a data constructor signature.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataConstructorTemplate {
+    pub constructor: DataConstructorId,
+    pub visibility: Visibility,
+    pub parameters: Box<[DataConstructorParameterContribution]>,
+    pub result_type_template: TypeId,
+    pub source: Option<SemanticSourceSpan>,
+}
+
 /// Complete structural semantic metadata for one declared data root.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DataInfo {
@@ -57,6 +102,8 @@ pub struct DataInfo {
     pub shape: DataShape,
     pub components: Box<[DataComponentSemantic]>,
     pub constructor: DataConstructorSignature,
+    pub shape_template: DataProductShapeTemplate,
+    pub constructor_template: Option<DataConstructorTemplate>,
     pub source: Option<SemanticSourceSpan>,
 }
 

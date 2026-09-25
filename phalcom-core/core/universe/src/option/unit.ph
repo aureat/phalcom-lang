@@ -1,7 +1,2 @@
-intrinsic data Unit()
+type Unit = Tuple<>
 
-impl Unit {
-  toString -> String { "()" }
-
-  hash -> Int { 0 }
-}

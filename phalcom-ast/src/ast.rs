@@ -314,28 +314,62 @@ impl AlgebraicShapeSyntax {
     }
 }
 
+/// Contribution to a data product shape: either a fixed component or an expansion.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DataProductContributionSyntax {
+    Component(DataComponentSyntax),
+    Expansion(DataProductExpansionSyntax),
+}
+
+impl DataProductContributionSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Component(c) => c.range,
+            Self::Expansion(e) => e.range,
+        }
+    }
+}
+
+/// A product shape expansion contribution (e.g. `*Ts`, `**Ls`, `***Es`, `**Fs`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataProductExpansionSyntax {
+    pub mode: ExpansionMode,
+    pub operand: TypeAnnotation,
+    pub range: SourceRange,
+}
+
 /// Product shape syntax: positional tuple or named record.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ProductShapeSyntax {
     Tuple {
         constructor_visibility: Visibility,
         constructor_visibility_range: Option<SourceRange>,
-        components: Vec<DataComponentSyntax>,
+        contributions: Vec<DataProductContributionSyntax>,
         range: SourceRange,
     },
     Record {
         constructor_visibility: Visibility,
         constructor_visibility_range: Option<SourceRange>,
-        components: Vec<DataComponentSyntax>,
+        contributions: Vec<DataProductContributionSyntax>,
         range: SourceRange,
     },
 }
 
 impl ProductShapeSyntax {
-    pub fn components(&self) -> &[DataComponentSyntax] {
+    pub fn contributions(&self) -> &[DataProductContributionSyntax] {
         match self {
-            Self::Tuple { components, .. } | Self::Record { components, .. } => components,
+            Self::Tuple { contributions, .. } | Self::Record { contributions, .. } => contributions,
         }
+    }
+
+    pub fn components(&self) -> Vec<&DataComponentSyntax> {
+        self.contributions()
+            .iter()
+            .filter_map(|c| match c {
+                DataProductContributionSyntax::Component(comp) => Some(comp),
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn constructor_visibility(&self) -> Visibility {
@@ -474,7 +508,11 @@ impl AlgebraicDef {
         self.sum_shape().map(|s| s.cases.as_slice())
     }
 
-    pub fn components(&self) -> Option<&[DataComponentSyntax]> {
+    pub fn contributions(&self) -> Option<&[DataProductContributionSyntax]> {
+        self.product_shape().map(|p| p.contributions())
+    }
+
+    pub fn components(&self) -> Option<Vec<&DataComponentSyntax>> {
         self.product_shape().map(|p| p.components())
     }
 
@@ -766,7 +804,7 @@ pub struct TraitDef {
     pub range: SourceRange,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DataComponentSyntax {
     pub local_name: String,
     pub external_label: Option<String>,
@@ -1207,8 +1245,10 @@ pub enum VarianceSyntax {
 pub enum KindSyntax {
     Type(SourceRange),
     RecordRow(SourceRange),
+    RecordFields(SourceRange),
     TypePack(SourceRange),
     LabeledTypePack(SourceRange),
+    CompleteTypePack(SourceRange),
     /// A type form whose canonical semantic kind must be a static domain.
     StaticDomain {
         form: Box<TypeAnnotation>,
@@ -1233,9 +1273,10 @@ impl KindSyntax {
     pub fn range(&self) -> SourceRange {
         match self {
             KindSyntax::Type(r) => *r,
-            KindSyntax::RecordRow(r) => *r,
+            KindSyntax::RecordRow(r) | KindSyntax::RecordFields(r) => *r,
             KindSyntax::TypePack(r) => *r,
             KindSyntax::LabeledTypePack(r) => *r,
+            KindSyntax::CompleteTypePack(r) => *r,
             KindSyntax::StaticDomain { range, .. } => *range,
             KindSyntax::Arrow { range, .. } => *range,
             KindSyntax::Grouped { range, .. } => *range,
@@ -1898,10 +1939,12 @@ pub enum Pattern {
     Variant(VariantPattern),
     /// An or-pattern `p1 | p2 | ...` matching any alternative.
     Or { alternatives: Vec<Pattern>, range: SourceRange },
-    /// An open record pattern such as `#{name: value}`.
+    /// An open record pattern such as `{name: value, **rest}`.
     Record {
         /// Required field patterns.
         entries: Vec<RecordPatternEntry>,
+        /// Optional remainder pattern (`**rest`).
+        rest: Option<Box<Pattern>>,
         /// Source span of the complete record pattern.
         range: SourceRange,
     },
@@ -2653,6 +2696,14 @@ pub enum ProductLabel {
     },
 }
 
+impl ProductLabel {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Static { range, .. } | Self::Computed { range, .. } => *range,
+        }
+    }
+}
+
 /// Describes how a static product label was written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductLabelSyntax {
@@ -2747,6 +2798,7 @@ pub struct RecordConstructionEntry {
 
 #[derive(Debug, Clone)]
 pub struct MapLiteralExpr {
+    pub type_arguments: Option<Vec<TypeAnnotation>>,
     pub entries: Vec<MapLiteralEntry>,
     pub range: SourceRange,
 }

@@ -2034,6 +2034,32 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
     let map_decl = ctx.core_ids.map.clone();
     let symbol_decl = ctx.core_ids.symbol.clone();
     let (expected_key, expected_val) = expected.map_key_val_types(ctx.store, &map_decl);
+
+    let (explicit_key_ty, explicit_val_ty) = if let Some(type_args) = &map.type_arguments {
+        if type_args.len() == 2 {
+            let resolver = ctx.resolver.clone();
+            let (k_know, _) = ctx.resolve_type_annotation(&resolver, &type_args[0]);
+            let (v_know, _) = ctx.resolve_type_annotation(&resolver, &type_args[1]);
+            (k_know.ty(), v_know.ty())
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
+    let expected_key = if let Some(k_ty) = explicit_key_ty {
+        ExpectedType::proper(k_ty)
+    } else {
+        expected_key
+    };
+
+    let expected_val = if let Some(v_ty) = explicit_val_ty {
+        ExpectedType::proper(v_ty)
+    } else {
+        expected_val
+    };
+
     let map_form = {
         let kind = ctx.store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
         Some(ctx.store.nominal_form(map_decl.clone(), kind))
@@ -2088,7 +2114,16 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
     };
     let key_lane = lane(key_knowledge);
     let value_lane = lane(value_knowledge);
-    let knowledge = if map.entries.is_empty() {
+    let knowledge = if let (Some(k), Some(v)) = (explicit_key_ty, explicit_val_ty) {
+        if let Some(form) = map_form {
+            match ctx.store.map_of(form, k, v) {
+                Ok(map_ty) => TypeKnowledge::established(map_ty, EvidenceOrigin::Syntax),
+                Err(_) => TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause),
+            }
+        } else {
+            TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
+        }
+    } else if map.entries.is_empty() {
         if let Some(expected_ty) = expected.ty() {
             if is_applied_core_collection(ctx.store, expected_ty, &map_decl, 2) {
                 TypeKnowledge::assumed(expected_ty, EvidenceOrigin::ContextualDerivation)

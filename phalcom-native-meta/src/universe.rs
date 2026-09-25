@@ -44,6 +44,7 @@ pub enum UniverseKey {
     Some,
     None,
     Unit,
+    EmptyRecord,
 
     Collection,
     List,
@@ -175,10 +176,6 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
     UniverseClassRelationSpec {
         class: UniverseKey::None,
         superclass: Some(UniverseKey::Option),
-    },
-    UniverseClassRelationSpec {
-        class: UniverseKey::Unit,
-        superclass: Some(UniverseKey::Object),
     },
     UniverseClassRelationSpec {
         class: UniverseKey::Function,
@@ -374,7 +371,7 @@ impl UniverseKey {
             Self::Map => &["collections", "map"],
             Self::Set => &["collections", "set"],
             Self::Tuple => &["collections", "tuple"],
-            Self::Record => &["collections", "record"],
+            Self::Record | Self::EmptyRecord => &["collections", "record"],
             Self::Range => &["collections", "range"],
             Self::Bytes | Self::Resource => &["collections", "bytes"],
             Self::Module => &["reflection", "module"],
@@ -440,6 +437,7 @@ impl UniverseKey {
             Self::Set => "Set",
             Self::Tuple => "Tuple",
             Self::Record => "Record",
+            Self::EmptyRecord => "EmptyRecord",
             Self::Range => "Range",
             Self::Bytes => "Bytes",
             Self::Module => "Module",
@@ -510,6 +508,7 @@ impl UniverseKey {
             "Set" => Some(Self::Set),
             "Tuple" => Some(Self::Tuple),
             "Record" => Some(Self::Record),
+            "EmptyRecord" => Some(Self::EmptyRecord),
             "Range" => Some(Self::Range),
             "Bytes" => Some(Self::Bytes),
             "Module" => Some(Self::Module),

@@ -22,8 +22,8 @@ if let (a, b) = pair {
   System.print("pair: \(a), \(b)")
 }
 
-let rec = #{ name: "Phalcom", version: 1 }
-if let #{ name: n, version: v } = rec {
+let rec = { name: "Phalcom", version: 1 }
+if let { name: n, version: v } = rec {
   System.print("rec: \(n) v\(v)")
 }
 

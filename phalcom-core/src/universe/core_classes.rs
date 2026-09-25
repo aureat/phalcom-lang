@@ -100,10 +100,6 @@ impl Universe {
         heap.class_mut(result_class).is_abstract = true;
         let ordering_class = make_core_class(heap, "Ordering", object_class, metaclass_class);
 
-        // Unit is the zero-arity product type, a singleton immediate with no
-        // fields. It is not a semantic declaration, but a native runtime type.
-        let unit_class = make_core_class(heap, "Unit", object_class, metaclass_class);
-
         // Kernel `List` (ADR-0020): a native heap variant, not an
         // `InstanceObject`, so it has no field layout and needs no `construct`
         // lowering — created here the same way `Option`/`Bool`/`String` are,
@@ -226,7 +222,6 @@ impl Universe {
             none_class,
             result_class,
             ordering_class,
-            unit_class,
             collection_class,
             list_class,
             map_class,
@@ -293,7 +288,6 @@ impl Universe {
             res.set_class,
             res.tuple_class,
             res.record_class,
-            res.unit_class,
             res.range_class,
             res.bytes_class,
             res.fiber_class,
@@ -440,8 +434,6 @@ pub struct CoreClasses {
     pub result_class: ClassId,
     /// `Ordering`, the canonical four-state comparison ADT root.
     pub ordering_class: ClassId,
-    /// `Unit`, the immediate zero-arity product.
-    pub unit_class: ClassId,
     /// `Collection`, the abstract kernel collection root.
     pub collection_class: ClassId,
     /// `List`, the native array-backed kernel list
@@ -587,7 +579,8 @@ impl CoreClasses {
             UniverseKey::Ordering => self.ordering_class,
             UniverseKey::Some => self.some_class,
             UniverseKey::None => self.none_class,
-            UniverseKey::Unit => self.unit_class,
+            UniverseKey::Unit => self.tuple_class,
+            UniverseKey::EmptyRecord => self.record_class,
             UniverseKey::Collection => self.collection_class,
             UniverseKey::List => self.list_class,
             UniverseKey::Map => self.map_class,
@@ -675,7 +668,6 @@ impl CoreClasses {
             none_class,
             result_class,
             ordering_class,
-            unit_class,
             collection_class,
             list_class,
             map_class,
@@ -740,7 +732,6 @@ impl CoreClasses {
             none_class,
             result_class,
             ordering_class,
-            unit_class,
             collection_class,
             list_class,
             map_class,

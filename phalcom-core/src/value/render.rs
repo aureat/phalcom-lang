@@ -230,6 +230,7 @@ fn fmt_base_value(f: &mut fmt::Formatter<'_>, base: Value) -> fmt::Result {
     match base.tag() {
         ValueTag::Nil => write!(f, "nil"),
         ValueTag::Unit => write!(f, "()"),
+        ValueTag::EmptyRecord => write!(f, "{{}}"),
         ValueTag::Bool => write!(f, "{}", base.as_bool().unwrap_or(false)),
         ValueTag::Int => write!(f, "{}", base.as_int().unwrap_or(0)),
         ValueTag::Float => write!(f, "{}", render_float(base.as_float().unwrap_or(0.0))),

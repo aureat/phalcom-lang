@@ -79,12 +79,18 @@ pub enum IntrinsicTypeOperation {
     TuplePositionals,
     TupleLabeled,
     TupleEntries,
+    TupleElement,
     TupleAt,
     TupleMap,
+    RecordFields,
+    RecordValue,
     RecordMap,
     TypePackMap,
     LabeledTypePackMap,
     RecordRowMap,
+    CompleteTypePackPositionals,
+    CompleteTypePackLabeled,
+    CompleteTypePackMap,
 }
 
 impl IntrinsicTypeOperation {
@@ -93,12 +99,18 @@ impl IntrinsicTypeOperation {
             Self::TuplePositionals => "Tuple::Positionals",
             Self::TupleLabeled => "Tuple::Labeled",
             Self::TupleEntries => "Tuple::Entries",
+            Self::TupleElement => "Tuple::Element",
             Self::TupleAt => "Tuple::At",
             Self::TupleMap => "Tuple::Map",
+            Self::RecordFields => "Record::Fields",
+            Self::RecordValue => "Record::Value",
             Self::RecordMap => "Record::Map",
             Self::TypePackMap => "TypePack::Map",
             Self::LabeledTypePackMap => "LabeledTypePack::Map",
             Self::RecordRowMap => "RecordRow::Map",
+            Self::CompleteTypePackPositionals => "CompleteTypePack::Positionals",
+            Self::CompleteTypePackLabeled => "CompleteTypePack::Labeled",
+            Self::CompleteTypePackMap => "CompleteTypePack::Map",
         }
     }
 }
@@ -179,12 +191,15 @@ pub fn lookup_intrinsic_type_operation(owner: IntrinsicTypeOwner, selector: &Typ
             TypeMemberSelector::Named(name) if name.as_ref() == "Positionals" => Some(IntrinsicTypeOperation::TuplePositionals),
             TypeMemberSelector::Named(name) if name.as_ref() == "Labeled" => Some(IntrinsicTypeOperation::TupleLabeled),
             TypeMemberSelector::Named(name) if name.as_ref() == "Entries" => Some(IntrinsicTypeOperation::TupleEntries),
+            TypeMemberSelector::Named(name) if name.as_ref() == "Element" => Some(IntrinsicTypeOperation::TupleElement),
             TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::TupleMap),
             TypeMemberSelector::Named(name) if name.as_ref() == "At" => Some(IntrinsicTypeOperation::TupleAt),
             TypeMemberSelector::Subscript => Some(IntrinsicTypeOperation::TupleAt),
             _ => None,
         },
         IntrinsicTypeOwner::Record => match selector {
+            TypeMemberSelector::Named(name) if name.as_ref() == "Fields" => Some(IntrinsicTypeOperation::RecordFields),
+            TypeMemberSelector::Named(name) if name.as_ref() == "Value" => Some(IntrinsicTypeOperation::RecordValue),
             TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::RecordMap),
             _ => None,
         },
@@ -200,7 +215,12 @@ pub fn lookup_intrinsic_type_operation(owner: IntrinsicTypeOwner, selector: &Typ
             TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::RecordRowMap),
             _ => None,
         },
-        IntrinsicTypeOwner::CompleteTypePack => None,
+        IntrinsicTypeOwner::CompleteTypePack => match selector {
+            TypeMemberSelector::Named(name) if name.as_ref() == "Positionals" => Some(IntrinsicTypeOperation::CompleteTypePackPositionals),
+            TypeMemberSelector::Named(name) if name.as_ref() == "Labeled" => Some(IntrinsicTypeOperation::CompleteTypePackLabeled),
+            TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::CompleteTypePackMap),
+            _ => None,
+        },
     }
 }
 

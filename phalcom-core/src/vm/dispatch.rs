@@ -88,7 +88,7 @@ impl VM {
     /// associations own no heap borrows, so destinations may re-enter the VM
     /// while consuming them.
     fn snapshot_labeled_lane(&self, source: Value) -> Result<Vec<(Symbol, Value)>, RuntimeError> {
-        if source.is_unit() {
+        if source.is_unit() || source.is_empty_record() {
             Ok(Vec::new())
         } else if let Some(id) = source.as_obj() {
             match self.heap.get(id) {

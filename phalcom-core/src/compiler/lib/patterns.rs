@@ -252,9 +252,12 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Pattern::Wildcard { .. } => {}
-            Pattern::Record { entries, .. } => {
+            Pattern::Record { entries, rest, .. } => {
                 for entry in entries {
                     self.declare_pattern_locals(&entry.pattern, mutable)?;
+                }
+                if let Some(rest) = rest {
+                    self.declare_pattern_locals(rest, mutable)?;
                 }
             }
             Pattern::Map { entries, .. } => {
@@ -337,7 +340,7 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
             }
-            Pattern::Record { entries, range } => {
+            Pattern::Record { entries, rest, range } => {
                 self.emit_class_test(value_slot, "Record", failures, *range)?;
                 for entry in entries {
                     let key = Value::symbol(self.vm.interner.intern(&entry.label));
@@ -347,6 +350,11 @@ impl<'vm> Compiler<'vm> {
                         let child = self.emit_option_value_temp(option, entry.range)?;
                         self.emit_pattern_match_tests(&entry.pattern, child, failures)?;
                     }
+                }
+                if let Some(rest_pattern) = rest {
+                    let matched: Vec<String> = entries.iter().map(|e| e.label.clone()).collect();
+                    let child = self.emit_record_rest_temp(value_slot, &matched, rest_pattern.range())?;
+                    self.emit_pattern_match_tests(rest_pattern, child, failures)?;
                 }
             }
             Pattern::Map { entries, range } => {
@@ -586,6 +594,70 @@ impl<'vm> Compiler<'vm> {
         Ok(rest_slot)
     }
 
+    fn emit_record_rest_temp(
+        &mut self,
+        value_slot: u16,
+        matched_labels: &[String],
+        range: SourceRange,
+    ) -> Result<u16, CompilerError> {
+        self.emit(Bytecode::NewRecordLiteralBuilder, range);
+        let builder_slot = self.claim_pattern_temp("$pattern_record_builder", range)?;
+
+        self.begin_scope();
+        let zero = self.add_constant(Value::int(0), range)?;
+        self.emit(Bytecode::Constant(zero), range);
+        let counter = self.claim_pattern_temp("$pattern_record_index", range)?;
+        let loop_start = self.chunk_len();
+
+        self.emit(Bytecode::GetLocal(counter), range);
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit_getter_send("rawSize", range)?;
+        self.emit_operator_send("<", 1, range)?;
+        let done = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+
+        let mut skip_jumps = Vec::new();
+        for label in matched_labels {
+            let sym = self.vm.interner.intern(label);
+            let sym_idx = self.add_constant(Value::symbol(sym), range)?;
+            self.emit(Bytecode::GetLocal(value_slot), range);
+            self.emit(Bytecode::GetLocal(counter), range);
+            self.emit_operator_send("rawLabelAt", 1, range)?;
+            self.emit(Bytecode::Constant(sym_idx), range);
+            self.emit_operator_send("!=", 1, range)?;
+            let skip_jump = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+            skip_jumps.push(skip_jump);
+        }
+
+        self.emit(Bytecode::GetLocal(builder_slot), range);
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit(Bytecode::GetLocal(counter), range);
+        self.emit_operator_send("rawLabelAt", 1, range)?;
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit(Bytecode::GetLocal(counter), range);
+        self.emit_operator_send("rawValueAt", 1, range)?;
+        self.emit(Bytecode::RecordLiteralAppend, range);
+
+        let append_end = self.chunk_len();
+        for skip_jump in skip_jumps {
+            self.patch_forward_jump_to(skip_jump, append_end);
+        }
+
+        self.emit(Bytecode::GetLocal(counter), range);
+        let one = self.add_constant(Value::int(1), range)?;
+        self.emit(Bytecode::Constant(one), range);
+        self.emit_operator_send("+", 1, range)?;
+        self.emit(Bytecode::SetLocal(counter), range);
+        self.emit(Bytecode::Pop, range);
+        self.emit_backward_loop(loop_start, range);
+
+        self.patch_forward_jump_to(done, self.chunk_len());
+        self.end_scope(range);
+
+        self.emit(Bytecode::GetLocal(builder_slot), range);
+        self.emit(Bytecode::FinishRecordLiteral, range);
+        self.claim_pattern_temp("$pattern_record_rest", range)
+    }
+
     fn pattern_key_value(&mut self, key: &MapPatternKey) -> Value {
         match key {
             MapPatternKey::Symbol(symbol) => Value::symbol(self.vm.interner.intern(symbol)),
@@ -753,7 +825,7 @@ impl<'vm> Compiler<'vm> {
                 }
                 Ok(())
             }
-            Pattern::Record { entries, range } => {
+            Pattern::Record { entries, rest, range } => {
                 self.emit_required_class_check(value_slot, "Record", *range)?;
                 for entry in entries {
                     let key_sym = Value::symbol(self.vm.interner.intern(&entry.label));
@@ -764,6 +836,11 @@ impl<'vm> Compiler<'vm> {
                         format!("destructuring record missing field `{}`", entry.label),
                     )?;
                     self.compile_pattern_bind_from_slot(&entry.pattern, child, mutable, as_global)?;
+                }
+                if let Some(rest_pattern) = rest {
+                    let matched: Vec<String> = entries.iter().map(|e| e.label.clone()).collect();
+                    let rest_slot = self.emit_record_rest_temp(value_slot, &matched, rest_pattern.range())?;
+                    self.compile_pattern_bind_from_slot(rest_pattern, rest_slot, mutable, as_global)?;
                 }
                 Ok(())
             }

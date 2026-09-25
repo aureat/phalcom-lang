@@ -61,7 +61,7 @@ class Gregorian {
     if monthPrime < 10 { month = month + 3 } else { month = month - 9 }
     let resultYear = yearBase
     if month <= 2 { resultYear = resultYear + 1 }
-    #{ year: resultYear, month: month, day: day }
+    return { year: resultYear, month: month, day: day }
   }
 
   @class

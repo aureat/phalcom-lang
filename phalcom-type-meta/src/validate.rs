@@ -259,7 +259,7 @@ fn validate_static_domain_catalog(
             let mode_valid = match parameter.mode {
                 GenericParameterModeRef::Single => true,
                 GenericParameterModeRef::PositionalPack => matches!(kind, KindNode::TypePack),
-                GenericParameterModeRef::LabeledPack => matches!(kind, KindNode::LabeledTypePack),
+                GenericParameterModeRef::LabeledPack => matches!(kind, KindNode::LabeledTypePack | KindNode::RecordRow),
                 GenericParameterModeRef::CompletePack => matches!(kind, KindNode::CompleteTypePack),
             };
             if !mode_valid {
@@ -531,7 +531,7 @@ fn validate_schema_v4_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(
                 let valid = match mode {
                     GenericParameterModeRef::Single => true,
                     GenericParameterModeRef::PositionalPack => matches!(kind_node, KindNode::TypePack),
-                    GenericParameterModeRef::LabeledPack => matches!(kind_node, KindNode::LabeledTypePack),
+                    GenericParameterModeRef::LabeledPack => matches!(kind_node, KindNode::LabeledTypePack | KindNode::RecordRow),
                     GenericParameterModeRef::CompletePack => matches!(kind_node, KindNode::CompleteTypePack),
                 };
                 if !valid {
@@ -564,7 +564,7 @@ fn validate_schema_v4_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(
                 let valid = match mode {
                     GenericParameterModeRef::Single => true,
                     GenericParameterModeRef::PositionalPack => matches!(kind_node, KindNode::TypePack),
-                    GenericParameterModeRef::LabeledPack => matches!(kind_node, KindNode::LabeledTypePack),
+                    GenericParameterModeRef::LabeledPack => matches!(kind_node, KindNode::LabeledTypePack | KindNode::RecordRow),
                     GenericParameterModeRef::CompletePack => matches!(kind_node, KindNode::CompleteTypePack),
                 };
                 if !valid {
@@ -717,7 +717,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
         let mode_is_valid = match param.mode {
             GenericParameterModeRef::Single => true,
             GenericParameterModeRef::PositionalPack => matches!(kind, KindNode::TypePack),
-            GenericParameterModeRef::LabeledPack => matches!(kind, KindNode::LabeledTypePack),
+            GenericParameterModeRef::LabeledPack => matches!(kind, KindNode::LabeledTypePack | KindNode::RecordRow),
             GenericParameterModeRef::CompletePack => matches!(kind, KindNode::CompleteTypePack),
         };
         if param.mode != GenericParameterModeRef::Single {

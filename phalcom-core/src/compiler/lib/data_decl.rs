@@ -20,16 +20,12 @@ impl<'vm> Compiler<'vm> {
             .cloned()
             .ok_or_else(|| CompilerError::MissingIntrinsicRuntimeFacadeSemantics(data_def.name.clone()))?;
 
-        // Intrinsic runtime source keeps the existing exact module/name class
-        // identity. Reuse must fail closed if bootstrap did not install it.
         let name_sym = self.vm.interner.intern(&data_def.name);
-        let class_key = self.class_key(name_sym);
-        let class = self
-            .vm
-            .classes
-            .get(&class_key)
-            .copied()
-            .ok_or_else(|| CompilerError::MissingIntrinsicRuntimeOwnerClass(data_def.name.clone()))?;
+        let class = match facade.owner {
+            phalcom_semantic::declarations::IntrinsicRuntimeOwner::Tuple => self.vm.universe.classes.tuple_class,
+            phalcom_semantic::declarations::IntrinsicRuntimeOwner::Record => self.vm.universe.classes.record_class,
+            phalcom_semantic::declarations::IntrinsicRuntimeOwner::Unit => self.vm.universe.classes.tuple_class,
+        };
 
         self.known_globals.insert(name_sym);
         self.declare_global(name_sym, false)?;

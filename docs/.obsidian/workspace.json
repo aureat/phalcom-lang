@@ -8,20 +8,6 @@
         "type": "tabs",
         "children": [
           {
-            "id": "5352b906845ff7b4",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "__unstructured__/backlogging.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "backlogging"
-            }
-          },
-          {
             "id": "ce0715c6b8d22269",
             "type": "leaf",
             "state": {
@@ -35,8 +21,7 @@
               "title": "Untitled"
             }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "vertical"
@@ -202,17 +187,19 @@
   },
   "active": "ce0715c6b8d22269",
   "lastOpenFiles": [
+    "implementation/LANG007/LANG007.C3/LANG007.C3.P4-walkthrough.md",
+    "__unstructured__/backlogging.md",
+    "__unstructured__/Untitled.md",
+    "__unstructured__/native interface.md",
     "implementation/STDL002-standard-library-buildout/C2-time-complete/STDL002.C2.P2-plan.md",
     "implementation/STDL002-standard-library-buildout/STDL002.C2.P2-plan.md",
     "implementation/LANG006/LANG006.C1/STDL002.C2.P2-plan.md",
     "__unstructured__/type tests.md",
-    "__unstructured__/Untitled.md",
     "spec/symbols.md",
     "spec/selectors.md",
     "spec/reflection/Untitled.md",
     "__unstructured__/doc structure.md",
     "__unstructured__/fs-implementation-spec.md",
-    "__unstructured__/backlogging.md",
     "__unstructured__/testing-harness.md",
     "implementation/STDL002-standard-library-buildout/C2-time-complete/STDL002.C2.P1-plan-00-shared-header.md",
     "implementation/STDL002-standard-library-buildout/C2-time-complete",
@@ -234,8 +221,6 @@
     "implementation/LANG005/LANG005.C5/LANG005.C5.P1-walkthrough.md",
     "decisions/accepted/0081-tuple-and-record-are-transparent-structural-value-products.md",
     "decisions/accepted/0080-data-is-a-nominal-transparent-immutable-value-product.md",
-    "decisions/accepted/0079-poller-backend-is-mio.md",
-    "decisions/accepted/0078-multiline-string-text-blocks.md",
     "decisions/retired",
     "decisions/proposed"
   ]

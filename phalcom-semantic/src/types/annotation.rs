@@ -433,9 +433,10 @@ impl<T> TypeFormationOutcome<T> {
 pub fn resolve_kind_syntax(store: &mut TypeStore, kind: &KindSyntax) -> KindResolution {
     match kind {
         KindSyntax::Type(_) => KindResolution::Ready(KindId::TYPE),
-        KindSyntax::RecordRow(_) => KindResolution::Ready(KindId::RECORD_ROW),
+        KindSyntax::RecordRow(_) | KindSyntax::RecordFields(_) => KindResolution::Ready(KindId::RECORD_ROW),
         KindSyntax::TypePack(_) => KindResolution::Ready(KindId::TYPE_PACK),
         KindSyntax::LabeledTypePack(_) => KindResolution::Ready(KindId::LABELED_TYPE_PACK),
+        KindSyntax::CompleteTypePack(_) => KindResolution::Ready(KindId::COMPLETE_TYPE_PACK),
         KindSyntax::StaticDomain { .. } => KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax),
         KindSyntax::Grouped { inner, .. } => resolve_kind_syntax(store, inner),
         KindSyntax::Arrow { parameter, result, .. } => {
@@ -3080,15 +3081,6 @@ pub fn resolve_generic_binder_header_with_context(
             ));
             return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
         }
-        if mode != GenericParameterMode::Single && p.kind.is_some() {
-            diagnostics.push(SemanticDiagnostic::error_in(
-                current_module.clone(),
-                DiagnosticCode::AnnotationUnsupported,
-                "a generic pack operator already determines its binder domain",
-                p.kind.as_ref().map_or(p.range, KindSyntax::range),
-            ));
-            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
-        }
         if mode != GenericParameterMode::Single && p.variance != VarianceSyntax::Invariant {
             diagnostics.push(SemanticDiagnostic::error_in(
                 current_module.clone(),
@@ -3120,16 +3112,26 @@ pub fn resolve_generic_binder_header_with_context(
             }
         };
 
-        let inferred_kind = match mode {
-            GenericParameterMode::Single => None,
-            GenericParameterMode::PositionalPack => Some(KindId::TYPE_PACK),
-            GenericParameterMode::LabeledPack => Some(KindId::LABELED_TYPE_PACK),
-            GenericParameterMode::CompletePack => Some(KindId::COMPLETE_TYPE_PACK),
+        let default_kind = match mode {
+            GenericParameterMode::Single => KindId::TYPE,
+            GenericParameterMode::PositionalPack => KindId::TYPE_PACK,
+            GenericParameterMode::LabeledPack => KindId::LABELED_TYPE_PACK,
+            GenericParameterMode::CompletePack => KindId::COMPLETE_TYPE_PACK,
         };
-        let kind = match (inferred_kind.or(binder_kind), where_kind_facts.get(&p.name)) {
-            (None, None) => KindId::TYPE,
+        let declared_kind = binder_kind.unwrap_or(default_kind);
+
+        if !super::parameter::expansion_mode_accepts_kind(mode, declared_kind) {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnsupported,
+                "generic parameter expansion mode is incompatible with its declared kind",
+                p.kind.as_ref().map_or(p.range, KindSyntax::range),
+            ));
+            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+        }
+
+        let kind = match (Some(declared_kind), where_kind_facts.get(&p.name)) {
             (Some(k), None) => k,
-            (None, Some((k, _))) => *k,
             (Some(k1), Some((k2, where_range))) => {
                 if k1 != *k2 {
                     diagnostics.push(SemanticDiagnostic::error_in(
@@ -3142,14 +3144,15 @@ pub fn resolve_generic_binder_header_with_context(
                 }
                 k1
             }
+            _ => declared_kind,
         };
 
         let variance = lower_variance(p.variance);
-        if kind == KindId::RECORD_ROW && binder_site != GenericBinderSite::Callable {
+        if kind == KindId::RECORD_ROW && binder_site == GenericBinderSite::Trait {
             diagnostics.push(SemanticDiagnostic::error_in(
                 current_module.clone(),
                 DiagnosticCode::AnnotationUnsupported,
-                "RecordRow generic binders are supported only on callable declarations",
+                "RecordFields generic binders on traits are unsupported until trait evidence is generalized",
                 p.range,
             ));
             return TypeFormationOutcome::Invalid(TypeFormationInvalid::UnsupportedRecordRowBinderSite);

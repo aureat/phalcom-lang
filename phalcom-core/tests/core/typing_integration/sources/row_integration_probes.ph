@@ -2,14 +2,14 @@ class RowEitherIntegrationProbe {
 
     @class
     standaloneAnnotate(
-        _ record: #{ cached: Bool, name: String, value: Int }
+        _ record: { cached: Bool, name: String, value: Int }
     ) {
         let result = RowCalculus.annotate(record, |value| { value == 0 })
     }
 
     @class
     mapRecord(
-        _ source: Either<String, #{ cached: Bool, name: String, value: Int }>
+        _ source: Either<String, { cached: Bool, name: String, value: Int }>
     ) {
         let mapped = source.map(|record| {
             RowCalculus.annotate(
@@ -26,7 +26,7 @@ class RowNestedAdtProbe {
         _ payload: Either<String, Int>
     ) {
         let result = RowCalculus.preserveValue(
-            #{ value: payload, cached: true, label: "nested" }
+            { value: payload, cached: true, label: "nested" }
         )
     }
 }
@@ -35,7 +35,7 @@ class RowMonadIntegrationProbe {
     @class
     bindRecord(
         _ monad: StringEitherMonad,
-        _ source: Either<String, #{ cached: Bool, name: String, value: Int }>
+        _ source: Either<String, { cached: Bool, name: String, value: Int }>
     ) {
         let result = MonadAlgorithms.bind(
             monad,
@@ -45,7 +45,7 @@ class RowMonadIntegrationProbe {
                     record,
                     |value| { value > 0 }
                 )
-                let next: Either<String, #{ cached: Bool, mapped: Bool, name: String, value: Int }> =
+                let next: Either<String, { cached: Bool, mapped: Bool, name: String, value: Int }> =
                     Either::Right(transformed)
                 next
             }

@@ -164,7 +164,7 @@ impl Timestamp {
     if monthPrime < 10 { month = month + 3 } else { month = month - 9 }
     let year = yearBase
     if month <= 2 { year = year + 1 }
-    #{ year: year, month: month, day: day }
+    return { year: year, month: month, day: day }
   }
 }
 

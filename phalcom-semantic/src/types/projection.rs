@@ -818,6 +818,9 @@ fn normalize_intrinsic_projection(
             TypeData::Record(row_id) => (Some(IntrinsicTypeOwner::Record), Some(TypeData::Record(row_id))),
             TypeData::TypePack(elems) => (Some(IntrinsicTypeOwner::TypePack), Some(TypeData::TypePack(elems))),
             TypeData::LabeledTypePack(elems) => (Some(IntrinsicTypeOwner::LabeledTypePack), Some(TypeData::LabeledTypePack(elems))),
+            TypeData::CompleteTypePack { positionals, labeled } => {
+                (Some(IntrinsicTypeOwner::CompleteTypePack), Some(TypeData::CompleteTypePack { positionals, labeled }))
+            }
             TypeData::Nominal { declaration } if declaration == crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple) => {
                 (Some(IntrinsicTypeOwner::Tuple), None)
             }
@@ -852,6 +855,19 @@ fn normalize_intrinsic_projection(
                 Err(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             },
             ProjectionSubject::RecordRow(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+        },
+        IntrinsicTypeOperation::TupleElement => {
+            let elems = match subject_data? {
+                TypeData::Tuple(elems) => elems,
+                _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            };
+            if elems.is_empty() {
+                Some(ProjectionNormalizationResult::Normalized(store.never()))
+            } else {
+                let elem_types: Vec<TypeId> = elems.iter().map(|e| e.ty).collect();
+                let union_ty = store.union(&elem_types);
+                Some(ProjectionNormalizationResult::Normalized(union_ty))
+            }
         },
         IntrinsicTypeOperation::TupleAt => {
             let idx = match arguments.first()? {
@@ -962,6 +978,82 @@ fn normalize_intrinsic_projection(
             let normalized = store.labeled_type_pack(transformed_elements.into_boxed_slice()).ok()?;
             Some(ProjectionNormalizationResult::Normalized(normalized))
         }
+        IntrinsicTypeOperation::RecordFields => {
+            Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback))
+        }
+        IntrinsicTypeOperation::RecordValue => {
+            let row_id = match subject_data? {
+                TypeData::Record(row_id) => row_id,
+                _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            };
+            let row = store.record_row(row_id).clone();
+            if row.tail != crate::types::row::RecordRowTail::Closed {
+                Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback))
+            } else if row.fields.is_empty() {
+                Some(ProjectionNormalizationResult::Normalized(store.never()))
+            } else {
+                let field_types: Vec<TypeId> = row.fields.iter().map(|f| f.ty).collect();
+                let union_ty = store.union(&field_types);
+                Some(ProjectionNormalizationResult::Normalized(union_ty))
+            }
+        }
         IntrinsicTypeOperation::RecordRowMap => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+        IntrinsicTypeOperation::CompleteTypePackPositionals => {
+            match subject_data? {
+                TypeData::CompleteTypePack { positionals, .. } => {
+                    Some(ProjectionNormalizationResult::Normalized(positionals))
+                }
+                _ => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            }
+        }
+        IntrinsicTypeOperation::CompleteTypePackLabeled => {
+            match subject_data? {
+                TypeData::CompleteTypePack { labeled, .. } => {
+                    Some(ProjectionNormalizationResult::Normalized(labeled))
+                }
+                _ => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            }
+        }
+        IntrinsicTypeOperation::CompleteTypePackMap => {
+            let transform_fn = match arguments.first()? {
+                TypeMemberArgument::Type(ty) => *ty,
+                _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            };
+            let (pos_ty, lab_ty) = match subject_data? {
+                TypeData::CompleteTypePack { positionals, labeled } => (positionals, labeled),
+                _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            };
+            let pos_elems = match store.get(pos_ty).clone() {
+                TypeData::TypePack(elems) => elems,
+                _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            };
+            let mut transformed_pos = Vec::with_capacity(pos_elems.len());
+            for &elem in pos_elems.iter() {
+                let applied = store.apply_type_form(transform_fn, &[elem]).unwrap_or(elem);
+                let norm_res = normalize_type(store, applied, context);
+                let Some(norm_ty) = norm_res.type_id() else { return Some(norm_res) };
+                transformed_pos.push(norm_ty);
+            }
+            let norm_pos = store.type_pack(transformed_pos.into_boxed_slice()).ok()?;
+
+            let lab_elems = match store.get(lab_ty).clone() {
+                TypeData::LabeledTypePack(elems) => elems,
+                _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+            };
+            let mut transformed_lab = Vec::with_capacity(lab_elems.len());
+            for elem in lab_elems.iter() {
+                let applied = store.apply_type_form(transform_fn, &[elem.element]).unwrap_or(elem.element);
+                let norm_res = normalize_type(store, applied, context);
+                let Some(norm_ty) = norm_res.type_id() else { return Some(norm_res) };
+                transformed_lab.push(super::store::LabeledTypePackElement {
+                    label: elem.label.clone(),
+                    element: norm_ty,
+                });
+            }
+            let norm_lab = store.labeled_type_pack(transformed_lab.into_boxed_slice()).ok()?;
+
+            let normalized = store.complete_type_pack(norm_pos, norm_lab).ok()?;
+            Some(ProjectionNormalizationResult::Normalized(normalized))
+        }
     }
 }

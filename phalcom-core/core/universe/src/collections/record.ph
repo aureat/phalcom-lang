@@ -1,8 +1,14 @@
-intrinsic type data RecordRow
-intrinsic data Record<R: RecordRow>
+intrinsic type data RecordFields
+type RecordRow = RecordFields
+
+intrinsic data Record<**Fs: RecordFields> {
+  **Fs
+}
+
+type EmptyRecord = Record<>
 
 /// Immutable labeled collection with insertion-ordered fields.
-impl Record {
+impl<**Fs: RecordFields> Record<**Fs> {
   internal native rawSize -> Int
   internal native rawLabelAt(_ index: Int) -> Symbol
   internal native rawValueAt(_ index: Int) -> Dynamic
@@ -55,6 +61,8 @@ impl Record {
   }
 }
 
-impl Record {
+impl<**Fs: RecordFields> Record<**Fs> {
+  intrinsic type Fields: RecordFields
+  intrinsic type Value: Type
   intrinsic type Map<F: Type -> Type>: Type
 }

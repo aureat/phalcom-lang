@@ -1,2 +1,2 @@
 const label = #same
-#{ **(same: 1,), [label]: 2 }
+{ **(same: 1,), [label]: 2 }

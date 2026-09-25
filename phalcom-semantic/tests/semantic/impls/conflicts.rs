@@ -212,7 +212,7 @@ fn test_data_component_collision_rejected() {
         generic_signature: None,
         static_data: None,
         shape: DataShape::Record,
-        components: vec![data_comp].into_boxed_slice(),
+        components: vec![data_comp.clone()].into_boxed_slice(),
         constructor: DataConstructorSignature {
             constructor: DataConstructorId::new(point_decl.clone()),
             visibility: Visibility::Public,
@@ -220,6 +220,11 @@ fn test_data_component_collision_rejected() {
             result_type_template: store.nominal(point_decl.clone()),
             source: None,
         },
+        shape_template: phalcom_semantic::data_semantics::DataProductShapeTemplate {
+            shape: DataShape::Record,
+            contributions: vec![phalcom_semantic::data_semantics::DataProductContribution::Component(data_comp)].into_boxed_slice(),
+        },
+        constructor_template: None,
         source: None,
     };
 

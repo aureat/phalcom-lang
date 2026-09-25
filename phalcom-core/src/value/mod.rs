@@ -55,6 +55,8 @@ impl Value {
             "nil"
         } else if self.is_unit() {
             "unit"
+        } else if self.is_empty_record() {
+            "record"
         } else if self.is_bool() {
             "bool"
         } else if self.is_int() {
@@ -112,7 +114,10 @@ impl Value {
             return vm.universe.classes.nil_class;
         }
         if self.is_unit() {
-            return vm.universe.classes.unit_class;
+            return vm.universe.classes.tuple_class;
+        }
+        if self.is_empty_record() {
+            return vm.universe.classes.record_class;
         }
         if let Some(b) = self.as_bool() {
             return if b { vm.universe.classes.true_class } else { vm.universe.classes.false_class };
@@ -336,6 +341,9 @@ impl Value {
             return true;
         }
         if self.is_unit() && other.is_unit() {
+            return true;
+        }
+        if self.is_empty_record() && other.is_empty_record() {
             return true;
         }
         if let (Some(a), Some(b)) = (self.as_bool(), other.as_bool()) {

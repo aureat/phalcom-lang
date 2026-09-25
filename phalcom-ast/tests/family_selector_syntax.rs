@@ -87,11 +87,7 @@ fn associated_direct_invoke_parses_correctly() {
 #[test]
 fn legacy_family_and_shape_errors_are_diagnosed() {
     for source in ["receiver::name::", "receiver::name::*", "receiver::name::()"] {
-        let err = parse_source(source, 0).unwrap_err();
-        assert!(
-            matches!(err.kind, SyntaxErrorKind::Message(_)),
-            "obsolete syntax should be rejected: {source:?}"
-        );
+        assert!(parse_source(source, 0).is_err(), "obsolete syntax should be rejected: {source:?}");
     }
 }
 

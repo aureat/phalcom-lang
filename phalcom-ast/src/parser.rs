@@ -2369,37 +2369,46 @@ impl<'source> Parser<'source> {
     /// Parses a structural record type `#{ ... }` (Spec 04 §5.7).
     pub fn parse_record_type(&mut self) -> ParserResult<TypeAnnotation> {
         let start = self.cur_start();
-        self.expect(&Token::RecordLBrace, &["\"#{\""])?;
+        if !self.eat(&Token::LBrace) {
+            self.expect(&Token::RecordLBrace, &["\"{\""])?;
+        }
         let mut fields = Vec::new();
         let mut tail = None;
 
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-            if self.eat(&Token::Pipe) {
+            self.skip_newlines();
+            if self.eat(&Token::DoubleAsterisk) || self.eat(&Token::Power) || self.eat(&Token::Pipe) {
                 let tail_start = self.cur_start();
                 let tail_name = self.expect_identifier(&["record row tail name"])?;
                 tail = Some(RecordRowTail {
                     name: tail_name,
                     range: (tail_start..self.prev_end).into(),
                 });
+                self.skip_newlines();
                 self.eat(&Token::Comma);
                 break;
             }
 
             let field_start = self.cur_start();
             let name = self.expect_identifier(&["field name"])?;
+            self.skip_newlines();
             self.expect(&Token::Colon, &["\":\""])?;
+            self.skip_newlines();
             let ty = self.parse_type_form()?;
             let field_range = (field_start..self.prev_end).into();
             fields.push(RecordTypeField { name, ty, range: field_range });
 
+            self.skip_newlines();
             if self.eat(&Token::Comma) {
-                if self.eat(&Token::Pipe) {
+                self.skip_newlines();
+                if self.eat(&Token::DoubleAsterisk) || self.eat(&Token::Power) || self.eat(&Token::Pipe) {
                     let tail_start = self.cur_start();
                     let tail_name = self.expect_identifier(&["record row tail name"])?;
                     tail = Some(RecordRowTail {
                         name: tail_name,
                         range: (tail_start..self.prev_end).into(),
                     });
+                    self.skip_newlines();
                     self.eat(&Token::Comma);
                     break;
                 }
@@ -2407,6 +2416,7 @@ impl<'source> Parser<'source> {
                 break;
             }
         }
+        self.skip_newlines();
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
         Ok(TypeAnnotation {
@@ -2427,6 +2437,10 @@ impl<'source> Parser<'source> {
             self.advance();
             let range = (start..self.prev_end).into();
             KindSyntax::Type(range)
+        } else if matches!(self.peek(), Token::Identifier(s) if s == "RecordFields") {
+            self.advance();
+            let range = (start..self.prev_end).into();
+            KindSyntax::RecordFields(range)
         } else if matches!(self.peek(), Token::Identifier(s) if s == "RecordRow") {
             self.advance();
             let range = (start..self.prev_end).into();
@@ -2439,6 +2453,10 @@ impl<'source> Parser<'source> {
             self.advance();
             let range = (start..self.prev_end).into();
             KindSyntax::LabeledTypePack(range)
+        } else if matches!(self.peek(), Token::Identifier(s) if s == "CompleteTypePack") {
+            self.advance();
+            let range = (start..self.prev_end).into();
+            KindSyntax::CompleteTypePack(range)
         } else if matches!(self.peek(), Token::Identifier(_)) || matches!(self.peek(), Token::LParen) {
             let form = self.parse_type_form()?;
             let range = (start..self.prev_end).into();
@@ -2446,9 +2464,11 @@ impl<'source> Parser<'source> {
         } else {
             let err = self.error_here(vec![
                 "\"Type\"".to_string(),
+                "\"RecordFields\"".to_string(),
                 "\"RecordRow\"".to_string(),
                 "\"TypePack\"".to_string(),
                 "\"LabeledTypePack\"".to_string(),
+                "\"CompleteTypePack\"".to_string(),
                 "static domain name".to_string(),
             ]);
             self.advance();
@@ -2631,7 +2651,7 @@ impl<'source> Parser<'source> {
         }
         match self.peek() {
             Token::LParen => self.parse_paren_type(),
-            Token::RecordLBrace => self.parse_record_type(),
+            Token::LBrace | Token::RecordLBrace => self.parse_record_type(),
             Token::Identifier(s) => {
                 let name = s.clone();
                 let root_start = self.cur_start();
@@ -3034,8 +3054,7 @@ impl<'source> Parser<'source> {
             }
             Token::LParen => self.parse_tuple_pattern(),
             Token::LBracket => self.parse_list_pattern(),
-            Token::RecordLBrace => self.parse_record_pattern(),
-            Token::LBrace => self.parse_map_pattern(),
+            Token::LBrace | Token::RecordLBrace => self.parse_record_pattern(),
             Token::Identifier(_) => self.parse_identifier_or_variant_pattern(),
             _ => {
                 let start = self.cur_start();
@@ -3080,6 +3099,8 @@ impl<'source> Parser<'source> {
                 range: start..self.prev_end,
             });
             Ok(Pattern::Name { name, range })
+        } else if name == "Map" && matches!(self.peek(), Token::LBrace | Token::RecordLBrace) {
+            self.parse_map_pattern(start)
         } else if matches!(self.peek(), Token::Asterisk | Token::LParen) {
             self.parse_variant_pattern_suffix(start, None, name.clone(), root_range)
         } else {
@@ -3220,41 +3241,64 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses an open record pattern `#{field: pattern, ...}`.
+    /// Parses an open record pattern `{field: pattern, ..., **rest}`.
     fn parse_record_pattern(&mut self) -> ParserResult<Pattern> {
         let start = self.cur_start();
-        self.advance(); // `#{`
+        if !self.eat(&Token::LBrace) {
+            self.expect(&Token::RecordLBrace, &["\"{\""])?;
+        }
         let mut entries = Vec::new();
+        let mut rest = None;
+        self.skip_newlines();
         if !matches!(self.peek(), Token::RBrace) {
             loop {
+                self.skip_newlines();
+                if self.eat(&Token::DoubleAsterisk) || self.eat(&Token::Power) {
+                    let rest_pat = self.parse_pattern()?;
+                    rest = Some(Box::new(rest_pat));
+                    self.skip_newlines();
+                    self.eat(&Token::Comma);
+                    break;
+                }
                 let entry_start = self.cur_start();
                 let label = self.parse_pattern_label()?;
-                self.expect(&Token::Colon, &["\":\""])?;
-                let pattern = self.parse_pattern()?;
+                self.skip_newlines();
+                let pattern = if self.eat(&Token::Colon) {
+                    self.skip_newlines();
+                    self.parse_pattern()?
+                } else {
+                    Pattern::Name {
+                        name: label.clone(),
+                        range: (entry_start..self.prev_end).into(),
+                    }
+                };
                 entries.push(RecordPatternEntry {
                     label,
                     pattern,
                     range: (entry_start..self.prev_end).into(),
                 });
+                self.skip_newlines();
                 if !self.eat(&Token::Comma) {
                     break;
                 }
+                self.skip_newlines();
                 if matches!(self.peek(), Token::RBrace) {
                     break;
                 }
             }
         }
+        self.skip_newlines();
         self.expect(&Token::RBrace, &["\"}\""])?;
         Ok(Pattern::Record {
             entries,
+            rest,
             range: (start..self.prev_end).into(),
         })
     }
 
-    /// Parses an open map pattern `{key: pattern, ...}`. Keys are deliberately
+    /// Parses an open map pattern `Map {key: pattern, ...}`. Keys are deliberately
     /// literal/static in this first implementation.
-    fn parse_map_pattern(&mut self) -> ParserResult<Pattern> {
-        let start = self.cur_start();
+    fn parse_map_pattern(&mut self, start: usize) -> ParserResult<Pattern> {
         self.advance(); // `{`
         let mut entries = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
@@ -4162,67 +4206,132 @@ impl<'source> Parser<'source> {
         let start = self.cur_start();
         self.expect(&Token::LParen, &["\"(\""])?;
         self.skip_newlines();
-        let mut components = Vec::new();
+        let mut contributions = Vec::new();
         if self.eat(&Token::RParen) {
             return Ok(AlgebraicShapeSyntax::Product(ProductShapeSyntax::Tuple {
                 constructor_visibility,
                 constructor_visibility_range,
-                components,
+                contributions,
                 range: (start..self.prev_end).into(),
             }));
         }
+
+        let mut seen_complete = false;
+        let mut seen_labeled = false;
+
         loop {
             self.skip_newlines();
             let comp_start = self.cur_start();
             if matches!(self.peek(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk) {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("rest parameters are not permitted in data declarations".to_string()),
-                    range: comp_start..self.tokens[self.pos].end,
-                });
-            }
-
-            let (local_name, external_label, name_range) = if self.eat(&Token::Underscore) {
-                let name_start = self.cur_start();
-                let name = self.expect_identifier(&["component name"])?;
-                let name_range: SourceRange = (name_start..self.prev_end).into();
-                (name, None, name_range)
-            } else {
-                let first_ident = if let Some(name) = Self::label_name(self.peek()) {
-                    let name = name.to_string();
-                    let start_label = self.cur_start();
-                    self.advance();
-                    (name, (start_label..self.prev_end).into())
+                let mode = if self.eat(&Token::TripleAsterisk) {
+                    ExpansionMode::Complete
+                } else if self.eat(&Token::DoubleAsterisk) {
+                    ExpansionMode::Labeled
+                } else if self.eat(&Token::Asterisk) {
+                    ExpansionMode::Positional
                 } else {
-                    return Err(self.error_here(strs(&["component name", "_"])));
+                    unreachable!()
                 };
-                if matches!(self.peek(), Token::Identifier(_)) {
-                    let name_start = self.cur_start();
-                    let local_ident = self.expect_identifier(&["component name"])?;
-                    let name_range: SourceRange = (name_start..self.prev_end).into();
-                    (local_ident, Some(first_ident.0), name_range)
-                } else {
-                    (first_ident.0.clone(), Some(first_ident.0), first_ident.1)
+
+                match mode {
+                    ExpansionMode::Positional => {
+                        if seen_complete || seen_labeled {
+                            return Err(SyntaxError {
+                                kind: SyntaxErrorKind::Message("positional expansion cannot follow labeled or complete expansion in tuple shape".to_string()),
+                                range: comp_start..self.tokens[self.pos].end,
+                            });
+                        }
+                    }
+                    ExpansionMode::Labeled => {
+                        if seen_complete {
+                            return Err(SyntaxError {
+                                kind: SyntaxErrorKind::Message("labeled expansion cannot follow complete expansion in tuple shape".to_string()),
+                                range: comp_start..self.tokens[self.pos].end,
+                            });
+                        }
+                        seen_labeled = true;
+                    }
+                    ExpansionMode::Complete => {
+                        if seen_complete || seen_labeled {
+                            return Err(SyntaxError {
+                                kind: SyntaxErrorKind::Message("complete expansion cannot follow labeled or complete expansion in tuple shape".to_string()),
+                                range: comp_start..self.tokens[self.pos].end,
+                            });
+                        }
+                        seen_complete = true;
+                    }
                 }
-            };
 
-            self.skip_newlines();
-            if !self.eat(&Token::Colon) {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message(format!("component `{local_name}` requires an explicit type annotation")),
-                    range: comp_start..self.prev_end,
-                });
+                self.skip_newlines();
+                let operand = self.parse_type_annotation()?;
+                let exp_range = (comp_start..self.prev_end).into();
+                contributions.push(DataProductContributionSyntax::Expansion(DataProductExpansionSyntax {
+                    mode,
+                    operand,
+                    range: exp_range,
+                }));
+            } else {
+                let (local_name, external_label, name_range) = if self.eat(&Token::Underscore) {
+                    let name_start = self.cur_start();
+                    let name = self.expect_identifier(&["component name"])?;
+                    let name_range: SourceRange = (name_start..self.prev_end).into();
+                    (name, None, name_range)
+                } else {
+                    let first_ident = if let Some(name) = Self::label_name(self.peek()) {
+                        let name = name.to_string();
+                        let start_label = self.cur_start();
+                        self.advance();
+                        (name, (start_label..self.prev_end).into())
+                    } else {
+                        return Err(self.error_here(strs(&["component name", "_", "*", "**", "***"])));
+                    };
+                    if matches!(self.peek(), Token::Identifier(_)) {
+                        let name_start = self.cur_start();
+                        let local_ident = self.expect_identifier(&["component name"])?;
+                        let name_range: SourceRange = (name_start..self.prev_end).into();
+                        (local_ident, Some(first_ident.0), name_range)
+                    } else {
+                        (first_ident.0.clone(), Some(first_ident.0), first_ident.1)
+                    }
+                };
+
+                let is_labeled = external_label.is_some();
+                if is_labeled {
+                    if seen_complete {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("labeled component cannot follow complete expansion in tuple shape".to_string()),
+                            range: comp_start..self.prev_end,
+                        });
+                    }
+                    seen_labeled = true;
+                } else {
+                    if seen_complete || seen_labeled {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("positional component cannot follow labeled or complete expansion in tuple shape".to_string()),
+                            range: comp_start..self.prev_end,
+                        });
+                    }
+                }
+
+                self.skip_newlines();
+                if !self.eat(&Token::Colon) {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(format!("component `{local_name}` requires an explicit type annotation")),
+                        range: comp_start..self.prev_end,
+                    });
+                }
+                self.skip_newlines();
+                let annotation = self.parse_type_annotation()?;
+                let comp_range = (comp_start..self.prev_end).into();
+
+                contributions.push(DataProductContributionSyntax::Component(DataComponentSyntax {
+                    local_name,
+                    external_label,
+                    annotation,
+                    name_range,
+                    range: comp_range,
+                }));
             }
-            self.skip_newlines();
-            let annotation = self.parse_type_annotation()?;
-            let comp_range = (comp_start..self.prev_end).into();
-
-            components.push(DataComponentSyntax {
-                local_name,
-                external_label,
-                annotation,
-                name_range,
-                range: comp_range,
-            });
 
             self.skip_newlines();
             if self.eat(&Token::Comma) {
@@ -4239,7 +4348,7 @@ impl<'source> Parser<'source> {
         Ok(AlgebraicShapeSyntax::Product(ProductShapeSyntax::Tuple {
             constructor_visibility,
             constructor_visibility_range,
-            components,
+            contributions,
             range,
         }))
     }
@@ -4522,10 +4631,11 @@ impl<'source> Parser<'source> {
         self.expect(&Token::LBrace, &["\"{\""])?;
         self.skip_newlines();
 
-        let mut fields: Vec<DataComponentSyntax> = Vec::new();
+        let mut contributions: Vec<DataProductContributionSyntax> = Vec::new();
         let mut field_labels = std::collections::HashMap::<String, SourceRange>::new();
         let mut cases: Vec<AlgebraicCaseSyntax> = Vec::new();
         let mut pending_attrs: Vec<Attribute> = Vec::new();
+        let mut seen_expansion = false;
 
         loop {
             self.skip_newlines();
@@ -4553,14 +4663,42 @@ impl<'source> Parser<'source> {
                 });
             }
 
-            let is_case = pending_attrs.iter().any(|a| a.name == "variant") || !self.is_record_field_start();
+            if matches!(self.peek(), Token::Asterisk | Token::TripleAsterisk) {
+                let start_token = self.cur_start();
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("only labeled `**` expansion is permitted in record product bodies".to_string()),
+                    range: start_token..start_token + 1,
+                });
+            }
 
-            if is_case {
-                let case = self.parse_sum_case(std::mem::take(&mut pending_attrs))?;
-                cases.push(case);
+            if matches!(self.peek(), Token::DoubleAsterisk) {
+                let exp_start = self.cur_start();
+                self.advance();
+                if seen_expansion {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("at most one labeled expansion tail is permitted in a record product body".to_string()),
+                        range: exp_start..self.prev_end,
+                    });
+                }
+                seen_expansion = true;
+                self.skip_newlines();
+                let operand = self.parse_type_annotation()?;
+                let range = (exp_start..self.prev_end).into();
+                contributions.push(DataProductContributionSyntax::Expansion(DataProductExpansionSyntax {
+                    mode: ExpansionMode::Labeled,
+                    operand,
+                    range,
+                }));
             } else {
-                let field = self.parse_record_field(&mut field_labels, std::mem::take(&mut pending_attrs))?;
-                fields.push(field);
+                let is_case = pending_attrs.iter().any(|a| a.name == "variant") || !self.is_record_field_start();
+
+                if is_case {
+                    let case = self.parse_sum_case(std::mem::take(&mut pending_attrs))?;
+                    cases.push(case);
+                } else {
+                    let field = self.parse_record_field(&mut field_labels, std::mem::take(&mut pending_attrs))?;
+                    contributions.push(DataProductContributionSyntax::Component(field));
+                }
             }
 
             self.skip_newlines();
@@ -4571,18 +4709,18 @@ impl<'source> Parser<'source> {
         self.expect(&Token::RBrace, &["\"}\""])?;
         let body_range = (start..self.prev_end).into();
 
-        if !fields.is_empty() && !cases.is_empty() {
+        if !contributions.is_empty() && !cases.is_empty() {
             return Err(SyntaxError {
                 kind: SyntaxErrorKind::MixedAlgebraicBody,
                 range: start..self.prev_end,
             });
         }
 
-        if !fields.is_empty() {
+        if !contributions.is_empty() {
             Ok(AlgebraicShapeSyntax::Product(ProductShapeSyntax::Record {
                 constructor_visibility,
                 constructor_visibility_range,
-                components: fields,
+                contributions,
                 range: body_range,
             }))
         } else {
@@ -6803,6 +6941,12 @@ impl<'source> Parser<'source> {
 
             if self.trailing_closures_enabled && matches!(self.peek(), Token::LBrace) && self.starts_record_construction() {
                 if let Some((target, type_arguments)) = Self::extract_record_construction_target(&expr) {
+                    if target.root == "Map" && target.members.is_empty() {
+                        let type_args = if type_arguments.is_empty() { None } else { Some(type_arguments) };
+                        expr = self.parse_map_literal(start, type_args)?;
+                        trailing_target = TrailingTarget::None;
+                        continue;
+                    }
                     let entries = self.parse_record_construction_entries()?;
                     let range = (start..self.prev_end).into();
                     expr = Expr::RecordConstruction(Box::new(RecordConstructionExpr {
@@ -8318,28 +8462,9 @@ impl<'source> Parser<'source> {
             }
             Token::LBracket => self.parse_list_literal(),
             Token::LParen => self.parse_paren_or_tuple(),
-            Token::RecordLBrace => self.parse_record_literal(),
+            Token::RecordLBrace => self.parse_set_literal(),
             Token::Pipe => self.parse_closure_literal(ClosureBodyRequirement::Any),
-            Token::LBrace => {
-                let start = self.cur_start();
-                self.advance(); // '{'
-
-                // B.3a keeps the existing block grammar intact. Association
-                // forms are unambiguous; Set and empty-Map classification stay
-                // behind B.3b's brace-grammar decision.
-                if (matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon))
-                    || self.starts_computed_map_literal()
-                    || matches!(self.peek(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power)
-                {
-                    return self.parse_map_literal(start);
-                }
-
-                let message = "bare brace block literals were removed; write `|| { ... }` for a closure";
-                Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message(message.to_string()),
-                    range: start..self.prev_end,
-                })
-            }
+            Token::LBrace => self.parse_record_literal(),
             Token::Less if self.is_type_lambda_ahead() => {
                 let lambda = self.parse_type_lambda()?;
                 Ok(Expr::TypeForm(Box::new(lambda)))
@@ -9053,10 +9178,11 @@ impl<'source> Parser<'source> {
 
     fn parse_record_literal(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
-        self.advance(); // `#{`
+        if !self.eat(&Token::LBrace) {
+            self.expect(&Token::RecordLBrace, &["\"{\""])?;
+        }
         self.skip_newlines();
-        if matches!(self.peek(), Token::RBrace) {
-            self.advance();
+        if self.eat(&Token::RBrace) {
             return Ok(Expr::RecordLiteral(Box::new(RecordLiteralExpr {
                 entries: Vec::new(),
                 range: (start..self.prev_end).into(),
@@ -9085,17 +9211,32 @@ impl<'source> Parser<'source> {
                     }
                 }
                 _ => {
-                    let Some(label) = self.parse_product_label()? else {
+                    let (label, value) = if let Some(label) = self.parse_product_label()? {
+                        self.skip_newlines();
+                        let value = self.parse_expr()?;
+                        (label, value)
+                    } else if let Token::Identifier(var_name) = self.peek().clone() {
+                        let label_start = self.cur_start();
+                        self.advance();
+                        let label_range = (label_start..self.prev_end).into();
+                        let label = ProductLabel::Static {
+                            symbol: SymbolLiteralKind::Name(var_name.clone()),
+                            syntax: ProductLabelSyntax::Bare,
+                            range: label_range,
+                        };
+                        let value = Expr::Var {
+                            value: var_name,
+                            range: label_range,
+                        };
+                        (label, value)
+                    } else {
                         return Err(self.error_here(strs(&["label"])));
                     };
-                    let value = self.parse_expr()?;
-                    let label_start = match &label {
-                        ProductLabel::Static { range, .. } | ProductLabel::Computed { range, .. } => range.start,
-                    };
+                    let label_range = label.range();
                     RecordLiteralEntry::Field(RecordLiteralField {
                         label,
                         value,
-                        range: (label_start..self.prev_end).into(),
+                        range: (label_range.start..self.prev_end).into(),
                     })
                 }
             };
@@ -9106,9 +9247,6 @@ impl<'source> Parser<'source> {
                 break;
             }
             self.skip_newlines();
-            // Leave the closing brace for the final `expect` below. Consuming
-            // it here would make every trailing-comma Record fail by asking
-            // for a second `}`.
             if matches!(self.peek(), Token::RBrace) {
                 break;
             }
@@ -9121,14 +9259,60 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Parses B.3a association Map syntax without desugaring through mutation.
-    ///
-    /// `**mapping` is represented structurally as an [`MapLiteralEntry::Expansion`]
-    /// so Spec F can lower it later. This parser does not make expansion executable.
-    fn parse_map_literal(&mut self, start: usize) -> ParserResult<Expr> {
+    fn parse_set_literal(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // `#{`
+        self.skip_newlines();
+        if self.eat(&Token::RBrace) {
+            return Ok(Expr::SetLiteral(Box::new(SetLiteralExpr {
+                entries: Vec::new(),
+                range: (start..self.prev_end).into(),
+            })));
+        }
+
+        let mut entries = Vec::new();
+        loop {
+            self.skip_newlines();
+            let entry_start = self.cur_start();
+            if self.eat(&Token::DoubleAsterisk) || self.eat(&Token::Power) || self.eat(&Token::Asterisk) {
+                let expr = self.parse_expr()?;
+                entries.push(SetLiteralEntry::Expansion {
+                    expr,
+                    range: (entry_start..self.prev_end).into(),
+                });
+            } else {
+                let expr = self.parse_expr()?;
+                entries.push(SetLiteralEntry::Element {
+                    expr,
+                    range: (entry_start..self.prev_end).into(),
+                });
+            }
+
+            self.skip_newlines();
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+            self.skip_newlines();
+            if matches!(self.peek(), Token::RBrace) {
+                break;
+            }
+        }
+
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        Ok(Expr::SetLiteral(Box::new(SetLiteralExpr {
+            entries,
+            range: (start..self.prev_end).into(),
+        })))
+    }
+
+    fn parse_map_literal(&mut self, start: usize, type_arguments: Option<Vec<TypeAnnotation>>) -> ParserResult<Expr> {
+        if !self.eat(&Token::LBrace) {
+            self.expect(&Token::RecordLBrace, &["\"{\""])?;
+        }
         self.skip_newlines();
         if self.eat(&Token::RBrace) {
             return Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {
+                type_arguments,
                 entries: Vec::new(),
                 range: (start..self.prev_end).into(),
             })));
@@ -9187,7 +9371,6 @@ impl<'source> Parser<'source> {
                 break;
             }
             self.skip_newlines();
-            // Permit a trailing comma before the closing brace.
             if matches!(self.peek(), Token::RBrace) {
                 break;
             }
@@ -9195,6 +9378,7 @@ impl<'source> Parser<'source> {
         self.skip_newlines();
         self.expect(&Token::RBrace, &["\"}\""])?;
         Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {
+            type_arguments,
             entries,
             range: (start..self.prev_end).into(),
         })))
@@ -9879,7 +10063,7 @@ mod tests {
 
     #[test]
     fn map_expansion_parses_into_reserved_entry() {
-        let Statement::Expr { expr, .. } = only_statement("{ **mapping, name: value }") else {
+        let Statement::Expr { expr, .. } = only_statement("Map { **mapping, name: value }") else {
             panic!("expected an expression statement");
         };
         let Expr::MapLiteral(map) = expr else {

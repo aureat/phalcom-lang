@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 626
+assertion_line: 665
 expression: "parse(\"class Point {\\n  @ensures(__result >= 0)\\n  magnitude() {\\n    return 1\\n  }\\n}\\n\")"
 ---
 Program {
@@ -19,6 +19,7 @@ Program {
                 generic_parameters: [],
                 superclass: None,
                 where_clause: None,
+                associated_type_data: [],
                 members: [
                     Method(
                         MethodDef {

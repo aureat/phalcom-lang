@@ -27,6 +27,7 @@ pub(crate) enum ValueTag {
     None = 7,
     AdtSingleton = 8,
     DataSingleton = 9,
+    EmptyRecord = 10,
 }
 
 impl ValueTag {
@@ -43,6 +44,7 @@ impl ValueTag {
             7 => Self::None,
             8 => Self::AdtSingleton,
             9 => Self::DataSingleton,
+            10 => Self::EmptyRecord,
             _ => panic!("invalid ValueTag"),
         }
     }
@@ -70,6 +72,14 @@ impl Value {
         Self {
             payload: 0,
             meta: ValueTag::Unit as u64,
+        }
+    }
+
+    #[inline]
+    pub const fn empty_record() -> Self {
+        Self {
+            payload: 0,
+            meta: ValueTag::EmptyRecord as u64,
         }
     }
 
@@ -210,6 +220,11 @@ impl Value {
     }
 
     #[inline]
+    pub fn is_empty_record(self) -> bool {
+        self.tag() == ValueTag::EmptyRecord && self.some_depth_raw() == 0
+    }
+
+    #[inline]
     pub fn is_bool(self) -> bool {
         self.tag() == ValueTag::Bool && self.some_depth_raw() == 0
     }
@@ -289,7 +304,7 @@ impl PartialEq for Value {
         }
 
         match self.tag() {
-            ValueTag::Nil | ValueTag::Unit | ValueTag::None => true,
+            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::None => true,
             ValueTag::Bool => (self.payload != 0) == (other.payload != 0),
             ValueTag::Int => (self.payload as i64) == (other.payload as i64),
             ValueTag::Float => {
@@ -312,7 +327,7 @@ impl Hash for Value {
         self.some_depth_raw().hash(state);
 
         match self.tag() {
-            ValueTag::Nil | ValueTag::Unit | ValueTag::None => {}
+            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::None => {}
             ValueTag::Bool => (self.payload != 0).hash(state),
             ValueTag::Int => (self.payload as i64).hash(state),
             ValueTag::Float => {

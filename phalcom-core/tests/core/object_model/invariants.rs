@@ -41,11 +41,11 @@ use phalcom_core::value::{Value, sentinel_to_option};
 use phalcom_core::vm::{ClassKey, VM};
 use std::collections::HashSet;
 
-/// The 37 named audited kernel classes (`CoreClasses` rows), paired with a stable name.
+/// The 36 named audited kernel classes (`CoreClasses` rows), paired with a stable name.
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 37] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 36] {
     let c = vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -72,7 +72,6 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 37] {
         ("Option", c.option_class),
         ("Some", c.some_class),
         ("None", c.none_class),
-        ("Unit", c.unit_class),
         ("List", c.list_class),
         // U-COLLTYPES Phase 1 (ADR-0039): Map/Set join the audited census.
         ("Map", c.map_class),

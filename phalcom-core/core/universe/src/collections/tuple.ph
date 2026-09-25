@@ -2,29 +2,31 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 
 intrinsic type data TypePack
 intrinsic type data LabeledTypePack
-intrinsic type data TupleEntries
+intrinsic type data CompleteTypePack
+type TupleEntries = CompleteTypePack
 
-intrinsic data Tuple<***Es>
+intrinsic data Tuple<***Es: CompleteTypePack>(***Es)
 
-impl Tuple {
+impl<***Es: CompleteTypePack> Tuple<***Es> {
   intrinsic type Positionals: TypePack
   intrinsic type Labeled: LabeledTypePack
-  intrinsic type Entries: TupleEntries
+  intrinsic type Entries: CompleteTypePack
+  intrinsic type Element: Type
   intrinsic type At<I: Int>: Type
   intrinsic type Map<F: Type -> Type>: Type
 }
 
 /// Immutable fixed-arity product collection.
-impl Tuple {
+impl<***Es: CompleteTypePack> Tuple<***Es> {
   @class
-  internal native rawFromList(_ value: List<Dynamic>) -> Tuple
+  internal native rawFromList(_ value: List<Dynamic>) -> Dynamic
   internal native rawSize -> Int
   internal native rawAt(_ index: Int) -> Dynamic
   internal native rawPositionalSize -> Int
   internal native rawLabelAt(_ index: Int) -> Symbol
   internal native rawPositionals -> List<Dynamic>
   internal native rawLabeled -> Map<Symbol, Dynamic>
-  internal native rawSlice(_ start: Int, _ end: Int) -> Tuple
+  internal native rawSlice(_ start: Int, _ end: Int) -> Dynamic
   size { self.rawSize }
   positionals { self.rawPositionals }
   labeled { self.rawLabeled }
@@ -208,12 +210,12 @@ impl Tuple {
 }
 
 class TupleIterator {
-  _source: Tuple
+  _source: Dynamic
   _index: Int
   _done: Bool
 
   @constructor
-  new(_ source: Tuple) {
+  new(_ source: Dynamic) {
     _source = source
     _index = 0
     _done = false
@@ -237,7 +239,7 @@ impl CanonicalIterator for TupleIterator {
   type Item = Dynamic
 }
 
-impl CanonicalIterable for Tuple {
+impl<***Es: CompleteTypePack> CanonicalIterable for Tuple<***Es> {
   type Item = Dynamic
   type Iterator = TupleIterator
   iterator -> TupleIterator { TupleIterator.new(self) }
@@ -248,7 +250,7 @@ class TupleZipIterator {
   _done: Bool
 
   @constructor
-  new(_ tuple: Tuple) {
+  new(_ tuple: Dynamic) {
     _iterators = List<Dynamic>.new()
     let i = 0
     while i < tuple.size {
@@ -295,10 +297,10 @@ class TupleZipIterator {
 }
 
 class TupleZipView is Collection {
-  _tuple: Tuple
+  _tuple: Dynamic
 
   @constructor
-  new(_ tuple: Tuple) { _tuple = tuple }
+  new(_ tuple: Dynamic) { _tuple = tuple }
 
   iterator -> TupleZipIterator { TupleZipIterator.new(_tuple) }
 }

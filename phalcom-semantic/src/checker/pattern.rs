@@ -14,7 +14,7 @@ use crate::match_semantics::{
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
-use crate::types::id::TypeId;
+use crate::types::id::{KindId, TypeId};
 use crate::types::rigid::LocalType;
 use crate::types::store::TypeData;
 
@@ -163,7 +163,28 @@ fn resolve_pattern_with_mode(
                 rest: rest_res,
             })
         }
-        Pattern::Record { entries, range } => resolve_record_pattern(ctx, entries, *range, subject, bindings, binding_mode),
+        Pattern::Record { entries, rest, range } => {
+            let record_res = resolve_record_pattern(ctx, entries, *range, subject, bindings, binding_mode);
+            if let Some(rest_pat) = rest {
+                let remainder_ty = match ctx.store.get(subject.canonical).clone() {
+                    TypeData::Record(row_id) => {
+                        let row = ctx.store.record_row(row_id).clone();
+                        let remainder_fields: Vec<crate::types::row::RecordRowField> = row
+                            .fields
+                            .iter()
+                            .filter(|f| !entries.iter().any(|e| e.label == f.name.as_ref()))
+                            .cloned()
+                            .collect();
+                        let remainder_row_id = ctx.store.record_row_checked(remainder_fields, row.tail).unwrap_or(row_id);
+                        ctx.store.intern_with_kind(TypeData::Record(remainder_row_id), KindId::TYPE)
+                    }
+                    _ => subject.canonical,
+                };
+                let rest_subject = CoverageSubject::from_parts(remainder_ty, LocalType::Canonical(remainder_ty));
+                let _ = resolve_pattern_with_mode(ctx, rest_pat, &rest_subject, bindings, binding_mode);
+            }
+            record_res
+        }
         Pattern::Map { entries, range } => resolve_map_pattern(ctx, entries, *range, subject, bindings, binding_mode),
     }
 }

@@ -5,16 +5,16 @@ program: LANG007
 checkpoint: LANG007.C3
 kind: checkpoint-record
 title: "Type Data and Unified Algebraic Static Domains"
-status: COMPLETE
-completion: IMPLEMENTED
-verification: FOCUSED_TESTED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: UNVERIFIED
 requires:
   - LANG007.C1
   - LANG007.C2
 prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
 prepared: 2026-09-22
-active_plan: none
-latest_completed_plan: LANG007.C3.P4
+active_plan: LANG007.C3.P4
+latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
 ---
 
@@ -27,13 +27,13 @@ next_plan: none accepted
 ```yaml
 program: LANG007
 checkpoint: LANG007.C3
-status: COMPLETE
-completion: IMPLEMENTED
-verification: FOCUSED_TESTED
-active_plan: none
-latest_completed_plan: LANG007.C3.P4
+status: IN_PROGRESS
+completion: PARTIAL
+verification: UNVERIFIED
+active_plan: LANG007.C3.P4
+latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-next_action: Await the next explicitly scoped LANG007 objective.
+next_action: Execute LANG007.C3.P4 tasks.
 blocker: none
 ```
 
@@ -135,11 +135,11 @@ C3 is complete only when this statement is true:
 | `LANG007.C3.P1` | Unified algebraic `data`; enum semantic migration; top-level `type data` foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; walkthrough and handoff present |
 | `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T9 accepted; G-FINAL completed with documented clean-predecessor and formatter baselines; see P2 walkthrough/handoff |
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1-T10 accepted; generic-owner payload behavior fixed; all required C3 coverage has direct evidence or a clean-predecessor baseline disposition; see P3 walkthrough/handoff |
-| `LANG007.C3.P4` | Corrective closure: explicit intrinsic semantic application and runtime/native owner projections | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | user-adopted projections implemented and focused gates passed; see P4 walkthrough/handoff |
+| `LANG007.C3.P3.R1` | Corrective closure: explicit intrinsic semantic application and runtime/native owner projections | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | user-adopted projections implemented and focused gates passed; see P3.R1 handoff |
+| `LANG007.C3.P4` | Intrinsic structural data, structural kinds, product-shape expansion, and Tuple/Record semantic completion | IN_PROGRESS | PARTIAL | UNVERIFIED | active plan |
 
-P4 is a bounded corrective closure required by the explicit ruling supplied
-after P3 closure. It does not reopen unrelated P1/P2/P3 architecture or expand
-the language model.
+P3.R1 was a bounded corrective closure required by the explicit ruling supplied
+after P3 closure. P4 completes the intrinsic structural-data model and structural literal convergence.
 
 ### 4.1 P2 architecture amendment — static cases and static-domain kinds
 
@@ -1749,9 +1749,9 @@ C3 may be marked `COMPLETE` only when:
 [x] successor action explicit
 ```
 
-## 23. P4 corrective closure — 2026-09-25
+## 23. P3.R1 corrective closure — 2026-09-25
 
-P4 reopens and resolves the binding-projection defect discovered at the P3
+P3.R1 resolved the binding-projection defect discovered at the P3
 T4 endpoint. One canonical `DeclarationTypeInfo` now retains semantic
 application behavior and optional runtime/native ownership as sibling fields.
 Semantic annotation formation selects Unit/Tuple/Record behavior from the
@@ -1767,7 +1767,7 @@ existing Tuple declaration/class; `AssociatedSurface` and type-member identity
 are unchanged. No extra runtime/semantic owner registry or RecordRow-to-TypeId
 conversion was introduced.
 
-P4 focused evidence:
+P3.R1 focused evidence:
 
 - semantic declarations: 8 passed;
 - semantic type annotations, including ordinary type-lambda applications and
@@ -1779,19 +1779,12 @@ P4 focused evidence:
 - semantic incremental type-member suite: 24 passed;
 - core Unit intrinsic facade reuses the preinstalled class: 1 passed.
 
-The first core rerun exposed that an ordinary shell refresh could erase the
-registered sibling projections. The `DeclarationTypeTable::insert` refresh
-path was corrected and regression-tested; the core Unit test then passed. The
-projection-isolation annotation fixtures now remove the existing declaration
-before inserting their intentionally owner-free copy. All listed focused gates
-pass on the final implementation. The read-only `cargo fmt --all -- --check`
-remains non-green with repository-wide formatter drift already classified on
-clean predecessors; no broad reformat was applied. No workspace/release
-certification was run; earlier clean-predecessor and incomplete full-binary
-baselines remain deferred and are not P4 blockers.
+P3.R1 handoff: [LANG007.C3.P3.R1-handoff.md](LANG007.C3.P3.R1-handoff.md).
 
-Final checkpoint state: `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
-P4 walkthrough: [LANG007.C3.P4-walkthrough.md](LANG007.C3.P4-walkthrough.md).
-P4 handoff: [LANG007.C3.P4-handoff.md](LANG007.C3.P4-handoff.md).
+## 24. P4 active execution — 2026-09-25
 
-Do not infer `RELEASE_COMPLETE` from this truth table.
+P4 reopens C3 to complete intrinsic structural data, structural kinds,
+product-shape expansion, and Tuple/Record semantic completion.
+
+Active plan: [LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md](LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md).
+Current status: `IN_PROGRESS / PARTIAL / UNVERIFIED`.
