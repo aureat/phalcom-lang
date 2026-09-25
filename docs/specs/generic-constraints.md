@@ -219,9 +219,13 @@ where
 
 contains two independent propositions.
 
-An ordinary generic parameter has kind `Type` unless its declaration, use, or
-explicit domain contract establishes another kind/domain. `TypePack`,
-`LabeledTypePack`, and `RecordRow` are distinct kind domains; compile-time
+An ordinary generic parameter has kind `Type` unless an explicit kind
+annotation or its expansion prefix supplies another domain. Binder prefixes
+have fixed defaults: `*` means `TypePack`, `**` means `RecordFields`, and
+`***` means `CompleteTypePack`; there is no contextual kind inference. An
+explicit compatible annotation may select a different domain, so
+`**Ls: LabeledTypePack` remains valid. `TypePack`, `LabeledTypePack`,
+`CompleteTypePack`, and `RecordFields` are distinct kind domains; compile-time
 values are classified by `Const(τ)` as specified by [Type-Level Domains](type-level-domains.md).
 
 A `where` kind constraint directly constrains a generic parameter. Compound type expressions are kind-checked through ordinary type formation.

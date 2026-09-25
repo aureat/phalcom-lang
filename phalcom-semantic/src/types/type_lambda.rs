@@ -857,7 +857,7 @@ pub enum BetaReductionError {
     KindMismatch { parameter_index: u32, expected: KindId, actual: KindId },
     #[error("type-lambda body contains an unbound variable at depth {depth}, index {index}")]
     UnboundVariable { depth: u32, index: u32 },
-    #[error("type-lambda application cannot supply a RecordRow argument")]
+    #[error("type-lambda application cannot supply a RecordFields argument")]
     UnsupportedRecordRowArgument,
     #[error(transparent)]
     RecordRowFormation(#[from] RecordRowFormationError),

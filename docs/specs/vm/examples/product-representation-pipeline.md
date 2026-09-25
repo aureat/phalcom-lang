@@ -534,8 +534,8 @@ If the string `Value` carries an `ObjRef`, that object is traced.
 Consider:
 
 ```phalcom
-const r1 = #{ name: "A", age: 24 }
-const r2 = #{ age: 24, name: "A" }
+const r1 = { name: "A", age: 24 }
+const r2 = { age: 24, name: "A" }
 ```
 
 The two Records have different presentation order but the same structural key set.
@@ -1016,7 +1016,7 @@ No `TupleObject` exists.
 The empty structural record product:
 
 ```phalcom
-#{}
+{}
 ```
 
 also reaches the canonical zero-product representation at the runtime construction boundary.

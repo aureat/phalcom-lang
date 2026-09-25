@@ -36,7 +36,7 @@ fn static_anonymous_product_lowering_is_projected_for_module_roots() {
 
 #[test]
 fn static_anonymous_products_compile_and_execute_through_program_path() {
-    let source = "let trace = []\nclass Probe {\n  @class\n  mark(_ value: Int) -> Int { trace.append(value); value }\n}\nconst tuple: (Int, Int) = (Probe.mark(1), Probe.mark(2))\nconst record: #{a: Int, b: Int} = #{b: Probe.mark(3), a: Probe.mark(4)}\n";
+    let source = "let trace = []\nclass Probe {\n  @class\n  mark(_ value: Int) -> Int { trace.append(value); value }\n}\nconst tuple: (Int, Int) = (Probe.mark(1), Probe.mark(2))\nconst record: {a: Int, b: Int} = {b: Probe.mark(3), a: Probe.mark(4)}\n";
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("inline program compiles");
     let lowering = &program.modules.get(&program.entry).expect("entry module").lowering;
     assert_eq!(lowering.anonymous_products.len(), 2);
@@ -245,7 +245,7 @@ fn unprovable_anonymous_product_uses_dynamic_pack_route() {
 
 #[test]
 fn tuple_and_record_exactness_ignores_representation_and_record_presentation_order() {
-    let source = "const tupleA = (1, 2)\nconst tupleB = (*tupleA)\nconst recordA = #{a: 1, b: 2}\nconst recordB = #{b: 2, a: 1}\nconst nestedA = #{a: (1, 2), b: #{c: 3}}\nconst nestedB = #{b: #{c: 3}, a: (1, 2)}\nconst tupleSame = tupleA === tupleB\nconst recordSame = recordA === recordB\nconst recordHashSame = recordA.hash == recordB.hash\nconst nestedSame = nestedA === nestedB\nconst crossKind = tupleA === recordA\n";
+    let source = "const tupleA = (1, 2)\nconst tupleB = (*tupleA)\nconst recordA = {a: 1, b: 2}\nconst recordB = {b: 2, a: 1}\nconst nestedA = {a: (1, 2), b: {c: 3}}\nconst nestedB = {b: {c: 3}, a: (1, 2)}\nconst tupleSame = tupleA === tupleB\nconst recordSame = recordA === recordB\nconst recordHashSame = recordA.hash == recordB.hash\nconst nestedSame = nestedA === nestedB\nconst crossKind = tupleA === recordA\n";
     let (vm, module) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("products execute");
     let get = |name: &str| {
         vm.heap
@@ -286,6 +286,7 @@ fn test_decision_engine_pure_cases() {
                     }),
                     layout: phalcom_core::product::ProductLayoutSpec::empty(),
                     argument_to_component: Box::new([0, 1]),
+                    component_to_logical: Box::new([0, 1]),
                 }),
             },
             components: Box::new([
@@ -447,7 +448,7 @@ class Compute {
   @class
   run() {
     let t = (10, 20)
-    let r = #{ a: 30, b: 40 }
+    let r = { a: 30, b: 40 }
     let t_sink = Compute.identity(t)
     let r_sink = Compute.identity(r)
     return 100
@@ -477,7 +478,7 @@ class Compute {
   run() {
     let pt = Point(1, 2)
     let t = (pt, 3)
-    let r = #{ nested: t, flag: true }
+    let r = { nested: t, flag: true }
     return 200
   }
 }

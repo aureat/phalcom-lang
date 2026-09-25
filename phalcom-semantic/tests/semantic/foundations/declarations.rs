@@ -97,19 +97,13 @@ fn option_case_behavior_classes_are_not_semantic_declarations() {
 }
 
 #[test]
-fn source_declared_runtime_support_class_remains_semantic_declaration() {
+fn unit_is_not_a_separate_intrinsic_semantic_declaration() {
     let mut store = TypeStore::new();
     let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
     let unit = universe_declaration(UniverseKey::Unit);
 
-    assert!(
-        declarations.get(&unit).is_some(),
-        "Unit is declared in canonical Universe source and must not disappear merely because native metadata classifies it as runtime support"
-    );
-    assert_eq!(
-        declarations.intrinsic_runtime_owner(&unit),
-        Some(phalcom_semantic::declarations::IntrinsicRuntimeOwner::Unit),
-    );
+    assert!(declarations.get(&unit).is_none(), "Unit is a source alias of Tuple<> rather than an intrinsic nominal declaration");
+    assert_eq!(declarations.intrinsic_runtime_owner(&unit), None);
 }
 
 #[test]
@@ -120,7 +114,6 @@ fn runtime_structural_declarations_bind_canonical_platform_owners() {
     let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
 
     for (key, owner, application) in [
-        (UniverseKey::Unit, IntrinsicRuntimeOwner::Unit, IntrinsicTypeApplication::Unit),
         (UniverseKey::Tuple, IntrinsicRuntimeOwner::Tuple, IntrinsicTypeApplication::Tuple),
         (UniverseKey::Record, IntrinsicRuntimeOwner::Record, IntrinsicTypeApplication::Record),
     ] {
@@ -135,10 +128,8 @@ fn runtime_structural_declarations_bind_canonical_platform_owners() {
         let expected_runtime_form = store.nominal_type(declaration.clone());
         assert_eq!(declarations.runtime_form(&mut store, &declaration), Some(expected_runtime_form));
     }
-    assert_eq!(declarations.form(&universe_declaration(UniverseKey::Unit)), Some(store.unit()));
     let unit = universe_declaration(UniverseKey::Unit);
-    let unit_runtime_form = store.nominal_type(unit.clone());
-    assert_eq!(declarations.runtime_form(&mut store, &unit), Some(unit_runtime_form));
+    assert_eq!(declarations.runtime_form(&mut store, &unit), None);
 }
 
 #[test]
@@ -151,7 +142,7 @@ fn runtime_owner_registration_preserves_intrinsic_semantic_application() {
     let mut declarations = phalcom_semantic::declarations::DeclarationTypeTable::new();
     let tuple = DeclarationId::new(ModuleId::universe_root(), "TupleFacade".into());
     let form = store.nominal_type(tuple.clone());
-    declarations.insert(DeclarationTypeInfo {
+    declarations.replace_authoritative(DeclarationTypeInfo {
         declaration: tuple.clone(),
         form,
         class_object_type: store.class_object_type(tuple.clone()),
@@ -171,7 +162,7 @@ fn runtime_owner_registration_preserves_intrinsic_semantic_application() {
     assert_eq!(binding.runtime_owner, Some(IntrinsicRuntimeOwner::Tuple));
     assert_eq!(declarations.form(&tuple), Some(form));
 
-    declarations.insert(DeclarationTypeInfo {
+    declarations.refresh_shell_preserving_registered_projections(DeclarationTypeInfo {
         declaration: tuple.clone(),
         form,
         class_object_type: store.class_object_type(tuple.clone()),
@@ -184,6 +175,50 @@ fn runtime_owner_registration_preserves_intrinsic_semantic_application() {
     let refreshed = &declarations.get(&tuple).unwrap().binding;
     assert_eq!(refreshed.semantic_form, DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Tuple));
     assert_eq!(refreshed.runtime_owner, Some(IntrinsicRuntimeOwner::Tuple));
+
+    declarations.replace_authoritative(DeclarationTypeInfo {
+        declaration: tuple.clone(),
+        form,
+        class_object_type: store.class_object_type(tuple.clone()),
+        kind: KindId::TYPE,
+        binding: DeclarationTypeBinding::ordinary(),
+        generic_binder_header: None,
+        generic_signature: None,
+        supertype_template: None,
+    });
+    let replaced = &declarations.get(&tuple).unwrap().binding;
+    assert_eq!(replaced.semantic_form, DeclarationSemanticForm::Ordinary);
+    assert_eq!(replaced.runtime_owner, None, "authoritative replacement retires stale projections");
+    assert_eq!(declarations.intrinsic_type_owner(&tuple), None);
+}
+
+#[test]
+fn static_domain_projection_survives_shell_refresh_and_authoritative_replacement_retires_it() {
+    use phalcom_semantic::declarations::{DeclarationTypeBinding, DeclarationTypeInfo, IntrinsicTypeOwner};
+
+    let mut store = TypeStore::new();
+    let mut declarations = phalcom_semantic::declarations::DeclarationTypeTable::new();
+    let fields = DeclarationId::new(ModuleId::universe_root(), "RecordFields".into());
+    declarations.register_intrinsic_static_domain(fields.clone(), KindId::RECORD_ROW);
+
+    let mut ordinary_shell = || DeclarationTypeInfo {
+        declaration: fields.clone(),
+        form: store.nominal_type(fields.clone()),
+        class_object_type: store.class_object_type(fields.clone()),
+        kind: KindId::TYPE,
+        binding: DeclarationTypeBinding::ordinary(),
+        generic_binder_header: None,
+        generic_signature: None,
+        supertype_template: None,
+    };
+
+    declarations.refresh_shell_preserving_registered_projections(ordinary_shell());
+    assert_eq!(declarations.intrinsic_static_domain_kind(&fields), Some(KindId::RECORD_ROW));
+    assert_eq!(declarations.intrinsic_type_owner(&fields), Some(IntrinsicTypeOwner::RecordRow));
+
+    declarations.replace_authoritative(ordinary_shell());
+    assert_eq!(declarations.intrinsic_static_domain_kind(&fields), None);
+    assert_eq!(declarations.intrinsic_type_owner(&fields), None);
 }
 
 #[test]
@@ -197,7 +232,6 @@ fn production_universe_declarations_keep_source_owned_identity() {
         UniverseKey::Option,
         UniverseKey::Result,
         UniverseKey::Ordering,
-        UniverseKey::Unit,
     ] {
         let declaration = universe_declaration(key);
         let info = declarations
@@ -238,11 +272,11 @@ fn intrinsic_structural_source_facades_bind_existing_authorities_without_nominal
             KindId::LABELED_TYPE_PACK,
         ),
         (
-            DeclarationId::new(source_module(&["collections", "tuple"]), "TupleEntries".into()),
+            DeclarationId::new(source_module(&["collections", "tuple"]), "CompleteTypePack".into()),
             KindId::COMPLETE_TYPE_PACK,
         ),
         (
-            DeclarationId::new(source_module(&["collections", "record"]), "RecordRow".into()),
+            DeclarationId::new(source_module(&["collections", "record"]), "RecordFields".into()),
             KindId::RECORD_ROW,
         ),
     ];
@@ -277,7 +311,7 @@ fn intrinsic_structural_source_facades_bind_existing_authorities_without_nominal
 }
 
 #[test]
-fn tuple_entries_kind_resolution_uses_its_canonical_facade_declaration() {
+fn complete_type_pack_kind_resolution_uses_its_canonical_facade_declaration() {
     use phalcom_semantic::types::annotation::{GenericBinderSite, SimpleTypeResolver, TypeFormationOutcome, TypeFormationSite, resolve_generic_signature};
 
     let mut store = TypeStore::new();
@@ -288,13 +322,13 @@ fn tuple_entries_kind_resolution_uses_its_canonical_facade_declaration() {
             .map(|part| phalcom_modules::identity::ModuleComponent::from_identifier(part).unwrap())
             .collect::<Vec<_>>(),
     ));
-    let tuple_entries = DeclarationId::new(tuple_module, "TupleEntries".into());
-    let parsed = phalcom_ast::parse_source("class Carrier<T: TupleEntries> {}\n", 0).expect("carrier parses");
+    let complete_type_pack = DeclarationId::new(tuple_module, "CompleteTypePack".into());
+    let parsed = phalcom_ast::parse_source("class Carrier<T: CompleteTypePack> {}\n", 0).expect("carrier parses");
     let phalcom_ast::ast::Statement::Class(class) = &parsed.statements[0] else {
         panic!("expected class declaration");
     };
     let mut resolver = SimpleTypeResolver::new();
-    resolver.insert("TupleEntries", tuple_entries);
+    resolver.insert("CompleteTypePack", complete_type_pack);
     let owner = DeclarationId::new(ModuleId::universe_root(), "Carrier".into());
     let mut diagnostics = Vec::new();
     let signature = resolve_generic_signature(
@@ -309,7 +343,7 @@ fn tuple_entries_kind_resolution_uses_its_canonical_facade_declaration() {
         &mut diagnostics,
     );
     let TypeFormationOutcome::Ready(signature) = signature else {
-        panic!("TupleEntries binder kind must resolve: {signature:?}; diagnostics={diagnostics:?}");
+        panic!("CompleteTypePack binder kind must resolve: {signature:?}; diagnostics={diagnostics:?}");
     };
     assert_eq!(store.type_parameter(signature.parameters[0]).kind, KindId::COMPLETE_TYPE_PACK);
     assert!(diagnostics.is_empty(), "{diagnostics:?}");

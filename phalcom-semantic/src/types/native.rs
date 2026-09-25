@@ -619,7 +619,7 @@ mod tests {
         let semantic_only_form = store.unit();
         tuple_info.form = semantic_only_form;
         let mut declarations = declarations;
-        declarations.insert(tuple_info);
+        declarations.replace_authoritative(tuple_info);
         let runtime_form = declarations.runtime_form(&mut store, &tuple).expect("Tuple runtime projection");
         assert_ne!(runtime_form, semantic_only_form);
 

@@ -18,11 +18,15 @@ use crate::types::annotation::{
 };
 use crate::types::environment::TypeEnvironment;
 use crate::types::evidence::{TypeKnowledge, UnknownReason};
-use crate::types::id::{KindId, TypeId, TypeParameterId};
+use crate::types::id::{KindId, RecordRowId, TypeId, TypeParameterId};
 use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationOutcome};
-use crate::types::parameter::{GenericSignature, TypeParameterOwner, TypeTerm};
-use crate::types::store::{TypeData, TypeStore};
+use crate::types::parameter::{GenericParameterMode, GenericSignature, TypeParameterOwner, TypeTerm};
+use crate::types::row::RecordRowTail;
+use crate::types::store::{StaticArgument, TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
+use crate::types::instantiation::{GenericInstantiation, RowMaterializationMode, TypeMaterializationError, materialize_type};
+use crate::core_surface::universe_declaration;
+use phalcom_native_meta::UniverseKey;
 use phalcom_ast::ast::{BehaviorMember, ImplDef, ImplMember, TypeAnnotationExpr};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -335,6 +339,22 @@ impl CoveringImplSubstitution {
         }
         subst
     }
+
+    /// Builds the canonical domain-aware instantiation for a covering head.
+    /// Row parameters stay row identities and never pass through `TypeId`.
+    pub fn to_instantiation(&self, store: &mut TypeStore) -> Result<GenericInstantiation, TypeMaterializationError> {
+        let mut instantiation = GenericInstantiation::default();
+        for (&impl_parameter, &declaration_parameter) in &self.impl_to_decl {
+            if store.type_parameter(declaration_parameter).kind == KindId::RECORD_ROW {
+                let row = store.record_row_checked(Vec::new(), RecordRowTail::Parameter(declaration_parameter))?;
+                instantiation.bind_row(impl_parameter, row);
+            } else {
+                let declaration_form = store.parameter_form(declaration_parameter);
+                instantiation.bind_type(impl_parameter, declaration_form);
+            }
+        }
+        Ok(instantiation)
+    }
 }
 
 use crate::types::parameter::GenericConstraint;
@@ -403,6 +423,33 @@ pub struct ResolvedInherentImplTarget {
     pub applicability: InherentImplApplicability,
     pub source: SemanticSourceSpan,
     pub diagnostics: Box<[SemanticDiagnostic]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StructuralBehaviorFamily {
+    Tuple,
+    Record,
+}
+
+impl StructuralBehaviorFamily {
+    fn declaration(self) -> DeclarationId {
+        universe_declaration(match self {
+            Self::Tuple => UniverseKey::Tuple,
+            Self::Record => UniverseKey::Record,
+        })
+    }
+}
+
+fn structural_behavior_family(store: &TypeStore, target: TypeId) -> Option<StructuralBehaviorFamily> {
+    match store.get(target) {
+        TypeData::Unit | TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } => Some(StructuralBehaviorFamily::Tuple),
+        TypeData::Record(_) => Some(StructuralBehaviorFamily::Record),
+        _ => None,
+    }
+}
+
+pub(crate) fn structural_behavior_owner(store: &TypeStore, target: TypeId) -> Option<DeclarationId> {
+    structural_behavior_family(store, target).map(StructuralBehaviorFamily::declaration)
 }
 
 /// Canonical target identity shared by explicit conformance products.
@@ -3616,8 +3663,8 @@ pub fn collect_impl_params_in_type(store: &TypeStore, ty: TypeId, impl_id: &Impl
         }
         TypeData::Applied { origin, arguments } => {
             collect_impl_params_in_type(store, *origin, impl_id, out);
-            for arg in arguments.iter().filter_map(|argument| argument.as_type_id()) {
-                collect_impl_params_in_type(store, arg, impl_id, out);
+            for argument in arguments.iter() {
+                collect_impl_params_in_static_argument(store, *argument, impl_id, out);
             }
         }
         TypeData::ExactCase { enum_type, .. } => {
@@ -3634,10 +3681,31 @@ pub fn collect_impl_params_in_type(store: &TypeStore, ty: TypeId, impl_id: &Impl
             }
         }
         TypeData::Record(row) => {
-            let row_data = store.record_row(*row);
-            for f in row_data.fields.iter() {
-                collect_impl_params_in_type(store, f.ty, impl_id, out);
+            collect_impl_params_in_row(store, *row, impl_id, out);
+        }
+        TypeData::TypePack(elements) => {
+            for &element in elements.iter() {
+                collect_impl_params_in_type(store, element, impl_id, out);
             }
+        }
+        TypeData::LabeledTypePack(elements) => {
+            for element in elements.iter() {
+                collect_impl_params_in_type(store, element.element, impl_id, out);
+            }
+        }
+        TypeData::CompleteTypePack { positionals, labeled } | TypeData::TupleFromPacks { positionals, labeled } => {
+            collect_impl_params_in_type(store, *positionals, impl_id, out);
+            collect_impl_params_in_type(store, *labeled, impl_id, out);
+        }
+        TypeData::TypePackConcat(segments) | TypeData::LabeledTypePackConcat(segments) => {
+            for &segment in segments.iter() {
+                collect_impl_params_in_type(store, segment, impl_id, out);
+            }
+        }
+        TypeData::CallableFromPacks { positionals, labeled, return_type } => {
+            collect_impl_params_in_type(store, *positionals, impl_id, out);
+            collect_impl_params_in_type(store, *labeled, impl_id, out);
+            collect_impl_params_in_type(store, *return_type, impl_id, out);
         }
         TypeData::Callable(c) => {
             for p in c.parameters.iter() {
@@ -3645,8 +3713,83 @@ pub fn collect_impl_params_in_type(store: &TypeStore, ty: TypeId, impl_id: &Impl
             }
             collect_impl_params_in_type(store, c.return_type, impl_id, out);
         }
+        TypeData::TypeMemberProjection(projection) => {
+            match &projection.subject {
+                crate::types::type_member::ProjectionSubject::Type(subject) => collect_impl_params_in_type(store, *subject, impl_id, out),
+                crate::types::type_member::ProjectionSubject::RecordRow(row) => collect_impl_params_in_row(store, *row, impl_id, out),
+            }
+            for argument in projection.arguments.iter() {
+                match argument {
+                    crate::types::type_member::TypeMemberArgument::Type(argument) => collect_impl_params_in_type(store, *argument, impl_id, out),
+                    crate::types::type_member::TypeMemberArgument::RecordRow(row) => collect_impl_params_in_row(store, *row, impl_id, out),
+                    crate::types::type_member::TypeMemberArgument::Const(_) => {}
+                }
+            }
+        }
+        TypeData::AssociatedProjection(projection) => {
+            collect_impl_params_in_type(store, projection.subject, impl_id, out);
+            for &argument in projection.trait_ref.arguments.iter() {
+                collect_impl_params_in_type(store, argument, impl_id, out);
+            }
+        }
+        TypeData::StaticData(term) => {
+            for argument in term.arguments.iter() {
+                collect_impl_params_in_static_argument(store, *argument, impl_id, out);
+            }
+        }
+        TypeData::Family(family) => {
+            for member in store.get_family(*family).members.iter() {
+                collect_impl_params_in_type(store, member.ty, impl_id, out);
+            }
+        }
         _ => {}
     }
+}
+
+fn collect_impl_params_in_static_argument(store: &TypeStore, argument: StaticArgument, impl_id: &ImplId, out: &mut HashSet<TypeParameterId>) {
+    match argument {
+        StaticArgument::Term(ty) => collect_impl_params_in_type(store, ty, impl_id, out),
+        StaticArgument::RecordRow(row) => collect_impl_params_in_row(store, row, impl_id, out),
+    }
+}
+
+fn collect_impl_params_in_row(store: &TypeStore, row: RecordRowId, impl_id: &ImplId, out: &mut HashSet<TypeParameterId>) {
+    let row_data = store.record_row(row);
+    for field in row_data.fields.iter() {
+        collect_impl_params_in_type(store, field.ty, impl_id, out);
+    }
+    match row_data.tail {
+        RecordRowTail::Closed => {}
+        RecordRowTail::Parameter(parameter) => {
+            if matches!(&store.type_parameter(parameter).owner, TypeParameterOwner::Impl(owner) if owner == impl_id) {
+                out.insert(parameter);
+            }
+        }
+        RecordRowTail::Projection(ty) => collect_impl_params_in_type(store, ty, impl_id, out),
+    }
+}
+
+/// Returns the impl-owned parameter represented directly by one static
+/// generic argument. Row arguments remain row identities throughout this
+/// correspondence check; a row parameter is never projected into a TypeId.
+fn direct_impl_parameter_in_static_argument(store: &TypeStore, argument: StaticArgument, impl_id: &ImplId) -> Option<TypeParameterId> {
+    let parameter = match argument {
+        StaticArgument::Term(ty) => match store.get(ty) {
+            TypeData::Parameter(parameter) => *parameter,
+            _ => return None,
+        },
+        StaticArgument::RecordRow(row) => {
+            let row = store.record_row(row);
+            if !row.fields.is_empty() {
+                return None;
+            }
+            match row.tail {
+                RecordRowTail::Parameter(parameter) => parameter,
+                RecordRowTail::Closed | RecordRowTail::Projection(_) => return None,
+            }
+        }
+    };
+    matches!(&store.type_parameter(parameter).owner, TypeParameterOwner::Impl(owner) if owner == impl_id).then_some(parameter)
 }
 
 /// Matches a domain head type structurally against a receiver form and binds impl-owned parameters.
@@ -3734,7 +3877,15 @@ pub fn match_impl_domain_head(
                     return false;
                 }
             }
-            true
+            match (r1.tail, r2.tail) {
+                (RecordRowTail::Closed, RecordRowTail::Closed) => true,
+                (RecordRowTail::Parameter(p1), RecordRowTail::Parameter(p2)) => p1 == p2,
+                (RecordRowTail::Projection(t1), RecordRowTail::Projection(t2)) => match_impl_domain_head(store, t1, t2, impl_id, bindings),
+                _ => false,
+            }
+        }
+        (TypeData::TupleFromPacks { positionals: p1, labeled: l1 }, TypeData::TupleFromPacks { positionals: p2, labeled: l2 }) => {
+            match_impl_domain_head(store, *p1, *p2, impl_id, bindings) && match_impl_domain_head(store, *l1, *l2, impl_id, bindings)
         }
         _ => false,
     }
@@ -4032,6 +4183,84 @@ pub fn resolve_inherent_impl_target(
         type_parameters: impl_type_parameter_map.clone(),
     };
 
+    // Intrinsic structural kinds have source declarations so their type members
+    // retain canonical owner identity. They are not proper value types, so admit
+    // only type-member declarations here and use a kind-correct structural term
+    // as the inert target head consumed by the existing contribution product.
+    if let TypeAnnotationExpr::Reference(reference) = &impl_def.target.expr
+        && let Some(owner) = ctx
+            .resolver
+            .resolve_type_name(&ctx.current_module, &reference.root, &reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>())
+        && let Some(kind) = ctx.declarations.intrinsic_static_domain_kind(&owner)
+    {
+        if owner.module != impl_id.module {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImplForeignTarget,
+                format!("cannot define intrinsic type members for foreign structural domain `{}`", owner.name),
+                impl_def.target.range,
+            ));
+            return Err(diagnostics);
+        }
+        if impl_generic_signature.is_some()
+            || impl_def.members.iter().any(|member| {
+                !matches!(member, ImplMember::TypeMember(definition) if definition.implementation == phalcom_common::modifier::ImplementationKind::Intrinsic)
+            })
+        {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImplSpecializedTargetUnsupported,
+                "structural kind declarations may contain only non-generic intrinsic type members",
+                impl_def.range,
+            ));
+            return Err(diagnostics);
+        }
+        let target_type = match kind {
+            KindId::TYPE_PACK => ctx.store.type_pack(Box::new([])).ok(),
+            KindId::LABELED_TYPE_PACK => ctx.store.labeled_type_pack(Box::new([])).ok(),
+            KindId::COMPLETE_TYPE_PACK => {
+                let positionals = ctx.store.type_pack(Box::new([])).ok();
+                let labeled = ctx.store.labeled_type_pack(Box::new([])).ok();
+                positionals.zip(labeled).and_then(|(positionals, labeled)| ctx.store.complete_type_pack(positionals, labeled).ok())
+            }
+            KindId::RECORD_ROW => {
+                let row = ctx.store.record_row_checked(Vec::new(), RecordRowTail::Closed).ok();
+                row.map(|row| ctx.store.record_type(row)).map(|empty_record| {
+                    let owner = universe_declaration(UniverseKey::Record);
+                    let selector = crate::types::type_member::TypeMemberSelector::named("Fields");
+                    ctx.store.type_member_projection(
+                        crate::types::type_member::TypeLevelProjection {
+                            subject: crate::types::type_member::ProjectionSubject::Type(empty_record),
+                            selector,
+                            arguments: Box::new([]),
+                            source_declaration: Some(crate::types::type_member::TypeMemberDeclarationId::new(owner, crate::types::type_member::TypeMemberSelector::named("Fields"))),
+                        },
+                        KindId::RECORD_ROW,
+                    )
+                })
+            }
+            _ => None,
+        };
+        let Some(target_type) = target_type else {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImplTargetNotNominal,
+                "intrinsic structural kind has no canonical target form",
+                impl_def.target.range,
+            ));
+            return Err(diagnostics);
+        };
+        return Ok(ResolvedInherentImplTarget {
+            id: impl_id.clone(),
+            target: InherentImplTarget::Declaration(owner),
+            target_type,
+            generic_signature: impl_generic_signature,
+            applicability: InherentImplApplicability::Unconditional,
+            source,
+            diagnostics: diagnostics.into_boxed_slice(),
+        });
+    }
+
     // 3. Resolve target type annotation
     // Check for exact enum case target syntax
     if let TypeAnnotationExpr::ExactEnumCase {
@@ -4263,21 +4492,6 @@ pub fn resolve_inherent_impl_target(
         });
     }
 
-    if let TypeAnnotationExpr::Reference(sym) = &impl_def.target.expr {
-        if sym.members.is_empty() {
-            let sym_decl = DeclarationId::new(ctx.current_module.clone(), sym.root.clone().into());
-            if ctx.resolver.resolve_alias_form(&sym_decl).is_some() {
-                diagnostics.push(SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    DiagnosticCode::ImplTargetTypeAlias,
-                    format!("cannot define inherent impl for type alias `{}`", sym.root),
-                    impl_def.target.range,
-                ));
-                return Err(diagnostics);
-            }
-        }
-    }
-
     let knowledge = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, &impl_def.target, &mut diagnostics);
 
     let TypeKnowledge::Known(evidence) = knowledge else {
@@ -4291,6 +4505,105 @@ pub fn resolve_inherent_impl_target(
     };
 
     let target_type = evidence.ty();
+
+    // Tuple and Record are structural values with canonical behavior owners.
+    // The shape itself remains the target head, while its inherent members are
+    // published under the corresponding Universe family declaration.
+    if let Some(family) = structural_behavior_family(ctx.store, target_type) {
+        let owner = family.declaration();
+        if owner.module != impl_id.module {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImplForeignTarget,
+                format!(
+                    "cannot define inherent impl for structural family `{}` outside its canonical module `{}`",
+                    owner.name, owner.module
+                ),
+                impl_def.target.range,
+            ));
+            return Err(diagnostics);
+        }
+
+        let mut used_impl_params = HashSet::new();
+        collect_impl_params_in_type(ctx.store, target_type, impl_id, &mut used_impl_params);
+        for &impl_param in &impl_type_parameter_ids {
+            if !used_impl_params.contains(&impl_param) {
+                let p_name = &ctx.store.type_parameter(impl_param).name;
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::ImplUnusedTypeParameter,
+                    format!("type parameter `{}` is not used in inherent impl target", p_name),
+                    impl_def.range,
+                ));
+            }
+        }
+        if diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ImplUnusedTypeParameter) {
+            return Err(diagnostics);
+        }
+
+        let declaration_signature = ctx.declaration_generic_signature(&owner);
+        let declaration_parameters = declaration_signature.as_ref().map(|signature| signature.parameters.as_ref()).unwrap_or(&[]);
+        let mut covering_mapping = None;
+        if constraints.is_empty() && declaration_parameters.len() == 1 && impl_type_parameter_ids.len() == 1 && used_impl_params.len() == 1 {
+            let declaration_parameter = declaration_parameters[0];
+            let impl_parameter = impl_type_parameter_ids[0];
+            let declaration_parameter_data = ctx.store.type_parameter(declaration_parameter);
+            let impl_parameter_data = ctx.store.type_parameter(impl_parameter);
+            let parameter_contract_matches = declaration_parameter_data.kind == impl_parameter_data.kind
+                && declaration_parameter_data.mode == impl_parameter_data.mode
+                && matches!(&impl_parameter_data.owner, TypeParameterOwner::Impl(owner) if owner == impl_id);
+
+            if parameter_contract_matches {
+                let is_covering = match (family, ctx.store.get(target_type).clone()) {
+                    (StructuralBehaviorFamily::Tuple, TypeData::TupleFromPacks { positionals, labeled })
+                        if declaration_parameter_data.kind == KindId::COMPLETE_TYPE_PACK
+                            && declaration_parameter_data.mode == GenericParameterMode::CompletePack =>
+                    {
+                        let parameter_form = ctx.store.parameter_form(impl_parameter);
+                        let expected_positionals = ctx.store.project_positionals(parameter_form).ok();
+                        let expected_labeled = ctx.store.project_labeled(parameter_form).ok();
+                        expected_positionals == Some(positionals) && expected_labeled == Some(labeled)
+                    }
+                    (StructuralBehaviorFamily::Record, TypeData::Record(row))
+                        if declaration_parameter_data.kind == KindId::RECORD_ROW
+                            && declaration_parameter_data.mode == GenericParameterMode::LabeledPack =>
+                    {
+                        let row = ctx.store.record_row(row);
+                        row.fields.is_empty() && row.tail == RecordRowTail::Parameter(impl_parameter)
+                    }
+                    _ => false,
+                };
+                if is_covering {
+                    covering_mapping = Some(CoveringImplSubstitution::new(
+                        HashMap::from([(impl_parameter, declaration_parameter)]),
+                        HashMap::from([(declaration_parameter, impl_parameter)]),
+                    ));
+                }
+            }
+        }
+
+        let applicability = if let Some(covering) = covering_mapping {
+            InherentImplApplicability::Covering(covering)
+        } else {
+            InherentImplApplicability::Conditional(Arc::new(InherentImplDomain {
+                impl_id: impl_id.clone(),
+                target: InherentImplTarget::Declaration(owner.clone()),
+                head_type: target_type,
+                generic_signature: impl_generic_signature.clone(),
+                constraints: constraints.into_boxed_slice(),
+            }))
+        };
+
+        return Ok(ResolvedInherentImplTarget {
+            id: impl_id.clone(),
+            target: InherentImplTarget::Declaration(owner),
+            target_type,
+            generic_signature: impl_generic_signature,
+            applicability,
+            source,
+            diagnostics: diagnostics.into_boxed_slice(),
+        });
+    }
 
     // 4. Validate nominal declaration target and compute covering or conditional applicability
     let (target_decl, applicability) = match ctx.store.get(target_type).clone() {
@@ -4452,16 +4765,17 @@ pub fn resolve_inherent_impl_target(
             if is_covering_bijection {
                 for (i, arg_ty) in arguments.iter().enumerate() {
                     let decl_param = decl_params[i];
-                    if let Some(arg_ty) = arg_ty.as_type_id() {
-                        if let TypeData::Parameter(p_id) = ctx.store.get(arg_ty) {
-                        let p_data = ctx.store.type_parameter(*p_id);
-                        if let TypeParameterOwner::Impl(ref owner_impl) = p_data.owner {
-                            if owner_impl == impl_id && seen_impl_params.insert(*p_id) {
-                                impl_to_decl.insert(*p_id, decl_param);
-                                decl_to_impl.insert(decl_param, *p_id);
-                                continue;
-                            }
-                        }
+                    if let Some(impl_parameter) = direct_impl_parameter_in_static_argument(ctx.store, *arg_ty, impl_id)
+                        && seen_impl_params.insert(impl_parameter)
+                    {
+                        let declaration_parameter = ctx.store.type_parameter(decl_param);
+                        let implementation_parameter = ctx.store.type_parameter(impl_parameter);
+                        if declaration_parameter.kind == implementation_parameter.kind
+                            && declaration_parameter.mode == implementation_parameter.mode
+                        {
+                            impl_to_decl.insert(impl_parameter, decl_param);
+                            decl_to_impl.insert(decl_param, impl_parameter);
+                            continue;
                         }
                     }
                     is_covering_bijection = false;
@@ -4557,29 +4871,76 @@ pub fn apply_covering_to_signature(store: &mut TypeStore, subst: &TypeSubstituti
     signature
 }
 
+/// Applies a domain-aware covering instantiation to every canonical type in a
+/// callable signature, preserving RecordFields as a row binding.
+fn apply_covering_instantiation_to_signature(
+    store: &mut TypeStore,
+    instantiation: &GenericInstantiation,
+    mut signature: CallableSemanticSignature,
+) -> Result<CallableSemanticSignature, TypeMaterializationError> {
+    let mut parameters = Vec::with_capacity(signature.parameters.len());
+    for mut parameter in signature.parameters.into_vec() {
+        if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = parameter.declared_type.state {
+            let materialized = materialize_type(store, ty, instantiation, RowMaterializationMode::PreserveUnboundStableTail)?;
+            parameter.declared_type.state = DeclaredTypeState::Known(TypeTerm::Canonical(materialized));
+        }
+        parameters.push(parameter);
+    }
+    signature.parameters = parameters.into_boxed_slice();
+
+    if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = signature.declared_return.state {
+        let materialized = materialize_type(store, ty, instantiation, RowMaterializationMode::PreserveUnboundStableTail)?;
+        signature.declared_return.state = DeclaredTypeState::Known(TypeTerm::Canonical(materialized));
+    }
+
+    if let Some(generics) = signature.generics.as_mut() {
+        let mut constraints = Vec::with_capacity(generics.constraints.len());
+        for constraint in generics.constraints.iter() {
+            let materialize_term = |store: &mut TypeStore, term: &TypeTerm| -> Result<TypeTerm, TypeMaterializationError> {
+                match term {
+                    TypeTerm::Canonical(ty) => Ok(TypeTerm::Canonical(materialize_type(
+                        store,
+                        *ty,
+                        instantiation,
+                        RowMaterializationMode::PreserveUnboundStableTail,
+                    )?)),
+                    other => Ok(other.clone()),
+                }
+            };
+            constraints.push(match constraint {
+                GenericConstraint::Subtype { lower, upper } => GenericConstraint::Subtype {
+                    lower: materialize_term(store, lower)?,
+                    upper: materialize_term(store, upper)?,
+                },
+                GenericConstraint::Equivalent { left, right } => GenericConstraint::Equivalent {
+                    left: materialize_term(store, left)?,
+                    right: materialize_term(store, right)?,
+                },
+                GenericConstraint::Conforms { subject, trait_ref } => {
+                    let arguments = trait_ref
+                        .arguments
+                        .iter()
+                        .map(|&argument| materialize_type(store, argument, instantiation, RowMaterializationMode::PreserveUnboundStableTail))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_boxed_slice();
+                    GenericConstraint::Conforms {
+                        subject: materialize_term(store, subject)?,
+                        trait_ref: TraitRef::new(trait_ref.declaration.clone(), arguments),
+                    }
+                }
+            });
+        }
+        generics.constraints = constraints.into_boxed_slice();
+    }
+
+    Ok(signature)
+}
+
 /// Checks if a type contains any parameters owned by `impl_id`.
 pub fn type_contains_impl_param(store: &TypeStore, ty: TypeId, impl_id: &ImplId) -> bool {
-    match store.get(ty) {
-        TypeData::Parameter(p) => {
-            let data = store.type_parameter(*p);
-            matches!(&data.owner, TypeParameterOwner::Impl(id) if id == impl_id)
-        }
-        TypeData::Applied { origin, arguments } => {
-            type_contains_impl_param(store, *origin, impl_id)
-                || arguments.iter().any(|arg| arg.as_type_id().is_some_and(|arg| type_contains_impl_param(store, arg, impl_id)))
-        }
-        TypeData::ExactCase { enum_type, .. } => type_contains_impl_param(store, *enum_type, impl_id),
-        TypeData::Union(members) => members.iter().any(|&m| type_contains_impl_param(store, m, impl_id)),
-        TypeData::Tuple(elements) => elements.iter().any(|e| type_contains_impl_param(store, e.ty, impl_id)),
-        TypeData::Record(row) => {
-            let row_data = store.record_row(*row);
-            row_data.fields.iter().any(|f| type_contains_impl_param(store, f.ty, impl_id))
-        }
-        TypeData::Callable(c) => {
-            c.parameters.iter().any(|p| type_contains_impl_param(store, p.ty, impl_id)) || type_contains_impl_param(store, c.return_type, impl_id)
-        }
-        _ => false,
-    }
+    let mut parameters = HashSet::new();
+    collect_impl_params_in_type(store, ty, impl_id, &mut parameters);
+    !parameters.is_empty()
 }
 
 /// Builds the canonical `InherentImplContribution` from an `ImplDef`.
@@ -4632,8 +4993,19 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
         type_parameters: impl_type_parameter_map,
     };
 
-    let covering_subst = match &resolved_target.applicability {
-        InherentImplApplicability::Covering(cov) => Some(cov.to_type_substitution(ctx.store)),
+    let covering_instantiation = match &resolved_target.applicability {
+        InherentImplApplicability::Covering(cov) => match cov.to_instantiation(ctx.store) {
+            Ok(instantiation) => Some(instantiation),
+            Err(error) => {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::ImplSpecializedTargetUnsupported,
+                    format!("could not materialize covering inherent impl target: {error}"),
+                    impl_def.target.range,
+                ));
+                None
+            }
+        },
         InherentImplApplicability::Unconditional | InherentImplApplicability::Conditional(_) => None,
     };
 
@@ -4697,8 +5069,19 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
                 }
             };
             for signature in generated {
-                let final_sig = if let Some(ref subst) = covering_subst {
-                    apply_covering_to_signature(ctx.store, subst, signature)
+                let final_sig = if let Some(ref instantiation) = covering_instantiation {
+                    match apply_covering_instantiation_to_signature(ctx.store, instantiation, signature) {
+                        Ok(signature) => signature,
+                        Err(error) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                DiagnosticCode::ImplSpecializedTargetUnsupported,
+                                format!("could not materialize covering inherent member signature: {error}"),
+                                delegation.range,
+                            ));
+                            continue;
+                        }
+                    }
                 } else {
                     signature
                 };
@@ -4807,8 +5190,19 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
         };
 
         // Canonicalize signature into target declaration parameter space for covering impls
-        let final_sig = if let Some(ref subst) = covering_subst {
-            apply_covering_to_signature(ctx.store, subst, raw_sig)
+        let final_sig = if let Some(ref instantiation) = covering_instantiation {
+            match apply_covering_instantiation_to_signature(ctx.store, instantiation, raw_sig) {
+                Ok(signature) => signature,
+                Err(error) => {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ImplSpecializedTargetUnsupported,
+                        format!("could not materialize covering inherent member signature: {error}"),
+                        syntax.range(),
+                    ));
+                    continue;
+                }
+            }
         } else {
             raw_sig
         };

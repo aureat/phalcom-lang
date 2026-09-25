@@ -28,10 +28,8 @@ impl VM {
     pub fn resolve_declaration_class(&self, decl: &DeclarationId) -> Result<ClassId, RuntimeError> {
         // 1. Check canonical product/ADT registries whose behavior classes do
         // not necessarily live in the ordinary named-class table.
-        if let Some(data_id) = self.data_registry.descriptor_by_declaration(decl) {
-            if let Some(descriptor) = self.data_registry.descriptor(data_id) {
-                return Ok(descriptor.behavior_class);
-            }
+        if let Some(class) = self.data_registry.behavior_class_for_declaration(decl) {
+            return Ok(class);
         }
         if let Some(enum_id) = self.adt_registry.enum_by_declaration(decl) {
             if let Some(desc) = self.adt_registry.enum_descriptor(enum_id) {

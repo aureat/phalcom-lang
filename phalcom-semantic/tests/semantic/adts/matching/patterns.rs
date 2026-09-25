@@ -203,7 +203,7 @@ class Test {
 #[test]
 #[ignore = "GATED: record pattern resolver must be made explicit before enablement"]
 fn review_c4_01_record_pattern_is_not_silently_converted_to_wildcard() {
-    let case = analyze_adt("class Test { run(_ value: Object) { match value { #{name: value} => value _ => 0 } } }\n");
+    let case = analyze_adt("class Test { run(_ value: Object) { match value { {name: value} => value _ => 0 } } }\n");
     assert!(!matches!(
         case.only_match().arm(0).resolution().pattern,
         phalcom_semantic::match_semantics::PatternResolution::Wildcard
@@ -223,7 +223,7 @@ fn review_c4_02_map_pattern_is_not_silently_converted_to_wildcard() {
 #[test]
 #[ignore = "GATED: unsupported record plus enum fixture is required"]
 fn review_c4_03_unsupported_record_does_not_make_match_exhaustive() {
-    let case = analyze_adt("class Test { run(_ value: Object) { match value { #{name: value} => value } } }\n");
+    let case = analyze_adt("class Test { run(_ value: Object) { match value { {name: value} => value } } }\n");
     case.only_match().assert_not_exhaustive();
 }
 
@@ -240,7 +240,7 @@ fn review_c4_04_unsupported_map_does_not_make_later_arm_redundant() {
 #[test]
 #[ignore = "GATED: resolver fallback audit needs explicit unsupported-pattern product"]
 fn review_c4_05_resolver_has_no_catch_all_wildcard_fallback() {
-    let case = analyze_adt("class Test { run(_ value: Object) { match value { #{name: value} => value _ => 0 } } }\n");
+    let case = analyze_adt("class Test { run(_ value: Object) { match value { {name: value} => value _ => 0 } } }\n");
     assert!(!matches!(
         case.only_match().arm(0).resolution().pattern,
         phalcom_semantic::match_semantics::PatternResolution::Wildcard

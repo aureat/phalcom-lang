@@ -351,7 +351,7 @@ impl NativeSourceIndex {
     fn index_intrinsic_runtime_data(&mut self, module: &ModuleId, data_def: &phalcom_ast::ast::DataDef) -> Result<(), String> {
         let named_key = UniverseKey::from_name(&data_def.name);
         let universe_key = named_key.filter(|key| {
-            matches!(key, UniverseKey::Unit | UniverseKey::Tuple | UniverseKey::Record)
+            matches!(key, UniverseKey::Tuple | UniverseKey::Record)
                 && module.path
                     == ModulePath::from_components(
                         key.source_path()
@@ -361,7 +361,7 @@ impl NativeSourceIndex {
                     )
         });
         let Some(key) = universe_key else {
-            return Err(format!("intrinsic runtime data {} is not a canonical Unit/Tuple/Record source declaration", data_def.name));
+            return Err(format!("intrinsic runtime data {} is not a canonical Tuple/Record source declaration", data_def.name));
         };
         let superclass = UNIVERSE_CLASS_RELATIONS
             .iter()
@@ -839,11 +839,11 @@ mod tests {
 
     #[test]
     fn type_only_intrinsic_facades_are_not_runtime_bootstrap_roots() {
-        let program = parse_program("intrinsic type data TupleEntries\n");
+        let program = parse_program("intrinsic type data CompleteTypePack\n");
         let statement = program.statements.first().expect("facade declaration");
         assert!(!is_runtime_bootstrap_root_statement(statement));
 
-        let runtime = parse_program("intrinsic data Unit()\n");
+        let runtime = parse_program("intrinsic data Probe()\n");
         assert!(is_runtime_bootstrap_root_statement(runtime.statements.first().expect("runtime declaration")));
     }
 

@@ -58,7 +58,7 @@ fn test_row_subtraction_solves() {
     let mut solver = RecordRowSolver::new();
     let r_var = solver.fresh_var();
 
-    // #{ name: String } = #{ name: String | R }
+    // { name: String } = { name: String, **R }
     let left = RecordRowTerm::from_canonical(&store, single_row);
     let right = RecordRowTerm {
         fields: Box::new([RecordRowField {
@@ -118,7 +118,7 @@ fn test_occurs_check_rejects() {
     let mut solver = RecordRowSolver::new();
     let r_var = solver.fresh_var();
 
-    // R = #{ next: Int | R }
+    // R = { next: Int, **R }
     let left = RecordRowTerm {
         fields: Box::new([]),
         tail: RecordRowTermTail::Var(r_var),
@@ -157,13 +157,13 @@ fn test_record_subtyping_immutable_width() {
     let int_ty = store.nominal(test_decl("Int"));
     let str_ty = store.nominal(test_decl("String"));
 
-    // sub: #{ a: Int, b: String }
+    // sub: { a: Int, b: String }
     let sub = store.record(Box::new([
         RecordRowField { name: "a".into(), ty: int_ty },
         RecordRowField { name: "b".into(), ty: str_ty },
     ]));
 
-    // sup: #{ a: Int }
+    // sup: { a: Int }
     let sup = store.record(Box::new([RecordRowField { name: "a".into(), ty: int_ty }]));
 
     assert!(is_subtype(&mut store, &hier, sub, sup), "Width subtyping allowed for ReadOnly");

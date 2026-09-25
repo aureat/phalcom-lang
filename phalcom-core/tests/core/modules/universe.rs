@@ -140,7 +140,7 @@ fn universe_package_intrinsics_match_provider_neutral_package_rules() {
 #[test]
 fn boot_01_bootstrap_measurement_separates_catalog_closure_and_execution() {
     let index = NativeSourceIndex::build().expect("canonical Universe source index builds");
-    for facade in ["TypePack", "LabeledTypePack", "TupleEntries", "RecordRow"] {
+    for facade in ["TypePack", "LabeledTypePack", "CompleteTypePack", "RecordFields"] {
         assert!(
             index.census.classes.iter().all(|class| class.name != facade),
             "TypeOnly intrinsic facade {facade} must not appear in runtime class census"

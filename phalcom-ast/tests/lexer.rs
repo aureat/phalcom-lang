@@ -275,7 +275,7 @@ fn symbol_bare_hash_is_standalone_token() {
 #[test]
 fn selector_spec_components() {
     insta::assert_debug_snapshot!(tokens(
-        "#name #name() #name(_) #name(foo) #name... #name(...) #name(_, ..., foo) #name=... #+ #== #{ key: value } #\"quoted\""
+        "#name #name() #name(_) #name(foo) #name... #name(...) #name(_, ..., foo) #name=... #+ #== #{ key, value } #\"quoted\""
     ));
 }
 

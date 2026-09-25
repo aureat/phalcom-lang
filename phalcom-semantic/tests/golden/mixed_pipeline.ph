@@ -28,8 +28,8 @@ class UserRepository is Repository<User> {}
 
 class Normalizer {
   @class
-  normalize(_ user: User) -> #{name: String, score: Int} {
-    #{name: user.name(), score: user.score()}
+  normalize(_ user: User) -> {name: String, score: Int} {
+    {name: user.name(), score: user.score()}
   }
 }
 
@@ -49,7 +49,7 @@ class Pipeline {
 
 class Presenter {
   @class
-  present(_ record: #{name: String, score: Int}) -> (String, Int) {
+  present(_ record: {name: String, score: Int}) -> (String, Int) {
     ("user", 1)
   }
 }

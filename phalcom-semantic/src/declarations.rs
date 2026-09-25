@@ -60,8 +60,6 @@ pub enum DeclarationSemanticForm {
 /// Compiler-owned application behavior exposed through an intrinsic declaration.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum IntrinsicTypeApplication {
-    /// The canonical zero-element product, represented by `TypeStore::unit`.
-    Unit,
     /// A complete type pack applied through the existing TupleFromPacks family.
     Tuple,
     /// A RecordRow identity applied through the existing Record representation.
@@ -73,7 +71,6 @@ pub enum IntrinsicTypeApplication {
 /// TypeStore values remain owned by their existing subsystems.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum IntrinsicRuntimeOwner {
-    Unit,
     Tuple,
     Record,
 }
@@ -184,11 +181,18 @@ impl DeclarationTypeTable {
         Self::default()
     }
 
-    pub fn insert(&mut self, mut info: DeclarationTypeInfo) {
-        // Header/query products may refresh the ordinary declaration shell
-        // after Universe bootstrap. Preserve independently registered
-        // intrinsic projections when that refreshed shell carries only the
-        // ordinary default binding.
+    /// Replaces the complete declaration product and all independently
+    /// registered projections for its identity.
+    pub fn replace_authoritative(&mut self, info: DeclarationTypeInfo) {
+        self.store_authoritative(info);
+    }
+
+    /// Refreshes a declaration shell while preserving already registered
+    /// intrinsic semantic/runtime projections when the new shell contains only
+    /// their ordinary defaults.
+    pub fn refresh_shell_preserving_registered_projections(&mut self, mut info: DeclarationTypeInfo) {
+        let static_domain = self.intrinsic_static_domains.get(&info.declaration).copied();
+        let type_owner = self.intrinsic_type_owners.get(&info.declaration).copied();
         if let Some(existing) = self.entries.get(&info.declaration) {
             if info.binding.semantic_form == DeclarationSemanticForm::Ordinary {
                 info.binding.semantic_form = existing.binding.semantic_form;
@@ -197,18 +201,29 @@ impl DeclarationTypeTable {
                 info.binding.runtime_owner = existing.binding.runtime_owner;
             }
         }
+
+        let preserve_type_owner = info.binding.runtime_owner.is_none().then_some(type_owner).flatten();
+        let declaration = info.declaration.clone();
+        self.store_authoritative(info);
+        if let Some(kind) = static_domain {
+            self.intrinsic_static_domains.insert(declaration.clone(), kind);
+        }
+        if let Some(owner) = preserve_type_owner {
+            self.intrinsic_type_owners.insert(declaration, owner);
+        }
+    }
+
+    fn store_authoritative(&mut self, info: DeclarationTypeInfo) {
         self.intrinsic_static_domains.remove(&info.declaration);
+        self.intrinsic_type_owners.remove(&info.declaration);
         if let Some(owner) = info.binding.runtime_owner {
             let type_owner = match owner {
                 IntrinsicRuntimeOwner::Tuple => Some(IntrinsicTypeOwner::Tuple),
                 IntrinsicRuntimeOwner::Record => Some(IntrinsicTypeOwner::Record),
-                IntrinsicRuntimeOwner::Unit => None,
             };
             if let Some(type_owner) = type_owner {
                 self.intrinsic_type_owners.insert(info.declaration.clone(), type_owner);
             }
-        } else {
-            self.intrinsic_type_owners.remove(&info.declaration);
         }
         self.entries.insert(info.declaration.clone(), info);
     }
@@ -255,7 +270,6 @@ impl DeclarationTypeTable {
         let type_owner = match owner {
             IntrinsicRuntimeOwner::Tuple => Some(IntrinsicTypeOwner::Tuple),
             IntrinsicRuntimeOwner::Record => Some(IntrinsicTypeOwner::Record),
-            IntrinsicRuntimeOwner::Unit => None,
         };
         if let Some(type_owner) = type_owner {
             self.intrinsic_type_owners.insert(declaration.clone(), type_owner);
@@ -279,6 +293,12 @@ impl DeclarationTypeTable {
 
     pub fn intrinsic_type_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicTypeOwner> {
         self.intrinsic_type_owners.get(declaration).copied()
+    }
+
+    pub fn intrinsic_type_owner_declaration(&self, owner: IntrinsicTypeOwner) -> Option<DeclarationId> {
+        self.intrinsic_type_owners
+            .iter()
+            .find_map(|(declaration, candidate)| (*candidate == owner).then(|| declaration.clone()))
     }
 
     pub fn intrinsic_static_domain_kind(&self, declaration: &DeclarationId) -> Option<KindId> {
@@ -377,7 +397,9 @@ fn source_parameter_kind(store: &mut TypeStore, parameter: &GenericParameterSynt
     }
     match parameter.mode {
         Some(ExpansionMode::Positional) => KindId::TYPE_PACK,
-        Some(ExpansionMode::Labeled) => KindId::LABELED_TYPE_PACK,
+        // `**` defaults to RecordFields. LabeledTypePack remains available as
+        // an explicit kind annotation under the same expansion mode.
+        Some(ExpansionMode::Labeled) => KindId::RECORD_ROW,
         Some(ExpansionMode::Complete) => KindId::COMPLETE_TYPE_PACK,
         None => KindId::TYPE,
     }
@@ -414,7 +436,7 @@ fn insert_source_nominal(table: &mut DeclarationTypeTable, store: &mut TypeStore
         (form, kind, Some(signature))
     };
 
-    table.insert(DeclarationTypeInfo {
+    table.replace_authoritative(DeclarationTypeInfo {
         class_object_type: store.class_object_type(declaration.clone()),
         declaration,
         form,
@@ -488,17 +510,6 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
                                 .runtime_owner
                                 .is_some_and(|owner| table.register_intrinsic_runtime_owner(&declaration, owner));
                             debug_assert!(semantic_registered && owner_registered, "intrinsic data shell projections were just registered");
-                            if let Some(info) = table.entries.get_mut(&declaration) {
-                                // The binding owns semantic application behavior
-                                // independently; the base form remains the
-                                // existing bare/runtime class identity.
-                                info.form = match binding.runtime_owner.expect("canonical intrinsic runtime facade has an owner") {
-                                    IntrinsicRuntimeOwner::Unit => store.unit(),
-                                    IntrinsicRuntimeOwner::Tuple | IntrinsicRuntimeOwner::Record => store.nominal_type(declaration.clone()),
-                                };
-                                info.kind = KindId::TYPE;
-                                info.generic_signature = None;
-                            }
                         }
                         continue;
                     }
@@ -531,14 +542,9 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
 }
 
 fn intrinsic_binding_for_source(module: &ModuleId, name: &str) -> Option<DeclarationTypeBinding> {
-    let unit_module = source_module_id(&["option", "unit"]);
     let tuple_module = source_module_id(&["collections", "tuple"]);
     let record_module = source_module_id(&["collections", "record"]);
     match (module, name) {
-        (module, "Unit") if module == &unit_module => Some(DeclarationTypeBinding {
-            semantic_form: DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Unit),
-            runtime_owner: Some(IntrinsicRuntimeOwner::Unit),
-        }),
         (module, "Tuple") if module == &tuple_module => Some(DeclarationTypeBinding {
             semantic_form: DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Tuple),
             runtime_owner: Some(IntrinsicRuntimeOwner::Tuple),
@@ -558,9 +564,7 @@ fn intrinsic_static_facade_kind(module: &ModuleId, name: &str) -> Option<KindId>
         (module, "TypePack") if module == &tuple_module => Some(KindId::TYPE_PACK),
         (module, "LabeledTypePack") if module == &tuple_module => Some(KindId::LABELED_TYPE_PACK),
         (module, "CompleteTypePack") if module == &tuple_module => Some(KindId::COMPLETE_TYPE_PACK),
-        (module, "TupleEntries") if module == &tuple_module => Some(KindId::COMPLETE_TYPE_PACK),
         (module, "RecordFields") if module == &record_module => Some(KindId::RECORD_ROW),
-        (module, "RecordRow") if module == &record_module => Some(KindId::RECORD_ROW),
         _ => None,
     }
 }

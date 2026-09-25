@@ -109,29 +109,33 @@ not runtime values, methods, or invocation targets.
 The compiler-intrinsic structural declaration surface is:
 
 ```phalcom
-intrinsic data Tuple<***Es>
-intrinsic data Record<R: RecordRow>
+intrinsic data Tuple<***Es>(***Es)
+intrinsic data Record<**Fs> { **Fs }
 
-impl Tuple {
-  intrinsic type Entries: TupleEntries
+impl<***Es> Tuple<***Es> {
+  intrinsic type Entries: CompleteTypePack
   intrinsic type Positionals: TypePack
   intrinsic type Labeled: LabeledTypePack
+  intrinsic type Element: Type
   intrinsic type At<I: Int>: Type
   intrinsic type Map<F: Type -> Type>: Type
 }
 
-impl Record {
+impl<**Fs> Record<**Fs> {
+  intrinsic type Fields: RecordFields
+  intrinsic type Value: Type
   intrinsic type Map<F: Type -> Type>: Type
 }
 ```
 
 The declarations live on the canonical Universe anchors for discovery,
 documentation, and reflection while semantic applications reuse the existing
-Tuple/Record structural domains. `Tuple::Entries` is the public name for
-`CompleteTypePack`; `Tuple::Positionals`, `Tuple::Labeled`, and `Tuple::Entries`
-project the existing positional, labeled, and complete packs. The canonical
-semantic member for integer indexing is the type-level Subscript member;
-`T[I]` and `Tuple::At<I>` are presentations of that operation.
+Tuple/Record structural domains. The `***` and `**` application forms expand
+complete type packs and RecordFields values. `Tuple::Positionals`,
+`Tuple::Labeled`, and `Tuple::Entries` project the positional, labeled, and
+complete packs. The canonical semantic member for integer indexing is the
+type-level Subscript member; `T[I]` and `Tuple::At<I>` are presentations of
+that operation.
 
 ## 3. Identity
 
@@ -284,7 +288,7 @@ Tuple-family       Positionals, Labeled, At<I>, Map<F>
 TypePack           Map<F>
 LabeledTypePack    Map<F>
 Record-family      Map<F>
-RecordRow          Map<F>
+RecordFields       Map<F>
 ```
 
 Their availability is domain-based. A source declaration may provide a
@@ -296,7 +300,7 @@ competing semantic member database.
 | ID | Requirement |
 |---|---|
 | **TM-DECLARATION-IDENTITY** | Type-member identity is declaration/domain identity, not spelling identity. |
-| **TM-PROJECTION-DOMAIN** | Projection results may be `Type`, `TypePack`, `LabeledTypePack`, `RecordRow`, or another declared domain. |
+| **TM-PROJECTION-DOMAIN** | Projection results may be `Type`, `TypePack`, `LabeledTypePack`, `RecordFields`, or another declared domain. |
 | **TM-PARAMETERS-LOCAL** | Member-local parameters belong to the member application. |
 | **TM-PROJECTION-SYMBOLIC** | A valid unreduced projection remains symbolic. |
 | **TM-INVALID-DISTINCT-FROM-STUCK** | Concrete invalidity and lack of reduction information are distinct outcomes. |

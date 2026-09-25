@@ -254,7 +254,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         .join(", ")
                 ),
                 TypeNode::OpenRecord(open_rec) => format!(
-                    "#{{{}, | R{}}}",
+                    "{{{}, **R{}}}",
                     open_rec
                         .fields
                         .iter()
@@ -493,7 +493,7 @@ pub fn kind_display(context: &TypingContextData, registry: &RuntimeTypingRegistr
         RuntimeKindRef::Base { pool, node } => match registry.get_pool(pool).and_then(|pool| pool.bundle.kinds.get(node.0 as usize)) {
             Some(entry) => match &entry.node {
                 phalcom_type_meta::kind::KindNode::Type => "Type".to_string(),
-                phalcom_type_meta::kind::KindNode::RecordRow => "RecordRow".to_string(),
+                phalcom_type_meta::kind::KindNode::RecordRow => "RecordFields".to_string(),
                 phalcom_type_meta::kind::KindNode::TypePack => "TypePack".to_string(),
                 phalcom_type_meta::kind::KindNode::LabeledTypePack => "LabeledTypePack".to_string(),
                 phalcom_type_meta::kind::KindNode::CompleteTypePack => "CompleteTypePack".to_string(),

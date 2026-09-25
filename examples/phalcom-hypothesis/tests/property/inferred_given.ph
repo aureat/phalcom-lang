@@ -24,7 +24,7 @@ class InferredProperties is PropertySuite {
   recursiveValues(
     optional: Option<Int>,
     values: List<Bool>,
-    pair: Tuple<Int, String>
+    pair: Tuple<***(Int, String)>
   ) {
     self.assertTrue(optional.isA(Option))
     self.assertTrue(values.isA(List))

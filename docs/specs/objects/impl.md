@@ -183,7 +183,7 @@ override an applicable exact conformance.
 
 ## Inherent ownership boundary
 
-An inherent implementation may be declared only in the module that owns the target declaration.
+An inherent implementation may be declared only in the module that owns the target's behavior.
 
 Conceptually:
 
@@ -193,7 +193,7 @@ impl declaration module
 target declaration module
 ```
 
-For an exact closed-sum case, the owning module is the module that owns the data declaration.
+For an exact closed-sum case, the owning module is the module that owns the data declaration. For a structural Tuple or Record target, the owning module is the module of the canonical Universe `Tuple` or `Record` declaration, respectively.
 
 This rule applies regardless of where the target is imported or re-exported.
 
@@ -201,7 +201,7 @@ An unrelated dependency cannot add inherent behavior to a nominal type it does n
 
 > **Authorization invariant**
 >
-> Inherent behavior may be split into `impl` declarations, but it remains controlled by the module that owns the nominal target.
+> Inherent behavior may be split into `impl` declarations, but it remains controlled by the module that owns the target's canonical behavior.
 
 A future language revision may deliberately broaden the ownership boundary. Such a revision changes the language's coherence model and is not implied by this specification.
 
@@ -215,7 +215,7 @@ An authorized implementation may contain members with restricted visibility acco
 
 # Legal Inherent Targets
 
-An inherent implementation target must be a nominal semantic target owned by a declaration, or an exact case of a closed-sum `data` declaration.
+An inherent implementation target must be a declaration-owned nominal semantic target, an exact case of a closed-sum `data` declaration, or one of the two language-defined structural product families: Tuple and Record.
 
 Legal target categories are:
 
@@ -225,6 +225,8 @@ closed-sum data root
 exact data case
 class type
 covering generic application of an eligible nominal type
+structural Tuple type
+structural Record type
 ```
 
 Examples:
@@ -253,12 +255,26 @@ impl Expression::Literal(_) {
 }
 ```
 
-Anonymous structural types such as Tuple and Record are not direct inherent `impl` targets.
+Tuple and Record remain structural semantic types. Their behavior belongs to the canonical Universe declaration for the corresponding family, regardless of whether the target was written with the family application or directly as a structural type.
 
-Function types and other structural type expressions are likewise not direct inherent targets unless a separate specification explicitly introduces such a facility.
+```phalcom
+impl<***Es: CompleteTypePack> Tuple<***Es> { ... }
+impl (Int, String) { ... }
+impl<T> (T, T) { ... }
 
-Compiler/domain-defined structural type members do not weaken this rule. For
-example:
+impl<**Fs: RecordFields> Record<**Fs> { ... }
+impl { name: String } { ... }
+impl<T> { value: T } { ... }
+```
+
+Equivalent structural and family-application spellings canonicalize to one target type before applicability, overlap, and selector-collision analysis. For example, `(Int, String)` and `Tuple<***(Int, String)>` denote one Tuple impl domain; `{ name: String }` and `Record<**{ name: String }>` denote one Record impl domain. Direct generic pack contributions such as `Tuple<Int, String>` and `Record<name: String>` are not supported; variadic contributions require an explicit expansion.
+
+Only the module that owns the canonical Universe family may author these impls. Structural shape does not grant extension rights to a foreign module. This rule applies to both covering family impls and specialized structural domains.
+
+Function types and other structural type expressions are not direct inherent targets unless a separate specification explicitly introduces such a facility.
+
+Compiler/domain-defined structural type members do not by themselves authorize
+impls for arbitrary structural types. For example:
 
 ```phalcom
 (Int, String)::Map<Option>
@@ -266,12 +282,12 @@ example:
 
 uses the domain-native type-member mechanism defined by [Type Members](../type-members.md)
 and [Structural Products](../structural-products.md). It does not imply that
-the anonymous Tuple shape is an ordinary inherent `impl` target, and it does
-not authorize source code to reopen that shape with `impl`.
+other structural shapes are inherent `impl` targets. Tuple and Record are the
+only structural families granted inherent behavior ownership by this rule.
 
 > **Nominal-target invariant**
 >
-> Inherent behavior is attached to declaration-owned nominal targets, not to arbitrary structural type expressions.
+> Inherent behavior is attached to declaration-owned targets. Tuple and Record structural types use their canonical Universe family declaration as behavior owner; other structural type expressions do not gain an owner through this rule.
 
 ---
 
@@ -883,9 +899,9 @@ An inherent implementation declared outside the target's owning module is invali
 
 A target that is not an eligible nominal target or exact closed-sum case is invalid.
 
-## Structural target
+## Unauthorized structural family target
 
-An anonymous structural type cannot be used as an inherent target.
+A Tuple or Record structural target is semantically eligible, but an impl outside the corresponding canonical Universe owner module is invalid. Other structural targets remain ineligible.
 
 This does not prohibit compiler/domain-native type members on structural
 domains. Those members are not ordinary inherent implementation fragments.
@@ -994,7 +1010,7 @@ The exact compiler products are not part of Phalcom source semantics.
 
 The following facilities are not defined by this specification:
 
-- inherent implementations directly targeting anonymous structural types;
+- inherent implementations directly targeting structural types other than Tuple and Record;
 - concrete target-pattern specialization such as `impl Point<Int>`;
 - non-covering generic target patterns such as `impl<T> Pair<T, T>`;
 - inherent-implementation specialization or “most specific impl” selection;
@@ -1023,9 +1039,9 @@ A future specification may introduce any of these deliberately. Their absence do
 >
 > Only the module that owns a nominal target may declare its inherent implementations.
 
-> **Nominal targeting**
+> **Canonical targeting**
 >
-> Inherent implementations target nominal declarations or exact closed-sum cases, not anonymous structural types.
+> Inherent implementations target declaration-owned nominal types, exact closed-sum cases, or the language-defined Tuple and Record structural families through their canonical behavior owners.
 
 > **Representation preservation**
 >

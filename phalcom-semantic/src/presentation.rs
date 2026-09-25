@@ -127,7 +127,7 @@ impl AdvisoryPresenter {
             ValueShape::Tuple(elements) => format!("({})", elements.iter().map(Self::present_shape).collect::<Vec<_>>().join(", ")),
             ValueShape::ExactList(elements) => format!("List<{}>", Self::present_shape(&ValueShape::bounded_union(elements.iter().cloned()))),
             ValueShape::Record(fields) => format!(
-                "#{{{}}}",
+                "{{{}}}",
                 fields
                     .iter()
                     .map(|(label, value)| format!("{label}: {}", Self::present_shape(value)))

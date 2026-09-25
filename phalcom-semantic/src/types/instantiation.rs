@@ -87,7 +87,13 @@ fn materialize_type_inner(
                         row_mode,
                         visiting_rows,
                     )?)),
-                    super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(*row)),
+                    super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(materialize_row_id(
+                        store,
+                        *row,
+                        instantiation,
+                        row_mode,
+                        visiting_rows,
+                    )?)),
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
             store.apply_static_form(origin, &arguments).map_err(|_| TypeMaterializationError::TypeApplication)
@@ -270,7 +276,13 @@ fn materialize_type_inner(
                         row_mode,
                         visiting_rows,
                     )?)),
-                    super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(*row)),
+                    super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(materialize_row_id(
+                        store,
+                        *row,
+                        instantiation,
+                        row_mode,
+                        visiting_rows,
+                    )?)),
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?
                 .into_boxed_slice();
@@ -302,6 +314,17 @@ fn materialize_row(
         })
         .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
     materialize_row_tail(store, fields, row.tail, instantiation, row_mode, visiting_rows)
+}
+
+fn materialize_row_id(
+    store: &mut TypeStore,
+    row_id: RecordRowId,
+    instantiation: &GenericInstantiation,
+    row_mode: RowMaterializationMode,
+    visiting_rows: &mut HashSet<TypeParameterId>,
+) -> Result<RecordRowId, TypeMaterializationError> {
+    let (fields, tail) = materialize_row(store, row_id, instantiation, row_mode, visiting_rows)?;
+    Ok(store.record_row_checked(fields, tail)?)
 }
 
 fn materialize_row_tail(

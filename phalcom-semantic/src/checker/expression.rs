@@ -1,7 +1,7 @@
 //! Expression type synthesis, bidirectional checking, and inference engine (Spec 04.5 / Wave 3).
 
 use super::call::{
-    CallPremise, CallTargetAuthority, CallableApplicationTarget, StaticCallShape, UnionCallArm, UnresolvedApplicationReason, analyze_non_callable_invocation,
+    CallPremise, CallTargetAuthority, CallableApplicationTarget, DataConstructorShapeAdapter, StaticCallShape, UnionCallArm, UnresolvedApplicationReason, analyze_non_callable_invocation,
     analyze_unresolved_application, application_arguments, apply_resolved_callable, apply_union_resolved_call, callable_value_target, static_call_shape,
 };
 use super::context::CheckingContext;
@@ -936,7 +936,16 @@ pub(crate) fn callable_target_for_data_info(data_info: &DataInfo) -> CallableApp
     if let Some(generics) = &data_info.generic_signature {
         signature = signature.with_generics(generics.clone());
     }
-    CallableApplicationTarget::data_constructor(data_info.constructor.constructor.clone(), signature)
+    let mut target = CallableApplicationTarget::data_constructor(data_info.constructor.constructor.clone(), signature);
+    if let Some(template) = data_info.constructor_template.as_ref()
+        && template
+            .parameters
+            .iter()
+            .any(|contribution| matches!(contribution, crate::data_semantics::DataConstructorParameterContribution::Expansion(_)))
+    {
+        target = target.with_data_constructor_shape(DataConstructorShapeAdapter::new(data_info.shape, template.clone()));
+    }
+    target
 }
 
 fn compute_data_argument_mapping_from_record(data_info: &DataInfo, entries: &[phalcom_ast::ast::RecordConstructionEntry]) -> Option<Box<[u32]>> {
@@ -980,6 +989,18 @@ fn compute_data_argument_mapping_from_pack(data_info: &DataInfo, args: &[PackIte
     } else {
         None
     }
+}
+
+fn compute_shape_aware_data_argument_mapping(
+    data_info: &DataInfo,
+    target: &CallableApplicationTarget,
+    arguments: &[super::call::ApplicationArgument<'_>],
+    specialized_type: TypeId,
+    store: &mut crate::types::store::TypeStore,
+) -> Option<Box<[u32]>> {
+    let adapter = target.data_constructor_shape.as_ref()?;
+    let shape = crate::data_semantics::materialize_data_product_shape(store, data_info, specialized_type).ok()?;
+    adapter.argument_to_components(arguments, &target.signature.parameters, store, &shape)
 }
 
 fn synthesize_record_construction(
@@ -1039,9 +1060,11 @@ fn synthesize_record_construction(
             target = target.with_fixed_generics(fixed_generics);
         }
     }
-    let argument_mapping = compute_data_argument_mapping_from_record(&data_info, &record.entries);
     let result = apply_resolved_callable(ctx, &target, &premise, &args, expected, record.range);
     let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty());
+    let argument_mapping = result_type
+        .and_then(|result_type| compute_shape_aware_data_argument_mapping(&data_info, &target, &args, result_type, ctx.store))
+        .or_else(|| compute_data_argument_mapping_from_record(&data_info, &record.entries));
     if let (Some(result_type), Some(expression)) = (result_type, ctx.current_expression_id()) {
         ctx.record_associated_resolution(
             expression,
@@ -3314,7 +3337,9 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
             target.access_denied = !ctx.data_constructor_is_accessible(&data_info);
             let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range);
             let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty());
-            let argument_mapping = compute_data_argument_mapping_from_pack(&data_info, &call.args);
+            let argument_mapping = result_type
+                .and_then(|result_type| compute_shape_aware_data_argument_mapping(&data_info, &target, &arguments, result_type, ctx.store))
+                .or_else(|| compute_data_argument_mapping_from_pack(&data_info, &call.args));
             if let (Some(result_type), Some(expression)) = (result_type, ctx.current_expression_id()) {
                 ctx.record_associated_resolution(
                     expression,

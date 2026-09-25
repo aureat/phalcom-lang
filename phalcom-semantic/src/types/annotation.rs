@@ -807,6 +807,8 @@ fn scoped_pack_projection(
     binders: &ScopedBinderStack,
     lane: ScopedPackProjectionLane,
 ) -> TypeFormationOutcome<crate::types::id::ScopedTypeId> {
+    use crate::types::type_lambda::ScopedLabeledTypePackElement;
+
     let kind = scoped_ready_or_propagate!(scoped_kind(store, subject, binders));
     let identity = matches!(
         (kind, lane),
@@ -819,6 +821,85 @@ fn scoped_pack_projection(
     }
     if kind == KindId::COMPLETE_TYPE_PACK {
         return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::PackProjection { subject, lane }));
+    }
+
+    // A tuple type is also an explicit pack-expansion operand. Keep scoped
+    // tuple literals in the scoped arena so bound element types survive until
+    // the surrounding type lambda is applied. Already-canonical tuple forms
+    // can use the TypeStore's canonical projection authority directly.
+    match store.arena().get_scoped(subject).clone() {
+        ScopedTypeData::Tuple(elements) => {
+            let projected = match lane {
+                ScopedPackProjectionLane::Positionals => {
+                    let elements = elements
+                        .iter()
+                        .filter(|element| element.label.is_none())
+                        .map(|element| element.ty)
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice();
+                    store.arena_mut().intern_scoped(ScopedTypeData::TypePack(elements))
+                }
+                ScopedPackProjectionLane::Labeled => {
+                    let elements = elements
+                        .iter()
+                        .filter_map(|element| {
+                            element.label.as_ref().map(|label| ScopedLabeledTypePackElement {
+                                label: label.clone(),
+                                element: element.ty,
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice();
+                    store.arena_mut().intern_scoped(ScopedTypeData::LabeledTypePack(elements))
+                }
+                ScopedPackProjectionLane::Complete => {
+                    let positionals = store.arena_mut().intern_scoped(ScopedTypeData::TypePack(
+                        elements
+                            .iter()
+                            .filter(|element| element.label.is_none())
+                            .map(|element| element.ty)
+                            .collect::<Vec<_>>()
+                            .into_boxed_slice(),
+                    ));
+                    let labeled = store.arena_mut().intern_scoped(ScopedTypeData::LabeledTypePack(
+                        elements
+                            .iter()
+                            .filter_map(|element| {
+                                element.label.as_ref().map(|label| ScopedLabeledTypePackElement {
+                                    label: label.clone(),
+                                    element: element.ty,
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                            .into_boxed_slice(),
+                    ));
+                    store.arena_mut().intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled })
+                }
+            };
+            return TypeFormationOutcome::Ready(projected);
+        }
+        ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+            let projected = match lane {
+                ScopedPackProjectionLane::Positionals => positionals,
+                ScopedPackProjectionLane::Labeled => labeled,
+                ScopedPackProjectionLane::Complete => {
+                    store.arena_mut().intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled })
+                }
+            };
+            return TypeFormationOutcome::Ready(projected);
+        }
+        ScopedTypeData::Free(ty) if matches!(store.get(ty), TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit) => {
+            let projected = match lane {
+                ScopedPackProjectionLane::Positionals => store.project_positionals(ty),
+                ScopedPackProjectionLane::Labeled => store.project_labeled(ty),
+                ScopedPackProjectionLane::Complete => store.project_complete(ty),
+            };
+            return match projected {
+                Ok(projected) => TypeFormationOutcome::Ready(intern_scoped_free(store, projected)),
+                Err(_) => TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+            };
+        }
+        _ => {}
     }
     TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax)
 }
@@ -977,35 +1058,56 @@ fn lower_scoped_type_form(
             } else {
                 scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, origin, diagnostics))
             };
-            if intrinsic_type_application_for_scoped_form(store, declarations, scoped_origin) == Some(IntrinsicTypeApplication::Record)
-                && arguments.len() == 1
-            {
-                if let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = &arguments[0] {
-                    if let TypeAnnotationExpr::Reference(reference) = &argument.expr
-                        && reference.members.is_empty()
-                    {
-                        if let Some((depth, index, KindId::RECORD_ROW)) = binders.resolve(reference.leaf_name()) {
-                            return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
-                                fields: Box::new([]),
-                                tail: ScopedRecordTail::Bound { depth, index },
-                            })));
-                        }
-                        if let Some(TypeLevelBinding::RecordRow(parameter)) = resolver.resolve_type_level_binding(reference.leaf_name()) {
-                            return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
-                                fields: Box::new([]),
-                                tail: ScopedRecordTail::FreeParameter(parameter),
-                            })));
-                        }
-                    }
-                    let lowered = scoped_ready_or_propagate!(lower_scoped_type_form(
-                        store, declarations, resolver, site, binders, argument, diagnostics,
+            if intrinsic_type_application_for_scoped_form(store, declarations, scoped_origin) == Some(IntrinsicTypeApplication::Record) {
+                if arguments.is_empty() {
+                    return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Record(Box::new([]))));
+                }
+                if arguments.len() != 1 {
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::TooManyTypeArguments);
+                }
+                let phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) = &arguments[0] else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "RecordFields applications require an explicit `**` expansion",
+                        arguments[0].range(),
                     ));
-                    if matches!(store.arena().get_scoped(lowered), ScopedTypeData::Free(ty) if matches!(store.get(*ty), TypeData::Record(_))) {
-                        return TypeFormationOutcome::Ready(lowered);
-                    }
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                };
+                if expansion.mode != ExpansionMode::Labeled {
                     return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
                 }
-                return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                if let TypeAnnotationExpr::Reference(reference) = &expansion.operand.expr
+                    && reference.members.is_empty()
+                {
+                    if let Some((depth, index, KindId::RECORD_ROW)) = binders.resolve(reference.leaf_name()) {
+                        return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
+                            fields: Box::new([]),
+                            tail: ScopedRecordTail::Bound { depth, index },
+                        })));
+                    }
+                    if let Some(TypeLevelBinding::RecordRow(parameter)) = resolver.resolve_type_level_binding(reference.leaf_name()) {
+                        return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
+                            fields: Box::new([]),
+                            tail: ScopedRecordTail::FreeParameter(parameter),
+                        })));
+                    }
+                }
+                let lowered = scoped_ready_or_propagate!(lower_scoped_type_form(
+                    store,
+                    declarations,
+                    resolver,
+                    site,
+                    binders,
+                    &expansion.operand,
+                    diagnostics,
+                ));
+                if matches!(store.arena().get_scoped(lowered), ScopedTypeData::Record(_) | ScopedTypeData::OpenRecord(_))
+                    || matches!(store.arena().get_scoped(lowered), ScopedTypeData::Free(ty) if matches!(store.get(*ty), TypeData::Record(_)))
+                {
+                    return TypeFormationOutcome::Ready(lowered);
+                }
+                return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
             }
             if let Some(contract) = scoped_generic_application_contract(store, declarations, scoped_origin)
                 && contract.has_variadic_binder()
@@ -1039,11 +1141,13 @@ fn lower_scoped_type_form(
                 for argument in arguments.iter().skip(fixed_count) {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(argument) => {
-                            let range = argument.range;
-                            let argument =
-                                scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, argument, diagnostics,));
-                            scoped_ready_or_propagate!(require_scoped_proper(store, argument, binders, current_module, range, diagnostics,));
-                            positional_segments.push(store.arena_mut().intern_scoped(ScopedTypeData::TypePack(vec![argument].into_boxed_slice())));
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "generic pack contributions require an explicit `*`, `**`, or `***` expansion",
+                                argument.range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
                         }
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
                             let operand = scoped_ready_or_propagate!(lower_scoped_type_form(
@@ -1274,7 +1378,7 @@ fn lower_scoped_type_form(
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
                         DiagnosticCode::KindExpectedType,
-                        format!("record row tail `{}` must have kind RecordRow", tail.name),
+                        format!("record row tail `{}` must have kind RecordFields", tail.name),
                         annotation.range,
                     ));
                     return TypeFormationOutcome::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual: kind });
@@ -1288,7 +1392,7 @@ fn lower_scoped_type_form(
                         diagnostics.push(SemanticDiagnostic::error_in(
                             current_module.clone(),
                             DiagnosticCode::RecordRowTailKindMismatch,
-                            format!("record row tail `{}` must have kind RecordRow", tail.name),
+                            format!("record row tail `{}` must have kind RecordFields", tail.name),
                             annotation.range,
                         ));
                         return TypeFormationOutcome::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual });
@@ -1630,6 +1734,20 @@ fn intrinsic_type_application_for_form(
     }
 }
 
+fn record_fields_row_from_form(store: &mut TypeStore, form: TypeId) -> Option<super::id::RecordRowId> {
+    match store.get(form).clone() {
+        TypeData::Record(row) => Some(row),
+        TypeData::TypeMemberProjection(_) if store.kind_of(form) == KindId::RECORD_ROW => {
+            crate::types::projection::selected_record_fields_row(store, form).or_else(|| {
+                store
+                    .record_row_checked(Vec::new(), RecordRowTail::Projection(form))
+                    .ok()
+            })
+        }
+        _ => None,
+    }
+}
+
 fn scoped_generic_application_contract(
     store: &TypeStore,
     declarations: &DeclarationTypeTable,
@@ -1677,7 +1795,7 @@ fn lower_scoped_type_lambda(
             diagnostics.push(SemanticDiagnostic::error_in(
                 current_module.clone(),
                 DiagnosticCode::AnnotationUnsupported,
-                "RecordRow parameters are supported only on callable generic binders",
+                "RecordFields parameters are supported only on callable generic binders",
                 parameter.range,
             ));
             return TypeFormationOutcome::Invalid(TypeFormationInvalid::UnsupportedRecordRowBinderSite);
@@ -2018,12 +2136,42 @@ pub fn resolve_type_form(
             // argument. Consume a bound row directly and form the existing
             // structural Record value at this declaration-owned boundary.
             if intrinsic_type_application_for_form(store, declarations, origin_ty) == Some(IntrinsicTypeApplication::Record) {
+                if arguments.is_empty() {
+                    let row = match store.record_row_checked(Vec::new(), RecordRowTail::Closed) {
+                        Ok(row) => row,
+                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                    };
+                    return TypeFormResolution::Ready(store.record_type(row));
+                }
                 if arguments.len() != 1 {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::ApplicationTooManyArguments,
+                        "Record application accepts one RecordFields argument or one structural spread",
+                        annotation.range,
+                    ));
                     return TypeFormResolution::Invalid(TypeFormationInvalid::TooManyTypeArguments);
                 }
-                let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = &arguments[0] else {
+                let phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) = &arguments[0] else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "RecordFields applications require an explicit `**` expansion",
+                        arguments[0].range(),
+                    ));
                     return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                 };
+                if expansion.mode != ExpansionMode::Labeled {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::KindExpectedType,
+                        "RecordFields requires a labeled `**` expansion",
+                        expansion.range,
+                    ));
+                    return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                }
+                let argument = &expansion.operand;
+
                 let row_parameter = match &argument.expr {
                     TypeAnnotationExpr::Reference(reference) if reference.members.is_empty() => {
                         match resolver.resolve_type_level_binding(reference.leaf_name()) {
@@ -2040,17 +2188,133 @@ pub fn resolve_type_form(
                     };
                     return TypeFormResolution::Ready(store.record_type(row));
                 }
+
                 let applied_argument = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, argument, diagnostics));
-                if let TypeData::Record(row) = store.get(applied_argument) {
-                    return TypeFormResolution::Ready(store.record_type(*row));
+                if let Some(row) = record_fields_row_from_form(store, applied_argument) {
+                    // The Record family has row identity, not a labeled-pack
+                    // coercion. An explicit `**` spread retains the exact row
+                    // produced by the operand.
+                    return TypeFormResolution::Ready(store.record_type(row));
                 }
                 diagnostics.push(SemanticDiagnostic::error_in(
                     current_module.clone(),
                     DiagnosticCode::KindExpectedType,
-                    "Record application requires a RecordRow argument",
+                    "Record application requires a RecordFields argument",
                     argument.range,
                 ));
-                return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch)
+            }
+
+            // A RecordFields binder consumes an explicit labeled expansion,
+            // but its argument remains a RecordRowId. Keep this path separate
+            // from ordinary LabeledTypePack construction.
+            if let Some(contract) = generic_application_contract(store, declarations, origin_ty) {
+                let fixed_count = contract
+                    .parameter_modes
+                    .iter()
+                    .take_while(|mode| **mode == GenericParameterMode::Single)
+                    .count();
+                let has_record_fields_parameter = contract.parameter_kinds.get(fixed_count) == Some(&KindId::RECORD_ROW)
+                    && contract.parameter_modes.get(fixed_count) == Some(&GenericParameterMode::LabeledPack);
+                if has_record_fields_parameter {
+                    if contract.parameter_kinds.len() != fixed_count + 1 || arguments.len() < fixed_count || arguments.len() > fixed_count + 1 {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::ApplicationTooManyArguments,
+                            "a RecordFields binder accepts exactly one explicit `**` expansion",
+                            annotation.range,
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                    }
+
+                    let mut static_arguments = Vec::with_capacity(arguments.len());
+                    for argument in arguments.iter().take(fixed_count) {
+                        let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "fixed generic parameters require single type arguments before a pack expansion",
+                                argument.range(),
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                        };
+                        let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, argument, diagnostics));
+                        static_arguments.push(StaticArgument::Term(ty));
+                    }
+
+                    let row = if arguments.len() == fixed_count {
+                        match store.record_row_checked(Vec::new(), RecordRowTail::Closed) {
+                            Ok(row) => row,
+                            Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                        }
+                    } else {
+                        let phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) = &arguments[fixed_count] else {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "RecordFields applications require an explicit `**` expansion",
+                                arguments[fixed_count].range(),
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                        };
+                        if expansion.mode != ExpansionMode::Labeled {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::KindExpectedType,
+                                "RecordFields requires a labeled `**` expansion",
+                                expansion.range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                        }
+
+                        let row_parameter = match &expansion.operand.expr {
+                            TypeAnnotationExpr::Reference(reference) if reference.members.is_empty() => {
+                                match resolver.resolve_type_level_binding(reference.leaf_name()) {
+                                    Some(TypeLevelBinding::RecordRow(parameter)) => Some(parameter),
+                                    _ => None,
+                                }
+                            }
+                            _ => None,
+                        };
+                        if let Some(parameter) = row_parameter {
+                            match store.record_row_checked(Vec::new(), RecordRowTail::Parameter(parameter)) {
+                                Ok(row) => row,
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                            }
+                        } else {
+                            let operand = type_form_ready_or_return!(resolve_type_form(
+                                store,
+                                declarations,
+                                resolver,
+                                site,
+                                &expansion.operand,
+                                diagnostics,
+                            ));
+                            match record_fields_row_from_form(store, operand) {
+                                Some(row) => row,
+                                None => {
+                                    diagnostics.push(SemanticDiagnostic::error_in(
+                                        current_module.clone(),
+                                        DiagnosticCode::KindExpectedType,
+                                        "RecordFields expansion requires a structural Record or RecordFields parameter",
+                                        expansion.operand.range,
+                                    ));
+                                    return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                                }
+                            }
+                        }
+                    };
+                    static_arguments.push(StaticArgument::RecordRow(row));
+                    return match store.apply_static_form(origin_ty, &static_arguments) {
+                        Ok(applied) => TypeFormResolution::Ready(applied),
+                        Err(error) => TypeFormResolution::Invalid(match error {
+                            TypeApplicationError::NotAConstructor { .. } => TypeFormationInvalid::NotAConstructor,
+                            TypeApplicationError::TooManyArguments { .. } => TypeFormationInvalid::TooManyTypeArguments,
+                            TypeApplicationError::ArgumentKindMismatch { .. } => TypeFormationInvalid::TypeArgumentKindMismatch,
+                            TypeApplicationError::MalformedLambda => TypeFormationInvalid::MalformedTypeLambda,
+                        }),
+                    };
+                }
             }
 
             // Canonical origins retain application mode independently from
@@ -2161,21 +2425,14 @@ pub fn resolve_type_form(
                     let mut labeled_segments = Vec::new();
                     for contribution in contributions.into_iter().skip(fixed_count) {
                         match contribution {
-                            Contribution::Single(ty) => {
-                                if store.kind_of(ty) != KindId::TYPE {
-                                    diagnostics.push(SemanticDiagnostic::error_in(
-                                        current_module.clone(),
-                                        DiagnosticCode::KindExpectedType,
-                                        "a positional generic pack can contain only proper types",
-                                        annotation.range,
-                                    ));
-                                    return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
-                                }
-                                let pack = match store.type_pack(vec![ty].into_boxed_slice()) {
-                                    Ok(pack) => pack,
-                                    Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
-                                };
-                                positional_segments.push(pack);
+                            Contribution::Single(_) => {
+                                diagnostics.push(SemanticDiagnostic::error_in(
+                                    current_module.clone(),
+                                    DiagnosticCode::AnnotationUnsupported,
+                                    "generic pack contributions require an explicit `*`, `**`, or `***` expansion",
+                                    annotation.range,
+                                ));
+                                return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                             }
                             Contribution::Positional(pack) => positional_segments.push(pack),
                             Contribution::Labeled(pack) => labeled_segments.push(pack),
@@ -2392,7 +2649,7 @@ pub fn resolve_type_form(
                         diagnostics.push(SemanticDiagnostic::error_in(
                             current_module.clone(),
                             DiagnosticCode::RecordRowTailKindMismatch,
-                            format!("record row tail `{}` must have kind RecordRow", tail.name),
+                            format!("record row tail `{}` must have kind RecordFields", tail.name),
                             annotation.range,
                         ));
                         return TypeFormResolution::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual });
@@ -2739,10 +2996,47 @@ fn resolve_type_member_projection(
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> TypeFormResolution {
     let current_module = &site.module;
-    let subject_res = resolve_type_form(store, declarations, resolver, site, subject, diagnostics);
-    let subject_ty = match subject_res {
-        TypeFormResolution::Ready(ty) => ty,
-        other => return other,
+    let row_parameter = match &subject.expr {
+        TypeAnnotationExpr::Reference(reference) if reference.members.is_empty() => {
+            match resolver.resolve_type_level_binding(reference.leaf_name()) {
+                Some(TypeLevelBinding::RecordRow(parameter)) => Some(parameter),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    let (subject_ty, projection_subject, intrinsic_owner) = if let Some(parameter) = row_parameter {
+        let row = match store.record_row_checked(Vec::new(), RecordRowTail::Parameter(parameter)) {
+            Ok(row) => row,
+            Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+        };
+        (
+            None,
+            ProjectionSubject::RecordRow(row),
+            Some(crate::types::type_member::IntrinsicTypeOwner::RecordRow),
+        )
+    } else {
+        let subject_res = resolve_type_form(store, declarations, resolver, site, subject, diagnostics);
+        let subject_ty = match subject_res {
+            TypeFormResolution::Ready(ty) => ty,
+            other => return other,
+        };
+        let intrinsic_owner = match store.get(subject_ty) {
+            TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => Some(crate::types::type_member::IntrinsicTypeOwner::Tuple),
+            TypeData::Record(_) => Some(crate::types::type_member::IntrinsicTypeOwner::Record),
+            TypeData::TypePack(_) => Some(crate::types::type_member::IntrinsicTypeOwner::TypePack),
+            TypeData::LabeledTypePack(_) => Some(crate::types::type_member::IntrinsicTypeOwner::LabeledTypePack),
+            TypeData::CompleteTypePack { .. } => Some(crate::types::type_member::IntrinsicTypeOwner::CompleteTypePack),
+            TypeData::TypeMemberProjection(_) if store.kind_of(subject_ty) == KindId::RECORD_ROW => {
+                Some(crate::types::type_member::IntrinsicTypeOwner::RecordRow)
+            }
+            TypeData::Nominal { declaration } => declarations.intrinsic_type_owner(declaration),
+            TypeData::Applied { .. } => store
+                .nominal_origin_declaration(subject_ty)
+                .and_then(|declaration| declarations.intrinsic_type_owner(declaration)),
+            _ => None,
+        };
+        (Some(subject_ty), ProjectionSubject::Type(subject_ty), intrinsic_owner)
     };
 
     let canonical_selector = TypeMemberSelector::from_syntax(selector);
@@ -2781,20 +3075,16 @@ fn resolve_type_member_projection(
         }
     }
 
-    let intrinsic_owner = match store.get(subject_ty) {
-        TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => Some(crate::types::type_member::IntrinsicTypeOwner::Tuple),
-        TypeData::Record(_) => Some(crate::types::type_member::IntrinsicTypeOwner::Record),
-        TypeData::TypePack(_) => Some(crate::types::type_member::IntrinsicTypeOwner::TypePack),
-        TypeData::LabeledTypePack(_) => Some(crate::types::type_member::IntrinsicTypeOwner::LabeledTypePack),
-        TypeData::Nominal { declaration } => declarations.intrinsic_type_owner(declaration),
-        _ => None,
-    };
     let intrinsic = intrinsic_owner.and_then(|owner| lookup_intrinsic_type_operation(owner, &canonical_selector));
 
     let mut kind = match intrinsic {
         Some(IntrinsicTypeOperation::TuplePositionals) | Some(IntrinsicTypeOperation::TypePackMap) => KindId::TYPE_PACK,
         Some(IntrinsicTypeOperation::TupleLabeled) | Some(IntrinsicTypeOperation::LabeledTypePackMap) => KindId::LABELED_TYPE_PACK,
-        Some(IntrinsicTypeOperation::TupleEntries) => KindId::COMPLETE_TYPE_PACK,
+        Some(IntrinsicTypeOperation::TupleEntries | IntrinsicTypeOperation::CompleteTypePackMap) => KindId::COMPLETE_TYPE_PACK,
+        Some(IntrinsicTypeOperation::CompleteTypePackPositionals) => KindId::TYPE_PACK,
+        Some(IntrinsicTypeOperation::CompleteTypePackLabeled) => KindId::LABELED_TYPE_PACK,
+        Some(IntrinsicTypeOperation::RecordRowMap) => KindId::RECORD_ROW,
+        Some(IntrinsicTypeOperation::RecordFields) => KindId::RECORD_ROW,
         _ => KindId::TYPE,
     };
     let map_operation = matches!(
@@ -2826,13 +3116,23 @@ fn resolve_type_member_projection(
         return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
     }
 
-    let selected_source = if intrinsic.is_none() {
-        store
-            .applied_nominal_static_parts(subject_ty)
-            .and_then(|(owner, _)| resolver.resolve_associated_type_member(&owner, &canonical_selector))
+    let selected_source = if let Some(owner) = intrinsic_owner {
+        let owner = declarations.intrinsic_type_owner_declaration(owner);
+        owner.and_then(|owner| resolver.resolve_associated_type_member(&owner, &canonical_selector))
     } else {
-        None
+        subject_ty
+            .and_then(|subject_ty| store.applied_nominal_static_parts(subject_ty))
+            .and_then(|(owner, _)| resolver.resolve_associated_type_member(&owner, &canonical_selector))
     };
+    if intrinsic_owner.is_some() && selected_source.as_ref().is_none_or(|product| product.signature.intrinsic != intrinsic) {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            current_module.clone(),
+            DiagnosticCode::AssociatedTypeUnknown,
+            "intrinsic structural type member has no matching source declaration and evaluator",
+            range,
+        ));
+        return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(canonical_selector.name().into()));
+    }
     let source_declaration = if let Some(product) = selected_source {
         if let Err(error) = super::type_member::validate_type_member_arguments(store, &product.signature, &canonical_args) {
             diagnostics.push(SemanticDiagnostic::error_in(
@@ -2851,7 +3151,7 @@ fn resolve_type_member_projection(
     };
 
     let projection = TypeLevelProjection {
-        subject: ProjectionSubject::Type(subject_ty),
+        subject: projection_subject,
         selector: canonical_selector,
         arguments: canonical_args.into_boxed_slice(),
         source_declaration,
@@ -3115,7 +3415,9 @@ pub fn resolve_generic_binder_header_with_context(
         let default_kind = match mode {
             GenericParameterMode::Single => KindId::TYPE,
             GenericParameterMode::PositionalPack => KindId::TYPE_PACK,
-            GenericParameterMode::LabeledPack => KindId::LABELED_TYPE_PACK,
+            // `**` defaults to the RecordFields row domain. A labeled type pack
+            // is still legal, but must be stated explicitly in the binder.
+            GenericParameterMode::LabeledPack => KindId::RECORD_ROW,
             GenericParameterMode::CompletePack => KindId::COMPLETE_TYPE_PACK,
         };
         let declared_kind = binder_kind.unwrap_or(default_kind);

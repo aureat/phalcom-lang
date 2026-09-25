@@ -5,6 +5,7 @@ use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
 use super::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
 use super::row_inference::{CombinedInferenceFailure, GenericApplicationSession, term_has_row_variables};
+use crate::data_semantics::{DataConstructorParameterContribution, DataConstructorTemplate, DataShape};
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::incident::{InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
@@ -43,7 +44,330 @@ pub(crate) struct CallableApplicationTarget {
     /// application. It is intentionally kept separate from the callable's
     /// canonical local signature.
     pub declaration_generics: Option<GenericSignature>,
+    /// Shape-aware application contract for a product data constructor.
+    /// Fixed formals remain in `signature.parameters`; expansion operands are
+    /// consumed by the shared inference coordinator through this adapter.
+    pub data_constructor_shape: Option<DataConstructorShapeAdapter>,
     pub access_denied: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DataConstructorShapeAdapter {
+    shape: DataShape,
+    template: DataConstructorTemplate,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum DataConstructorArgumentRole {
+    Fixed { parameter_index: usize },
+    PositionalPack { parameter: TypeParameterId },
+    LabeledPack { parameter: TypeParameterId, label: Box<str> },
+    RecordField { parameter: TypeParameterId, label: Box<str> },
+}
+
+#[derive(Default)]
+struct DataConstructorExpansionTerms {
+    parameter: Option<TypeParameterId>,
+    complete: bool,
+    positional: Vec<InferenceTerm>,
+    labeled: Vec<crate::checker::inference::InferenceLabeledTypePackElement>,
+    fields: Vec<crate::checker::row_inference::InferenceRecordField>,
+}
+
+impl DataConstructorShapeAdapter {
+    pub(crate) fn new(shape: DataShape, template: DataConstructorTemplate) -> Self {
+        Self { shape, template }
+    }
+
+    fn expansion(&self) -> Option<&crate::data_semantics::DataProductExpansionSemantic> {
+        let mut expansions = self.template.parameters.iter().filter_map(|contribution| match contribution {
+            DataConstructorParameterContribution::Expansion(expansion) => Some(expansion),
+            DataConstructorParameterContribution::Parameter(_) => None,
+        });
+        let expansion = expansions.next()?;
+        expansions.next().is_none().then_some(expansion)
+    }
+
+    fn fixed_record_field_names(&self) -> Vec<Box<str>> {
+        self.template
+            .parameters
+            .iter()
+            .filter_map(|contribution| match contribution {
+                DataConstructorParameterContribution::Parameter(parameter) if self.shape == DataShape::Record => {
+                    Some(parameter.external_label.as_ref().unwrap_or(&parameter.local_name).clone())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn bind_arguments(
+        &self,
+        arguments: &[ApplicationArgument<'_>],
+        parameters: &[CallableParameter],
+        store: &TypeStore,
+    ) -> Result<Vec<Option<DataConstructorArgumentRole>>, Vec<ArgumentShapeFailure>> {
+        let expansions = self
+            .template
+            .parameters
+            .iter()
+            .filter_map(|contribution| match contribution {
+                DataConstructorParameterContribution::Expansion(expansion) => Some(expansion),
+                DataConstructorParameterContribution::Parameter(_) => None,
+            })
+            .collect::<Vec<_>>();
+        if expansions.len() != 1 {
+            return Err(vec![ArgumentShapeFailure::DynamicShape]);
+        }
+        let expansion = expansions[0];
+        let Some(expansion_parameter) = data_expansion_parameter(expansion, self.shape, store) else {
+            return Err(vec![ArgumentShapeFailure::DynamicShape]);
+        };
+
+        let fixed = self
+            .template
+            .parameters
+            .iter()
+            .filter_map(|contribution| match contribution {
+                DataConstructorParameterContribution::Parameter(parameter) => Some(parameter),
+                DataConstructorParameterContribution::Expansion(_) => None,
+            })
+            .collect::<Vec<_>>();
+        if fixed.len() != parameters.len() {
+            return Err(vec![ArgumentShapeFailure::DynamicShape]);
+        }
+
+        let mut roles = vec![None; arguments.len()];
+        let mut fixed_by_label = std::collections::HashMap::<String, usize>::new();
+        for (parameter_index, parameter) in fixed.iter().enumerate() {
+            let label = parameter.external_label.as_deref().or_else(|| {
+                (self.shape == DataShape::Record).then_some(parameter.local_name.as_ref())
+            });
+            if let Some(label) = label {
+                fixed_by_label.insert(label.to_string(), parameter_index);
+            }
+        }
+        let mut bound_fixed = vec![false; fixed.len()];
+        let mut failures = Vec::new();
+
+        let mut positional_arguments = Vec::new();
+        for (argument_index, argument) in arguments.iter().copied().enumerate() {
+            match argument {
+                ApplicationArgument::Positional { .. } | ApplicationArgument::PreAnalyzed { label: None, .. } => {
+                    if self.shape == DataShape::Record {
+                        failures.push(ArgumentShapeFailure::UnexpectedPositional { argument_index });
+                    } else {
+                        positional_arguments.push(argument_index);
+                    }
+                }
+                ApplicationArgument::Labeled { label, .. } | ApplicationArgument::PreAnalyzed { label: Some(label), .. } => {
+                    if let Some(&parameter_index) = fixed_by_label.get(label) {
+                        if std::mem::replace(&mut bound_fixed[parameter_index], true) {
+                            failures.push(ArgumentShapeFailure::DuplicateParameterBinding { parameter_index });
+                        } else {
+                            roles[argument_index] = Some(DataConstructorArgumentRole::Fixed { parameter_index });
+                        }
+                    } else {
+                        let role = if self.shape == DataShape::Record {
+                            Some(DataConstructorArgumentRole::RecordField {
+                                parameter: expansion_parameter,
+                                label: label.into(),
+                            })
+                        } else if matches!(expansion.mode, phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete) {
+                            Some(DataConstructorArgumentRole::LabeledPack {
+                                parameter: expansion_parameter,
+                                label: label.into(),
+                            })
+                        } else {
+                            None
+                        };
+                        if let Some(role) = role {
+                            roles[argument_index] = Some(role);
+                        } else {
+                            failures.push(ArgumentShapeFailure::UnknownLabel {
+                                argument_index,
+                                label: label.to_string(),
+                            });
+                        }
+                    }
+                }
+                ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. } => {
+                    failures.push(ArgumentShapeFailure::DynamicShape);
+                }
+            }
+        }
+
+        if self.shape == DataShape::Tuple {
+            let expansion_contribution = self
+                .template
+                .parameters
+                .iter()
+                .position(|contribution| matches!(contribution, DataConstructorParameterContribution::Expansion(_)))
+                .unwrap_or(0);
+            let positional_prefix = self
+                .template
+                .parameters
+                .iter()
+                .take(expansion_contribution)
+                .filter_map(|contribution| match contribution {
+                    DataConstructorParameterContribution::Parameter(parameter) if parameter.external_label.is_none() => {
+                        fixed.iter().position(|candidate| candidate.component == parameter.component)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let positional_suffix = self
+                .template
+                .parameters
+                .iter()
+                .skip(expansion_contribution + 1)
+                .filter_map(|contribution| match contribution {
+                    DataConstructorParameterContribution::Parameter(parameter) if parameter.external_label.is_none() => {
+                        fixed.iter().position(|candidate| candidate.component == parameter.component)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let accepts_positionals = matches!(
+                expansion.mode,
+                phalcom_ast::ast::ExpansionMode::Positional | phalcom_ast::ast::ExpansionMode::Complete
+            );
+            let unbound = |indices: &[usize], bound: &[bool]| {
+                indices.iter().copied().filter(|index| !bound[*index]).collect::<Vec<_>>()
+            };
+            let prefix = unbound(&positional_prefix, &bound_fixed);
+            let suffix = unbound(&positional_suffix, &bound_fixed);
+
+            if accepts_positionals {
+                if positional_arguments.len() >= prefix.len() + suffix.len() {
+                    for (&argument_index, &parameter_index) in positional_arguments.iter().zip(prefix.iter()) {
+                        bound_fixed[parameter_index] = true;
+                        roles[argument_index] = Some(DataConstructorArgumentRole::Fixed { parameter_index });
+                    }
+                    let suffix_start = positional_arguments.len() - suffix.len();
+                    for (&argument_index, &parameter_index) in positional_arguments[suffix_start..].iter().zip(suffix.iter()) {
+                        bound_fixed[parameter_index] = true;
+                        roles[argument_index] = Some(DataConstructorArgumentRole::Fixed { parameter_index });
+                    }
+                    for &argument_index in &positional_arguments[prefix.len()..suffix_start] {
+                        roles[argument_index] = Some(DataConstructorArgumentRole::PositionalPack {
+                            parameter: expansion_parameter,
+                        });
+                    }
+                } else {
+                    let fixed_order = prefix.into_iter().chain(suffix).collect::<Vec<_>>();
+                    for (&argument_index, &parameter_index) in positional_arguments.iter().zip(fixed_order.iter()) {
+                        bound_fixed[parameter_index] = true;
+                        roles[argument_index] = Some(DataConstructorArgumentRole::Fixed { parameter_index });
+                    }
+                }
+            } else {
+                let fixed_order = positional_prefix.into_iter().chain(positional_suffix).collect::<Vec<_>>();
+                let mut available = fixed_order.into_iter().filter(|index| !bound_fixed[*index]);
+                for &argument_index in &positional_arguments {
+                    if let Some(parameter_index) = available.next() {
+                        bound_fixed[parameter_index] = true;
+                        roles[argument_index] = Some(DataConstructorArgumentRole::Fixed { parameter_index });
+                    } else {
+                        failures.push(ArgumentShapeFailure::UnexpectedPositional { argument_index });
+                    }
+                }
+            }
+        }
+
+        for (parameter_index, bound) in bound_fixed.into_iter().enumerate() {
+            if !bound {
+                failures.push(ArgumentShapeFailure::MissingRequiredParameter { parameter_index });
+            }
+        }
+
+        // Duplicate labels in expanded lanes are invalid pack/row shapes.
+        let mut expanded_labels = std::collections::HashSet::<(TypeParameterId, Box<str>)>::new();
+        for (argument_index, role) in roles.iter().enumerate() {
+            let Some(DataConstructorArgumentRole::LabeledPack { parameter, label } | DataConstructorArgumentRole::RecordField { parameter, label }) = role else {
+                continue;
+            };
+            if !expanded_labels.insert((*parameter, label.clone())) {
+                failures.push(ArgumentShapeFailure::DuplicateLabel {
+                    argument_index,
+                    label: label.to_string(),
+                });
+            }
+        }
+
+        if failures.is_empty() { Ok(roles) } else { Err(failures) }
+    }
+
+    pub(crate) fn argument_to_components(
+        &self,
+        arguments: &[ApplicationArgument<'_>],
+        parameters: &[CallableParameter],
+        store: &TypeStore,
+        shape: &crate::data_semantics::DataProductShapeMaterialization,
+    ) -> Option<Box<[u32]>> {
+        if shape.state != crate::data_semantics::DataProductShapeState::Concrete {
+            return None;
+        }
+        let roles = self.bind_arguments(arguments, parameters, store).ok()?;
+        let fixed = self
+            .template
+            .parameters
+            .iter()
+            .filter_map(|contribution| match contribution {
+                DataConstructorParameterContribution::Parameter(parameter) => Some(parameter),
+                DataConstructorParameterContribution::Expansion(_) => None,
+            })
+            .collect::<Vec<_>>();
+        let expansion = self.expansion()?;
+        let mut positional_components = shape
+            .components
+            .iter()
+            .enumerate()
+            .filter_map(|(index, component)| {
+                (component.component.is_none() && component.label.is_none() && component.expansion_source == expansion.source).then_some(index as u32)
+            });
+        let mut mapping = Vec::with_capacity(arguments.len());
+        let mut seen = std::collections::HashSet::new();
+        for role in roles {
+            let role = role?;
+            let component_index = match role {
+                DataConstructorArgumentRole::Fixed { parameter_index } => {
+                    let component = &fixed.get(parameter_index)?.component;
+                    shape.components.iter().position(|candidate| candidate.component.as_ref() == Some(component))? as u32
+                }
+                DataConstructorArgumentRole::PositionalPack { .. } => positional_components.next()?,
+                DataConstructorArgumentRole::LabeledPack { label, .. } | DataConstructorArgumentRole::RecordField { label, .. } => shape
+                    .components
+                    .iter()
+                    .position(|candidate| {
+                        candidate.component.is_none()
+                            && candidate.label.as_deref() == Some(label.as_ref())
+                            && candidate.expansion_source == expansion.source
+                    })? as u32,
+            };
+            if !seen.insert(component_index) {
+                return None;
+            }
+            mapping.push(component_index);
+        }
+        Some(mapping.into_boxed_slice())
+    }
+}
+
+fn data_expansion_parameter(
+    expansion: &crate::data_semantics::DataProductExpansionSemantic,
+    shape: DataShape,
+    store: &TypeStore,
+) -> Option<TypeParameterId> {
+    let operand = expansion.operand.canonical_type()?;
+    match (shape, store.get(operand)) {
+        (DataShape::Tuple, TypeData::Parameter(parameter)) => Some(*parameter),
+        (DataShape::Record, TypeData::Record(row)) => match store.record_row(*row).tail {
+            crate::types::row::RecordRowTail::Parameter(parameter) => Some(parameter),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Dispatch result for one canonical member of a union receiver.
@@ -80,6 +404,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            data_constructor_shape: None,
             access_denied: false,
         }
     }
@@ -93,6 +418,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            data_constructor_shape: None,
             access_denied: false,
         }
     }
@@ -106,6 +432,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            data_constructor_shape: None,
             access_denied: false,
         }
     }
@@ -117,6 +444,11 @@ impl CallableApplicationTarget {
 
     pub(crate) fn with_declaration_generics(mut self, declaration_generics: GenericSignature) -> Self {
         self.declaration_generics = Some(declaration_generics);
+        self
+    }
+
+    pub(crate) fn with_data_constructor_shape(mut self, adapter: DataConstructorShapeAdapter) -> Self {
+        self.data_constructor_shape = Some(adapter);
         self
     }
 
@@ -140,6 +472,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            data_constructor_shape: None,
             access_denied: false,
         }
     }
@@ -153,6 +486,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            data_constructor_shape: None,
             access_denied: false,
         }
     }
@@ -166,6 +500,7 @@ impl CallableApplicationTarget {
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
+            data_constructor_shape: None,
             access_denied: false,
         }
     }
@@ -370,6 +705,7 @@ pub(crate) enum ArgumentShapeFailure {
     UnexpectedPositional { argument_index: usize },
     UnknownLabel { argument_index: usize, label: String },
     DuplicateParameterBinding { parameter_index: usize },
+    DuplicateLabel { argument_index: usize, label: String },
     DynamicShape,
 }
 
@@ -551,6 +887,7 @@ fn shape_failure_message(failure: &ArgumentShapeFailure) -> Option<String> {
         ArgumentShapeFailure::MissingRequiredParameter { parameter_index } => Some(format!("missing required parameter at position {}", parameter_index + 1)),
         ArgumentShapeFailure::UnexpectedPositional { argument_index } => Some(format!("unexpected positional argument at position {}", argument_index + 1)),
         ArgumentShapeFailure::UnknownLabel { label, .. } => Some(format!("unknown argument label `{label}:`")),
+        ArgumentShapeFailure::DuplicateLabel { label, .. } => Some(format!("duplicate expanded label `{label}:`")),
         ArgumentShapeFailure::DuplicateParameterBinding { parameter_index } => {
             Some(format!("parameter at position {} is bound more than once", parameter_index + 1))
         }
@@ -576,6 +913,7 @@ fn emit_shape_failures(
                 argument_index: *argument_index as u16,
             }),
             ArgumentShapeFailure::UnknownLabel { label, .. } => Some(crate::explain::CallShapeExplanation::UnknownLabel { label: label.clone() }),
+            ArgumentShapeFailure::DuplicateLabel { label, .. } => Some(crate::explain::CallShapeExplanation::DuplicateLabel { label: label.clone() }),
             ArgumentShapeFailure::DuplicateParameterBinding { parameter_index } => Some(crate::explain::CallShapeExplanation::DuplicateParameter {
                 parameter_index: *parameter_index as u16,
             }),
@@ -907,6 +1245,7 @@ impl<'a> GenericApplicationDomains<'a> {
 
 fn apply_generic_callable_inner(
     ctx: &mut CheckingContext<'_>,
+    target: &CallableApplicationTarget,
     signature: &CallableSignature,
     callable: Option<CallableId>,
     domains: GenericApplicationDomains<'_>,
@@ -939,6 +1278,7 @@ fn apply_generic_callable_inner(
     ctx.push_inference_frame(context, root_frame);
     let result = apply_generic_callable_in_context(
         ctx,
+        target,
         signature,
         callable,
         domains,
@@ -962,6 +1302,7 @@ fn apply_generic_callable_inner(
 #[allow(clippy::too_many_arguments)]
 fn apply_generic_callable_in_context(
     ctx: &mut CheckingContext<'_>,
+    target: &CallableApplicationTarget,
     signature: &CallableSignature,
     callable: Option<CallableId>,
     domains: GenericApplicationDomains<'_>,
@@ -1055,8 +1396,20 @@ fn apply_generic_callable_in_context(
         false
     };
 
-    let binding_plan = match bind_static_arguments(args, &signature.parameters) {
-        Ok(plan) => plan,
+    let argument_roles = match target.data_constructor_shape.as_ref() {
+        Some(adapter) => adapter.bind_arguments(args, &signature.parameters, ctx.store),
+        None => bind_static_arguments(args, &signature.parameters).map(|plan| {
+            let mut roles = vec![None; args.len()];
+            for binding in plan.bindings {
+                roles[binding.argument_index] = Some(DataConstructorArgumentRole::Fixed {
+                    parameter_index: binding.parameter_index,
+                });
+            }
+            roles
+        }),
+    };
+    let argument_roles = match argument_roles {
+        Ok(roles) => roles,
         Err(failures) => {
             emit_shape_failures(ctx, &failures, call_range, None, &signature.parameters);
             for argument in args.iter().copied() {
@@ -1067,6 +1420,18 @@ fn apply_generic_callable_in_context(
         }
     };
     let mut exact_argument_bindings = std::collections::BTreeMap::new();
+    let mut expansion_terms = DataConstructorExpansionTerms {
+        complete: true,
+        ..DataConstructorExpansionTerms::default()
+    };
+    if let Some(adapter) = target.data_constructor_shape.as_ref() {
+        if let Some(expansion) = adapter.expansion() {
+            expansion_terms.parameter = data_expansion_parameter(expansion, adapter.shape, ctx.store);
+            expansion_terms.complete = expansion_terms.parameter.is_some();
+        } else {
+            expansion_terms.complete = false;
+        }
+    }
 
     for generic_sig in domains.signatures() {
         let generic_callable = match &generic_sig.owner {
@@ -1117,10 +1482,67 @@ fn apply_generic_callable_in_context(
     }
 
     for (argument_index, argument) in args.iter().copied().enumerate() {
-        let Some(binding) = binding_plan.bindings.iter().find(|binding| binding.argument_index == argument_index) else {
+        let Some(role) = argument_roles.get(argument_index).cloned().flatten() else {
             continue;
         };
-        let parameter = &signature.parameters[binding.parameter_index];
+        let parameter_index = match role.clone() {
+            DataConstructorArgumentRole::Fixed { parameter_index } => parameter_index,
+            _ => {
+                let argument_typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
+                record_generic_argument_capture(ctx, &argument_typed);
+                let symbolic_argument = argument_typed
+                    .symbolic_result
+                    .as_ref()
+                    .filter(|result| result.context == context)
+                    .map(|result| session_handle.borrow().term_for_expected(&result.term));
+                let inferred_term = symbolic_argument.or_else(|| {
+                    let ty = argument_typed.knowledge.ty()?;
+                    Some(row_session.as_ref().map_or_else(
+                        || session_handle.borrow().type_id_to_inference(ty, &std::collections::HashMap::new(), ctx.store),
+                        |rows| {
+                            session_handle.borrow().type_id_to_inference_with_rows(
+                                ty,
+                                &std::collections::HashMap::new(),
+                                &rows.row_terms(),
+                                ctx.store,
+                            )
+                        },
+                    ))
+                });
+                if let Some(term) = inferred_term {
+                    match role {
+                        DataConstructorArgumentRole::PositionalPack { parameter } => {
+                            expansion_terms.parameter = Some(parameter);
+                            expansion_terms.positional.push(term);
+                        }
+                        DataConstructorArgumentRole::LabeledPack { parameter, label } => {
+                            expansion_terms.parameter = Some(parameter);
+                            expansion_terms.labeled.push(crate::checker::inference::InferenceLabeledTypePackElement { label, term });
+                        }
+                        DataConstructorArgumentRole::RecordField { parameter, label } => {
+                            expansion_terms.parameter = Some(parameter);
+                            expansion_terms.fields.push(crate::checker::row_inference::InferenceRecordField { name: label, term });
+                        }
+                        DataConstructorArgumentRole::Fixed { .. } => unreachable!(),
+                    }
+                } else {
+                    expansion_terms.complete = false;
+                    match &argument_typed.knowledge {
+                        TypeKnowledge::Unknown(reason) if argument_typed.symbolic_result.is_none() => {
+                            ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())));
+                        }
+                        TypeKnowledge::Dynamic(reason) => ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone())),
+                        TypeKnowledge::Known(_) | TypeKnowledge::Unknown(_) => {}
+                    }
+                }
+
+                if argument_index + 1 < args.len() {
+                    let _ = ctx.inference_session(context).map(|session| ctx.propagate_inference(&mut session.borrow_mut()));
+                }
+                continue;
+            }
+        };
+        let parameter = &signature.parameters[parameter_index];
         let Some(parameter_ty) = parameter.ty.ty() else {
             let typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
             record_generic_argument_capture(ctx, &typed);
@@ -1148,7 +1570,7 @@ fn apply_generic_callable_in_context(
             .map(|argument_id| ConstraintOrigin::Argument {
                 call: call_id,
                 argument: argument_id,
-                parameter_index: binding.parameter_index as u16,
+                parameter_index: parameter_index as u16,
             })
             .unwrap_or(ConstraintOrigin::Explicit);
         let symbolic_argument = argument_typed
@@ -1278,6 +1700,72 @@ fn apply_generic_callable_in_context(
         // as contextual expectations to later arguments such as closures.
         if argument_index + 1 < args.len() {
             let _ = ctx.inference_session(context).map(|session| ctx.propagate_inference(&mut session.borrow_mut()));
+        }
+    }
+
+    if expansion_terms.complete
+        && let Some(parameter) = expansion_terms.parameter
+        && let Some(adapter) = target.data_constructor_shape.as_ref()
+        && let Some(expansion) = adapter.expansion()
+    {
+        let parameter_data = ctx.store.type_parameter(parameter);
+        let mode_matches = match expansion.mode {
+            phalcom_ast::ast::ExpansionMode::Positional => {
+                parameter_data.mode == crate::types::parameter::GenericParameterMode::PositionalPack && parameter_data.kind == crate::types::id::KindId::TYPE_PACK
+            }
+            phalcom_ast::ast::ExpansionMode::Labeled if adapter.shape == DataShape::Record => {
+                parameter_data.mode == crate::types::parameter::GenericParameterMode::LabeledPack && parameter_data.kind == crate::types::id::KindId::RECORD_ROW
+            }
+            phalcom_ast::ast::ExpansionMode::Labeled => {
+                parameter_data.mode == crate::types::parameter::GenericParameterMode::LabeledPack
+                    && parameter_data.kind == crate::types::id::KindId::LABELED_TYPE_PACK
+            }
+            phalcom_ast::ast::ExpansionMode::Complete => {
+                parameter_data.mode == crate::types::parameter::GenericParameterMode::CompletePack
+                    && parameter_data.kind == crate::types::id::KindId::COMPLETE_TYPE_PACK
+            }
+        };
+        if !mode_matches {
+            let diagnostic = SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::KindExpectedType,
+                "data product expansion binder mode and kind do not match",
+                expansion.source.as_ref().map_or(call_range, |source| source.range),
+            );
+            if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+                ctx.record_call_status(AnalysisStatus::Invalid(cause));
+            }
+        } else if adapter.shape == DataShape::Record {
+            if let Some(rows) = row_session.as_mut() {
+                if let Err(failure) = rows.constrain_record_row_expansion(
+                    parameter,
+                    std::mem::take(&mut expansion_terms.fields),
+                    adapter.fixed_record_field_names(),
+                ) {
+                    record_row_constraint_failure(ctx, failure, call_range);
+                }
+            } else {
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+            }
+        } else {
+            let pack_term = match parameter_data.kind {
+                crate::types::id::KindId::TYPE_PACK => InferenceTerm::TypePack(expansion_terms.positional.into_boxed_slice()),
+                crate::types::id::KindId::LABELED_TYPE_PACK => InferenceTerm::LabeledTypePack(expansion_terms.labeled.into_boxed_slice()),
+                crate::types::id::KindId::COMPLETE_TYPE_PACK => InferenceTerm::CompleteTypePack {
+                    positionals: Box::new(InferenceTerm::TypePack(expansion_terms.positional.into_boxed_slice())),
+                    labeled: Box::new(InferenceTerm::LabeledTypePack(expansion_terms.labeled.into_boxed_slice())),
+                },
+                _ => unreachable!("data constructor pack kind was validated above"),
+            };
+            if let Some(variable) = var_map.get(&parameter).cloned() {
+                session_handle.borrow_mut().add_constraint(
+                    InferenceRelation::Equivalent(variable, pack_term),
+                    ConstraintOrigin::Explicit,
+                    None,
+                );
+            } else {
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+            }
         }
     }
 
@@ -2305,6 +2793,7 @@ fn apply_generic_callable(
     };
     apply_generic_callable_inner(
         ctx,
+        target,
         &target.signature,
         target.callable.clone(),
         domains,
@@ -3017,7 +3506,7 @@ fn prepare_union_generic_inference_in_context(
             (Some(call), Some(argument_id)) => ConstraintOrigin::Argument {
                 call,
                 argument: argument_id,
-                parameter_index: binding.parameter_index as u16,
+                parameter_index: parameter_index as u16,
             },
             _ => ConstraintOrigin::Explicit,
         };

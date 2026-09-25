@@ -83,7 +83,7 @@ It recursively decomposes canonical applied types:
 
 - `Option<T>` → `Gen.option(strategy(T))`;
 - `List<T>` → `Gen.list(of: strategy(T))`;
-- `Tuple<A, B, ...>` → `Gen.tuple(strategy(A), strategy(B), ...)`;
+- `Tuple<***(A, B, ...)>` → `Gen.tuple(strategy(A), strategy(B), ...)`;
 - `Set<T>` → `Gen.set(of: strategy(T))`;
 - `Map<K, V>` → `Gen.map(keys: strategy(K), values: strategy(V))`;
 - `Result<T, E>` → `Gen.result(ok: strategy(T), error: strategy(E))`.

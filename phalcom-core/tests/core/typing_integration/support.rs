@@ -330,7 +330,7 @@ impl Fixture {
         assert_eq!(
             self.analysis.snapshot.store.type_parameter(parameter).kind,
             KindId::RECORD_ROW,
-            "generic parameter must have RecordRow kind"
+            "generic parameter must have RecordFields kind"
         );
     }
 

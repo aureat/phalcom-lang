@@ -19,6 +19,9 @@ pub struct RuntimeDataDescriptor {
     pub behavior_class: ClassId,
     pub exact_type: Option<RuntimeTypeRef>,
     pub layout: ProductLayoutId,
+    /// Declaration component ordinal to exact specialization logical slot.
+    /// `None` means the declaration has a fixed, identity-ordered layout.
+    pub component_slots: Option<Box<[u32]>>,
 }
 
 /// VM-level registry managing interned data descriptors.
@@ -27,6 +30,7 @@ pub struct RuntimeDataRegistry {
     descriptors: Vec<RuntimeDataDescriptor>,
     descriptor_by_key: HashMap<(DeclarationId, Option<RuntimeTypeRef>), RuntimeDataDescriptorId>,
     descriptor_by_class: HashMap<ClassId, RuntimeDataDescriptorId>,
+    behavior_class_by_declaration: HashMap<DeclarationId, ClassId>,
 }
 
 impl RuntimeDataRegistry {
@@ -42,8 +46,25 @@ impl RuntimeDataRegistry {
         exact_type: Option<RuntimeTypeRef>,
         layout: ProductLayoutId,
     ) -> RuntimeDataDescriptorId {
+        self.register_with_component_slots(semantic_owner, behavior_class, exact_type, layout, None)
+    }
+
+    pub fn register_with_component_slots(
+        &mut self,
+        semantic_owner: DeclarationId,
+        behavior_class: ClassId,
+        exact_type: Option<RuntimeTypeRef>,
+        layout: ProductLayoutId,
+        component_slots: Option<Box<[u32]>>,
+    ) -> RuntimeDataDescriptorId {
+        let behavior_class = self.register_behavior_class(semantic_owner.clone(), behavior_class);
         let key = (semantic_owner.clone(), exact_type);
         if let Some(&existing) = self.descriptor_by_key.get(&key) {
+            if component_slots.is_some()
+                && let Some(descriptor) = self.descriptors.get_mut(existing.0 as usize)
+            {
+                descriptor.component_slots = component_slots;
+            }
             return existing;
         }
 
@@ -54,12 +75,23 @@ impl RuntimeDataRegistry {
             behavior_class,
             exact_type,
             layout,
+            component_slots,
         };
 
         self.descriptors.push(descriptor);
         self.descriptor_by_key.insert(key, runtime_id);
         self.descriptor_by_class.entry(behavior_class).or_insert(runtime_id);
         runtime_id
+    }
+
+    /// Registers one declaration's shared behavior class independently of any
+    /// fixed or specialized product layout.
+    pub fn register_behavior_class(&mut self, owner: DeclarationId, class: ClassId) -> ClassId {
+        *self.behavior_class_by_declaration.entry(owner).or_insert(class)
+    }
+
+    pub fn behavior_class_for_declaration(&self, owner: &DeclarationId) -> Option<ClassId> {
+        self.behavior_class_by_declaration.get(owner).copied()
     }
 
     /// Attaches canonical nominal metadata without changing already-issued value identity.
@@ -92,6 +124,6 @@ impl RuntimeDataRegistry {
 
     /// Enumerates all behavior classes rooted by this registry for GC root marking.
     pub fn all_behavior_classes(&self) -> impl Iterator<Item = ClassId> + '_ {
-        self.descriptors.iter().map(|d| d.behavior_class)
+        self.behavior_class_by_declaration.values().copied()
     }
 }

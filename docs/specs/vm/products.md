@@ -853,7 +853,7 @@ This duality is fundamental.
 The empty Record product:
 
 ```phalcom
-#{}
+{}
 ```
 
 normalizes to the same canonical zero-product representation as Unit.
@@ -891,7 +891,7 @@ The storage is arranged in logical coordinate order rather than necessarily in s
 For a source Record such as:
 
 ```phalcom
-#{ name: "A", age: 24 }
+{ name: "A", age: 24 }
 ```
 
 the shape retains:
@@ -932,7 +932,7 @@ Presentation order does not affect Record exact sameness.
 Thus:
 
 ```phalcom
-#{ name: "A", age: 24 } === #{ age: 24, name: "A" }
+{ name: "A", age: 24 } === { age: 24, name: "A" }
 ```
 
 is true if corresponding component values are exactly same.

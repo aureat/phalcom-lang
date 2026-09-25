@@ -3421,7 +3421,7 @@ mod tests {
         let owner = DeclarationId::new(module.clone(), "Owner".into());
         let owner_form = store.nominal_type(owner.clone());
         let owner_class_object = store.class_object_type(owner.clone());
-        declarations.insert(crate::declarations::DeclarationTypeInfo {
+        declarations.replace_authoritative(crate::declarations::DeclarationTypeInfo {
             declaration: owner.clone(),
             form: owner_form,
             class_object_type: owner_class_object,

@@ -125,7 +125,7 @@ class Probe {
   @class
   run() {
     let pair = (1, missing)
-    let record = #{field: missing}
+    let record = {field: missing}
   }
 }
 "#,
@@ -133,7 +133,7 @@ class Probe {
     let run = unknown.callable("Probe", "run", DispatchSide::Class);
     let expected = TypeKnowledge::Unknown(UnknownReason::UnresolvedName("missing".into()));
     assert_eq!(unknown.expression(run, "(1, missing)").knowledge, expected);
-    assert_eq!(unknown.expression(run, "#{field: missing}").knowledge, expected);
+    assert_eq!(unknown.expression(run, "{field: missing}").knowledge, expected);
 
     let assumed = Fixture::new(
         r#"
@@ -141,14 +141,14 @@ class Probe {
   @class
   run(_ value: Int) {
     let pair = (1, value)
-    let record = #{field: value}
+    let record = {field: value}
   }
 }
 "#,
     );
     let run = assumed.callable("Probe", "run", DispatchSide::Class);
     assert_eq!(assumed.expression(run, "(1, value)").knowledge.status(), Some(EvidenceStatus::Assumed));
-    assert_eq!(assumed.expression(run, "#{field: value}").knowledge.status(), Some(EvidenceStatus::Assumed));
+    assert_eq!(assumed.expression(run, "{field: value}").knowledge.status(), Some(EvidenceStatus::Assumed));
 }
 
 #[test]
@@ -206,8 +206,8 @@ class Probe {
     let tuple = (*tuple_values, 3)
     let mapping = { base: 1 }
     let map = { **mapping, key: 2 }
-    let source = #{base: 1}
-    let record = #{**source, name: 2}
+    let source = {base: 1}
+    let record = {**source, name: 2}
   }
 }
 
@@ -227,7 +227,7 @@ fn expected_record_field_guides_nested_empty_collection() {
 class Probe {
   @class
   run() {
-    let result: #{ values: List<Int> } = #{values: []}
+    let result: { values: List<Int> } = {values: []}
   }
 }
 "#,
@@ -247,8 +247,8 @@ fn open_record_expansion_preserves_tail_and_allows_disjoint_extension() {
         r#"
 class Probe {
   @class
-  spread<R: RecordRow>(_ value: #{ known: Int, | R }) -> #{ known: Int, extra: Bool, | R } {
-    let result = #{ **value, extra: true }
+  spread<**R>(_ value: { known: Int, **R }) -> { known: Int, extra: Bool, **R } {
+    let result = { **value, extra: true }
     result
   }
 }
@@ -270,8 +270,8 @@ fn concrete_record_annotation_proves_open_extension_disjointness() {
         r#"
 class Probe {
   @class
-  extend<R: RecordRow>(_ value: #{ known: Int, | R }) {
-    let result: #{ known: Int, extra: Bool, | R } = #{ **value, extra: true }
+  extend<**R>(_ value: { known: Int, **R }) {
+    let result: { known: Int, extra: Bool, **R } = { **value, extra: true }
   }
 }
 "#,
@@ -289,14 +289,14 @@ fn open_record_extension_requires_proven_tail_absence() {
         r#"
 class Probe {
   @class
-  extend<R: RecordRow>(_ value: #{ known: Int, | R }) {
-    let result = #{ **value, extra: true }
+  extend<**R>(_ value: { known: Int, **R }) {
+    let result = { **value, extra: true }
   }
 }
 "#,
     );
     let extend = fixture.callable("Probe", "extend", DispatchSide::Class);
-    let literal = fixture.expression(extend, "#{ **value, extra: true }");
+    let literal = fixture.expression(extend, "{ **value, extra: true }");
 
     assert!(literal.knowledge.ty().is_none(), "unproved extension must not publish a type: {literal:#?}");
     assert!(
@@ -320,13 +320,13 @@ fn duplicate_record_literal_field_has_explicit_diagnostic() {
 class Probe {
   @class
   run() {
-    let result = #{ known: 1, known: 2 }
+    let result = { known: 1, known: 2 }
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    let literal = fixture.expression(run, "#{ known: 1, known: 2 }");
+    let literal = fixture.expression(run, "{ known: 1, known: 2 }");
 
     assert!(literal.knowledge.ty().is_none());
     assert!(
@@ -343,14 +343,14 @@ fn duplicate_record_literal_field_from_expansion_has_explicit_diagnostic() {
 class Probe {
   @class
   run() {
-    let source = #{ known: 1 }
-    let result = #{ **source, known: 2 }
+    let source = { known: 1 }
+    let result = { **source, known: 2 }
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    let literal = fixture.expression(run, "#{ **source, known: 2 }");
+    let literal = fixture.expression(run, "{ **source, known: 2 }");
 
     assert!(literal.knowledge.ty().is_none());
     assert!(
@@ -366,17 +366,17 @@ fn incompatible_open_record_expansions_have_explicit_diagnostic() {
         r#"
 class Probe {
   @class
-  merge<R: RecordRow, S: RecordRow>(
-      _ left: #{ left: Int, | R },
-      _ right: #{ right: Int, | S }
+  merge<**R, **S>(
+      _ left: { left: Int, **R },
+      _ right: { right: Int, **S }
   ) {
-    let result = #{ **left, **right }
+    let result = { **left, **right }
   }
 }
 "#,
     );
     let merge = fixture.callable("Probe", "merge", DispatchSide::Class);
-    let literal = fixture.expression(merge, "#{ **left, **right }");
+    let literal = fixture.expression(merge, "{ **left, **right }");
 
     assert!(literal.knowledge.ty().is_none());
     assert!(
@@ -394,7 +394,7 @@ class Probe {
   @class
   run() {
     let source = { base: 1 }
-    let result = #{ **source, name: 2 }
+    let result = { **source, name: 2 }
   }
 }
 "#,
@@ -430,14 +430,14 @@ class Probe {
     let list = [*missing, 1]
     let tuple = (*missing, 1)
     let map = { **missing, key: 1 }
-    let record = #{**missing, key: 1}
+    let record = {**missing, key: 1}
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
     let expected = TypeKnowledge::Unknown(UnknownReason::UnresolvedName("missing".into()));
-    for expression in ["[*missing, 1]", "(*missing, 1)", "{ **missing, key: 1 }", "#{**missing, key: 1}"] {
+    for expression in ["[*missing, 1]", "(*missing, 1)", "{ **missing, key: 1 }", "{**missing, key: 1}"] {
         assert_eq!(fixture.expression(run, expression).knowledge, expected, "{expression}");
     }
 }

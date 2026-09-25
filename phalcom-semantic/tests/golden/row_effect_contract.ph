@@ -7,7 +7,7 @@
 // OBSERVATIONS
 // 01 User constructor establishes nominal User and field facts.
 // 02 User.score is constrained by the Normalizer precondition.
-// 03 Normalizer's return uses `#{name: String, score: Int, | R}` row syntax.
+// 03 Normalizer's return uses `{name: String, score: Int, **R}` row syntax.
 // 04 the record row tail remains distinct from nominal User identity.
 // 05 Repository<User> specializes inherited load output to User.
 // 06 Repository.load contributes an exceptional/opaque effect path through throw.
@@ -47,8 +47,8 @@ class Normalizer {
   @class
   @requires(user.score() >= 0)
   @ensures(result.name == user.name())
-  normalize(_ user: User) -> #{name: String, score: Int, | R} {
-    #{name: user.name(), score: user.score()}
+  normalize<**R>(_ user: User) -> {name: String, score: Int, **R} {
+    {name: user.name(), score: user.score()}
   }
 }
 
@@ -68,7 +68,7 @@ class Pipeline {
 
 class Presenter {
   @class
-  present(_ record: #{name: String, score: Int, | R}) -> (String, Int) {
+  present<**R>(_ record: {name: String, score: Int, **R}) -> (String, Int) {
     (record.name, record.score)
   }
 }

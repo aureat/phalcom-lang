@@ -94,6 +94,24 @@ pub enum IntrinsicTypeOperation {
 }
 
 impl IntrinsicTypeOperation {
+    pub const ALL: [Self; 15] = [
+        Self::TuplePositionals,
+        Self::TupleLabeled,
+        Self::TupleEntries,
+        Self::TupleElement,
+        Self::TupleAt,
+        Self::TupleMap,
+        Self::RecordFields,
+        Self::RecordValue,
+        Self::RecordMap,
+        Self::TypePackMap,
+        Self::LabeledTypePackMap,
+        Self::RecordRowMap,
+        Self::CompleteTypePackPositionals,
+        Self::CompleteTypePackLabeled,
+        Self::CompleteTypePackMap,
+    ];
+
     pub fn name(&self) -> &'static str {
         match self {
             Self::TuplePositionals => "Tuple::Positionals",
@@ -107,10 +125,32 @@ impl IntrinsicTypeOperation {
             Self::RecordMap => "Record::Map",
             Self::TypePackMap => "TypePack::Map",
             Self::LabeledTypePackMap => "LabeledTypePack::Map",
-            Self::RecordRowMap => "RecordRow::Map",
+            Self::RecordRowMap => "RecordFields::Map",
             Self::CompleteTypePackPositionals => "CompleteTypePack::Positionals",
             Self::CompleteTypePackLabeled => "CompleteTypePack::Labeled",
             Self::CompleteTypePackMap => "CompleteTypePack::Map",
+        }
+    }
+
+    /// Returns the declared parameter and result kinds implemented by this evaluator.
+    pub fn signature_kinds(self, store: &mut TypeStore) -> (Box<[KindId]>, KindId) {
+        let type_to_type = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+        match self {
+            Self::TuplePositionals => (Box::new([]), KindId::TYPE_PACK),
+            Self::TupleLabeled => (Box::new([]), KindId::LABELED_TYPE_PACK),
+            Self::TupleEntries => (Box::new([]), KindId::COMPLETE_TYPE_PACK),
+            Self::TupleElement => (Box::new([]), KindId::TYPE),
+            Self::TupleAt => (Box::new([KindId::TYPE]), KindId::TYPE),
+            Self::TupleMap => (Box::new([type_to_type]), KindId::TYPE),
+            Self::RecordFields => (Box::new([]), KindId::RECORD_ROW),
+            Self::RecordValue => (Box::new([]), KindId::TYPE),
+            Self::RecordMap => (Box::new([type_to_type]), KindId::TYPE),
+            Self::TypePackMap => (Box::new([type_to_type]), KindId::TYPE_PACK),
+            Self::LabeledTypePackMap => (Box::new([type_to_type]), KindId::LABELED_TYPE_PACK),
+            Self::RecordRowMap => (Box::new([type_to_type]), KindId::RECORD_ROW),
+            Self::CompleteTypePackPositionals => (Box::new([]), KindId::TYPE_PACK),
+            Self::CompleteTypePackLabeled => (Box::new([]), KindId::LABELED_TYPE_PACK),
+            Self::CompleteTypePackMap => (Box::new([type_to_type]), KindId::COMPLETE_TYPE_PACK),
         }
     }
 }
@@ -252,6 +292,7 @@ pub struct TypeLevelProjection {
     pub selector: TypeMemberSelector,
     pub arguments: Box<[TypeMemberArgument]>,
     /// Present when this projection selected a checked source declaration via
-    /// the owner's AssociatedSurface. Intrinsic projections remain `None`.
+    /// the owner's AssociatedSurface, including a source declaration backed by
+    /// a compiler intrinsic evaluator.
     pub source_declaration: Option<TypeMemberDeclarationId>,
 }

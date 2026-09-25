@@ -43,14 +43,14 @@ fn row_api_source(body: &str, prefix_type: &str, binder: &str) -> String {
     format!(
         r#"
 class Api {{
-  @class preserve<R: {binder}>(_ value: #{{ name: {prefix_type}, | R }}) -> #{{ name: {prefix_type}, | R }} {{
+  @class preserve<{binder}>(_ value: {{ name: {prefix_type}, **R }}) -> {{ name: {prefix_type}, **R }} {{
     {body}
   }}
 }}
 
 class Consumer {{
-  @class read() -> #{{ name: String, age: Int }} {{
-    Api.preserve(#{{name: "n", age: 1}})
+  @class read() -> {{ name: String, age: Int }} {{
+    Api.preserve({{name: "n", age: 1}})
   }}
 }}
 "#,
@@ -81,7 +81,7 @@ fn record_tail(session: &SemanticWorkspaceSession, module: &ModuleId) -> Option<
 fn row_body_only_edit_preserves_signature_semantics() {
     let module = module(301);
     let mut session = SemanticWorkspaceSession::new();
-    let source_a = row_api_source("value", "String", "RecordRow");
+    let source_a = row_api_source("value", "String", "**R");
     let update_a = session.update(single_module_input(module.clone(), &source_a, 1));
     assert!(!update_a.snapshot.has_errors(), "initial row source must be valid");
     let consumer_a = update_a
@@ -96,7 +96,7 @@ fn row_body_only_edit_preserves_signature_semantics() {
         .get(&api_callable(&module))
         .expect("initial row signature");
 
-    let source_b = row_api_source("value ", "String", "RecordRow");
+    let source_b = row_api_source("value ", "String", "**R");
     let update_b = session.update(single_module_input(module.clone(), &source_b, 2));
     assert!(!update_b.snapshot.has_errors(), "body-only row edit must remain valid");
     assert_eq!(update_b.stats.callables_recomputed, 1);
@@ -152,7 +152,7 @@ fn record_tail_parameter(session: &SemanticWorkspaceSession, module: &ModuleId) 
 fn row_prefix_edit_invalidates_dependent_call() {
     let module = module(302);
     let mut session = SemanticWorkspaceSession::new();
-    let source_a = row_api_source("value", "String", "RecordRow");
+    let source_a = row_api_source("value", "String", "**R");
     let update_a = session.update(single_module_input(module.clone(), &source_a, 1));
     assert!(!update_a.snapshot.has_errors());
     let consumer_a = update_a
@@ -162,7 +162,7 @@ fn row_prefix_edit_invalidates_dependent_call() {
         .cloned()
         .expect("initial dependent analysis");
 
-    let source_c = row_api_source("value", "Int", "RecordRow");
+    let source_c = row_api_source("value", "Int", "**R");
     let update_c = session.update(single_module_input(module.clone(), &source_c, 2));
     assert!(update_c.stats.callables_recomputed >= 2, "signature edit must recheck API and dependent caller");
     let consumer_c = update_c
@@ -188,7 +188,7 @@ fn row_prefix_edit_invalidates_dependent_call() {
 fn row_tail_kind_edit_invalidates_open_record_signature() {
     let module = module(303);
     let mut session = SemanticWorkspaceSession::new();
-    let source_a = row_api_source("value", "String", "RecordRow");
+    let source_a = row_api_source("value", "String", "**R");
     let update_a = session.update(single_module_input(module.clone(), &source_a, 1));
     assert!(!update_a.snapshot.has_errors());
     let old_tail = record_tail(&session, &module);
@@ -199,9 +199,9 @@ fn row_tail_kind_edit_invalidates_open_record_signature() {
         .cloned()
         .expect("initial analysis");
 
-    let source_d = row_api_source("value", "String", "Type");
+    let source_d = row_api_source("value", "String", "**R: Type");
     let update_d = session.update(single_module_input(module.clone(), &source_d, 2));
-    assert!(diagnostic_codes(&session, &module).contains(&DiagnosticCode::RecordRowTailKindMismatch));
+    assert!(diagnostic_codes(&session, &module).contains(&DiagnosticCode::AnnotationUnsupported));
     let api_d = update_d
         .snapshot
         .callable_analyses
@@ -215,8 +215,8 @@ fn row_tail_kind_edit_invalidates_open_record_signature() {
 #[test]
 fn cold_and_incremental_row_semantics_match() {
     let module = module(304);
-    let source_a = row_api_source("value", "String", "RecordRow");
-    let source_c = row_api_source("value", "Int", "RecordRow");
+    let source_a = row_api_source("value", "String", "**R");
+    let source_c = row_api_source("value", "Int", "**R");
 
     let mut incremental = SemanticWorkspaceSession::new();
     let _ = incremental.update(single_module_input(module.clone(), &source_a, 1));
@@ -245,7 +245,7 @@ fn cold_and_incremental_row_semantics_match() {
 fn retained_snapshot_preserves_previous_open_row_denotation() {
     let module = module(305);
     let mut session = SemanticWorkspaceSession::new();
-    let source_a = row_api_source("value", "String", "RecordRow");
+    let source_a = row_api_source("value", "String", "**R");
     let update_a = session.update(single_module_input(module.clone(), &source_a, 1));
     assert_eq!(
         record_tail(&session, &module),
@@ -253,7 +253,7 @@ fn retained_snapshot_preserves_previous_open_row_denotation() {
     );
     let old_snapshot = update_a.snapshot.clone();
 
-    let source_c = row_api_source("value", "Int", "RecordRow");
+    let source_c = row_api_source("value", "Int", "**R");
     let _ = session.update(single_module_input(module.clone(), &source_c, 2));
 
     let old_signature = old_snapshot.callable_signatures.get(&api_callable(&module)).expect("old row signature");
@@ -273,7 +273,7 @@ fn retained_snapshot_preserves_previous_open_row_denotation() {
 fn solver_row_variables_never_appear_in_published_products() {
     let module = module(306);
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), &row_api_source("value", "String", "RecordRow"), 1));
+    let update = session.update(single_module_input(module.clone(), &row_api_source("value", "String", "**R"), 1));
     let debug = format!("{:?}", update.snapshot);
     assert!(!debug.contains("RecordRowVarId"), "solver-local row variables must not enter snapshots");
     assert!(!debug.contains("RecordRowSolver"), "solver sessions must not enter snapshots");

@@ -223,7 +223,7 @@ fn data_impossible_empty_sum() {
 
 #[test]
 fn intrinsic_type_data_facade_has_no_algebraic_shape() {
-    let program = parse_source("intrinsic type data TupleEntries\n", 0).expect("intrinsic facade parses");
+    let program = parse_source("intrinsic type data CompleteTypePack\n", 0).expect("intrinsic facade parses");
     let Statement::Data(definition) = &program.statements[0] else {
         panic!("expected data declaration");
     };
@@ -256,13 +256,13 @@ fn type_data_shape_syntax() {
 }
 
 #[test]
-fn intrinsic_data_unit_syntax() {
-    let source = "intrinsic data Unit()\n";
+fn intrinsic_product_data_syntax() {
+    let source = "intrinsic data Probe()\n";
     let program = parse_source(source, 0).expect("intrinsic data parses");
     let Statement::Data(data_def) = &program.statements[0] else {
         panic!("expected data");
     };
-    assert_eq!(data_def.name, "Unit");
+    assert_eq!(data_def.name, "Probe");
     assert_eq!(data_def.phase, AlgebraicPhase::Runtime);
     assert_eq!(data_def.implementation, ImplementationKind::Intrinsic);
     assert!(data_def.is_product());

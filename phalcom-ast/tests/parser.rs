@@ -756,7 +756,7 @@ fn parse_reserved_word_as_external_label_in_definition_and_call() {
 
 #[test]
 fn parse_from_keyword_as_method_selector() {
-    let res = parse_source("class Map {\n  from(_ record) { record }\n}\nMap.from(#{})\n", 0);
+    let res = parse_source("class Map {\n  from(_ record) { record }\n}\nMap.from({})\n", 0);
     assert!(res.is_ok(), "`from` must remain usable as a method selector: {:?}", res.err());
 }
 
@@ -1227,7 +1227,7 @@ fn parse_static_alias_result_domain() {
 
 #[test]
 fn parse_structural_record_types() {
-    let p = parse_source("type UserRow<R> = #{ name: String, age: Int, | R }\n", 0).expect("structural record type with row tail should parse");
+    let p = parse_source("type UserRow<**R> = { name: String, age: Int, **R }\n", 0).expect("structural record type with row tail should parse");
     let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
     match &alias.body.expr {
         TypeAnnotationExpr::Record { fields, tail, .. } => {
@@ -1253,6 +1253,42 @@ fn parse_kind_expressions_and_higher_kinded_binders() {
         }
         other => panic!("expected Arrow kind, got {other:?}"),
     }
+}
+
+#[test]
+fn parse_expansion_binders_with_explicit_semantic_kinds_and_defaulted_modes() {
+    let source = "type Packs<*Ts, **Fs, **Ls: LabeledTypePack, **Rs: RecordFields, ***Es: CompleteTypePack> = Type\n";
+    let p = parse_source(source, 0).expect("pack binders should parse");
+    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
+    assert_eq!(alias.generic_parameters.len(), 5);
+    assert_eq!(alias.generic_parameters[0].mode, Some(ExpansionMode::Positional));
+    assert_eq!(alias.generic_parameters[1].mode, Some(ExpansionMode::Labeled));
+    assert_eq!(alias.generic_parameters[1].kind, None);
+    assert!(matches!(alias.generic_parameters[2].kind.as_ref(), Some(KindSyntax::LabeledTypePack(_))));
+    assert!(matches!(alias.generic_parameters[3].kind.as_ref(), Some(KindSyntax::RecordFields(_))));
+    assert_eq!(alias.generic_parameters[4].mode, Some(ExpansionMode::Complete));
+    assert!(matches!(alias.generic_parameters[4].kind.as_ref(), Some(KindSyntax::CompleteTypePack(_))));
+}
+
+#[test]
+fn record_row_type_tail_requires_explicit_double_asterisk() {
+    assert!(parse_source("type Old<R> = { name: String, | R }\n", 0).is_err());
+    assert!(parse_source("type Current<**R> = { name: String, **R }\n", 0).is_ok());
+    assert!(parse_source("type Bad = Record<name: String>\n", 0).is_err());
+    assert!(parse_source("type BadPack = Product<Int, String, flag: Bool>\n", 0).is_err());
+}
+
+#[test]
+fn parse_explicit_pack_application_forms() {
+    let source = concat!(
+        "type Positional = Foo<*(Int, String)>\n",
+        "type Labeled = Foo<**{ name: String }>\n",
+        "type Complete = Foo<***(Int, String, flag: Bool)>\n",
+        "type BoundPositional<*Ts> = Foo<*Ts>\n",
+        "type BoundLabeled<**Fs> = Foo<**Fs>\n",
+        "type BoundComplete<***Es> = Foo<***Es>\n",
+    );
+    parse_source(source, 0).expect("all explicit pack-application forms should parse");
 }
 
 #[test]
@@ -1861,7 +1897,7 @@ fn parses_type_pack_and_labeled_type_pack_kinds() {
 
 #[test]
 fn parses_type_member_projections() {
-    let source = "type Mapped = (Int, String)::Map<Option>\ntype AtPos = (Int, String)::At<1>\ntype AtNeg = (Int, String)::At<-1>\ntype Sub = (Int, String)[1]\ntype RowPos = #{ x: Int, y: String }::Positionals\n";
+    let source = "type Mapped = (Int, String)::Map<Option>\ntype AtPos = (Int, String)::At<1>\ntype AtNeg = (Int, String)::At<-1>\ntype Sub = (Int, String)[1]\ntype RowPos = { x: Int, y: String }::Positionals\n";
     let program = parse_source(source, 0).expect("type member projections should parse");
     assert_eq!(program.statements.len(), 5);
 
@@ -2066,4 +2102,3 @@ fn record_literal_parser_regressions() {
     assert_eq!(p.statements.len(), 1);
     assert!(matches!(&p.statements[0], Statement::Expr { expr: Expr::RecordLiteral(_), .. }));
 }
-

@@ -98,7 +98,7 @@ pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
         .len();
     match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
         super::index::NormalizedIndex::Valid(idx) => match vm.tuple_view(id).and_then(|tuple| tuple.get(idx)) {
-            Some(value) => Ok(value),
+            Some(value) => Ok(crate::primitive::option::wrap_some(vm, value)?),
             None => Ok(vm.none_value()),
         },
         super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
@@ -121,7 +121,7 @@ pub fn tuple_raw_positional_size(vm: &mut VM, receiver: &Value, _args: &[Value])
 #[phalcom_native_macros::primitive(Tuple, "rawLabelAt(_)", visibility = internal)]
 pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if receiver.is_unit() {
-        return Ok(vm.none_value());
+        return Err(RuntimeError::Internal("Tuple rawLabelAt called without a labeled entry".to_string()).into());
     }
     let id = expect_tuple(vm, receiver)?;
     let len = vm
@@ -130,12 +130,16 @@ pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
         .labels()
         .len();
     match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
-        super::index::NormalizedIndex::Valid(idx) => Ok(vm
+        super::index::NormalizedIndex::Valid(idx) => {
+            let label = vm
             .tuple_view(id)
             .and_then(|tuple| tuple.labels().get(idx).copied())
-            .map(Value::symbol)
-            .unwrap_or_else(|| vm.none_value())),
-        super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
+            .ok_or_else(|| RuntimeError::Internal("Tuple rawLabelAt index is out of range".to_string()))?;
+            Ok(Value::symbol(label))
+        }
+        super::index::NormalizedIndex::OutOfRange => {
+            Err(RuntimeError::Internal("Tuple rawLabelAt index is out of range".to_string()).into())
+        }
     }
 }
 

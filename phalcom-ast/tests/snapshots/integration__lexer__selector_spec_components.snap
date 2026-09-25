@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/lexer.rs
-expression: "tokens(\"#name #name() #name(_) #name(foo) #name... #name(...) #name(_, ..., foo) #name=... #+ #== #{ key: value } #\\\"quoted\\\"\")"
+expression: "tokens(\"#name #name() #name(_) #name(foo) #name... #name(...) #name(_, ..., foo) #name=... #+ #== #{ key, value } #\\\"quoted\\\"\")"
 ---
 [
     Hash,
@@ -64,7 +64,7 @@ expression: "tokens(\"#name #name() #name(_) #name(foo) #name... #name(...) #nam
     Plus,
     Hash,
     EqualEqual,
-    RecordLBrace,
+    SetLBrace,
     Identifier(
         "key",
     ),

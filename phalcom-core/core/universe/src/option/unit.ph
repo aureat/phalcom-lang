@@ -1,2 +1,1 @@
-type Unit = Tuple<>
-
+intrinsic type Unit = Tuple<>

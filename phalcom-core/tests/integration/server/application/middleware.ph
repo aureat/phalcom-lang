@@ -16,7 +16,7 @@ requestContext(
     }
 }
 
-attachRequestId<R>(
+attachRequestId<**R>(
     context: { **R },
     using ids: RequestIdFactory
 ) -> { requestId: RequestId, **R } {
@@ -26,7 +26,7 @@ attachRequestId<R>(
     }
 }
 
-decodeCheckoutRoute<R>(
+decodeCheckoutRoute<**R>(
     context: { path: String, **R }
 ) -> Result<
     {
@@ -46,8 +46,8 @@ decodeCheckoutRoute<R>(
     })
 }
 
-authorizationToken(
-    context: { headers: Headers, ... }
+authorizationToken<**R>(
+    context: { headers: Headers, **R }
 ) -> Result<AuthToken, Unauthorized> {
     match context.headers.authorization {
         None => Err(Unauthorized {})
@@ -55,7 +55,7 @@ authorizationToken(
     }
 }
 
-authenticate<A: Authenticator, R>(
+authenticate<A: Authenticator, **R>(
     context: {
         headers: Headers,
         **R
@@ -88,7 +88,7 @@ where A::Error == Unauthorized
     }
 }
 
-decodeJson<T, D, R>(
+decodeJson<T, D, **R>(
     context: { rawBody: Bytes, **R },
     using decoder: D
 ) -> Result<

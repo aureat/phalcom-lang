@@ -48,13 +48,13 @@ fn test_matrix_1_record_row_subtyping_and_unification() {
     let int_ty = store.nominal(test_decl("Int"));
     let str_ty = store.nominal(test_decl("String"));
 
-    // sub: #{ a: Int, b: String }
+    // sub: { a: Int, b: String }
     let sub = store.record(Box::new([
         RecordRowField { name: "a".into(), ty: int_ty },
         RecordRowField { name: "b".into(), ty: str_ty },
     ]));
 
-    // sup: #{ a: Int }
+    // sup: { a: Int }
     let sup = store.record(Box::new([RecordRowField { name: "a".into(), ty: int_ty }]));
 
     // Structural width subtyping: { a: Int, b: String } <: { a: Int }

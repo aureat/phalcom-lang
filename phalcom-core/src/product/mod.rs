@@ -108,9 +108,9 @@ pub fn finish_tuple_value(vm: &mut VM, positionals: Vec<Value>, labeled: Vec<(Sy
 
 /// Finalizes a Record at the product representation boundary.
 ///
-/// The compiler normalizes source `#{}` directly to `Unit` as an allocation
-/// optimization. This runtime check is still required for dynamic construction:
-/// no heap-allocated empty [`RecordObject`] may exist.
+/// The compiler normalizes source `{}` directly to `EmptyRecord` as an
+/// allocation optimization. This runtime check is still required for dynamic
+/// construction: no heap-allocated empty [`RecordObject`] may exist.
 pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(Symbol, Value)>) -> Result<Value, ProductBuildError> {
     unique(&fields)?;
     if fields.is_empty() {
@@ -262,7 +262,7 @@ mod tests {
     use crate::vm::VM;
 
     #[test]
-    fn empty_products_normalize_to_unit_without_heap_allocation() {
+    fn empty_tuple_and_record_keep_distinct_immediate_values_without_heap_allocation() {
         std::thread::Builder::new()
             .stack_size(32 * 1024 * 1024)
             .spawn(|| {
@@ -270,7 +270,8 @@ mod tests {
                 let before = vm.heap.live_count();
 
                 assert_eq!(finish_tuple(&mut vm, Vec::new(), Vec::new()), Ok(Value::unit()));
-                assert_eq!(finish_record(&mut vm, Vec::new()), Ok(Value::unit()));
+                assert_eq!(finish_record(&mut vm, Vec::new()), Ok(Value::empty_record()));
+                assert_ne!(Value::unit(), Value::empty_record());
 
                 assert_eq!(vm.heap.live_count(), before);
             })

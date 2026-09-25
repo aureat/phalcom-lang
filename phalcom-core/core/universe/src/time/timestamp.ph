@@ -151,7 +151,7 @@ impl Timestamp {
   }
 
   @class
-  internal civilFromDays(_ days: Int) -> Record {
+  internal civilFromDays(_ days: Int) -> Record<**{ year: Int, month: Int, day: Int }> {
     const adjustedDays = days + 719468
     const era = Timestamp.floorDiv(adjustedDays, 146097)
     const dayOfEra = adjustedDays - (era * 146097)

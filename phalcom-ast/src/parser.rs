@@ -898,8 +898,8 @@ impl<'source> Parser<'source> {
                     Ok(MetadataLiteral::Tuple(elements))
                 }
             }
-            Token::RecordLBrace => {
-                self.advance(); // '#{'
+            Token::LBrace => {
+                self.advance(); // '{'
                 let mut fields = Vec::new();
                 loop {
                     self.skip_newlines();
@@ -2366,19 +2366,18 @@ impl<'source> Parser<'source> {
         Ok(TypeMemberArgumentSyntax::TypeForm(ty))
     }
 
-    /// Parses a structural record type `#{ ... }` (Spec 04 §5.7).
+    /// Parses a structural record type `{ ... }`.
     pub fn parse_record_type(&mut self) -> ParserResult<TypeAnnotation> {
         let start = self.cur_start();
-        if !self.eat(&Token::LBrace) {
-            self.expect(&Token::RecordLBrace, &["\"{\""])?;
-        }
+        self.expect(&Token::LBrace, &["\"{\""])?;
         let mut fields = Vec::new();
         let mut tail = None;
 
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             self.skip_newlines();
-            if self.eat(&Token::DoubleAsterisk) || self.eat(&Token::Power) || self.eat(&Token::Pipe) {
+            if matches!(self.peek(), Token::DoubleAsterisk) {
                 let tail_start = self.cur_start();
+                self.advance();
                 let tail_name = self.expect_identifier(&["record row tail name"])?;
                 tail = Some(RecordRowTail {
                     name: tail_name,
@@ -2401,7 +2400,7 @@ impl<'source> Parser<'source> {
             self.skip_newlines();
             if self.eat(&Token::Comma) {
                 self.skip_newlines();
-                if self.eat(&Token::DoubleAsterisk) || self.eat(&Token::Power) || self.eat(&Token::Pipe) {
+                if self.eat(&Token::DoubleAsterisk) {
                     let tail_start = self.cur_start();
                     let tail_name = self.expect_identifier(&["record row tail name"])?;
                     tail = Some(RecordRowTail {
@@ -2425,7 +2424,7 @@ impl<'source> Parser<'source> {
         })
     }
 
-    /// Parses a kind expression (Spec 04 §3.3): `Type`, `RecordRow`, `TypePack`, `LabeledTypePack`, `Kind -> Kind`, `(Kind)`.
+    /// Parses a kind expression (Spec 04 §3.3): `Type`, `RecordFields`, `TypePack`, `LabeledTypePack`, `CompleteTypePack`, `Kind -> Kind`, `(Kind)`.
     pub fn parse_kind_expression(&mut self) -> ParserResult<KindSyntax> {
         let start = self.cur_start();
         let atom = if matches!(self.peek(), Token::LParen) && !self.kind_static_domain_form_ahead() && self.eat(&Token::LParen) {
@@ -2441,10 +2440,6 @@ impl<'source> Parser<'source> {
             self.advance();
             let range = (start..self.prev_end).into();
             KindSyntax::RecordFields(range)
-        } else if matches!(self.peek(), Token::Identifier(s) if s == "RecordRow") {
-            self.advance();
-            let range = (start..self.prev_end).into();
-            KindSyntax::RecordRow(range)
         } else if matches!(self.peek(), Token::Identifier(s) if s == "TypePack") {
             self.advance();
             let range = (start..self.prev_end).into();
@@ -2465,7 +2460,6 @@ impl<'source> Parser<'source> {
             let err = self.error_here(vec![
                 "\"Type\"".to_string(),
                 "\"RecordFields\"".to_string(),
-                "\"RecordRow\"".to_string(),
                 "\"TypePack\"".to_string(),
                 "\"LabeledTypePack\"".to_string(),
                 "\"CompleteTypePack\"".to_string(),
@@ -2651,7 +2645,7 @@ impl<'source> Parser<'source> {
         }
         match self.peek() {
             Token::LParen => self.parse_paren_type(),
-            Token::LBrace | Token::RecordLBrace => self.parse_record_type(),
+            Token::LBrace => self.parse_record_type(),
             Token::Identifier(s) => {
                 let name = s.clone();
                 let root_start = self.cur_start();
@@ -2714,7 +2708,7 @@ impl<'source> Parser<'source> {
                 })
             }
             _ => {
-                let err = self.error_here(vec!["type name".to_string(), "\"(\"".to_string(), "\"#{\"".to_string()]);
+                let err = self.error_here(vec!["type name".to_string(), "\"(\"".to_string(), "\"{\"".to_string()]);
                 self.advance();
                 let range = (start..self.prev_end).into();
                 Ok(TypeAnnotation {
@@ -3018,7 +3012,7 @@ impl<'source> Parser<'source> {
     /// sub-pattern is not a list pattern's last element, or if the current
     /// token cannot begin a pattern.
     /// Parses a pattern, supporting or-patterns (`p1 | p2`), wildcards (`_`),
-    /// tuples `(p1, ...)`, lists `[p1, ...]`, records `#{...}`, maps `{#...}`,
+    /// tuples `(p1, ...)`, lists `[p1, ...]`, records `{...}`, maps `Map {...}`,
     /// qualified/contextual variants (`Animal::Dog*`, `Dog(...)`, `Dog(x, ..., named: y)`),
     /// and name bindings (`x`).
     fn parse_pattern(&mut self) -> ParserResult<Pattern> {
@@ -3054,7 +3048,7 @@ impl<'source> Parser<'source> {
             }
             Token::LParen => self.parse_tuple_pattern(),
             Token::LBracket => self.parse_list_pattern(),
-            Token::LBrace | Token::RecordLBrace => self.parse_record_pattern(),
+            Token::LBrace => self.parse_record_pattern(),
             Token::Identifier(_) => self.parse_identifier_or_variant_pattern(),
             _ => {
                 let start = self.cur_start();
@@ -3099,7 +3093,7 @@ impl<'source> Parser<'source> {
                 range: start..self.prev_end,
             });
             Ok(Pattern::Name { name, range })
-        } else if name == "Map" && matches!(self.peek(), Token::LBrace | Token::RecordLBrace) {
+        } else if name == "Map" && matches!(self.peek(), Token::LBrace) {
             self.parse_map_pattern(start)
         } else if matches!(self.peek(), Token::Asterisk | Token::LParen) {
             self.parse_variant_pattern_suffix(start, None, name.clone(), root_range)
@@ -3244,16 +3238,14 @@ impl<'source> Parser<'source> {
     /// Parses an open record pattern `{field: pattern, ..., **rest}`.
     fn parse_record_pattern(&mut self) -> ParserResult<Pattern> {
         let start = self.cur_start();
-        if !self.eat(&Token::LBrace) {
-            self.expect(&Token::RecordLBrace, &["\"{\""])?;
-        }
+        self.expect(&Token::LBrace, &["\"{\""])?;
         let mut entries = Vec::new();
         let mut rest = None;
         self.skip_newlines();
         if !matches!(self.peek(), Token::RBrace) {
             loop {
                 self.skip_newlines();
-                if self.eat(&Token::DoubleAsterisk) || self.eat(&Token::Power) {
+                if self.eat(&Token::DoubleAsterisk) {
                     let rest_pat = self.parse_pattern()?;
                     rest = Some(Box::new(rest_pat));
                     self.skip_newlines();
@@ -5656,7 +5648,7 @@ impl<'source> Parser<'source> {
     fn looks_like_kind_expression(&self) -> bool {
         match self.peek() {
             Token::LParen => true,
-            Token::Identifier(s) => s == "Type" || s == "RecordRow" || s == "TypePack" || s == "LabeledTypePack" || s == "TupleEntries",
+            Token::Identifier(s) => s == "Type" || s == "RecordFields" || s == "TypePack" || s == "LabeledTypePack" || s == "CompleteTypePack",
             _ => false,
         }
     }
@@ -6383,7 +6375,7 @@ impl<'source> Parser<'source> {
             | Token::Super
             | Token::LBracket
             | Token::LParen
-            | Token::RecordLBrace
+            | Token::SetLBrace
             | Token::Pipe
             | Token::Plus
             | Token::Minus
@@ -6391,11 +6383,7 @@ impl<'source> Parser<'source> {
             | Token::Tilde
             | Token::Ampersand
             | Token::DotDotDot => true,
-            Token::LBrace => {
-                (matches!(self.peek_next(), Token::Identifier(_)) && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::Colon)))
-                    || self.starts_computed_map_literal()
-                    || matches!(self.peek_next(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power)
-            }
+            Token::LBrace => true,
             _ => false,
         }
     }
@@ -8462,7 +8450,7 @@ impl<'source> Parser<'source> {
             }
             Token::LBracket => self.parse_list_literal(),
             Token::LParen => self.parse_paren_or_tuple(),
-            Token::RecordLBrace => self.parse_set_literal(),
+            Token::SetLBrace => self.parse_set_literal(),
             Token::Pipe => self.parse_closure_literal(ClosureBodyRequirement::Any),
             Token::LBrace => self.parse_record_literal(),
             Token::Less if self.is_type_lambda_ahead() => {
@@ -8505,29 +8493,6 @@ impl<'source> Parser<'source> {
             Expr::TypeForm(ann) => Some((**ann).clone()),
             _ => None,
         }
-    }
-
-    /// True only for `{ [key]: value }`. `{ [value] }` remains a Block until
-    /// B.3b ratifies its Set-literal spelling.
-    fn starts_computed_map_literal(&self) -> bool {
-        if !matches!(self.peek(), Token::LBracket) {
-            return false;
-        }
-
-        let mut depth = 0usize;
-        for idx in self.pos..self.tokens.len() {
-            match self.tokens[idx].token {
-                Token::LBracket => depth += 1,
-                Token::RBracket => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        return self.tokens.get(idx + 1).is_some_and(|token| matches!(&token.token, Token::Colon));
-                    }
-                }
-                _ => {}
-            }
-        }
-        false
     }
 
     /// Parses a List literal into its explicit AST representation and preserves
@@ -9178,9 +9143,7 @@ impl<'source> Parser<'source> {
 
     fn parse_record_literal(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
-        if !self.eat(&Token::LBrace) {
-            self.expect(&Token::RecordLBrace, &["\"{\""])?;
-        }
+        self.expect(&Token::LBrace, &["\"{\""])?;
         self.skip_newlines();
         if self.eat(&Token::RBrace) {
             return Ok(Expr::RecordLiteral(Box::new(RecordLiteralExpr {
@@ -9261,7 +9224,7 @@ impl<'source> Parser<'source> {
 
     fn parse_set_literal(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
-        self.advance(); // `#{`
+        self.advance(); // `Map`
         self.skip_newlines();
         if self.eat(&Token::RBrace) {
             return Ok(Expr::SetLiteral(Box::new(SetLiteralExpr {
@@ -9306,9 +9269,7 @@ impl<'source> Parser<'source> {
     }
 
     fn parse_map_literal(&mut self, start: usize, type_arguments: Option<Vec<TypeAnnotation>>) -> ParserResult<Expr> {
-        if !self.eat(&Token::LBrace) {
-            self.expect(&Token::RecordLBrace, &["\"{\""])?;
-        }
+        self.expect(&Token::LBrace, &["\"{\""])?;
         self.skip_newlines();
         if self.eat(&Token::RBrace) {
             return Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {

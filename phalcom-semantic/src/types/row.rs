@@ -71,6 +71,6 @@ pub enum RecordRowFormationError {
     #[error("record row tail parameter is missing")]
     TailParameterMissing(TypeParameterId),
 
-    #[error("record row tail parameter must have kind RecordRow")]
+    #[error("record row tail parameter must have kind RecordFields")]
     TailParameterWrongKind { parameter: TypeParameterId, actual: KindId },
 }

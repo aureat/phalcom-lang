@@ -86,6 +86,22 @@ fn proj_ann(subject: TypeAnnotation, selector: &str, arguments: Vec<TypeMemberAr
     }
 }
 
+fn record_expansion_application(operand: TypeAnnotation) -> TypeAnnotation {
+    TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(ref_ann("Record")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Labeled,
+                operator_range: RANGE,
+                operand,
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    }
+}
+
 fn subscript_ann(subject: TypeAnnotation, index: i64) -> TypeAnnotation {
     TypeAnnotation {
         expr: TypeAnnotationExpr::TypeMemberProjection {
@@ -184,6 +200,58 @@ fn source_type_member_projection_uses_surface_identity_and_checks_argument_domai
     assert!(!diagnostics.is_empty());
 }
 
+#[test]
+fn intrinsic_type_member_source_products_match_the_evaluator_catalog() {
+    use phalcom_common::modifier::ImplementationKind;
+    use phalcom_semantic::types::type_member::{IntrinsicTypeOperation, lookup_intrinsic_type_operation};
+    use phalcom_semantic::types::TypeResolver;
+
+    let mut env = setup();
+    for operation in IntrinsicTypeOperation::ALL {
+        let mut matching = env
+            .resolver
+            .type_member_declarations
+            .iter()
+            .filter(|(_, product)| product.signature.intrinsic == Some(operation));
+        let (member_id, product) = matching.next().unwrap_or_else(|| panic!("missing source member for {}", operation.name()));
+        assert!(matching.next().is_none(), "multiple source members select {}", operation.name());
+        let owner = env.declarations.intrinsic_type_owner(&member_id.owner).expect("intrinsic source owner");
+        assert_eq!(lookup_intrinsic_type_operation(owner, &member_id.selector), Some(operation));
+        let selected = env
+            .resolver
+            .resolve_associated_type_member(&member_id.owner, &member_id.selector)
+            .expect("source member must be admitted by its AssociatedSurface");
+        assert_eq!(selected.id, product.id);
+        assert_eq!(selected.signature.intrinsic, Some(operation));
+
+        let (expected_parameters, expected_result) = operation.signature_kinds(&mut env.store);
+        let actual_parameters = selected
+            .signature
+            .parameters
+            .iter()
+            .map(|parameter| match &parameter.domain {
+                phalcom_semantic::types::type_member::TypeMemberDomain::Kind(kind) => *kind,
+            })
+            .collect::<Vec<_>>();
+        let phalcom_semantic::types::type_member::TypeMemberDomain::Kind(actual_result) = &selected.signature.result_domain;
+        assert_eq!(actual_parameters.as_slice(), expected_parameters.as_ref(), "{} parameter domains", operation.name());
+        assert_eq!(*actual_result, expected_result, "{} result domain", operation.name());
+    }
+
+    for product in env.resolver.type_member_declarations.values() {
+        if product.signature.implementation != ImplementationKind::Intrinsic {
+            continue;
+        }
+        let owner = env
+            .declarations
+            .intrinsic_type_owner(&product.id.owner)
+            .expect("every authored intrinsic source member belongs to an intrinsic owner");
+        let operation = lookup_intrinsic_type_operation(owner, &product.id.selector)
+            .unwrap_or_else(|| panic!("source intrinsic member {} has no evaluator", product.id.selector.name()));
+        assert_eq!(product.signature.intrinsic, Some(operation));
+    }
+}
+
 fn setup() -> TestEnv {
     let mut store = TypeStore::new();
     let module = ModuleId::universe_root();
@@ -200,15 +268,129 @@ fn setup() -> TestEnv {
         "Record",
         "TypePack",
         "LabeledTypePack",
+        "CompleteTypePack",
+        "RecordFields",
     ] {
         resolver.insert(name, DeclarationId::new(module.clone(), name.into()));
     }
+    // These low-level tests use SimpleTypeResolver rather than the source
+    // database, so install the checked source member products that Universe
+    // declares for the compiler intrinsic evaluators.
+    install_intrinsic_source_members(&mut store, &mut resolver);
     let site = TypeFormationSite::module(module);
     TestEnv {
         store,
         declarations,
         resolver,
         site,
+    }
+}
+
+fn install_intrinsic_source_members(store: &mut TypeStore, resolver: &mut SimpleTypeResolver) {
+    use phalcom_common::modifier::ImplementationKind;
+    use phalcom_common::selector::SelectorBase;
+    use phalcom_semantic::associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedMemberId, AssociatedSurface};
+    use phalcom_semantic::db::product::TypeMemberDeclarationProduct;
+    use phalcom_semantic::types::id::KindId;
+    use phalcom_semantic::types::type_member::{
+        IntrinsicTypeOperation, TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSelector, TypeMemberSignature,
+    };
+
+    fn add(
+        resolver: &mut SimpleTypeResolver,
+        owner: DeclarationId,
+        selector: TypeMemberSelector,
+        operation: IntrinsicTypeOperation,
+        parameters: Vec<(&str, KindId)>,
+        result_kind: KindId,
+    ) {
+        let base = match &selector {
+            TypeMemberSelector::Named(name) => SelectorBase::Named(name.to_string()),
+            TypeMemberSelector::Subscript => SelectorBase::Subscript,
+        };
+        let id = TypeMemberDeclarationId::new(owner.clone(), selector.clone());
+        let product = std::sync::Arc::new(TypeMemberDeclarationProduct {
+            id: id.clone(),
+            signature: TypeMemberSignature {
+                selector,
+                parameters: parameters
+                    .into_iter()
+                    .map(|(name, kind)| TypeMemberParameter {
+                        name: name.into(),
+                        domain: TypeMemberDomain::Kind(kind),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                result_domain: TypeMemberDomain::Kind(result_kind),
+                intrinsic: Some(operation),
+                implementation: ImplementationKind::Intrinsic,
+            },
+            source_range: RANGE,
+        });
+        let mut surface = resolver
+            .associated_surfaces
+            .get(&owner)
+            .map(|surface| (**surface).clone())
+            .unwrap_or_else(|| AssociatedSurface::new(owner.clone()));
+        surface.families.insert(
+            base.clone(),
+            AssociatedFamilyInfo {
+                id: phalcom_semantic::identity::AssociatedFamilyId::new(owner.clone(), base),
+                kind: AssociatedFamilyKind::IntrinsicTypeMember,
+                members: Box::new([AssociatedMemberId::TypeMember(id.clone())]),
+            },
+        );
+        resolver.associated_surfaces.insert(owner, std::sync::Arc::new(surface));
+        resolver.type_member_declarations.insert(id, product);
+    }
+
+    let type_to_type = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let tuple = decl("Tuple");
+    for (name, operation, result) in [
+        ("Positionals", IntrinsicTypeOperation::TuplePositionals, KindId::TYPE_PACK),
+        ("Labeled", IntrinsicTypeOperation::TupleLabeled, KindId::LABELED_TYPE_PACK),
+        ("Entries", IntrinsicTypeOperation::TupleEntries, KindId::COMPLETE_TYPE_PACK),
+        ("Element", IntrinsicTypeOperation::TupleElement, KindId::TYPE),
+        ("Map", IntrinsicTypeOperation::TupleMap, KindId::TYPE),
+    ] {
+        let parameters = if name == "Map" { vec![("F", type_to_type)] } else { Vec::new() };
+        add(&mut *resolver, tuple.clone(), TypeMemberSelector::named(name), operation, parameters, result);
+    }
+    add(
+        resolver,
+        tuple,
+        TypeMemberSelector::subscript(),
+        IntrinsicTypeOperation::TupleAt,
+        vec![("index", KindId::TYPE)],
+        KindId::TYPE,
+    );
+
+    let record = decl("Record");
+    for (name, operation, result) in [
+        ("Fields", IntrinsicTypeOperation::RecordFields, KindId::RECORD_ROW),
+        ("Value", IntrinsicTypeOperation::RecordValue, KindId::TYPE),
+        ("Map", IntrinsicTypeOperation::RecordMap, KindId::TYPE),
+    ] {
+        let parameters = if name == "Map" { vec![("F", type_to_type)] } else { Vec::new() };
+        add(resolver, record.clone(), TypeMemberSelector::named(name), operation, parameters, result);
+    }
+
+    for (owner_name, selector_name, operation, result_kind) in [
+        ("TypePack", "Map", IntrinsicTypeOperation::TypePackMap, KindId::TYPE_PACK),
+        ("LabeledTypePack", "Map", IntrinsicTypeOperation::LabeledTypePackMap, KindId::LABELED_TYPE_PACK),
+        ("CompleteTypePack", "Positionals", IntrinsicTypeOperation::CompleteTypePackPositionals, KindId::TYPE_PACK),
+        ("CompleteTypePack", "Labeled", IntrinsicTypeOperation::CompleteTypePackLabeled, KindId::LABELED_TYPE_PACK),
+        ("CompleteTypePack", "Map", IntrinsicTypeOperation::CompleteTypePackMap, KindId::COMPLETE_TYPE_PACK),
+        ("RecordFields", "Map", IntrinsicTypeOperation::RecordRowMap, KindId::RECORD_ROW),
+    ] {
+        add(
+            resolver,
+            decl(owner_name),
+            TypeMemberSelector::named(selector_name),
+            operation,
+            if selector_name == "Map" { vec![("F", type_to_type)] } else { Vec::new() },
+            result_kind,
+        );
     }
 }
 
@@ -390,6 +572,151 @@ fn test_tuple_and_record_map_projection() {
     ]));
     assert_eq!(res_rec.ty(), Some(expected_rec));
     assert!(diags.is_empty());
+}
+
+#[test]
+fn record_fields_projection_preserves_exact_row_identity() {
+    use phalcom_semantic::declarations::{DeclarationTypeBinding, DeclarationTypeInfo};
+    use phalcom_semantic::types::id::KindId;
+    use phalcom_semantic::types::parameter::{GenericBinderHeader, GenericParameterMode, GenericSignature};
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use phalcom_semantic::types::row::RecordRowTail;
+    use phalcom_semantic::types::store::StaticArgument;
+    use phalcom_semantic::types::type_member::{ProjectionSubject, TypeMemberDeclarationId, TypeMemberSelector};
+
+    let mut env = setup();
+    let source_shape = record_ann(vec![("name", ref_ann("String")), ("age", ref_ann("Int"))]);
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(source_record) =
+        resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &source_shape, &mut diagnostics)
+    else {
+        panic!("the concrete Record shape should resolve: {diagnostics:?}");
+    };
+    let TypeData::Record(source_row) = env.store.get(source_record) else {
+        panic!("the source shape should be a structural Record");
+    };
+    let source_row = *source_row;
+
+    let fields = proj_ann(ref_ann("KnownRecord"), "Fields", vec![]);
+    env.resolver.insert_type_form_binding("KnownRecord", source_record);
+    diagnostics.clear();
+    let TypeFormResolution::Ready(fields) =
+        resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &fields, &mut diagnostics)
+    else {
+        panic!("Record::Fields should remain a source-selected row projection: {diagnostics:?}");
+    };
+    let TypeData::TypeMemberProjection(fields_projection) = env.store.get(fields) else {
+        panic!("Record::Fields should remain a row-valued type-member projection");
+    };
+    assert_eq!(fields_projection.source_declaration.as_ref(), Some(&TypeMemberDeclarationId::new(decl("Record"), TypeMemberSelector::named("Fields"))));
+    assert!(matches!(&fields_projection.subject, ProjectionSubject::Type(subject) if *subject == source_record));
+
+    let TypeFormResolution::Ready(reapplied) = resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &record_expansion_application(proj_ann(ref_ann("KnownRecord"), "Fields", vec![])),
+        &mut diagnostics,
+    ) else {
+        panic!("Record<**Record::Fields> should retain the known row: {diagnostics:?}");
+    };
+    assert!(matches!(env.store.get(reapplied), TypeData::Record(row) if *row == source_row));
+
+    let family = decl("RecordFamily");
+    let family_owner = TypeParameterOwner::Declaration(family.clone());
+    let family_parameter = env.store.intern_type_parameter(
+        TypeParameterData::new(family_owner.clone(), 0, "Fs", KindId::RECORD_ROW).with_mode(GenericParameterMode::LabeledPack),
+    );
+    let family_signature = GenericSignature::new(family_owner, Box::new([family_parameter]))
+        .with_parameter_modes(Box::new([GenericParameterMode::LabeledPack]));
+    let family_kind = env.store.arrow_kind(vec![KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+    let family_form = env.store.nominal_form(family.clone(), family_kind);
+    env.declarations.insert(DeclarationTypeInfo {
+        declaration: family.clone(),
+        form: family_form,
+        class_object_type: env.store.class_object_type(family.clone()),
+        kind: family_kind,
+        binding: DeclarationTypeBinding::ordinary(),
+        generic_binder_header: Some(GenericBinderHeader::from_signature(&env.store, &family_signature)),
+        generic_signature: Some(family_signature),
+        supertype_template: None,
+    });
+    env.resolver.insert("RecordFamily", family);
+    let TypeFormResolution::Ready(reapplied_family) = resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &TypeAnnotation {
+            expr: TypeAnnotationExpr::Application {
+                origin: Box::new(ref_ann("RecordFamily")),
+                arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                    mode: phalcom_ast::ast::ExpansionMode::Labeled,
+                    operator_range: RANGE,
+                    operand: proj_ann(ref_ann("KnownRecord"), "Fields", vec![]),
+                    range: RANGE,
+                })],
+                range: RANGE,
+            },
+            range: RANGE,
+        },
+        &mut diagnostics,
+    ) else {
+        panic!("RecordFamily<**Record::Fields> should preserve its row argument: {diagnostics:?}");
+    };
+    let TypeData::Applied { arguments, .. } = env.store.get(reapplied_family) else {
+        panic!("the custom Record family application should remain nominal");
+    };
+    assert!(matches!(arguments.as_ref(), [StaticArgument::RecordRow(row)] if *row == source_row));
+
+    let family = env.declarations.form(&decl("Record")).expect("canonical Record family form");
+    let applied_subject = env.store.apply_static_form(family, &[StaticArgument::RecordRow(source_row)]).expect("Record row application");
+    env.resolver.insert_type_form_binding("AppliedRecord", applied_subject);
+    let applied_fields = proj_ann(ref_ann("AppliedRecord"), "Fields", vec![]);
+    diagnostics.clear();
+    let TypeFormResolution::Ready(applied_fields) = resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &applied_fields,
+        &mut diagnostics,
+    ) else {
+        panic!("applied Record::Fields should retain its row argument: {diagnostics:?}");
+    };
+    let TypeFormResolution::Ready(reapplied) = resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &record_expansion_application(applied_fields),
+        &mut diagnostics,
+    ) else {
+        panic!("Record<**(Record<**Fs>::Fields)> should resolve: {diagnostics:?}");
+    };
+    assert!(matches!(env.store.get(reapplied), TypeData::Record(row) if *row == source_row));
+
+    let owner = TypeParameterOwner::Declaration(decl("RecordFieldsMap"));
+    let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "Fs", KindId::RECORD_ROW));
+    env.resolver.insert_record_row_binding("Fs", parameter);
+    let mapped = proj_ann(
+        ref_ann("Fs"),
+        "Map",
+        vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("List"))],
+    );
+    diagnostics.clear();
+    let TypeFormResolution::Ready(mapped) =
+        resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &mapped, &mut diagnostics)
+    else {
+        panic!("RecordFields::Map should accept a RecordFields binder: {diagnostics:?}");
+    };
+    assert_eq!(env.store.kind_of(mapped), KindId::RECORD_ROW);
+    let TypeData::TypeMemberProjection(mapped_projection) = env.store.get(mapped) else {
+        panic!("a symbolic RecordFields::Map should remain a row-domain projection");
+    };
+    assert!(matches!(&mapped_projection.subject, ProjectionSubject::RecordRow(row) if env.store.record_row(*row).tail == RecordRowTail::Parameter(parameter)));
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 
 #[test]

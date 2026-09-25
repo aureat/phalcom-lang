@@ -18,7 +18,7 @@ class Main {
 
     const shipment: Shipment = Planner.plan(parcel, origin: origin)
 
-    const x = #{hello: String}
+    const x = { hello: String }
 
     System.print("Phalcom IDE Golden")
     System.print("parcel: " + shipment.parcel.id)

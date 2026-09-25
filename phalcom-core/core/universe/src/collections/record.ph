@@ -1,26 +1,36 @@
 intrinsic type data RecordFields
-type RecordRow = RecordFields
 
-intrinsic data Record<**Fs: RecordFields> {
+impl RecordFields {
+  intrinsic type Map<F: Type -> Type>: RecordFields
+}
+
+intrinsic data Record<**Fs> {
   **Fs
 }
 
-type EmptyRecord = Record<>
+intrinsic type EmptyRecord = Record<>
 
 /// Immutable labeled collection with insertion-ordered fields.
 impl<**Fs: RecordFields> Record<**Fs> {
   internal native rawSize -> Int
   internal native rawLabelAt(_ index: Int) -> Symbol
-  internal native rawValueAt(_ index: Int) -> Dynamic
+  internal native rawValueAt(_ index: Int) -> Option<Record<**Fs>::Value>
   size { self.rawSize }
   labelAt(_ index) { self.rawLabelAt(index) }
 
+  private rawValueAtChecked(_ index: Int) -> Record<**Fs>::Value {
+    self.rawValueAt(index).match(
+      some: |value| { value },
+      none: || { throw IndexError.new("Record index out of range") }
+    )
+  }
+
   /// Returns the value for `key`, or `None` when the label is absent.
-  get(_ key) {
+  get(_ key) -> Option<Record<**Fs>::Value> {
     let i = 0
     while i < self.size {
       if self.labelAt(i) === key {
-        return Some(self.rawValueAt(i))
+        return self.rawValueAt(i)
       }
       i = i + 1
     }
@@ -40,7 +50,7 @@ impl<**Fs: RecordFields> Record<**Fs> {
       let found = false
       while not found and j < other.size {
         if other.rawLabelAt(j) == label {
-          found = self.rawValueAt(i) == other.rawValueAt(j)
+          found = self.rawValueAtChecked(i) == other.rawValueAtChecked(j)
         }
         j = j + 1
       }
@@ -54,7 +64,7 @@ impl<**Fs: RecordFields> Record<**Fs> {
     let acc = 101 + self.size
     let i = 0
     while i < self.size {
-      acc = (acc + ((self.rawLabelAt(i).hash * 31) + self.rawValueAt(i).hash)) % 999999937
+      acc = (acc + ((self.rawLabelAt(i).hash * 31) + self.rawValueAtChecked(i).hash)) % 999999937
       i = i + 1
     }
     return acc

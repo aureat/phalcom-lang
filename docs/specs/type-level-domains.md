@@ -22,16 +22,18 @@ The initial kind grammar is:
 
 ```text
 κ ::= Type
-    | RecordRow
+    | RecordFields
     | TypePack
     | LabeledTypePack
+    | CompleteTypePack
     | StaticDomain(D)
     | (κ₁, ..., κₙ) -> κ
 ```
 
 The domains `TypePack` and `LabeledTypePack` are type-level domains. They are
 not runtime classes, proper Tuple/Record types, or aliases for those types.
-`RecordRow` is a separate unordered field domain. `StaticDomain(D)` is the
+`RecordFields` is a separate unordered field domain. The implementation may
+retain `RecordRow` as an internal representation name. `StaticDomain(D)` is the
 domain of canonical static terms belonging to the nominal type-data domain
 `D`. A form classified in one domain is not implicitly reinterpreted as a form
 in another domain.
@@ -43,7 +45,7 @@ Examples:
 Γ ⊢ Option : Type -> Type
 Γ ⊢ P : TypePack
 Γ ⊢ L : LabeledTypePack
-Γ ⊢ R : RecordRow
+Γ ⊢ R : RecordFields
 Γ ⊢ Shape::Scalar : StaticDomain(Shape)
 ```
 
@@ -101,12 +103,10 @@ binding source identity to an existing compiler-owned domain:
 ```phalcom
 intrinsic type data TypePack
 intrinsic type data LabeledTypePack
-intrinsic type data TupleEntries
-intrinsic type data RecordRow
+intrinsic type data CompleteTypePack
+intrinsic type data RecordFields
 ```
 
-`TupleEntries` names the existing complete tuple-pack domain
-(`CompleteTypePack`); it does not create a second pack kind or representation.
 Intrinsic declarations expose canonical compiler operations and terms but do
 not add runtime values or a runtime static evaluator.
 
@@ -169,6 +169,19 @@ Domain(F) = Kind(Type -> Type)
 Domain(I) = Const(Int)
 ```
 
+An omitted binder kind has a fixed default determined by its expansion prefix:
+
+```phalcom
+T       // Type
+*Ts     // TypePack
+**Fs    // RecordFields
+***Es   // CompleteTypePack
+```
+
+There is no contextual kind inference. An explicit annotation may be supplied
+and is checked independently against the binder's expansion mode; for example,
+`**Ls: LabeledTypePack` remains a labeled type pack.
+
 The colon in these binder annotations classifies the parameter domain. It does
 not turn a proper type into a kind and does not introduce trait conformance.
 Trait requirements remain expressed with `|=` as specified by
@@ -186,12 +199,20 @@ argument is checked in its declared domain. Conceptually, argument categories
 include:
 
 ```text
-GenericArgument ::= TypeForm | RecordRow | TypePack | LabeledTypePack | Const
+GenericArgument ::= TypeForm | RecordFields | TypePack | LabeledTypePack | CompleteTypePack | Const
 ```
 
 `TypeForm` includes both proper and higher-kinded forms. Thus `Map<Option>` is
 valid when `Option : Type -> Type`, while `Map<Int>` is invalid because
 `Int : Type`.
+
+Contributions to a generic pack are explicit expansions. Supported forms
+include `Foo<*(Int, String)>`, `Foo<**{ name: String }>`,
+`Foo<***(Int, String, labeled: Bool)>`, and expansion of a bound pack such as
+`Foo<*Ts>`, `Foo<**Fs>`, or `Foo<***Es>`. Fixed ordinary type arguments may
+precede a pack expansion when the declaration has fixed parameters first.
+Direct mixed contributions such as `Foo<Int, String, x: Bool>` and
+`Record<name: String>` are not supported.
 
 ## 6. Symbolic forms and validity
 
@@ -215,7 +236,7 @@ preserve this semantic distinction.
 
 | ID | Requirement |
 |---|---|
-| **TL-DOMAIN-SEPARATION** | `Type`, `RecordRow`, `TypePack`, and `LabeledTypePack` are distinct domains. |
+| **TL-DOMAIN-SEPARATION** | `Type`, `RecordFields`, `TypePack`, `LabeledTypePack`, and `CompleteTypePack` are distinct domains. |
 | **TL-CONST-NOT-KIND** | `I: Int` classifies `I` in `Const(Int)`; `Int` does not become a kind. |
 | **TL-PROPER-TYPE** | A proper type has kind `Type`; higher-kinded forms are not proper types until saturated. |
 | **TL-STATIC-DOMAIN** | A `type data` declaration owns one nominal `StaticDomain(D)` and its canonical case/constructor terms. Distinct declarations have distinct domains. |
@@ -232,6 +253,6 @@ declarations are specialized by [Associated Types](associated-types.md) and
 `Labeled`, `At`, and `Map` are owned by
 [Structural Products](structural-products.md).
 
-This specification does not introduce runtime `TypePack` or `RecordRow`
+This specification does not introduce runtime `TypePack` or `RecordFields`
 objects, arbitrary compile-time Phalcom execution, open type families, or a
 general theorem prover.

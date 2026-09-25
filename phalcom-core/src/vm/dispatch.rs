@@ -2572,12 +2572,10 @@ impl VM {
                 }
                 Bytecode::FinalizeData(spec_idx) => {
                     let spec = callable.chunk.executable_semantics.data_spec(spec_idx);
-                    if let Some(desc_id) = self.data_registry.descriptor_by_declaration(&spec.owner) {
-                        if let Some(behavior_class) = self.data_registry.descriptor(desc_id).map(|d| d.behavior_class) {
-                            self.finalize_class_base_names(behavior_class);
-                            let meta_id = self.heap.class(behavior_class).class;
-                            self.finalize_class_base_names(meta_id);
-                        }
+                    if let Some(behavior_class) = self.data_registry.behavior_class_for_declaration(&spec.owner) {
+                        self.finalize_class_base_names(behavior_class);
+                        let meta_id = self.heap.class(behavior_class).class;
+                        self.finalize_class_base_names(meta_id);
                     }
                 }
                 Bytecode::LoadDataSingleton(constructor_idx) => {

@@ -2,10 +2,13 @@
 
 use crate::declaration_type::DeclaredTypeFact;
 use crate::identity::{DataComponentId, DataConstructorId, DeclarationId, SemanticSourceSpan};
-use crate::types::id::TypeId;
+use crate::types::id::{KindId, TypeId};
 use crate::types::parameter::GenericSignature;
+use crate::types::row::RecordRowTail;
+use crate::types::store::{StaticArgument, TypeData, TypeStore};
 use phalcom_common::modifier::Visibility;
 use std::collections::HashMap;
+use thiserror::Error;
 use std::sync::Arc;
 
 /// Structural shape of a data declaration: Tuple vs Record.
@@ -146,6 +149,334 @@ impl DataInfo {
             op.slots,
         )
     }
+}
+
+/// One concrete or partially known logical component of a specialized product.
+/// Components introduced by an expansion deliberately have no declaration
+/// `DataComponentId`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataProductMaterializedComponent {
+    pub component: Option<DataComponentId>,
+    pub local_name: Option<Box<str>>,
+    pub label: Option<Box<str>>,
+    pub ty: Option<TypeId>,
+    pub source: Option<SemanticSourceSpan>,
+    pub expansion_source: Option<SemanticSourceSpan>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DataProductShapeState {
+    Concrete,
+    Symbolic,
+}
+
+/// Product shape after substituting the exact generic application. A symbolic
+/// state means the declaration is valid but one or more pack/row tails remain
+/// unresolved, so it cannot be used to allocate an exact runtime layout.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataProductShapeMaterialization {
+    pub state: DataProductShapeState,
+    pub components: Box<[DataProductMaterializedComponent]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Error)]
+pub enum DataProductShapeMaterializationError {
+    #[error("specialized data type does not belong to the product declaration")]
+    WrongOwner,
+    #[error("specialized data type has the wrong generic argument arity")]
+    GenericArity,
+    #[error("specialized generic argument has the wrong domain")]
+    GenericArgumentDomain,
+    #[error("expanded product contribution has kind {actual:?}, expected {expected:?}")]
+    ExpansionKind { expected: KindId, actual: KindId },
+    #[error("RecordFields contribution did not materialize to a Record row")]
+    InvalidRecordExpansion,
+    #[error("type materialization failed: {0}")]
+    Type(#[from] crate::types::instantiation::TypeMaterializationError),
+    #[error("record row could not be materialized: {0}")]
+    RecordRow(#[from] crate::types::row::RecordRowFormationError),
+}
+
+/// Materializes a declared product template against one canonical specialized
+/// type. Pack values and RecordFields rows are read from the exact type's
+/// heterogeneous generic arguments; no inference or identity allocation is
+/// performed here.
+pub fn materialize_data_product_shape(
+    store: &mut TypeStore,
+    info: &DataInfo,
+    specialized_type: TypeId,
+) -> Result<DataProductShapeMaterialization, DataProductShapeMaterializationError> {
+    let instantiation = data_specialization_instantiation(store, info, specialized_type)?;
+    let mut components = Vec::new();
+    let mut state = DataProductShapeState::Concrete;
+
+    for contribution in info.shape_template.contributions.iter() {
+        match contribution {
+            DataProductContribution::Component(component) => {
+                let ty = match component.declared_type.canonical_type() {
+                    Some(ty) => Some(crate::types::instantiation::materialize_type(
+                        store,
+                        ty,
+                        &instantiation,
+                        crate::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
+                    )?),
+                    None => {
+                        state = DataProductShapeState::Symbolic;
+                        None
+                    }
+                };
+                components.push(DataProductMaterializedComponent {
+                    component: Some(component.id.clone()),
+                    local_name: Some(component.local_name.clone()),
+                    label: match info.shape {
+                        DataShape::Tuple => component.external_label.clone(),
+                        DataShape::Record => Some(component.external_label.as_ref().unwrap_or(&component.local_name).clone()),
+                    },
+                    ty,
+                    source: component.source.clone(),
+                    expansion_source: None,
+                });
+            }
+            DataProductContribution::Expansion(expansion) => {
+                let Some(operand) = expansion.operand.canonical_type() else {
+                    state = DataProductShapeState::Symbolic;
+                    continue;
+                };
+                let operand = crate::types::instantiation::materialize_type(
+                    store,
+                    operand,
+                    &instantiation,
+                    crate::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
+                )?;
+                match info.shape {
+                    DataShape::Tuple => {
+                        materialize_tuple_expansion(store, expansion, operand, &mut components, &mut state)?;
+                    }
+                    DataShape::Record => {
+                        materialize_record_expansion(store, expansion, operand, &mut components, &mut state)?;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(DataProductShapeMaterialization {
+        state,
+        components: components.into_boxed_slice(),
+    })
+}
+
+fn data_specialization_instantiation(
+    store: &mut TypeStore,
+    info: &DataInfo,
+    specialized_type: TypeId,
+) -> Result<crate::types::instantiation::GenericInstantiation, DataProductShapeMaterializationError> {
+    let mut instantiation = crate::types::instantiation::GenericInstantiation::default();
+    let Some(signature) = &info.generic_signature else {
+        return Ok(instantiation);
+    };
+
+    if signature.parameters.is_empty() {
+        return Ok(instantiation);
+    }
+
+    if let Some((owner, arguments)) = store.applied_nominal_static_parts(specialized_type) {
+        if owner != info.owner {
+            return Err(DataProductShapeMaterializationError::WrongOwner);
+        }
+        if arguments.len() != signature.parameters.len() {
+            return Err(DataProductShapeMaterializationError::GenericArity);
+        }
+        for (&parameter, argument) in signature.parameters.iter().zip(arguments) {
+            match argument {
+                StaticArgument::RecordRow(row) if store.type_parameter(parameter).kind == KindId::RECORD_ROW => {
+                    let data = store.record_row(row);
+                    if data.tail != RecordRowTail::Parameter(parameter) || !data.fields.is_empty() {
+                        instantiation.bind_row(parameter, row);
+                    }
+                }
+                StaticArgument::Term(ty) if store.type_parameter(parameter).kind == store.kind_of(ty) => {
+                    instantiation.bind_type(parameter, ty);
+                }
+                _ => return Err(DataProductShapeMaterializationError::GenericArgumentDomain),
+            }
+        }
+        return Ok(instantiation);
+    }
+
+    // Intrinsic Tuple and Record applications reduce directly to structural
+    // types. Recover their already-canonical pack/row argument without
+    // nominalizing the semantic result.
+    match store.get(specialized_type).clone() {
+        TypeData::TupleFromPacks { .. } if info.shape == DataShape::Tuple && signature.parameters.len() == 1 => {
+            let complete = store
+                .project_complete(specialized_type)
+                .map_err(|_| DataProductShapeMaterializationError::GenericArgumentDomain)?;
+            let parameter = signature.parameters[0];
+            if store.type_parameter(parameter).kind != KindId::COMPLETE_TYPE_PACK {
+                return Err(DataProductShapeMaterializationError::GenericArgumentDomain);
+            }
+            instantiation.bind_type(parameter, complete);
+            Ok(instantiation)
+        }
+        TypeData::Record(row) if info.shape == DataShape::Record && signature.parameters.len() == 1 => {
+            let parameter = signature.parameters[0];
+            if store.type_parameter(parameter).kind != KindId::RECORD_ROW {
+                return Err(DataProductShapeMaterializationError::GenericArgumentDomain);
+            }
+            let data = store.record_row(row);
+            if data.tail != RecordRowTail::Parameter(parameter) || !data.fields.is_empty() {
+                instantiation.bind_row(parameter, row);
+            }
+            Ok(instantiation)
+        }
+        TypeData::Nominal { ref declaration } if declaration == &info.owner => Ok(instantiation),
+        _ => Err(DataProductShapeMaterializationError::WrongOwner),
+    }
+}
+
+fn materialize_tuple_expansion(
+    store: &mut TypeStore,
+    expansion: &DataProductExpansionSemantic,
+    operand: TypeId,
+    components: &mut Vec<DataProductMaterializedComponent>,
+    state: &mut DataProductShapeState,
+) -> Result<(), DataProductShapeMaterializationError> {
+    let expected_kind = match expansion.mode {
+        phalcom_ast::ast::ExpansionMode::Positional => KindId::TYPE_PACK,
+        phalcom_ast::ast::ExpansionMode::Labeled => KindId::LABELED_TYPE_PACK,
+        phalcom_ast::ast::ExpansionMode::Complete => KindId::COMPLETE_TYPE_PACK,
+    };
+    let actual_kind = store.kind_of(operand);
+    if actual_kind != expected_kind {
+        return Err(DataProductShapeMaterializationError::ExpansionKind {
+            expected: expected_kind,
+            actual: actual_kind,
+        });
+    }
+
+    let (positionals, labeled) = match expansion.mode {
+        phalcom_ast::ast::ExpansionMode::Positional => (Some(operand), None),
+        phalcom_ast::ast::ExpansionMode::Labeled => (None, Some(operand)),
+        phalcom_ast::ast::ExpansionMode::Complete => (
+            Some(store.project_positionals(operand).map_err(|_| DataProductShapeMaterializationError::GenericArgumentDomain)?),
+            Some(store.project_labeled(operand).map_err(|_| DataProductShapeMaterializationError::GenericArgumentDomain)?),
+        ),
+    };
+    if let Some(positionals) = positionals {
+        let concrete = append_positional_pack(store, positionals, expansion, components)?;
+        if !concrete {
+            *state = DataProductShapeState::Symbolic;
+        }
+    }
+    if let Some(labeled) = labeled {
+        let concrete = append_labeled_pack(store, labeled, expansion, components)?;
+        if !concrete {
+            *state = DataProductShapeState::Symbolic;
+        }
+    }
+    Ok(())
+}
+
+fn append_positional_pack(
+    store: &TypeStore,
+    pack: TypeId,
+    expansion: &DataProductExpansionSemantic,
+    components: &mut Vec<DataProductMaterializedComponent>,
+) -> Result<bool, DataProductShapeMaterializationError> {
+    match store.get(pack).clone() {
+        TypeData::TypePack(elements) => {
+            components.extend(elements.iter().map(|&ty| DataProductMaterializedComponent {
+                component: None,
+                local_name: None,
+                label: None,
+                ty: Some(ty),
+                source: None,
+                expansion_source: expansion.source.clone(),
+            }));
+            Ok(true)
+        }
+        TypeData::TypePackConcat(segments) => {
+            let mut concrete = true;
+            for segment in segments.iter().copied() {
+                concrete &= append_positional_pack(store, segment, expansion, components)?;
+            }
+            Ok(concrete)
+        }
+        TypeData::TypeMemberProjection(_) | TypeData::Parameter(_) => Ok(false),
+        _ => Err(DataProductShapeMaterializationError::ExpansionKind {
+            expected: KindId::TYPE_PACK,
+            actual: store.kind_of(pack),
+        }),
+    }
+}
+
+fn append_labeled_pack(
+    store: &TypeStore,
+    pack: TypeId,
+    expansion: &DataProductExpansionSemantic,
+    components: &mut Vec<DataProductMaterializedComponent>,
+) -> Result<bool, DataProductShapeMaterializationError> {
+    match store.get(pack).clone() {
+        TypeData::LabeledTypePack(elements) => {
+            components.extend(elements.iter().map(|element| DataProductMaterializedComponent {
+                component: None,
+                local_name: Some(element.label.clone()),
+                label: Some(element.label.clone()),
+                ty: Some(element.element),
+                source: None,
+                expansion_source: expansion.source.clone(),
+            }));
+            Ok(true)
+        }
+        TypeData::LabeledTypePackConcat(segments) => {
+            let mut concrete = true;
+            for segment in segments.iter().copied() {
+                concrete &= append_labeled_pack(store, segment, expansion, components)?;
+            }
+            Ok(concrete)
+        }
+        TypeData::TypeMemberProjection(_) | TypeData::Parameter(_) => Ok(false),
+        _ => Err(DataProductShapeMaterializationError::ExpansionKind {
+            expected: KindId::LABELED_TYPE_PACK,
+            actual: store.kind_of(pack),
+        }),
+    }
+}
+
+fn materialize_record_expansion(
+    store: &TypeStore,
+    expansion: &DataProductExpansionSemantic,
+    operand: TypeId,
+    components: &mut Vec<DataProductMaterializedComponent>,
+    state: &mut DataProductShapeState,
+) -> Result<(), DataProductShapeMaterializationError> {
+    if expansion.mode != phalcom_ast::ast::ExpansionMode::Labeled {
+        return Err(DataProductShapeMaterializationError::ExpansionKind {
+            expected: KindId::RECORD_ROW,
+            actual: store.kind_of(operand),
+        });
+    }
+    let row = match store.get(operand) {
+        TypeData::Record(row) => *row,
+        TypeData::TypeMemberProjection(_) if store.kind_of(operand) == KindId::RECORD_ROW => {
+            store.record_row_checked(Vec::new(), RecordRowTail::Projection(operand))?
+        }
+        _ => return Err(DataProductShapeMaterializationError::InvalidRecordExpansion),
+    };
+    let row_data = store.record_row(row);
+    components.extend(row_data.fields.iter().map(|field| DataProductMaterializedComponent {
+        component: None,
+        local_name: Some(field.name.clone()),
+        label: Some(field.name.clone()),
+        ty: Some(field.ty),
+        source: None,
+        expansion_source: expansion.source.clone(),
+    }));
+    if row_data.tail != RecordRowTail::Closed {
+        *state = DataProductShapeState::Symbolic;
+    }
+    Ok(())
 }
 
 /// Table of all published data declarations in a snapshot.

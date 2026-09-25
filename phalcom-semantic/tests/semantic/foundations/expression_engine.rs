@@ -64,7 +64,7 @@ const e = #test
 const f = [1, 2, 3]
 const g = { key: 100 }
 const i = (1, "two")
-const j = #{ name: "Alice", age: 30 }
+const j = { name: "Alice", age: 30 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);

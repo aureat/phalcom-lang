@@ -183,25 +183,25 @@ let labeled_point = (x: 10, y: 20)
 let empty_tuple = ()
 let one_tuple = (answer,)
 let tuple_with_spread = (1, 2, *point)
-let labeled_tuple = (x: 1, y: 2, ** #{z: 3})
+let labeled_tuple = (x: 1, y: 2, ** {z: 3})
 
 let values = [1, 2, 3,]
 let empty_list = [0]
 let list_with_spread = [0, *values, 4]
 
-let record = #{
+let record = {
   name: "Alice",
   count: 3,
   active: true,
 }
-let empty_record = #{}
-let record_with_spread = #{**record, selected: false}
+let empty_record = {}
+let record_with_spread = {**record, selected: false}
 
-let map = {
+let map = Map {
   name: "Ada",
   number: 13,
 }
-let computed_map = {
+let computed_map = Map {
   [answer]: "computed key",
 }
 

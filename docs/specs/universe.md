@@ -664,26 +664,37 @@ do not mint replacement semantic domains or runtime classes.
 ```phalcom
 intrinsic type data TypePack
 intrinsic type data LabeledTypePack
-intrinsic type data TupleEntries
-intrinsic type data RecordRow
+intrinsic type data CompleteTypePack
+intrinsic type data RecordFields
 
-intrinsic data Unit()
-intrinsic data Tuple<***Es>
-intrinsic data Record<R: RecordRow>
+intrinsic data Tuple<***Es>(***Es)
+intrinsic data Record<**Fs> { **Fs }
 
-impl Tuple {
-  intrinsic type Entries: TupleEntries
+impl<***Es> Tuple<***Es> {
+  intrinsic type Entries: CompleteTypePack
   intrinsic type Positionals: TypePack
   intrinsic type Labeled: LabeledTypePack
+  intrinsic type Element: Type
   intrinsic type At<I: Int>: Type
   intrinsic type Map<F: Type -> Type>: Type
 }
+
+impl<**Fs> Record<**Fs> {
+  intrinsic type Fields: RecordFields
+  intrinsic type Value: Type
+  intrinsic type Map<F: Type -> Type>: Type
+}
+
+intrinsic type Unit = Tuple<>
+intrinsic type EmptyRecord = Record<>
 ```
 
-`TupleEntries` is the public facade for the existing `CompleteTypePack`
-domain. `Tuple::Entries` and `***T` therefore share its established
-canonicalization and projection path. Record's `Map` member is likewise the
-existing row-backed operation.
+`Tuple` and `Record` applications reduce to the existing structural semantic
+types while their source declarations retain higher-kinded family signatures
+and independently project runtime owners. Omitted binder kinds follow their
+prefix defaults (`***` is `CompleteTypePack`; `**` is `RecordFields`); there is
+no contextual kind inference. The aliases preserve the distinct zero-product
+laws `Tuple<> == Unit` and `Record<> == EmptyRecord`.
 
 ---
 

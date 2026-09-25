@@ -47,9 +47,9 @@ fn canonical_targets_survive_revision_changes() {
 #[test]
 fn intrinsic_static_facade_source_site_targets_authored_declaration() {
     let module = ModuleId::universe_root();
-    let parsed = parse("intrinsic type data TupleEntries\n", 0);
+    let parsed = parse("intrinsic type data CompleteTypePack\n", 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
-    let declaration = DeclarationId::new(module.clone(), "TupleEntries".into());
+    let declaration = DeclarationId::new(module.clone(), "CompleteTypePack".into());
     let index = build_source_scope_index(module, &parsed.program, &SourceIndexContext::default());
     let source = index.declaration_sources.get(&declaration).expect("facade source record");
     assert!(matches!(
@@ -116,7 +116,7 @@ fn type_data_and_associated_type_data_publish_static_domain_and_case_targets() {
 fn intrinsic_type_member_source_site_targets_canonical_owner_and_selector() {
     let module = ModuleId::universe_root();
     let parsed = parse(
-        "intrinsic type data TupleEntries\nnative class Tuple { intrinsic type Entries: TupleEntries }\n",
+        "intrinsic type data CompleteTypePack\nintrinsic data Tuple<***Es>(***Es)\nimpl<***Es> Tuple<***Es> { intrinsic type Entries: CompleteTypePack }\n",
         0,
     );
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
@@ -135,7 +135,7 @@ fn intrinsic_type_member_source_site_targets_canonical_owner_and_selector() {
 #[test]
 fn intrinsic_impl_type_member_source_site_keeps_owner_and_selector_identity() {
     let module = ModuleId::universe_root();
-    let parsed = parse("class Tuple {}\nimpl Tuple { intrinsic type Entries: TupleEntries }\n", 0);
+    let parsed = parse("class Tuple {}\nimpl Tuple { intrinsic type Entries: CompleteTypePack }\n", 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let id = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
         DeclarationId::new(module.clone(), "Tuple".into()),
@@ -157,7 +157,7 @@ fn canonical_tuple_intrinsic_impl_member_publishes_through_associated_surface() 
         ModuleComponent::from_identifier("tuple").unwrap(),
     ]));
     let source: Arc<str> = Arc::from(
-        "intrinsic type data TypePack\nintrinsic type data LabeledTypePack\nintrinsic type data TupleEntries\nintrinsic data Tuple<***Es>\nimpl Tuple { intrinsic type Entries: TupleEntries\n intrinsic type At<I: Int>: Type\n [_ index] -> Dynamic { Dynamic } }\n",
+        "intrinsic type data TypePack\nintrinsic type data LabeledTypePack\nintrinsic type data CompleteTypePack\nintrinsic data Tuple<***Es>(***Es)\nimpl<***Es> Tuple<***Es> { intrinsic type Entries: CompleteTypePack\n intrinsic type At<I: Int>: Type\n [_ index] -> Dynamic { Dynamic } }\n",
     );
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);

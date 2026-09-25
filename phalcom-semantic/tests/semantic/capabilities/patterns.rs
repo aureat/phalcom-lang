@@ -56,7 +56,7 @@ fn nested_record_literal_retains_field_structure() {
 class Probe {
   @class
   run() {
-    let value = #{user: #{name: "A"}, count: 2}
+    let value = {user: {name: "A"}, count: 2}
   }
 }
 "#,
@@ -97,7 +97,7 @@ class Probe {
     let source = [1, 2, 3]
     let [head, *tail] = source
     let pair = (head, tail)
-    let record = #{first: head, remaining: tail}
+    let record = {first: head, remaining: tail}
     record
   }
 }

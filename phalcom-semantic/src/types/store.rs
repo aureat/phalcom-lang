@@ -524,7 +524,7 @@ impl TypeStore {
     pub fn format_kind(&self, id: KindId) -> String {
         match self.get_kind(id) {
             KindData::Type => "Type".to_string(),
-            KindData::RecordRow => "RecordRow".to_string(),
+            KindData::RecordRow => "RecordFields".to_string(),
             KindData::TypePack => "TypePack".to_string(),
             KindData::LabeledTypePack => "LabeledTypePack".to_string(),
             KindData::CompleteTypePack => "CompleteTypePack".to_string(),
@@ -1530,17 +1530,17 @@ impl TypeStore {
                     RecordRowTail::Parameter(p) => {
                         let p_name = &self.type_parameters[p.index()].name;
                         if fields.is_empty() {
-                            format!("{{..{p_name}}}")
+                            format!("{{**{p_name}}}")
                         } else {
-                            format!("{{{fields}, ..{p_name}}}")
+                            format!("{{{fields}, **{p_name}}}")
                         }
                     }
                     RecordRowTail::Projection(proj) => {
                         let proj_name = self.format_type(proj);
                         if fields.is_empty() {
-                            format!("{{..{proj_name}}}")
+                            format!("{{**{proj_name}}}")
                         } else {
-                            format!("{{{fields}, ..{proj_name}}}")
+                            format!("{{{fields}, **{proj_name}}}")
                         }
                     }
                 }

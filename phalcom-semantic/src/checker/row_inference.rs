@@ -701,6 +701,42 @@ impl GenericApplicationSession {
         Ok(Some(ordinary))
     }
 
+    /// Binds a declaration-owned RecordFields parameter from residual fields
+    /// collected by a shape-aware data-constructor adapter. Fixed source fields
+    /// are represented as row-lacks constraints, so an expansion cannot
+    /// silently overwrite them.
+    pub fn constrain_record_row_expansion(
+        &mut self,
+        parameter: TypeParameterId,
+        fields: Vec<InferenceRecordField>,
+        fixed_fields: Vec<Box<str>>,
+    ) -> Result<(), CombinedInferenceFailure<InferenceTerm>> {
+        let Some(GenericInferenceBinding::RecordRow(variable)) = self.parameter_bindings.get(&parameter).copied() else {
+            return Err(CombinedInferenceFailure::UnderconstrainedRow(parameter));
+        };
+        let Some(session) = &self.query_session else {
+            return Err(CombinedInferenceFailure::Blocked(BlockReason::RecursiveFixpoint));
+        };
+
+        for field in fixed_fields {
+            session
+                .borrow_mut()
+                .add_record_row_lacks(variable, field)
+                .map_err(CombinedInferenceFailure::RowRejected)?;
+        }
+
+        let left = InferenceRecord {
+            fields: Box::new([]),
+            tail: InferenceRecordTail::Var(variable),
+        };
+        let right = InferenceRecord {
+            fields: fields.into_boxed_slice(),
+            tail: InferenceRecordTail::Closed,
+        };
+        session.borrow_mut().enqueue_record_row_equation(&left, &right);
+        Ok(())
+    }
+
     pub fn solve_rows(&mut self, store: &TypeStore, budget: &mut QueryBudget, cancellation: &CancellationToken) -> RecordRowSolveResult {
         self.rows.solve_many(&self.row_equations, store, budget, cancellation)
     }

@@ -439,6 +439,7 @@ impl<'a> DiagnosticPresenter<'a> {
                         .unwrap_or_else(|| format!("missing required argument {}", *parameter_index as usize + 1)),
                     crate::explain::CallShapeExplanation::UnexpectedPositional { .. } => "unexpected positional argument".into(),
                     crate::explain::CallShapeExplanation::UnknownLabel { label } => format!("unknown argument label `{label}:`"),
+                    crate::explain::CallShapeExplanation::DuplicateLabel { label } => format!("duplicate expanded label `{label}:`"),
                     crate::explain::CallShapeExplanation::DuplicateParameter { parameter_index } => {
                         format!("parameter {} is supplied twice", *parameter_index as usize + 1)
                     }

@@ -192,9 +192,10 @@ impl<'input> Lexer<'input> {
             b'0'..=b'9' => self.scan_number(),
             b'.' if matches!(self.peek_at(1), Some(b'0'..=b'9')) => self.scan_number(),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => self.scan_identifier(),
+            // `#{` is reserved for Set literals; Records use bare braces.
             b'#' if self.peek_at(1) == Some(b'{') => {
                 self.pos += 2;
-                Ok(Token::RecordLBrace)
+                Ok(Token::SetLBrace)
             }
             b'#' if self.peek_at(1) == Some(b'"') => self.scan_quoted_symbol(),
             b'"' => self.scan_string_like(),
@@ -1115,7 +1116,7 @@ impl<'input> Lexer<'input> {
             b'(' => (1, Token::LParen),
             b')' => (1, Token::RParen),
             b'{' => (1, Token::LBrace),
-            b'#' if next == Some(b'{') => (2, Token::RecordLBrace),
+            b'#' if next == Some(b'{') => (2, Token::SetLBrace),
             b'#' => (1, Token::Hash),
             b'}' => (1, Token::RBrace),
             b'[' => (1, Token::LBracket),
@@ -1212,7 +1213,7 @@ fn suppresses_following_newline(prev: &Token) -> bool {
             | Token::Comma
             | Token::LParen
             | Token::LBrace
-            | Token::RecordLBrace
+            | Token::SetLBrace
             | Token::LBracket
             | Token::Dot
             | Token::ColonColon

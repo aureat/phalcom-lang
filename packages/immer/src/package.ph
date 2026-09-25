@@ -1,4 +1,4 @@
-type Base = List<#{name: String} | List<String>>
+type Base = List<{name: String} | List<String>>
 type Producer<T> = (T) -> Unit
 
 class Immer<T> {
@@ -16,9 +16,9 @@ const userInfo = {
   age: 61
 }
 
-type ServerConfig = #{server: String, port: Int, paths: List<String>}
+type ServerConfig = {server: String, port: Int, paths: List<String>}
 
-const serverConfig: ServerConfig = #{
+const serverConfig: ServerConfig = {
   server: "localhost",
   port: 8080,
   paths: ["a", "b", "c"]

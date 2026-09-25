@@ -1034,7 +1034,7 @@ pub enum TypeAnnotationExpr {
         name_range: SourceRange,
         range: SourceRange,
     },
-    /// Structural record type (e.g. `#{ name: String, age: Int }` or `#{ name: String, | R }`).
+    /// Structural record type (e.g. `{ name: String, age: Int }` or `{ name: String, **R }`).
     Record {
         fields: Vec<RecordTypeField>,
         tail: Option<RecordRowTail>,
@@ -2152,13 +2152,13 @@ pub enum Expr {
     Symbol(Box<SymbolExpr>),
     /// A tuple literal written with `(` `)` product syntax.
     TupleLiteral(Box<TupleLiteralExpr>),
-    /// A record literal written with `#{` `}` product syntax.
+    /// A record literal written with bare `{` `}` product syntax.
     RecordLiteral(Box<RecordLiteralExpr>),
     /// A nominal record construction expression `Name { label: value, ... }`.
     RecordConstruction(Box<RecordConstructionExpr>),
-    /// An association Map literal written with `{ key: value }` syntax.
+    /// An association Map literal written with `Map { key: value }` syntax.
     MapLiteral(Box<MapLiteralExpr>),
-    /// A Set literal written with `{ value, ... }` syntax.
+    /// A Set literal written with `#{ value, ... }` syntax.
     SetLiteral(Box<SetLiteralExpr>),
     /// A List literal written with `[ value, ... ]` syntax.
     ListLiteral(Box<ListLiteralExpr>),
@@ -2745,7 +2745,7 @@ pub enum TupleLiteralEntry {
     Expand { mode: ExpansionMode, expr: Expr, range: SourceRange },
 }
 
-/// A record literal written with `#{...}` product syntax.
+/// A record literal written with `{...}` product syntax.
 #[derive(Debug, Clone)]
 pub struct RecordLiteralExpr {
     /// The record entries in source order.

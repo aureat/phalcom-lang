@@ -58,7 +58,7 @@ intrinsic type data LabeledTypePack
 intrinsic type data CompleteTypePack
 intrinsic type data RecordFields
 
-intrinsic data Tuple<***Es: CompleteTypePack>(***Es)
+intrinsic data Tuple<***Es>(***Es)
 
 impl<***Es: CompleteTypePack> Tuple<***Es> {
     intrinsic type Entries: CompleteTypePack
@@ -71,7 +71,7 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
     // specialization-aware runtime behavior
 }
 
-intrinsic data Record<**Fs: RecordFields> {
+intrinsic data Record<**Fs> {
     **Fs
 }
 
@@ -111,7 +111,7 @@ Map<Symbol, String> {
 P4 is complete when all of the following are simultaneously true:
 
 1. `TypePack`, `LabeledTypePack`, `CompleteTypePack`, and `RecordFields` are canonical source-visible intrinsic structural domains bound to the existing semantic authorities.
-2. expansion mode and semantic kind are independently represented and checked; `**` can validly bind either `LabeledTypePack` or `RecordFields` without equating them.
+2. expansion mode and semantic kind are independently represented and checked. An omitted binder kind has a deterministic prefix-based default; there is no contextual kind inference. An explicit compatible kind may select another domain, so `**Ls: LabeledTypePack` remains valid while plain `**Fs` means `RecordFields`.
 3. ordinary users can declare shape-generic nominal products such as:
    ```phalcom
    data MyTuple<***Es: CompleteTypePack>(***Es)
@@ -120,8 +120,8 @@ P4 is complete when all of the following are simultaneously true:
    and those declarations remain nominal while their product shapes specialize from the bound pack/field domain.
 4. the intrinsic declarations:
    ```phalcom
-   intrinsic data Tuple<***Es: CompleteTypePack>(***Es)
-   intrinsic data Record<**Fs: RecordFields> { **Fs }
+   intrinsic data Tuple<***Es>(***Es)
+   intrinsic data Record<**Fs> { **Fs }
    ```
    use the same source shape grammar but intrinsic family application canonicalizes to the existing structural Tuple/Record semantic types.
 5. bare `Tuple` and `Record` no longer rely on the C3 workaround that rewrites their type forms to proper kind `Type`; their type-family projection retains its real higher kind while their runtime class projection remains independently available.
@@ -278,9 +278,9 @@ intrinsic type data RecordFields
 ### Structural family declarations
 
 ```phalcom
-intrinsic data Tuple<***Es: CompleteTypePack>(***Es)
+intrinsic data Tuple<***Es>(***Es)
 
-intrinsic data Record<**Fs: RecordFields> {
+intrinsic data Record<**Fs> {
     **Fs
 }
 ```
@@ -358,6 +358,12 @@ typed Map   Map<K,V> {...}
 
 Mixed Tuple/Record destructuring, exposing a Tuple/Record product relationship, general product-coordinate protocols, user-defined structural shape protocols, and generalized Tuple↔Record conversions are explicitly deferred.
 
+### Structural inherent-target ownership refinement — accepted 2026-09-25
+
+Tuple and Record structural types are valid inherent-impl domains. Their behavior owners are the canonical Universe `Tuple` and `Record` declarations. This applies to direct structural spellings, family applications, generic covering heads, and specialized structural heads. The impl domain remains the canonical structural `TypeId`; it is not nominalized.
+
+Equivalent spellings must canonicalize before applicability, overlap, and selector-collision analysis. Only the corresponding canonical Universe owner module may author these impls. Do not retain source-provenance checks whose only purpose is to distinguish `Tuple<...>` / `Record<...>` from equivalent anonymous structural types. Do not introduce structural target variants or a second behavior/member registry.
+
 ## 5.2 Existing normative architecture retained
 
 The plan retains:
@@ -372,6 +378,7 @@ The plan retains:
 - ordinary nominal identity for user `data`.
 - one behavior/runtime class per nominal declaration unless already otherwise specified.
 - structural Tuple/Record exact types as compiler semantic types, not one runtime class per shape.
+- canonical Universe Tuple/Record declarations as the behavior owners for their structural families.
 
 ## 5.3 Current implementation is not normative where it conflicts
 
@@ -388,6 +395,44 @@ The following current behaviors are migration targets, not authorities:
 - mode-to-kind one-to-one coupling;
 - `Dynamic` source signatures caused only by generic VM value representation;
 - bare `Tuple`/`Record` being forced to kind `Type` to make runtime native import work.
+
+## 5.4 Generic pack application syntax and binder defaults — architect clarification accepted 2026-09-25
+
+P4 supports only explicit expansion contributions to generic pack parameters.
+Direct mixed variadic contributions such as `Foo<Int, String, x: Bool>` and
+direct labeled Record contributions such as `Record<name: String>` are outside
+this plan. Use explicit expansions:
+
+```phalcom
+Foo<***(Int, String, x: Bool)>
+Foo<*(Int, String)>
+Foo<**{ name: String }>
+Record<**{ name: String }>
+Tuple<***(Int, String, labeled: Bool)>
+
+Foo<*Ts>
+Foo<**Fs>
+Foo<***Es>
+```
+
+Fixed generic parameters before a pack tail remain single arguments; every
+contribution consumed by a variadic binder uses an explicit expansion. The
+zero-argument forms `Tuple<>` and `Record<>` remain supported.
+
+Binder mode and semantic kind are separate. With no explicit annotation, the
+prefix supplies the default and context never infers another kind:
+
+```text
+T      = Type
+*Ts    = TypePack
+**Fs   = RecordFields
+***Es  = CompleteTypePack
+```
+
+Explicit compatible kind annotations remain permitted, including
+`**Ls: LabeledTypePack`. The canonical concise Universe declarations are
+`intrinsic data Tuple<***Es>(***Es)` and
+`intrinsic data Record<**Fs> { **Fs }`.
 
 ---
 
@@ -559,7 +604,7 @@ one behavior class
 many exact specialization descriptors/layouts
 ```
 
-Do not create a VM class for each `MyTuple<Int,String>` or `MyRecord<{...}>`.
+Do not create a VM class for each `MyTuple<***(Int,String)>` or `MyRecord<**{...}>`.
 
 `RuntimeDataRegistry` already supports exact descriptors keyed by `(DeclarationId, Option<RuntimeTypeRef>)`; extend the same registry so declaration-to-behavior-class identity is available independently from a fixed base-layout descriptor. Then specialization-time `DataConstructionLoweringSpec` registers/looks up the exact descriptor with:
 
@@ -1048,12 +1093,12 @@ Do not rerun unchanged failures when nothing causal changed.
 | CV-02 | kind surface | INV-01 | all four structural domains resolve with correct kind |
 | CV-03 | domain distinction | INV-01/02/04 | LabeledTypePack is rejected where RecordFields required and vice versa |
 | CV-04 | mode-kind independence | INV-03/04 | `**Ls: LabeledTypePack` and `**Fs: RecordFields` both publish |
-| CV-05 | default binder compatibility | INV-03 | unannotated `**Ls` retains LabeledTypePack default |
+| CV-05 | default binder compatibility | INV-03 | unannotated `**Fs` defaults to RecordFields; explicit `**Ls: LabeledTypePack` remains valid |
 | CV-06 | CompleteTypePack source | INV-06 | no TupleEntries semantic domain |
 | CV-07 | Tuple declaration parse | INV-07 | `data X<***Es: CompleteTypePack>(***Es)` |
 | CV-08 | Record declaration parse | INV-07 | `data X<**Fs: RecordFields>{**Fs}` |
 | CV-09 | product expansion placement | INV-07 | illegal complete/labeled placement rejected |
-| CV-10 | user Tuple nominal identity | INV-09 | `MyTuple<Int,String> != (Int,String)` |
+| CV-10 | user Tuple nominal identity | INV-09 | `MyTuple<***(Int,String)> != (Int,String)` |
 | CV-11 | user Record nominal identity | INV-09 | `MyRecord<...> != {...}` |
 | CV-12 | expanded constructor inference | INV-07/20 | value arguments infer complete pack / row |
 | CV-13 | fixed+expanded Tuple | INV-07 | prefix + pack specializes layout correctly |
@@ -1441,10 +1486,10 @@ else:
 Defaults:
 
 ```text
-*Ts   => TypePack
-**Ls  => LabeledTypePack
-***Es => CompleteTypePack
 T     => Type
+*Ts   => TypePack
+**Fs  => RecordFields
+***Es => CompleteTypePack
 ```
 
 Therefore:
@@ -1508,7 +1553,8 @@ type Bad2<***R: RecordFields> = ...
 type Bad3<**P: TypePack> = ...
 ```
 
-Test that unannotated `**Ls` still defaults to LabeledTypePack.
+Test that unannotated `**Fs` defaults to RecordFields and explicitly annotated
+`**Ls: LabeledTypePack` remains valid.
 
 ### Tests to run now
 
@@ -1640,8 +1686,8 @@ shape = Product(...)
 for:
 
 ```phalcom
-intrinsic data Tuple<***Es: CompleteTypePack>(***Es)
-intrinsic data Record<**Fs: RecordFields> { **Fs }
+intrinsic data Tuple<***Es>(***Es)
+intrinsic data Record<**Fs> { **Fs }
 ```
 
 Do **not** convert them into `IntrinsicFacade`.
@@ -1891,6 +1937,23 @@ When checking a construction:
 - materialize the resulting exact constructor parameter list and result type;
 - preserve source argument evaluation order separately from logical storage order.
 
+The data constructor uses a narrow shape adapter at the shared callable
+application boundary. The adapter consumes `DataConstructorTemplate`, maps
+each source argument to a fixed formal or one expansion contribution, and
+feeds constraints into the existing generic inference coordinator. The shared
+application loop analyzes each source expression once, in source order. It
+must not widen `bind_static_arguments` to generally accept runtime expansions,
+or encode expansion contributions as fake callable parameters or
+`DataComponentId`s.
+
+For `CompleteTypePack`, the adapter aggregates positional and labeled
+argument terms into `InferenceTerm::CompleteTypePack` and constrains the
+existing binder variable. For `RecordFields`, it submits residual labeled
+terms as a row equation through `GenericApplicationSession` and retains
+`StaticArgument::RecordRow` through result materialization. Fixed Record fields
+add row-lacks constraints before solving. This is an adapter over the shared
+solver, not a constructor-local inference engine.
+
 Do not create a second variadic constructor solver.
 
 #### T4.5 — User MyTuple inference
@@ -1911,10 +1974,14 @@ Es = CompleteTypePack(
     labeled = []
 )
 
-typeof(x) = MyTuple<Int, String>
+typeof(x) = MyTuple<***(Int, String)>
 ```
 
 Labeled entries similarly infer the labeled lane.
+
+The constructor adapter analyzes each argument once and uses the existing
+inference session to bind `Es`; it does not synthesize one fake formal
+parameter per expanded entry.
 
 #### T4.6 — User MyRecord inference
 
@@ -1936,6 +2003,11 @@ infers one RecordFields/row argument, yielding nominal:
 ```text
 MyRecord<**{name:String, age:Int}>
 ```
+
+The row remains a `RecordRowId`/`StaticArgument::RecordRow` from constraint
+collection through nominal result materialization. Fixed fields are matched
+first; only residual labels enter `Fs`, with fixed labels registered as row
+lacks.
 
 Internally this is `TypeData::Applied` with `StaticArgument::RecordRow`.
 
@@ -2378,6 +2450,39 @@ String/source-path recognition may remain at the one bootstrap boundary that map
 
 Project the actual runtime class authority or a canonical `UniverseKey`/runtime owner token that the compiler can resolve directly. Use `facade.owner` as the controlling branch. Source module/name may be asserted for consistency, never used as the primary runtime-owner derivation.
 
+#### T6.8 — Canonical structural behavior owners for inherent impls
+
+Centralize semantic target-owner classification so it maps:
+
+```text
+nominal / applied nominal -> declaration
+exact closed-sum case     -> enum declaration
+Tuple / TupleFromPacks     -> canonical Universe Tuple declaration
+Record(row)                -> canonical Universe Record declaration
+```
+
+The resolved target retains its structural semantic head. The canonical declaration controls authorization and member ownership. Require `impl.module == canonical_owner.module`; return the ordinary foreign-target/coherence diagnostic when a foreign package attempts a structural Tuple/Record impl.
+
+Treat a structural specialization as a conditional domain even when its head has no generic parameters or constraints. Treat `Tuple<***Es: CompleteTypePack>` and `Record<**Fs: RecordFields>` as covering domains only when the canonical family head and binder contract prove the whole-family correspondence. Derive the correspondence from the family binder kind/mode and target-domain contract; preserve RecordFields as a row binding through `GenericInstantiation` and checked row-aware materialization. Do not convert a RecordRow parameter to `TypeId`.
+
+Tuple and Record direct structural spellings and family applications must arrive at the same canonical `TypeId` before domain indexing. Extend the existing matcher for exact Tuple/Record structures, including `TupleFromPacks` where required by the canonical representation. Reuse recursive field/element matching; do not add generalized open-row remainder solving.
+
+Required target matrix:
+
+```phalcom
+// In the Universe Tuple owner module
+impl<***Es: CompleteTypePack> Tuple<***Es> {}
+impl (Int, String) {}
+impl<T> (T, T) {}
+
+// In the Universe Record owner module
+impl<**Fs: RecordFields> Record<**Fs> {}
+impl { name: String } {}
+impl<T> { value: T } {}
+```
+
+Equivalent family applications, explicit structural spreads, and direct structural forms share one target identity and therefore participate in ordinary overlap/collision rules. Foreign-module versions are rejected as unauthorized targets. No `StructuralTuple`/`StructuralRecord` target variants, source-provenance owner side channel, or parallel registry is allowed.
+
 ### Forbidden approaches
 
 - no runtime-form fallback used to type-check static application;
@@ -2394,6 +2499,8 @@ Cover CV-18..CV-22, CV-44.
 Required semantic tests:
 
 - Tuple/Record family kind;
+- canonical structural behavior-owner classification, owner-module authorization, and foreign-module rejection;
+- Tuple/Record covering and specialized impl domains, including equivalent-spelling canonicalization and overlap;
 - intrinsic application with runtime owner removed;
 - runtime owner with semantic form unchanged;
 - zero application;
@@ -3503,9 +3610,9 @@ intrinsic type data LabeledTypePack
 intrinsic type data CompleteTypePack
 intrinsic type data RecordFields
 
-intrinsic data Tuple<***Es: CompleteTypePack>(***Es)
+intrinsic data Tuple<***Es>(***Es)
 
-intrinsic data Record<**Fs: RecordFields> {
+intrinsic data Record<**Fs> {
   **Fs
 }
 
@@ -4468,8 +4575,8 @@ Unit != EmptyRecord
 User syntax converges on:
 
 ```phalcom
-intrinsic data Tuple<***Es: CompleteTypePack>(***Es)
-intrinsic data Record<**Fs: RecordFields> { **Fs }
+intrinsic data Tuple<***Es>(***Es)
+intrinsic data Record<**Fs> { **Fs }
 
 intrinsic type Unit = Tuple<>
 intrinsic type EmptyRecord = Record<>

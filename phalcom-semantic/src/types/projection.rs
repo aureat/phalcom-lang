@@ -2,10 +2,10 @@
 
 use super::evidence::UnknownReason;
 use super::family::FamilyMemberType;
-use super::id::TypeId;
+use super::id::{RecordRowId, TypeId};
 use super::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget};
 use super::row::RecordRowField;
-use super::store::{AssociatedTypeProjection, CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
+use super::store::{AssociatedTypeProjection, CallableParameterType, CallableType, StaticArgument, TupleTypeElement, TypeData, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use crate::generic_evidence::{GenericConformanceKey, GenericEvidenceEnvironment};
 use crate::identity::ImplId;
@@ -108,6 +108,43 @@ pub enum ProjectionNormalizationResult {
     Cancelled,
     BudgetExceeded(BudgetReport),
     InternalFailure(Box<str>),
+}
+
+/// Returns the exact row carried by a source-selected intrinsic `Record::Fields`
+/// projection when its subject is already concrete or a canonical applied Record
+/// family. Unresolved projections remain represented by their projection TypeId.
+pub(crate) fn selected_record_fields_row(store: &TypeStore, form: TypeId) -> Option<RecordRowId> {
+    let TypeData::TypeMemberProjection(projection) = store.get(form) else {
+        return None;
+    };
+    let source = projection.source_declaration.as_ref()?;
+    let ProjectionSubject::Type(subject) = &projection.subject else {
+        return None;
+    };
+    if source.selector != projection.selector {
+        return None;
+    }
+    let owner = match store.get(*subject) {
+        TypeData::Record(_) => IntrinsicTypeOwner::Record,
+        TypeData::Nominal { declaration } if declaration == &source.owner => IntrinsicTypeOwner::Record,
+        TypeData::Applied { .. } if store.nominal_origin_declaration(*subject) == Some(&source.owner) => IntrinsicTypeOwner::Record,
+        _ => return None,
+    };
+    if lookup_intrinsic_type_operation(owner, &projection.selector) != Some(IntrinsicTypeOperation::RecordFields) {
+        return None;
+    }
+
+    if let TypeData::Record(row) = store.get(*subject) {
+        return Some(*row);
+    }
+    let (declaration, arguments) = store.applied_nominal_static_parts(*subject)?;
+    if declaration != source.owner {
+        return None;
+    }
+    match arguments.as_slice() {
+        [StaticArgument::RecordRow(row)] => Some(*row),
+        _ => None,
+    }
 }
 
 impl ProjectionNormalizationResult {
@@ -821,6 +858,9 @@ fn normalize_intrinsic_projection(
             TypeData::CompleteTypePack { positionals, labeled } => {
                 (Some(IntrinsicTypeOwner::CompleteTypePack), Some(TypeData::CompleteTypePack { positionals, labeled }))
             }
+            TypeData::TypeMemberProjection(_) if store.kind_of(*ty) == crate::types::id::KindId::RECORD_ROW => {
+                (Some(IntrinsicTypeOwner::RecordRow), None)
+            }
             TypeData::Nominal { declaration } if declaration == crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple) => {
                 (Some(IntrinsicTypeOwner::Tuple), None)
             }
@@ -979,6 +1019,9 @@ fn normalize_intrinsic_projection(
             Some(ProjectionNormalizationResult::Normalized(normalized))
         }
         IntrinsicTypeOperation::RecordFields => {
+            // The projection remains a TypeId here because normalization is
+            // TypeId-valued. Record-row consumers recover an exact known row
+            // through the row-conversion seam in type annotation formation.
             Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback))
         }
         IntrinsicTypeOperation::RecordValue => {

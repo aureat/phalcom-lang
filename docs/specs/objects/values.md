@@ -62,7 +62,7 @@ true
 #name
 ()
 (1, 2)
-#{ name: "Ada" }
+{ name: "Ada" }
 Option::Some(42)
 User
 |x| { x + 1 }

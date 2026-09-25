@@ -33,7 +33,7 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-next_action: Execute LANG007.C3.P4 tasks.
+  next_action: Complete T4 data-constructor shape inference through the shared generic call coordinator, then project specialized product shapes into exact T5 runtime layouts.
 blocker: none
 ```
 
@@ -1090,6 +1090,51 @@ runtime-class projection, and Unit remains store.unit(). P4 owns the
 corrective semantic/runtime projection work and its focused regressions; see
 the accepted decision in [INC-C3-14.md](INC-C3-14.md) and the active P4 ledger.
 
+### P4 structural behavior-owner refinement — user-ratified 2026-09-25
+
+Source: the user's latest P4 continuation guidance, which supersedes the earlier
+attached review's restriction on anonymous structural Tuple/Record targets.
+
+Decision: all canonical structural Tuple types are behaviorally owned by the
+canonical Universe `Tuple` declaration; all canonical structural Record types
+are behaviorally owned by the canonical Universe `Record` declaration. The
+semantic target remains structural. Direct structural shapes and qualified
+family applications converge to one target type before indexing,
+applicability, overlap, or collision checks. Only the corresponding Universe
+owner module may author these impls. Generic family heads use the existing
+covering/specialized machinery, and RecordFields remains row-owned under
+`RecordRowId` / `GenericInstantiation`.
+
+Architecture impact: centralize structural-family owner classification; do not
+add source-provenance owner state, structural target variants, or a parallel
+member registry. Structural targets authored from foreign modules report an
+ownership/coherence error.
+
+Plan amendment: P4 T6.8 records implementation and coverage obligations.
+`docs/specs/objects/impl.md` now states the normative target and authorization
+rules. Verification required: direct and family-spelled Tuple/Record targets,
+covering and specialized domains, equivalent-spelling canonicalization and
+overlap, owner-module positives, foreign-module negatives, and row-aware
+materialization. Status: ADOPTED / IMPLEMENTATION PENDING / UNVERIFIED.
+
+### P4 generic pack application syntax and binder defaults — user-confirmed 2026-09-25
+
+P4 generic pack contributions require explicit `*`, `**`, or `***` expansion,
+or expansion of an already-bound pack variable. Direct mixed contributions
+such as `Foo<Int, String, x: Bool>` and `Record<name: String>` remain outside
+P4. Fixed ordinary arguments may precede the variadic tail.
+
+When omitted, binder mode fixes the default kind without contextual inference:
+`T: Type`, `*Ts: TypePack`, `**Fs: RecordFields`, and
+`***Es: CompleteTypePack`. Explicit compatible kind annotations remain
+permitted. Expansion mode and semantic kind remain separate concepts.
+
+The P4 plan §5.4 and normative type-level-domains specification record this
+boundary. Verification required: parser and semantic rejection of direct pack
+contributions; explicit structural and bound-pack expansion; fixed-prefix
+application; omitted binder defaults; and explicit compatible annotations.
+Status: ADOPTED / IMPLEMENTATION IN PROGRESS / UNVERIFIED.
+
 Use entries:
 
 ```text
@@ -1788,3 +1833,27 @@ product-shape expansion, and Tuple/Record semantic completion.
 
 Active plan: [LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md](LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md).
 Current status: `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+Resume baseline: `main` at `567db42b` (`feat(lang007-c3-p4): intrinsic structural data, EmptyRecord tag, record-pattern rest, corpus migration`).
+The user-ratified Tuple/Record structural behavior-owner refinement is recorded
+in §17. Its source implementation and the latest pack-syntax clarification are
+part of the active tree. No tests or verification have been run during this
+continuation before implementation.
+
+### P4 constructor-shape consultation — 2026-09-26
+
+The implementer found that `DataInfo` publishes shape/constructor templates,
+but the generic call path still binds fixed callable parameters only and
+rejects expanded argument shapes. The architect confirmed that P4 should add a
+narrow data-constructor shape adapter to the shared callable application path.
+The adapter maps source arguments to fixed formals or pack/row contributions,
+preserves one-pass source order, and submits constraints to the existing
+inference coordinator and `GenericApplicationSession`. `CompleteTypePack`
+contributions remain inference terms; `RecordFields` remains a row equation
+and `StaticArgument::RecordRow`. No fake components, second solver, or general
+runtime-expansion support in `bind_static_arguments` is introduced.
+
+The P4 plan's T4.4–T4.6 contract was amended with this seam and the single-pass
+requirement. The active implementation slice is T4 constructor inference and
+materialization followed by T5 exact layouts and shared behavior-class
+registration. The generic application syntax remains explicit-expansion-only
+as specified in P4 §5.4 and the latest architect note.

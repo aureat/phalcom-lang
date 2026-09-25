@@ -11,9 +11,9 @@ use phalcom_semantic::types::annotation::{
 };
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::{InferVarId, KindId, TypeId};
-use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::parameter::{GenericConstraint, GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::row::RecordRowTail;
-use phalcom_semantic::types::store::{CallableType, TypeData, TypeStore};
+use phalcom_semantic::types::store::{CallableType, StaticArgument, TypeData, TypeStore};
 use phalcom_semantic::types::substitution::TypeSubstitution;
 use phalcom_semantic::types::type_lambda::{ScopedOpenRecord, ScopedRecordField, ScopedRecordTail, ScopedTypeData, TypeLambdaArena};
 
@@ -101,7 +101,7 @@ fn setup() -> TestEnv {
     let module = ModuleId::universe_root();
     let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
     let mut resolver = SimpleTypeResolver::new();
-    for name in ["Int", "String", "Bool", "List", "Map", "Object"] {
+    for name in ["Int", "String", "Bool", "List", "Map", "Object", "Tuple"] {
         resolver.insert(name, DeclarationId::new(module.clone(), name.into()));
     }
     TestEnv {
@@ -586,6 +586,68 @@ fn lowers_type_lambda_annotations() {
     let TypeData::Lambda(lambda_id) = env.store.get(lambda_ty) else { panic!() };
     let lambda = env.store.arena().get_lambda(*lambda_id);
     assert!(matches!(env.store.arena().get_scoped(lambda.body), ScopedTypeData::Free(_)));
+}
+
+#[test]
+fn scoped_complete_pack_expansion_projects_a_tuple_with_bound_elements() {
+    let mut env = setup();
+    let tuple_operand = TypeAnnotation {
+        expr: TypeAnnotationExpr::Tuple {
+            elements: vec![
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
+                    label: None,
+                    ty: reference("T"),
+                    range: RANGE,
+                }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
+                    label: Some("enabled".into()),
+                    ty: reference("Bool"),
+                    range: RANGE,
+                }),
+            ],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let tuple_application = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("Tuple")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(
+                phalcom_ast::ast::TypePackExpansionSyntax {
+                    mode: phalcom_ast::ast::ExpansionMode::Complete,
+                    operator_range: RANGE,
+                    operand: tuple_operand,
+                    range: RANGE,
+                },
+            )],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let lambda = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &type_lambda(&["T"], tuple_application),
+        &mut diagnostics,
+    );
+    assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:#?}");
+    let TypeFormResolution::Ready(lambda) = lambda else {
+        panic!("expected a scoped Tuple application")
+    };
+
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let reduced = env.store.apply_type_form(lambda, &[int_ty]).expect("bound tuple element should reduce");
+    let TypeData::Tuple(elements) = env.store.get(reduced) else {
+        panic!("expected the expanded Tuple to reduce to its exact structural shape")
+    };
+    assert!(elements.iter().any(|element| element.label.is_none() && element.ty == int_ty));
+    assert!(elements.iter().any(|element| {
+        element.label.as_deref() == Some("enabled")
+            && element.ty == env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap()
+    }));
 }
 
 #[test]
@@ -1121,18 +1183,18 @@ fn partially_applied_map_has_residual_constructor_kind() {
 }
 
 #[test]
-fn record_row_generic_binder_does_not_create_type_parameter_form() {
+fn record_fields_generic_binder_defaults_without_creating_type_parameter_form() {
     let mut env = setup();
     let owner_decl = DeclarationId::new(env.module.clone(), "RowContainer".into());
     let owner_callable = CallableId::new(owner_decl, Selector::getter("row").unwrap(), DispatchSide::Instance);
     let owner = phalcom_semantic::types::parameter::TypeParameterOwner::Callable(owner_callable);
     let params = vec![phalcom_ast::ast::GenericParameterSyntax {
-        mode: None,
-        mode_range: None,
+        mode: Some(phalcom_ast::ast::ExpansionMode::Labeled),
+        mode_range: Some(RANGE),
         variance: phalcom_ast::ast::VarianceSyntax::Invariant,
         name: "R".into(),
         name_range: RANGE,
-        kind: Some(KindSyntax::RecordRow(RANGE)),
+        kind: None,
         range: RANGE,
     }];
     let mut diags = Vec::new();
@@ -1230,6 +1292,15 @@ fn variadic_generic_binders_derive_modes_kinds_and_reject_ambiguous_order() {
             kind: None,
             range: RANGE,
         },
+        phalcom_ast::ast::GenericParameterSyntax {
+            mode: Some(phalcom_ast::ast::ExpansionMode::Complete),
+            mode_range: Some(RANGE),
+            variance: phalcom_ast::ast::VarianceSyntax::Invariant,
+            name: "Es".into(),
+            name_range: RANGE,
+            kind: None,
+            range: RANGE,
+        },
     ];
     let mut diagnostics = Vec::new();
     let phalcom_semantic::types::annotation::TypeFormationOutcome::Ready(signature) = phalcom_semantic::types::annotation::resolve_generic_signature(
@@ -1251,10 +1322,50 @@ fn variadic_generic_binders_derive_modes_kinds_and_reject_ambiguous_order() {
         [
             phalcom_semantic::types::parameter::GenericParameterMode::PositionalPack,
             phalcom_semantic::types::parameter::GenericParameterMode::LabeledPack,
+            phalcom_semantic::types::parameter::GenericParameterMode::CompletePack,
         ]
     );
     assert_eq!(env.store.type_parameter(signature.parameters[0]).kind, KindId::TYPE_PACK);
-    assert_eq!(env.store.type_parameter(signature.parameters[1]).kind, KindId::LABELED_TYPE_PACK);
+    assert_eq!(env.store.type_parameter(signature.parameters[1]).kind, KindId::RECORD_ROW);
+    assert_eq!(env.store.type_parameter(signature.parameters[2]).kind, KindId::COMPLETE_TYPE_PACK);
+
+    let mut explicit_labeled = params.clone();
+    explicit_labeled[1].kind = Some(KindSyntax::LabeledTypePack(RANGE));
+    let mut diagnostics = Vec::new();
+    let TypeFormationOutcome::Ready(explicit_signature) = phalcom_semantic::types::annotation::resolve_generic_signature(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "ExplicitLabeled".into())),
+        phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
+        &explicit_labeled,
+        None,
+        &mut diagnostics,
+    ) else {
+        panic!("explicit **Ls: LabeledTypePack remains valid: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty());
+    assert_eq!(env.store.type_parameter(explicit_signature.parameters[1]).kind, KindId::LABELED_TYPE_PACK);
+
+    let mut explicit_record_fields = params.clone();
+    explicit_record_fields[1].kind = Some(KindSyntax::RecordFields(RANGE));
+    let mut diagnostics = Vec::new();
+    let TypeFormationOutcome::Ready(explicit_record_signature) = phalcom_semantic::types::annotation::resolve_generic_signature(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "ExplicitRecordFields".into())),
+        phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
+        &explicit_record_fields,
+        None,
+        &mut diagnostics,
+    ) else {
+        panic!("explicit **Fs: RecordFields remains valid: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty());
+    assert_eq!(env.store.type_parameter(explicit_record_signature.parameters[1]).kind, KindId::RECORD_ROW);
 
     let mut diagnostics = Vec::new();
     let invalid = vec![
@@ -1285,6 +1396,42 @@ fn variadic_generic_binders_derive_modes_kinds_and_reject_ambiguous_order() {
         phalcom_semantic::types::annotation::TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax)
     ));
     assert!(!diagnostics.is_empty());
+}
+
+#[test]
+fn explicit_pack_kinds_must_match_the_expansion_prefix() {
+    let mut env = setup();
+    let incompatible = [
+        (phalcom_ast::ast::ExpansionMode::Positional, KindSyntax::RecordFields(RANGE)),
+        (phalcom_ast::ast::ExpansionMode::Complete, KindSyntax::RecordFields(RANGE)),
+        (phalcom_ast::ast::ExpansionMode::Labeled, KindSyntax::TypePack(RANGE)),
+    ];
+
+    for (index, (mode, kind)) in incompatible.into_iter().enumerate() {
+        let parameter = phalcom_ast::ast::GenericParameterSyntax {
+            mode: Some(mode),
+            mode_range: Some(RANGE),
+            variance: phalcom_ast::ast::VarianceSyntax::Invariant,
+            name: format!("P{index}"),
+            name_range: RANGE,
+            kind: Some(kind),
+            range: RANGE,
+        };
+        let mut diagnostics = Vec::new();
+        let result = phalcom_semantic::types::annotation::resolve_generic_signature(
+            &mut env.store,
+            &env.declarations,
+            &env.resolver,
+            &env.site,
+            TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), format!("BadPack{index}"))),
+            phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
+            &[parameter],
+            None,
+            &mut diagnostics,
+        );
+        assert!(matches!(result, TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax)));
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported));
+    }
 }
 
 #[test]
@@ -1327,13 +1474,147 @@ fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
     };
     assert!(matches!(env.store.get(arguments[0].as_type_id().expect("type-only argument")), TypeData::TypePack(elements) if elements.is_empty()));
 
-    let applied = application(reference("V"), vec![reference("Int"), reference("String")]);
-    let (applied, diagnostics) = resolve(&mut env, &applied);
+    let direct = application(reference("V"), vec![reference("Int"), reference("String")]);
+    let (_, diagnostics) = resolve(&mut env, &direct);
+    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported), "{diagnostics:?}");
+
+    let tuple = TypeAnnotation {
+        expr: TypeAnnotationExpr::Tuple {
+            elements: vec![
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement { label: None, ty: reference("Int"), range: RANGE }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement { label: None, ty: reference("String"), range: RANGE }),
+            ],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let expanded = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("V")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Positional,
+                operator_range: RANGE,
+                operand: tuple,
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let (expanded, diagnostics) = resolve(&mut env, &expanded);
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    let TypeData::Applied { arguments, .. } = env.store.get(applied.ty().expect("V<Int, String> proper type")) else {
+    let TypeData::Applied { arguments, .. } = env.store.get(expanded.ty().expect("V<*(Int, String)> proper type")) else {
         panic!("expected binder-aligned application")
     };
     assert!(matches!(env.store.get(arguments[0].as_type_id().expect("type-only argument")), TypeData::TypePack(elements) if elements.len() == 2));
+}
+
+#[test]
+fn fixed_generic_prefix_accepts_explicit_complete_pack_expansion_only() {
+    let mut env = setup();
+    let declaration = DeclarationId::new(env.module.clone(), "Product".into());
+    let fixed = env.store.intern_type_parameter(
+        TypeParameterData::new(TypeParameterOwner::Declaration(declaration.clone()), 0, "T", KindId::TYPE)
+            .with_mode(GenericParameterMode::Single),
+    );
+    let entries = env.store.intern_type_parameter(
+        TypeParameterData::new(
+            TypeParameterOwner::Declaration(declaration.clone()),
+            1,
+            "Es",
+            KindId::COMPLETE_TYPE_PACK,
+        )
+        .with_mode(GenericParameterMode::CompletePack),
+    );
+    let signature = GenericSignature::new(
+        TypeParameterOwner::Declaration(declaration.clone()),
+        vec![fixed, entries].into_boxed_slice(),
+    )
+    .with_parameter_metadata(
+        vec![KindId::TYPE, KindId::COMPLETE_TYPE_PACK].into_boxed_slice(),
+        vec![
+            phalcom_semantic::types::variance::Variance::Invariant,
+            phalcom_semantic::types::variance::Variance::Invariant,
+        ]
+        .into_boxed_slice(),
+    )
+    .with_parameter_modes(vec![GenericParameterMode::Single, GenericParameterMode::CompletePack].into_boxed_slice());
+    let kind = env
+        .store
+        .arrow_kind(vec![KindId::TYPE, KindId::COMPLETE_TYPE_PACK].into_boxed_slice(), KindId::TYPE);
+    let form = env.store.nominal_form(declaration.clone(), kind);
+    let class_object_type = env.store.class_object_type(declaration.clone());
+    env.declarations.insert(phalcom_semantic::declarations::DeclarationTypeInfo {
+        declaration: declaration.clone(),
+        form,
+        class_object_type,
+        kind,
+        binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
+        generic_binder_header: Some(phalcom_semantic::types::parameter::GenericBinderHeader::from_signature(
+            &env.store, &signature,
+        )),
+        generic_signature: Some(signature),
+        supertype_template: None,
+    });
+    env.resolver.insert("Product", declaration);
+
+    let tuple = TypeAnnotation {
+        expr: TypeAnnotationExpr::Tuple {
+            elements: vec![
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
+                    label: None,
+                    ty: reference("String"),
+                    range: RANGE,
+                }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
+                    label: Some("flag".into()),
+                    ty: reference("Bool"),
+                    range: RANGE,
+                }),
+            ],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let expanded = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("Product")),
+            arguments: vec![
+                phalcom_ast::ast::GenericArgumentSyntax::Single(reference("Int")),
+                phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                    mode: phalcom_ast::ast::ExpansionMode::Complete,
+                    operator_range: RANGE,
+                    operand: tuple,
+                    range: RANGE,
+                }),
+            ],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let (expanded_type, diagnostics) = resolve(&mut env, &expanded);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Applied { arguments, .. } = env.store.get(expanded_type.ty().expect("Product application is a type")) else {
+        panic!("expected the generic Product application")
+    };
+    let StaticArgument::Term(complete_pack) = arguments[1] else {
+        panic!("the complete pack must remain a type-domain argument")
+    };
+    assert!(matches!(env.store.get(complete_pack), TypeData::CompleteTypePack { .. }));
+
+    let direct = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("Product")),
+            arguments: vec![
+                phalcom_ast::ast::GenericArgumentSyntax::Single(reference("Int")),
+                phalcom_ast::ast::GenericArgumentSyntax::Single(reference("String")),
+            ],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let (_, diagnostics) = resolve(&mut env, &direct);
+    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported), "{diagnostics:?}");
 }
 
 #[test]
@@ -1420,10 +1701,49 @@ fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() 
     env.declarations.insert(record_binding);
     assert_eq!(env.declarations.intrinsic_runtime_owner(&record), None);
     env.resolver.insert("Record", record);
+
+    let empty_application = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("Record")),
+            arguments: vec![],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(empty_record) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &empty_application,
+        &mut diagnostics,
+    ) else {
+        panic!("Record<> should resolve as the empty Record type: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_ne!(empty_record, env.store.unit(), "empty Record and Unit retain distinct type identity");
+    assert!(matches!(env.store.get(empty_record), TypeData::Record(row) if {
+        let row = env.store.record_row(*row);
+        row.fields.is_empty() && row.tail == RecordRowTail::Closed
+    }));
+
     let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "RecordAlias".into()));
     let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "R", KindId::RECORD_ROW));
     env.resolver.insert_record_row_binding("R", parameter);
-    let application = application(reference("Record"), vec![reference("R")]);
+    let application = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("Record")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Labeled,
+                operator_range: RANGE,
+                operand: reference("R"),
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
     let mut diagnostics = Vec::new();
     let TypeFormResolution::Ready(applied) =
         phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &application, &mut diagnostics)
@@ -1432,9 +1752,127 @@ fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() 
     };
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     let TypeData::Record(row) = env.store.get(applied) else {
-        panic!("Record<R> must normalize to its structural RecordRowId")
+        panic!("Record<**R> must normalize to its structural RecordRowId")
     };
     assert_eq!(env.store.record_row(*row).tail, RecordRowTail::Parameter(parameter));
+
+    let record_shape = TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: vec![phalcom_ast::ast::RecordTypeField {
+                name: "name".into(),
+                ty: reference("String"),
+                range: RANGE,
+            }],
+            tail: None,
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let explicit_shape = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("Record")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Labeled,
+                operator_range: RANGE,
+                operand: record_shape,
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(explicit_shape) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &explicit_shape,
+        &mut diagnostics,
+    ) else {
+        panic!("Record<**{ name: String }> should resolve: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert!(matches!(env.store.get(explicit_shape), TypeData::Record(row) if {
+        let row = env.store.record_row(*row);
+        row.fields.len() == 1 && row.fields[0].name.as_ref() == "name" && row.fields[0].ty == env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap()
+    }));
+}
+
+#[test]
+fn record_fields_applications_require_expansion_and_preserve_row_arguments() {
+    let mut env = setup();
+    let family = DeclarationId::new(env.module.clone(), "RecordFamily".into());
+    let family_parameter = env.store.intern_type_parameter(
+        TypeParameterData::new(TypeParameterOwner::Declaration(family.clone()), 0, "Fs", KindId::RECORD_ROW)
+            .with_mode(phalcom_semantic::types::parameter::GenericParameterMode::LabeledPack),
+    );
+    let signature = GenericSignature::new(TypeParameterOwner::Declaration(family.clone()), vec![family_parameter].into_boxed_slice())
+        .with_parameter_modes(vec![phalcom_semantic::types::parameter::GenericParameterMode::LabeledPack].into_boxed_slice());
+    let kind = env.store.arrow_kind(vec![KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+    let form = env.store.nominal_form(family.clone(), kind);
+    env.declarations.insert(phalcom_semantic::declarations::DeclarationTypeInfo {
+        declaration: family.clone(),
+        form,
+        class_object_type: env.store.class_object_type(family.clone()),
+        kind,
+        binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
+        generic_binder_header: Some(phalcom_semantic::types::parameter::GenericBinderHeader::from_signature(&env.store, &signature)),
+        generic_signature: Some(signature),
+        supertype_template: None,
+    });
+    env.resolver.insert("RecordFamily", family.clone());
+
+    let row_owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "RowAlias".into()));
+    let row_parameter = env.store.intern_type_parameter(TypeParameterData::new(row_owner, 0, "Fs", KindId::RECORD_ROW));
+    env.resolver.insert_record_row_binding("Fs", row_parameter);
+    let bound_expansion = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("RecordFamily")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Labeled,
+                operator_range: RANGE,
+                operand: reference("Fs"),
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(applied) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &bound_expansion,
+        &mut diagnostics,
+    ) else {
+        panic!("bound RecordFields expansion should resolve: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Applied { arguments, .. } = env.store.get(applied) else {
+        panic!("custom RecordFields family should retain its nominal application")
+    };
+    let phalcom_semantic::types::store::StaticArgument::RecordRow(row) = arguments[0] else {
+        panic!("RecordFields must remain a row argument")
+    };
+    assert_eq!(env.store.record_row(row).tail, RecordRowTail::Parameter(row_parameter));
+
+    let direct = application(reference("RecordFamily"), vec![reference("Int")]);
+    diagnostics.clear();
+    assert!(matches!(
+        phalcom_semantic::types::annotation::resolve_type_form(
+            &mut env.store,
+            &env.declarations,
+            &env.resolver,
+            &env.site,
+            &direct,
+            &mut diagnostics,
+        ),
+        TypeFormResolution::Invalid(_)
+    ));
+    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported));
 }
 
 #[test]

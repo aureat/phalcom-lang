@@ -8,8 +8,10 @@ native class Family is Function {
   native set(_ method: Dynamic) -> Dynamic
   native value -> Dynamic
   native value=(_ newValue: Dynamic) -> Dynamic
-  native get(_ shape: Tuple) -> Dynamic
-  native set(_ shape: Tuple, _ value: Dynamic) -> Dynamic
+  @!documentation("The call shape is selected at runtime and has no fixed Tuple specialization here.")
+  native get(_ shape: Dynamic) -> Dynamic
+  @!documentation("The call shape is selected at runtime and has no fixed Tuple specialization here.")
+  native set(_ shape: Dynamic, _ value: Dynamic) -> Dynamic
 }
 
 native class MethodFamily is Object {

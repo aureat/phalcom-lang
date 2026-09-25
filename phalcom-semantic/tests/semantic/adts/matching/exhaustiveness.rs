@@ -241,7 +241,7 @@ class Test {
 #[test]
 #[ignore = "GATED: open object domain fixture is required"]
 fn match_exh_15_open_object_requires_wildcard() {
-    let case = analyze_adt("class Test { run(_ value: Object) { match value { #{name: value} => value } } }\n");
+    let case = analyze_adt("class Test { run(_ value: Object) { match value { {name: value} => value } } }\n");
     case.only_match().assert_not_exhaustive();
 }
 

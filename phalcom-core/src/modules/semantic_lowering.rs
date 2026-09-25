@@ -19,7 +19,7 @@ use phalcom_semantic::snapshot::SemanticSnapshot;
 use phalcom_semantic::types::denotation::{AssociatedValueDenotation, SemanticDenotation};
 use phalcom_semantic::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
 use phalcom_semantic::types::id::TypeId;
-use phalcom_semantic::types::store::TypeData;
+use phalcom_semantic::types::store::{TypeData, TypeStore};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -190,7 +190,9 @@ pub struct DataComponentLoweringSpec {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DataDeclarationLoweringSpec {
     pub owner: DeclarationId,
-    pub layout: crate::product::ProductLayoutSpec,
+    /// Fixed non-generic layouts may be registered at declaration time.
+    /// Shape-generic declarations defer every concrete layout to construction.
+    pub layout: Option<crate::product::ProductLayoutSpec>,
     pub components: Box<[DataComponentLoweringSpec]>,
 }
 
@@ -213,6 +215,9 @@ pub struct DataConstructionLoweringSpec {
     pub type_recipe: RuntimeTypeRecipe,
     pub layout: crate::product::ProductLayoutSpec,
     pub argument_to_component: Box<[u32]>,
+    /// Stable fixed-component ordinal to exact logical slot. Expanded fields
+    /// have no stable declaration ordinal and are omitted from this map.
+    pub component_to_logical: Box<[u32]>,
 }
 
 /// Lowering specification for an accepted member defined in an inherent `impl` block.
@@ -610,6 +615,10 @@ pub enum ProjectionError {
     InvalidAnonymousProductSpec,
     #[error("open or unrepresentable data construction type {result_type:?} for {constructor:?}")]
     OpenDataConstructionType { constructor: DataConstructorId, result_type: TypeId },
+    #[error("data constructor {constructor:?} did not materialize an exact product shape")]
+    SymbolicDataProductShape { constructor: DataConstructorId },
+    #[error("data constructor {constructor:?} is missing a complete argument mapping")]
+    MissingDataArgumentMapping { constructor: DataConstructorId },
     #[error("missing executable slot for trait requirement {0:?}")]
     MissingTraitRequirementSlot(phalcom_semantic::traits::TraitRequirementId),
     #[error("missing conformance metadata for callable owner {0:?}")]
@@ -662,6 +671,16 @@ fn build_data_construction_spec(
         .data_semantics
         .data_info(&constructor.owner)
         .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
+    let mut shape_store = snapshot.store.clone();
+    let materialized_shape = phalcom_semantic::data_semantics::materialize_data_product_shape(&mut shape_store, info, result_type)
+        .map_err(|error| ProjectionError::DataTypeMetadata(error.to_string()))?;
+    if materialized_shape.state != phalcom_semantic::data_semantics::DataProductShapeState::Concrete
+        || materialized_shape.components.iter().any(|component| component.ty.is_none())
+    {
+        return Err(ProjectionError::SymbolicDataProductShape {
+            constructor: constructor.clone(),
+        });
+    }
     let exporter =
         phalcom_semantic::metadata::MetadataExporter::new(&snapshot.store, None, None, None, phalcom_type_meta::header::MetadataProfile::RuntimePublic)
             .with_project_universe(projects)
@@ -670,7 +689,35 @@ fn build_data_construction_spec(
     let metadata = exporter
         .build_bundle(&[(&constructor.owner.module, "data", result_type)])
         .map_err(|error| ProjectionError::DataTypeMetadata(error.to_string()))?;
-    let argument_to_component = argument_mapping.unwrap_or_else(|| (0..u32::from(arity)).collect());
+    let argument_to_component = match argument_mapping {
+        Some(mapping) => mapping,
+        None if !info.shape_template.has_expansions() => (0..u32::from(arity)).collect(),
+        None => return Err(ProjectionError::MissingDataArgumentMapping {
+            constructor: constructor.clone(),
+        }),
+    };
+    if argument_to_component.len() != usize::from(arity) {
+        return Err(ProjectionError::MissingDataArgumentMapping {
+            constructor: constructor.clone(),
+        });
+    }
+    let mut component_to_logical = vec![u32::MAX; info.components.len()];
+    for (logical_index, component) in materialized_shape.components.iter().enumerate() {
+        if let Some(component_id) = component.component.as_ref() {
+            let component_index = component_id.index as usize;
+            let Some(slot) = component_to_logical.get_mut(component_index) else {
+                return Err(ProjectionError::SymbolicDataProductShape {
+                    constructor: constructor.clone(),
+                });
+            };
+            *slot = u32::try_from(logical_index).map_err(|_| ProjectionError::SlotOverflow(logical_index))?;
+        }
+    }
+    if component_to_logical.iter().any(|slot| *slot == u32::MAX) {
+        return Err(ProjectionError::SymbolicDataProductShape {
+            constructor: constructor.clone(),
+        });
+    }
     let runtime_root = metadata
         .runtime_roots
         .first()
@@ -690,16 +737,18 @@ fn build_data_construction_spec(
         exact_type: Arc::new(metadata),
         type_recipe,
         layout: crate::product::ProductLayoutSpec::new(
-            info.components
+            materialized_shape
+                .components
                 .iter()
                 .enumerate()
-                .map(|(i, component)| crate::product::ProductComponentSpec {
-                    logical_index: i as u32,
-                    repr: project_slot_repr(&component.declared_type, snapshot),
+                .map(|(logical_index, component)| crate::product::ProductComponentSpec {
+                    logical_index: logical_index as u32,
+                    repr: project_slot_repr_type(component.ty.expect("shape completeness checked above"), &shape_store),
                 })
                 .collect(),
         ),
         argument_to_component,
+        component_to_logical: component_to_logical.into_boxed_slice(),
     }))
 }
 
@@ -711,7 +760,7 @@ fn project_data_constructor_target(
     argument_mapping: Option<Box<[u32]>>,
 ) -> Result<ExecutableInvocationTarget, ProjectionError> {
     use phalcom_semantic::types::store::TypeData;
-    let (result_type, arity) = match snapshot.store.get(callable_type) {
+    let (result_type, signature_arity) = match snapshot.store.get(callable_type) {
         TypeData::Callable(call) => (call.return_type, call.parameters.len()),
         _ => {
             let info = snapshot
@@ -721,6 +770,7 @@ fn project_data_constructor_target(
             (info.constructor.result_type_template, info.components.len())
         }
     };
+    let arity = argument_mapping.as_ref().map_or(signature_arity, |mapping| mapping.len());
     let arity_u8 = u8::try_from(arity).map_err(|_| ProjectionError::ArityOverflow(arity))?;
     let construction = build_data_construction_spec(snapshot, projects, constructor, result_type, arity_u8, argument_mapping)?;
     Ok(ExecutableInvocationTarget::DataConstructor {
@@ -862,7 +912,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         let mut components = Vec::new();
         let mut component_specs = Vec::new();
         for (idx, comp) in data_info.components.iter().enumerate() {
-            let logical_index = u32::try_from(idx).map_err(|_| ProjectionError::SlotOverflow(idx))?;
+            let logical_index = comp.id.index;
             components.push(DataComponentLoweringSpec {
                 id: comp.id.clone(),
                 local_name: comp.local_name.clone(),
@@ -871,7 +921,8 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
             let repr = project_slot_repr(&comp.declared_type, snapshot);
             component_specs.push(crate::product::ProductComponentSpec { logical_index, repr });
         }
-        let layout = crate::product::ProductLayoutSpec::new(component_specs);
+        let layout = (!data_info.shape_template.has_expansions() && data_info.generic_signature.is_none())
+            .then(|| crate::product::ProductLayoutSpec::new(component_specs));
         data_decls.push(DataDeclarationLoweringSpec {
             owner: owner.clone(),
             layout,
@@ -1901,7 +1952,7 @@ fn project_anonymous_products(
                         .enumerate()
                         .map(|(index, element)| crate::product::ProductComponentSpec {
                             logical_index: index as u32,
-                            repr: project_slot_repr_type(element.ty, snapshot),
+                            repr: project_slot_repr_type(element.ty, &snapshot.store),
                         })
                         .collect(),
                 ),
@@ -1944,7 +1995,7 @@ fn project_anonymous_products(
                         .enumerate()
                         .map(|(index, field)| crate::product::ProductComponentSpec {
                             logical_index: index as u32,
-                            repr: project_slot_repr_type(field.ty, snapshot),
+                            repr: project_slot_repr_type(field.ty, &snapshot.store),
                         })
                         .collect(),
                 ),
@@ -1997,9 +2048,9 @@ pub fn anonymous_product_type_roots(module: &ModuleId, snapshot: &SemanticSnapsh
         .collect()
 }
 
-fn project_slot_repr_type(ty: TypeId, snapshot: &SemanticSnapshot) -> crate::product::ProductSlotRepr {
+fn project_slot_repr_type(ty: TypeId, store: &TypeStore) -> crate::product::ProductSlotRepr {
     let core_ids = phalcom_semantic::core_surface::CoreDeclarationIds::default();
-    match snapshot.store.get(ty) {
+    match store.get(ty) {
         TypeData::Nominal { declaration } if declaration == &core_ids.float => crate::product::ProductSlotRepr::Float64,
         TypeData::Nominal { declaration } if declaration == &core_ids.bool_ => crate::product::ProductSlotRepr::Bool,
         TypeData::Nominal { declaration } if declaration == &core_ids.symbol => crate::product::ProductSlotRepr::Symbol,
@@ -2289,7 +2340,8 @@ fn project_associated_resolution(
                         .data_semantics
                         .data_info(&dc.owner)
                         .ok_or_else(|| ProjectionError::MissingDataMetadata(dc.owner.clone()))?;
-                    let arity = u8::try_from(dinfo.components.len()).map_err(|_| ProjectionError::ArityOverflow(dinfo.components.len()))?;
+                    let arity = u8::try_from(argument_mapping.as_ref().map_or(dinfo.components.len(), |mapping| mapping.len()))
+                        .map_err(|_| ProjectionError::ArityOverflow(argument_mapping.as_ref().map_or(dinfo.components.len(), |mapping| mapping.len())))?;
                     let construction = build_data_construction_spec(snapshot, projects, dc, *result_type, arity, argument_mapping.clone())?;
                     AssociatedLoweringSpec::ConstructData {
                         constructor: dc.clone(),

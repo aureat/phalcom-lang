@@ -126,6 +126,33 @@ pub fn build_type_member_declaration(
         None
     };
 
+    if let Some(operation) = intrinsic {
+        let (expected_parameters, expected_result) = operation.signature_kinds(store);
+        let actual_parameters = parameters
+            .iter()
+            .map(|parameter| match &parameter.domain {
+                TypeMemberDomain::Kind(kind) => *kind,
+            })
+            .collect::<Vec<_>>();
+        let actual_result = result_domain.unwrap_or(KindId::TYPE);
+        if actual_parameters.as_slice() != expected_parameters.as_ref() || actual_result != expected_result {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                format!(
+                    "intrinsic type member `{}` has parameter/result kinds {:?} -> {:?}; its evaluator requires {:?} -> {:?}",
+                    selector.name(),
+                    actual_parameters,
+                    actual_result,
+                    expected_parameters,
+                    expected_result,
+                ),
+                definition.range,
+            ));
+            valid = false;
+        }
+    }
+
     if !valid {
         return (None, diagnostics);
     }

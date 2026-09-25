@@ -3,9 +3,22 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 intrinsic type data TypePack
 intrinsic type data LabeledTypePack
 intrinsic type data CompleteTypePack
-type TupleEntries = CompleteTypePack
 
-intrinsic data Tuple<***Es: CompleteTypePack>(***Es)
+impl TypePack {
+  intrinsic type Map<F: Type -> Type>: TypePack
+}
+
+impl LabeledTypePack {
+  intrinsic type Map<F: Type -> Type>: LabeledTypePack
+}
+
+impl CompleteTypePack {
+  intrinsic type Positionals: TypePack
+  intrinsic type Labeled: LabeledTypePack
+  intrinsic type Map<F: Type -> Type>: CompleteTypePack
+}
+
+intrinsic data Tuple<***Es>(***Es)
 
 impl<***Es: CompleteTypePack> Tuple<***Es> {
   intrinsic type Positionals: TypePack
@@ -19,13 +32,15 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
 /// Immutable fixed-arity product collection.
 impl<***Es: CompleteTypePack> Tuple<***Es> {
   @class
+  @!documentation("Builds a Tuple whose exact arity and labels come from runtime List contents.")
   internal native rawFromList(_ value: List<Dynamic>) -> Dynamic
   internal native rawSize -> Int
-  internal native rawAt(_ index: Int) -> Dynamic
+  internal native rawAt(_ index: Int) -> Option<Tuple<***Es>::Element>
   internal native rawPositionalSize -> Int
   internal native rawLabelAt(_ index: Int) -> Symbol
-  internal native rawPositionals -> List<Dynamic>
-  internal native rawLabeled -> Map<Symbol, Dynamic>
+  internal native rawPositionals -> Tuple<*Positionals>
+  internal native rawLabeled -> Tuple<**Labeled>
+  @!documentation("Slice bounds determine the result Tuple shape at runtime.")
   internal native rawSlice(_ start: Int, _ end: Int) -> Dynamic
   size { self.rawSize }
   positionals { self.rawPositionals }
@@ -34,12 +49,12 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
 
   first {
     if self.size == 0 { return None }
-    return Some(self.at(0))
+    return self.rawAt(0)
   }
 
   last {
     if self.size == 0 { return None }
-    return Some(self.at(self.size - 1))
+    return self.rawAt(self.size - 1)
   }
 
   /// Renders elements in positional order using each element's string form.
@@ -50,13 +65,13 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
       if i > 0 {
         s = s + ", "
       }
-      s = s + self.rawAt(i).toString
+      s = s + self.rawAtChecked(i).toString
       i = i + 1
     }
     return s + ")"
   }
 
-  at(_ i) { self.rawAt(i) }
+  at(_ i) -> Option<Tuple<***Es>::Element> { self.rawAt(i) }
 
   private findLabel(_ sym) {
     let num_labeled = self.size - self.rawPositionalSize
@@ -70,19 +85,25 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
     return None
   }
 
+  private rawAtChecked(_ index: Int) -> Tuple<***Es>::Element {
+    self.rawAt(index).match(
+      some: |value| { value },
+      none: || { throw IndexError.new("Tuple index out of range") }
+    )
+  }
+
   private access(_ key) {
     if key is Symbol {
       return self.findLabel(key).match(
-        some: |idx| { Some(self.rawAt(idx)) },
+        some: |idx| { self.rawAt(idx) },
         none: || { None }
       )
     }
-    let raw = self.rawAt(key)
     let len = self.size
     let i = key
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
-      return Some(raw)
+      return self.rawAt(i)
     }
     return None
   }
@@ -105,16 +126,15 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
     }
     if key is Symbol {
       return self.findLabel(key).match(
-        some: |idx| { self.rawAt(idx) },
+        some: |idx| { self.rawAtChecked(idx) },
         none: || { throw KeyError.new("Tuple label not found") }
       )
     }
-    let raw = self.rawAt(key)
     let len = self.size
     let i = key
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
-      return raw
+      return self.rawAtChecked(i)
     }
     throw IndexError.new("Tuple index out of range")
   }
@@ -122,16 +142,15 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   [_ key, default] {
     if key is Symbol {
       return self.findLabel(key).match(
-        some: |idx| { self.rawAt(idx) },
+        some: |idx| { self.rawAtChecked(idx) },
         none: || { default }
       )
     }
-    let raw = self.rawAt(key)
     let len = self.size
     let i = key
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
-      return raw
+      return self.rawAtChecked(i)
     }
     return default
   }
@@ -139,16 +158,15 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   get(_ key, orElse) {
     if key is Symbol {
       return self.findLabel(key).match(
-        some: |idx| { self.rawAt(idx) },
+        some: |idx| { self.rawAtChecked(idx) },
         none: || { orElse.call(key) }
       )
     }
-    let raw = self.rawAt(key)
     let len = self.size
     let i = key
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
-      return raw
+      return self.rawAtChecked(i)
     }
     return orElse.call(key)
   }
@@ -157,14 +175,14 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
     if message.args == () {
       let idx = self.findLabel(message.selector)
       return idx.match(
-        some: |i| { self.rawAt(i) },
+        some: |i| { self.rawAtChecked(i) },
         none: || { super.doesNotUnderstand(message) }
       )
     }
     return super.doesNotUnderstand(message)
   }
 
-  iterator -> TupleIterator { TupleIterator.new(self) }
+  iterator -> TupleIterator<***Es> { TupleIterator.new(self) }
 
   zipped -> TupleZipView { TupleZipView.new(self) }
 
@@ -179,7 +197,7 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
       }
       i = 0
       while same and i < self.size {
-        same = self.at(i) == other.at(i)
+        same = self.rawAtChecked(i) == other.rawAtChecked(i)
         i = i + 1
       }
       return same
@@ -197,7 +215,7 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
     let acc = 17 + self.rawPositionalSize
     let i = 0
     while i < self.size {
-      acc = (acc * 31 + self.at(i).hash) % 999999937
+      acc = (acc * 31 + self.rawAtChecked(i).hash) % 999999937
       i = i + 1
     }
     i = 0
@@ -209,19 +227,19 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   }
 }
 
-class TupleIterator {
-  _source: Dynamic
+class TupleIterator<***Es: CompleteTypePack> {
+  _source: Tuple<***Es>
   _index: Int
   _done: Bool
 
   @constructor
-  new(_ source: Dynamic) {
+  new(_ source: Tuple<***Es>) {
     _source = source
     _index = 0
     _done = false
   }
 
-  next -> Option<Dynamic> {
+  next -> Option<Tuple<***Es>::Element> {
     if _done { return None }
     if _index >= _source.size {
       _done = true
@@ -229,22 +247,23 @@ class TupleIterator {
     }
     let value = _source.at(_index)
     _index = _index + 1
-    Some(value)
+    value
   }
 
   iterator { self }
 }
 
-impl CanonicalIterator for TupleIterator {
-  type Item = Dynamic
+impl<***Es: CompleteTypePack> CanonicalIterator for TupleIterator<***Es> {
+  type Item = Tuple<***Es>::Element
 }
 
 impl<***Es: CompleteTypePack> CanonicalIterable for Tuple<***Es> {
-  type Item = Dynamic
-  type Iterator = TupleIterator
-  iterator -> TupleIterator { TupleIterator.new(self) }
+  type Item = Tuple<***Es>::Element
+  type Iterator = TupleIterator<***Es>
+  iterator -> TupleIterator<***Es> { TupleIterator.new(self) }
 }
 
+@!documentation("Strict zip produces runtime-shaped tuples because the input lane count is known only at runtime.")
 class TupleZipIterator {
   _iterators: List<Dynamic>
   _done: Bool
@@ -296,6 +315,7 @@ class TupleZipIterator {
   iterator { self }
 }
 
+@!documentation("A strict zip view whose element Tuple shape depends on the runtime source Tuple.")
 class TupleZipView is Collection {
   _tuple: Dynamic
 

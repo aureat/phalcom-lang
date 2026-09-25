@@ -321,7 +321,7 @@ fn resolve_missing_nominal_binder_headers(
                 info.kind = kind;
                 info.form = store.nominal_form(declaration, kind);
                 info.generic_binder_header = Some(header);
-                declarations.insert(info);
+                declarations.refresh_shell_preserving_registered_projections(info);
                 pass_progress = true;
             }
         }
@@ -333,10 +333,20 @@ fn resolve_missing_nominal_binder_headers(
     any_progress
 }
 
-fn ready_kind_for_predeclaration(store: &mut TypeStore, syntax: Option<&phalcom_ast::ast::KindSyntax>) -> Option<KindId> {
-    match syntax.map_or(crate::types::annotation::KindResolution::Ready(KindId::TYPE), |kind| {
-        resolve_kind_syntax(store, kind)
-    }) {
+fn ready_kind_for_predeclaration(store: &mut TypeStore, parameter: &phalcom_ast::ast::GenericParameterSyntax) -> Option<KindId> {
+    let kind_resolution = parameter.kind.as_ref().map_or_else(
+        || {
+            let kind = match parameter.mode {
+                None => KindId::TYPE,
+                Some(phalcom_ast::ast::ExpansionMode::Positional) => KindId::TYPE_PACK,
+                Some(phalcom_ast::ast::ExpansionMode::Labeled) => KindId::RECORD_ROW,
+                Some(phalcom_ast::ast::ExpansionMode::Complete) => KindId::COMPLETE_TYPE_PACK,
+            };
+            crate::types::annotation::KindResolution::Ready(kind)
+        },
+        |kind| resolve_kind_syntax(store, kind),
+    );
+    match kind_resolution {
         crate::types::annotation::KindResolution::Ready(kind) => Some(kind),
         crate::types::annotation::KindResolution::Dynamic
         | crate::types::annotation::KindResolution::Missing(_)
@@ -653,7 +663,7 @@ impl SemanticWorkspaceSession {
             let declaration = crate::core_surface::universe_declaration(key);
             let form = store.nominal_type(declaration.clone());
             let class_object_type = store.class_object_type(declaration.clone());
-            base_declarations.insert(DeclarationTypeInfo {
+            base_declarations.replace_authoritative(DeclarationTypeInfo {
                 declaration,
                 form,
                 class_object_type,
@@ -729,19 +739,27 @@ impl SemanticWorkspaceSession {
                     }
                     let mut parameter_ids = Vec::new();
                     let mut parameter_kinds = Vec::new();
+                    let mut parameter_modes = Vec::new();
                     for (index, parameter) in data_def.generic_parameters.iter().enumerate() {
-                        let Some(kind) = ready_kind_for_predeclaration(&mut store, parameter.kind.as_ref()) else {
+                        let Some(kind) = ready_kind_for_predeclaration(&mut store, parameter) else {
                             parameter_ids.clear();
                             break;
+                        };
+                        let mode = match parameter.mode {
+                            None => crate::types::parameter::GenericParameterMode::Single,
+                            Some(phalcom_ast::ast::ExpansionMode::Positional) => crate::types::parameter::GenericParameterMode::PositionalPack,
+                            Some(phalcom_ast::ast::ExpansionMode::Labeled) => crate::types::parameter::GenericParameterMode::LabeledPack,
+                            Some(phalcom_ast::ast::ExpansionMode::Complete) => crate::types::parameter::GenericParameterMode::CompletePack,
                         };
                         let parameter_id = store.intern_type_parameter(TypeParameterData::new(
                             TypeParameterOwner::Declaration(decl_id.clone()),
                             index as u32,
                             parameter.name.clone(),
                             kind,
-                        ));
+                        ).with_mode(mode));
                         parameter_ids.push(parameter_id);
                         parameter_kinds.push(kind);
+                        parameter_modes.push(mode);
                     }
 
                     if parameter_ids.len() != data_def.generic_parameters.len() {
@@ -757,14 +775,21 @@ impl SemanticWorkspaceSession {
                     let (form, kind, generic_signature) = if parameter_ids.is_empty() {
                         (store.nominal_form(decl_id.clone(), result_kind), result_kind, None)
                     } else {
-                        let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), result_kind);
+                        let kind = store.arrow_kind(parameter_kinds.clone().into_boxed_slice(), result_kind);
                         let form = store.nominal_form(decl_id.clone(), kind);
-                        let signature =
-                            crate::types::parameter::GenericSignature::new(TypeParameterOwner::Declaration(decl_id.clone()), parameter_ids.into_boxed_slice());
+                        let signature = crate::types::parameter::GenericSignature::new(
+                            TypeParameterOwner::Declaration(decl_id.clone()),
+                            parameter_ids.into_boxed_slice(),
+                        )
+                        .with_parameter_metadata(
+                            parameter_kinds.clone().into_boxed_slice(),
+                            vec![crate::types::variance::Variance::Invariant; parameter_kinds.len()].into_boxed_slice(),
+                        )
+                        .with_parameter_modes(parameter_modes.into_boxed_slice());
                         (form, kind, Some(signature))
                     };
 
-                    base_declarations.insert(DeclarationTypeInfo {
+                    base_declarations.replace_authoritative(DeclarationTypeInfo {
                         declaration: decl_id.clone(),
                         form,
                         class_object_type: store.class_object_type(decl_id.clone()),
@@ -2188,7 +2213,7 @@ impl SemanticWorkspaceSession {
                         .get(&declaration.module)
                         .is_some_and(|shard| shard.declaration_header_fingerprints.contains_key(declaration));
                 if retained_from_unchanged_module || retained_header_in_changed_module {
-                    declarations.insert(info.clone());
+                    declarations.refresh_shell_preserving_registered_projections(info.clone());
                 }
             }
         }
@@ -2268,7 +2293,7 @@ impl SemanticWorkspaceSession {
                     let kind = KindId::TYPE;
                     let form = Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind);
                     let class_obj_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
-                    declarations.insert(DeclarationTypeInfo {
+                    declarations.replace_authoritative(DeclarationTypeInfo {
                         declaration: decl_id,
                         form,
                         class_object_type: class_obj_type,
@@ -2298,7 +2323,7 @@ impl SemanticWorkspaceSession {
                     let kind = result_kind;
                     let form = Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind);
                     let class_object_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
-                    declarations.insert(DeclarationTypeInfo {
+                    declarations.replace_authoritative(DeclarationTypeInfo {
                         declaration: decl_id,
                         form,
                         class_object_type,
@@ -2402,7 +2427,7 @@ impl SemanticWorkspaceSession {
                 info.kind = kind;
                 info.form = Arc::make_mut(&mut self.store).nominal_form(declaration, kind);
                 info.generic_binder_header = Some(header);
-                declarations.insert(info);
+                declarations.refresh_shell_preserving_registered_projections(info);
             }
         }
 
@@ -2522,6 +2547,7 @@ impl SemanticWorkspaceSession {
             &previous_structure_shards,
             &resolver,
             &declarations,
+            Arc::make_mut(&mut self.store),
             &associated_surface_recompute_modules,
             &self.inherent_impl_surface_owners,
         );
@@ -3143,7 +3169,7 @@ impl SemanticWorkspaceSession {
                 info.form = Arc::make_mut(&mut self.store).nominal_form(declaration.clone(), result_kind);
                 info.generic_binder_header = None;
                 info.generic_signature = None;
-                declarations.insert(info);
+                declarations.refresh_shell_preserving_registered_projections(info);
             }
         }
         let alias_cycle_seeds = if previous_snapshot.is_none() {
@@ -3655,7 +3681,7 @@ impl SemanticWorkspaceSession {
                     if let Some(template) = type_info.supertype_template.clone() {
                         hierarchy.insert_template(template);
                     }
-                    declarations.insert(type_info);
+                    declarations.replace_authoritative(type_info);
                 } else if let Statement::Data(data_def) = stmt {
                     if data_def.is_intrinsic_facade() {
                         continue;
@@ -3743,7 +3769,7 @@ impl SemanticWorkspaceSession {
                         result_kind,
                     );
 
-                    declarations.insert(header.into_type_info(None));
+                    declarations.replace_authoritative(header.into_type_info(None));
                 }
             }
         }
@@ -7999,6 +8025,7 @@ fn build_source_associated_surfaces(
     previous_shards: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
     resolver: &dyn TypeResolver,
     declarations: &DeclarationTypeTable,
+    store: &mut TypeStore,
     recomputed_modules: &BTreeSet<ModuleId>,
     previous_impl_owners: &BTreeMap<crate::identity::ImplId, DeclarationId>,
 ) -> (
@@ -8006,12 +8033,48 @@ fn build_source_associated_surfaces(
     Vec<(DeclarationId, Arc<crate::associated::AssociatedSurface>, Arc<[SemanticDiagnostic]>)>,
     BTreeMap<crate::identity::ImplId, DeclarationId>,
 ) {
-    fn implementation_owner(module: &ModuleId, implementation: &phalcom_ast::ast::ImplDef, resolver: &dyn TypeResolver) -> Option<DeclarationId> {
-        let TypeAnnotationExpr::Reference(reference) = &implementation.target.expr else {
-            return None;
+    fn implementation_owner(
+        module: &ModuleId,
+        implementation: &phalcom_ast::ast::ImplDef,
+        resolver: &dyn TypeResolver,
+        declarations: &DeclarationTypeTable,
+        store: &TypeStore,
+    ) -> Option<DeclarationId> {
+        match &implementation.target.expr {
+            TypeAnnotationExpr::Tuple { .. } => {
+                return Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple));
+            }
+            TypeAnnotationExpr::Record { .. } => {
+                return Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Record));
+            }
+            _ => {}
+        }
+        let reference = match &implementation.target.expr {
+            TypeAnnotationExpr::Reference(reference) => reference,
+            TypeAnnotationExpr::Application { origin, .. } => match &origin.expr {
+                TypeAnnotationExpr::Reference(reference) => reference,
+                _ => return None,
+            },
+            _ => return None,
         };
         let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
-        resolver.resolve_type_name(module, &reference.root, &members)
+        let declaration = resolver.resolve_type_name(module, &reference.root, &members)?;
+        if let Some(alias_form) = resolver.resolve_alias_form(&declaration)
+            && let Some(owner) = crate::impls::structural_behavior_owner(store, alias_form)
+        {
+            return Some(owner);
+        }
+        if declarations.semantic_form(&declaration).is_some_and(|form| {
+            matches!(
+                form,
+                crate::declarations::DeclarationSemanticForm::Intrinsic(
+                    crate::declarations::IntrinsicTypeApplication::Tuple | crate::declarations::IntrinsicTypeApplication::Record
+                )
+            )
+        }) {
+            return Some(declaration);
+        }
+        Some(declaration)
     }
 
     let mut owners_to_recompute = BTreeSet::new();
@@ -8037,7 +8100,7 @@ fn build_source_associated_surfaces(
                     }
                     Statement::Impl(implementation) if matches!(implementation.kind, phalcom_ast::ast::ImplKind::Inherent) => {
                         if source_index == 0
-                            && let Some(owner) = implementation_owner(module, implementation, resolver)
+                            && let Some(owner) = implementation_owner(module, implementation, resolver, declarations, store)
                         {
                             owners_to_recompute.insert(owner);
                         }
@@ -8056,7 +8119,7 @@ fn build_source_associated_surfaces(
             if !matches!(implementation.kind, phalcom_ast::ast::ImplKind::Inherent) {
                 continue;
             }
-            let Some(owner) = implementation_owner(module_id, implementation, resolver) else {
+            let Some(owner) = implementation_owner(module_id, implementation, resolver, declarations, store) else {
                 continue;
             };
             let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(statement_index as u32));

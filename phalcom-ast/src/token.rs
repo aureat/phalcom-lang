@@ -170,8 +170,8 @@ pub enum Token {
     RParen,
     /// The `{` delimiter.
     LBrace,
-    /// The `#{` record opener.
-    RecordLBrace,
+    /// The `#{` Set literal opener.
+    SetLBrace,
     /// The `}` delimiter.
     RBrace,
     /// The `[` delimiter.

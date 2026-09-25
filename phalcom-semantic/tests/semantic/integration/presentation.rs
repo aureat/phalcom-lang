@@ -47,7 +47,7 @@ fn advisory_presenter_formats_canonical_runtime_shapes() {
             ("value", int_shape.clone()),
             ("name", string_shape.clone()),
         ])),
-        "#{name: String, value: Int}"
+        "{name: String, value: Int}"
     );
     assert_eq!(
         AdvisoryPresenter::present_shape(&phalcom_semantic::ValueShape::bounded_union([int_shape, string_shape])),

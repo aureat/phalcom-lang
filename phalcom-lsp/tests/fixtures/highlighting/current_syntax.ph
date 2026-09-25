@@ -24,7 +24,7 @@ class Widget is Base {
   move(_ x, to dest) {
     const tuple = (x, dest)
     const list = [1, 2, 3]
-    const record = #{ name: "widget", value: _value }
+    const record = { name: "widget", value: _value }
     const selector = #move(_,to)
     const block = || { "done" }
     list[0]

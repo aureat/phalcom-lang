@@ -70,15 +70,15 @@ fn record_row_lacks_violation_presentation_is_stable_and_hides_solver_ids() {
         r#"
 class Probe {
   @class
-  tagged<R: RecordRow>(
-      _ value: #{ name: String, | R }
-  ) -> #{ name: String, tag: String, | R } {
-      #{ **value, tag: "entity" }
+  tagged<**R>(
+      _ value: { name: String, **R }
+  ) -> { name: String, tag: String, **R } {
+      { **value, tag: "entity" }
   }
 
   @class
   run() {
-      let result = Probe.tagged(#{ name: "Phalcom", tag: "existing" })
+      let result = Probe.tagged({ name: "Phalcom", tag: "existing" })
   }
 }
 "#,
@@ -103,8 +103,8 @@ fn record_row_lacks_unproven_presentation_is_stable_and_names_the_row_field() {
         r#"
 class Probe {
   @class
-  extend<R: RecordRow>(_ value: #{ known: Int, | R }) {
-    let result = #{ **value, extra: true }
+  extend<**R>(_ value: { known: Int, **R }) {
+    let result = { **value, extra: true }
   }
 }
 "#,

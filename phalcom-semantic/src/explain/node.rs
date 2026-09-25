@@ -119,6 +119,7 @@ pub enum CallShapeExplanation {
     MissingRequired { parameter_index: u16, label: Option<String> },
     UnexpectedPositional { argument_index: u16 },
     UnknownLabel { label: String },
+    DuplicateLabel { label: String },
     DuplicateParameter { parameter_index: u16 },
 }
 

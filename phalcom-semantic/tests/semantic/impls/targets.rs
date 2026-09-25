@@ -1,7 +1,7 @@
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::CheckingContext;
-use phalcom_semantic::declarations::{DeclarationTypeTable, NominalDeclarationHeader};
+use phalcom_semantic::declarations::{DeclarationSemanticForm, DeclarationTypeTable, IntrinsicTypeApplication, NominalDeclarationHeader};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::diagnostic::SemanticSourceSpan;
 use phalcom_semantic::enum_semantics::{EnumInfo, EnumSemanticTable, VariantInfo, VariantShape};
@@ -14,9 +14,9 @@ use phalcom_semantic::traits::{TraitHeader, TraitHeaderTable};
 use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeResolver};
 use phalcom_semantic::types::evidence::UnknownReason;
 use phalcom_semantic::types::id::{KindId, TypeId};
-use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::parameter::{GenericConstraint, GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::relation::MapTypeHierarchy;
-use phalcom_semantic::types::store::TypeStore;
+use phalcom_semantic::types::store::{StaticArgument, TypeData, TypeStore};
 use std::sync::Arc;
 
 fn test_module() -> ModuleId {
@@ -36,6 +36,69 @@ fn setup_resolver_and_decls(store: &mut TypeStore, declarations: &mut Declaratio
         resolver.insert(name, decl);
     }
     resolver
+}
+
+fn register_structural_family(
+    store: &mut TypeStore,
+    declarations: &mut DeclarationTypeTable,
+    resolver: &mut SimpleTypeResolver,
+    family_name: &str,
+    family_owner: phalcom_semantic::declarations::IntrinsicTypeApplication,
+    parameter_name: &str,
+    parameter_kind: KindId,
+    parameter_mode: GenericParameterMode,
+    kind_name: &str,
+) -> DeclarationId {
+    let family = match family_name {
+        "Tuple" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple),
+        "Record" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Record),
+        _ => unreachable!("only canonical structural families are registered here"),
+    };
+    let parameter = store.intern_type_parameter(
+        TypeParameterData::new(TypeParameterOwner::Declaration(family.clone()), 0, parameter_name, parameter_kind).with_mode(parameter_mode),
+    );
+    let signature = GenericSignature::new(TypeParameterOwner::Declaration(family.clone()), vec![parameter].into_boxed_slice())
+        .with_parameter_metadata(
+            vec![parameter_kind].into_boxed_slice(),
+            vec![phalcom_semantic::types::variance::Variance::Invariant].into_boxed_slice(),
+        )
+        .with_parameter_modes(vec![parameter_mode].into_boxed_slice());
+    register_nominal(store, declarations, family.clone(), Some(signature));
+    declarations.register_intrinsic_semantic_form(&family, DeclarationSemanticForm::Intrinsic(family_owner));
+    resolver.insert(family_name, family.clone());
+
+    let kind_anchor = DeclarationId::new(family.module.clone(), kind_name.into());
+    declarations.register_intrinsic_static_domain(kind_anchor.clone(), parameter_kind);
+    resolver.insert(kind_name, kind_anchor);
+    family
+}
+
+fn register_tuple_family(store: &mut TypeStore, declarations: &mut DeclarationTypeTable, resolver: &mut SimpleTypeResolver) -> DeclarationId {
+    register_structural_family(
+        store,
+        declarations,
+        resolver,
+        "Tuple",
+        IntrinsicTypeApplication::Tuple,
+        "Es",
+        KindId::COMPLETE_TYPE_PACK,
+        GenericParameterMode::CompletePack,
+        "CompleteTypePack",
+    )
+}
+
+fn register_record_family(store: &mut TypeStore, declarations: &mut DeclarationTypeTable, resolver: &mut SimpleTypeResolver) -> DeclarationId {
+    register_structural_family(
+        store,
+        declarations,
+        resolver,
+        "Record",
+        IntrinsicTypeApplication::Record,
+        "Fs",
+        KindId::RECORD_ROW,
+        GenericParameterMode::LabeledPack,
+        "RecordFields",
+    )
 }
 
 fn register_nominal(store: &mut TypeStore, declarations: &mut DeclarationTypeTable, decl: DeclarationId, generic_signature: Option<GenericSignature>) {
@@ -570,25 +633,233 @@ fn test_invalid_constraint_is_blocked_instead_of_disproven() {
 }
 
 #[test]
-fn test_non_nominal_target_rejected() {
+fn tuple_structural_impls_use_canonical_owner_and_equivalent_spellings() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    let tuple_decl = register_tuple_family(&mut store, &mut declarations, &mut resolver);
+    let module = tuple_decl.module.clone();
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+
+    let covering = phalcom_ast::parse("impl<***Es: CompleteTypePack> Tuple<***Es> {}\n", 0);
+    assert!(covering.errors.is_empty(), "parse errors: {:?}", covering.errors);
+    let phalcom_ast::ast::Statement::Impl(covering_impl) = &covering.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let covering_target = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(0)), covering_impl)
+        .expect("canonical Tuple family impl should resolve");
+    assert_eq!(covering_target.declaration(), &tuple_decl);
+    let InherentImplApplicability::Covering(substitution) = covering_target.applicability else {
+        panic!("the complete Tuple family head should be covering")
+    };
+    assert_eq!(substitution.impl_to_decl.len(), 1);
+
+    let direct = phalcom_ast::parse("impl (Int, String) {}\n", 0);
+    assert!(direct.errors.is_empty(), "parse errors: {:?}", direct.errors);
+    let phalcom_ast::ast::Statement::Impl(direct_impl) = &direct.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let direct_target = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(1)), direct_impl)
+        .expect("structural Tuple domain should resolve in its owner module");
+    assert_eq!(direct_target.declaration(), &tuple_decl);
+    assert!(matches!(direct_target.applicability, InherentImplApplicability::Conditional(_)));
+
+    let repeated = phalcom_ast::parse("impl<T> (T, T) {}\n", 0);
+    assert!(repeated.errors.is_empty(), "parse errors: {:?}", repeated.errors);
+    let phalcom_ast::ast::Statement::Impl(repeated_impl) = &repeated.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let repeated_target = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(3)), repeated_impl)
+        .expect("specialized structural Tuple domain should resolve");
+    assert_eq!(repeated_target.declaration(), &tuple_decl);
+    assert!(matches!(repeated_target.applicability, InherentImplApplicability::Conditional(_)));
+
+    for (impl_index, source) in [
+        (2, "impl Tuple<***(Int, String)> {}\n"),
+    ] {
+        let parsed = phalcom_ast::parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors for {source:?}: {:?}", parsed.errors);
+        let phalcom_ast::ast::Statement::Impl(impl_stmt) = &parsed.program.statements[0] else {
+            panic!("expected impl")
+        };
+        let resolved = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(impl_index)), impl_stmt)
+            .expect("equivalent Tuple spelling should resolve");
+        assert_eq!(resolved.declaration(), &tuple_decl);
+        assert_eq!(resolved.target_type, direct_target.target_type, "all spellings share one canonical Tuple type");
+    }
+}
+
+#[test]
+fn record_structural_impls_use_canonical_owner_and_equivalent_spellings() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    let record_decl = register_record_family(&mut store, &mut declarations, &mut resolver);
+    let module = record_decl.module.clone();
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+
+    let covering = phalcom_ast::parse("impl<**Fs: RecordFields> Record<**Fs> {}\n", 0);
+    assert!(covering.errors.is_empty(), "parse errors: {:?}", covering.errors);
+    let phalcom_ast::ast::Statement::Impl(covering_impl) = &covering.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let covering_target = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(0)), covering_impl)
+        .expect("canonical Record family impl should resolve");
+    assert_eq!(covering_target.declaration(), &record_decl);
+    let InherentImplApplicability::Covering(substitution) = covering_target.applicability else {
+        panic!("the RecordFields family head should be covering")
+    };
+    assert_eq!(substitution.impl_to_decl.len(), 1);
+
+    let direct = phalcom_ast::parse("impl { name: String } {}\n", 0);
+    assert!(direct.errors.is_empty(), "parse errors: {:?}", direct.errors);
+    let phalcom_ast::ast::Statement::Impl(direct_impl) = &direct.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let direct_target = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(1)), direct_impl)
+        .expect("structural Record domain should resolve in its owner module");
+    assert_eq!(direct_target.declaration(), &record_decl);
+    assert!(matches!(direct_target.applicability, InherentImplApplicability::Conditional(_)));
+
+    let generic = phalcom_ast::parse("impl<T> { value: T } {}\n", 0);
+    assert!(generic.errors.is_empty(), "parse errors: {:?}", generic.errors);
+    let phalcom_ast::ast::Statement::Impl(generic_impl) = &generic.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let generic_target = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(3)), generic_impl)
+        .expect("specialized structural Record domain should resolve");
+    assert_eq!(generic_target.declaration(), &record_decl);
+    assert!(matches!(generic_target.applicability, InherentImplApplicability::Conditional(_)));
+
+    for (impl_index, source) in [(2, "impl Record<**{ name: String }> {}\n")] {
+        let parsed = phalcom_ast::parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors for {source:?}: {:?}", parsed.errors);
+        let phalcom_ast::ast::Statement::Impl(impl_stmt) = &parsed.program.statements[0] else {
+            panic!("expected impl")
+        };
+        let resolved = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(impl_index)), impl_stmt)
+            .expect("equivalent Record spelling should resolve");
+        assert_eq!(resolved.declaration(), &record_decl);
+        assert_eq!(resolved.target_type, direct_target.target_type, "all spellings share one canonical Record type");
+    }
+}
+
+#[test]
+fn foreign_modules_cannot_author_structural_tuple_or_record_impls() {
     let module = test_module();
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
     let mut declarations = DeclarationTypeTable::new();
-
     let resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    let mut resolver = resolver;
+    let tuple_decl = register_tuple_family(&mut store, &mut declarations, &mut resolver);
+    let record_decl = register_record_family(&mut store, &mut declarations, &mut resolver);
+    assert_eq!(tuple_decl.module, record_decl.module);
     let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
 
-    let parsed = phalcom_ast::parse("impl (Int, String) {\n  val() -> Int { 0 }\n}\n", 0);
-    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
-    let impl_stmt = match &parsed.program.statements[0] {
-        phalcom_ast::ast::Statement::Impl(def) => def,
-        _ => panic!("expected impl"),
-    };
+    for (impl_index, source) in [
+        (0, "impl (Int, String) {}\n"),
+        (1, "impl { name: String } {}\n"),
+        (2, "impl Tuple<***(Int, String)> {}\n"),
+        (3, "impl Record<**{ name: String }> {}\n"),
+    ] {
+        let parsed = phalcom_ast::parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors for {source:?}: {:?}", parsed.errors);
+        let phalcom_ast::ast::Statement::Impl(impl_stmt) = &parsed.program.statements[0] else {
+            panic!("expected impl")
+        };
+        let errors = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(impl_index)), impl_stmt)
+            .expect_err("foreign structural behavior owner must be rejected");
+        assert!(errors.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ImplForeignTarget));
+        assert!(!errors.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ImplTargetNotNominal));
+    }
+}
 
-    let impl_id = ImplId::new(module, ImplLocalId(0));
-    let err = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect_err("should reject tuple target");
-    assert!(err.iter().any(|d| d.code == DiagnosticCode::ImplTargetNotNominal));
+#[test]
+fn row_parameter_covering_impl_materializes_through_record_row_identity() {
+    let module = test_module();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    register_record_family(&mut store, &mut declarations, &mut resolver);
+
+    let row_product = DeclarationId::new(module.clone(), "RowProduct".into());
+    let declaration_parameter = store.intern_type_parameter(
+        TypeParameterData::new(TypeParameterOwner::Declaration(row_product.clone()), 0, "Fs", KindId::RECORD_ROW)
+            .with_mode(GenericParameterMode::LabeledPack),
+    );
+    let signature = GenericSignature::new(
+        TypeParameterOwner::Declaration(row_product.clone()),
+        vec![declaration_parameter].into_boxed_slice(),
+    )
+    .with_parameter_metadata(
+        vec![KindId::RECORD_ROW].into_boxed_slice(),
+        vec![phalcom_semantic::types::variance::Variance::Invariant].into_boxed_slice(),
+    )
+    .with_parameter_modes(vec![GenericParameterMode::LabeledPack].into_boxed_slice());
+    register_nominal(&mut store, &mut declarations, row_product.clone(), Some(signature));
+    resolver.insert("RowProduct", row_product.clone());
+
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+    let parsed = phalcom_ast::parse("impl<**Fs: RecordFields> RowProduct<**Fs> {}\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let phalcom_ast::ast::Statement::Impl(implementation) = &parsed.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let resolved = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module, ImplLocalId(0)), implementation)
+        .expect("RecordFields family head should resolve as a covering nominal impl");
+    assert_eq!(resolved.declaration(), &row_product);
+    let InherentImplApplicability::Covering(substitution) = resolved.applicability else {
+        panic!("the complete RowProduct family head should be covering")
+    };
+    let implementation_parameter = *substitution.impl_to_decl.keys().next().expect("row binder correspondence");
+    assert_eq!(substitution.impl_to_decl.get(&implementation_parameter), Some(&declaration_parameter));
+
+    let instantiation = substitution.to_instantiation(ctx.store).expect("domain-aware row instantiation");
+    assert!(instantiation.type_binding(implementation_parameter).is_none(), "RecordFields must not become a TypeId binding");
+    let row = instantiation.row_binding(implementation_parameter).expect("RecordFields row binding");
+    let TypeData::Applied { arguments, .. } = ctx.store.get(resolved.target_type) else {
+        panic!("RowProduct target should retain its static application")
+    };
+    let StaticArgument::RecordRow(target_row) = arguments[0] else {
+        panic!("the RowProduct argument must remain a RecordRowId")
+    };
+    assert_eq!(
+        ctx.store.record_row(target_row).tail,
+        phalcom_semantic::types::row::RecordRowTail::Parameter(implementation_parameter)
+    );
+    assert!(ctx.store.record_row(row).fields.is_empty());
+    assert_eq!(ctx.store.record_row(row).tail, phalcom_semantic::types::row::RecordRowTail::Parameter(declaration_parameter));
+}
+
+#[test]
+fn type_alias_to_structural_family_uses_its_canonical_behavior_owner() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut base = setup_resolver_and_decls(&mut store, &mut declarations);
+    let family = register_tuple_family(&mut store, &mut declarations, &mut base);
+    let alias = DeclarationId::new(family.module.clone(), "TupleAlias".into());
+    let empty_tuple = store.tuple(Box::new([]));
+    base.insert("TupleAlias", alias.clone());
+    let aliases = AliasResolver {
+        base,
+        alias: alias.clone(),
+        form: empty_tuple,
+    };
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &aliases, &declarations, family.module.clone());
+    let parsed = phalcom_ast::parse("impl TupleAlias {}\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let phalcom_ast::ast::Statement::Impl(impl_stmt) = &parsed.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let resolved = resolve_inherent_impl_target(&mut ctx, &ImplId::new(family.module.clone(), ImplLocalId(0)), impl_stmt)
+        .expect("structural aliases share the canonical family behavior owner");
+    assert_eq!(resolved.declaration(), &family);
+    assert_eq!(resolved.target_type, empty_tuple);
 }
 
 #[test]

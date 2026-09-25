@@ -16,10 +16,10 @@ The type-level domains are distinct:
 ```text
 TypePack          ordered sequence of proper type forms
 LabeledTypePack   ordered sequence of (label, proper type) pairs
-RecordRow         unordered key/type associations, possibly with an open tail
+RecordFields      unordered key/type associations, possibly with an open tail
 ```
 
-`LabeledTypePack` is not `RecordRow`. A labeled pack preserves sequence order;
+`LabeledTypePack` is not `RecordFields`. A labeled pack preserves sequence order;
 a record row preserves key association and is unordered for structural identity.
 
 The structural mapping algebra is:
@@ -28,14 +28,19 @@ The structural mapping algebra is:
 |---|---|---|---|---|
 | `TypePack` | proper types | none | ordered | `TypePack` |
 | `LabeledTypePack` | proper types | labels | ordered | `LabeledTypePack` |
-| `RecordRow` | proper types | keys | unordered key set | `RecordRow` |
+| `RecordFields` | proper types | keys | unordered key set | `RecordFields` |
 | Tuple proper type | pack plus labeled pack | ordered labels | ordered | Tuple proper type |
 | Record proper type | row | record keys | unordered key set | Record proper type |
 
 Universe publishes intrinsic `type data` anchors for `TypePack`,
-`LabeledTypePack`, `TupleEntries`, and `RecordRow`. `TupleEntries` names the
-existing `CompleteTypePack` domain. It is a source/reflection facade and does
-not add a kind or change the semantic identity used by `***T`.
+`LabeledTypePack`, `CompleteTypePack`, and `RecordFields`. These names expose
+the existing compiler-owned domains; they do not create replacement semantic
+identities.
+
+Expansion prefixes and semantic kinds are separate concepts. When the kind is
+omitted, `*Ts` defaults to `TypePack`, `**Fs` to `RecordFields`, and `***Es` to
+`CompleteTypePack`; there is no contextual kind inference. Explicit compatible
+kind annotations remain available.
 
 ## 2. Tuple formation
 
@@ -66,7 +71,7 @@ A Record type is formed from a row:
 Record(R)
 ```
 
-where `R : RecordRow`. A closed row contains a finite key/type association;
+where `R : RecordFields`. A closed row contains a finite key/type association;
 an open row additionally contains an abstract remainder. Record structural
 identity is determined by key/type association, not source or presentation
 order. Canonical field sorting is an implementation normalization, not a
@@ -192,8 +197,8 @@ MapRow({ l₀:T₀, ..., lₙ:Tₙ }, F)
 For an open row:
 
 ```text
-MapRow({ l₀:T₀, ..., lₙ:Tₙ | R }, F)
-    = { l₀:F<T₀>, ..., lₙ:F<Tₙ> | MapRow(R,F) }
+MapRow({ l₀:T₀, ..., lₙ:Tₙ, **R }, F)
+    = { l₀:F<T₀>, ..., lₙ:F<Tₙ>, **MapRow(R,F) }
 ```
 
 The unknown tail must be transformed; it must not remain unchanged. Record
@@ -229,7 +234,7 @@ The following are valid semantic forms when their domains are established:
 ```text
 P::Map<F>       when P : TypePack
 L::Map<F>       when L : LabeledTypePack
-R::Map<F>       when R : RecordRow
+R::Map<F>       when R : RecordFields
 T::At<I>        when T and I satisfy member applicability/domain rules
 T::Map<F>
 ```
@@ -250,13 +255,15 @@ type-family language.
 ## 9. Runtime boundary
 
 Static Tuple/Record types and type-level packs/rows are semantic products. They
-do not imply runtime `TypePack` or `RecordRow` objects. Runtime Tuple and Record
+do not imply runtime `TypePack` or `RecordFields` objects. Runtime Tuple and Record
 values retain their existing behavior and representation contracts, including
 zero-product normalization, Tuple label ordering, and Record key-set identity.
 
-Compiler/domain-native type members do not constitute ordinary inherent
-implementations of every anonymous shape. The prohibition on anonymous
-structural inherent `impl` targets remains in force.
+Tuple and Record structural types use their canonical Universe family
+declarations as behavior owners for inherent implementations. The authorization
+and overlap rules are specified by
+[Implementation Declarations](objects/impl.md). Other structural type
+expressions do not gain inherent behavior owners through this rule.
 
 ## 10. Invariants
 
@@ -265,7 +272,7 @@ structural inherent `impl` targets remains in force.
 | **STRUCT-TUPLE-LANE-ORDER** | A Tuple is an ordered positional prefix followed by an ordered labeled suffix. |
 | **STRUCT-TUPLE-LABEL-ORDER** | Tuple label order participates in structural identity. |
 | **STRUCT-RECORD-KEY-IDENTITY** | Record identity is determined by key/type association, not presentation order. |
-| **STRUCT-PACK-ROW-DISTINCT** | `LabeledTypePack` and `RecordRow` are distinct domains and identities. |
+| **STRUCT-PACK-ROW-DISTINCT** | `LabeledTypePack` and `RecordFields` are distinct domains and identities. |
 | **STRUCT-ZERO-PRODUCT** | `()` is the zero product and canonicalizes to `Unit`. |
 | **STRUCT-AT-IDENTITY** | `T[I]` and `T::At<I>` are one semantic operation. |
 | **STRUCT-AT-BOUNDS** | A concrete out-of-range Tuple index is statically invalid. |
@@ -295,8 +302,8 @@ structural inherent `impl` targets remains in force.
 (Int, name: String)::Map<Option>
 // (Option<Int>, name: Option<String>)
 
-#{name: String, age: Int}::Map<Option>
-// #{name: Option<String>, age: Option<Int>}
+{name: String, age: Int}::Map<Option>
+// {name: Option<String>, age: Option<Int>}
 
 P::Map<Option>
 // valid symbolic result when P : TypePack

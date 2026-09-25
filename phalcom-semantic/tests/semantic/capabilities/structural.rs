@@ -225,7 +225,7 @@ fn record_literal_preserves_structural_field_types() {
 class Probe {
   @class
   run() {
-    let user = #{name: "A", age: 42}
+    let user = {name: "A", age: 42}
   }
 }
 "#,

@@ -183,37 +183,37 @@ let result = Receiver.new().collect(*(1..=3))
 }
 
 #[test]
-fn intrinsic_unit_facade_reuses_the_preinstalled_runtime_class() {
+fn intrinsic_tuple_facade_reuses_the_preinstalled_runtime_class() {
     let mut vm = VM::new();
     let module_id = ModuleId::universe(ModulePath::from_components(
-        ["option", "unit"]
+        ["collections", "tuple"]
             .into_iter()
             .map(|part| ModuleComponent::from_identifier(part).expect("valid module component"))
             .collect::<Vec<_>>(),
     ));
-    let module = vm.module_registry.get(&module_id).expect("Unit source module is materialized").object;
-    let before = vm.universe_global(&["option", "unit"], "Unit").expect("Unit is bootstrapped");
-    let declaration = DeclarationId::new(module_id.clone(), "Unit".into());
+    let module = vm.module_registry.get(&module_id).expect("Tuple source module is materialized").object;
+    let before = vm.universe_global(&["collections", "tuple"], "Tuple").expect("Tuple is bootstrapped");
+    let declaration = DeclarationId::new(module_id.clone(), "Tuple".into());
     let mut lowering = ModuleLoweringSemantics::new(module_id);
     lowering.intrinsic_runtime_facades = vec![IntrinsicRuntimeFacadeLoweringSpec {
         declaration,
-        owner: IntrinsicRuntimeOwner::Unit,
+        owner: IntrinsicRuntimeOwner::Tuple,
     }]
     .into_boxed_slice();
     vm.heap.module_mut(module).lowering = Some(Arc::new(lowering));
 
     // Recompile a replacement to exercise the compiler path after canonical
-    // Universe bootstrap has already loaded the migrated Unit source facade.
+    // Universe bootstrap has already loaded the Tuple source facade.
     let closure = vm
-        .compile_closure_as(module, "intrinsic data Unit()\n", UnitKind::Repl)
-        .expect("intrinsic Unit facade compiles against its existing owner");
+        .compile_closure_as(module, "intrinsic data Tuple<***Es>(***Es)\n", UnitKind::Repl)
+        .expect("intrinsic Tuple facade compiles against its existing owner");
     let code = &vm.heap.closure(closure).callable.chunk.code;
     assert!(!code.iter().any(|op| matches!(
         op,
         phalcom_core::bytecode::Bytecode::Data(_) | phalcom_core::bytecode::Bytecode::FinalizeData(_)
     )));
     vm.run_cell(module, closure).expect("facade rebind executes");
-    let after = vm.universe_global(&["option", "unit"], "Unit").expect("Unit binding remains present");
+    let after = vm.universe_global(&["collections", "tuple"], "Tuple").expect("Tuple binding remains present");
     assert_eq!(after, before, "the source facade must reuse the canonical runtime class object");
 }
 

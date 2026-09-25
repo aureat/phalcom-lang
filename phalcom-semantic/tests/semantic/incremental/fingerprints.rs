@@ -464,7 +464,7 @@ fn declaration_surface_product_includes_callable_generic_contract() {
     let mut right_signature = CallableSignature::new(selector, Vec::new(), TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::DeveloperAnnotation));
     right_signature.generics = Some(
         GenericSignature::new(TypeParameterOwner::Declaration(owner), Box::new([TypeParameterId(2)]))
-            .with_parameter_kind_shapes(Box::new(["RecordRow".into()]))
+            .with_parameter_kind_shapes(Box::new(["RecordFields".into()]))
             .with_parameter_metadata(
                 Box::new([KindId::RECORD_ROW]),
                 Box::new([phalcom_semantic::types::variance::Variance::Invariant]),

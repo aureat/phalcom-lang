@@ -154,13 +154,13 @@ class _MapStrategy<K, V> is base.StrategyBase<Map<K, V>> {
   }
 }
 
-class _TupleStrategy is base.StrategyBase<Tuple> {
+class _TupleStrategy is base.StrategyBase<Dynamic> {
   @constructor
   new(elements: List<Strategy<Any>>) {
     _elements = base._StrategyCopies.list(elements)
   }
 
-  draw(data: DrawData) -> Tuple {
+  draw(data: DrawData) -> Dynamic {
     return data.withSpan(label: #tuple, discardable: false) {
       const values = List.new()
       let index = 0

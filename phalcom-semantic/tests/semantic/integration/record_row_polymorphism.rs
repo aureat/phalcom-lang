@@ -12,19 +12,19 @@ fn row_polymorphic_call_preserves_remainder_in_return() {
         r#"
 class Probe {
   @class
-  preserve<R: RecordRow>(_ value: #{ item: Int, | R }) -> #{ item: Int, | R } {
+  preserve<**R>(_ value: { item: Int, **R }) -> { item: Int, **R } {
     value
   }
 
   @class
   run() {
-    let result = Probe.preserve(#{item: 1, name: "x"})
+    let result = Probe.preserve({item: 1, name: "x"})
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    let call = fixture.expression(run, "Probe.preserve(#{item: 1, name: \"x\"})");
+    let call = fixture.expression(run, "Probe.preserve({item: 1, name: \"x\"})");
     let result = call.knowledge.ty().expect("row-polymorphic call result");
     let TypeData::Record(row_id) = fixture.analysis.snapshot.store.get(result) else {
         panic!("expected Record result, got {:?}", fixture.analysis.snapshot.store.get(result));
@@ -42,19 +42,19 @@ fn type_and_row_variables_infer_together() {
         r#"
 class Probe {
   @class
-  preserve<T, R: RecordRow>(_ value: #{ item: T, | R }) -> #{ item: T, | R } {
+  preserve<T, **R>(_ value: { item: T, **R }) -> { item: T, **R } {
     value
   }
 
   @class
   run() {
-    let result = Probe.preserve(#{item: 1, name: "x"})
+    let result = Probe.preserve({item: 1, name: "x"})
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    let call = fixture.expression(run, "Probe.preserve(#{item: 1, name: \"x\"})");
+    let call = fixture.expression(run, "Probe.preserve({item: 1, name: \"x\"})");
     let result = call.knowledge.ty().expect("combined generic result");
     let TypeData::Record(row_id) = fixture.analysis.snapshot.store.get(result) else {
         panic!("expected Record result, got {:?}", fixture.analysis.snapshot.store.get(result));
@@ -72,19 +72,19 @@ fn repeated_row_parameter_conflict_is_rejected() {
         r#"
 class Probe {
   @class
-  same<R: RecordRow>(_ left: #{ left: Int, | R }, _ right: #{ right: Int, | R }) -> #{ left: Int, | R } {
+  same<**R>(_ left: { left: Int, **R }, _ right: { right: Int, **R }) -> { left: Int, **R } {
     left
   }
 
   @class
   run() {
-    let result = Probe.same(#{left: 1, extra: "x"}, #{right: 2, other: "y"})
+    let result = Probe.same({left: 1, extra: "x"}, {right: 2, other: "y"})
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    let call = fixture.expression(run, "Probe.same(#{left: 1, extra: \"x\"}, #{right: 2, other: \"y\"})");
+    let call = fixture.expression(run, "Probe.same({left: 1, extra: \"x\"}, {right: 2, other: \"y\"})");
     assert!(call.knowledge.ty().is_none(), "conflicting row should not publish a type: {call:#?}");
     assert!(matches!(call.status, AnalysisStatus::Invalid(_)), "{call:#?}");
     fixture.assert_diagnostic(DiagnosticCode::RecordRowInferenceConflict, 1);
@@ -96,13 +96,13 @@ fn expected_result_can_select_row() {
         r#"
 class Probe {
   @class
-  make<R: RecordRow>() -> #{ item: Int, | R } {
-    #{item: 1}
+  make<**R>() -> { item: Int, **R } {
+    {item: 1}
   }
 
   @class
   run() {
-    let result: #{ item: Int, name: String } = Probe.make()
+    let result: { item: Int, name: String } = Probe.make()
   }
 }
 "#,
@@ -125,8 +125,8 @@ fn row_only_return_is_underconstrained_without_context() {
         r#"
 class Probe {
   @class
-  make<R: RecordRow>() -> #{ item: Int, | R } {
-    #{item: 1}
+  make<**R>() -> { item: Int, **R } {
+    {item: 1}
   }
 
   @class
@@ -149,10 +149,10 @@ fn open_record_pattern_binds_known_prefix_without_fabricating_tail_fields() {
         r#"
 class Probe {
   @class
-  inspect<R: RecordRow>(_ value: #{ known: Int, | R }) {
+  inspect<**R>(_ value: { known: Int, **R }) {
     match value {
-      #{ known: item } => item
-      #{ missing: other } => other
+      { known: item } => item
+      { missing: other } => other
       _ => 0
     }
   }
@@ -173,7 +173,7 @@ fn record_annotation_reports_unresolved_row_tail() {
 class Probe {
   @class
   run() {
-    let value: #{ known: Int, | MissingRow } = #{known: 1}
+    let value: { known: Int, **MissingRow } = {known: 1}
   }
 }
 "#,
@@ -188,7 +188,7 @@ fn record_annotation_reports_duplicate_known_field() {
 class Probe {
   @class
   run() {
-    let value: #{ known: Int, known: String } = #{known: 1}
+    let value: { known: Int, known: String } = {known: 1}
   }
 }
 "#,
@@ -202,13 +202,13 @@ fn row_conflict_message_does_not_expose_solver_variables() {
         r#"
 class Probe {
   @class
-  same<R: RecordRow>(_ left: #{ left: Int, | R }, _ right: #{ right: Int, | R }) -> #{ left: Int, | R } {
+  same<**R>(_ left: { left: Int, **R }, _ right: { right: Int, **R }) -> { left: Int, **R } {
     left
   }
 
   @class
   run() {
-    Probe.same(#{left: 1, extra: "x"}, #{right: 2, other: "y"})
+    Probe.same({left: 1, extra: "x"}, {right: 2, other: "y"})
   }
 }
 "#,
@@ -229,21 +229,21 @@ fn return_record_prefix_contributes_lacks_constraint_to_row_inference() {
         r#"
 class Probe {
   @class
-  tagged<R: RecordRow>(
-      _ value: #{ name: String, | R }
-  ) -> #{ name: String, tag: String, | R } {
-      #{ **value, tag: "entity" }
+  tagged<**R>(
+      _ value: { name: String, **R }
+  ) -> { name: String, tag: String, **R } {
+      { **value, tag: "entity" }
   }
 
   @class
   run() {
-      let result = Probe.tagged(#{ name: "Phalcom", tag: "existing" })
+      let result = Probe.tagged({ name: "Phalcom", tag: "existing" })
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    let call = fixture.expression(run, "Probe.tagged(#{ name: \"Phalcom\", tag: \"existing\" })");
+    let call = fixture.expression(run, "Probe.tagged({ name: \"Phalcom\", tag: \"existing\" })");
 
     assert!(call.knowledge.ty().is_none(), "rejected row call must not publish a type: {call:#?}");
     assert!(
@@ -277,13 +277,13 @@ class Mapping {
 
 class Probe {
   @class
-  annotate<A, B, R: RecordRow>(_ record: #{ value: A, | R }, _ f: (A) -> B) -> #{ mapped: B, value: A, | R } {
-    #{ **record, mapped: f.call(record.value) }
+  annotate<A, B, **R>(_ record: { value: A, **R }, _ f: (A) -> B) -> { mapped: B, value: A, **R } {
+    { **record, mapped: f.call(record.value) }
   }
 
   @class
   run() {
-    let source: #{ cached: Bool, name: String, value: Int } = #{ cached: false, name: "test", value: 42 }
+    let source: { cached: Bool, name: String, value: Int } = { cached: false, name: "test", value: 42 }
     let result = Mapping.apply(source, |record| {
       Probe.annotate(record, |value| { value == 0 })
     })

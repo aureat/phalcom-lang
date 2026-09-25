@@ -11,10 +11,8 @@ use crate::vm::VM;
 impl VM {
     /// Materializes and registers a data declaration and its behavior class.
     pub fn register_data_from_spec(&mut self, spec: &DataDeclarationLoweringSpec) -> Result<ClassId, RuntimeError> {
-        if let Some(desc_id) = self.data_registry.descriptor_by_declaration(&spec.owner) {
-            if let Some(desc) = self.data_registry.descriptor(desc_id) {
-                return Ok(desc.behavior_class);
-            }
+        if let Some(class) = self.data_registry.behavior_class_for_declaration(&spec.owner) {
+            return Ok(class);
         }
 
         let module = self
@@ -26,10 +24,20 @@ impl VM {
             .ok_or_else(|| RuntimeError::Internal(format!("data declaration module {} is not materialized", spec.owner.module)))?;
         let class_id = self.create_class(module, &spec.owner.name, Some(self.universe.classes.object_class));
         self.heap.class_mut(class_id).native_repr = true;
+        let class_id = self.data_registry.register_behavior_class(spec.owner.clone(), class_id);
 
-        let layout_spec = spec.layout.build_layout().map_err(|e| RuntimeError::Internal(e.to_string()))?;
-        let layout_id = self.heap.product_layouts.register(layout_spec);
-        let _desc_id = self.data_registry.register(spec.owner.clone(), class_id, None, layout_id);
+        if let Some(layout_spec) = &spec.layout {
+            let layout = layout_spec.build_layout().map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            let layout_id = self.heap.product_layouts.register(layout);
+            let component_slots = (0..spec.components.len()).map(|index| index as u32).collect::<Vec<_>>().into_boxed_slice();
+            self.data_registry.register_with_component_slots(
+                spec.owner.clone(),
+                class_id,
+                None,
+                layout_id,
+                Some(component_slots),
+            );
+        }
 
         for comp in spec.components.iter() {
             let logical_index = comp.logical_index;
@@ -86,9 +94,7 @@ impl VM {
         use crate::typing::handle::{MetadataPoolId, RuntimeTypeRef};
         let base = self
             .data_registry
-            .descriptor_by_declaration(&spec.constructor.owner)
-            .and_then(|id| self.data_registry.descriptor(id))
-            .cloned()
+            .behavior_class_for_declaration(&spec.constructor.owner)
             .ok_or_else(|| RuntimeError::Internal("unregistered data declaration".into()))?;
         let existing_pool = self
             .typing_registry
@@ -130,16 +136,30 @@ impl VM {
             .ok_or_else(|| RuntimeError::Internal("generic data type could not be instantiated".into()))?;
         let layout = spec.layout.build_layout().map_err(|e| RuntimeError::Internal(e.into()))?;
         let layout_id = self.heap.product_layouts.register(layout);
-        let descriptor = if matches!(
-            spec.exact_type.types[node.0 as usize].form,
-            phalcom_type_meta::type_node::TypeNode::Nominal { .. }
-        ) && matches!(exact_type, RuntimeTypeRef::Base { .. })
-        {
-            self.data_registry.bind_nominal_type(base.runtime_id, exact_type);
-            base.runtime_id
+        let base_descriptor = self
+            .data_registry
+            .descriptor_by_declaration(&spec.constructor.owner)
+            .and_then(|id| self.data_registry.descriptor(id))
+            .cloned();
+        let component_slots = Some(spec.component_to_logical.clone());
+        let is_nominal_base_type = spec
+            .exact_type
+            .types
+            .get(node.0 as usize)
+            .is_some_and(|ty| matches!(ty.form, phalcom_type_meta::type_node::TypeNode::Nominal { .. }))
+            && matches!(&exact_type, RuntimeTypeRef::Base { .. });
+        let descriptor = if is_nominal_base_type && let Some(base_descriptor) = base_descriptor {
+            self.data_registry.bind_nominal_type(base_descriptor.runtime_id, exact_type);
+            base_descriptor.runtime_id
         } else {
             self.data_registry
-                .register(spec.constructor.owner.clone(), base.behavior_class, Some(exact_type), layout_id)
+                .register_with_component_slots(
+                    spec.constructor.owner.clone(),
+                    base,
+                    Some(exact_type),
+                    layout_id,
+                    component_slots,
+                )
         };
         Ok(descriptor)
     }
@@ -220,9 +240,15 @@ impl VM {
                     .product_layouts
                     .get(desc.layout)
                     .ok_or_else(|| RuntimeError::Internal("unknown product layout".into()))?;
+                let component_index = desc
+                    .component_slots
+                    .as_ref()
+                    .and_then(|slots| slots.get(logical_index as usize).copied())
+                    .or_else(|| desc.component_slots.is_none().then_some(logical_index))
+                    .ok_or_else(|| RuntimeError::Internal("unknown fixed data component".into()))?;
                 return data_obj
                     .storage
-                    .load_component(layout, logical_index)
+                    .load_component(layout, component_index)
                     .map_err(|e| RuntimeError::Internal(e.into()));
             }
         }
