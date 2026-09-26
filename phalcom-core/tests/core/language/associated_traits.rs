@@ -43,7 +43,7 @@ class Counter {
 impl Counter { mut count via _count }
 impl CounterTrait for Counter {}
 
-let counter = Counter.new(3)
+const counter = Counter.new(3)
 let before = counter.count
 counter.count = 8
 let after = counter.count
