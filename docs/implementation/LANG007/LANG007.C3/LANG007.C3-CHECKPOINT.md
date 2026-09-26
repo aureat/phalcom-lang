@@ -1655,9 +1655,9 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Continue audit Priority 3 remediation for the classified semantic failures,
-    starting with the remaining T12 editor-visible-symbol projection failure;
-    then resolve the other owned regressions before resuming open T4/T5 work.
+    Continue audit Priority 3 remediation for the classified semantic failures;
+    the T12 editor-visible-symbol projection regression is now focused-tested.
+    Resolve the other owned regressions before resuming open T4/T5 work.
 
 next action:
     Priority 3's 40-way pre-remediation classification evidence is acquired and recorded in
@@ -1672,8 +1672,10 @@ next action:
     blocks only confirmed-invalid class/data signatures, and its two valid
     signature controls pass. This is audit Priority 3 remediation, not
     completion of P4 T13: its T1–T12 preconditions remain unmet. Next:
-    investigate the remaining T12 editor-visible-symbol projection failure,
-    then continue the classified regressions without changing assertions.
+    continue with the remaining classified regressions without changing
+    assertions; the T12 editor-visible-symbol selector and two prelude-policy
+    controls each pass individually under the pinned toolchain. The full
+    semantic target has not been rerun.
     Priority 2's nine named runtime selectors are individually focused-tested,
     but no broad core, workspace, or release gate has passed; P4 remains
     `IN_PROGRESS / PARTIAL / UNVERIFIED`.

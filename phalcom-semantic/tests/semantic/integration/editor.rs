@@ -262,6 +262,18 @@ fn editor_visible_symbols_use_prelude_policy_and_preserve_local_shadowing() {
     let offset = source.rfind("Int").expect("local Int read") + 1;
     let symbols = publication.snapshot.editor().visible_symbols_at(&module, offset);
 
+    let prelude = phalcom_semantic::PreludeTypeMap::shared_canonical_universe();
+    let canonical_unit = prelude.get("Unit").expect("Unit is an explicit source-backed prelude name");
+    let visible_unit = symbols
+        .iter()
+        .find(|symbol| symbol.name.as_ref() == "Unit")
+        .expect("source-backed prelude Unit should be editor-visible");
+    assert_eq!(
+        &visible_unit.target,
+        &SemanticTargetId::Declaration(canonical_unit.clone()),
+        "prelude alias visibility preserves its canonical source declaration target"
+    );
+
     for name in ["Int", "Option", "Result", "List", "Map", "Unit"] {
         assert!(
             symbols.iter().any(|symbol| symbol.name.as_ref() == name),
