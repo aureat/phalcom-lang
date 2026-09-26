@@ -301,8 +301,8 @@ class Discharger {
   }
 }
 
-let c1 = CounterIter.new()
-let c2 = CounterIter.new()
+const c1 = CounterIter.new()
+const c2 = CounterIter.new()
 let r1 = Discharger.run(c1)
 let r2 = Discharger.run(c2)
 let r3 = Discharger.run(c1)
