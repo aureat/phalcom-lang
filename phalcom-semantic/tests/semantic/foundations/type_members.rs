@@ -274,6 +274,73 @@ fn intrinsic_type_member_source_products_match_the_evaluator_catalog() {
     }
 }
 
+
+#[test]
+fn source_visible_complete_pack_lane_projections_keep_canonical_member_declarations() {
+    use phalcom_semantic::types::id::KindId;
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use phalcom_semantic::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};
+
+    let mut env = setup();
+    let parameter = env.store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(decl("CompletePackSourceProjectionTest")),
+        0,
+        "P",
+        KindId::COMPLETE_TYPE_PACK,
+    ));
+    let subject = env.store.parameter_form(parameter);
+    env.resolver.insert_parameter("P", subject);
+
+    let mut diagnostics = Vec::new();
+    let positionals_ty = match resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &proj_ann(ref_ann("P"), "Positionals", vec![]),
+        &mut diagnostics,
+    ) {
+        TypeFormResolution::Ready(ty) => ty,
+        other => panic!("source-selected CompleteTypePack::Positionals should resolve symbolically, got {other:?}: {diagnostics:?}"),
+    };
+    let labeled_ty = match resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &proj_ann(ref_ann("P"), "Labeled", vec![]),
+        &mut diagnostics,
+    ) {
+        TypeFormResolution::Ready(ty) => ty,
+        other => panic!("source-selected CompleteTypePack::Labeled should resolve symbolically, got {other:?}: {diagnostics:?}"),
+    };
+
+    let TypeData::TypeMemberProjection(positionals) = env.store.get(positionals_ty) else {
+        panic!("expected symbolic Positionals projection");
+    };
+    let TypeData::TypeMemberProjection(labeled) = env.store.get(labeled_ty) else {
+        panic!("expected symbolic Labeled projection");
+    };
+
+    let owner = decl("CompleteTypePack");
+    let positionals_member = TypeMemberDeclarationId::new(owner.clone(), TypeMemberSelector::named("Positionals"));
+    let labeled_member = TypeMemberDeclarationId::new(owner, TypeMemberSelector::named("Labeled"));
+    assert_eq!(positionals.source_declaration.as_ref(), Some(&positionals_member));
+    assert_eq!(labeled.source_declaration.as_ref(), Some(&labeled_member));
+    assert!(positionals.arguments.is_empty());
+    assert!(labeled.arguments.is_empty());
+    assert_eq!(positionals.subject, labeled.subject);
+    assert!(matches!(
+        positionals.subject,
+        phalcom_semantic::types::type_member::ProjectionSubject::Type(subject_ty) if subject_ty == subject
+    ));
+    assert!(diagnostics.is_empty());
+
+    assert_eq!(env.store.kind_of(positionals_ty), KindId::TYPE_PACK);
+    assert_eq!(env.store.kind_of(labeled_ty), KindId::LABELED_TYPE_PACK);
+    assert_eq!(env.store.complete_type_pack(positionals_ty, labeled_ty).expect("published intrinsic lanes"), subject);
+}
+
 fn setup() -> TestEnv {
     let mut store = TypeStore::new();
     let declarations = bootstrap_universe_declarations(&mut store, &phalcom_semantic::core_surface::universe_declaration);
