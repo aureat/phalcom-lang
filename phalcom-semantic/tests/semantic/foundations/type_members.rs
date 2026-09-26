@@ -19,7 +19,29 @@ struct TestEnv {
 }
 
 fn decl(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::universe_root(), name.into())
+    match name {
+        "Tuple" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple),
+        "Record" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Record),
+        "Int" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int),
+        "String" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::String),
+        "Bool" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Bool),
+        "List" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::List),
+        "Map" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Map),
+        "Option" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option),
+        "TypePack" | "LabeledTypePack" | "CompleteTypePack" => {
+            DeclarationId::new(ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+                phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
+                phalcom_modules::identity::ModuleComponent::from_identifier("tuple").unwrap(),
+            ])), name.into())
+        }
+        "RecordFields" => {
+            DeclarationId::new(ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+                phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
+                phalcom_modules::identity::ModuleComponent::from_identifier("record").unwrap(),
+            ])), name.into())
+        }
+        other => DeclarationId::new(ModuleId::universe_root(), other.into()),
+    }
 }
 
 fn ref_ann(name: &str) -> TypeAnnotation {
@@ -254,8 +276,7 @@ fn intrinsic_type_member_source_products_match_the_evaluator_catalog() {
 
 fn setup() -> TestEnv {
     let mut store = TypeStore::new();
-    let module = ModuleId::universe_root();
-    let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+    let declarations = bootstrap_universe_declarations(&mut store, &phalcom_semantic::core_surface::universe_declaration);
     let mut resolver = SimpleTypeResolver::new();
     for name in [
         "Int",
@@ -271,13 +292,13 @@ fn setup() -> TestEnv {
         "CompleteTypePack",
         "RecordFields",
     ] {
-        resolver.insert(name, DeclarationId::new(module.clone(), name.into()));
+        resolver.insert(name, decl(name));
     }
     // These low-level tests use SimpleTypeResolver rather than the source
     // database, so install the checked source member products that Universe
     // declares for the compiler intrinsic evaluators.
     install_intrinsic_source_members(&mut store, &mut resolver);
-    let site = TypeFormationSite::module(module);
+    let site = TypeFormationSite::module(ModuleId::universe_root());
     TestEnv {
         store,
         declarations,
@@ -356,12 +377,13 @@ fn install_intrinsic_source_members(store: &mut TypeStore, resolver: &mut Simple
         let parameters = if name == "Map" { vec![("F", type_to_type)] } else { Vec::new() };
         add(&mut *resolver, tuple.clone(), TypeMemberSelector::named(name), operation, parameters, result);
     }
+    let const_int = store.static_domain_kind(store.const_int_domain());
     add(
         resolver,
         tuple,
         TypeMemberSelector::subscript(),
         IntrinsicTypeOperation::TupleAt,
-        vec![("index", KindId::TYPE)],
+        vec![("index", const_int)],
         KindId::TYPE,
     );
 
@@ -675,7 +697,7 @@ fn record_fields_projection_preserves_exact_row_identity() {
     env.resolver.insert_type_form_binding("AppliedRecord", applied_subject);
     let applied_fields = proj_ann(ref_ann("AppliedRecord"), "Fields", vec![]);
     diagnostics.clear();
-    let TypeFormResolution::Ready(applied_fields) = resolve_type_form(
+    let TypeFormResolution::Ready(_applied_fields_type) = resolve_type_form(
         &mut env.store,
         &env.declarations,
         &env.resolver,

@@ -8,7 +8,7 @@ use crate::db::ProductFingerprint;
 use crate::declaration_type::DeclaredTypeState;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
-use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ImplId};
+use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ImplId, ModuleId};
 use crate::signature::CallableSemanticSignature;
 use crate::surface::MemberVisibility;
 use crate::traits::{InstantiatedTraitRequirement, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitSurface, TraitSurfaceTable};
@@ -1777,6 +1777,16 @@ pub fn build_conformance_witness_plan(
                 },
             );
             retain_stronger_terminal_state(&mut terminal_state, pending.clone());
+        } else if let Some((component, specialized_type)) = data_candidates.get(requirement)
+            && inherent_candidates.get(requirement).map_or(true, |c| &c.owner != contribution.target.declaration())
+        {
+            requirements.insert(
+                requirement.clone(),
+                RequirementSelectionTemplate::DataComponent {
+                    component: component.clone(),
+                    specialized_type: *specialized_type,
+                },
+            );
         } else if let Some(callable) = inherent_candidates.get(requirement) {
             requirements.insert(
                 requirement.clone(),
@@ -3141,13 +3151,17 @@ pub fn resolve_conformance_head(
                 ConformanceTarget::Declaration(declaration)
             }
             _ => {
-                diagnostics.push(SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    DiagnosticCode::ImplTargetNotNominal,
-                    "conformance target must be a nominal declaration or exact enum case",
-                    impl_def.target.range,
-                ));
-                return Err(diagnostics);
+                if let Some(family) = structural_behavior_family(ctx.store, target_head) {
+                    ConformanceTarget::Declaration(family.declaration())
+                } else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ImplTargetNotNominal,
+                        "conformance target must be a nominal declaration or exact enum case",
+                        impl_def.target.range,
+                    ));
+                    return Err(diagnostics);
+                }
             }
         };
         (target_head, target)
@@ -3776,6 +3790,29 @@ fn direct_impl_parameter_in_static_argument(store: &TypeStore, argument: StaticA
     let parameter = match argument {
         StaticArgument::Term(ty) => match store.get(ty) {
             TypeData::Parameter(parameter) => *parameter,
+            TypeData::CompleteTypePack { positionals, labeled } => {
+                let pos_term = match store.get(*positionals) {
+                    TypeData::TypeMemberProjection(proj) => match &proj.subject {
+                        crate::types::type_member::ProjectionSubject::Type(subj) => *subj,
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                let lab_term = match store.get(*labeled) {
+                    TypeData::TypeMemberProjection(proj) => match &proj.subject {
+                        crate::types::type_member::ProjectionSubject::Type(subj) => *subj,
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                if pos_term != lab_term {
+                    return None;
+                }
+                match store.get(pos_term) {
+                    TypeData::Parameter(parameter) => *parameter,
+                    _ => return None,
+                }
+            }
             _ => return None,
         },
         StaticArgument::RecordRow(row) => {
@@ -4136,6 +4173,19 @@ pub fn check_impl_domain_applicability(
         bindings,
         environment: env,
     })
+}
+
+fn target_reference_decl(resolver: &dyn TypeResolver, module: &ModuleId, expr: &TypeAnnotationExpr) -> Option<DeclarationId> {
+    match expr {
+        TypeAnnotationExpr::Reference(ref_expr) => {
+            let members: Vec<String> = ref_expr.members.iter().map(|m| m.name.clone()).collect();
+            resolver.resolve_type_name(module, &ref_expr.root, &members)
+        }
+        TypeAnnotationExpr::Application { origin, .. } => {
+            target_reference_decl(resolver, module, &origin.expr)
+        }
+        _ => None,
+    }
 }
 
 /// Resolves the target of an `impl` statement.
@@ -4603,6 +4653,18 @@ pub fn resolve_inherent_impl_target(
             source,
             diagnostics: diagnostics.into_boxed_slice(),
         });
+    }
+
+    if let Some(decl) = target_reference_decl(&ctx.resolver, &ctx.current_module, &impl_def.target.expr) {
+        if ctx.resolver.resolve_alias_form(&decl).is_some() {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImplTargetTypeAlias,
+                format!("cannot define inherent impl for type alias `{}`", decl.name),
+                impl_def.target.range,
+            ));
+            return Err(diagnostics);
+        }
     }
 
     // 4. Validate nominal declaration target and compute covering or conditional applicability

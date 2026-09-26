@@ -140,7 +140,10 @@ impl IntrinsicTypeOperation {
             Self::TupleLabeled => (Box::new([]), KindId::LABELED_TYPE_PACK),
             Self::TupleEntries => (Box::new([]), KindId::COMPLETE_TYPE_PACK),
             Self::TupleElement => (Box::new([]), KindId::TYPE),
-            Self::TupleAt => (Box::new([KindId::TYPE]), KindId::TYPE),
+            Self::TupleAt => {
+                let const_int = store.static_domain_kind(store.const_int_domain());
+                (Box::new([const_int]), KindId::TYPE)
+            }
             Self::TupleMap => (Box::new([type_to_type]), KindId::TYPE),
             Self::RecordFields => (Box::new([]), KindId::RECORD_ROW),
             Self::RecordValue => (Box::new([]), KindId::TYPE),

@@ -54,6 +54,16 @@ impl Value {
         Ok(self.with_some_depth(new_depth))
     }
 
+    /// Unwraps exactly one `Some` layer, returning `None` if this value is not `Some`.
+    #[inline]
+    pub fn unwrap_some(self) -> Option<Value> {
+        if self.is_some() {
+            Some(self.with_some_depth(self.some_depth_raw() - 1))
+        } else {
+            None
+        }
+    }
+
     /// Peels exactly one `Some` layer for the native `Option.match` primitive.
     pub(crate) fn option_case(self) -> OptionCase {
         if self.is_none() {

@@ -1034,7 +1034,7 @@ pub fn query_enum_requirements(
 /// Publishes one checked source type-member signature under its stable declaration identity.
 pub fn query_type_member_declaration(
     db: &mut SemanticDb,
-    unit: &ParsedModuleUnit,
+    unit: Option<&ParsedModuleUnit>,
     product: Arc<crate::db::product::TypeMemberDeclarationProduct>,
 ) -> QueryOutcome<Arc<crate::db::product::TypeMemberDeclarationProduct>> {
     let key = QueryKey::TypeMemberDeclaration(product.id.clone());
@@ -1536,6 +1536,9 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             unit_outcome(query_associated_surface(db, surface))
         }
         crate::checker::analysis::SemanticDependency::TypeMemberDeclaration(declaration) => {
+            if !inputs.sources.contains_key(&declaration.owner.module) && declaration.owner.module.project == phalcom_modules::ProjectIdentity::Universe {
+                return QueryOutcome::Ready(());
+            }
             let Some(table) = inputs.type_member_declarations else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
@@ -1545,7 +1548,7 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             let Some(unit) = inputs.sources.get(&declaration.owner.module) else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
-            unit_outcome(query_type_member_declaration(db, unit, product))
+            unit_outcome(query_type_member_declaration(db, Some(unit), product))
         }
         crate::checker::analysis::SemanticDependency::StaticDomainCaseCatalog(domain) => {
             let Some(product) = inputs.base_resolver.resolve_static_case_catalog(domain) else {

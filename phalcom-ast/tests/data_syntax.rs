@@ -1,5 +1,5 @@
 use phalcom_ast::{
-    ast::{AlgebraicPhase, Expr, ImplementationKind, ProductShapeSyntax, Statement, Visibility},
+    ast::{AlgebraicPhase, Expr, ImplementationKind, Statement, Visibility},
     error::SyntaxErrorKind,
     parse_source,
 };

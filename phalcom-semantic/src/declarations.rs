@@ -6,7 +6,7 @@ use crate::types::annotation::{KindResolution, resolve_kind_syntax};
 use crate::types::id::{KindId, TypeId};
 use crate::types::parameter::{GenericBinderHeader, GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner};
 use crate::types::store::TypeStore;
-use crate::types::type_member::IntrinsicTypeOwner;
+pub use crate::types::type_member::IntrinsicTypeOwner;
 use phalcom_ast::ast::{ExpansionMode, GenericParameterSyntax, Statement};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvider};
 use phalcom_native_meta::types::KindSpec;
@@ -156,12 +156,20 @@ impl NominalDeclarationHeader {
     }
 
     pub fn into_type_info(self, supertype_template: Option<GenericSupertypeTemplate>) -> DeclarationTypeInfo {
+        self.into_type_info_with_binding(supertype_template, DeclarationTypeBinding::ordinary())
+    }
+
+    pub fn into_type_info_with_binding(
+        self,
+        supertype_template: Option<GenericSupertypeTemplate>,
+        binding: DeclarationTypeBinding,
+    ) -> DeclarationTypeInfo {
         DeclarationTypeInfo {
             declaration: self.declaration,
             form: self.form,
             class_object_type: self.class_object_type,
             kind: self.kind,
-            binding: DeclarationTypeBinding::ordinary(),
+            binding,
             generic_binder_header: self.generic_binder_header,
             generic_signature: self.generic_signature,
             supertype_template,
@@ -185,6 +193,12 @@ impl DeclarationTypeTable {
     /// registered projections for its identity.
     pub fn replace_authoritative(&mut self, info: DeclarationTypeInfo) {
         self.store_authoritative(info);
+    }
+
+    /// Compatibility alias for `replace_authoritative`.
+    #[inline]
+    pub fn insert(&mut self, info: DeclarationTypeInfo) {
+        self.replace_authoritative(info);
     }
 
     /// Refreshes a declaration shell while preserving already registered
@@ -541,7 +555,7 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
     table
 }
 
-fn intrinsic_binding_for_source(module: &ModuleId, name: &str) -> Option<DeclarationTypeBinding> {
+pub(crate) fn intrinsic_binding_for_source(module: &ModuleId, name: &str) -> Option<DeclarationTypeBinding> {
     let tuple_module = source_module_id(&["collections", "tuple"]);
     let record_module = source_module_id(&["collections", "record"]);
     match (module, name) {

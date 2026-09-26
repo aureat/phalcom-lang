@@ -191,10 +191,22 @@ pub fn build_algebraic_semantics_with_static_products(
                                 .record_row_type_checked(Vec::new(), crate::types::row::RecordRowTail::Parameter(parameter))
                                 .expect("open row type");
                             TypeKnowledge::established(row_ty, crate::types::evidence::EvidenceOrigin::DeclarationSemantics)
+                        } else if let Some(TypeLevelBinding::TypeForm(form)) = scoped_resolver.resolve_type_level_binding(name) {
+                            let kind = store.kind_of(form);
+                            if kind == KindId::COMPLETE_TYPE_PACK || kind == KindId::TYPE_PACK || kind == KindId::LABELED_TYPE_PACK {
+                                TypeKnowledge::established(form, crate::types::evidence::EvidenceOrigin::DeclarationSemantics)
+                            } else {
+                                let mut ann_diags = Vec::new();
+                                let rk = resolve_algebraic_payload_annotation(
+                                    store, declarations, &scoped_resolver, &formation_site, &exp.operand, true, &mut ann_diags,
+                                );
+                                diagnostics.extend(ann_diags);
+                                rk
+                            }
                         } else {
                             let mut ann_diags = Vec::new();
                             let rk = resolve_algebraic_payload_annotation(
-                                store, declarations, &scoped_resolver, &formation_site, &exp.operand, def.phase == AlgebraicPhase::TypeOnly, &mut ann_diags,
+                                store, declarations, &scoped_resolver, &formation_site, &exp.operand, true, &mut ann_diags,
                             );
                             diagnostics.extend(ann_diags);
                             rk
@@ -202,7 +214,7 @@ pub fn build_algebraic_semantics_with_static_products(
                     } else {
                         let mut ann_diags = Vec::new();
                         let rk = resolve_algebraic_payload_annotation(
-                            store, declarations, &scoped_resolver, &formation_site, &exp.operand, def.phase == AlgebraicPhase::TypeOnly, &mut ann_diags,
+                            store, declarations, &scoped_resolver, &formation_site, &exp.operand, true, &mut ann_diags,
                         );
                         diagnostics.extend(ann_diags);
                         rk

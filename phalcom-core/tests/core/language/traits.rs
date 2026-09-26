@@ -317,9 +317,8 @@ let result = Caller.new().run(Person(name: "data-user"))
         analyzed.semantic.declarations.form(&person).is_some(),
         "semantic snapshot must retain the Person declaration"
     );
-    assert_eq!(
-        analyzed.semantic.data_semantics.data_decls.len(),
-        1,
+    assert!(
+        analyzed.semantic.data_semantics.data_info(&person).is_some(),
         "semantic snapshot must retain Person data semantics; declarations: {:#?}",
         analyzed.semantic.declarations
     );

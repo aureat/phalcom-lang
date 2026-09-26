@@ -573,6 +573,8 @@ pub struct SemanticWorkspaceSession {
     base_enum_products: Vec<Arc<crate::db::product::EnumDeclarationProduct>>,
     base_associated_surfaces: AssociatedFamilyTable,
     base_associated_surface_products: Vec<Arc<crate::associated::AssociatedSurface>>,
+    base_type_member_declarations: BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    base_type_member_products: Vec<Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     base_enum_requirements: EnumRequirementTable,
     base_enum_requirement_products: Vec<(DeclarationId, Arc<crate::db::product::EnumRequirementsProduct>)>,
     sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
@@ -1152,6 +1154,131 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        let mut base_type_member_declarations = BTreeMap::new();
+        let mut base_type_member_products = Vec::new();
+        let mut base_type_member_shells = BTreeMap::<DeclarationId, Vec<crate::associated::AssociatedMemberShell>>::new();
+
+        for node in provider.nodes() {
+            let path = phalcom_modules::ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
+                    .collect::<Vec<_>>(),
+            );
+            let module_id = phalcom_modules::ModuleId::universe(path);
+            let parsed = provider
+                .load_parsed(&module_id)
+                .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+
+            for stmt in &parsed.program.statements {
+                match stmt {
+                    phalcom_ast::ast::Statement::Class(class_def) => {
+                        let owner = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        for member in &class_def.members {
+                            let phalcom_ast::ast::ClassMember::TypeMember(definition) = member else { continue };
+                            let (product, _diags) = crate::checker::type_member_declaration::build_type_member_declaration(
+                                &mut store,
+                                &owner,
+                                definition,
+                                &base_declarations,
+                                &resolver,
+                                &module_id,
+                            );
+                            if let Some(product) = product {
+                                let selector = crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector);
+                                let base = match &selector {
+                                    crate::types::type_member::TypeMemberSelector::Named(name) => phalcom_common::selector::SelectorBase::Named(name.to_string()),
+                                    crate::types::type_member::TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
+                                };
+                                let kind = if base_declarations
+                                    .intrinsic_type_owner(&owner)
+                                    .and_then(|owner| crate::types::type_member::lookup_intrinsic_type_operation(owner, &selector))
+                                    .is_some()
+                                {
+                                    crate::associated::AssociatedFamilyKind::IntrinsicTypeMember
+                                } else {
+                                    crate::associated::AssociatedFamilyKind::TypeMember
+                                };
+                                base_type_member_shells.entry(owner.clone()).or_default().push(crate::associated::AssociatedMemberShell {
+                                    base,
+                                    kind,
+                                    member: crate::associated::AssociatedMemberId::TypeMember(product.id.clone()),
+                                    module: module_id.clone(),
+                                    source_range: definition.range,
+                                });
+                                let arc_prod = Arc::new(product);
+                                base_type_member_declarations.insert(arc_prod.id.clone(), arc_prod.clone());
+                                base_type_member_products.push(arc_prod);
+                            }
+                        }
+                    }
+                    phalcom_ast::ast::Statement::Impl(impl_def) if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) => {
+                        let Some(owner) = implementation_owner(&module_id, impl_def, &resolver, &base_declarations, &store) else {
+                            continue;
+                        };
+                        for member in &impl_def.members {
+                            let phalcom_ast::ast::ImplMember::TypeMember(definition) = member else { continue };
+                            let (product, _diags) = crate::checker::type_member_declaration::build_type_member_declaration(
+                                &mut store,
+                                &owner,
+                                definition,
+                                &base_declarations,
+                                &resolver,
+                                &module_id,
+                            );
+                            if let Some(product) = product {
+                                let selector = crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector);
+                                let base = match &selector {
+                                    crate::types::type_member::TypeMemberSelector::Named(name) => phalcom_common::selector::SelectorBase::Named(name.to_string()),
+                                    crate::types::type_member::TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
+                                };
+                                let kind = if base_declarations
+                                    .intrinsic_type_owner(&owner)
+                                    .and_then(|owner| crate::types::type_member::lookup_intrinsic_type_operation(owner, &selector))
+                                    .is_some()
+                                {
+                                    crate::associated::AssociatedFamilyKind::IntrinsicTypeMember
+                                } else {
+                                    crate::associated::AssociatedFamilyKind::TypeMember
+                                };
+                                base_type_member_shells.entry(owner.clone()).or_default().push(crate::associated::AssociatedMemberShell {
+                                    base,
+                                    kind,
+                                    member: crate::associated::AssociatedMemberId::TypeMember(product.id.clone()),
+                                    module: module_id.clone(),
+                                    source_range: definition.range,
+                                });
+                                let arc_prod = Arc::new(product);
+                                base_type_member_declarations.insert(arc_prod.id.clone(), arc_prod.clone());
+                                base_type_member_products.push(arc_prod);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        for (owner, shells) in base_type_member_shells {
+            let base_surface = base_associated_surfaces
+                .surfaces
+                .get(&owner)
+                .cloned()
+                .unwrap_or_else(|| Arc::new(crate::associated::AssociatedSurface::new(owner.clone())));
+            let (surface, _diags) = crate::associated::extend_associated_surface_with_shells(
+                &owner,
+                base_surface,
+                &shells,
+                &HashSet::new(),
+                &HashSet::new(),
+                &owner.module,
+            );
+            base_associated_surfaces.insert(owner.clone(), surface.clone());
+            base_associated_surface_products.push(surface);
+        }
+
+        resolver.update_associated_type_members(&base_associated_surfaces, &base_type_member_declarations);
+
         let store = Arc::new(store);
         Self {
             workspace,
@@ -1168,6 +1295,8 @@ impl SemanticWorkspaceSession {
             base_enum_products,
             base_associated_surfaces,
             base_associated_surface_products,
+            base_type_member_declarations,
+            base_type_member_products,
             base_enum_requirements,
             base_enum_requirement_products,
             sources: BTreeMap::new(),
@@ -2293,12 +2422,14 @@ impl SemanticWorkspaceSession {
                     let kind = KindId::TYPE;
                     let form = Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind);
                     let class_obj_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
+                    let binding = crate::declarations::intrinsic_binding_for_source(module_id, class_def.name.as_str())
+                        .unwrap_or_else(crate::declarations::DeclarationTypeBinding::ordinary);
                     declarations.replace_authoritative(DeclarationTypeInfo {
                         declaration: decl_id,
                         form,
                         class_object_type: class_obj_type,
                         kind,
-                        binding: crate::declarations::DeclarationTypeBinding::ordinary(),
+                        binding,
                         generic_binder_header: None,
                         generic_signature: None,
                         supertype_template: None,
@@ -2323,12 +2454,14 @@ impl SemanticWorkspaceSession {
                     let kind = result_kind;
                     let form = Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind);
                     let class_object_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
+                    let binding = crate::declarations::intrinsic_binding_for_source(module_id, data_def.name.as_str())
+                        .unwrap_or_else(crate::declarations::DeclarationTypeBinding::ordinary);
                     declarations.replace_authoritative(DeclarationTypeInfo {
                         declaration: decl_id,
                         form,
                         class_object_type,
                         kind,
-                        binding: crate::declarations::DeclarationTypeBinding::ordinary(),
+                        binding,
                         generic_binder_header: None,
                         generic_signature: None,
                         supertype_template: None,
@@ -2533,7 +2666,7 @@ impl SemanticWorkspaceSession {
             .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
         let mut type_member_declarations_table = previous_snapshot
             .as_ref()
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.type_member_declarations).clone());
+            .map_or_else(|| self.base_type_member_declarations.clone(), |snapshot| (*snapshot.type_member_declarations).clone());
         for module in structural_recomputed_modules.iter().chain(removed_modules.iter()) {
             associated_surfaces_table.remove_module(module);
         }
@@ -3248,7 +3381,7 @@ impl SemanticWorkspaceSession {
             );
             diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
             if let Some(product) = product {
-                match query_type_member_declaration(&mut self.db, parsed_unit, Arc::new(product)) {
+                match query_type_member_declaration(&mut self.db, Some(parsed_unit), Arc::new(product)) {
                     QueryOutcome::Ready(product) => {
                         type_member_declarations_table.insert(id.clone(), product);
                         resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
@@ -3376,7 +3509,7 @@ impl SemanticWorkspaceSession {
                     );
                     diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
                     if let Some(product) = product {
-                        match query_type_member_declaration(&mut self.db, &shard.source, Arc::new(product)) {
+                        match query_type_member_declaration(&mut self.db, Some(&shard.source), Arc::new(product)) {
                             QueryOutcome::Ready(product) => {
                                 type_member_declarations_table.insert(id.clone(), product);
                                 resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
@@ -3677,7 +3810,9 @@ impl SemanticWorkspaceSession {
                         None
                     };
 
-                    let type_info = header.into_type_info(supertype_template);
+                    let binding = crate::declarations::intrinsic_binding_for_source(&module_id, class_def.name.as_str())
+                        .unwrap_or_else(crate::declarations::DeclarationTypeBinding::ordinary);
+                    let type_info = header.into_type_info_with_binding(supertype_template, binding);
                     if let Some(template) = type_info.supertype_template.clone() {
                         hierarchy.insert_template(template);
                     }
@@ -3769,7 +3904,9 @@ impl SemanticWorkspaceSession {
                         result_kind,
                     );
 
-                    declarations.replace_authoritative(header.into_type_info(None));
+                    let binding = crate::declarations::intrinsic_binding_for_source(&module_id, data_def.name.as_str())
+                        .unwrap_or_else(crate::declarations::DeclarationTypeBinding::ordinary);
+                    declarations.replace_authoritative(header.into_type_info_with_binding(None, binding));
                 }
             }
         }
@@ -4157,6 +4294,22 @@ impl SemanticWorkspaceSession {
             dispatch.remove_module(module);
             callable_signatures.remove_module(module);
             field_signatures.remove_module(module);
+        }
+
+        for base_prod in &self.base_data_products {
+            let _ = query_data_declaration(&mut self.db, base_prod.clone());
+        }
+        for base_prod in &self.base_enum_products {
+            let _ = query_enum_declaration(&mut self.db, base_prod.clone());
+        }
+        for base_assoc in &self.base_associated_surface_products {
+            let _ = query_associated_surface(&mut self.db, base_assoc.clone());
+        }
+        for base_tm in &self.base_type_member_products {
+            let _ = query_type_member_declaration(&mut self.db, None, base_tm.clone());
+        }
+        for (decl_id, base_req) in &self.base_enum_requirement_products {
+            let _ = query_enum_requirements(&mut self.db, decl_id.clone(), base_req.clone());
         }
 
         for module_id in &formal_declaration_modules {
@@ -8020,6 +8173,50 @@ fn type_signature_cycle_components(
     state.components
 }
 
+fn implementation_owner(
+    module: &ModuleId,
+    implementation: &phalcom_ast::ast::ImplDef,
+    resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
+    store: &TypeStore,
+) -> Option<DeclarationId> {
+    match &implementation.target.expr {
+        TypeAnnotationExpr::Tuple { .. } => {
+            return Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple));
+        }
+        TypeAnnotationExpr::Record { .. } => {
+            return Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Record));
+        }
+        _ => {}
+    }
+    let reference = match &implementation.target.expr {
+        TypeAnnotationExpr::Reference(reference) => reference,
+        TypeAnnotationExpr::Application { origin, .. } => match &origin.expr {
+            TypeAnnotationExpr::Reference(reference) => reference,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+    let declaration = resolver.resolve_type_name(module, &reference.root, &members)?;
+    if let Some(alias_form) = resolver.resolve_alias_form(&declaration)
+        && let Some(owner) = crate::impls::structural_behavior_owner(store, alias_form)
+    {
+        return Some(owner);
+    }
+    if declarations.semantic_form(&declaration).is_some_and(|form| {
+        matches!(
+            form,
+            crate::declarations::DeclarationSemanticForm::Intrinsic(
+                crate::declarations::IntrinsicTypeApplication::Tuple | crate::declarations::IntrinsicTypeApplication::Record
+            )
+        )
+    }) {
+        return Some(declaration);
+    }
+    Some(declaration)
+}
+
 fn build_source_associated_surfaces(
     shards: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
     previous_shards: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
@@ -8033,50 +8230,6 @@ fn build_source_associated_surfaces(
     Vec<(DeclarationId, Arc<crate::associated::AssociatedSurface>, Arc<[SemanticDiagnostic]>)>,
     BTreeMap<crate::identity::ImplId, DeclarationId>,
 ) {
-    fn implementation_owner(
-        module: &ModuleId,
-        implementation: &phalcom_ast::ast::ImplDef,
-        resolver: &dyn TypeResolver,
-        declarations: &DeclarationTypeTable,
-        store: &TypeStore,
-    ) -> Option<DeclarationId> {
-        match &implementation.target.expr {
-            TypeAnnotationExpr::Tuple { .. } => {
-                return Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple));
-            }
-            TypeAnnotationExpr::Record { .. } => {
-                return Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Record));
-            }
-            _ => {}
-        }
-        let reference = match &implementation.target.expr {
-            TypeAnnotationExpr::Reference(reference) => reference,
-            TypeAnnotationExpr::Application { origin, .. } => match &origin.expr {
-                TypeAnnotationExpr::Reference(reference) => reference,
-                _ => return None,
-            },
-            _ => return None,
-        };
-        let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
-        let declaration = resolver.resolve_type_name(module, &reference.root, &members)?;
-        if let Some(alias_form) = resolver.resolve_alias_form(&declaration)
-            && let Some(owner) = crate::impls::structural_behavior_owner(store, alias_form)
-        {
-            return Some(owner);
-        }
-        if declarations.semantic_form(&declaration).is_some_and(|form| {
-            matches!(
-                form,
-                crate::declarations::DeclarationSemanticForm::Intrinsic(
-                    crate::declarations::IntrinsicTypeApplication::Tuple | crate::declarations::IntrinsicTypeApplication::Record
-                )
-            )
-        }) {
-            return Some(declaration);
-        }
-        Some(declaration)
-    }
-
     let mut owners_to_recompute = BTreeSet::new();
     owners_to_recompute.extend(
         previous_impl_owners

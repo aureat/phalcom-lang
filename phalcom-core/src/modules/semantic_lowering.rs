@@ -671,7 +671,7 @@ fn build_data_construction_spec(
         .data_semantics
         .data_info(&constructor.owner)
         .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
-    let mut shape_store = snapshot.store.clone();
+    let mut shape_store = (*snapshot.store).clone();
     let materialized_shape = phalcom_semantic::data_semantics::materialize_data_product_shape(&mut shape_store, info, result_type)
         .map_err(|error| ProjectionError::DataTypeMetadata(error.to_string()))?;
     if materialized_shape.state != phalcom_semantic::data_semantics::DataProductShapeState::Concrete

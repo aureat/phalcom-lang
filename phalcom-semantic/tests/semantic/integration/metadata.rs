@@ -605,7 +605,8 @@ fn test_metadata_lambda_alpha_equivalence() {
     let mut store1 = TypeStore::new();
     let mut store2 = TypeStore::new();
 
-    let list1 = store1.nominal(dummy_decl("List"));
+    let list_kind1 = store1.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
+    let list1 = store1.nominal_form(dummy_decl("List"), list_kind1);
     let bound1 = store1
         .arena_mut()
         .intern_scoped(phalcom_semantic::types::ScopedTypeData::Bound { depth: 0, index: 0 });
@@ -616,7 +617,8 @@ fn test_metadata_lambda_alpha_equivalence() {
     });
     let lam1 = store1.lambda(Box::new([KindId::TYPE]), applied1, KindId::TYPE);
 
-    let list2 = store2.nominal(dummy_decl("List"));
+    let list_kind2 = store2.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
+    let list2 = store2.nominal_form(dummy_decl("List"), list_kind2);
     let bound2 = store2
         .arena_mut()
         .intern_scoped(phalcom_semantic::types::ScopedTypeData::Bound { depth: 0, index: 0 });

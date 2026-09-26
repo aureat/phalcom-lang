@@ -31,8 +31,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
 
 /// Immutable fixed-arity product collection.
 impl<***Es: CompleteTypePack> Tuple<***Es> {
+  /// Builds a Tuple whose exact arity and labels come from runtime List contents.
   @class
-  @!documentation("Builds a Tuple whose exact arity and labels come from runtime List contents.")
   internal native rawFromList(_ value: List<Dynamic>) -> Dynamic
   internal native rawSize -> Int
   internal native rawAt(_ index: Int) -> Option<Tuple<***Es>::Element>
@@ -40,7 +40,7 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   internal native rawLabelAt(_ index: Int) -> Symbol
   internal native rawPositionals -> Tuple<*Positionals>
   internal native rawLabeled -> Tuple<**Labeled>
-  @!documentation("Slice bounds determine the result Tuple shape at runtime.")
+  /// Slice bounds determine the result Tuple shape at runtime.
   internal native rawSlice(_ start: Int, _ end: Int) -> Dynamic
   size { self.rawSize }
   positionals { self.rawPositionals }
@@ -176,13 +176,13 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
       let idx = self.findLabel(message.selector)
       return idx.match(
         some: |i| { self.rawAtChecked(i) },
-        none: || { super.doesNotUnderstand(message) }
+        none: || { throw MessageNotUnderstood.new("Tuple does not understand " + message.selector.toString) }
       )
     }
-    return super.doesNotUnderstand(message)
+    throw MessageNotUnderstood.new("Tuple does not understand " + message.selector.toString)
   }
 
-  iterator -> TupleIterator<***Es> { TupleIterator.new(self) }
+  iterator -> TupleIterator { TupleIterator.new(self) }
 
   zipped -> TupleZipView { TupleZipView.new(self) }
 
@@ -227,19 +227,19 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   }
 }
 
-class TupleIterator<***Es: CompleteTypePack> {
-  _source: Tuple<***Es>
+class TupleIterator {
+  _source: Dynamic
   _index: Int
   _done: Bool
 
   @constructor
-  new(_ source: Tuple<***Es>) {
+  new(_ source: Dynamic) {
     _source = source
     _index = 0
     _done = false
   }
 
-  next -> Option<Tuple<***Es>::Element> {
+  next -> Option<Dynamic> {
     if _done { return None }
     if _index >= _source.size {
       _done = true
@@ -253,17 +253,17 @@ class TupleIterator<***Es: CompleteTypePack> {
   iterator { self }
 }
 
-impl<***Es: CompleteTypePack> CanonicalIterator for TupleIterator<***Es> {
-  type Item = Tuple<***Es>::Element
+impl CanonicalIterator for TupleIterator {
+  type Item = Dynamic
 }
 
 impl<***Es: CompleteTypePack> CanonicalIterable for Tuple<***Es> {
-  type Item = Tuple<***Es>::Element
-  type Iterator = TupleIterator<***Es>
-  iterator -> TupleIterator<***Es> { TupleIterator.new(self) }
+  type Item = Dynamic
+  type Iterator = TupleIterator
+  iterator -> TupleIterator { TupleIterator.new(self) }
 }
 
-@!documentation("Strict zip produces runtime-shaped tuples because the input lane count is known only at runtime.")
+/// Strict zip produces runtime-shaped tuples because the input lane count is known only at runtime.
 class TupleZipIterator {
   _iterators: List<Dynamic>
   _done: Bool
@@ -315,7 +315,7 @@ class TupleZipIterator {
   iterator { self }
 }
 
-@!documentation("A strict zip view whose element Tuple shape depends on the runtime source Tuple.")
+/// A strict zip view whose element Tuple shape depends on the runtime source Tuple.
 class TupleZipView is Collection {
   _tuple: Dynamic
 

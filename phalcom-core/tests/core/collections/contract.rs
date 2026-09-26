@@ -121,8 +121,9 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
         // L3: at(i) recovers each element by its own `==`, for 0 <= i < n.
         for (i, elem) in elems.iter().enumerate() {
             let got = send1(vm, collection, "at(_)", Value::int(i as i64));
+            let recovered = got.unwrap_some().unwrap_or(got);
             assert!(
-                as_bool(send1(vm, got, "==(_)", *elem)),
+                as_bool(send1(vm, recovered, "==(_)", *elem)),
                 "{}: at({i}) should recover the element it was built with",
                 spec.class_name
             );

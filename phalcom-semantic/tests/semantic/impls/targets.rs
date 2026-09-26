@@ -754,9 +754,8 @@ fn foreign_modules_cannot_author_structural_tuple_or_record_impls() {
     let mut declarations = DeclarationTypeTable::new();
     let resolver = setup_resolver_and_decls(&mut store, &mut declarations);
     let mut resolver = resolver;
-    let tuple_decl = register_tuple_family(&mut store, &mut declarations, &mut resolver);
-    let record_decl = register_record_family(&mut store, &mut declarations, &mut resolver);
-    assert_eq!(tuple_decl.module, record_decl.module);
+    let _tuple_decl = register_tuple_family(&mut store, &mut declarations, &mut resolver);
+    let _record_decl = register_record_family(&mut store, &mut declarations, &mut resolver);
     let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
 
     for (impl_index, source) in [
@@ -948,4 +947,110 @@ fn test_exact_enum_case_target_success() {
     let resolved = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect("exact case target should resolve");
     assert_eq!(resolved.target, InherentImplTarget::ExactEnumCase(ready_var_id));
     assert_eq!(resolved.declaration(), &status_decl);
+}
+
+#[test]
+fn product_parameter_covering_impl_materializes_through_complete_type_pack() {
+    let module = test_module();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    register_tuple_family(&mut store, &mut declarations, &mut resolver);
+
+    let product = DeclarationId::new(module.clone(), "Product".into());
+    let declaration_parameter = store.intern_type_parameter(
+        TypeParameterData::new(TypeParameterOwner::Declaration(product.clone()), 0, "Es", KindId::COMPLETE_TYPE_PACK)
+            .with_mode(GenericParameterMode::CompletePack),
+    );
+    let signature = GenericSignature::new(
+        TypeParameterOwner::Declaration(product.clone()),
+        vec![declaration_parameter].into_boxed_slice(),
+    )
+    .with_parameter_metadata(
+        vec![KindId::COMPLETE_TYPE_PACK].into_boxed_slice(),
+        vec![phalcom_semantic::types::variance::Variance::Invariant].into_boxed_slice(),
+    )
+    .with_parameter_modes(vec![GenericParameterMode::CompletePack].into_boxed_slice());
+    register_nominal(&mut store, &mut declarations, product.clone(), Some(signature));
+    resolver.insert("Product", product.clone());
+
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+    let parsed = phalcom_ast::parse("impl<***Es: CompleteTypePack> Product<***Es> {}\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let phalcom_ast::ast::Statement::Impl(implementation) = &parsed.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let resolved = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module, ImplLocalId(0)), implementation)
+        .expect("CompleteTypePack family head should resolve as a covering nominal impl");
+    assert_eq!(resolved.declaration(), &product);
+    let InherentImplApplicability::Covering(substitution) = resolved.applicability else {
+        panic!("the complete Product family head should be covering")
+    };
+    let implementation_parameter = *substitution.impl_to_decl.keys().next().expect("pack binder correspondence");
+    assert_eq!(substitution.impl_to_decl.get(&implementation_parameter), Some(&declaration_parameter));
+}
+
+#[test]
+fn structural_impl_equivalent_spellings_produce_identical_targets() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    let tuple_decl = register_tuple_family(&mut store, &mut declarations, &mut resolver);
+    let record_decl = register_record_family(&mut store, &mut declarations, &mut resolver);
+    let module = tuple_decl.module.clone();
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+
+    // 1. Tuple direct vs generic application vs explicit pack spread
+    let tuple_direct = resolve_inherent_impl_target(
+        &mut ctx,
+        &ImplId::new(module.clone(), ImplLocalId(0)),
+        match &phalcom_ast::parse("impl (Int, String) {}\n", 0).program.statements[0] {
+            phalcom_ast::ast::Statement::Impl(d) => d,
+            _ => panic!(),
+        },
+    )
+    .expect("tuple direct");
+
+    let tuple_spread = resolve_inherent_impl_target(
+        &mut ctx,
+        &ImplId::new(module.clone(), ImplLocalId(1)),
+        match &phalcom_ast::parse("impl Tuple<***(Int, String)> {}\n", 0).program.statements[0] {
+            phalcom_ast::ast::Statement::Impl(d) => d,
+            _ => panic!(),
+        },
+    )
+    .expect("tuple spread");
+
+    assert_eq!(tuple_direct.declaration(), &tuple_decl);
+    assert_eq!(tuple_spread.declaration(), &tuple_decl);
+    assert_eq!(tuple_direct.target_type, tuple_spread.target_type);
+
+    // 2. Record direct vs explicit row spread
+    let record_module = record_decl.module.clone();
+    let mut record_ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, record_module.clone());
+    let record_direct = resolve_inherent_impl_target(
+        &mut record_ctx,
+        &ImplId::new(record_module.clone(), ImplLocalId(0)),
+        match &phalcom_ast::parse("impl { name: String } {}\n", 0).program.statements[0] {
+            phalcom_ast::ast::Statement::Impl(d) => d,
+            _ => panic!(),
+        },
+    )
+    .expect("record direct");
+
+    let record_spread = resolve_inherent_impl_target(
+        &mut record_ctx,
+        &ImplId::new(record_module.clone(), ImplLocalId(1)),
+        match &phalcom_ast::parse("impl Record<**{ name: String }> {}\n", 0).program.statements[0] {
+            phalcom_ast::ast::Statement::Impl(d) => d,
+            _ => panic!(),
+        },
+    )
+    .expect("record spread");
+
+    assert_eq!(record_direct.declaration(), &record_decl);
+    assert_eq!(record_spread.declaration(), &record_decl);
+    assert_eq!(record_direct.target_type, record_spread.target_type);
 }

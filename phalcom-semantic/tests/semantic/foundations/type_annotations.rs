@@ -6,8 +6,8 @@ use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_de
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::annotation::{
-    KindResolution, SimpleTypeResolver, TypeFormResolution, TypeFormationInvalid, TypeFormationMissing, TypeFormationSite, TypeFormationUnresolved,
-    resolve_type_annotation,
+    KindResolution, SimpleTypeResolver, TypeFormResolution, TypeFormationInvalid, TypeFormationMissing, TypeFormationOutcome, TypeFormationSite,
+    TypeFormationUnresolved, resolve_type_annotation,
 };
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::{InferVarId, KindId, TypeId};
@@ -1423,7 +1423,7 @@ fn explicit_pack_kinds_must_match_the_expansion_prefix() {
             &env.declarations,
             &env.resolver,
             &env.site,
-            TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), format!("BadPack{index}"))),
+            TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), format!("BadPack{index}").into())),
             phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
             &[parameter],
             None,
@@ -1790,7 +1790,7 @@ fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() 
         &explicit_shape,
         &mut diagnostics,
     ) else {
-        panic!("Record<**{ name: String }> should resolve: {diagnostics:?}");
+        panic!("Record<**{{ name: String }}> should resolve: {diagnostics:?}");
     };
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     assert!(matches!(env.store.get(explicit_shape), TypeData::Record(row) if {

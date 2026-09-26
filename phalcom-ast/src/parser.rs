@@ -5185,6 +5185,8 @@ impl<'source> Parser<'source> {
             "package".to_string()
         } else if self.eat(&Token::Foreign) {
             "foreign".to_string()
+        } else if self.eat(&Token::Intrinsic) {
+            "intrinsic".to_string()
         } else {
             self.expect_identifier(&["attribute name"])?
         };
@@ -7106,7 +7108,7 @@ impl<'source> Parser<'source> {
         }
         if next < self.tokens.len() {
             match &self.tokens[next].token {
-                Token::RBrace => true,
+                Token::RBrace | Token::Power | Token::DoubleAsterisk | Token::LBracket => true,
                 _ if Self::label_name(&self.tokens[next].token).is_some() => {
                     let mut after_ident = next + 1;
                     while after_ident < self.tokens.len() && matches!(self.tokens[after_ident].token, Token::Newline) {

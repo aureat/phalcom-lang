@@ -3,7 +3,6 @@ use phalcom_ast::{
         AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, BinaryOp, CallableReferenceMemberSyntax,
         CallableReferenceTarget, Expr, Statement, SymbolLiteralKind,
     },
-    error::SyntaxErrorKind,
     parse_source,
 };
 use phalcom_common::selector::{SelectorKind, SelectorKindPattern, SelectorSlot};

@@ -255,7 +255,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         Token::LParen
         | Token::RParen
         | Token::LBrace
-        | Token::RecordLBrace
+        | Token::SetLBrace
         | Token::RBrace
         | Token::LBracket
         | Token::RBracket

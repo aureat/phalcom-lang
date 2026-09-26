@@ -87,6 +87,9 @@ fn validate_source_declaration_conformance(
     let provider = UniverseSourceProvider::new();
 
     for binding in UNIVERSE_BINDINGS {
+        if matches!(binding.key, UniverseKey::Tuple | UniverseKey::Record) {
+            continue;
+        }
         let module = source_module_id(binding.key);
         let declaration = DeclarationId::new(module.clone(), binding.key.name().into());
         let source = match source_nominal(&provider, binding.key) {

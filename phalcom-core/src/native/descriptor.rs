@@ -39,16 +39,16 @@ impl PrimitiveDescriptor {
             SelectorKind::Getter => SignatureKind::Getter,
             SelectorKind::Setter => SignatureKind::Setter,
             SelectorKind::Method => {
-                let positional = self.fixed_positional_count(&selector);
-                SignatureKind::Method(positional)
+                let count = self.slot_count(&selector);
+                SignatureKind::Method(count)
             }
             SelectorKind::SubscriptGet => {
-                let positional = selector.slots.iter().filter(|s| **s == SelectorSlot::Positional).count() as u8;
-                SignatureKind::SubscriptGet(positional)
+                let count = selector.slots.len() as u8;
+                SignatureKind::SubscriptGet(count)
             }
             SelectorKind::SubscriptSet => {
-                let positional = selector.slots.iter().filter(|s| **s == SelectorSlot::Positional).count() as u8;
-                SignatureKind::SubscriptSet(positional)
+                let count = selector.slots.len() as u8;
+                SignatureKind::SubscriptSet(count)
             }
         }
     }
@@ -58,11 +58,11 @@ impl PrimitiveDescriptor {
     pub fn runtime_signature(&self, vm: &mut VM, selector: crate::interner::Symbol) -> Signature {
         let kind = self.runtime_signature_kind();
         let parsed = Selector::try_decode_exact(self.surface.key.selector).expect("descriptor selector must be valid");
+        let fixed_positionals = self.fixed_positional_count(&parsed);
         if !self.surface.key.selector.contains("***") {
-            return Signature::new(selector, kind);
+            return Signature::new_with_arity(selector, kind, fixed_positionals, None);
         }
 
-        let fixed_positionals = self.fixed_positional_count(&parsed);
         let marker_index = parsed.slots.len().saturating_sub(1);
         let fixed_labels = parsed.slots[..marker_index]
             .iter()
@@ -78,6 +78,15 @@ impl PrimitiveDescriptor {
             fixed_positionals,
             Some(RestLayout::new(fixed_positionals, fixed_labels, RestMode::Complete { param_index: 0 })),
         )
+    }
+
+    fn slot_count(&self, selector: &Selector) -> u8 {
+        let slots = if self.surface.key.selector.contains("***") {
+            &selector.slots[..selector.slots.len().saturating_sub(1)]
+        } else {
+            &selector.slots
+        };
+        slots.len() as u8
     }
 
     fn fixed_positional_count(&self, selector: &Selector) -> u8 {

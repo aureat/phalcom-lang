@@ -97,6 +97,7 @@ pub(crate) struct NativeMethodContext {
     pub(crate) access_owner: Option<ClassId>,
     pub(crate) origin: crate::method::RuntimeAccessOrigin,
     pub(crate) diagnostic: crate::error::NativeFrameIdentity,
+    pub(crate) frames_len: usize,
 }
 
 /// Identity of a class: the module that declares it, plus its name.

@@ -36,7 +36,29 @@ struct TestEnv {
 }
 
 fn decl(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::universe_root(), name.into())
+    match name {
+        "Tuple" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple),
+        "Record" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Record),
+        "Int" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int),
+        "String" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::String),
+        "Bool" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Bool),
+        "List" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::List),
+        "Map" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Map),
+        "Option" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option),
+        "TypePack" | "LabeledTypePack" | "CompleteTypePack" => {
+            DeclarationId::new(ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+                phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
+                phalcom_modules::identity::ModuleComponent::from_identifier("tuple").unwrap(),
+            ])), name.into())
+        }
+        "RecordFields" => {
+            DeclarationId::new(ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+                phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
+                phalcom_modules::identity::ModuleComponent::from_identifier("record").unwrap(),
+            ])), name.into())
+        }
+        other => DeclarationId::new(ModuleId::universe_root(), other.into()),
+    }
 }
 
 fn ref_ann(name: &str) -> TypeAnnotation {
@@ -132,8 +154,7 @@ fn at_ann(subject: TypeAnnotation, index: i64) -> TypeAnnotation {
 
 fn setup() -> TestEnv {
     let mut store = TypeStore::new();
-    let module = ModuleId::universe_root();
-    let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+    let declarations = bootstrap_universe_declarations(&mut store, &phalcom_semantic::core_surface::universe_declaration);
     let mut resolver = SimpleTypeResolver::new();
     for name in [
         "Int",
@@ -146,15 +167,134 @@ fn setup() -> TestEnv {
         "Record",
         "TypePack",
         "LabeledTypePack",
+        "CompleteTypePack",
+        "RecordFields",
     ] {
-        resolver.insert(name, DeclarationId::new(module.clone(), name.into()));
+        resolver.insert(name, decl(name));
     }
-    let site = TypeFormationSite::module(module);
+    install_intrinsic_source_members(&mut store, &mut resolver);
+    let site = TypeFormationSite::module(ModuleId::universe_root());
     TestEnv {
         store,
         declarations,
         resolver,
         site,
+    }
+}
+
+fn install_intrinsic_source_members(store: &mut TypeStore, resolver: &mut SimpleTypeResolver) {
+    use phalcom_common::modifier::ImplementationKind;
+    use phalcom_common::selector::SelectorBase;
+    use phalcom_semantic::associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedMemberId, AssociatedSurface};
+    use phalcom_semantic::db::product::TypeMemberDeclarationProduct;
+    use phalcom_semantic::types::type_member::{
+        TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSignature,
+    };
+
+    fn add(
+        resolver: &mut SimpleTypeResolver,
+        owner: DeclarationId,
+        selector: TypeMemberSelector,
+        operation: IntrinsicTypeOperation,
+        parameters: Vec<(&str, KindId)>,
+        result_kind: KindId,
+    ) {
+        let base = match &selector {
+            TypeMemberSelector::Named(name) => SelectorBase::Named(name.to_string()),
+            TypeMemberSelector::Subscript => SelectorBase::Subscript,
+        };
+        let id = TypeMemberDeclarationId::new(owner.clone(), selector.clone());
+        let product = std::sync::Arc::new(TypeMemberDeclarationProduct {
+            id: id.clone(),
+            signature: TypeMemberSignature {
+                selector,
+                parameters: parameters
+                    .into_iter()
+                    .map(|(name, kind)| TypeMemberParameter {
+                        name: name.into(),
+                        domain: TypeMemberDomain::Kind(kind),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                result_domain: TypeMemberDomain::Kind(result_kind),
+                intrinsic: Some(operation),
+                implementation: ImplementationKind::Intrinsic,
+            },
+            source_range: RANGE,
+        });
+        let mut surface = resolver
+            .associated_surfaces
+            .get(&owner)
+            .map(|surface| (**surface).clone())
+            .unwrap_or_else(|| AssociatedSurface::new(owner.clone()));
+        surface.families.insert(
+            base.clone(),
+            AssociatedFamilyInfo {
+                id: phalcom_semantic::identity::AssociatedFamilyId::new(owner.clone(), base),
+                kind: AssociatedFamilyKind::IntrinsicTypeMember,
+                members: Box::new([AssociatedMemberId::TypeMember(id.clone())]),
+            },
+        );
+        resolver.associated_surfaces.insert(owner, std::sync::Arc::new(surface));
+        resolver.type_member_declarations.insert(id, product);
+    }
+
+    let type_to_type = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let const_int = store.static_domain_kind(store.const_int_domain());
+    let tuple = decl("Tuple");
+    for (name, operation, result) in [
+        ("Positionals", IntrinsicTypeOperation::TuplePositionals, KindId::TYPE_PACK),
+        ("Labeled", IntrinsicTypeOperation::TupleLabeled, KindId::LABELED_TYPE_PACK),
+        ("Entries", IntrinsicTypeOperation::TupleEntries, KindId::COMPLETE_TYPE_PACK),
+        ("Element", IntrinsicTypeOperation::TupleElement, KindId::TYPE),
+        ("Map", IntrinsicTypeOperation::TupleMap, KindId::TYPE),
+    ] {
+        let parameters = if name == "Map" { vec![("F", type_to_type)] } else { Vec::new() };
+        add(&mut *resolver, tuple.clone(), TypeMemberSelector::named(name), operation, parameters, result);
+    }
+    add(
+        resolver,
+        tuple.clone(),
+        TypeMemberSelector::named("At"),
+        IntrinsicTypeOperation::TupleAt,
+        vec![("index", const_int)],
+        KindId::TYPE,
+    );
+    add(
+        resolver,
+        tuple,
+        TypeMemberSelector::subscript(),
+        IntrinsicTypeOperation::TupleAt,
+        vec![("index", const_int)],
+        KindId::TYPE,
+    );
+
+    let record = decl("Record");
+    for (name, operation, result) in [
+        ("Fields", IntrinsicTypeOperation::RecordFields, KindId::RECORD_ROW),
+        ("Value", IntrinsicTypeOperation::RecordValue, KindId::TYPE),
+        ("Map", IntrinsicTypeOperation::RecordMap, KindId::TYPE),
+    ] {
+        let parameters = if name == "Map" { vec![("F", type_to_type)] } else { Vec::new() };
+        add(resolver, record.clone(), TypeMemberSelector::named(name), operation, parameters, result);
+    }
+
+    for (owner_name, selector_name, operation, result_kind) in [
+        ("TypePack", "Map", IntrinsicTypeOperation::TypePackMap, KindId::TYPE_PACK),
+        ("LabeledTypePack", "Map", IntrinsicTypeOperation::LabeledTypePackMap, KindId::LABELED_TYPE_PACK),
+        ("CompleteTypePack", "Positionals", IntrinsicTypeOperation::CompleteTypePackPositionals, KindId::TYPE_PACK),
+        ("CompleteTypePack", "Labeled", IntrinsicTypeOperation::CompleteTypePackLabeled, KindId::LABELED_TYPE_PACK),
+        ("CompleteTypePack", "Map", IntrinsicTypeOperation::CompleteTypePackMap, KindId::COMPLETE_TYPE_PACK),
+        ("RecordFields", "Map", IntrinsicTypeOperation::RecordRowMap, KindId::RECORD_ROW),
+    ] {
+        add(
+            resolver,
+            decl(owner_name),
+            TypeMemberSelector::named(selector_name),
+            operation,
+            if selector_name == "Map" { vec![("F", type_to_type)] } else { Vec::new() },
+            result_kind,
+        );
     }
 }
 

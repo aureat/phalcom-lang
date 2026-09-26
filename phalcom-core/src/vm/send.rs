@@ -123,7 +123,9 @@ impl VM {
     /// this remains stable across nested closure calls.
     pub(crate) fn current_access_class(&self) -> Option<ClassId> {
         if let Some(context) = self.native_method_contexts.last() {
-            return context.access_owner;
+            if self.frames.len() <= context.frames_len {
+                return context.access_owner;
+            }
         }
         self.frames.last().and_then(|frame| self.heap.closure(frame.closure).lexical_class)
     }
@@ -131,7 +133,9 @@ impl VM {
     /// Derives the canonical runtime access origin for the current execution frame.
     pub(crate) fn current_access_origin(&self) -> RuntimeAccessOrigin {
         if let Some(context) = self.native_method_contexts.last() {
-            return context.origin;
+            if self.frames.len() <= context.frames_len {
+                return context.origin;
+            }
         }
         let Some(frame) = self.frames.last() else {
             return RuntimeAccessOrigin::none();
@@ -276,6 +280,7 @@ impl VM {
                     self.heap.class(class_id).name.clone()
                 };
                 let class_sym = self.interner.intern(&class_name_str);
+                let frames_before = self.frames.len();
                 let native_context = crate::vm::NativeMethodContext {
                     access_owner: method_obj.access_owner.or(method_obj.holder),
                     origin: method_obj.origin,
@@ -283,8 +288,8 @@ impl VM {
                         class: class_sym,
                         selector: selector_sym,
                     },
+                    frames_len: frames_before,
                 };
-                let frames_before = self.frames.len();
                 self.switch_pending = false;
                 const INLINE_ARGS: usize = 8;
                 self.native_activation_depth += 1;
@@ -425,7 +430,9 @@ impl VM {
                     Some(layout) => layout,
                     None => self.invocation_layout_for_selector(selector, arity)?,
                 };
-                layout.validate_for_kind(self.heap.method(method).signature.kind)?;
+                if self.heap.method(method).signature.rest.is_none() {
+                    layout.validate_for_kind(self.heap.method(method).signature.kind)?;
+                }
                 if layout.physical_arity() != arity {
                     return Err(RuntimeError::Internal(format!(
                         "invocation layout arity {} does not match physical arity {}",
@@ -443,6 +450,7 @@ impl VM {
                     .map(|holder| self.heap.class(holder).name.clone())
                     .unwrap_or_else(|| self.heap.class(callee.class(self)).name.clone());
                 let class_sym = self.interner.intern(&class_name);
+                let frames_before = self.frames.len();
                 let native_context = crate::vm::NativeMethodContext {
                     access_owner: method_obj.access_owner.or(method_obj.holder),
                     origin: method_obj.origin,
@@ -450,14 +458,15 @@ impl VM {
                         class: class_sym,
                         selector: selector_sym,
                     },
+                    frames_len: frames_before,
                 };
                 self.native_method_contexts.push(crate::vm::NativeMethodContext {
                     access_owner: method_obj.access_owner.or(method_obj.holder),
                     origin: method_obj.origin,
                     diagnostic: native_context.diagnostic,
+                    frames_len: frames_before,
                 });
                 self.switch_pending = false;
-                let frames_before = self.frames.len();
                 self.native_activation_depth += 1;
                 let result = native_fn(self, receiver, view).map_err(|error| self.with_native_error_origin(error, native_context.diagnostic));
                 self.native_method_contexts.pop();
@@ -573,8 +582,6 @@ impl VM {
         caller_authority: (Option<ClassId>, RuntimeAccessOrigin),
     ) -> PhResult<CallOutcome> {
         layout.validate_window(receiver_idx, self.stack.len())?;
-        let (_, _, kind) = decode_selector(self.resolve_symbol(selector));
-        layout.validate_for_kind(kind)?;
         let receiver = self.stack[receiver_idx];
         let before = self.frames.len();
         if let Some(method) = receiver.lookup_method(self, selector) {
@@ -631,7 +638,6 @@ impl VM {
         layout.validate_window(receiver_idx, self.stack.len())?;
         let receiver = self.stack[receiver_idx];
         let (_, _, kind) = decode_selector(self.resolve_symbol(selector));
-        layout.validate_for_kind(kind)?;
         if matches!(kind, SignatureKind::SubscriptGet(_) | SignatureKind::SubscriptSet(_))
             && receiver
                 .as_obj()

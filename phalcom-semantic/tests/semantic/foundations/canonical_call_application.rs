@@ -165,9 +165,7 @@ class Operand {
 }
 
 class Probe {
-  run() {
-    let left = Operand.new()
-    let right = Operand.new()
+  run(left: Operand, right: Operand) {
     left + right
   }
 }
@@ -245,9 +243,7 @@ class SubOperand is BaseOperand {
 }
 
 class Probe {
-  run() {
-    let left = BaseOperand.new()
-    let right = SubOperand.new()
+  run(left: BaseOperand, right: SubOperand) {
     left + right
   }
 }
@@ -397,7 +393,7 @@ class Probe { run() { let values: List<Int> = [1]; values["wrong"] } }
 fn map_subscript_checks_key_contract() {
     let fixture = Fixture::new(
         r#"
-class Probe { run() { let values: Map<String, Int> = { key: 1 }; values[1] } }
+class Probe { run(values: Map<String, Int>) { values[1] } }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Instance);

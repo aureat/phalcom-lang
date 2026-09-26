@@ -2293,12 +2293,16 @@ pub fn associated_surface_product_fingerprint(surface: &crate::associated::Assoc
 
 /// Fingerprints the exact source slice that declares one type-member signature.
 pub fn type_member_declaration_input_fingerprint(
-    unit: &phalcom_modules::source::ParsedModuleUnit,
+    unit: Option<&phalcom_modules::source::ParsedModuleUnit>,
     product: &crate::db::product::TypeMemberDeclarationProduct,
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     product.id.hash(&mut hasher);
-    hash_optional_source_region(&unit.text, Some(product.source_range), &mut hasher);
+    if let Some(unit) = unit {
+        hash_optional_source_region(&unit.text, Some(product.source_range), &mut hasher);
+    } else {
+        product.source_range.hash(&mut hasher);
+    }
     product.signature.hash(&mut hasher);
     finish_input(hasher)
 }

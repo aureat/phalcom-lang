@@ -445,7 +445,7 @@ fn append_labeled_pack(
 }
 
 fn materialize_record_expansion(
-    store: &TypeStore,
+    store: &mut TypeStore,
     expansion: &DataProductExpansionSemantic,
     operand: TypeId,
     components: &mut Vec<DataProductMaterializedComponent>,

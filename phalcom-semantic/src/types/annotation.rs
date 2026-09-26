@@ -2202,7 +2202,7 @@ pub fn resolve_type_form(
                     "Record application requires a RecordFields argument",
                     argument.range,
                 ));
-                TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch)
+                return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
             }
 
             // A RecordFields binder consumes an explicit labeled expansion,
@@ -3370,7 +3370,7 @@ pub fn resolve_generic_binder_header_with_context(
             GenericParameterMode::Single => positional_captured || labeled_captured || complete_captured,
             GenericParameterMode::PositionalPack => positional_captured || labeled_captured || complete_captured,
             GenericParameterMode::LabeledPack => labeled_captured || complete_captured,
-            GenericParameterMode::CompletePack => positional_captured || labeled_captured || complete_captured,
+            GenericParameterMode::CompletePack => complete_captured,
         };
         if invalid_order {
             diagnostics.push(SemanticDiagnostic::error_in(

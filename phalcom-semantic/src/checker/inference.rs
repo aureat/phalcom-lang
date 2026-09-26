@@ -193,6 +193,7 @@ pub enum InferenceFailureReason {
     ConflictingBounds { var: InferVarId, lower: TypeId, upper: TypeId },
     MissingVariableMetadata { var: InferVarId },
     StructuralMismatch { left: Box<InferenceTerm>, right: Box<InferenceTerm> },
+    RowRejected(crate::types::row_solver::RecordRowFailure<InferenceTerm>),
     UnresolvedSelf,
     InternalRowSolverFailure { incident: u64 },
 }
@@ -3024,6 +3025,7 @@ impl InferenceSession {
             | InferenceFailureReason::ConflictingBounds { var, .. }
             | InferenceFailureReason::MissingVariableMetadata { var } => Some(*var),
             InferenceFailureReason::StructuralMismatch { .. }
+            | InferenceFailureReason::RowRejected(_)
             | InferenceFailureReason::UnresolvedSelf
             | InferenceFailureReason::InternalRowSolverFailure { .. } => None,
         };
@@ -4753,13 +4755,12 @@ impl InferenceCoordinator {
                 RecordRowShapeSolveResult::Underconstrained(_) => {
                     unreachable!("row shape solving without completion roots cannot be underconstrained")
                 }
-                RecordRowShapeSolveResult::Rejected(_) => {
-                    let first = &pending_rows[0];
-                    let failure = InferenceFailureReason::StructuralMismatch {
-                        left: Box::new(first.diagnostic_left.clone()),
-                        right: Box::new(first.diagnostic_right.clone()),
-                    };
-                    return Err(Box::new(self.types.failure_outcome(failure, None, None)));
+                RecordRowShapeSolveResult::Rejected(failure) => {
+                    return Err(Box::new(self.types.failure_outcome(
+                        InferenceFailureReason::RowRejected(failure),
+                        None,
+                        None,
+                    )));
                 }
                 RecordRowShapeSolveResult::Blocked(reason) => return Err(Box::new(InferenceOutcome::Blocked(match reason {
                     crate::types::row_solver::RecordRowBlockedReason::UnboundVariable(_) => BlockReason::RecursiveFixpoint,

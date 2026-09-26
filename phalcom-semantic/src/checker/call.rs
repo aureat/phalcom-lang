@@ -262,8 +262,8 @@ impl DataConstructorShapeAdapter {
                     }
                 }
             } else {
-                let fixed_order = positional_prefix.into_iter().chain(positional_suffix).collect::<Vec<_>>();
-                let mut available = fixed_order.into_iter().filter(|index| !bound_fixed[*index]);
+                let fixed_order = positional_prefix.into_iter().chain(positional_suffix).filter(|index| !bound_fixed[*index]).collect::<Vec<_>>();
+                let mut available = fixed_order.into_iter();
                 for &argument_index in &positional_arguments {
                     if let Some(parameter_index) = available.next() {
                         bound_fixed[parameter_index] = true;
@@ -1595,7 +1595,7 @@ fn apply_generic_callable_in_context(
                     crate::explain::ExplanationStep::GenericConstraint {
                         parameter,
                         origin: crate::explain::GenericConstraintOrigin::Argument {
-                            parameter_index: binding.parameter_index as u16,
+                            parameter_index: parameter_index as u16,
                         },
                         relation: crate::explain::GenericConstraintRelation::SupertypeOf(argument_ty),
                     },
@@ -2050,6 +2050,7 @@ fn apply_generic_callable_in_context(
                 | crate::checker::inference::InferenceFailureReason::KindMismatch { var, .. }
                 | crate::checker::inference::InferenceFailureReason::MissingVariableMetadata { var } => session.parameter_for_variable(*var, &var_map),
                 crate::checker::inference::InferenceFailureReason::StructuralMismatch { .. }
+                | crate::checker::inference::InferenceFailureReason::RowRejected(_)
                 | crate::checker::inference::InferenceFailureReason::UnresolvedSelf
                 | crate::checker::inference::InferenceFailureReason::InternalRowSolverFailure { .. } => None,
             };
@@ -2065,19 +2066,26 @@ fn apply_generic_callable_in_context(
                 vec![crate::explain::EvidenceRef::SourceSpan(range)],
                 parents,
             );
-            let violates_declared_constraint = matches!(conflict.origin, Some(ConstraintOrigin::GenericWhere { .. }))
-                || conflict
-                    .constraint_indices
-                    .iter()
-                    .any(|index| matches!(session.constraint_origin(*index), Some(ConstraintOrigin::GenericWhere { .. })));
+            let (code, message) = match &conflict.failure {
+                crate::checker::inference::InferenceFailureReason::RowRejected(failure) => row_failure_diagnostic(ctx.store, failure),
+                _ => {
+                    let violates_declared_constraint = matches!(conflict.origin, Some(ConstraintOrigin::GenericWhere { .. }))
+                        || conflict
+                            .constraint_indices
+                            .iter()
+                            .any(|index| matches!(session.constraint_origin(*index), Some(ConstraintOrigin::GenericWhere { .. })));
+                    let code = if violates_declared_constraint {
+                        DiagnosticCode::GenericConstraintUnsatisfied
+                    } else {
+                        DiagnosticCode::GenericInferenceConflict
+                    };
+                    (code, generic_conflict_message(conflict))
+                }
+            };
             let mut diagnostic = SemanticDiagnostic::error_in(
                 ctx.current_module.clone(),
-                if violates_declared_constraint {
-                    DiagnosticCode::GenericConstraintUnsatisfied
-                } else {
-                    DiagnosticCode::GenericInferenceConflict
-                },
-                generic_conflict_message(conflict),
+                code,
+                message,
                 range,
             );
             if let Some(owner) = ctx.current_callable.clone() {
@@ -3506,7 +3514,7 @@ fn prepare_union_generic_inference_in_context(
             (Some(call), Some(argument_id)) => ConstraintOrigin::Argument {
                 call,
                 argument: argument_id,
-                parameter_index: parameter_index as u16,
+                parameter_index: binding.parameter_index as u16,
             },
             _ => ConstraintOrigin::Explicit,
         };
