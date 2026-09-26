@@ -1837,7 +1837,7 @@ product-shape expansion, and Tuple/Record semantic completion.
 
 Active plan: [LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md](LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md).
 Current status: `IN_PROGRESS / PARTIAL / UNVERIFIED`.
-Audit-remediation baseline: `main` at `86dc7c26` (`test(lang007-c3-p4): expose runtime evidence and specialization gaps`); implementation continues on `codex/lang007-c3-p4-runtime-conformance`.
+Audit-remediation baseline: `main` at `86dc7c26` (`test(lang007-c3-p4): expose runtime evidence and specialization gaps`). Conditional evidence remediation is recorded in commits `6e2197e6` and `ccde8670`; the next implementer should continue from current `main` after consolidation.
 The user-ratified Tuple/Record structural behavior-owner refinement is recorded
 in §17. Its source implementation and the latest pack-syntax clarification are
 part of the active tree. Audit-remediation implementation evidence and focused
