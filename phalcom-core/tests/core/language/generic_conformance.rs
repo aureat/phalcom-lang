@@ -390,7 +390,7 @@ class Discharger {
   }
 }
 
-let u = User.new()
+const u = User.new()
 let res1 = Discharger.display(u)
 let res2 = Discharger.display(u)
 let res3 = Discharger.display(u)
