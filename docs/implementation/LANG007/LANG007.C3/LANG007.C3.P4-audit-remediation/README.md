@@ -8,6 +8,7 @@ The attached post-implementation audit is the remediation authority for this wor
 
 - [01 — projection solver soundness](01-projection-solver-soundness.md)
 - [02 — complete-pack canonicalization](02-complete-pack-canonicalization.md)
+- [03 — nested derived conformance runtime layout](03-nested-derived-conformance-runtime-layout.md)
 
 Conditional runtime evidence propagation is implemented in local commits
 `6e2197e6` and `ccde8670`. The semantic capability retains selected impl
@@ -18,6 +19,10 @@ frame, distinct same-trait subjects, nested derived evidence, and strict
 subclass override isolation. Complete-pack source-backed identity is recorded
 in `02`. The next audit item is to investigate and classify the reported runtime
 regressions against the named predecessor revisions; remaining semantic-failure
-classification and T4/T5 obligations are also open.
+classification and T4/T5 obligations are also open. CV50's two-witness nested
+slot regression is fixed and focused-tested in `4f0edc63` / `250c4ad4`; CV51
+and the rest of the runtime-regression matrix remain open. The separate rest
+probe does not yet publish a semantic call specialization and is not evidence
+for runtime environment transport.
 
 Finishing revision and final P4 outcome are intentionally left open until the full remediation program is complete.

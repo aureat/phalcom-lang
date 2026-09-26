@@ -2023,3 +2023,25 @@ The next audit item is runtime-regression investigation/classification against
 the named predecessor revisions, followed by the remaining semantic-failure
 classification. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; the overall
 audit and release gates remain open.
+
+### P4 audit remediation — nested derived conformance runtime layout — 2026-09-27
+
+The CV50 multi-witness regression was caused by core recipe projection assigning
+every nested conditional-impl proof to runtime slot `0`. The compiler now
+reconstructs the selected source impl's canonical `GenericEvidenceLayout`,
+aligns the already-published nested proofs with their source constraints
+(including Equivalent/Subtype placeholders), and places each executable trait
+requirement at its canonical slot. `DataComponent` requirements remain omitted
+from method recipes, consistent with the existing runtime representation.
+
+Commits `4f0edc63` and `250c4ad4` contain the focused correction and compatibility
+follow-up. The exact CV50 selector passed independently: 1 selected, 1 passed,
+681 filtered. No broader core suite or release gate was run.
+
+The adjacent rest-method probe is not runtime-environment evidence: its semantic
+expression product is `Unknown(DynamicMessageSend)` with no callable or call
+specialization, so lowering emits ordinary `Invoke` and supplies no recipe to
+the VM. It remains a separate semantic-dispatch question. The exact CV51
+environment-reuse failure is still under investigation; Priority 2 and the
+remaining runtime-regression classifications therefore remain open. P4
+remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
