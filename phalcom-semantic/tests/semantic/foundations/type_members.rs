@@ -289,7 +289,27 @@ fn source_visible_complete_pack_lane_projections_keep_canonical_member_declarati
         KindId::COMPLETE_TYPE_PACK,
     ));
     let subject = env.store.parameter_form(parameter);
+    assert_eq!(env.store.kind_of(subject), KindId::COMPLETE_TYPE_PACK);
     env.resolver.insert_parameter("P", subject);
+
+    use phalcom_semantic::types::TypeResolver;
+    let source_owner = env
+        .declarations
+        .intrinsic_type_owner_declaration(phalcom_semantic::types::type_member::IntrinsicTypeOwner::CompleteTypePack)
+        .expect("canonical CompleteTypePack source owner");
+    assert_eq!(source_owner, decl("CompleteTypePack"));
+    assert!(
+        env.resolver
+            .resolve_associated_type_member(&source_owner, &TypeMemberSelector::named("Positionals"))
+            .is_some(),
+        "canonical Positionals source product should be admitted"
+    );
+    assert!(
+        env.resolver
+            .resolve_associated_type_member(&source_owner, &TypeMemberSelector::named("Labeled"))
+            .is_some(),
+        "canonical Labeled source product should be admitted"
+    );
 
     let mut diagnostics = Vec::new();
     let positionals_ty = match resolve_type_form(
@@ -325,15 +345,17 @@ fn source_visible_complete_pack_lane_projections_keep_canonical_member_declarati
     let owner = decl("CompleteTypePack");
     let positionals_member = TypeMemberDeclarationId::new(owner.clone(), TypeMemberSelector::named("Positionals"));
     let labeled_member = TypeMemberDeclarationId::new(owner, TypeMemberSelector::named("Labeled"));
-    assert_eq!(positionals.source_declaration.as_ref(), Some(&positionals_member));
-    assert_eq!(labeled.source_declaration.as_ref(), Some(&labeled_member));
+    let projection_subject = match &positionals.subject {
+        phalcom_semantic::types::type_member::ProjectionSubject::Type(subject_ty) => *subject_ty,
+        other => panic!("expected a type subject, got {other:?}"),
+    };
+    assert_eq!(projection_subject, subject);
+    assert_eq!(env.store.kind_of(projection_subject), KindId::COMPLETE_TYPE_PACK);
+    assert_eq!(positionals.source_declaration.as_ref(), Some(&positionals_member), "subject={:?}", env.store.get(projection_subject));
+    assert_eq!(labeled.source_declaration.as_ref(), Some(&labeled_member), "subject={:?}", env.store.get(projection_subject));
     assert!(positionals.arguments.is_empty());
     assert!(labeled.arguments.is_empty());
     assert_eq!(positionals.subject, labeled.subject);
-    assert!(matches!(
-        &positionals.subject,
-        phalcom_semantic::types::type_member::ProjectionSubject::Type(subject_ty) if *subject_ty == subject
-    ));
     assert!(diagnostics.is_empty());
 
     assert_eq!(env.store.kind_of(positionals_ty), KindId::TYPE_PACK);
