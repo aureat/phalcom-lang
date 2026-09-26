@@ -1525,29 +1525,28 @@ impl ProgramCompiler {
                                                                         | phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable {
                                                                             callable,
                                                                             ..
-                                                                        } => callable.clone(),
+                                                                        } => Some(callable.clone()),
                                                                         phalcom_semantic::impls::RequirementSelectionTemplate::ConditionalInherent {
                                                                             candidate,
                                                                             ..
-                                                                        } => candidate.callable.clone(),
-                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => {
-                                                                            return Err(ProgramCompileError::GenericEvidenceLayout(format!(
-                                                                                "nested requirement {:?} has no executable callable",
-                                                                                slot_key.requirement
-                                                                            )));
-                                                                        }
+                                                                        } => Some(candidate.callable.clone()),
+                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => None,
                                                                     };
-                                                                    let nested_selector = analyzed
-                                                                        .semantic
-                                                                        .trait_surfaces
-                                                                        .get(&slot_key.conformance.trait_ref.declaration)
-                                                                        .and_then(|surface| surface.get(&slot_key.requirement))
-                                                                        .map(|member| member.requirement.selector.clone())
-                                                                        .unwrap_or_else(|| nested_callable.selector.clone());
-                                                                    crate::typing::RuntimeConformanceSlotRecipe::Selection {
-                                                                        callable: nested_callable,
-                                                                        selector: nested_selector,
-                                                                        nested_slots: Box::new([]),
+                                                                    if let Some(nested_callable) = nested_callable {
+                                                                        let nested_selector = analyzed
+                                                                            .semantic
+                                                                            .trait_surfaces
+                                                                            .get(&slot_key.conformance.trait_ref.declaration)
+                                                                            .and_then(|surface| surface.get(&slot_key.requirement))
+                                                                            .map(|member| member.requirement.selector.clone())
+                                                                            .unwrap_or_else(|| nested_callable.selector.clone());
+                                                                        Some(crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                            callable: nested_callable,
+                                                                            selector: nested_selector,
+                                                                            nested_slots: Box::new([]),
+                                                                        })
+                                                                    } else {
+                                                                        None
                                                                     }
                                                                 }
                                                                 phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(assumed) => {
@@ -1561,7 +1560,7 @@ impl ProgramCompiler {
                                                                             assumed.key, slot_key.requirement
                                                                         ))
                                                                     })?;
-                                                                    crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot)
+                                                                    Some(crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot))
                                                                 }
                                                                 phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(nested_derived) => {
                                                                     let selection =
@@ -1579,33 +1578,34 @@ impl ProgramCompiler {
                                                                         | phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable {
                                                                             callable,
                                                                             ..
-                                                                        } => callable.clone(),
+                                                                        } => Some(callable.clone()),
                                                                         phalcom_semantic::impls::RequirementSelectionTemplate::ConditionalInherent {
                                                                             candidate,
                                                                             ..
-                                                                        } => candidate.callable.clone(),
-                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => {
-                                                                            return Err(ProgramCompileError::GenericEvidenceLayout(format!(
-                                                                                "derived nested requirement {:?} has no executable callable",
-                                                                                slot_key.requirement
-                                                                            )));
-                                                                        }
+                                                                        } => Some(candidate.callable.clone()),
+                                                                        phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => None,
                                                                     };
-                                                                    let nested_selector = analyzed
-                                                                        .semantic
-                                                                        .trait_surfaces
-                                                                        .get(&slot_key.conformance.trait_ref.declaration)
-                                                                        .and_then(|surface| surface.get(&slot_key.requirement))
-                                                                        .map(|member| member.requirement.selector.clone())
-                                                                        .unwrap_or_else(|| nested_callable.selector.clone());
-                                                                    crate::typing::RuntimeConformanceSlotRecipe::Selection {
-                                                                        callable: nested_callable,
-                                                                        selector: nested_selector,
-                                                                        nested_slots: Box::new([]),
+                                                                    if let Some(nested_callable) = nested_callable {
+                                                                        let nested_selector = analyzed
+                                                                            .semantic
+                                                                            .trait_surfaces
+                                                                            .get(&slot_key.conformance.trait_ref.declaration)
+                                                                            .and_then(|surface| surface.get(&slot_key.requirement))
+                                                                            .map(|member| member.requirement.selector.clone())
+                                                                            .unwrap_or_else(|| nested_callable.selector.clone());
+                                                                        Some(crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                                            callable: nested_callable,
+                                                                            selector: nested_selector,
+                                                                            nested_slots: Box::new([]),
+                                                                        })
+                                                                    } else {
+                                                                        None
                                                                     }
                                                                 }
                                                             };
-                                                            nested_slots.push((*target_slot, nested_recipe));
+                                                            if let Some(nested_recipe) = nested_recipe {
+                                                                nested_slots.push((*target_slot, nested_recipe));
+                                                            }
                                                         }
                                                     }
                                                     (
