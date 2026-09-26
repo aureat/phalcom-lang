@@ -229,8 +229,8 @@ class PairFormatter {
   }
 }
 
-let l = LeftItem.new()
-let r = RightItem.new()
+const l = LeftItem.new()
+const r = RightItem.new()
 let res = PairFormatter.format_both(l, r)
 "#;
     let (vm, module) = vm_support::run_inline(source).expect("same trait on distinct parameters execution");
