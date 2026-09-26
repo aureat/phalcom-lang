@@ -2509,6 +2509,7 @@ fn specialize_inherent_applicability(
         owner_view: materialize(applicability.owner_view),
         bindings,
         environment: specialized_environment,
+        conformance_provenance: applicability.conformance_provenance.clone(),
     }
 }
 
@@ -3539,6 +3540,11 @@ pub struct InherentImplSpecialization {
     pub owner_view: TypeId,
     pub bindings: HashMap<TypeParameterId, TypeId>,
     pub environment: TypeEnvironment,
+    /// Provenance for every conformance constraint in the selected impl
+    /// signature. `None` means applicability was checked without an evidence
+    /// publication context; an executable selected-call capability requires
+    /// this to be `Some`, including for an empty constraint set.
+    pub conformance_provenance: Option<Box<[crate::checker::analysis::GenericCallConformanceBinding]>>,
 }
 
 /// Outcome of checking applicability of an inherent impl domain to a receiver.
@@ -4261,7 +4267,119 @@ pub fn check_impl_domain_applicability(
         owner_view,
         bindings,
         environment: env,
+        conformance_provenance: None,
     })
+}
+
+/// Explicit semantic authorities needed to turn a satisfied conditional impl
+/// constraint into proof provenance. No runtime environment or caller slot is
+/// represented here.
+pub struct ConditionalImplProofContext<'a> {
+    pub lexical_evidence: Option<&'a crate::generic_evidence::GenericEvidenceEnvironment>,
+    pub conformance_index: Option<&'a ConformanceIndex>,
+    pub witness_plans: Option<&'a BTreeMap<ImplId, std::sync::Arc<ConformanceWitnessPlan>>>,
+    pub trait_surfaces: Option<&'a TraitSurfaceTable>,
+    pub derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
+    pub declarations: Option<&'a DeclarationTypeTable>,
+}
+
+/// Checks conditional applicability while retaining the proof source for each
+/// impl conformance constraint. The head substitution is still established by
+/// `check_impl_domain_applicability`; this function only replaces its legacy
+/// ambient-only conformance gate with the canonical proof query and attaches
+/// those exact results to the same applicability product.
+pub fn check_impl_domain_applicability_with_proofs(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    domain: &InherentImplDomain,
+    receiver: TypeId,
+    owner_view: TypeId,
+    ambient_constraints: &[GenericConstraint],
+    proof_context: &ConditionalImplProofContext<'_>,
+) -> ImplApplicabilityResult {
+    let mut applicability_domain = domain.clone();
+    applicability_domain.constraints = domain
+        .constraints
+        .iter()
+        .filter(|constraint| !matches!(constraint, GenericConstraint::Conforms { .. }))
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    let mut specialization = match check_impl_domain_applicability(store, hierarchy, &applicability_domain, receiver, owner_view, ambient_constraints) {
+        ImplApplicabilityResult::Applicable(specialization) => specialization,
+        other => return other,
+    };
+
+    if let Some(signature) = domain.generic_signature.as_ref() {
+        if signature.owner != TypeParameterOwner::Impl(domain.impl_id.clone()) {
+            return ImplApplicabilityResult::InternalFailure("conditional impl generic signature has the wrong owner".into());
+        }
+        if signature.parameters.iter().any(|parameter| !specialization.bindings.contains_key(parameter)) {
+            return ImplApplicabilityResult::Unknown(UnknownReason::UnderconstrainedTypeVariable);
+        }
+    }
+
+    let mut substitution = TypeSubstitution::new();
+    for (&parameter, &ty) in &specialization.bindings {
+        substitution.bind(parameter, ty);
+    }
+    let mut provenance = Vec::new();
+    for constraint in domain.constraints.iter() {
+        let GenericConstraint::Conforms { subject, trait_ref } = constraint else {
+            continue;
+        };
+        let subject = match subject {
+            TypeTerm::Canonical(ty) => TypeTerm::Canonical(substitution.apply(store, *ty)),
+            TypeTerm::SelfType(self_ty) => TypeTerm::SelfType(self_ty.clone()),
+            TypeTerm::Infer(_) => return ImplApplicabilityResult::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AnnotationUnresolved)),
+        };
+        let arguments = trait_ref.arguments.iter().map(|&argument| substitution.apply(store, argument)).collect::<Vec<_>>();
+        let instantiated_trait_ref = TraitRef::new(trait_ref.declaration.clone(), arguments.into_boxed_slice());
+        let proof = crate::generic_evidence::query_generic_conformance_proof(
+            &subject,
+            &instantiated_trait_ref,
+            proof_context.lexical_evidence,
+            proof_context.conformance_index,
+            proof_context.witness_plans,
+            proof_context.trait_surfaces,
+            proof_context.derived_rules,
+            proof_context.declarations,
+            Some(hierarchy),
+            Some(store),
+        );
+        let key = crate::generic_evidence::GenericConformanceKey::new(subject, instantiated_trait_ref);
+        let source = match proof {
+            crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Exact(evidence)) => {
+                crate::checker::analysis::GenericCallConformanceSource::Exact { evidence }
+            }
+            crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Assumed(assumed)) => {
+                crate::checker::analysis::GenericCallConformanceSource::Forwarded {
+                    caller_conformance: assumed.key,
+                }
+            }
+            crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Derived(evidence)) => {
+                crate::checker::analysis::GenericCallConformanceSource::Derived { evidence }
+            }
+            crate::generic_evidence::GenericConformanceProof::Missing
+            | crate::generic_evidence::GenericConformanceProof::Ambiguous(_)
+            | crate::generic_evidence::GenericConformanceProof::Incomplete(_)
+            | crate::generic_evidence::GenericConformanceProof::CoherenceConflict(_) => return ImplApplicabilityResult::NotApplicable,
+            crate::generic_evidence::GenericConformanceProof::Unknown(reason) => return ImplApplicabilityResult::Unknown(reason),
+            crate::generic_evidence::GenericConformanceProof::Blocked(reason) => return ImplApplicabilityResult::Blocked(reason),
+            crate::generic_evidence::GenericConformanceProof::Dynamic(obligation) => return ImplApplicabilityResult::Dynamic(obligation),
+            crate::generic_evidence::GenericConformanceProof::Cancelled => return ImplApplicabilityResult::Cancelled,
+            crate::generic_evidence::GenericConformanceProof::BudgetExceeded(report) => return ImplApplicabilityResult::BudgetExceeded(report),
+            crate::generic_evidence::GenericConformanceProof::InternalFailure(message) => {
+                return ImplApplicabilityResult::InternalFailure(message.to_string());
+            }
+        };
+        provenance.push(crate::checker::analysis::GenericCallConformanceBinding {
+            callee_conformance: key,
+            source,
+        });
+    }
+    specialization.conformance_provenance = Some(provenance.into_boxed_slice());
+    ImplApplicabilityResult::Applicable(specialization)
 }
 
 fn target_reference_decl(resolver: &dyn TypeResolver, module: &ModuleId, expr: &TypeAnnotationExpr) -> Option<DeclarationId> {

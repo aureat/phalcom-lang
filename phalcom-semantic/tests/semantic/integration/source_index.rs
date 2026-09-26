@@ -779,6 +779,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
                 callable: None,
                 call_specialization: None,
                 conditional_dispatch: None,
+                conditional_capability: None,
                 trait_dispatch: None,
                 trait_dispatch_candidates: None,
                 denotation: None,

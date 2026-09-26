@@ -483,6 +483,7 @@ pub struct CheckingContext<'a> {
     expression_owned_causes: BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
     resolved_callables: BTreeMap<ExpressionId, CallableId>,
     resolved_conditional_dispatches: BTreeMap<ExpressionId, crate::dispatch::ConditionalDispatchSelection>,
+    resolved_conditional_capabilities: BTreeMap<ExpressionId, crate::dispatch::ConditionalSelectedCallCapability>,
     resolved_trait_dispatches: BTreeMap<ExpressionId, crate::trait_dispatch::TraitDispatchSite>,
     resolved_trait_dispatch_candidates: BTreeMap<ExpressionId, Box<[crate::trait_dispatch::TraitEvidencedMemberCandidate]>>,
     call_dependency_frames: Vec<CallDependencyFrame>,
@@ -597,6 +598,7 @@ impl<'a> CheckingContext<'a> {
             expression_owned_causes: BTreeMap::new(),
             resolved_callables: BTreeMap::new(),
             resolved_conditional_dispatches: BTreeMap::new(),
+            resolved_conditional_capabilities: BTreeMap::new(),
             resolved_trait_dispatches: BTreeMap::new(),
             resolved_trait_dispatch_candidates: BTreeMap::new(),
             call_dependency_frames: Vec::new(),
@@ -691,6 +693,7 @@ impl<'a> CheckingContext<'a> {
             expression_owned_causes: BTreeMap::new(),
             resolved_callables: BTreeMap::new(),
             resolved_conditional_dispatches: BTreeMap::new(),
+            resolved_conditional_capabilities: BTreeMap::new(),
             resolved_trait_dispatches: BTreeMap::new(),
             resolved_trait_dispatch_candidates: BTreeMap::new(),
             call_dependency_frames: Vec::new(),
@@ -764,6 +767,7 @@ impl<'a> CheckingContext<'a> {
             expression_owned_causes: self.expression_owned_causes.clone(),
             resolved_callables: self.resolved_callables.clone(),
             resolved_conditional_dispatches: self.resolved_conditional_dispatches.clone(),
+            resolved_conditional_capabilities: self.resolved_conditional_capabilities.clone(),
             resolved_trait_dispatches: self.resolved_trait_dispatches.clone(),
             resolved_trait_dispatch_candidates: self.resolved_trait_dispatch_candidates.clone(),
             call_dependency_frames: self.call_dependency_frames.clone(),
@@ -1607,6 +1611,7 @@ impl<'a> CheckingContext<'a> {
         // accidentally inherit a specialization from an older solution.
         analysis.call_specialization = self.call_specializations.remove(&id);
         analysis.conditional_dispatch = self.resolved_conditional_dispatches.get(&id).cloned();
+        analysis.conditional_capability = self.resolved_conditional_capabilities.get(&id).cloned();
         analysis.trait_dispatch = self.resolved_trait_dispatches.get(&id).cloned();
         analysis.trait_dispatch_candidates = self.resolved_trait_dispatch_candidates.get(&id).cloned();
         analysis.denotation = typed.denotation.clone();
@@ -1634,6 +1639,7 @@ impl<'a> CheckingContext<'a> {
             analysis.call_specialization = Some(specialization);
         }
         analysis.conditional_dispatch = self.resolved_conditional_dispatches.get(&id).cloned();
+        analysis.conditional_capability = self.resolved_conditional_capabilities.get(&id).cloned();
         analysis.trait_dispatch = self.resolved_trait_dispatches.get(&id).cloned();
         analysis.trait_dispatch_candidates = self.resolved_trait_dispatch_candidates.get(&id).cloned();
         analysis.denotation = typed.denotation.clone();
@@ -2176,6 +2182,86 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
+    fn conditional_selected_call_capability(
+        &mut self,
+        selection: crate::dispatch::ConditionalDispatchSelection,
+        domain: &crate::impls::InherentImplDomain,
+        applicability: crate::impls::InherentImplSpecialization,
+    ) -> Option<crate::dispatch::ConditionalSelectedCallCapability> {
+        if applicability.impl_id != selection.impl_id {
+            return None;
+        }
+        let provenance = applicability.conformance_provenance.as_ref()?;
+        let required = domain
+            .constraints
+            .iter()
+            .filter(|constraint| matches!(constraint, crate::types::parameter::GenericConstraint::Conforms { .. }))
+            .count();
+        if provenance.len() != required {
+            return None;
+        }
+        for binding in provenance.iter() {
+            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                binding.callee_conformance.trait_ref.declaration.clone(),
+            ));
+            match &binding.source {
+                crate::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
+                    self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(
+                        evidence.source_impl.clone(),
+                    ));
+                }
+                crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance } => {
+                    self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                        caller_conformance.trait_ref.declaration.clone(),
+                    ));
+                }
+                crate::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
+                    self.record_derived_conformance_dependencies(evidence);
+                }
+            }
+        }
+        Some(crate::dispatch::ConditionalSelectedCallCapability { selection, applicability })
+    }
+
+    fn record_derived_conformance_dependencies(&mut self, evidence: &crate::generic_evidence::DerivedConformanceEvidence) {
+        match &evidence.origin {
+            crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(
+                    exact_source.source_impl.clone(),
+                ));
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                    exact_source.exact_trait_ref.declaration.clone(),
+                ));
+            }
+            crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, exact_trait_ref, .. } => {
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(rule.impl_id.clone()));
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                    exact_trait_ref.declaration.clone(),
+                ));
+            }
+        }
+        for nested in evidence.nested.iter() {
+            if let crate::generic_evidence::NestedGenericEvidence::Conformance(nested) = nested {
+                match nested {
+                    crate::generic_evidence::GenericConformanceEvidence::Exact(evidence) => {
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(
+                            evidence.source_impl.clone(),
+                        ));
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                            evidence.exact_trait_ref.declaration.clone(),
+                        ));
+                    }
+                    crate::generic_evidence::GenericConformanceEvidence::Derived(evidence) => self.record_derived_conformance_dependencies(evidence),
+                    crate::generic_evidence::GenericConformanceEvidence::Assumed(evidence) => {
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                            evidence.key.trait_ref.declaration.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn specialize_dispatch_signature(
         &mut self,
         receiver: TypeId,
@@ -2266,21 +2352,38 @@ impl<'a> CheckingContext<'a> {
             .get_conditional_members(&crate::impls::InherentImplTarget::ExactEnumCase(variant.clone()))
             .cloned()?;
         let member = cond_set.get_member(side, selector)?;
-        let app = crate::impls::check_impl_domain_applicability(
+        let proof_context = crate::impls::ConditionalImplProofContext {
+            lexical_evidence: Some(&self.generic_evidence),
+            conformance_index: self.conformance_semantics.map(|view| view.conformance_index),
+            witness_plans: self.conformance_semantics.map(|view| view.witness_plans),
+            trait_surfaces: self.conformance_semantics.map(|view| view.trait_surfaces),
+            derived_rules: self.conformance_semantics.map(|view| view.derived_conformance_rules),
+            declarations: Some(self.declarations),
+        };
+        let app = crate::impls::check_impl_domain_applicability_with_proofs(
             self.store,
             &self.hierarchy,
             &member.domain,
             specialization_receiver,
             specialization_receiver,
             &self.ambient_constraints,
+            &proof_context,
         );
         let crate::impls::ImplApplicabilityResult::Applicable(spec) = app else {
             return None;
         };
 
+        let selection = crate::dispatch::ConditionalDispatchSelection {
+            impl_id: member.impl_id.clone(),
+            callable: member.callable.clone(),
+            declaring_owner: variant.owner.clone(),
+            side,
+        };
+        let capability = self.conditional_selected_call_capability(selection.clone(), &member.domain, spec)?;
+
         let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature_template);
         let unspecialized_return = signature.return_type.clone();
-        let environment = spec.environment.clone();
+        let environment = capability.applicability.environment.clone();
         let specialize_type = |ctx: &mut Self, ty| {
             let self_specialized = ctx.specialize_self_type(specialization_receiver, ty);
             crate::types::environment::TypeView::new(self_specialized, environment.clone()).materialize(ctx.store)
@@ -2293,15 +2396,8 @@ impl<'a> CheckingContext<'a> {
         self.record_consumed_callable_signature(&member.callable, &signature);
         if let Some(expression) = self.current_expression_id() {
             self.resolved_callables.insert(expression, member.callable.clone());
-            self.resolved_conditional_dispatches.insert(
-                expression,
-                crate::dispatch::ConditionalDispatchSelection {
-                    impl_id: member.impl_id.clone(),
-                    callable: member.callable.clone(),
-                    declaring_owner: variant.owner.clone(),
-                    side,
-                },
-            );
+            self.resolved_conditional_dispatches.insert(expression, selection.clone());
+            self.resolved_conditional_capabilities.insert(expression, capability.clone());
         }
         Some(ResolvedDispatch {
             callable: member.callable.clone(),
@@ -2311,16 +2407,12 @@ impl<'a> CheckingContext<'a> {
             specialization: Some(crate::dispatch::DispatchSignatureSpecialization {
                 receiver: specialization_receiver,
                 declaring_owner: variant.owner.clone(),
-                environment: spec.environment,
+                environment: capability.applicability.environment.clone(),
                 path: Box::new([]),
                 unspecialized_return,
             }),
-            conditional: Some(crate::dispatch::ConditionalDispatchSelection {
-                impl_id: member.impl_id.clone(),
-                callable: member.callable.clone(),
-                declaring_owner: variant.owner,
-                side,
-            }),
+            conditional: Some(selection),
+            conditional_capability: Some(capability),
             trait_dispatch: None,
             abstract_contract: false,
             visited_owners,
@@ -2374,6 +2466,7 @@ impl<'a> CheckingContext<'a> {
             access_denied: false,
             specialization: None,
             conditional: None,
+            conditional_capability: None,
             trait_dispatch: None,
             abstract_contract: true,
             visited_owners: Box::new([surface.declaration.clone()]),
@@ -2453,6 +2546,7 @@ impl<'a> CheckingContext<'a> {
                 access_denied: false,
                 specialization: None,
                 conditional: None,
+                conditional_capability: None,
                 trait_dispatch: None,
                 abstract_contract: false,
                 visited_owners: vec![].into_boxed_slice(),
@@ -2467,6 +2561,7 @@ impl<'a> CheckingContext<'a> {
                     access_denied: false,
                     specialization: None,
                     conditional: None,
+                    conditional_capability: None,
                     trait_dispatch: None,
                     abstract_contract: false,
                     visited_owners: vec![].into_boxed_slice(),
@@ -2583,19 +2678,35 @@ impl<'a> CheckingContext<'a> {
                                 specialize_receiver_to_owner(&mut *self.store, &self.hierarchy, specialization_receiver, owner, &self.control)
                             {
                                 let owner_type = receiver_spec.path.last().map(|s| s.specialized_form).unwrap_or(specialization_receiver);
-                                let app = crate::impls::check_impl_domain_applicability(
+                                let proof_context = crate::impls::ConditionalImplProofContext {
+                                    lexical_evidence: Some(&self.generic_evidence),
+                                    conformance_index: self.conformance_semantics.map(|view| view.conformance_index),
+                                    witness_plans: self.conformance_semantics.map(|view| view.witness_plans),
+                                    trait_surfaces: self.conformance_semantics.map(|view| view.trait_surfaces),
+                                    derived_rules: self.conformance_semantics.map(|view| view.derived_conformance_rules),
+                                    declarations: Some(self.declarations),
+                                };
+                                let app = crate::impls::check_impl_domain_applicability_with_proofs(
                                     self.store,
                                     &self.hierarchy,
                                     &member.domain,
                                     specialization_receiver,
                                     owner_type,
                                     &self.ambient_constraints,
+                                    &proof_context,
                                 );
                                 if let crate::impls::ImplApplicabilityResult::Applicable(spec) = app {
+                                    let selection = crate::dispatch::ConditionalDispatchSelection {
+                                        impl_id: member.impl_id.clone(),
+                                        callable: member.callable.clone(),
+                                        declaring_owner: owner.clone(),
+                                        side,
+                                    };
+                                    if let Some(capability) = self.conditional_selected_call_capability(selection.clone(), &member.domain, spec) {
                                     let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature_template);
                                     let unspecialized_return = signature.return_type.clone();
                                     let mut environment = receiver_spec.environment;
-                                    for (p, t) in spec.bindings {
+                                    for (&p, &t) in &capability.applicability.bindings {
                                         environment.bind_param(p, t);
                                     }
                                     let env = environment.clone();
@@ -2611,15 +2722,8 @@ impl<'a> CheckingContext<'a> {
                                     self.record_consumed_callable_signature(&member.callable, &signature);
                                     if let Some(expression) = self.current_expression_id() {
                                         self.resolved_callables.insert(expression, member.callable.clone());
-                                        self.resolved_conditional_dispatches.insert(
-                                            expression,
-                                            crate::dispatch::ConditionalDispatchSelection {
-                                                impl_id: member.impl_id.clone(),
-                                                callable: member.callable.clone(),
-                                                declaring_owner: owner.clone(),
-                                                side,
-                                            },
-                                        );
+                                        self.resolved_conditional_dispatches.insert(expression, selection.clone());
+                                        self.resolved_conditional_capabilities.insert(expression, capability.clone());
                                     }
                                     return ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(ResolvedDispatch {
                                         callable: member.callable.clone(),
@@ -2633,16 +2737,13 @@ impl<'a> CheckingContext<'a> {
                                             path: receiver_spec.path,
                                             unspecialized_return,
                                         }),
-                                        conditional: Some(crate::dispatch::ConditionalDispatchSelection {
-                                            impl_id: member.impl_id.clone(),
-                                            callable: member.callable.clone(),
-                                            declaring_owner: owner.clone(),
-                                            side,
-                                        }),
+                                        conditional: Some(selection),
+                                        conditional_capability: Some(capability),
                                         trait_dispatch: None,
                                         abstract_contract: false,
                                         visited_owners,
                                     })));
+                                    }
                                 }
                             }
                         }
@@ -2691,6 +2792,7 @@ impl<'a> CheckingContext<'a> {
                                     access_denied: false,
                                     specialization: None,
                                     conditional: None,
+                                    conditional_capability: None,
                                     trait_dispatch: Some(selection),
                                     abstract_contract: false,
                                     visited_owners: vec![].into_boxed_slice(),
@@ -2716,6 +2818,7 @@ impl<'a> CheckingContext<'a> {
                                     access_denied: false,
                                     specialization: None,
                                     conditional: None,
+                                    conditional_capability: None,
                                     trait_dispatch: None,
                                     abstract_contract: false,
                                     visited_owners: vec![].into_boxed_slice(),

@@ -112,6 +112,8 @@ pub struct BoundBehavioralMember {
     /// Conditional selection evidence returned by canonical dispatch. Runtime
     /// lowering may carry this evidence, but never recomputes applicability.
     pub conditional: Option<crate::dispatch::ConditionalDispatchSelection>,
+    /// Proof-bearing selected-call authority published by canonical dispatch.
+    pub conditional_capability: Option<crate::dispatch::ConditionalSelectedCallCapability>,
     /// Exact trait evidence when this bound member is supplied only by a
     /// proven conformance. Lowering freezes this selection instead of
     /// turning the reference back into a live receiver lookup.
@@ -298,6 +300,7 @@ pub fn resolve_bound_behavioral_family(
                         target: InvocationTargetId::Behavioral(resolved.callable),
                         callable_type,
                         conditional: resolved.conditional.clone(),
+                        conditional_capability: resolved.conditional_capability.clone(),
                         trait_dispatch: resolved.trait_dispatch.clone(),
                     });
                 }
@@ -389,6 +392,7 @@ pub fn resolve_bound_behavioral_family(
                     target: InvocationTargetId::Behavioral(resolved.callable),
                     callable_type,
                     conditional: resolved.conditional.clone(),
+                    conditional_capability: resolved.conditional_capability.clone(),
                     trait_dispatch: resolved.trait_dispatch.clone(),
                 });
             }

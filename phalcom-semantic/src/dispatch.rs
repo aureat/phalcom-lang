@@ -133,6 +133,15 @@ pub struct ConditionalDispatchSelection {
     pub side: DispatchSide,
 }
 
+/// Proof-bearing authority for executing one selected conditional inherent
+/// callable. The applicability product owns exact impl substitutions and the
+/// evidence provenance for its conformance requirements.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConditionalSelectedCallCapability {
+    pub selection: ConditionalDispatchSelection,
+    pub applicability: crate::impls::InherentImplSpecialization,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedDispatch {
     pub callable: CallableId,
@@ -141,6 +150,8 @@ pub struct ResolvedDispatch {
     pub access_denied: bool,
     pub specialization: Option<DispatchSignatureSpecialization>,
     pub conditional: Option<ConditionalDispatchSelection>,
+    /// Published capability for a selected conditional implementation.
+    pub conditional_capability: Option<ConditionalSelectedCallCapability>,
     pub trait_dispatch: Option<crate::trait_dispatch::TraitDispatchSelection>,
     /// True when the result is a semantic trait-contract lookup rather than
     /// executable nominal/conditional dispatch.
@@ -376,6 +387,7 @@ impl SurfaceDispatchResolver {
                         access_denied: false,
                         specialization: None,
                         conditional: None,
+                        conditional_capability: None,
                         trait_dispatch: None,
                         abstract_contract: false,
                         visited_owners: visited.into_boxed_slice(),

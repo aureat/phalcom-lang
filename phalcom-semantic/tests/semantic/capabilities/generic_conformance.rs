@@ -485,6 +485,124 @@ class Discharger {
 }
 
 #[test]
+fn conditional_selected_call_capability_publishes_impl_binding_and_proof() {
+    let fixture = Fixture::new(
+        r#"
+trait Printable {
+  print -> String
+}
+
+class User {
+  @constructor
+  new() {}
+}
+
+impl Printable for User {
+  print -> String { "user" }
+}
+
+class Box<T> {}
+
+impl<T> Box<T>
+  where T |= Printable
+{
+  render(_ suffix: String) -> String {
+    suffix
+  }
+}
+
+class Probe {
+  @class
+  direct(_ box: Box<User>) -> String {
+    box.render("!")
+  }
+
+  @class
+  capture(_ box: Box<User>) -> String {
+    let render = &box.render(_)
+    render("?")
+  }
+}
+"#,
+    );
+    assert!(!fixture.analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+
+    fn assert_capability(
+        capability: &phalcom_semantic::dispatch::ConditionalSelectedCallCapability,
+        expected_callable: &phalcom_semantic::identity::CallableId,
+        expected_impl: &phalcom_semantic::identity::ImplId,
+        impl_parameters: &[phalcom_semantic::types::id::TypeParameterId],
+        user_ty: phalcom_semantic::types::id::TypeId,
+    ) {
+        assert_eq!(&capability.selection.callable, expected_callable);
+        assert_eq!(&capability.selection.impl_id, expected_impl);
+        assert_eq!(capability.applicability.impl_id, capability.selection.impl_id);
+        assert!(!impl_parameters.is_empty(), "fixture must expose impl-owned generic parameters");
+        for parameter in impl_parameters {
+            assert_eq!(
+                capability.applicability.bindings.get(parameter),
+                Some(&user_ty),
+                "selected impl applicability must retain its exact impl-owned `T = User` binding"
+            );
+        }
+        let provenance = capability
+            .applicability
+            .conformance_provenance
+            .as_ref()
+            .expect("selected applicability must publish proof provenance");
+        assert_eq!(provenance.len(), 1, "every selected impl conformance constraint must be represented");
+        match &provenance[0].source {
+            phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
+                assert_eq!(evidence.exact_target, user_ty);
+            }
+            other => panic!("expected exact impl-bound evidence for User, got {other:?}"),
+        }
+    }
+
+    let user_ty = fixture.ty("User");
+    let box_target = phalcom_semantic::impls::InherentImplTarget::Declaration(fixture.decl("Box"));
+    let impl_member = fixture
+        .analysis
+        .snapshot
+        .dispatch
+        .get_conditional_members(&box_target)
+        .expect("conditional Box impl")
+        .members
+        .first()
+        .expect("conditional Box member");
+    let impl_signature = impl_member.domain.generic_signature.as_ref().expect("impl generic signature");
+    assert_eq!(impl_signature.owner, TypeParameterOwner::Impl(impl_member.impl_id.clone()));
+    let expected_impl = impl_member.impl_id.clone();
+    let impl_parameters = impl_signature.parameters.to_vec();
+    let direct = fixture.callable("Probe", "direct", DispatchSide::Class);
+    let selected_expression = direct
+        .expressions
+        .values()
+        .find(|expression| expression.conditional_dispatch.is_some())
+        .expect("direct conditional send must publish its selected dispatch");
+    let direct_capability = selected_expression
+        .conditional_capability
+        .as_ref()
+        .unwrap_or_else(|| panic!("selected expression lost its capability: {selected_expression:?}"));
+    let conditional_callable = direct_capability.selection.callable.clone();
+    assert_capability(direct_capability, &conditional_callable, &expected_impl, &impl_parameters, user_ty);
+
+    let capture = fixture.callable("Probe", "capture", DispatchSide::Class);
+    let captured_capability = capture
+        .callable_reference_resolutions
+        .values()
+        .find_map(|resolution| match &resolution.kind {
+            phalcom_semantic::checker::associated::CallableReferenceResolutionKind::BoundFamily { members, .. } => {
+                members.iter().find_map(|member| member.conditional_capability.as_ref())
+            }
+            _ => None,
+        })
+        .expect("conditional bound family must carry the canonical selected-call capability");
+    assert_capability(captured_capability, &conditional_callable, &expected_impl, &impl_parameters, user_ty);
+    assert_eq!(direct_capability, captured_capability, "direct and captured routes must publish the same semantic capability");
+}
+
+#[test]
 fn bounded_generic_caller_forwards_evidence_to_bounded_callee() {
     let fixture = Fixture::new(
         r#"

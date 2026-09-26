@@ -257,6 +257,7 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
             callable: None,
             call_specialization: None,
             conditional_dispatch: None,
+            conditional_capability: None,
             trait_dispatch: None,
             trait_dispatch_candidates: None,
             denotation: None,

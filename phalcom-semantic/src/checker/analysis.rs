@@ -51,6 +51,9 @@ pub struct ExpressionAnalysis {
     /// inherent implementation. Lowering consumes this directly and must not
     /// reconstruct the decision from target indexes.
     pub conditional_dispatch: Option<crate::dispatch::ConditionalDispatchSelection>,
+    /// Proof-bearing semantic capability for the selected conditional call
+    /// edge. Runtime lowering projects this product and never re-solves it.
+    pub conditional_capability: Option<crate::dispatch::ConditionalSelectedCallCapability>,
     /// Exact per-expression trait evidence used by semantic-to-core lowering.
     pub trait_dispatch: Option<crate::trait_dispatch::TraitDispatchSite>,
     /// Candidate provenance retained when trait dispatch is ambiguous. This
@@ -73,6 +76,7 @@ impl ExpressionAnalysis {
             callable: None,
             call_specialization: None,
             conditional_dispatch: None,
+            conditional_capability: None,
             trait_dispatch: None,
             trait_dispatch_candidates: None,
             denotation: None,
@@ -91,6 +95,7 @@ impl ExpressionAnalysis {
             callable: None,
             call_specialization: None,
             conditional_dispatch: None,
+            conditional_capability: None,
             trait_dispatch: None,
             trait_dispatch_candidates: None,
             denotation: None,

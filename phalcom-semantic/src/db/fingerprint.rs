@@ -951,6 +951,59 @@ fn hash_iteration_evidence(evidence: &crate::generic_evidence::GenericConformanc
     }
 }
 
+fn hash_conditional_selected_call_capability(
+    capability: Option<&crate::dispatch::ConditionalSelectedCallCapability>,
+    hasher: &mut impl Hasher,
+) {
+    let Some(capability) = capability else {
+        0u8.hash(hasher);
+        return;
+    };
+    1u8.hash(hasher);
+    capability.selection.impl_id.hash(hasher);
+    capability.selection.callable.hash(hasher);
+    capability.selection.declaring_owner.hash(hasher);
+    capability.selection.side.hash(hasher);
+    let applicability = &capability.applicability;
+    applicability.impl_id.hash(hasher);
+    applicability.receiver.hash(hasher);
+    applicability.owner_view.hash(hasher);
+    let mut bindings = applicability.bindings.iter().collect::<Vec<_>>();
+    bindings.sort_by_key(|(parameter, _)| **parameter);
+    bindings.hash(hasher);
+    let mut environment_bindings = applicability.environment.bindings.iter().collect::<Vec<_>>();
+    environment_bindings.sort_by_key(|(parameter, _)| **parameter);
+    environment_bindings.hash(hasher);
+    let mut row_bindings = applicability.environment.row_bindings.iter().collect::<Vec<_>>();
+    row_bindings.sort_by_key(|(parameter, _)| **parameter);
+    row_bindings.hash(hasher);
+    applicability.environment.self_binding.hash(hasher);
+    match &applicability.conformance_provenance {
+        None => 0u8.hash(hasher),
+        Some(provenance) => {
+            1u8.hash(hasher);
+            provenance.len().hash(hasher);
+            for binding in provenance.iter() {
+                binding.callee_conformance.hash(hasher);
+                match &binding.source {
+                    crate::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
+                        0u8.hash(hasher);
+                        hash_iteration_evidence(&crate::generic_evidence::GenericConformanceEvidence::Exact(evidence.clone()), hasher);
+                    }
+                    crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance } => {
+                        1u8.hash(hasher);
+                        caller_conformance.hash(hasher);
+                    }
+                    crate::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
+                        2u8.hash(hasher);
+                        hash_iteration_evidence(&crate::generic_evidence::GenericConformanceEvidence::Derived(evidence.clone()), hasher);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn hash_iteration_requirement(requirement: &crate::checker::analysis::ForIterationRequirementResolution, hasher: &mut impl Hasher) {
     match requirement {
         crate::checker::analysis::ForIterationRequirementResolution::Evidence {
@@ -1652,6 +1705,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_type_knowledge(&expression.knowledge, false, &mut hasher);
         expression.callable.hash(&mut hasher);
         expression.conditional_dispatch.hash(&mut hasher);
+        hash_conditional_selected_call_capability(expression.conditional_capability.as_ref(), &mut hasher);
         hash_trait_dispatch_site(expression.trait_dispatch.as_ref(), &mut hasher);
         expression
             .trait_dispatch_candidates
@@ -1692,6 +1746,22 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     hash_iteration_lanes(&analysis.for_iteration_lanes, &mut hasher);
     hash_positional_expansions(&analysis.positional_expansions, &mut hasher);
     hash_known_invalid_positional_expansions(&analysis.known_invalid_positional_expansions, &mut hasher);
+    analysis.callable_reference_resolutions.len().hash(&mut hasher);
+    for (expression, resolution) in analysis.callable_reference_resolutions.iter() {
+        expression.hash(&mut hasher);
+        match &resolution.kind {
+            crate::checker::associated::CallableReferenceResolutionKind::BoundFamily { members, .. } => {
+                0u8.hash(&mut hasher);
+                members.len().hash(&mut hasher);
+                for member in members.iter() {
+                    member.operation.hash(&mut hasher);
+                    member.target.hash(&mut hasher);
+                    hash_conditional_selected_call_capability(member.conditional_capability.as_ref(), &mut hasher);
+                }
+            }
+            crate::checker::associated::CallableReferenceResolutionKind::Associated(_) => 1u8.hash(&mut hasher),
+        }
+    }
     hash_flow_graph_semantics(&analysis.flow_graph, &mut hasher);
     hash_flow_summary(&analysis.entry_flow, &mut hasher);
     hash_exit_facts(&analysis.exits, &mut hasher);
