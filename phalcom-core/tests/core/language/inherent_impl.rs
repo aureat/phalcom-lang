@@ -416,3 +416,73 @@ let result = Box<String>.kind()
         "a specialized class-side member must not leak across applied receivers"
     );
 }
+
+
+#[test]
+fn p4_conditional_inherent_call_preserves_conformance_environment() {
+    let source = r#"
+trait Printable {
+  print -> String
+}
+
+class User {
+  @constructor
+  new() {}
+}
+
+impl Printable for User {
+  print -> String { "user" }
+}
+
+data Box<T>(_ value: T)
+
+impl<T> Box<T>
+  where T |= Printable
+{
+  render(_ suffix: String) -> String {
+    self.value.print + suffix
+  }
+}
+
+let box = Box(User.new())
+let result = box.render("!")
+"#;
+
+    let (vm, module) = vm_support::run_inline(source).expect("conditional inherent call must forward evidence");
+    assert_eq!(named(&vm, module, "result").to_string(&vm), "user!");
+}
+
+#[test]
+fn p4_conditional_bound_family_preserves_captured_conformance_environment() {
+    let source = r#"
+trait Printable {
+  print -> String
+}
+
+class User {
+  @constructor
+  new() {}
+}
+
+impl Printable for User {
+  print -> String { "captured" }
+}
+
+data Box<T>(_ value: T)
+
+impl<T> Box<T>
+  where T |= Printable
+{
+  render(_ suffix: String) -> String {
+    self.value.print + suffix
+  }
+}
+
+let box = Box(User.new())
+let render = &box.render(_)
+let result = render("?")
+"#;
+
+    let (vm, module) = vm_support::run_inline(source).expect("conditional bound family must retain evidence");
+    assert_eq!(named(&vm, module, "result").to_string(&vm), "captured?");
+}

@@ -406,3 +406,126 @@ let same = t1 === t2
     let same_sym = vm.interner.find("same").unwrap();
     assert_eq!(vm.heap.module(main_mod).get(same_sym), Some(Value::bool(true)));
 }
+
+
+#[test]
+fn p4_shape_generic_tuple_specializations_share_behavior_and_keep_exact_descriptors() {
+    let (vm, module) = run_inline(
+        r#"
+data MyTuple<***Es: CompleteTypePack>(***Es)
+
+let one = MyTuple(1)
+let two = MyTuple(1, "x")
+let one_again = MyTuple(2)
+
+let one_value = one
+let two_value = two
+let one_again_value = one_again
+let same_class = one.class === two.class
+"#,
+    )
+    .expect("shape-generic tuple data should execute");
+
+    assert_eq!(
+        vm.heap.module(module).get(vm.interner.find("same_class").unwrap()),
+        Some(Value::bool(true))
+    );
+
+    let descriptor = |name: &str| {
+        let value = vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
+        let object = value.as_obj().expect("shape-generic data is heap allocated");
+        vm.heap.data(object).descriptor
+    };
+    let one = descriptor("one_value");
+    let two = descriptor("two_value");
+    let one_again = descriptor("one_again_value");
+
+    assert_eq!(one, one_again, "identical exact specializations must reuse one descriptor");
+    assert_ne!(one, two, "different exact tuple packs must have different descriptors");
+
+    let one_desc = vm.data_registry.descriptor(one).expect("one descriptor");
+    let two_desc = vm.data_registry.descriptor(two).expect("two descriptor");
+    assert_eq!(one_desc.behavior_class, two_desc.behavior_class, "specializations must share one behavior class");
+    assert_ne!(one_desc.exact_type, two_desc.exact_type, "exact semantic type identity must remain distinct");
+    assert_ne!(one_desc.layout, two_desc.layout, "different tuple arities must use exact layouts");
+}
+
+#[test]
+fn p4_shape_generic_record_specializations_expose_generated_fields_without_fake_declarations() {
+    let (vm, module) = run_inline(
+        r#"
+data MyRecord<**Fs: RecordFields> {
+  **Fs
+}
+
+let first = MyRecord { name: "Ada" }
+let second = MyRecord { age: 42, active: true }
+let first_again = MyRecord { name: "Grace" }
+
+let name = first.name
+let age = second.age
+let active = second.active
+let same_class = first.class === second.class
+let first_value = first
+let second_value = second
+let first_again_value = first_again
+"#,
+    )
+    .expect("shape-generic record data should execute");
+
+    assert_eq!(
+        vm.heap.module(module).get(vm.interner.find("name").unwrap()).unwrap().to_string(&vm),
+        "Ada"
+    );
+    assert_eq!(
+        vm.heap.module(module).get(vm.interner.find("age").unwrap()),
+        Some(Value::int(42))
+    );
+    assert_eq!(
+        vm.heap.module(module).get(vm.interner.find("active").unwrap()),
+        Some(Value::bool(true))
+    );
+    assert_eq!(
+        vm.heap.module(module).get(vm.interner.find("same_class").unwrap()),
+        Some(Value::bool(true))
+    );
+
+    let descriptor = |name: &str| {
+        let value = vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
+        vm.heap.data(value.as_obj().expect("record specialization is data")).descriptor
+    };
+    let first = descriptor("first_value");
+    let second = descriptor("second_value");
+    let first_again = descriptor("first_again_value");
+    assert_eq!(first, first_again, "same exact record shape must reuse its descriptor");
+    assert_ne!(first, second, "different exact record shapes must keep distinct descriptors");
+
+    let first_desc = vm.data_registry.descriptor(first).expect("first descriptor");
+    let second_desc = vm.data_registry.descriptor(second).expect("second descriptor");
+    assert_eq!(first_desc.behavior_class, second_desc.behavior_class);
+    assert_ne!(first_desc.exact_type, second_desc.exact_type);
+    assert_ne!(first_desc.layout, second_desc.layout);
+}
+
+#[test]
+fn p4_fixed_and_expanded_record_components_use_exact_specialization_slots() {
+    let (vm, module) = run_inline(
+        r#"
+data Envelope<**Fs: RecordFields> {
+  id: Int,
+  **Fs
+}
+
+let envelope = Envelope { title: "hello", id: 7 }
+let id = envelope.id
+let title = envelope.title
+"#,
+    )
+    .expect("fixed plus expanded record data should execute");
+
+    assert_eq!(vm.heap.module(module).get(vm.interner.find("id").unwrap()), Some(Value::int(7)));
+    assert_eq!(
+        vm.heap.module(module).get(vm.interner.find("title").unwrap()).unwrap().to_string(&vm),
+        "hello"
+    );
+}

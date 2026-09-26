@@ -433,3 +433,36 @@ let res = Runner.run(c)
     let (vm, module) = vm_support::run_inline(source).expect("forwarded owner evidence execution");
     assert_eq!(named(&vm, module, "res").expect("res").to_string(&vm), "forwarded_owner");
 }
+
+
+#[test]
+fn p4_specialized_rest_dispatch_preserves_conformance_environment() {
+    let source = r#"
+trait Printable {
+  print -> String
+}
+
+class User {
+  @constructor
+  new() {}
+}
+
+impl Printable for User {
+  print -> String { "rest-user" }
+}
+
+class Forwarder {
+  @class
+  show<T>(_ item: T, *rest) -> String
+    where T |= Printable
+  {
+    item.print
+  }
+}
+
+let result = Forwarder.show(User.new(), 1, 2)
+"#;
+
+    let (vm, module) = vm_support::run_inline(source).expect("specialized rest call must forward evidence");
+    assert_eq!(named(&vm, module, "result").expect("result").to_string(&vm), "rest-user");
+}
