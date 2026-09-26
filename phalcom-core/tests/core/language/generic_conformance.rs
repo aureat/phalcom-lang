@@ -325,8 +325,8 @@ class Wrapper<T> where T |= First {
   }
 }
 
-let a = ItemA.new()
-let b = ItemB.new()
+const a = ItemA.new()
+const b = ItemB.new()
 let w = Wrapper.new(a)
 let res = w.combine(b)
 "#;
