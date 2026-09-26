@@ -227,6 +227,8 @@ pub struct ConditionalFamilyDispatchEntry {
     pub selector: Symbol,
     pub declaring_class: ClassId,
     pub fallback_method: ObjRef,
+    pub type_environment: crate::typing::RuntimeTypeEnvironmentId,
+    pub conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
 }
 
 pub use super::selector::SelectorObject;

@@ -48,6 +48,89 @@ impl VM {
         }
     }
 
+    /// Executes the conditional call edge carried by one `InvokeConditional`
+    /// instruction. Kept as a single private seam so direct bytecode dispatch
+    /// can be tested independently from the interpreter's surrounding loop.
+    fn invoke_conditional_at(
+        &mut self,
+        callable: &Callable,
+        ip: usize,
+        arity: u8,
+        selector: u16,
+        declaring_module: u16,
+        declaring_name: u16,
+        class_side: bool,
+        fallback_method: u16,
+        call_environment_recipe: u16,
+    ) -> PhResult<()> {
+        let arity = arity as usize;
+        let receiver_idx = self
+            .stack
+            .len()
+            .checked_sub(arity + 1)
+            .ok_or(RuntimeError::Internal("stack underflow in InvokeConditional".into()))?;
+        let receiver = self.stack[receiver_idx];
+        let selector_sym = callable.chunk.constants[selector as usize].as_symbol().map_err(RuntimeError::Internal)?;
+        let declaring_module = callable.chunk.constants[declaring_module as usize]
+            .as_obj()
+            .ok_or_else(|| RuntimeError::Internal("conditional declaring module is not an object".into()))?;
+        let declaring_sym = callable.chunk.constants[declaring_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
+        let fallback_val = callable.chunk.constants[fallback_method as usize];
+        let fallback_method_ref = fallback_val
+            .as_obj()
+            .ok_or_else(|| RuntimeError::Internal("fallback method is not an object".into()))?;
+
+        let declaring_class_id = self
+            .classes
+            .get(&crate::vm::ClassKey {
+                module: declaring_module,
+                name: declaring_sym,
+            })
+            .copied()
+            .map(|class| if class_side { self.heap.class(class).class } else { class });
+
+        let outcome = if let Some(declaring_class) = declaring_class_id {
+            self.select_conditional_method(receiver, selector_sym, declaring_class, fallback_method_ref)
+        } else {
+            super::send::ConditionalSelectionOutcome::SelectedFallback(fallback_method_ref)
+        };
+        let (method_to_call, type_environment, conformance_environment) = match outcome {
+            super::send::ConditionalSelectionOutcome::OrdinaryOverride(method) => (
+                method,
+                crate::typing::RuntimeTypeEnvironmentId::EMPTY,
+                crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+            ),
+            super::send::ConditionalSelectionOutcome::SelectedFallback(method) => {
+                let recipe = callable.chunk.executable_semantics.call_environment_recipe(call_environment_recipe).clone();
+                self.validate_specialized_call(&recipe, method)?;
+                (
+                    method,
+                    self.materialize_call_environment(&recipe)?,
+                    self.materialize_conformance_environment(receiver, &recipe)?,
+                )
+            }
+        };
+
+        let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+        let frames_before = self.frames.len();
+        let layout = self.invocation_layout_for_selector(selector_sym, arity)?;
+        self.call_method_with_selector_as_and_environments(
+            &receiver,
+            method_to_call,
+            arity,
+            selector_sym,
+            Some(layout),
+            callable.chunk.span_at(ip),
+            self.current_caller_authority(),
+            type_environment,
+            conformance_environment,
+        )?;
+        if self.frames.len() > frames_before {
+            self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+        }
+        Ok(())
+    }
+
     fn append_positional_values(&mut self, target: Value, values: Vec<Value>) -> Result<(), RuntimeError> {
         let Some(id) = target.as_obj() else {
             return Err(RuntimeError::Internal("positional expansion target is not an object".into()));
@@ -2080,6 +2163,10 @@ impl VM {
                             crate::heap::FamilySpec::Pattern(pattern)
                         }
                     };
+                    let recv = *self
+                        .stack
+                        .last()
+                        .ok_or(RuntimeError::Internal("stack underflow in MakeConditionalFamily".into()))?;
                     let entries = callable
                         .chunk
                         .executable_semantics
@@ -2093,17 +2180,29 @@ impl VM {
                             } else {
                                 declaring_class
                             };
+                            let fallback_method = callable.chunk.constants[entry.fallback_method as usize]
+                                .as_obj()
+                                .ok_or_else(|| RuntimeError::Internal("conditional family fallback is not an object".into()))?;
+                            let (type_environment, conformance_environment) = if let Some(recipe) = &entry.call_environment_recipe {
+                                self.validate_specialized_call(recipe, fallback_method)?;
+                                (
+                                    self.materialize_call_environment(recipe)?,
+                                    self.materialize_conformance_environment(recv, recipe)?,
+                                )
+                            } else {
+                                return Err(RuntimeError::Internal("conditional family entry is missing its selected call environment recipe".into()).into());
+                            };
                             Ok(crate::heap::ConditionalFamilyDispatchEntry {
                                 operation: entry.operation.clone(),
                                 selector: entry.selector,
                                 declaring_class,
-                                fallback_method: callable.chunk.constants[entry.fallback_method as usize]
-                                    .as_obj()
-                                    .ok_or_else(|| RuntimeError::Internal("conditional family fallback is not an object".into()))?,
+                                fallback_method,
+                                type_environment,
+                                conformance_environment,
                             })
                         })
-                        .collect::<Result<Vec<_>, RuntimeError>>()?;
-                    let recv = self.stack.pop().unwrap();
+                        .collect::<PhResult<Vec<_>>>()?;
+                    self.stack.pop();
                     let family = Object::Family(crate::heap::FamilyObject {
                         receiver: recv,
                         spec: family_spec,
@@ -2382,43 +2481,19 @@ impl VM {
                     declaring_name,
                     class_side,
                     fallback_method,
+                    call_environment_recipe,
                 } => {
-                    let arity = arity as usize;
-                    let receiver_idx = self
-                        .stack
-                        .len()
-                        .checked_sub(arity + 1)
-                        .ok_or(RuntimeError::Internal("stack underflow in InvokeConditional".into()))?;
-                    let receiver = self.stack[receiver_idx];
-                    let selector_sym = callable.chunk.constants[selector as usize].as_symbol().map_err(RuntimeError::Internal)?;
-                    let declaring_module = callable.chunk.constants[declaring_module as usize]
-                        .as_obj()
-                        .ok_or_else(|| RuntimeError::Internal("conditional declaring module is not an object".into()))?;
-                    let declaring_sym = callable.chunk.constants[declaring_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
-                    let fallback_val = callable.chunk.constants[fallback_method as usize];
-                    let fallback_method_ref = fallback_val
-                        .as_obj()
-                        .ok_or_else(|| RuntimeError::Internal("fallback method is not an object".into()))?;
-
-                    let declaring_class_id = self
-                        .classes
-                        .get(&crate::vm::ClassKey {
-                            module: declaring_module,
-                            name: declaring_sym,
-                        })
-                        .copied()
-                        .map(|class| if class_side { self.heap.class(class).class } else { class });
-
-                    let method_to_call = declaring_class_id.map_or(fallback_method_ref, |declaring_class| {
-                        self.select_conditional_method(receiver, selector_sym, declaring_class, fallback_method_ref)
-                    });
-
-                    let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
-                    let frames_before = self.frames.len();
-                    self.call_method(&receiver, method_to_call, arity, callable.chunk.span_at(ip))?;
-                    if self.frames.len() > frames_before {
-                        self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
-                    }
+                    self.invoke_conditional_at(
+                        &callable,
+                        ip,
+                        arity,
+                        selector,
+                        declaring_module,
+                        declaring_name,
+                        class_side,
+                        fallback_method,
+                        call_environment_recipe,
+                    )?;
                 }
                 Bytecode::BilateralPreferReflected(selector_idx) => {
                     let rhs = *self.stack.last().ok_or(RuntimeError::Internal("missing bilateral rhs".into()))?;
@@ -3489,10 +3564,14 @@ impl VM {
 #[cfg(test)]
 mod tests {
     use super::VM;
+    use crate::callable::Callable;
+    use crate::chunk::Chunk;
     use crate::compiler::lib::UnitKind;
     use crate::frame::CallContext;
-    use crate::heap::{FiberObject, FiberStatus, Object};
-    use crate::method::{MethodKind, MethodObject, RestLayout, RestMode};
+    use crate::heap::{ClassObject, FiberObject, FiberStatus, InstanceObject, Object};
+    use crate::method::{MethodKind, MethodObject, RestLayout, RestMode, Signature, SignatureKind};
+    use crate::parameters::ParameterShape;
+    use crate::value::Value;
     use crate::vm::BufferedOutput;
 
     #[test]
@@ -3547,6 +3626,95 @@ mod tests {
         assert!(
             !vm.heap.class(target).methods.contains_key(&second_selector),
             "rejected rest family must not leak into the structural method dictionary"
+        );
+    }
+
+    #[test]
+    fn invoke_conditional_strict_subclass_override_uses_empty_evidence_environment() {
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module("audit", "direct_conditional_override_environment_isolation");
+        let base = vm.heap.alloc_class(ClassObject::bare("ConditionalBase"));
+        let subclass = vm.heap.alloc_class(ClassObject::bare("ConditionalSubclass"));
+        vm.heap.class_mut(subclass).set_superclass(Some(base));
+
+        let selector_sym = vm.get_or_intern("render");
+        let selector = vm.get_or_intern("render");
+        let declaring_name = vm.get_or_intern("ConditionalBase");
+        let signature = Signature::new(selector, SignatureKind::Getter, 0);
+        let body = vm.compile_closure(module, "42\n").expect("override body");
+        let fallback = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            signature.clone(),
+            MethodKind::Closure(body),
+        ))));
+        let override_method = vm
+            .heap
+            .alloc(Object::Method(Box::new(MethodObject::new_single(signature, MethodKind::Closure(body)))));
+        vm.heap.class_mut(subclass).add_method(selector, override_method);
+        let receiver = Value::obj(vm.heap.alloc(Object::Instance(InstanceObject::new(subclass, 0))));
+        vm.classes.insert(
+            crate::vm::ClassKey {
+                module,
+                name: declaring_name,
+            },
+            base,
+        );
+
+        let mut chunk = Chunk::new();
+        let selector_index = chunk.add_constant(Value::symbol(selector_sym), Default::default()).unwrap();
+        let module_index = chunk.add_constant(Value::obj(module), Default::default()).unwrap();
+        let declaring_name_index = chunk
+            .add_constant(Value::symbol(declaring_name), Default::default())
+            .unwrap();
+        let fallback_index = chunk.add_constant(Value::obj(fallback), Default::default()).unwrap();
+        chunk.executable_semantics.call_environment_recipes.push(std::sync::Arc::new(
+            crate::typing::RuntimeCallEnvironmentRecipe {
+                callable: phalcom_type_meta::identity::StableCallableRef {
+                    owner: phalcom_type_meta::identity::StableDeclarationRef {
+                        module: phalcom_type_meta::identity::StableModuleRef {
+                            project: phalcom_type_meta::identity::StableProjectRef::Session {
+                                session_fingerprint: phalcom_type_meta::fingerprint::Fingerprint128::from_u128(0),
+                            },
+                            path: Box::new([]),
+                        },
+                        path: Box::new([]),
+                    },
+                    side: phalcom_type_meta::identity::StableDispatchSide::Instance,
+                    selector: "render".into(),
+                },
+                bindings: Box::new([]),
+                conformance_slots: Box::new([crate::typing::RuntimeConformanceSlotRecipe::Forwarded(0)]),
+            },
+        ));
+        let callable = Callable {
+            chunk,
+            max_slots: 1,
+            num_upvalues: 0,
+            upvalues: Vec::new(),
+            arity: 0,
+            parameter_shape: ParameterShape::closure(0, false),
+            name_sym: selector_sym,
+            local_names: Vec::new(),
+        };
+
+        vm.stack.push(receiver);
+        vm.invoke_conditional_at(
+            &callable,
+            0,
+            0,
+            selector_index,
+            module_index,
+            declaring_name_index,
+            false,
+            fallback_index,
+            0,
+        )
+        .expect("direct conditional override should activate");
+
+        assert_eq!(vm.frames.len(), 1, "override body should be entered");
+        assert_eq!(
+            vm.frames.last().expect("override frame").conformance_environment,
+            crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+            "ordinary override must not receive the fallback's forwarded evidence recipe"
         );
     }
 

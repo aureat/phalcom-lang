@@ -522,10 +522,21 @@ class Probe {
     let render = &box.render(_)
     render("?")
   }
+
+  @class
+  forwarded<T>(_ box: Box<T>) -> String
+    where T |= Printable
+  {
+    box.render("!")
+  }
 }
 "#,
     );
-    assert!(!fixture.analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "semantic diagnostics: {:?}",
+        fixture.analysis.snapshot.diagnostics
+    );
 
     fn assert_capability(
         capability: &phalcom_semantic::dispatch::ConditionalSelectedCallCapability,
@@ -599,7 +610,159 @@ class Probe {
         })
         .expect("conditional bound family must carry the canonical selected-call capability");
     assert_capability(captured_capability, &conditional_callable, &expected_impl, &impl_parameters, user_ty);
-    assert_eq!(direct_capability, captured_capability, "direct and captured routes must publish the same semantic capability");
+    assert_eq!(
+        direct_capability, captured_capability,
+        "direct and captured routes must publish the same semantic capability"
+    );
+
+    let forwarded = fixture.callable("Probe", "forwarded", DispatchSide::Class);
+    let forwarded_capability = forwarded
+        .expressions
+        .values()
+        .find_map(|expression| expression.conditional_capability.as_ref())
+        .expect("generic conditional call must publish its selected-call capability");
+    let forwarded_provenance = forwarded_capability
+        .applicability
+        .conformance_provenance
+        .as_ref()
+        .expect("forwarded selected call must publish provenance");
+    assert_eq!(forwarded_provenance.len(), 1);
+    assert!(matches!(
+        &forwarded_provenance[0].source,
+        phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance }
+            if caller_conformance.trait_ref.declaration == fixture.decl("Printable")
+    ));
+}
+
+#[test]
+fn conditional_selected_call_capability_publishes_derived_impl_proof() {
+    let fixture = Fixture::new(
+        r#"
+trait BaseText {
+  base_text -> String
+}
+
+trait DerivedText {
+  derived_text -> String
+}
+
+impl<T> DerivedText for T
+  where T |= BaseText
+{
+  derived_text -> String { self.base_text }
+}
+
+class User {
+  @constructor
+  new() {}
+}
+
+impl BaseText for User {
+  base_text -> String { "user" }
+}
+
+class Box<T> {}
+
+impl<T> Box<T>
+  where T |= DerivedText
+{
+  render(_ suffix: String) -> String { suffix }
+}
+
+class Probe {
+  @class
+  render(_ box: Box<User>) -> String { box.render("!") }
+}
+"#,
+    );
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "semantic diagnostics: {:?}",
+        fixture.analysis.snapshot.diagnostics
+    );
+    let render = fixture.callable("Probe", "render", DispatchSide::Class);
+    let capability = render
+        .expressions
+        .values()
+        .find_map(|expression| expression.conditional_capability.as_ref())
+        .expect("derived conditional invocation must publish a selected-call capability");
+    let provenance = capability
+        .applicability
+        .conformance_provenance
+        .as_ref()
+        .expect("selected applicability must retain derived provenance");
+    assert_eq!(provenance.len(), 1);
+    let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &provenance[0].source else {
+        panic!("expected derived conditional proof provenance, got {:?}", provenance[0].source);
+    };
+    assert!(!evidence.nested.is_empty(), "derived proof should retain its nested BaseText evidence");
+}
+
+#[test]
+fn conditional_selected_call_capability_keeps_same_trait_subjects_distinct() {
+    let fixture = Fixture::new(
+        r#"
+trait Printable {
+  print -> String
+}
+
+class User {
+  @constructor
+  new() {}
+}
+
+class Guest {
+  @constructor
+  new() {}
+}
+
+impl Printable for User { print -> String { "user" } }
+impl Printable for Guest { print -> String { "guest" } }
+
+class Duo<A, B> {}
+
+impl<A, B> Duo<A, B>
+  where A |= Printable, B |= Printable
+{
+  render(_ suffix: String) -> String { suffix }
+}
+
+class Probe {
+  @class
+  render(_ duo: Duo<User, Guest>) -> String { duo.render("!") }
+}
+"#,
+    );
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "semantic diagnostics: {:?}",
+        fixture.analysis.snapshot.diagnostics
+    );
+    let render = fixture.callable("Probe", "render", DispatchSide::Class);
+    let capability = render
+        .expressions
+        .values()
+        .find_map(|expression| expression.conditional_capability.as_ref())
+        .expect("two-obligation conditional call must publish a capability");
+    let provenance = capability
+        .applicability
+        .conformance_provenance
+        .as_ref()
+        .expect("selected applicability must publish proof sources");
+    assert_eq!(provenance.len(), 2, "both impl constraints need provenance");
+    let subjects = provenance
+        .iter()
+        .map(|binding| match binding.callee_conformance.subject {
+            TypeTerm::Canonical(subject) => subject,
+            ref other => panic!("expected canonical selected impl subject, got {other:?}"),
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(subjects, [fixture.ty("User"), fixture.ty("Guest")].into_iter().collect());
+    assert!(
+        provenance
+            .iter()
+            .all(|binding| matches!(binding.source, phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { .. }))
+    );
 }
 
 #[test]

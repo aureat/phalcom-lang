@@ -143,6 +143,8 @@ pub struct ExecutableConditionalFamilyEntry {
     pub callable: CallableId,
     pub declaring_owner: DeclarationId,
     pub side: phalcom_semantic::identity::DispatchSide,
+    /// Semantic-owned exact environment recipe for the captured callable.
+    pub call_environment_recipe: Option<Arc<RuntimeCallEnvironmentRecipe>>,
 }
 
 /// Lowering specification for an associated expression site.
@@ -418,6 +420,8 @@ pub struct ConditionalInvocationSpec {
     /// not sufficient in a module-scoped class namespace.
     pub declaring_owner: DeclarationId,
     pub side: phalcom_semantic::identity::DispatchSide,
+    /// Semantic-owned exact environment recipe for this selected call edge.
+    pub call_environment_recipe: Option<Arc<RuntimeCallEnvironmentRecipe>>,
 }
 
 /// Exact semantic trait selection attached to an ordinary call/reference site.
@@ -503,6 +507,9 @@ pub struct ModuleLoweringSemantics {
     pub type_form_values: BTreeMap<SourceRange, RuntimeTypeFormValueSpec>,
     pub anonymous_products: BTreeMap<SourceRange, Arc<AnonymousProductConstructionLoweringSpec>>,
     pub call_environment_recipes: BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
+    /// Conditional selected-call recipes keyed by source edge and exact
+    /// callable identity; one bound family source may capture several entries.
+    pub conditional_call_environment_recipes: BTreeMap<(SourceRange, phalcom_semantic::identity::CallableId), Arc<RuntimeCallEnvironmentRecipe>>,
     pub enums: Box<[EnumLoweringSpec]>,
     pub data_decls: Box<[DataDeclarationLoweringSpec]>,
     pub intrinsic_runtime_facades: Box<[IntrinsicRuntimeFacadeLoweringSpec]>,
@@ -559,6 +566,7 @@ impl ModuleLoweringSemantics {
             type_form_values: BTreeMap::new(),
             anonymous_products: BTreeMap::new(),
             call_environment_recipes: BTreeMap::new(),
+            conditional_call_environment_recipes: BTreeMap::new(),
             enums: Box::new([]),
             data_decls: Box::new([]),
             intrinsic_runtime_facades: Box::new([]),
@@ -633,7 +641,9 @@ fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -
         TypeData::ExactCase { .. } => true,
         TypeData::Applied { origin, arguments } => {
             contains_exact_case(store, *origin)
-                || arguments.iter().any(|argument| argument.as_type_id().is_some_and(|argument| contains_exact_case(store, argument)))
+                || arguments
+                    .iter()
+                    .any(|argument| argument.as_type_id().is_some_and(|argument| contains_exact_case(store, argument)))
         }
         TypeData::Union(members) => members.iter().any(|&m| contains_exact_case(store, m)),
         TypeData::Tuple(elems) => elems.iter().any(|e| contains_exact_case(store, e.ty)),
@@ -692,9 +702,11 @@ fn build_data_construction_spec(
     let argument_to_component = match argument_mapping {
         Some(mapping) => mapping,
         None if !info.shape_template.has_expansions() => (0..u32::from(arity)).collect(),
-        None => return Err(ProjectionError::MissingDataArgumentMapping {
-            constructor: constructor.clone(),
-        }),
+        None => {
+            return Err(ProjectionError::MissingDataArgumentMapping {
+                constructor: constructor.clone(),
+            });
+        }
     };
     if argument_to_component.len() != usize::from(arity) {
         return Err(ProjectionError::MissingDataArgumentMapping {
@@ -803,6 +815,24 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
     projects: &phalcom_modules::ProjectUniverse,
     runtime_type_roots: &BTreeMap<SourceRange, RuntimeTypeRef>,
     runtime_call_environment_recipes: &BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
+) -> Result<ModuleLoweringSemantics, ProjectionError> {
+    build_module_lowering_semantics_with_runtime_types_calls_and_conditional_calls(
+        module,
+        snapshot,
+        projects,
+        runtime_type_roots,
+        runtime_call_environment_recipes,
+        &BTreeMap::new(),
+    )
+}
+
+pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_calls(
+    module: &ModuleId,
+    snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
+    runtime_type_roots: &BTreeMap<SourceRange, RuntimeTypeRef>,
+    runtime_call_environment_recipes: &BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
+    conditional_call_environment_recipes: &BTreeMap<(SourceRange, phalcom_semantic::identity::CallableId), Arc<RuntimeCallEnvironmentRecipe>>,
 ) -> Result<ModuleLoweringSemantics, ProjectionError> {
     let source_id = if let Some(parsed_unit) = snapshot.sources.get(module) {
         parsed_unit
@@ -1128,7 +1158,14 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                 Some(ea) => ea.range,
                 None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
             };
-            let spec = project_callable_reference_resolution(resolution, snapshot, projects)?;
+            let spec = project_callable_reference_resolution(
+                resolution,
+                snapshot,
+                projects,
+                range,
+                runtime_call_environment_recipes,
+                conditional_call_environment_recipes,
+            )?;
             let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::CallableReference);
             if callable_references.contains_key(&site) {
                 return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
@@ -1173,6 +1210,30 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
             generic_evidence = generic_evidence
                 .try_compose(&owner_env, &snapshot.trait_surfaces)
                 .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+        }
+        if let Some(phalcom_semantic::impls::EffectiveCallableDefinition {
+            origin: phalcom_semantic::impls::CallableDefinitionOrigin::InherentImpl(source_impl),
+            ..
+        }) = snapshot.callable_definitions.get(callable_id)
+        {
+            let impl_signature = snapshot
+                .dispatch
+                .conditional_members()
+                .values()
+                .flat_map(|members| members.members.iter())
+                .find(|member| &member.impl_id == source_impl)
+                .and_then(|member| member.domain.generic_signature.as_ref());
+            if let Some(impl_signature) = impl_signature {
+                let impl_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                    &impl_signature.constraints,
+                    impl_signature.owner.clone(),
+                    &snapshot.trait_surfaces,
+                )
+                .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+                generic_evidence = generic_evidence
+                    .try_compose(&impl_env, &snapshot.trait_surfaces)
+                    .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+            }
         }
         if let Some(sig) = snapshot.callable_signatures.get(callable_id) {
             if let Some(generics) = &sig.generics {
@@ -1344,6 +1405,10 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                         callable: selection.callable.clone(),
                         declaring_owner: selection.declaring_owner.clone(),
                         side: selection.side,
+                        call_environment_recipe: conditional_call_environment_recipes
+                            .get(&(expression.range, selection.callable.clone()))
+                            .cloned()
+                            .or_else(|| runtime_call_environment_recipes.get(&expression.range).cloned()),
                     },
                 );
             }
@@ -1363,6 +1428,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         type_form_values,
         anonymous_products,
         call_environment_recipes: runtime_call_environment_recipes.clone(),
+        conditional_call_environment_recipes: conditional_call_environment_recipes.clone(),
         enums: enums.into_boxed_slice(),
         data_decls: data_decls.into_boxed_slice(),
         intrinsic_runtime_facades: intrinsic_runtime_facades.into_boxed_slice(),
@@ -2398,6 +2464,9 @@ fn project_callable_reference_resolution(
     resolution: &CallableReferenceResolution,
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
+    range: SourceRange,
+    runtime_call_environment_recipes: &BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
+    conditional_call_environment_recipes: &BTreeMap<(SourceRange, phalcom_semantic::identity::CallableId), Arc<RuntimeCallEnvironmentRecipe>>,
 ) -> Result<CallableReferenceLoweringSpec, ProjectionError> {
     match &resolution.kind {
         CallableReferenceResolutionKind::BoundFamily { spec, members, .. } => {
@@ -2419,6 +2488,10 @@ fn project_callable_reference_resolution(
                         callable: selection.callable.clone(),
                         declaring_owner: selection.declaring_owner.clone(),
                         side: selection.side,
+                        call_environment_recipe: conditional_call_environment_recipes
+                            .get(&(range, selection.callable.clone()))
+                            .cloned()
+                            .or_else(|| runtime_call_environment_recipes.get(&range).cloned()),
                     })
                 })
                 .collect::<Vec<_>>()

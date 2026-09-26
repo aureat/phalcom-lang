@@ -56,6 +56,26 @@ fn add_runtime_trait_environment_roots(
     }
 }
 
+fn inherent_impl_generic_signature<'a>(
+    snapshot: &'a phalcom_semantic::SemanticSnapshot,
+    callable: &phalcom_semantic::identity::CallableId,
+    expected_impl: Option<&phalcom_semantic::identity::ImplId>,
+) -> Option<&'a phalcom_semantic::types::parameter::GenericSignature> {
+    let phalcom_semantic::impls::CallableDefinitionOrigin::InherentImpl(source_impl) = &snapshot.callable_definitions.get(callable)?.origin else {
+        return None;
+    };
+    if expected_impl.is_some_and(|expected| expected != source_impl) {
+        return None;
+    }
+    snapshot
+        .dispatch
+        .conditional_members()
+        .values()
+        .flat_map(|members| members.members.iter())
+        .find(|member| &member.impl_id == source_impl)
+        .and_then(|member| member.domain.generic_signature.as_ref())
+}
+
 /// Entry selection for a program compilation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EntrySelection {
@@ -688,42 +708,88 @@ impl ProgramCompiler {
             }
             for (callable, analysis) in analyzed.semantic.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == id) {
                 for expression in analysis.expressions.values() {
-                    let Some(specialization) = expression.call_specialization.as_ref() else {
+                    let specialization = expression.call_specialization.as_ref();
+                    let capability = expression.conditional_capability.as_ref();
+                    if specialization.is_none() && capability.is_none() {
                         continue;
-                    };
-                    for &(parameter, ty) in specialization.bindings.iter() {
-                        runtime_call_root_specs.push((
-                            id.clone(),
-                            expression.range,
-                            specialization.callable.clone(),
-                            parameter,
-                            ty,
-                            format!(
-                                "call-environment-{}-{}-{}-{}",
-                                expression.range.start,
-                                expression.range.end,
-                                specialization.callable.selector,
-                                parameter.index()
-                            ),
-                        ));
                     }
-                    for conformance in specialization.conformances.iter() {
-                        if let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &conformance.source {
-                            for (&parameter, &ty) in evidence.impl_bindings.bindings().iter() {
-                                runtime_call_root_specs.push((
-                                    id.clone(),
-                                    expression.range,
-                                    specialization.callable.clone(),
-                                    parameter,
-                                    ty,
-                                    format!(
-                                        "call-derived-{}-{}-{}-{}",
-                                        expression.range.start,
-                                        expression.range.end,
-                                        specialization.callable.selector,
-                                        parameter.index()
-                                    ),
-                                ));
+                    let selected_callable = specialization
+                        .map(|specialization| &specialization.callable)
+                        .or_else(|| capability.map(|capability| &capability.selection.callable))
+                        .expect("a specialization or conditional capability was checked above");
+                    if let Some(specialization) = specialization {
+                        for &(parameter, ty) in specialization.bindings.iter() {
+                            runtime_call_root_specs.push((
+                                id.clone(),
+                                expression.range,
+                                specialization.callable.clone(),
+                                parameter,
+                                ty,
+                                format!(
+                                    "call-environment-{}-{}-{}-{}",
+                                    expression.range.start,
+                                    expression.range.end,
+                                    specialization.callable.selector,
+                                    parameter.index()
+                                ),
+                            ));
+                        }
+                        for conformance in specialization.conformances.iter() {
+                            if let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &conformance.source {
+                                for (&parameter, &ty) in evidence.impl_bindings.bindings().iter() {
+                                    runtime_call_root_specs.push((
+                                        id.clone(),
+                                        expression.range,
+                                        specialization.callable.clone(),
+                                        parameter,
+                                        ty,
+                                        format!(
+                                            "call-derived-{}-{}-{}-{}",
+                                            expression.range.start,
+                                            expression.range.end,
+                                            specialization.callable.selector,
+                                            parameter.index()
+                                        ),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    if let Some(capability) = capability {
+                        for (&parameter, &ty) in &capability.applicability.bindings {
+                            runtime_call_root_specs.push((
+                                id.clone(),
+                                expression.range,
+                                capability.selection.callable.clone(),
+                                parameter,
+                                ty,
+                                format!(
+                                    "call-environment-conditional-{}-{}-{}-{}",
+                                    expression.range.start,
+                                    expression.range.end,
+                                    capability.selection.callable.selector,
+                                    parameter.index()
+                                ),
+                            ));
+                        }
+                        for conformance in capability.applicability.conformance_provenance.iter().flatten() {
+                            if let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &conformance.source {
+                                for (&parameter, &ty) in evidence.impl_bindings.bindings().iter() {
+                                    runtime_call_root_specs.push((
+                                        id.clone(),
+                                        expression.range,
+                                        capability.selection.callable.clone(),
+                                        parameter,
+                                        ty,
+                                        format!(
+                                            "call-derived-conditional-{}-{}-{}-{}",
+                                            expression.range.start,
+                                            expression.range.end,
+                                            capability.selection.callable.selector,
+                                            parameter.index()
+                                        ),
+                                    ));
+                                }
                             }
                         }
                     }
@@ -741,6 +807,52 @@ impl ProgramCompiler {
                         );
                     }
                     let _ = callable;
+                }
+                for (expr_id, resolution) in analysis.callable_reference_resolutions.iter() {
+                    let Some(range) = analysis.expressions.get(expr_id).map(|expression| expression.range) else {
+                        continue;
+                    };
+                    let phalcom_semantic::checker::associated::CallableReferenceResolutionKind::BoundFamily { members, .. } = &resolution.kind else {
+                        continue;
+                    };
+                    for capability in members.iter().filter_map(|member| member.conditional_capability.as_ref()) {
+                        for (&parameter, &ty) in &capability.applicability.bindings {
+                            runtime_call_root_specs.push((
+                                id.clone(),
+                                range,
+                                capability.selection.callable.clone(),
+                                parameter,
+                                ty,
+                                format!(
+                                    "call-environment-conditional-{}-{}-{}-{}",
+                                    range.start,
+                                    range.end,
+                                    capability.selection.callable.selector,
+                                    parameter.index()
+                                ),
+                            ));
+                        }
+                        for conformance in capability.applicability.conformance_provenance.iter().flatten() {
+                            if let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &conformance.source {
+                                for (&parameter, &ty) in evidence.impl_bindings.bindings().iter() {
+                                    runtime_call_root_specs.push((
+                                        id.clone(),
+                                        range,
+                                        capability.selection.callable.clone(),
+                                        parameter,
+                                        ty,
+                                        format!(
+                                            "call-derived-conditional-{}-{}-{}-{}",
+                                            range.start,
+                                            range.end,
+                                            capability.selection.callable.selector,
+                                            parameter.index()
+                                        ),
+                                    ));
+                                }
+                            }
+                        }
+                    }
                 }
                 for lane in analysis.for_iteration_lanes.values() {
                     for requirement_resolution in [&lane.iterator, &lane.next] {
@@ -856,6 +968,9 @@ impl ProgramCompiler {
             );
         }
         let mut runtime_call_environment_recipes = BTreeMap::<ModuleId, BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>>::new();
+        let mut conditional_call_environment_recipes =
+            BTreeMap::<ModuleId, BTreeMap<(SourceRange, phalcom_semantic::identity::CallableId), Arc<RuntimeCallEnvironmentRecipe>>>::new();
+        let mut conditional_call_keys = BTreeSet::<(ModuleId, SourceRange, phalcom_semantic::identity::CallableId)>::new();
         let mut call_bindings = BTreeMap::<
             (ModuleId, SourceRange, phalcom_semantic::identity::CallableId),
             Vec<(phalcom_type_meta::StableTypeParameterRef, RuntimeTypeRecipe)>,
@@ -985,6 +1100,17 @@ impl ProgramCompiler {
                     .try_compose(&owner_env, &analyzed.semantic.trait_surfaces)
                     .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
             }
+            if let Some(impl_signature) = inherent_impl_generic_signature(&analyzed.semantic, callable, None) {
+                let impl_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                    &impl_signature.constraints,
+                    impl_signature.owner.clone(),
+                    &analyzed.semantic.trait_surfaces,
+                )
+                .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                caller_evidence = caller_evidence
+                    .try_compose(&impl_env, &analyzed.semantic.trait_surfaces)
+                    .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+            }
             if let Some(sig) = analyzed.semantic.callable_signatures.get(callable) {
                 if let Some(generics) = &sig.generics {
                     let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
@@ -999,12 +1125,48 @@ impl ProgramCompiler {
                 }
             }
 
+            let mut conditional_applications = Vec::new();
             for expression in analysis.expressions.values() {
-                let Some(specialization) = expression.call_specialization.as_ref() else {
-                    continue;
-                };
-
-                let callee = &specialization.callable;
+                let mut capabilities = Vec::new();
+                if let Some(capability) = expression.conditional_capability.as_ref() {
+                    capabilities.push(capability);
+                }
+                for (reference_id, resolution) in analysis.callable_reference_resolutions.iter() {
+                    if analysis
+                        .expressions
+                        .get(reference_id)
+                        .is_none_or(|reference| reference.range != expression.range)
+                    {
+                        continue;
+                    }
+                    if let phalcom_semantic::checker::associated::CallableReferenceResolutionKind::BoundFamily { members, .. } = &resolution.kind {
+                        for capability in members.iter().filter_map(|member| member.conditional_capability.as_ref()) {
+                            if !capabilities
+                                .iter()
+                                .any(|existing: &&phalcom_semantic::dispatch::ConditionalSelectedCallCapability| existing.selection == capability.selection)
+                            {
+                                capabilities.push(capability);
+                            }
+                        }
+                    }
+                }
+                let specialization = expression.call_specialization.as_ref();
+                if capabilities.is_empty() {
+                    if specialization.is_some() {
+                        conditional_applications.push((expression, specialization, None));
+                    }
+                } else {
+                    for capability in capabilities {
+                        conditional_call_keys.insert((callable.owner.module().clone(), expression.range, capability.selection.callable.clone()));
+                        conditional_applications.push((expression, specialization, Some(capability)));
+                    }
+                }
+            }
+            for (expression, specialization, capability) in conditional_applications {
+                let callee = specialization
+                    .map(|specialization| &specialization.callable)
+                    .or_else(|| capability.map(|capability| &capability.selection.callable))
+                    .expect("a specialization or conditional capability was checked above");
                 let callee_owner_sig = match &callee.owner {
                     phalcom_semantic::identity::CallableOwnerId::Declaration(decl) => {
                         if callee.side == phalcom_semantic::identity::DispatchSide::Instance {
@@ -1050,6 +1212,42 @@ impl ProgramCompiler {
                         .try_compose(&owner_env, &analyzed.semantic.trait_surfaces)
                         .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
                 }
+                if let Some(capability) = capability {
+                    let provenance = capability.applicability.conformance_provenance.as_deref().ok_or_else(|| {
+                        ProgramCompileError::GenericEvidenceLayout(format!(
+                            "selected conditional impl {:?} has no published proof provenance",
+                            capability.selection.impl_id
+                        ))
+                    })?;
+                    let impl_signature = inherent_impl_generic_signature(&analyzed.semantic, callee, Some(&capability.selection.impl_id)).ok_or_else(|| {
+                        ProgramCompileError::GenericEvidenceLayout(format!(
+                            "selected conditional impl {:?} does not match the source impl of callable {:?}",
+                            capability.selection.impl_id, callee
+                        ))
+                    })?;
+                    let signature_obligations = impl_signature
+                        .constraints
+                        .iter()
+                        .filter(|constraint| matches!(constraint, phalcom_semantic::types::parameter::GenericConstraint::Conforms { .. }))
+                        .count();
+                    if signature_obligations != provenance.len() {
+                        return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+                            "selected conditional impl {:?} publishes {} proof sources for {} conformance slots",
+                            capability.selection.impl_id,
+                            provenance.len(),
+                            signature_obligations
+                        )));
+                    }
+                    let impl_environment = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                        &impl_signature.constraints,
+                        impl_signature.owner.clone(),
+                        &analyzed.semantic.trait_surfaces,
+                    )
+                    .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                    callee_evidence = callee_evidence
+                        .try_compose(&impl_environment, &analyzed.semantic.trait_surfaces)
+                        .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                }
                 if let Some(sig) = analyzed.semantic.callable_signatures.get(callee) {
                     if let Some(generics) = &sig.generics {
                         let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
@@ -1067,8 +1265,15 @@ impl ProgramCompiler {
                 let layout_len = callee_evidence.layout().len();
                 let mut slots: Vec<Option<crate::typing::RuntimeConformanceSlotRecipe>> = vec![None; layout_len];
                 let mut callee_instantiation = phalcom_semantic::types::instantiation::GenericInstantiation::default();
-                for &(parameter, ty) in specialization.bindings.iter() {
-                    callee_instantiation.bind_type(parameter, ty);
+                if let Some(specialization) = specialization {
+                    for &(parameter, ty) in specialization.bindings.iter() {
+                        callee_instantiation.bind_type(parameter, ty);
+                    }
+                }
+                if let Some(capability) = capability {
+                    for (&parameter, &ty) in &capability.applicability.bindings {
+                        callee_instantiation.bind_type(parameter, ty);
+                    }
                 }
                 let mut materialization_store = (*analyzed.semantic.store).clone();
                 for (slot_key, slot_idx) in callee_evidence.layout().slots.iter() {
@@ -1105,7 +1310,16 @@ impl ProgramCompiler {
                             .collect::<Result<Vec<_>, _>>()?,
                     );
                     let instantiated_conformance = phalcom_semantic::generic_evidence::GenericConformanceKey::new(instantiated_subject, instantiated_trait_ref);
-                    let binding = specialization.conformances.iter().find(|b| b.callee_conformance == instantiated_conformance);
+                    let binding = specialization
+                        .into_iter()
+                        .flat_map(|specialization| specialization.conformances.iter())
+                        .find(|binding| binding.callee_conformance == instantiated_conformance)
+                        .or_else(|| {
+                            capability
+                                .into_iter()
+                                .flat_map(|capability| capability.applicability.conformance_provenance.iter().flatten())
+                                .find(|binding| binding.callee_conformance == instantiated_conformance)
+                        });
                     if let Some(binding) = binding {
                         match &binding.source {
                             phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
@@ -1395,17 +1609,21 @@ impl ProgramCompiler {
                 &phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&analyzed.project_universe),
             );
             let conformance_slots = call_conformance_slots
-                .remove(&(module.clone(), range, callee_id))
+                .remove(&(module.clone(), range, callee_id.clone()))
                 .unwrap_or_default()
                 .into_boxed_slice();
-            runtime_call_environment_recipes.entry(module).or_default().insert(
-                range,
-                Arc::new(RuntimeCallEnvironmentRecipe {
-                    callable: stable_callable,
-                    bindings: bindings.into_boxed_slice(),
-                    conformance_slots,
-                }),
-            );
+            let recipe = Arc::new(RuntimeCallEnvironmentRecipe {
+                callable: stable_callable,
+                bindings: bindings.into_boxed_slice(),
+                conformance_slots,
+            });
+            if conditional_call_keys.contains(&(module.clone(), range, callee_id.clone())) {
+                conditional_call_environment_recipes
+                    .entry(module.clone())
+                    .or_default()
+                    .insert((range, callee_id.clone()), recipe.clone());
+            }
+            runtime_call_environment_recipes.entry(module).or_default().insert(range, recipe);
         }
         let mut modules = BTreeMap::new();
         for (id, linked_module) in &analyzed.linked.modules {
@@ -1417,12 +1635,13 @@ impl ProgramCompiler {
             } else {
                 (None, None)
             };
-            let mut lowering = super::semantic_lowering::build_module_lowering_semantics_with_runtime_types_and_calls(
+            let mut lowering = super::semantic_lowering::build_module_lowering_semantics_with_runtime_types_calls_and_conditional_calls(
                 id,
                 &analyzed.semantic,
                 &analyzed.project_universe,
                 runtime_type_roots.get(id).unwrap_or(&BTreeMap::new()),
                 runtime_call_environment_recipes.get(id).unwrap_or(&BTreeMap::new()),
+                conditional_call_environment_recipes.get(id).unwrap_or(&BTreeMap::new()),
             )
             .map_err(|e| ProgramCompileError::Io(format!("lowering projection error in {id}: {e}")))?;
             if let Some(environments) = runtime_trait_environment_bindings.get(id) {

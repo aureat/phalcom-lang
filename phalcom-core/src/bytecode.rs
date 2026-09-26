@@ -702,6 +702,7 @@ pub enum Bytecode {
         declaring_name: u16,
         class_side: bool,
         fallback_method: u16,
+        call_environment_recipe: u16,
     },
 
     /// Builds a receiver-bound behavior family with semantic conditional

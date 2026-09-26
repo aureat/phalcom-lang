@@ -36,6 +36,7 @@ pub struct ConditionalFamilyEntry {
     /// Constant-pool index for the compiled fallback method. Keeping the
     /// handle in the chunk constants preserves the ordinary closure GC root.
     pub fallback_method: u16,
+    pub call_environment_recipe: Option<Arc<RuntimeCallEnvironmentRecipe>>,
 }
 
 #[derive(Debug, Clone, Default)]

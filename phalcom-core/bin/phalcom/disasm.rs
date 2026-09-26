@@ -129,19 +129,21 @@ fn disassemble_chunk(vm: &mut VM, chunk: &Chunk, indent: usize, visited: &mut Ha
                 declaring_name,
                 class_side,
                 fallback_method,
+                call_environment_recipe,
             } => {
                 let sel_val = chunk.constants[selector as usize];
                 let sel_sym = sel_val.as_symbol().unwrap();
                 let decl_val = chunk.constants[declaring_name as usize];
                 let decl_sym = decl_val.as_symbol().unwrap();
                 format!(
-                    "InvokeConditional({}, arity={}, declaring_module_const={}, declaring={}, class_side={}, fallback_const={})",
+                    "InvokeConditional({}, arity={}, declaring_module_const={}, declaring={}, class_side={}, fallback_const={}, environment_recipe={})",
                     vm.resolve_symbol(sel_sym),
                     arity,
                     declaring_module,
                     vm.resolve_symbol(decl_sym),
                     class_side,
                     fallback_method,
+                    call_environment_recipe,
                 )
             }
             Bytecode::InvokeLocal(slot, arity, sel_idx) => {

@@ -21,6 +21,12 @@ pub(crate) enum FamilyInvocationKind {
     SubscriptSet,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConditionalSelectionOutcome {
+    OrdinaryOverride(ObjRef),
+    SelectedFallback(ObjRef),
+}
+
 impl VM {
     /// Captures the currently effective methods selected by `pattern`.
     ///
@@ -163,7 +169,8 @@ impl VM {
     }
 
     pub(crate) fn enter_native_reentry(&mut self) {
-        self.native_reentry_owners.push(self.native_method_contexts.last().map(|context| context.activation_id));
+        self.native_reentry_owners
+            .push(self.native_method_contexts.last().map(|context| context.activation_id));
         self.native_reentry_depth += 1;
     }
 
@@ -962,20 +969,31 @@ impl VM {
         view: ArgumentView,
         source_range: SourceRange,
     ) -> PhResult<CallOutcome> {
-        let method = self.select_conditional_method(receiver, entry.selector, entry.declaring_class, entry.fallback_method);
+        let outcome = self.select_conditional_method(receiver, entry.selector, entry.declaring_class, entry.fallback_method);
         self.stack[receiver_idx] = receiver;
-        self.activate_captured_method_as(receiver, method, view, source_range)
+        match outcome {
+            ConditionalSelectionOutcome::OrdinaryOverride(method) => self.activate_captured_method_as(receiver, method, view, source_range),
+            ConditionalSelectionOutcome::SelectedFallback(method) => {
+                self.activate_captured_method_as_with_environment(receiver, method, view, source_range, entry.type_environment, entry.conformance_environment)
+            }
+        }
     }
 
     /// Applies the single runtime rule shared by direct and reified
     /// conditional dispatch: a strict-subclass ordinary override wins;
     /// otherwise execution uses the semantic layer's selected fallback.
-    pub(crate) fn select_conditional_method(&self, receiver: Value, selector: Symbol, declaring_class: ClassId, fallback_method: ObjRef) -> ObjRef {
+    pub(crate) fn select_conditional_method(
+        &self,
+        receiver: Value,
+        selector: Symbol,
+        declaring_class: ClassId,
+        fallback_method: ObjRef,
+    ) -> ConditionalSelectionOutcome {
         let actual_class = receiver.class(self);
         lookup_method_with_definer(&self.heap, actual_class, selector)
             .filter(|(_, defining)| is_strict_subclass(&self.heap, *defining, declaring_class))
-            .map(|(method, _)| method)
-            .unwrap_or(fallback_method)
+            .map(|(method, _)| ConditionalSelectionOutcome::OrdinaryOverride(method))
+            .unwrap_or(ConditionalSelectionOutcome::SelectedFallback(fallback_method))
     }
 
     fn selectors_for_bound_method_family(&mut self, pattern_id: ObjRef, view: ArgumentView) -> PhResult<Vec<(Symbol, InvocationLayout)>> {
@@ -1685,8 +1703,10 @@ impl VM {
 mod tests {
     use crate::error::{PhError, RuntimeError};
     use crate::frame::CallContext;
-    use crate::heap::{BoundMethodFamilyObject, ClassObject, FamilyObject, FamilySpec, InstanceObject, MethodFamilyObject, Object};
-    use crate::method::{ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodObject, Signature, SignatureKind};
+    use crate::heap::{
+        BoundMethodFamilyObject, ClassObject, ConditionalFamilyDispatchEntry, FamilyObject, FamilySpec, InstanceObject, MethodFamilyObject, Object,
+    };
+    use crate::method::{ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodKind, MethodObject, Signature, SignatureKind};
     use crate::value::Value;
     use crate::vm::VM;
     use std::sync::Arc;
@@ -1734,8 +1754,69 @@ mod tests {
         assert_ne!(original.generation, replacement.generation);
         vm.frames.push(replacement);
         vm.enter_native_reentry();
-        assert_eq!(vm.current_access_class(), Some(bytecode_owner), "the live bytecode activation supplies lexical authority");
+        assert_eq!(
+            vm.current_access_class(),
+            Some(bytecode_owner),
+            "the live bytecode activation supplies lexical authority"
+        );
         vm.leave_native_reentry();
+    }
+
+    #[test]
+    fn conditional_family_strict_subclass_override_uses_empty_evidence_environment() {
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module("audit", "conditional_override_environment_isolation");
+        let base = vm.heap.alloc_class(ClassObject::bare("ConditionalBase"));
+        let subclass = vm.heap.alloc_class(ClassObject::bare("ConditionalSubclass"));
+        vm.heap.class_mut(subclass).set_superclass(Some(base));
+        let selector = vm.get_or_intern("render");
+        let signature = Signature::new(selector, SignatureKind::Getter, 0);
+        let closure = vm.compile_closure(module, "42\n").expect("override closure");
+        let fallback = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            signature.clone(),
+            MethodKind::Closure(closure),
+        ))));
+        let override_method = vm
+            .heap
+            .alloc(Object::Method(Box::new(MethodObject::new_single(signature, MethodKind::Closure(closure)))));
+        vm.heap.class_mut(subclass).add_method(selector, override_method);
+        let receiver = Value::obj(vm.heap.alloc(Object::Instance(InstanceObject::new(subclass, 0))));
+        let fallback_environment = vm
+            .runtime_conformance_environments
+            .intern(crate::typing::RuntimeConformanceEnvironment::new(vec![Some(
+                crate::typing::RuntimeConformanceSlot {
+                    method: fallback,
+                    type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,
+                    conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+                },
+            )]));
+        assert_ne!(fallback_environment, crate::typing::RuntimeConformanceEnvironmentId::EMPTY);
+        let entry = ConditionalFamilyDispatchEntry {
+            operation: phalcom_semantic::types::family::FamilyOperationShape::getter(),
+            selector,
+            declaring_class: base,
+            fallback_method: fallback,
+            type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,
+            conformance_environment: fallback_environment,
+        };
+        vm.stack.push(receiver);
+        let view = ArgumentView::from_layout(
+            0,
+            InvocationLayout::ordinary(0, Box::default()),
+            None,
+            crate::method::RuntimeAccessOrigin::none(),
+        );
+
+        let outcome = vm
+            .dispatch_conditional_family_entry(0, receiver, &entry, view, phalcom_common::range::SourceRange::default())
+            .expect("strict subclass override should activate");
+
+        assert_eq!(outcome, CallOutcome::EnteredFrame);
+        assert_eq!(
+            vm.frames.last().expect("override frame").conformance_environment,
+            crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+            "ordinary override must not inherit the selected fallback environment"
+        );
     }
 
     #[test]
@@ -1768,7 +1849,10 @@ mod tests {
         let native_context = |vm: &mut VM, owner| crate::vm::NativeMethodContext {
             access_owner: Some(owner),
             origin: crate::method::RuntimeAccessOrigin::none(),
-            diagnostic: crate::error::NativeFrameIdentity { class: native_selector, selector: native_selector },
+            diagnostic: crate::error::NativeFrameIdentity {
+                class: native_selector,
+                selector: native_selector,
+            },
             activation_id: vm.next_native_context_id(),
         };
         let native_a = native_context(&mut vm, class_a);
@@ -1790,7 +1874,10 @@ mod tests {
         vm.frames.pop();
         vm.leave_native_reentry();
         vm.native_method_contexts.pop();
-        assert!(vm.authorize_method_access(secret_b).is_ok(), "return from native C restores B's lexical authority");
+        assert!(
+            vm.authorize_method_access(secret_b).is_ok(),
+            "return from native C restores B's lexical authority"
+        );
         assert!(vm.authorize_method_access(secret_c).is_err());
 
         // A closure defined in B retains B's lexical authority, even while

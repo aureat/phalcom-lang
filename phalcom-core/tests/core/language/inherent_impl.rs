@@ -417,7 +417,6 @@ let result = Box<String>.kind()
     );
 }
 
-
 #[test]
 fn p4_conditional_inherent_call_preserves_conformance_environment() {
     let source = r#"
@@ -485,4 +484,47 @@ let result = render("?")
 
     let (vm, module) = vm_support::run_inline(source).expect("conditional bound family must retain evidence");
     assert_eq!(named(&vm, module, "result").to_string(&vm), "captured?");
+}
+
+#[test]
+fn p4_conditional_bound_family_escapes_creator_with_forwarded_evidence() {
+    let source = r#"
+trait Printable {
+  print -> String
+}
+
+class User {
+  @constructor
+  new() {}
+}
+
+impl Printable for User {
+  print -> String { "escaped" }
+}
+
+data Box<T>(_ value: T)
+
+impl<T> Box<T>
+  where T |= Printable
+{
+  render(_ suffix: String) -> String {
+    self.value.print + suffix
+  }
+}
+
+class Maker {
+  @class
+  make_render<T>(_ box: Box<T>)
+    where T |= Printable
+  {
+    &box.render(_)
+  }
+}
+
+let render = Maker.make_render(Box(User.new()))
+let result = render("?")
+"#;
+
+    let (vm, module) = vm_support::run_inline(source).expect("escaped conditional family must capture creator evidence");
+    assert_eq!(named(&vm, module, "result").to_string(&vm), "escaped?");
 }

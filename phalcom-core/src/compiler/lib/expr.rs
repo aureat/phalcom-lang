@@ -494,6 +494,14 @@ impl<'vm> Compiler<'vm> {
                             let declaring_name_idx = self.add_constant(Value::symbol(declaring_sym), call.range)?;
                             let fallback_method_obj = self.get_or_compile_conditional_method(&spec.callable)?;
                             let fallback_method_idx = self.add_constant(Value::obj(fallback_method_obj), call.range)?;
+                            let recipe = spec.call_environment_recipe.ok_or(CompilerError::CallableReferenceNotLoweredYet(call.range))?;
+                            let recipe_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_call_environment_recipe(recipe, call.range)?;
                             self.emit(
                                 Bytecode::InvokeConditional {
                                     arity,
@@ -502,6 +510,7 @@ impl<'vm> Compiler<'vm> {
                                     declaring_name: declaring_name_idx,
                                     class_side: spec.side == phalcom_semantic::identity::DispatchSide::Class,
                                     fallback_method: fallback_method_idx,
+                                    call_environment_recipe: recipe_idx,
                                 },
                                 call.range,
                             );
@@ -737,6 +746,16 @@ impl<'vm> Compiler<'vm> {
                             let declaring_name_idx = self.add_constant(Value::symbol(declaring_sym), method_call.range)?;
                             let fallback_method_obj = self.get_or_compile_conditional_method(&spec.callable)?;
                             let fallback_method_idx = self.add_constant(Value::obj(fallback_method_obj), method_call.range)?;
+                            let recipe = spec
+                                .call_environment_recipe
+                                .ok_or(CompilerError::CallableReferenceNotLoweredYet(method_call.range))?;
+                            let recipe_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_call_environment_recipe(recipe, method_call.range)?;
                             self.emit(
                                 Bytecode::InvokeConditional {
                                     arity,
@@ -745,6 +764,7 @@ impl<'vm> Compiler<'vm> {
                                     declaring_name: declaring_name_idx,
                                     class_side: spec.side == phalcom_semantic::identity::DispatchSide::Class,
                                     fallback_method: fallback_method_idx,
+                                    call_environment_recipe: recipe_idx,
                                 },
                                 method_call.range,
                             );

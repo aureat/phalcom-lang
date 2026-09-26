@@ -30,6 +30,7 @@ impl<'vm> Compiler<'vm> {
                 declaring_owner: entry.declaring_owner.clone(),
                 side: entry.side,
                 fallback_method,
+                call_environment_recipe: entry.call_environment_recipe.clone(),
             });
         }
         self.functions.last_mut().unwrap().chunk.executable_semantics.add_conditional_family_descriptor(
