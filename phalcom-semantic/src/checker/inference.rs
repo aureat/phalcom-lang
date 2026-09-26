@@ -544,6 +544,19 @@ pub enum SolveEffect {
     Changed,
 }
 
+/// A required relation that could not yet be proved or refuted because a
+/// non-injective projection remained symbolic.
+///
+/// Residual obligations are retried by the existing inference fixed point
+/// after substitutions and projection normalization. They are never used to
+/// infer projection subjects backwards.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResidualInferenceObligation {
+    pub constraint_index: u32,
+    pub relation: InferenceRelation,
+    pub origin: ConstraintOrigin,
+}
+
 impl SolveEffect {
     fn is_changed(self) -> bool {
         matches!(self, Self::Changed)
@@ -610,6 +623,12 @@ pub struct InferenceSession {
     row_solver: Weak<RefCell<RecordRowSolver<InferenceTerm>>>,
     pending_row_equations: Vec<PendingInferenceRowEquation>,
     queued_row_equations: Vec<PendingInferenceRowEquation>,
+    /// Mandatory constraints that are currently neither proven nor refuted.
+    /// The key is the stable index in `constraints`.
+    residual_obligations: HashMap<u32, ResidualInferenceObligation>,
+    /// Constraint currently being evaluated. Projection unification uses this
+    /// only to attach a residual proof obligation to its owning relation.
+    active_constraint_index: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -623,6 +642,58 @@ struct CanonicalConstructorView {
 impl InferenceSession {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Returns the currently unresolved mandatory inference obligations.
+    ///
+    /// This is primarily useful for diagnostics and law-level solver tests;
+    /// callers must not treat a residual as a solved relation.
+    pub fn residual_obligations(&self) -> Vec<ResidualInferenceObligation> {
+        let mut obligations = self.residual_obligations.values().cloned().collect::<Vec<_>>();
+        obligations.sort_by_key(|obligation| obligation.constraint_index);
+        obligations
+    }
+
+    fn defer_active_constraint(&mut self) {
+        let Some(index) = self.active_constraint_index else {
+            return;
+        };
+        let Some(constraint) = self.constraints.get(index as usize).cloned() else {
+            return;
+        };
+        self.residual_obligations.insert(
+            index,
+            ResidualInferenceObligation {
+                constraint_index: index,
+                relation: constraint.relation,
+                origin: constraint.origin,
+            },
+        );
+    }
+
+    fn residual_blocks_frame(&self, frame: InferenceFrameId) -> bool {
+        self.residual_obligations.values().any(|obligation| {
+            let terms = match &obligation.relation {
+                InferenceRelation::Equivalent(left, right) | InferenceRelation::Subtype(left, right) => [left, right],
+            };
+            let mut contains_variable = false;
+            for term in terms {
+                for variable in self.term_variables(term) {
+                    contains_variable = true;
+                    if self
+                        .variables
+                        .iter()
+                        .find(|candidate| candidate.id == variable)
+                        .is_some_and(|candidate| candidate.frame == frame)
+                    {
+                        return true;
+                    }
+                }
+            }
+            // A closed symbolic projection relation has no inference variable
+            // to attribute to a child frame. It is owned by the root proof.
+            !contains_variable && self.root_frame == Some(frame)
+        })
     }
 
     fn enqueue_row_equation(
@@ -2274,21 +2345,28 @@ impl InferenceSession {
                 if let Err(report) = control.charge_step() {
                     return Err(Box::new(InferenceOutcome::BudgetExceeded(report)));
                 }
+                let constraint_index = constraint_index as u32;
+                // Retrying a constraint invalidates its previous residual
+                // state. If it is still unresolved, the projection branch
+                // records it again during this evaluation.
+                self.residual_obligations.remove(&constraint_index);
+                self.active_constraint_index = Some(constraint_index);
                 let effect = match &constraint.relation {
                     InferenceRelation::Equivalent(left, right) => self.unify_terms(left, right, store),
                     InferenceRelation::Subtype(sub, sup) => self.subtype_terms(sub, sup, store, hierarchy),
                 };
+                self.active_constraint_index = None;
                 match effect {
                     Ok(effect) => {
                         changed |= effect.is_changed();
-                        self.record_bound_origin(&constraint.relation, constraint.origin.clone(), constraint_index as u32, store);
-                        self.record_variable_constraint_indices(&constraint.relation, constraint_index as u32);
+                        self.record_bound_origin(&constraint.relation, constraint.origin.clone(), constraint_index, store);
+                        self.record_variable_constraint_indices(&constraint.relation, constraint_index);
                     }
                     Err(failure) => {
                         let related = self.related_constraint_indices(&constraint.relation);
                         return Err(Box::new(self.failure_outcome_with_related(
                             failure,
-                            Some(constraint_index as u32),
+                            Some(constraint_index),
                             Some(constraint.origin.clone()),
                             &related,
                         )));
@@ -2479,7 +2557,7 @@ impl InferenceSession {
             }
         }
 
-        if !unsolved.is_empty() {
+        if !unsolved.is_empty() || self.residual_blocks_frame(frame) {
             InferenceOutcome::Underconstrained(UnderconstrainedInference { unsolved_vars: unsolved })
         } else {
             InferenceOutcome::Solved(InferenceSolution {
@@ -2503,7 +2581,7 @@ impl InferenceSession {
             }
         }
 
-        if !unsolved.is_empty() {
+        if !unsolved.is_empty() || !self.residual_obligations.is_empty() {
             InferenceOutcome::Underconstrained(UnderconstrainedInference { unsolved_vars: unsolved })
         } else {
             InferenceOutcome::Solved(InferenceSolution {
@@ -4043,7 +4121,11 @@ impl InferenceSession {
                 if left == right {
                     return Ok(SolveEffect::Unchanged);
                 }
-                // Associated projections are non-injective by default. Do not unify subjects or arguments backwards.
+                // Associated projections are non-injective by default. Do not
+                // unify subjects or arguments backwards; preserve the required
+                // equality as a residual proof obligation until normalization
+                // can prove or refute it.
+                self.defer_active_constraint();
                 Ok(SolveEffect::Unchanged)
             }
             (
@@ -4079,6 +4161,7 @@ impl InferenceSession {
                 let canonical = self.type_id_to_inference(*ty, &HashMap::new(), store);
                 if canonical == InferenceTerm::Canonical(*ty) {
                     if matches!(other, InferenceTerm::AssociatedProjection { .. } | InferenceTerm::TypeMemberProjection { .. } | InferenceTerm::PackProjection { .. }) {
+                        self.defer_active_constraint();
                         return Ok(SolveEffect::Unchanged);
                     }
                     return Err(InferenceFailureReason::StructuralMismatch {
@@ -4245,9 +4328,42 @@ impl InferenceSession {
                     return Ok(SolveEffect::Unchanged);
                 }
                 if *left_lane == InferencePackProjectionLane::Complete {
+                    // Complete is the identity lane. Reduce it forward rather
+                    // than treating generic projections as injective.
                     return self.unify_terms(left_subject, right_subject, store);
                 }
-                // Positionals(P) == Positionals(Q) or Labeled(P) == Labeled(Q) does NOT imply P == Q.
+                if let (Ok(left_ty), Ok(right_ty)) = (
+                    self.materialize(left_subject, store),
+                    self.materialize(right_subject, store),
+                ) {
+                    let left_projected = match left_lane {
+                        InferencePackProjectionLane::Positionals => store.project_positionals(left_ty),
+                        InferencePackProjectionLane::Labeled => store.project_labeled(left_ty),
+                        InferencePackProjectionLane::Complete => store.project_complete(left_ty),
+                    }
+                    .map_err(|_| InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    })?;
+                    let right_projected = match right_lane {
+                        InferencePackProjectionLane::Positionals => store.project_positionals(right_ty),
+                        InferencePackProjectionLane::Labeled => store.project_labeled(right_ty),
+                        InferencePackProjectionLane::Complete => store.project_complete(right_ty),
+                    }
+                    .map_err(|_| InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    })?;
+                    return self.unify_terms(
+                        &InferenceTerm::Canonical(left_projected),
+                        &InferenceTerm::Canonical(right_projected),
+                        store,
+                    );
+                }
+                // Positionals(P) == Positionals(Q) or Labeled(P) == Labeled(Q)
+                // does NOT imply P == Q. Keep the equality mandatory and retry
+                // after independent constraints solve the subjects.
+                self.defer_active_constraint();
                 Ok(SolveEffect::Unchanged)
             }
             (InferenceTerm::PackProjection { subject, lane }, other) | (other, InferenceTerm::PackProjection { subject, lane }) => {
@@ -4266,13 +4382,18 @@ impl InferenceSession {
                     })?;
                     self.unify_terms(&InferenceTerm::Canonical(projected), other, store)
                 } else {
+                    self.defer_active_constraint();
                     Ok(SolveEffect::Unchanged)
                 }
             }
             // Type-member operations are not injective. Their subjects and
             // arguments may become canonical after other constraints solve,
             // but projection equality must not solve those children backwards.
-            (InferenceTerm::TypeMemberProjection { .. }, _) | (_, InferenceTerm::TypeMemberProjection { .. }) => Ok(SolveEffect::Unchanged),
+            (InferenceTerm::TypeMemberProjection { .. }, InferenceTerm::TypeMemberProjection { .. }) if left == right => Ok(SolveEffect::Unchanged),
+            (InferenceTerm::TypeMemberProjection { .. }, _) | (_, InferenceTerm::TypeMemberProjection { .. }) => {
+                self.defer_active_constraint();
+                Ok(SolveEffect::Unchanged)
+            }
             _ => Err(InferenceFailureReason::StructuralMismatch {
                 left: Box::new(left.clone()),
                 right: Box::new(right.clone()),

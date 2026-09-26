@@ -1499,3 +1499,284 @@ fn p3_open_callable_rest_is_not_coerced_to_callable_from_packs() {
     let err = session.propagate_with_control(&mut store, &hier, &control);
     assert!(err.is_err(), "open rest callable must not match CallableFromPacks");
 }
+
+
+fn residual_type_member_projection(subject: InferenceTerm) -> InferenceTerm {
+    InferenceTerm::TypeMemberProjection {
+        subject: phalcom_semantic::checker::inference::InferenceProjectionSubject::Type(Box::new(subject)),
+        selector: phalcom_semantic::types::type_member::TypeMemberSelector::named("Element"),
+        arguments: Box::new([]),
+        source_declaration: None,
+        result_kind: KindId::TYPE,
+    }
+}
+
+fn residual_associated_projection(subject: InferenceTerm) -> InferenceTerm {
+    let trait_decl = test_decl("ResidualTrait");
+    InferenceTerm::AssociatedProjection {
+        subject: Box::new(subject),
+        trait_ref: phalcom_semantic::checker::inference::InferenceTraitRef {
+            declaration: trait_decl.clone(),
+            arguments: Box::new([]),
+        },
+        requirement: phalcom_semantic::traits::AssociatedTypeRequirementId::new(trait_decl, 0),
+    }
+}
+
+fn residual_pack_projection(
+    subject: InferenceTerm,
+    lane: InferencePackProjectionLane,
+) -> InferenceTerm {
+    InferenceTerm::PackProjection {
+        subject: Box::new(subject),
+        lane,
+    }
+}
+
+fn concrete_complete_pack(store: &mut TypeStore, element: TypeId) -> TypeId {
+    let positionals = store.type_pack(vec![element].into_boxed_slice()).unwrap();
+    let labeled = store.labeled_type_pack(Box::new([])).unwrap();
+    store.complete_type_pack(positionals, labeled).unwrap()
+}
+
+#[test]
+fn type_member_projection_equality_is_residual_and_non_injective() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut session = InferenceSession::new();
+    let x = session.fresh_variable(KindId::TYPE);
+    let y = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            residual_type_member_projection(InferenceTerm::Var(x)),
+            residual_type_member_projection(InferenceTerm::Var(y)),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(matches!(session.solve(&mut store, &hierarchy), InferenceOutcome::Underconstrained(_)));
+    assert_eq!(session.residual_obligations().len(), 1);
+    assert!(session.materialize(&InferenceTerm::Var(x), &mut store).is_err());
+    assert!(session.materialize(&InferenceTerm::Var(y), &mut store).is_err());
+}
+
+#[test]
+fn associated_projection_equality_is_residual_and_non_injective() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut session = InferenceSession::new();
+    let x = session.fresh_variable(KindId::TYPE);
+    let y = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            residual_associated_projection(InferenceTerm::Var(x)),
+            residual_associated_projection(InferenceTerm::Var(y)),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(matches!(session.solve(&mut store, &hierarchy), InferenceOutcome::Underconstrained(_)));
+    assert_eq!(session.residual_obligations().len(), 1);
+    assert!(session.materialize(&InferenceTerm::Var(x), &mut store).is_err());
+    assert!(session.materialize(&InferenceTerm::Var(y), &mut store).is_err());
+}
+
+#[test]
+fn pack_lane_projection_equality_is_residual_and_non_injective() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut session = InferenceSession::new();
+    let p = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+    let q = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            residual_pack_projection(InferenceTerm::Var(p), InferencePackProjectionLane::Positionals),
+            residual_pack_projection(InferenceTerm::Var(q), InferencePackProjectionLane::Positionals),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(matches!(session.solve(&mut store, &hierarchy), InferenceOutcome::Underconstrained(_)));
+    assert_eq!(session.residual_obligations().len(), 1);
+    assert!(session.materialize(&InferenceTerm::Var(p), &mut store).is_err());
+    assert!(session.materialize(&InferenceTerm::Var(q), &mut store).is_err());
+}
+
+#[test]
+fn closed_symbolic_projection_residual_blocks_false_solved() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let left = store.nominal(test_decl("LeftSubject"));
+    let right = store.nominal(test_decl("RightSubject"));
+    let mut session = InferenceSession::new();
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            residual_type_member_projection(InferenceTerm::Canonical(left)),
+            residual_type_member_projection(InferenceTerm::Canonical(right)),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let outcome = session.solve(&mut store, &hierarchy);
+    assert!(matches!(
+        outcome,
+        InferenceOutcome::Underconstrained(ref under) if under.unsolved_vars.is_empty()
+    ));
+    assert_eq!(session.residual_obligations().len(), 1);
+}
+
+#[test]
+fn independently_solved_pack_subjects_discharge_equal_projection_residual() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let int_ty = store.nominal(test_decl("Int"));
+    let complete = concrete_complete_pack(&mut store, int_ty);
+    let mut session = InferenceSession::new();
+    let p = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+    let q = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            residual_pack_projection(InferenceTerm::Var(p), InferencePackProjectionLane::Positionals),
+            residual_pack_projection(InferenceTerm::Var(q), InferencePackProjectionLane::Positionals),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(p), InferenceTerm::Canonical(complete)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(q), InferenceTerm::Canonical(complete)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(session.solve(&mut store, &hierarchy).is_solved());
+    assert!(session.residual_obligations().is_empty());
+}
+
+#[test]
+fn independently_solved_pack_subjects_refute_unequal_projection_residual() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let int_ty = store.nominal(test_decl("Int"));
+    let string_ty = store.nominal(test_decl("String"));
+    let left_complete = concrete_complete_pack(&mut store, int_ty);
+    let right_complete = concrete_complete_pack(&mut store, string_ty);
+    let mut session = InferenceSession::new();
+    let p = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+    let q = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            residual_pack_projection(InferenceTerm::Var(p), InferencePackProjectionLane::Positionals),
+            residual_pack_projection(InferenceTerm::Var(q), InferencePackProjectionLane::Positionals),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(p), InferenceTerm::Canonical(left_complete)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(q), InferenceTerm::Canonical(right_complete)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(matches!(session.solve(&mut store, &hierarchy), InferenceOutcome::Conflicting(_)));
+}
+
+#[test]
+fn projection_against_concrete_type_cannot_silently_succeed() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let int_ty = store.nominal(test_decl("Int"));
+    let subject_ty = store.nominal(test_decl("ConcreteSubject"));
+    let mut session = InferenceSession::new();
+    let x = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            residual_type_member_projection(InferenceTerm::Var(x)),
+            InferenceTerm::Canonical(int_ty),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(x), InferenceTerm::Canonical(subject_ty)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let outcome = session.solve(&mut store, &hierarchy);
+    assert!(matches!(
+        outcome,
+        InferenceOutcome::Underconstrained(ref under) if under.unsolved_vars.is_empty()
+    ));
+    assert_eq!(session.residual_obligations().len(), 1);
+}
+
+#[test]
+fn identical_closed_projection_is_immediately_proven() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let subject = store.nominal(test_decl("Subject"));
+    let projection = residual_type_member_projection(InferenceTerm::Canonical(subject));
+    let mut session = InferenceSession::new();
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(projection.clone(), projection),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(session.solve(&mut store, &hierarchy).is_solved());
+    assert!(session.residual_obligations().is_empty());
+}
+
+#[test]
+fn complete_pack_projection_reduces_as_identity_before_unification() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let int_ty = store.nominal(test_decl("Int"));
+    let complete = concrete_complete_pack(&mut store, int_ty);
+    let mut session = InferenceSession::new();
+    let p = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+    let q = session.fresh_variable(KindId::COMPLETE_TYPE_PACK);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            residual_pack_projection(InferenceTerm::Var(p), InferencePackProjectionLane::Complete),
+            residual_pack_projection(InferenceTerm::Var(q), InferencePackProjectionLane::Complete),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(p), InferenceTerm::Canonical(complete)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let outcome = session.solve(&mut store, &hierarchy);
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = outcome {
+        assert_eq!(session.solved_type_for(&solution, q), Some(complete));
+    }
+    assert!(session.residual_obligations().is_empty());
+}
