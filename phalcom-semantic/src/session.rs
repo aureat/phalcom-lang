@@ -3701,6 +3701,7 @@ impl SemanticWorkspaceSession {
                         header_dependencies,
                     );
                     let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
+                    let mut invalid_generic_signature = false;
                     let generic_signature = if !class_def.generic_parameters.is_empty() {
                         let outcome = resolve_generic_signature(
                             Arc::make_mut(&mut self.store),
@@ -3713,6 +3714,7 @@ impl SemanticWorkspaceSession {
                             class_def.where_clause.as_ref(),
                             diags_by_module.entry(module_id.clone()).or_default(),
                         );
+                        invalid_generic_signature = matches!(&outcome, TypeFormationOutcome::Invalid(_));
                         Some(retain_generic_signature(
                             outcome,
                             &module_id,
@@ -3725,6 +3727,9 @@ impl SemanticWorkspaceSession {
                     };
 
                     if !class_def.generic_parameters.is_empty() && generic_signature.is_none() {
+                        if invalid_generic_signature {
+                            blocked_declarations.insert(decl_id.clone());
+                        }
                         continue;
                     }
                     if let (Some(header), Some(signature)) = (declarations.generic_binder_header(&decl_id), generic_signature.as_ref()) {
@@ -3859,6 +3864,7 @@ impl SemanticWorkspaceSession {
                         header_dependencies,
                     );
                     let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
+                    let mut invalid_generic_signature = false;
                     let generic_signature = if !data_def.generic_parameters.is_empty() {
                         let outcome = resolve_generic_signature(
                             Arc::make_mut(&mut self.store),
@@ -3871,6 +3877,7 @@ impl SemanticWorkspaceSession {
                             data_def.where_clause.as_ref(),
                             diags_by_module.entry(module_id.clone()).or_default(),
                         );
+                        invalid_generic_signature = matches!(&outcome, TypeFormationOutcome::Invalid(_));
                         Some(retain_generic_signature(
                             outcome,
                             &module_id,
@@ -3883,6 +3890,9 @@ impl SemanticWorkspaceSession {
                     };
 
                     if !data_def.generic_parameters.is_empty() && generic_signature.is_none() {
+                        if invalid_generic_signature {
+                            blocked_declarations.insert(decl_id.clone());
+                        }
                         continue;
                     }
                     if let (Some(header), Some(signature)) = (declarations.generic_binder_header(&decl_id), generic_signature.as_ref()) {

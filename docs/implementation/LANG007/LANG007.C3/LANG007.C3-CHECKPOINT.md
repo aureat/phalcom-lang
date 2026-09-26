@@ -1655,17 +1655,27 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Continue the attached P4 audit remediation at Priority 3: classify the
-    remaining 40 semantic failures against known-green history, then resume the
-    open T4/T5 work and subsequent audit priorities.
+    Continue audit Priority 3 remediation for the classified semantic failures,
+    starting with the remaining T12 editor-visible-symbol projection failure;
+    then resolve the other owned regressions before resuming open T4/T5 work.
 
 next action:
-    For each audit-listed semantic failure, establish whether it is a current
-    regression, an intentional P4 migration, or a true clean-predecessor
-    baseline. Preserve the three-category audit rule, make only source-backed
-    corrections, and record meaningful results here. Priority 2's nine named
-    runtime selectors are individually focused-tested, but no broad core,
-    workspace, or release gate has passed; P4 remains
+    Priority 3's 40-way pre-remediation classification evidence is acquired and recorded in
+    `LANG007.C3.P4-audit-remediation/04-semantic-regression-classification.md`.
+    At commit `9e58d3b`, the pinned current-main run had 40 failures; all 40
+    also failed at the clean pre-P4 revision c3862536. Older source-backed
+    PASS records classify 35 as pre-P4-origin regressions; four are true
+    predecessor baselines; the variadic alias is an intentional syntax
+    migration. Since that baseline, the explicit `*` alias migration and the
+    invalid generic declaration-header correction have each passed their exact
+    focused selectors; the full semantic target has not been rerun. The latter
+    blocks only confirmed-invalid class/data signatures, and its two valid
+    signature controls pass. This is audit Priority 3 remediation, not
+    completion of P4 T13: its T1–T12 preconditions remain unmet. Next:
+    investigate the remaining T12 editor-visible-symbol projection failure,
+    then continue the classified regressions without changing assertions.
+    Priority 2's nine named runtime selectors are individually focused-tested,
+    but no broad core, workspace, or release gate has passed; P4 remains
     `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 ```
 

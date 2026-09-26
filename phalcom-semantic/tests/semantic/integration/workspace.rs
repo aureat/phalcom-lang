@@ -113,7 +113,9 @@ class Transformer<F: Type -> Type, T> {}
 #[test]
 fn invalid_generic_kind_does_not_publish_ready_declaration_header() {
     let module = ModuleId::universe_root();
-    let source: Arc<str> = Arc::from("class Broken<T: ?> {}\n");
+    let source: Arc<str> = Arc::from(
+        "class Broken<T: ?> {}\ndata BrokenData<T: ?>(_ value: T)\nclass Good<T> {}\ndata GoodData<T>(_ value: T)\n",
+    );
     let parsed = phalcom_ast::parse(&source, 0);
     let phalcom_ast::ast::Statement::Class(class_def) = &parsed.program.statements[0] else {
         panic!("expected class declaration")
@@ -123,8 +125,30 @@ fn invalid_generic_kind_does_not_publish_ready_declaration_header() {
         Some(phalcom_ast::ast::KindSyntax::Invalid { .. })
     ));
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
-    let declaration = DeclarationId::new(module, "Broken".into());
-    assert!(analysis.snapshot.declarations.get(&declaration).is_none());
+    assert!(
+        analysis.snapshot.all_diagnostics().any(|diagnostic| {
+            diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved
+                && diagnostic.message.contains("InvalidKindSyntax")
+        }),
+        "invalid kind diagnostic should be retained: {:?}",
+        analysis.snapshot.diagnostics
+    );
+    for name in ["Broken", "BrokenData"] {
+        let declaration = DeclarationId::new(module.clone(), name.into());
+        assert!(
+            analysis.snapshot.declarations.get(&declaration).is_none(),
+            "invalid declaration {name} must not publish a header"
+        );
+    }
+    for name in ["Good", "GoodData"] {
+        let declaration = DeclarationId::new(module.clone(), name.into());
+        let info = analysis
+            .snapshot
+            .declarations
+            .get(&declaration)
+            .unwrap_or_else(|| panic!("valid generic declaration {name} should remain published"));
+        assert!(info.generic_signature.is_some(), "valid generic {name} signature");
+    }
 }
 
 #[test]

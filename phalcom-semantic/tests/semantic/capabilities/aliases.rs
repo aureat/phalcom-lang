@@ -226,7 +226,7 @@ fn variadic_callable_alias_lowers_and_beta_reduces() {
         r#"
 type Fn<*Ps> = (*Ps,) -> Bool;
 class Consumer<T> {}
-type User = Consumer<Fn<Int, String>>;
+type User = Consumer<Fn<*(Int, String)>>;
 "#,
     );
     assert!(!fixture.analysis.snapshot.has_errors(), "{:?}", fixture.analysis.snapshot.diagnostics);
