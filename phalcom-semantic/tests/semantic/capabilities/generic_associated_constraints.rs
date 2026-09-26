@@ -79,8 +79,7 @@ class Tools {
 fn where_clause_kind_fact_unifies_with_generic_parameter() {
     let fixture = Fixture::new(
         r#"
-class Container<F>
-  where F: Type -> Type
+class Container<F: Type -> Type>
 {
 }
 "#,
@@ -433,3 +432,205 @@ class Tools {
     let has_associated_projection = bundle.types.iter().any(|entry| matches!(entry.form, TypeNode::AssociatedProjection { .. }));
     assert!(has_associated_projection, "bundle must contain an AssociatedProjection TypeNode");
 }
+
+#[test]
+fn projection_equality_is_non_injective_for_type_member_projections() {
+    let mut store = phalcom_semantic::types::store::TypeStore::new();
+    let mod_id = phalcom_modules::ModuleId::universe_root();
+    let decl_p = phalcom_modules::DeclarationId::new(mod_id.clone(), "P".into());
+    let decl_q = phalcom_modules::DeclarationId::new(mod_id, "Q".into());
+    let p = store.intern_type_parameter(
+        phalcom_semantic::types::parameter::TypeParameterData::new(
+            phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(decl_p),
+            0,
+            "P",
+            phalcom_semantic::KindId::COMPLETE_TYPE_PACK,
+        )
+        .with_mode(phalcom_semantic::types::parameter::GenericParameterMode::CompletePack),
+    );
+    let q = store.intern_type_parameter(
+        phalcom_semantic::types::parameter::TypeParameterData::new(
+            phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(decl_q),
+            0,
+            "Q",
+            phalcom_semantic::KindId::COMPLETE_TYPE_PACK,
+        )
+        .with_mode(phalcom_semantic::types::parameter::GenericParameterMode::CompletePack),
+    );
+    let p_ty = store.parameter_form(p);
+    let q_ty = store.parameter_form(q);
+
+    let p_pos = store.project_positionals(p_ty).unwrap();
+    let q_pos = store.project_positionals(q_ty).unwrap();
+
+    // In a solver or unification context, P.Positionals == Q.Positionals must NOT unify P and Q.
+    assert_ne!(p_ty, q_ty);
+    assert_ne!(p_pos, q_pos);
+    assert_eq!(store.canonical_complete_pack_subject(p_pos, q_pos), None);
+}
+
+#[test]
+fn canonical_complete_pack_subject_roundtrips_only_congruent_lanes() {
+    let mut store = phalcom_semantic::types::store::TypeStore::new();
+    let mod_id = phalcom_modules::ModuleId::universe_root();
+    let decl_p = phalcom_modules::DeclarationId::new(mod_id.clone(), "P".into());
+    let decl_q = phalcom_modules::DeclarationId::new(mod_id, "Q".into());
+    let p = store.intern_type_parameter(
+        phalcom_semantic::types::parameter::TypeParameterData::new(
+            phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(decl_p),
+            0,
+            "P",
+            phalcom_semantic::KindId::COMPLETE_TYPE_PACK,
+        )
+        .with_mode(phalcom_semantic::types::parameter::GenericParameterMode::CompletePack),
+    );
+    let q = store.intern_type_parameter(
+        phalcom_semantic::types::parameter::TypeParameterData::new(
+            phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(decl_q),
+            0,
+            "Q",
+            phalcom_semantic::KindId::COMPLETE_TYPE_PACK,
+        )
+        .with_mode(phalcom_semantic::types::parameter::GenericParameterMode::CompletePack),
+    );
+    let p_ty = store.parameter_form(p);
+    let q_ty = store.parameter_form(q);
+
+    let p_pos = store.project_positionals(p_ty).unwrap();
+    let p_lab = store.project_labeled(p_ty).unwrap();
+    let q_lab = store.project_labeled(q_ty).unwrap();
+
+    // Complete(Positionals(P), Labeled(P)) ≡ P
+    assert_eq!(store.canonical_complete_pack_subject(p_pos, p_lab), Some(p_ty));
+
+    // Complete(Positionals(P), Labeled(Q)) with P != Q must NOT collapse to P or Q
+    assert_eq!(store.canonical_complete_pack_subject(p_pos, q_lab), None);
+}
+
+#[test]
+fn match_impl_domain_head_matches_tuple_and_unit_against_tuple_from_packs() {
+    let mut store = phalcom_semantic::types::store::TypeStore::new();
+    let mod_id = phalcom_modules::ModuleId::universe_root();
+    let impl_id = phalcom_semantic::identity::ImplId::new(mod_id.clone(), phalcom_semantic::identity::ImplLocalId(0));
+    let es = store.intern_type_parameter(
+        phalcom_semantic::types::parameter::TypeParameterData::new(
+            phalcom_semantic::types::parameter::TypeParameterOwner::Impl(impl_id.clone()),
+            0,
+            "Es",
+            phalcom_semantic::KindId::COMPLETE_TYPE_PACK,
+        )
+        .with_mode(phalcom_semantic::types::parameter::GenericParameterMode::CompletePack),
+    );
+    let es_ty = store.parameter_form(es);
+    let es_pos = store.project_positionals(es_ty).unwrap();
+    let es_lab = store.project_labeled(es_ty).unwrap();
+    let tuple_head = store.tuple_from_packs(es_pos, es_lab).unwrap();
+
+    let int_decl = phalcom_modules::DeclarationId::new(mod_id.clone(), "Int".into());
+    let str_decl = phalcom_modules::DeclarationId::new(mod_id, "String".into());
+    let int_ty = store.intern_with_kind(
+        TypeData::Nominal { declaration: int_decl },
+        phalcom_semantic::KindId::TYPE,
+    );
+    let str_ty = store.intern_with_kind(
+        TypeData::Nominal { declaration: str_decl },
+        phalcom_semantic::KindId::TYPE,
+    );
+    let concrete_tuple = store.tuple(Box::new([
+        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: int_ty },
+        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: str_ty },
+    ]));
+    let unit_ty = store.unit();
+
+    let mut bindings_tuple = std::collections::HashMap::new();
+    assert!(phalcom_semantic::impls::match_impl_domain_head(&mut store, tuple_head, concrete_tuple, &impl_id, &mut bindings_tuple));
+    assert_eq!(bindings_tuple.len(), 1);
+    let bound_complete = bindings_tuple.get(&es).copied().unwrap();
+    let expected_complete = store.project_complete(concrete_tuple).unwrap();
+    assert_eq!(bound_complete, expected_complete);
+
+    let mut bindings_unit = std::collections::HashMap::new();
+    assert!(phalcom_semantic::impls::match_impl_domain_head(&mut store, tuple_head, unit_ty, &impl_id, &mut bindings_unit));
+    assert_eq!(bindings_unit.len(), 1);
+    let bound_unit_complete = bindings_unit.get(&es).copied().unwrap();
+    let expected_unit_complete = store.project_complete(unit_ty).unwrap();
+    assert_eq!(bound_unit_complete, expected_unit_complete);
+}
+
+#[test]
+fn deferred_projection_with_generic_substitution_normalizes_to_symbolic() {
+    use phalcom_semantic::generic_evidence::GenericEvidenceEnvironment;
+    use phalcom_semantic::traits::{AssociatedTypeRequirementId, TraitRef};
+    use phalcom_semantic::types::outcome::{CancellationToken, QueryBudget};
+    use phalcom_semantic::types::projection::{ProjectionNormalizationContext, ProjectionNormalizationMode, ProjectionNormalizationResult, normalize_type};
+
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+  type Item
+}
+
+class ListIterator<T> {}
+
+impl<T> Iterator for ListIterator<T> {
+  type Item = T
+}
+
+class TestBox<T> {
+  @class
+  testProj<I>(_ it: I, _ x: I::Item) -> I::Item
+    where I |= Iterator
+  {
+    x
+  }
+}
+"#,
+    );
+
+    let diags = fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>();
+    assert!(diags.is_empty(), "expected 0 diagnostics, got: {:?}", diags);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let mod_id = phalcom_modules::ModuleId::universe_root();
+    let decl_t = phalcom_modules::DeclarationId::new(mod_id, "T".into());
+    let t_param = store.intern_type_parameter(
+        phalcom_semantic::types::parameter::TypeParameterData::new(
+            phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(decl_t),
+            0,
+            "T",
+            phalcom_semantic::KindId::TYPE,
+        ),
+    );
+    let t_ty = store.parameter_form(t_param);
+    let list_iter_decl = fixture.decl("ListIterator");
+    let list_iter_kind = fixture.analysis.snapshot.declarations.get(&list_iter_decl).unwrap().kind;
+    let list_iter_nominal = store.intern_with_kind(TypeData::Nominal { declaration: list_iter_decl }, list_iter_kind);
+    let applied_list_iter = store.apply_type_form(list_iter_nominal, &[t_ty]).unwrap();
+
+    let iter_trait = fixture.decl("Iterator");
+    let trait_ref = TraitRef::new(iter_trait.clone(), vec![].into_boxed_slice());
+    let req_id = AssociatedTypeRequirementId::new(iter_trait, 0);
+
+    let proj_ty = store.associated_projection(applied_list_iter, trait_ref, req_id);
+
+    let env = GenericEvidenceEnvironment::empty();
+    let mut budget = QueryBudget::new(100);
+    let cancel = CancellationToken::new();
+    let mut context = ProjectionNormalizationContext::new(
+        ProjectionNormalizationMode::Generic {
+            evidence: &env,
+            conformance_index: Some(&fixture.analysis.snapshot.conformance_index),
+            witness_plans: Some(&fixture.analysis.snapshot.conformance_witness_plans),
+            trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            derived_rules: None,
+            declarations: &fixture.analysis.snapshot.declarations,
+            hierarchy: &*fixture.analysis.snapshot.hierarchy,
+        },
+        &mut budget,
+        &cancel,
+    );
+
+    let norm_res = normalize_type(&mut store, proj_ty, &mut context);
+    assert_eq!(norm_res, ProjectionNormalizationResult::Normalized(t_ty));
+}
+

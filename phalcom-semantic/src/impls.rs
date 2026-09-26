@@ -1438,18 +1438,15 @@ pub fn check_witness_compatibility_with_visibility(
             Err(result) => return result,
         };
         let candidate_type = alpha.apply(store, candidate_type);
-        let (required_type, required_symbolic) = match normalize_witness_type(store, required_type, &abstract_trait, &mut budget, &cancel) {
+        let required_type = match normalize_witness_type(store, required_type, &abstract_trait, &mut budget, &cancel) {
             Ok(result) => result,
             Err(result) => return result,
         };
-        let (candidate_type, candidate_symbolic) = match normalize_witness_type(store, candidate_type, &abstract_trait, &mut budget, &cancel) {
+        let candidate_type = match normalize_witness_type(store, candidate_type, &abstract_trait, &mut budget, &cancel) {
             Ok(result) => result,
             Err(result) => return result,
         };
-        if let Err(result) = witness_relation_with_symbolic_boundaries(
-            check_subtype_bounded(store, hierarchy, required_type, candidate_type, &mut budget, &cancel),
-            required_symbolic || candidate_symbolic,
-        ) {
+        if let Err(result) = witness_relation_result(check_subtype_bounded(store, hierarchy, required_type, candidate_type, &mut budget, &cancel)) {
             return result;
         }
     }
@@ -1462,18 +1459,15 @@ pub fn check_witness_compatibility_with_visibility(
         Ok(ty) => ty,
         Err(result) => return result,
     };
-    let (candidate_return, candidate_symbolic) = match normalize_witness_type(store, candidate_return, &abstract_trait, &mut budget, &cancel) {
+    let candidate_return = match normalize_witness_type(store, candidate_return, &abstract_trait, &mut budget, &cancel) {
         Ok(result) => result,
         Err(result) => return result,
     };
-    let (required_return, required_symbolic) = match normalize_witness_type(store, required_return, &abstract_trait, &mut budget, &cancel) {
+    let required_return = match normalize_witness_type(store, required_return, &abstract_trait, &mut budget, &cancel) {
         Ok(result) => result,
         Err(result) => return result,
     };
-    if let Err(result) = witness_relation_with_symbolic_boundaries(
-        check_subtype_bounded(store, hierarchy, candidate_return, required_return, &mut budget, &cancel),
-        candidate_symbolic || required_symbolic,
-    ) {
+    if let Err(result) = witness_relation_result(check_subtype_bounded(store, hierarchy, candidate_return, required_return, &mut budget, &cancel)) {
         return result;
     }
     WitnessCompatibility::Compatible(WitnessCompatibilityProof {
@@ -1488,15 +1482,15 @@ fn normalize_witness_type(
     trait_ref: &crate::traits::TraitRef,
     budget: &mut QueryBudget,
     cancel: &CancellationToken,
-) -> Result<(TypeId, bool), WitnessCompatibility> {
+) -> Result<TypeId, WitnessCompatibility> {
     let mut context = crate::types::ProjectionNormalizationContext::new(
         crate::types::ProjectionNormalizationMode::AbstractTrait { trait_ref },
         budget,
         cancel,
     );
     match crate::types::normalize_type(store, ty, &mut context) {
-        crate::types::ProjectionNormalizationResult::Normalized(ty) => Ok((ty, false)),
-        crate::types::ProjectionNormalizationResult::Symbolic(ty) => Ok((ty, true)),
+        crate::types::ProjectionNormalizationResult::Normalized(ty) => Ok(ty),
+        crate::types::ProjectionNormalizationResult::Symbolic(ty) => Ok(ty),
         crate::types::ProjectionNormalizationResult::Incomplete | crate::types::ProjectionNormalizationResult::Recursive => {
             Err(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))
         }
@@ -1508,13 +1502,6 @@ fn normalize_witness_type(
         crate::types::ProjectionNormalizationResult::BudgetExceeded(report) => Err(WitnessCompatibility::BudgetExceeded(report)),
         crate::types::ProjectionNormalizationResult::InternalFailure(message) => Err(WitnessCompatibility::InternalFailure(message)),
     }
-}
-
-fn witness_relation_with_symbolic_boundaries(outcome: RelationOutcome, symbolic: bool) -> Result<(), WitnessCompatibility> {
-    if symbolic && matches!(outcome, RelationOutcome::Refuted(_)) {
-        return Err(WitnessCompatibility::Unknown(UnknownReason::NoTypeEvidence));
-    }
-    witness_relation_result(outcome)
 }
 
 /// Checks a data component as a getter witness without manufacturing a
@@ -1992,7 +1979,8 @@ pub fn build_conformance_witness_plan(
                         }
                         let norm_left = match left {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) => NormalizedTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t)
+                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => NormalizedTerm::Canonical(t),
                                 crate::types::ProjectionNormalizationResult::Dynamic(_) => NormalizedTerm::Dynamic,
                                 other => {
                                     if std::env::var_os("PHALCOM_CONTRACT_TRACE").is_some() {
@@ -2005,7 +1993,8 @@ pub fn build_conformance_witness_plan(
                         };
                         let norm_right = match right {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) => NormalizedTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t)
+                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => NormalizedTerm::Canonical(t),
                                 crate::types::ProjectionNormalizationResult::Dynamic(_) => NormalizedTerm::Dynamic,
                                 other => other.type_id().map(NormalizedTerm::Canonical).unwrap_or_else(|| NormalizedTerm::Other(right)),
                             },
@@ -2036,6 +2025,9 @@ pub fn build_conformance_witness_plan(
                 }
             }
         }
+    }
+    if std::env::var_os("PHALCOM_CONTRACT_TRACE").is_some() && !failures.is_empty() {
+        eprintln!("impl {:?} target {} failures: {failures:?}", contribution.impl_id, store.format_type(contribution.target_head));
     }
     let completeness = if !failures.is_empty() || invalid_explicit_members {
         ConformanceCompleteness::Incomplete {
@@ -2270,7 +2262,8 @@ pub fn resolve_conformance_evidence_with_surfaces(
         )
         .with_current_exact_evidence(target, trait_ref, &associated_types);
         let value = match crate::types::normalize_type(store, value, &mut normalization_context) {
-            crate::types::ProjectionNormalizationResult::Normalized(value) => value,
+            crate::types::ProjectionNormalizationResult::Normalized(value)
+            | crate::types::ProjectionNormalizationResult::Symbolic(value) => value,
             other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
         };
         associated_types.get_mut(requirement).expect("associated binding remains staged").value = AssociatedTypeBindingValue::Type(value);
@@ -2302,7 +2295,8 @@ pub fn resolve_conformance_evidence_with_surfaces(
                     } => {
                         let norm_subject = match subject {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t)
+                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => TypeTerm::Canonical(t),
                                 other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
                             },
                             other => other,
@@ -2317,14 +2311,16 @@ pub fn resolve_conformance_evidence_with_surfaces(
                     GenericConstraint::Equivalent { left, right } => {
                         let norm_left = match left {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t)
+                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => TypeTerm::Canonical(t),
                                 other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
                             },
                             other => other,
                         };
                         let norm_right = match right {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) => TypeTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t)
+                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => TypeTerm::Canonical(t),
                                 other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
                             },
                             other => other,
@@ -2590,7 +2586,7 @@ impl ConformanceIndex {
 
     /// Returns pairs of eligible source heads whose joint target and trait
     /// patterns overlap. No precedence or specialization rule is applied.
-    pub fn overlap_conflicts(&self, store: &TypeStore) -> Vec<(ImplId, ImplId)> {
+    pub fn overlap_conflicts(&self, store: &mut TypeStore) -> Vec<(ImplId, ImplId)> {
         let contributions = self
             .contributions
             .values()
@@ -2686,9 +2682,9 @@ fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, 
     }
 }
 
-fn bind_conformance_parameter(store: &TypeStore, parameter: TypeParameterId, ty: TypeId, bindings: &mut HashMap<TypeParameterId, TypeId>) -> bool {
+fn bind_conformance_parameter(store: &mut TypeStore, parameter: TypeParameterId, ty: TypeId, bindings: &mut HashMap<TypeParameterId, TypeId>) -> bool {
     if let Some(&existing) = bindings.get(&parameter) {
-        return unify_conformance_head(store, existing, ty, bindings);
+        return match_conformance_head_with_mode(store, existing, ty, ConformanceMatchMode::Overlap, bindings);
     }
     if occurs_in_conformance_binding(store, parameter, ty, bindings) {
         return false;
@@ -2697,18 +2693,62 @@ fn bind_conformance_parameter(store: &TypeStore, parameter: TypeParameterId, ty:
     true
 }
 
-fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindings: &mut HashMap<TypeParameterId, TypeId>) -> bool {
+#[derive(Clone, Copy, Debug)]
+enum ConformanceMatchMode<'a> {
+    Directional {
+        impl_id: &'a ImplId,
+    },
+    Overlap,
+}
+
+fn match_conformance_head_with_mode(
+    store: &mut TypeStore,
+    left: TypeId,
+    right: TypeId,
+    mode: ConformanceMatchMode<'_>,
+    bindings: &mut HashMap<TypeParameterId, TypeId>,
+) -> bool {
     if left == right {
+        if let ConformanceMatchMode::Directional { impl_id } = mode {
+            if let TypeData::Parameter(p) = store.get(left) {
+                if store.type_parameter(*p).owner == TypeParameterOwner::Impl((*impl_id).clone()) {
+                    if let Some(&existing) = bindings.get(p) {
+                        return existing == right;
+                    } else {
+                        bindings.insert(*p, right);
+                    }
+                }
+            }
+        }
         return true;
     }
-    if let Some(parameter) = impl_parameter(store, left) {
-        return bind_conformance_parameter(store, parameter, right, bindings);
-    }
-    if let Some(parameter) = impl_parameter(store, right) {
-        return bind_conformance_parameter(store, parameter, left, bindings);
+
+    match mode {
+        ConformanceMatchMode::Directional { impl_id } => {
+            if let TypeData::Parameter(p) = store.get(left) {
+                if store.type_parameter(*p).owner == TypeParameterOwner::Impl((*impl_id).clone()) {
+                    if let Some(&existing) = bindings.get(p) {
+                        return match_conformance_head_with_mode(store, existing, right, mode, bindings);
+                    } else {
+                        bindings.insert(*p, right);
+                        return true;
+                    }
+                } else {
+                    return left == right;
+                }
+            }
+        }
+        ConformanceMatchMode::Overlap => {
+            if let Some(parameter) = impl_parameter(store, left) {
+                return bind_conformance_parameter(store, parameter, right, bindings);
+            }
+            if let Some(parameter) = impl_parameter(store, right) {
+                return bind_conformance_parameter(store, parameter, left, bindings);
+            }
+        }
     }
 
-    match (store.get(left), store.get(right)) {
+    match (store.get(left).clone(), store.get(right).clone()) {
         (TypeData::Nominal { declaration: left }, TypeData::Nominal { declaration: right }) => left == right,
         (
             TypeData::Applied {
@@ -2721,9 +2761,9 @@ fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindin
             },
         ) => {
             left_args.len() == right_args.len()
-                && unify_conformance_head(store, *left_origin, *right_origin, bindings)
+                && match_conformance_head_with_mode(store, left_origin, right_origin, mode, bindings)
                 && left_args.iter().zip(right_args.iter()).all(|(&left, &right)| match (left.as_type_id(), right.as_type_id()) {
-                    (Some(left), Some(right)) => unify_conformance_head(store, left, right, bindings),
+                    (Some(left), Some(right)) => match_conformance_head_with_mode(store, left, right, mode, bindings),
                     (None, None) => left == right,
                     _ => false,
                 })
@@ -2737,27 +2777,27 @@ fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindin
                 variant: right_variant,
                 enum_type: right_enum,
             },
-        ) => left_variant == right_variant && unify_conformance_head(store, *left_enum, *right_enum, bindings),
+        ) => left_variant == right_variant && match_conformance_head_with_mode(store, left_enum, right_enum, mode, bindings),
         (TypeData::Tuple(left), TypeData::Tuple(right)) => {
             left.len() == right.len()
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(left, right)| left.label == right.label && unify_conformance_head(store, left.ty, right.ty, bindings))
+                    .all(|(left, right)| left.label == right.label && match_conformance_head_with_mode(store, left.ty, right.ty, mode, bindings))
         }
         (TypeData::TypePack(left), TypeData::TypePack(right)) => {
             left.len() == right.len()
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(&left, &right)| unify_conformance_head(store, left, right, bindings))
+                    .all(|(&left, &right)| match_conformance_head_with_mode(store, left, right, mode, bindings))
         }
         (TypeData::LabeledTypePack(left), TypeData::LabeledTypePack(right)) => {
             left.len() == right.len()
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(left, right)| left.label == right.label && unify_conformance_head(store, left.element, right.element, bindings))
+                    .all(|(left, right)| left.label == right.label && match_conformance_head_with_mode(store, left.element, right.element, mode, bindings))
         }
         (
             TypeData::TupleFromPacks {
@@ -2768,7 +2808,51 @@ fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindin
                 positionals: right_pos,
                 labeled: right_lab,
             },
-        ) => unify_conformance_head(store, *left_pos, *right_pos, bindings) && unify_conformance_head(store, *left_lab, *right_lab, bindings),
+        ) => {
+            if let (Some(s1), Some(s2)) = (
+                store.canonical_complete_pack_subject(left_pos, left_lab),
+                store.canonical_complete_pack_subject(right_pos, right_lab),
+            ) {
+                return match_conformance_head_with_mode(store, s1, s2, mode, bindings);
+            }
+            match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings) && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings)
+        }
+        (
+            TypeData::TupleFromPacks {
+                positionals: left_pos,
+                labeled: left_lab,
+            },
+            TypeData::Tuple(_) | TypeData::Unit,
+        ) => {
+            if let Some(subject) = store.canonical_complete_pack_subject(left_pos, left_lab) {
+                if let Ok(right_complete) = store.project_complete(right) {
+                    return match_conformance_head_with_mode(store, subject, right_complete, mode, bindings);
+                }
+            }
+            if let (Ok(right_pos), Ok(right_lab)) = (store.project_positionals(right), store.project_labeled(right)) {
+                return match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings)
+                    && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings);
+            }
+            false
+        }
+        (
+            TypeData::Tuple(_) | TypeData::Unit,
+            TypeData::TupleFromPacks {
+                positionals: right_pos,
+                labeled: right_lab,
+            },
+        ) => {
+            if let Some(subject) = store.canonical_complete_pack_subject(right_pos, right_lab) {
+                if let Ok(left_complete) = store.project_complete(left) {
+                    return match_conformance_head_with_mode(store, left_complete, subject, mode, bindings);
+                }
+            }
+            if let (Ok(left_pos), Ok(left_lab)) = (store.project_positionals(left), store.project_labeled(left)) {
+                return match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings)
+                    && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings);
+            }
+            false
+        }
         (
             TypeData::CallableFromPacks {
                 positionals: left_pos,
@@ -2781,9 +2865,9 @@ fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindin
                 return_type: right_ret,
             },
         ) => {
-            unify_conformance_head(store, *left_pos, *right_pos, bindings)
-                && unify_conformance_head(store, *left_lab, *right_lab, bindings)
-                && unify_conformance_head(store, *left_ret, *right_ret, bindings)
+            match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings)
+                && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings)
+                && match_conformance_head_with_mode(store, left_ret, right_ret, mode, bindings)
         }
         (
             TypeData::CompleteTypePack {
@@ -2794,26 +2878,72 @@ fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindin
                 positionals: right_pos,
                 labeled: right_lab,
             },
-        ) => unify_conformance_head(store, *left_pos, *right_pos, bindings) && unify_conformance_head(store, *left_lab, *right_lab, bindings),
+        ) => {
+            if let (Some(s1), Some(s2)) = (
+                store.canonical_complete_pack_subject(left_pos, left_lab),
+                store.canonical_complete_pack_subject(right_pos, right_lab),
+            ) {
+                return match_conformance_head_with_mode(store, s1, s2, mode, bindings);
+            }
+            if let Some(subject) = store.canonical_complete_pack_subject(left_pos, left_lab) {
+                return match_conformance_head_with_mode(store, subject, right, mode, bindings);
+            }
+            if let Some(subject) = store.canonical_complete_pack_subject(right_pos, right_lab) {
+                return match_conformance_head_with_mode(store, left, subject, mode, bindings);
+            }
+            match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings) && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings)
+        }
+        (TypeData::CompleteTypePack { positionals: left_pos, labeled: left_lab }, _) => {
+            if let Some(subject) = store.canonical_complete_pack_subject(left_pos, left_lab) {
+                return match_conformance_head_with_mode(store, subject, right, mode, bindings);
+            }
+            if let (Ok(right_pos), Ok(right_lab)) = (store.project_positionals(right), store.project_labeled(right)) {
+                return match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings)
+                    && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings);
+            }
+            false
+        }
+        (_, TypeData::CompleteTypePack { positionals: right_pos, labeled: right_lab }) => {
+            if let Some(subject) = store.canonical_complete_pack_subject(right_pos, right_lab) {
+                return match_conformance_head_with_mode(store, left, subject, mode, bindings);
+            }
+            if let (Ok(left_pos), Ok(left_lab)) = (store.project_positionals(left), store.project_labeled(left)) {
+                return match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings)
+                    && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings);
+            }
+            false
+        }
         (TypeData::TypePackConcat(left), TypeData::TypePackConcat(right)) | (TypeData::LabeledTypePackConcat(left), TypeData::LabeledTypePackConcat(right)) => {
             left.len() == right.len()
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(&left, &right)| unify_conformance_head(store, left, right, bindings))
+                    .all(|(&left, &right)| match_conformance_head_with_mode(store, left, right, mode, bindings))
         }
         (TypeData::Record(left), TypeData::Record(right)) => {
-            let left = store.record_row(*left);
-            let right = store.record_row(*right);
+            let left = store.record_row(left).clone();
+            let right = store.record_row(right).clone();
             left.fields.len() == right.fields.len()
                 && left
                     .fields
                     .iter()
                     .zip(right.fields.iter())
-                    .all(|(left, right)| left.name == right.name && unify_conformance_head(store, left.ty, right.ty, bindings))
+                    .all(|(left, right)| left.name == right.name && match_conformance_head_with_mode(store, left.ty, right.ty, mode, bindings))
+                && match (left.tail, right.tail) {
+                    (RecordRowTail::Closed, RecordRowTail::Closed) => true,
+                    (RecordRowTail::Parameter(p1), RecordRowTail::Parameter(p2)) => p1 == p2,
+                    (RecordRowTail::Projection(t1), RecordRowTail::Projection(t2)) => match_conformance_head_with_mode(store, t1, t2, mode, bindings),
+                    _ => false,
+                }
         }
+        (TypeData::TypeMemberProjection(left), TypeData::TypeMemberProjection(right)) => left == right,
+        (TypeData::AssociatedProjection(left), TypeData::AssociatedProjection(right)) => left == right,
         _ => false,
     }
+}
+
+fn unify_conformance_head(store: &mut TypeStore, left: TypeId, right: TypeId, bindings: &mut HashMap<TypeParameterId, TypeId>) -> bool {
+    match_conformance_head_with_mode(store, left, right, ConformanceMatchMode::Overlap, bindings)
 }
 
 impl ResolvedInherentImplTarget {
@@ -3854,24 +3984,8 @@ fn direct_impl_parameter_in_static_argument(store: &TypeStore, argument: StaticA
         StaticArgument::Term(ty) => match store.get(ty) {
             TypeData::Parameter(parameter) => *parameter,
             TypeData::CompleteTypePack { positionals, labeled } => {
-                let pos_term = match store.get(*positionals) {
-                    TypeData::TypeMemberProjection(proj) => match &proj.subject {
-                        crate::types::type_member::ProjectionSubject::Type(subj) => *subj,
-                        _ => return None,
-                    },
-                    _ => return None,
-                };
-                let lab_term = match store.get(*labeled) {
-                    TypeData::TypeMemberProjection(proj) => match &proj.subject {
-                        crate::types::type_member::ProjectionSubject::Type(subj) => *subj,
-                        _ => return None,
-                    },
-                    _ => return None,
-                };
-                if pos_term != lab_term {
-                    return None;
-                }
-                match store.get(pos_term) {
+                let subject = store.canonical_complete_pack_subject(*positionals, *labeled)?;
+                match store.get(subject) {
                     TypeData::Parameter(parameter) => *parameter,
                     _ => return None,
                 }
@@ -3894,101 +4008,13 @@ fn direct_impl_parameter_in_static_argument(store: &TypeStore, argument: StaticA
 
 /// Matches a domain head type structurally against a receiver form and binds impl-owned parameters.
 pub fn match_impl_domain_head(
-    store: &TypeStore,
+    store: &mut TypeStore,
     domain_head: TypeId,
     receiver_form: TypeId,
     impl_id: &ImplId,
     bindings: &mut HashMap<TypeParameterId, TypeId>,
 ) -> bool {
-    if domain_head == receiver_form {
-        if let TypeData::Parameter(p) = store.get(domain_head) {
-            if store.type_parameter(*p).owner == TypeParameterOwner::Impl(impl_id.clone()) {
-                if let Some(&existing) = bindings.get(p) {
-                    return existing == receiver_form;
-                } else {
-                    bindings.insert(*p, receiver_form);
-                }
-            }
-        }
-        return true;
-    }
-
-    match (store.get(domain_head), store.get(receiver_form)) {
-        (TypeData::Parameter(p), _) => {
-            if store.type_parameter(*p).owner == TypeParameterOwner::Impl(impl_id.clone()) {
-                if let Some(&existing) = bindings.get(p) {
-                    existing == receiver_form
-                } else {
-                    bindings.insert(*p, receiver_form);
-                    true
-                }
-            } else {
-                domain_head == receiver_form
-            }
-        }
-        (TypeData::Nominal { declaration: d1 }, TypeData::Nominal { declaration: d2 }) => d1 == d2,
-        (TypeData::Applied { origin: o1, arguments: a1 }, TypeData::Applied { origin: o2, arguments: a2 }) => {
-            if a1.len() != a2.len() {
-                return false;
-            }
-            if !match_impl_domain_head(store, *o1, *o2, impl_id, bindings) {
-                return false;
-            }
-            for (&arg1, &arg2) in a1.iter().zip(a2.iter()) {
-                match (arg1.as_type_id(), arg2.as_type_id()) {
-                    (Some(arg1), Some(arg2)) if match_impl_domain_head(store, arg1, arg2, impl_id, bindings) => {}
-                    (None, None) if arg1 == arg2 => {}
-                    _ => return false,
-                }
-            }
-            true
-        }
-        (TypeData::ExactCase { variant: v1, enum_type: e1 }, TypeData::ExactCase { variant: v2, enum_type: e2 }) => {
-            if v1 != v2 {
-                return false;
-            }
-            match_impl_domain_head(store, *e1, *e2, impl_id, bindings)
-        }
-        (TypeData::Tuple(elems1), TypeData::Tuple(elems2)) => {
-            if elems1.len() != elems2.len() {
-                return false;
-            }
-            for (e1, e2) in elems1.iter().zip(elems2.iter()) {
-                if e1.label != e2.label {
-                    return false;
-                }
-                if !match_impl_domain_head(store, e1.ty, e2.ty, impl_id, bindings) {
-                    return false;
-                }
-            }
-            true
-        }
-        (TypeData::Record(row1), TypeData::Record(row2)) => {
-            let r1 = store.record_row(*row1);
-            let r2 = store.record_row(*row2);
-            if r1.fields.len() != r2.fields.len() {
-                return false;
-            }
-            for (f1, f2) in r1.fields.iter().zip(r2.fields.iter()) {
-                if f1.name != f2.name {
-                    return false;
-                }
-                if !match_impl_domain_head(store, f1.ty, f2.ty, impl_id, bindings) {
-                    return false;
-                }
-            }
-            match (r1.tail, r2.tail) {
-                (RecordRowTail::Closed, RecordRowTail::Closed) => true,
-                (RecordRowTail::Parameter(p1), RecordRowTail::Parameter(p2)) => p1 == p2,
-                (RecordRowTail::Projection(t1), RecordRowTail::Projection(t2)) => match_impl_domain_head(store, t1, t2, impl_id, bindings),
-                _ => false,
-            }
-        }
-        (TypeData::TupleFromPacks { positionals: p1, labeled: l1 }, TypeData::TupleFromPacks { positionals: p2, labeled: l2 }) => {
-            match_impl_domain_head(store, *p1, *p2, impl_id, bindings) && match_impl_domain_head(store, *l1, *l2, impl_id, bindings)
-        }
-        _ => false,
-    }
+    match_conformance_head_with_mode(store, domain_head, receiver_form, ConformanceMatchMode::Directional { impl_id }, bindings)
 }
 
 /// Outcome of checking all constraints belonging to one inherent impl domain.

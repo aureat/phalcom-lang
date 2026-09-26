@@ -352,14 +352,17 @@ fn check_subtype_impl(
                                     check_subtype_impl(store, hierarchy, a_sup, a_sub, budget, cancellation, visited, depth + 1)
                                 }
                                 Variance::Invariant => {
-                                    // Invariant: a_sub == a_sup
+                                    // Invariant: a_sub == a_sup (fast-path TypeId identity or bounded semantic equality)
                                     if a_sub == a_sup {
                                         RelationOutcome::proven(())
                                     } else {
-                                        RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                                            actual: a_sub,
-                                            expected: a_sup,
-                                        })
+                                        let forward = check_subtype_impl(store, hierarchy, a_sub, a_sup, budget, cancellation, visited, depth + 1);
+                                        match forward {
+                                            RelationOutcome::Proven { .. } => {
+                                                check_subtype_impl(store, hierarchy, a_sup, a_sub, budget, cancellation, visited, depth + 1)
+                                            }
+                                            other => other,
+                                        }
                                     }
                                 }
                             };

@@ -26,15 +26,15 @@ let result = next.isSome and iterated == 2
 
 #[test]
 fn list_for_uses_fresh_stateful_canonical_iterator() {
-    let source = r#"
-let values = [1, 2, 3]
-let first = values.iterator
+let list_for_uses_fresh_stateful_canonical_iterator_source = r#"
+const values = [1, 2, 3]
+const first = values.iterator
 let firstOne = first.next
 let firstTwo = first.next
 let firstThree = first.next
 let firstDone = first.next
 let firstDoneAgain = first.next
-let fresh = values.iterator
+const fresh = values.iterator
 let freshOne = fresh.next
 let sum = 0
 for value in values {
@@ -42,7 +42,7 @@ for value in values {
 }
 let result = sum == 6 and firstOne.isSome and firstTwo.isSome and firstThree.isSome and firstDone.isNone and firstDoneAgain.isNone and freshOne.isSome
 "#;
-    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical List iteration compiles");
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(list_for_uses_fresh_stateful_canonical_iterator_source))).expect("canonical List iteration compiles");
     let mut vm = vm_support::universe_vm();
     vm.run_compiled(&program).expect("canonical List iteration executes");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
@@ -155,16 +155,16 @@ let result = value.is(Box)
 
 #[test]
 fn canonical_set_iterator_is_fresh_sticky_and_ordered() {
-    let source = r#"
-let values = Set<Int>.new()
+let source = r#"
+const values = Set<Int>.new()
 values.add(3).add(1).add(2)
-let it = values.iterator
+const it = values.iterator
 let directFirst = it.next.isSome
 let directSecond = it.next.isSome
 let directThird = it.next.isSome
 let done = it.next
 let doneAgain = it.next
-let fresh = values.iterator
+const fresh = values.iterator
 let freshFirst = fresh.next.isSome
 let sum = 0
 let count = 0
@@ -185,15 +185,15 @@ let result = sum == 6 and count == 3 and directFirst and directSecond and direct
 #[test]
 fn canonical_bytes_and_string_views_iterate_their_stateful_surfaces() {
     let source = r#"
-let bytes = Bytes.fromList([7, 8, 9])
-let bytesIterator = bytes.iterator
+const bytes = Bytes.fromList([7, 8, 9])
+const bytesIterator = bytes.iterator
 let directFirst = bytesIterator.next.isSome
 let directSecond = bytesIterator.next.isSome
 let directThird = bytesIterator.next.isSome
 let byteDone = bytesIterator.next
-let text = "a€"
-let byteView = text.bytes.iterator
-let codePointView = text.codePoints.iterator
+const text = "a€"
+const byteView = text.bytes.iterator
+const codePointView = text.codePoints.iterator
 let viewFirst = byteView.next.isSome
 let viewSecond = byteView.next.isSome
 let viewThird = byteView.next.isSome

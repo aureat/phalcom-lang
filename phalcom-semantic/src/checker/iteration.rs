@@ -234,10 +234,12 @@ fn resolve_implicit_iteration(
 
     let item_projection = ctx.store.associated_projection(receiver_ty, iterable_ref.clone(), item_requirement.clone());
     let iterator_projection = ctx.store.associated_projection(receiver_ty, iterable_ref.clone(), iterator_requirement.clone());
-    let Some(item_type) = normalize_projection(ctx, item_projection).type_id() else {
+    let norm_item = normalize_projection(ctx, item_projection);
+    let norm_iter = normalize_projection(ctx, iterator_projection);
+    let Some(item_type) = norm_item.type_id() else {
         return Err(UnresolvedApplicationReason::DispatchMissing);
     };
-    let Some(iterator_type) = normalize_projection(ctx, iterator_projection).type_id() else {
+    let Some(iterator_type) = norm_iter.type_id() else {
         return Err(UnresolvedApplicationReason::DispatchMissing);
     };
 

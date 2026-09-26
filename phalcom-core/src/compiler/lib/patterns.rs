@@ -864,6 +864,8 @@ impl<'vm> Compiler<'vm> {
         let idx_const = self.add_constant(Value::int(index as i64), range)?;
         self.emit(Bytecode::Constant(idx_const), range);
         self.emit_operator_send("at", 1, range)?;
+        self.emit(Bytecode::Nil, range);
+        self.emit_operator_send("unwrapOr", 1, range)?;
         Ok(())
     }
 

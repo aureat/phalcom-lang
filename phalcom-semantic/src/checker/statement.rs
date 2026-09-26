@@ -271,8 +271,12 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                         }
                         (result.knowledge, result.causal_invalidity)
                     }
-                    TypeKnowledge::Unknown(reason) => (TypeKnowledge::Unknown(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
-                    TypeKnowledge::Dynamic(reason) => (TypeKnowledge::Dynamic(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
+                    TypeKnowledge::Unknown(reason) => {
+                        (TypeKnowledge::Unknown(reason.clone()), crate::checker::causal::CausalInvalidity::Clean)
+                    }
+                    TypeKnowledge::Dynamic(reason) => {
+                        (TypeKnowledge::Dynamic(reason.clone()), crate::checker::causal::CausalInvalidity::Clean)
+                    }
                 };
 
                 let mut parents = iter_typed

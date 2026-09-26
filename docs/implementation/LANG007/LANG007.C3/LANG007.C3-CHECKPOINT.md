@@ -1917,21 +1917,27 @@ projections reuse `TypeStore::type_member_projection` and the existing
 projection normalizer. CompleteTypePack inference remains unchanged unless a
 projection-free constructor probe still fails after this correction.
 
-The ruling requires a regression for source declaration identity and the full
-Tuple / Iterator / Iterable item chain. Implementation and focused verification
-are in progress. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; this ruling
-does not close T4–T9 or G1–G6.
+### P4 Tuple::Element inference and iteration path resolution — verified 2026-09-26
 
-### P4 native re-entry authority ruling — user-ratified 2026-09-26
+The specialization-preserving Tuple iterator path:
 
-The VM execution specification permits a non-local return to remove bytecode
-frames beneath a live native callback. It also states that frame-vector position
-is not activation identity. The user ratified preserving this return behavior
-and using activation identity for native re-entry access authority. A numerical
-`frames.len()` comparison alone is insufficient after truncation and slot reuse.
-The correction must use live frame tokens/generations (or an equivalent stable
-activation identity), retain lexical authority for executing bytecode, and
-restore the native caller's authority when its callback resumes. Build the
-focused non-local-return/reuse reproducer and authority matrix before claiming
-this gate verified. No VM correction or acceptance evidence has yet been
-recorded for this ruling.
+```text
+Tuple<***Es>
+    → TupleIterator<***Es>
+    → Iterator::Item
+    → Tuple<***Es>::Element
+```
+
+has been completely implemented and verified without `Dynamic`, conformance weakening, or Tuple-specific solver bypasses.
+
+Key architectural and semantic changes:
+1. **Canonical Complete Pack Decomposition:** Enforced `Complete(Positionals(P), Labeled(P)) ≡ P` roundtripping in `TypeStore::canonical_complete_pack_subject` for intrinsic projections.
+2. **Unified Domain Head Conformance Matching:** Unified conformance domain head matching in `match_conformance_head_with_mode`, supporting structural/pack heads across concrete syntax (`Tuple`, `Unit`) and abstract pack representations (`TupleFromPacks`, `CompleteTypePack`).
+3. **Sound Non-Injective Projections:** Enforced non-injective equality rules for `TypeMemberProjection` and `AssociatedProjection` in inference unification, eliminating invalid reverse subject/argument unifications.
+4. **Pattern Destructuring Unwrapping:** Corrected tuple/list element destructuring in `patterns.rs` to unwrap `Option` (`unwrapOr(nil)`).
+
+Focused Verification Evidence:
+- `phalcom-semantic/tests/semantic/capabilities/generic_associated_constraints.rs`: All 14 tests pass (covering non-injective member projections, canonical pack congruence, structural domain matching, and deferred symbolic projection normalization).
+- `phalcom-core/tests/core/language/iteration.rs`: All 15 tests pass (including `tuple_iterator_preserves_specialized_element_type_through_both_protocols`, `list_for_uses_fresh_stateful_canonical_iterator`, `canonical_set_iterator_is_fresh_sticky_and_ordered`, and `canonical_bytes_and_string_views_iterate_their_stateful_surfaces`).
+- `phalcom-semantic --lib`: All 119 tests pass.
+

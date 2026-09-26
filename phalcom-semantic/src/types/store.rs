@@ -1017,25 +1017,32 @@ impl TypeStore {
             });
         }
         // Reassembling the two canonical lanes of one abstract complete pack
-        // is a product round trip. This only recognizes the store's own
-        // source-less intrinsic projections; arbitrary source members with
-        // the same spelling must not acquire this identity law.
+        // is a product round trip.
+        if let Some(subject) = self.canonical_complete_pack_subject(positionals, labeled) {
+            return Ok(subject);
+        }
+        Ok(self.intern_with_kind(TypeData::CompleteTypePack { positionals, labeled }, KindId::COMPLETE_TYPE_PACK))
+    }
+
+    /// Recognizes the canonical two-lane round trip of an abstract complete pack:
+    /// Complete(Positionals(P), Labeled(P)) ≡ P
+    pub fn canonical_complete_pack_subject(&self, positionals: TypeId, labeled: TypeId) -> Option<TypeId> {
         if let (TypeData::TypeMemberProjection(pos), TypeData::TypeMemberProjection(lab)) = (self.get(positionals), self.get(labeled)) {
-            if pos.source_declaration.is_none()
-                && lab.source_declaration.is_none()
-                && pos.selector == TypeMemberSelector::named("Positionals")
+            if pos.selector == TypeMemberSelector::named("Positionals")
                 && lab.selector == TypeMemberSelector::named("Labeled")
                 && pos.arguments.is_empty()
                 && lab.arguments.is_empty()
+                && pos.source_declaration.is_none()
+                && lab.source_declaration.is_none()
             {
                 if let (ProjectionSubject::Type(pos_subject), ProjectionSubject::Type(lab_subject)) = (&pos.subject, &lab.subject) {
                     if pos_subject == lab_subject && self.kind_of(*pos_subject) == KindId::COMPLETE_TYPE_PACK {
-                        return Ok(*pos_subject);
+                        return Some(*pos_subject);
                     }
                 }
             }
         }
-        Ok(self.intern_with_kind(TypeData::CompleteTypePack { positionals, labeled }, KindId::COMPLETE_TYPE_PACK))
+        None
     }
 
     /// Returns the positional lane of a complete pack or Tuple-shaped type.
