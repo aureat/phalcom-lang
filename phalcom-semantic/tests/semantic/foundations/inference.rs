@@ -1500,7 +1500,6 @@ fn p3_open_callable_rest_is_not_coerced_to_callable_from_packs() {
     assert!(err.is_err(), "open rest callable must not match CallableFromPacks");
 }
 
-
 fn residual_type_member_projection(subject: InferenceTerm) -> InferenceTerm {
     InferenceTerm::TypeMemberProjection {
         subject: phalcom_semantic::checker::inference::InferenceProjectionSubject::Type(Box::new(subject)),
@@ -1523,10 +1522,7 @@ fn residual_associated_projection(subject: InferenceTerm) -> InferenceTerm {
     }
 }
 
-fn residual_pack_projection(
-    subject: InferenceTerm,
-    lane: InferencePackProjectionLane,
-) -> InferenceTerm {
+fn residual_pack_projection(subject: InferenceTerm, lane: InferencePackProjectionLane) -> InferenceTerm {
     InferenceTerm::PackProjection {
         subject: Box::new(subject),
         lane,
@@ -1710,10 +1706,7 @@ fn projection_against_concrete_type_cannot_silently_succeed() {
     let x = session.fresh_variable(KindId::TYPE);
 
     session.add_constraint(
-        InferenceRelation::Equivalent(
-            residual_type_member_projection(InferenceTerm::Var(x)),
-            InferenceTerm::Canonical(int_ty),
-        ),
+        InferenceRelation::Equivalent(residual_type_member_projection(InferenceTerm::Var(x)), InferenceTerm::Canonical(int_ty)),
         ConstraintOrigin::Explicit,
         None,
     );
@@ -1739,11 +1732,7 @@ fn identical_closed_projection_is_immediately_proven() {
     let projection = residual_type_member_projection(InferenceTerm::Canonical(subject));
     let mut session = InferenceSession::new();
 
-    session.add_constraint(
-        InferenceRelation::Equivalent(projection.clone(), projection),
-        ConstraintOrigin::Explicit,
-        None,
-    );
+    session.add_constraint(InferenceRelation::Equivalent(projection.clone(), projection), ConstraintOrigin::Explicit, None);
 
     assert!(session.solve(&mut store, &hierarchy).is_solved());
     assert!(session.residual_obligations().is_empty());
@@ -1779,4 +1768,41 @@ fn complete_pack_projection_reduces_as_identity_before_unification() {
         assert_eq!(session.solved_type_for(&solution, q), Some(complete));
     }
     assert!(session.residual_obligations().is_empty());
+}
+
+#[test]
+fn solved_subjects_with_symbolic_type_member_relation_still_block_solved() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let left_subject = store.nominal(test_decl("SolvedLeft"));
+    let right_subject = store.nominal(test_decl("SolvedRight"));
+    let mut session = InferenceSession::new();
+    let x = session.fresh_variable(KindId::TYPE);
+    let y = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            residual_type_member_projection(InferenceTerm::Var(x)),
+            residual_type_member_projection(InferenceTerm::Var(y)),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(x), InferenceTerm::Canonical(left_subject)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(y), InferenceTerm::Canonical(right_subject)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let outcome = session.solve(&mut store, &hierarchy);
+    assert!(matches!(
+        outcome,
+        InferenceOutcome::Underconstrained(ref under) if under.unsolved_vars.is_empty()
+    ));
+    assert_eq!(session.residual_obligations().len(), 1);
 }
