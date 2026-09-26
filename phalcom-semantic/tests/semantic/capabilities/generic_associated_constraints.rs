@@ -509,8 +509,21 @@ fn canonical_complete_pack_subject_roundtrips_only_congruent_lanes() {
 
 #[test]
 fn source_visible_complete_pack_lane_projections_keep_canonical_member_declarations() {
-    let fixture = Fixture::new(
+    let module = phalcom_modules::ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+        phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
+        phalcom_modules::identity::ModuleComponent::from_identifier("tuple").unwrap(),
+    ]));
+    let source: std::sync::Arc<str> = std::sync::Arc::from(
         r#"
+intrinsic type data TypePack
+intrinsic type data LabeledTypePack
+intrinsic type data CompleteTypePack
+
+impl CompleteTypePack {
+  intrinsic type Positionals: TypePack
+  intrinsic type Labeled: LabeledTypePack
+}
+
 class Tools {
   @class
   lanes<***P: CompleteTypePack>(
@@ -522,6 +535,11 @@ class Tools {
 }
 "#,
     );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = phalcom_semantic::analyze_single_module(module.clone(), source.clone(), std::sync::Arc::new(parsed.program));
+    let fixture = Fixture { module, source, analysis };
+    fixture.assert_no_internal_incidents();
     let diagnostics = fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>();
     assert!(diagnostics.is_empty(), "expected 0 diagnostics, got: {diagnostics:#?}");
 
