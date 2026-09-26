@@ -1655,14 +1655,17 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Continue the attached P4 audit remediation with complete-pack canonicalization
-    across internal and source-backed intrinsic projection identity; then classify
-    remaining runtime and semantic regressions before resuming the open T4/T5 work.
+    Continue the attached P4 audit remediation by investigating and classifying
+    the reported runtime regressions against the audit's named predecessor
+    revisions; then classify the remaining semantic failures before resuming the
+    open T4/T5 work.
 
 next action:
-    Implement the audit handoff's complete-pack source-identity law while
-    preserving canonical TypeMemberDeclarationId and rejecting unrelated
-    user-owned Positionals/Labeled members.
+    Reproduce the reported runtime regressions against the specified revisions
+    and audit the forwarding seams identified by the audit. Keep this as
+    investigation/classification until the failure cause and owning layer are
+    established; do not infer release or checkpoint closure from the focused
+    complete-pack gate.
 ```
 
 P3's final T9/T10 certification section below records the previously completed
@@ -1980,6 +1983,43 @@ derived proof sources are projected into the selected callable's own slot
 layout; reified forwarding slots are materialized while the creator frame is
 active. Runtime does not reconstruct evidence from `ImplId`.
 
-The solver-soundness and conditional runtime evidence findings are addressed;
-complete-pack source-backed canonicalization, remaining regression
+The solver-soundness, conditional runtime evidence, and complete-pack
+source-backed canonicalization findings are addressed; remaining regression
 classification, T4/T5 and later P4 obligations, and certification remain open.
+
+### P4 audit remediation — complete-pack source identity — 2026-09-26
+
+Completed the audited law:
+
+```text
+Complete(Positionals(P), Labeled(P)) ≡ P
+```
+
+`TypeStore` now recognizes the canonical intrinsic lane operations for
+source-less internal projections and for projections carrying the canonical
+`CompleteTypePack::Positionals` / `CompleteTypePack::Labeled`
+`TypeMemberDeclarationId`s. Recognition retains and validates source identity,
+checks each lane's result kind, requires zero arguments and the same
+`CompleteTypePack`-kind subject, and does not treat selector spelling alone as
+intrinsic authority. Source-visible projections keep their canonical member
+declaration IDs. Different subjects and unrelated user-owned members do not
+collapse.
+
+Focused evidence from [Actions run 36264589395](https://github.com/aureat/phalcom-lang/actions/runs/36264589395):
+
+- `complete_pack_reassembles_only_its_own_intrinsic_lanes`: 1 passed, 118
+  filtered;
+- `source_visible_complete_pack_lane_projections_keep_canonical_member_declarations`:
+  1 passed, 1710 filtered.
+
+The source-visible selector deliberately feeds the published product IDs to
+`TypeStore`, proving source-declaration identity is retained through
+normalization. It does not establish that the annotation resolver handles a
+kind-only `TypeData::Parameter` source fixture; an earlier attempt at that
+fixture was superseded by this narrower discriminator. No broad suite or
+release gate was run for this item.
+
+The next audit item is runtime-regression investigation/classification against
+the named predecessor revisions, followed by the remaining semantic-failure
+classification. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; the overall
+audit and release gates remain open.
