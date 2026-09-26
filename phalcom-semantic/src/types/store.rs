@@ -1910,6 +1910,8 @@ mod tests {
 
     #[test]
     fn complete_pack_reassembles_only_its_own_intrinsic_lanes() {
+        use super::super::type_member::TypeMemberDeclarationId;
+
         let mut store = TypeStore::new();
         let owner = test_decl("PackOwner");
         let pack = |store: &mut TypeStore, index, name| {
@@ -1926,22 +1928,99 @@ mod tests {
         let first_pos = store.project_positionals(first).expect("positional lane");
         let first_lab = store.project_labeled(first).expect("labeled lane");
         let second_lab = store.project_labeled(second).expect("second labeled lane");
-        assert_eq!(store.complete_type_pack(first_pos, first_lab).expect("matching lanes"), first);
+
+        let complete_pack_owner = DeclarationId::new(
+            phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+                phalcom_modules::ModuleComponent::from_identifier("collections").expect("canonical Universe component"),
+                phalcom_modules::ModuleComponent::from_identifier("tuple").expect("canonical Universe component"),
+            ])),
+            "CompleteTypePack".into(),
+        );
+        let positionals_selector = TypeMemberSelector::named("Positionals");
+        let labeled_selector = TypeMemberSelector::named("Labeled");
+        let positionals_member = TypeMemberDeclarationId::new(complete_pack_owner.clone(), positionals_selector.clone());
+        let labeled_member = TypeMemberDeclarationId::new(complete_pack_owner, labeled_selector.clone());
+        let source_projection = |store: &mut TypeStore,
+                                 subject: TypeId,
+                                 selector: TypeMemberSelector,
+                                 source_declaration: Option<TypeMemberDeclarationId>,
+                                 kind: KindId| {
+            store.type_member_projection(
+                TypeLevelProjection {
+                    subject: ProjectionSubject::Type(subject),
+                    selector,
+                    arguments: Box::new([]),
+                    source_declaration,
+                },
+                kind,
+            )
+        };
+        let source_pos = source_projection(&mut store, first, positionals_selector.clone(), Some(positionals_member.clone()), KindId::TYPE_PACK);
+        let source_lab = source_projection(&mut store, first, labeled_selector.clone(), Some(labeled_member.clone()), KindId::LABELED_TYPE_PACK);
+
+        // Internal projections preserve the established round trip.
+        assert_eq!(store.complete_type_pack(first_pos, first_lab).expect("internal lanes"), first);
+        // Published source members obey the same law while retaining their identity.
+        assert_eq!(store.complete_type_pack(source_pos, source_lab).expect("source-backed lanes"), first);
+        assert_eq!(store.complete_type_pack(first_pos, source_lab).expect("internal positional + source labeled"), first);
+        assert_eq!(store.complete_type_pack(source_pos, first_lab).expect("source positional + internal labeled"), first);
+        assert_ne!(source_pos, first_pos, "source declaration remains part of projection identity");
+        assert_ne!(source_lab, first_lab, "source declaration remains part of projection identity");
+        let TypeData::TypeMemberProjection(source_pos_data) = store.get(source_pos) else {
+            panic!("expected source-backed positional projection");
+        };
+        assert_eq!(source_pos_data.source_declaration.as_ref(), Some(&positionals_member));
+        let TypeData::TypeMemberProjection(source_lab_data) = store.get(source_lab) else {
+            panic!("expected source-backed labeled projection");
+        };
+        assert_eq!(source_lab_data.source_declaration.as_ref(), Some(&labeled_member));
+
+        // A pair over distinct subjects is not congruent.
+        assert_eq!(store.canonical_complete_pack_subject(first_pos, second_lab), None);
         assert_ne!(store.complete_type_pack(first_pos, second_lab).expect("distinct lanes"), first);
 
-        let foreign_pos = store.type_member_projection(
+        // User-owned members with the same selector spelling are not intrinsic lanes.
+        let foreign_owner = test_decl("ForeignPack");
+        let foreign_pos = source_projection(
+            &mut store,
+            first,
+            positionals_selector.clone(),
+            Some(TypeMemberDeclarationId::new(foreign_owner.clone(), positionals_selector.clone())),
+            KindId::TYPE_PACK,
+        );
+        let foreign_lab = source_projection(
+            &mut store,
+            first,
+            labeled_selector.clone(),
+            Some(TypeMemberDeclarationId::new(foreign_owner, labeled_selector.clone())),
+            KindId::LABELED_TYPE_PACK,
+        );
+        assert_eq!(store.canonical_complete_pack_subject(foreign_pos, foreign_lab), None);
+        assert_ne!(store.complete_type_pack(foreign_pos, foreign_lab).expect("user-owned lanes"), first);
+
+        // Intrinsic lane recognition is constrained by the declared result kind and arity.
+        let wrong_kind_pos = store.type_member_projection(
             TypeLevelProjection {
                 subject: ProjectionSubject::Type(first),
-                selector: TypeMemberSelector::named("Positionals"),
+                selector: positionals_selector.clone(),
                 arguments: Box::new([]),
-                source_declaration: Some(super::super::type_member::TypeMemberDeclarationId::new(
-                    test_decl("ForeignPack"),
-                    TypeMemberSelector::named("Positionals"),
-                )),
+                source_declaration: None,
+            },
+            KindId::TYPE,
+        );
+        assert_eq!(store.canonical_complete_pack_subject(wrong_kind_pos, first_lab), None);
+
+        let unit = store.unit();
+        let argument_pos = store.type_member_projection(
+            TypeLevelProjection {
+                subject: ProjectionSubject::Type(first),
+                selector: positionals_selector,
+                arguments: vec![super::super::type_member::TypeMemberArgument::Type(unit)].into_boxed_slice(),
+                source_declaration: None,
             },
             KindId::TYPE_PACK,
         );
-        assert_ne!(store.complete_type_pack(foreign_pos, first_lab).expect("foreign member"), first);
+        assert_eq!(store.canonical_complete_pack_subject(argument_pos, first_lab), None);
     }
 
     #[test]
