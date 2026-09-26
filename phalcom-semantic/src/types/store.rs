@@ -7,13 +7,35 @@ use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 use super::row::{RecordRowData, RecordRowField, RecordRowTail};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
-use super::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberSelector};
+use super::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberDeclarationId, TypeMemberSelector};
 use super::variance::Variance;
 use crate::identity::{AssociatedStaticDomainDeclarationId, DeclarationId, VariantId};
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
+use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+fn canonical_complete_pack_source_member(selector: &TypeMemberSelector) -> TypeMemberDeclarationId {
+    let module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("collections").expect("canonical Universe module component"),
+        ModuleComponent::from_identifier("tuple").expect("canonical Universe module component"),
+    ]));
+    TypeMemberDeclarationId::new(DeclarationId::new(module, "CompleteTypePack".into()), selector.clone())
+}
+
+/// Source-less lane projections are emitted only by the internal TypeStore helpers.
+/// Source-authored projections must retain the exact published intrinsic declaration identity.
+fn is_complete_pack_lane_projection(projection: &TypeLevelProjection, selector: &TypeMemberSelector) -> bool {
+    if &projection.selector != selector || !projection.arguments.is_empty() {
+        return false;
+    }
+
+    match &projection.source_declaration {
+        None => true,
+        Some(source_declaration) => source_declaration == &canonical_complete_pack_source_member(selector),
+    }
+}
 
 static NEXT_TYPE_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -1027,22 +1049,27 @@ impl TypeStore {
     /// Recognizes the canonical two-lane round trip of an abstract complete pack:
     /// Complete(Positionals(P), Labeled(P)) ≡ P
     pub fn canonical_complete_pack_subject(&self, positionals: TypeId, labeled: TypeId) -> Option<TypeId> {
-        if let (TypeData::TypeMemberProjection(pos), TypeData::TypeMemberProjection(lab)) = (self.get(positionals), self.get(labeled)) {
-            if pos.selector == TypeMemberSelector::named("Positionals")
-                && lab.selector == TypeMemberSelector::named("Labeled")
-                && pos.arguments.is_empty()
-                && lab.arguments.is_empty()
-                && pos.source_declaration.is_none()
-                && lab.source_declaration.is_none()
-            {
-                if let (ProjectionSubject::Type(pos_subject), ProjectionSubject::Type(lab_subject)) = (&pos.subject, &lab.subject) {
-                    if pos_subject == lab_subject && self.kind_of(*pos_subject) == KindId::COMPLETE_TYPE_PACK {
-                        return Some(*pos_subject);
-                    }
-                }
-            }
+        if self.kind_of(positionals) != KindId::TYPE_PACK || self.kind_of(labeled) != KindId::LABELED_TYPE_PACK {
+            return None;
         }
-        None
+
+        let (TypeData::TypeMemberProjection(pos), TypeData::TypeMemberProjection(lab)) = (self.get(positionals), self.get(labeled)) else {
+            return None;
+        };
+        let positionals_selector = TypeMemberSelector::named("Positionals");
+        let labeled_selector = TypeMemberSelector::named("Labeled");
+        if !is_complete_pack_lane_projection(pos, &positionals_selector) || !is_complete_pack_lane_projection(lab, &labeled_selector) {
+            return None;
+        }
+
+        match (&pos.subject, &lab.subject) {
+            (ProjectionSubject::Type(pos_subject), ProjectionSubject::Type(lab_subject))
+                if pos_subject == lab_subject && self.kind_of(*pos_subject) == KindId::COMPLETE_TYPE_PACK =>
+            {
+                Some(*pos_subject)
+            }
+            _ => None,
+        }
     }
 
     /// Returns the positional lane of a complete pack or Tuple-shaped type.
