@@ -446,6 +446,18 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
         InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
             term_has_row_variables(subject) || trait_ref.arguments.iter().any(term_has_row_variables)
         }
+        InferenceTerm::TypeMemberProjection { subject, arguments, .. } => {
+            use super::inference::{InferenceProjectionSubject, InferenceTypeMemberArgument};
+            let subject_has_rows = match subject {
+                InferenceProjectionSubject::Type(term) => term_has_row_variables(term),
+                InferenceProjectionSubject::RecordRow(row) => record_has_row_variables(row),
+            };
+            subject_has_rows || arguments.iter().any(|argument| match argument {
+                InferenceTypeMemberArgument::Type(term) => term_has_row_variables(term),
+                InferenceTypeMemberArgument::Const(_) => false,
+                InferenceTypeMemberArgument::RecordRow(row) => record_has_row_variables(row),
+            })
+        }
         InferenceTerm::TypePack(elements) => elements.iter().any(term_has_row_variables),
         InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| term_has_row_variables(&elem.term)),
         InferenceTerm::CompleteTypePack { positionals, labeled } => term_has_row_variables(positionals) || term_has_row_variables(labeled),
@@ -465,10 +477,12 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
 fn static_argument_has_row_variables(argument: &super::inference::InferenceStaticArgument) -> bool {
     match argument {
         super::inference::InferenceStaticArgument::Term(term) => term_has_row_variables(term),
-        super::inference::InferenceStaticArgument::RecordRow(row) => {
-            matches!(row.tail, InferenceRecordTail::Var(_)) || row.fields.iter().any(|field| term_has_row_variables(&field.term))
-        }
+        super::inference::InferenceStaticArgument::RecordRow(row) => record_has_row_variables(row),
     }
+}
+
+fn record_has_row_variables(row: &InferenceRecord) -> bool {
+    matches!(row.tail, InferenceRecordTail::Var(_)) || row.fields.iter().any(|field| term_has_row_variables(&field.term))
 }
 
 impl GenericApplicationSession {

@@ -157,13 +157,7 @@ impl VM {
         loop {
             let class = self.heap.class(start);
             if let Some(method) = class.get_rest_method(base)
-                && self
-                    .heap
-                    .method(method)
-                    .signature
-                    .rest
-                    .as_ref()
-                    .is_some_and(|layout| layout.accepts(positional_count, labels))
+                && crate::method::InvocationLayout::validate_signature_shape(&self.heap.method(method).signature, positional_count, labels, false).is_ok()
             {
                 return Some(method);
             }
@@ -291,6 +285,17 @@ impl VM {
         caller_authority: (Option<crate::heap::ClassId>, crate::method::RuntimeAccessOrigin),
     ) -> PhResult<()> {
         let total = self.stack.len() - receiver_idx - 1;
+        let signature = self.heap.method(method).signature.clone();
+        crate::method::InvocationLayout::validate_signature_shape(&signature, positional_count, labels, false)?;
+        let layout = crate::method::InvocationLayout::ordinary(positional_count, labels.to_vec().into_boxed_slice());
+        layout.validate_window(receiver_idx, self.stack.len())?;
+        if layout.physical_arity() != total {
+            return Err(RuntimeError::Internal(format!(
+                "rest invocation layout arity {} does not match physical arity {total}",
+                layout.physical_arity()
+            ))
+            .into());
+        }
         if matches!(
             self.heap.method(method).kind,
             crate::method::MethodKind::Primitive(crate::method::PrimitiveFn::Shape(_))
@@ -3487,7 +3492,7 @@ mod tests {
     use crate::compiler::lib::UnitKind;
     use crate::frame::CallContext;
     use crate::heap::{FiberObject, FiberStatus, Object};
-    use crate::method::{MethodKind, MethodObject, RestLayout, RestMode, SignatureKind};
+    use crate::method::{MethodKind, MethodObject, RestLayout, RestMode};
     use crate::vm::BufferedOutput;
 
     #[test]
@@ -3500,22 +3505,30 @@ mod tests {
         let target = vm.universe.classes.object_class;
         let base = vm.get_or_intern("sum");
         let first_selector = vm.get_or_intern("sum(*)");
-        let first = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+        let first_signature = crate::method::Signature::new_with_arity(
             first_selector,
-            SignatureKind::Method(1),
+            crate::method::SignatureKind::Method(0),
+            0,
+            Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Positional { param_index: 0 })),
+        );
+        let first = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            first_signature,
             MethodKind::Closure(closure),
         ))));
-        vm.heap.method_mut(first).signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Positional { param_index: 0 }));
         vm.install_method_binding(target, first_selector, first)
             .expect("first rest family should install");
 
         let second_selector = vm.get_or_intern("sum(**)");
-        let second = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+        let second_signature = crate::method::Signature::new_with_arity(
             second_selector,
-            SignatureKind::Method(1),
+            crate::method::SignatureKind::Method(0),
+            0,
+            Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Labeled { param_index: 0 })),
+        );
+        let second = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            second_signature,
             MethodKind::Closure(closure),
         ))));
-        vm.heap.method_mut(second).signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Labeled { param_index: 0 }));
 
         let error = vm
             .install_method_binding(target, second_selector, second)

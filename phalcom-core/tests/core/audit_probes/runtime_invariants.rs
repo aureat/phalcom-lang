@@ -57,7 +57,7 @@ fn native_recursion_depth() {
     let mut vm = VM::new_kernel();
     let class = vm.universe.classes.int_class;
     let selector = vm.get_or_intern("auditRecurse(_)");
-    let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
+    let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_positional_primitive(
         selector,
         SignatureKind::Method(1),
         recurse,

@@ -15,7 +15,7 @@ use super::type_lambda::{
     ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
 };
 use super::type_member::{
-    IntrinsicTypeOperation, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
+    IntrinsicTypeOperation, IntrinsicTypeOwner, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
 };
 use super::variance::Variance;
 use crate::declarations::{DeclarationSemanticForm, DeclarationTypeTable, IntrinsicTypeApplication};
@@ -1874,65 +1874,96 @@ fn resolve_associated_type_projection(
         TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
     };
 
-    if let Some(context) = site.associated_type_context.as_ref() {
-        if matches!(subject.expr, TypeAnnotationExpr::SelfType { .. }) {
-            let Some(requirement) = context.associated_types.get(name).cloned() else {
-                diagnostics.push(SemanticDiagnostic::error_in(
-                    current_module.clone(),
-                    DiagnosticCode::AssociatedTypeUnknown,
-                    format!("unknown associated type `{name}` in trait `{}`", context.trait_ref.declaration.name),
-                    name_range,
-                ));
-                return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()));
-            };
-            return TypeFormResolution::Ready(store.associated_projection(subject_ty, context.trait_ref.clone(), requirement));
+    // Both declaration-owned and trait-associated members use `Subject::Name`.
+    // Select from the applicable candidates before forming either projection.
+    let selector = TypeMemberSelector::Named(name.to_string().into());
+    let inherent_owner = source_type_member_owner(store, declarations, subject_ty)
+        .filter(|owner| resolver.resolve_associated_type_member(owner, &selector).is_some());
+    let contextual_self = matches!(subject.expr, TypeAnnotationExpr::SelfType { .. });
+    let mut matching_traits = Vec::new();
+    if contextual_self {
+        if let Some(context) = site.associated_type_context.as_ref()
+            && let Some(requirement) = context.associated_types.get(name)
+        {
+            matching_traits.push((context.trait_ref.clone(), requirement.clone()));
         }
     }
-
     if let Some(evidence) = site.generic_evidence.as_ref() {
         let subject_term = TypeTerm::Canonical(subject_ty);
-        let mut matching_traits = Vec::new();
-
         for conformance_key in evidence.conformances().keys() {
             if conformance_key.subject == subject_term
                 || evidence.are_equivalent(&conformance_key.subject, &subject_term) == crate::generic_evidence::GenericEquivalenceProof::Proven
             {
-                if let Some(context) = site.associated_type_context.as_ref() {
-                    if context.trait_ref.declaration == conformance_key.trait_ref.declaration {
-                        if let Some(req_id) = context.associated_types.get(name).cloned() {
-                            matching_traits.push((conformance_key.trait_ref.clone(), req_id));
-                            continue;
-                        }
-                    }
+                let requirement = site
+                    .associated_type_context
+                    .as_ref()
+                    .filter(|context| context.trait_ref.declaration == conformance_key.trait_ref.declaration)
+                    .and_then(|context| context.associated_types.get(name).cloned())
+                    .or_else(|| resolver.resolve_associated_type_requirement(&conformance_key.trait_ref.declaration, name));
+                if let Some(requirement) = requirement
+                    && !matching_traits.iter().any(|(trait_ref, candidate)| {
+                        *candidate == requirement && *trait_ref == conformance_key.trait_ref
+                    })
+                {
+                    matching_traits.push((conformance_key.trait_ref.clone(), requirement));
                 }
-                let req_id = AssociatedTypeRequirementId::new(conformance_key.trait_ref.declaration.clone(), 0);
-                matching_traits.push((conformance_key.trait_ref.clone(), req_id));
             }
         }
-
-        matching_traits.dedup_by(|a, b| a.1 == b.1);
-
-        if matching_traits.len() == 1 {
-            let (trait_ref, req_id) = matching_traits.into_iter().next().unwrap();
-            return TypeFormResolution::Ready(store.associated_projection(subject_ty, trait_ref, req_id));
-        } else if matching_traits.len() > 1 {
-            diagnostics.push(SemanticDiagnostic::error_in(
-                current_module.clone(),
-                DiagnosticCode::AnnotationUnresolved,
-                format!("ambiguous contextual associated type projection `{name}` for subject"),
-                range,
-            ));
-            return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()));
-        }
     }
-
-    diagnostics.push(SemanticDiagnostic::error_in(
-        current_module.clone(),
-        DiagnosticCode::AnnotationUnresolved,
-        "contextual associated type projection subject must have conformance evidence",
-        range,
-    ));
+    if usize::from(inherent_owner.is_some()) + matching_traits.len() > 1 {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            format!("ambiguous type member `{name}` for subject"),
+            range,
+        ));
+        return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()));
+    }
+    if inherent_owner.is_some() {
+        let syntax_selector = phalcom_ast::ast::TypeMemberSelectorSyntax::Named {
+            name: name.to_string(),
+            range: name_range,
+        };
+        return resolve_type_member_projection(store, declarations, resolver, site, subject, &syntax_selector, &[], range, diagnostics);
+    }
+    if let Some((trait_ref, requirement)) = matching_traits.pop() {
+        return TypeFormResolution::Ready(store.associated_projection(subject_ty, trait_ref, requirement));
+    }
+    let (code, message) = if contextual_self {
+        if let Some(context) = site.associated_type_context.as_ref() {
+            (
+                DiagnosticCode::AssociatedTypeUnknown,
+                format!("unknown associated type `{name}` in trait `{}`", context.trait_ref.declaration.name),
+            )
+        } else {
+            (DiagnosticCode::AnnotationUnresolved, format!("unknown type member `{name}` for subject"))
+        }
+    } else {
+        (DiagnosticCode::AnnotationUnresolved, format!("unknown type member `{name}` for subject"))
+    };
+    diagnostics.push(SemanticDiagnostic::error_in(current_module.clone(), code, message, name_range));
     TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()))
+}
+
+fn source_type_member_owner(
+    store: &TypeStore,
+    declarations: &DeclarationTypeTable,
+    subject: TypeId,
+) -> Option<DeclarationId> {
+    let intrinsic_owner = match store.get(subject) {
+        TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => Some(IntrinsicTypeOwner::Tuple),
+        TypeData::Record(_) => Some(IntrinsicTypeOwner::Record),
+        TypeData::Nominal { declaration } => return Some(declaration.clone()),
+        TypeData::Applied { .. } => return store.nominal_origin_declaration(subject).cloned(),
+        _ => match store.kind_of(subject) {
+            KindId::TYPE_PACK => Some(IntrinsicTypeOwner::TypePack),
+            KindId::LABELED_TYPE_PACK => Some(IntrinsicTypeOwner::LabeledTypePack),
+            KindId::COMPLETE_TYPE_PACK => Some(IntrinsicTypeOwner::CompleteTypePack),
+            KindId::RECORD_ROW => Some(IntrinsicTypeOwner::RecordRow),
+            _ => None,
+        },
+    };
+    intrinsic_owner.and_then(|owner| declarations.intrinsic_type_owner_declaration(owner))
 }
 
 fn resolve_qualified_associated_projection(

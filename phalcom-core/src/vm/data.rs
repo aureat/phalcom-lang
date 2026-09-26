@@ -30,13 +30,8 @@ impl VM {
             let layout = layout_spec.build_layout().map_err(|e| RuntimeError::Internal(e.to_string()))?;
             let layout_id = self.heap.product_layouts.register(layout);
             let component_slots = (0..spec.components.len()).map(|index| index as u32).collect::<Vec<_>>().into_boxed_slice();
-            self.data_registry.register_with_component_slots(
-                spec.owner.clone(),
-                class_id,
-                None,
-                layout_id,
-                Some(component_slots),
-            );
+            self.data_registry
+                .register_with_component_slots(spec.owner.clone(), class_id, None, layout_id, Some(component_slots));
         }
 
         for comp in spec.components.iter() {
@@ -74,8 +69,7 @@ impl VM {
             })));
 
             let method = crate::method::MethodObject::new(
-                selector_sym,
-                crate::method::SignatureKind::Getter,
+                crate::method::Signature::new(selector_sym, crate::method::SignatureKind::Getter, 0),
                 crate::method::MethodKind::Closure(closure_ref),
                 Some(class_id),
             );
@@ -153,13 +147,7 @@ impl VM {
             base_descriptor.runtime_id
         } else {
             self.data_registry
-                .register_with_component_slots(
-                    spec.constructor.owner.clone(),
-                    base,
-                    Some(exact_type),
-                    layout_id,
-                    component_slots,
-                )
+                .register_with_component_slots(spec.constructor.owner.clone(), base, Some(exact_type), layout_id, component_slots)
         };
         Ok(descriptor)
     }

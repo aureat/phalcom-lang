@@ -150,7 +150,7 @@ fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
         .expect("Object defines name");
 
     let selector = vm.get_or_intern("name");
-    let replacement_method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
+    let replacement_method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_positional_primitive(
         selector,
         SignatureKind::Getter,
         replacement,
@@ -279,7 +279,7 @@ fn captured_primitive_method_accepts_foreign_receiver() {
     let mut vm = VM::new();
     let selector = vm.get_or_intern("constant");
     let object_class = vm.universe.classes.object_class;
-    let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
+    let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_positional_primitive(
         selector,
         SignatureKind::Getter,
         constant,
@@ -435,7 +435,7 @@ fn shape_aware_subscript_setter_reads_structural_and_rhs_lanes() {
     let table_id = table.as_obj().expect("table should be an instance");
     let class = vm.heap.instance(table_id).class;
     let selector = vm.get_or_intern("[_,debug]=(_)");
-    let signature = Signature::new(selector, SignatureKind::SubscriptSet(2));
+    let signature = Signature::new(selector, SignatureKind::SubscriptSet(2), 2);
     let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_shape_primitive(
         selector, signature, lane_probe, class,
     ))));
@@ -475,7 +475,7 @@ fn method_family_and_bound_receiver_are_gc_edges() {
     )
     .expect("valid pattern");
     let pattern = vm.alloc_selector_pattern(pattern_value);
-    let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
+    let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_positional_primitive(
         selector,
         SignatureKind::Getter,
         constant,

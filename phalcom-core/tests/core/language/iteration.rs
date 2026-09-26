@@ -3,6 +3,28 @@ use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
 use std::sync::Arc;
 
 #[test]
+fn tuple_iterator_preserves_specialized_element_type_through_both_protocols() {
+    let source = r#"
+let tuple: Tuple<***(Int, String)> = (1, "value")
+let element: Tuple<***(Int, String)>::Element = tuple[0]
+let elementFromUnion: Int | String = element
+let next: Option<Int | String> = tuple.iterator.next
+let iterated = 0
+for value in tuple {
+  let protocolItem: Int | String = value
+  iterated = iterated + 1
+}
+let result = next.isSome and iterated == 2
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("specialized Tuple iterator types compile");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("specialized Tuple iterator executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}
+
+#[test]
 fn list_for_uses_fresh_stateful_canonical_iterator() {
     let source = r#"
 let values = [1, 2, 3]

@@ -418,7 +418,7 @@ mod tests {
         fn returns_n(vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
             Ok(vm.alloc_string_value("N".to_string()))
         }
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single_positional(
             selector,
             SignatureKind::Getter,
             MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_n)),
@@ -453,7 +453,7 @@ mod tests {
         fn returns_false(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
             Ok(Value::bool(false))
         }
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single_positional(
             and_selector,
             SignatureKind::Method(1),
             MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_false)),
@@ -494,7 +494,7 @@ let noneCheck = (n < 2).ifTrue(|| { (n < 4).ifTrue(|| { \"inner\" }) }).isNone
         fn returns_false(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
             Ok(Value::bool(false))
         }
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single_positional(
             and_selector,
             SignatureKind::Method(1),
             MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_false)),
@@ -532,7 +532,7 @@ let d = true.ifTrue || { }.isSome
         fn returns_sentinel(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
             Ok(Value::int(-999))
         }
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single_positional(
             while_true_selector,
             SignatureKind::Method(1),
             MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_sentinel)),
@@ -583,9 +583,9 @@ let baselineNone = None.isNone
         fn always_takes_none_arm(vm: &mut VM, _recv: &Value, args: &[Value]) -> PhResult<Value> {
             crate::primitive::block::block_call(vm, &args[1], &[])
         }
+        let signature = crate::method::Signature::new(match_selector, SignatureKind::Method(2), 0);
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
-            match_selector,
-            SignatureKind::Method(2),
+            signature,
             MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(always_takes_none_arm)),
         ))));
         // `match` is not a sacred selector — no `note_method_installed` call

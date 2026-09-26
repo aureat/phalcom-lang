@@ -15,9 +15,10 @@ prepared: 2026-09-25
 
 ## State
 
-P4 completed the corrective closure and restored C3 to
-`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. There is no accepted successor
-plan. Workspace/release certification remains unclaimed.
+P3.R1 completed the corrective closure and restored C3 at that time to
+`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. P4 has since reopened C3 for the
+accepted structural-data completion objective. Workspace/release certification
+remains unclaimed.
 
 ## Stable model
 
@@ -43,8 +44,8 @@ or route RecordRow through `TypeId`/`TypeLambdaArena`.
 ## Evidence
 
 The final focused evidence is listed in
-[the P4 walkthrough](LANG007.C3.P4-walkthrough.md) and the checkpoint's P4
-closure section. One initial core failure identified projection loss during
+[the P3.R1 walkthrough](LANG007.C3.P3.R1-walkthrough.md) and checkpoint §23.
+One initial core failure identified projection loss during
 ordinary shell refresh; the preservation path and its regression are now
 green. The initial owner-free annotation fixtures were updated to remove the
 existing declaration before inserting the projection-isolated copy.
@@ -53,6 +54,6 @@ existing declaration before inserting the projection-isolated copy.
 
 Previously classified AST/impl-query/runtime and formatter baselines, plus the
 incomplete broad semantic test-binary run, remain deferred as recorded in the
-C3 checkpoint. They do not block the P4 focused acceptance objective.
+C3 checkpoint. They did not block the P3.R1 focused acceptance objective.
 
-Next action: await the next explicitly scoped LANG007 objective.
+Next action: see the active P4 action in `LANG007.C3-CHECKPOINT.md`.

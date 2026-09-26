@@ -110,9 +110,9 @@ pub fn option_match(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
         CallOutcome::Returned(v) => Ok(v),
         CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {
             vm.check_native_reentry()?;
-            vm.native_reentry_depth += 1;
+            vm.enter_native_reentry();
             let res = vm.run_until(receiver_idx);
-            vm.native_reentry_depth -= 1;
+            vm.leave_native_reentry();
             res
         }
         CallOutcome::SwitchedFiber => Ok(Value::nil()),

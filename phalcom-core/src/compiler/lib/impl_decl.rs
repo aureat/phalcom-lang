@@ -6,7 +6,7 @@ use crate::compiler::lib::class_decl::{member_visibility, rest_layout, rest_sele
 use crate::compiler::lib::error::CompilerError;
 use crate::compiler::lib::{Compiler, checked_send_arity};
 use crate::heap::ObjRef;
-use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
+use crate::method::{MethodKind, MethodObject, Signature, SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{
     Attribute, BehaviorMember, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, ImplementationKind, IndexAccessor, MemberBody, Visibility,
@@ -68,7 +68,7 @@ impl<'vm> Compiler<'vm> {
         let closure = closure?;
 
         let signature_kind = if setter { SignatureKind::Setter } else { SignatureKind::Getter };
-        let method_obj = self.alloc_source_method(MethodObject::new_single(selector_sym, signature_kind, MethodKind::Closure(closure)));
+        let method_obj = self.alloc_source_method(MethodObject::new_single_positional(selector_sym, signature_kind, MethodKind::Closure(closure)));
         self.vm.heap.method_mut(method_obj).visibility = member_visibility(Visibility::Public);
 
         let strip_metadata = match self.vm.compile_mode {
@@ -156,10 +156,10 @@ impl<'vm> Compiler<'vm> {
         match member {
             BehaviorMember::Method(method_def) => {
                 let range = method_def.range;
-                let arity = method_def.params.len();
-                let encoded_arity = checked_send_arity("method declaration", arity, method_def.range)?;
-                let sig_kind = SignatureKind::Method(encoded_arity);
                 let rest = rest_layout(&method_def.params, &mut self.vm.interner);
+                let structural_arity = method_def.params.iter().filter(|param| !param.is_rest()).count();
+                let encoded_arity = checked_send_arity("method declaration", structural_arity, method_def.range)?;
+                let sig_kind = SignatureKind::Method(encoded_arity);
                 let selector = if rest.is_some() {
                     rest_selector(&method_def.name, &method_def.params)
                 } else {
@@ -190,13 +190,21 @@ impl<'vm> Compiler<'vm> {
                 let closure_result = self.compile_block(body_stmts, selector_sym, ClosureParameters::fixed(param_names), true, false, None);
                 let closure = closure_result?;
 
-                let method_obj = self.alloc_source_method(MethodObject::new_single(selector_sym, sig_kind, MethodKind::Closure(closure)));
+                let signature = match rest {
+                    Some(rest) => Signature::new_with_arity(selector_sym, sig_kind, rest.fixed_positionals(), Some(rest)),
+                    None => {
+                        let positional_arity = method_def.params.iter().filter(|param| param.label.is_none()).count();
+                        Signature::new(
+                            selector_sym,
+                            sig_kind,
+                            checked_send_arity("method declaration", positional_arity, method_def.range)?,
+                        )
+                    }
+                };
+                let method_obj = self.alloc_source_method(MethodObject::new_single(signature, MethodKind::Closure(closure)));
                 {
                     let method = self.vm.heap.method_mut(method_obj);
                     method.visibility = member_visibility(method_def.visibility);
-                    if let Some(rest) = rest {
-                        method.signature = crate::method::Signature::new_with_arity(selector_sym, sig_kind, rest.fixed_positionals(), Some(rest));
-                    }
                 }
 
                 if !strip_metadata {
@@ -242,7 +250,11 @@ impl<'vm> Compiler<'vm> {
                 };
                 let closure = self.compile_block(body_stmts, selector_sym, ClosureParameters::fixed(Vec::new()), true, false, None)?;
 
-                let method_obj = self.alloc_source_method(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure)));
+                let method_obj = self.alloc_source_method(MethodObject::new_single_positional(
+                    selector_sym,
+                    SignatureKind::Getter,
+                    MethodKind::Closure(closure),
+                ));
                 self.vm.heap.method_mut(method_obj).visibility = member_visibility(getter_def.visibility);
 
                 if !strip_metadata {
@@ -295,7 +307,11 @@ impl<'vm> Compiler<'vm> {
                     None,
                 )?;
 
-                let method_obj = self.alloc_source_method(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure)));
+                let method_obj = self.alloc_source_method(MethodObject::new_single_positional(
+                    selector_sym,
+                    SignatureKind::Setter,
+                    MethodKind::Closure(closure),
+                ));
                 self.vm.heap.method_mut(method_obj).visibility = member_visibility(setter_def.visibility);
 
                 if !strip_metadata {
@@ -351,7 +367,11 @@ impl<'vm> Compiler<'vm> {
                 };
                 let closure = self.compile_block(body, selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
 
-                let method_obj = self.alloc_source_method(MethodObject::new_single(selector_sym, sig_kind, MethodKind::Closure(closure)));
+                let positional_arity = index_def.params.iter().filter(|param| param.label.is_none()).count()
+                    + usize::from(matches!(&index_def.accessor, IndexAccessor::Set { .. }));
+                let positional_arity = checked_send_arity("subscript declaration", positional_arity, index_def.range)?;
+                let signature = Signature::new(selector_sym, sig_kind, positional_arity);
+                let method_obj = self.alloc_source_method(MethodObject::new_single(signature, MethodKind::Closure(closure)));
                 self.vm.heap.method_mut(method_obj).visibility = member_visibility(index_def.visibility);
 
                 if !strip_metadata {

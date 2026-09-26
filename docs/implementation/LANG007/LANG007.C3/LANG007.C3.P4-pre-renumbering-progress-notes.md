@@ -1,4 +1,8 @@
-# LANG007.C3.P4 Walkthrough Report & Incident Summary
+# Superseded pre-renumbering P4 progress notes
+
+> Historical interim notes from the earlier P4 numbering collision. The
+> current `LANG007.C3.P4` is the structural-data completion plan. This file is
+> preserved as historical evidence and is not its completion walkthrough.
 
 > **Program:** `LANG007` (Type Data and Unified Algebraic Static Domains)  
 > **Checkpoint:** `LANG007.C3` (Status: `IN_PROGRESS` / `PARTIAL` / `UNVERIFIED`)  

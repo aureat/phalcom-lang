@@ -248,8 +248,7 @@ impl VM {
                     })));
 
                     let method = crate::method::MethodObject::new(
-                        selector_sym,
-                        crate::method::SignatureKind::Getter,
+                        crate::method::Signature::new(selector_sym, crate::method::SignatureKind::Getter, 0),
                         crate::method::MethodKind::Closure(closure_ref),
                         Some(case_class_id),
                     );

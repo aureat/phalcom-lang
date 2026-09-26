@@ -635,11 +635,13 @@ mod tests {
         fn returns_two(_vm: &mut crate::vm::VM, _recv: &Value, _args: &[Value]) -> crate::error::PhResult<Value> {
             Ok(Value::int(2))
         }
-        let new_method = vm.heap.alloc(crate::heap::Object::Method(Box::new(crate::method::MethodObject::new_single(
-            val_sym,
-            crate::method::SignatureKind::Getter,
-            crate::method::MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_two)),
-        ))));
+        let new_method = vm
+            .heap
+            .alloc(crate::heap::Object::Method(Box::new(crate::method::MethodObject::new_single_positional(
+                val_sym,
+                crate::method::SignatureKind::Getter,
+                crate::method::MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_two)),
+            ))));
         install_and_bump(&mut vm, class_a, val_sym, new_method);
 
         let installed = *vm.heap.class(class_a).methods.get(&val_sym).expect("val must resolve on A after install");
@@ -690,11 +692,13 @@ mod tests {
         fn returns_two(_vm: &mut crate::vm::VM, _recv: &Value, _args: &[Value]) -> crate::error::PhResult<Value> {
             Ok(Value::int(2))
         }
-        let new_method = vm.heap.alloc(crate::heap::Object::Method(Box::new(crate::method::MethodObject::new_single(
-            get_sym,
-            crate::method::SignatureKind::Getter,
-            crate::method::MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_two)),
-        ))));
+        let new_method = vm
+            .heap
+            .alloc(crate::heap::Object::Method(Box::new(crate::method::MethodObject::new_single_positional(
+                get_sym,
+                crate::method::SignatureKind::Getter,
+                crate::method::MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_two)),
+            ))));
         install_and_bump(&mut vm, class_a, get_sym, new_method);
 
         let installed = *vm.heap.class(class_a).methods.get(&get_sym).expect("get must resolve on A after install");

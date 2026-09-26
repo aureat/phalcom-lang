@@ -82,15 +82,28 @@ pub struct Signature {
     pub selector: Symbol,
     /// The kind of selector this signature encodes.
     pub kind: SignatureKind,
-    /// The number of positional parameters.
+    /// The number of positional argument values reported by legacy `arity`.
+    /// This includes the distinguished assigned-value lane for setters, but
+    /// excludes labeled selector slots.
     pub positional_arity: u8,
     /// Rest-capable method layout, or `None` for exact-only methods.
     pub rest: Option<RestLayout>,
 }
 
 impl Signature {
-    /// Builds a signature for `selector` of the given `kind`, deriving arity.
-    pub fn new(selector: Symbol, kind: SignatureKind) -> Self {
+    /// Builds a signature with explicit positional argument arity.
+    ///
+    /// `SignatureKind` records the total structural selector-slot count; it
+    /// cannot determine how many of those slots are positional because that
+    /// shape also depends on the labels encoded in `selector`.
+    pub fn new(selector: Symbol, kind: SignatureKind, positional_arity: u8) -> Self {
+        Self::new_with_arity(selector, kind, positional_arity, None)
+    }
+
+    /// Builds a signature for a selector whose structural slots are all
+    /// positional. Labeled selectors must use [`Self::new`] or
+    /// [`Self::new_with_arity`] with an explicit positional count.
+    pub fn positional(selector: Symbol, kind: SignatureKind) -> Self {
         let positional_arity = match kind {
             SignatureKind::Method(n) => n,
             SignatureKind::Getter => 0,
@@ -98,12 +111,7 @@ impl Signature {
             SignatureKind::SubscriptGet(n) => n,
             SignatureKind::SubscriptSet(n) => n.checked_add(1).expect("SubscriptSet index arity must leave room for the assigned value"),
         };
-        Signature {
-            selector,
-            kind,
-            positional_arity,
-            rest: None,
-        }
+        Self::new(selector, kind, positional_arity)
     }
 
     /// Builds a signature with explicit arity and normalized rest metadata.
@@ -370,10 +378,13 @@ mod tests {
     }
 
     #[test]
-    fn no_initializer_signature_kind() {
-        let signature = Signature::new(Symbol(0), SignatureKind::Method(2));
+    fn method_signature_uses_explicit_positional_arity() {
+        let signature = Signature::new(Symbol(0), SignatureKind::Method(2), 1);
         assert_eq!(signature.kind, SignatureKind::Method(2));
-        assert_eq!(signature.positional_arity, 2);
+        assert_eq!(signature.positional_arity, 1);
+
+        let labeled_only = Signature::new(Symbol(1), SignatureKind::Method(2), 0);
+        assert_eq!(labeled_only.positional_arity, 0);
     }
 
     /// Subscript Get and Set decodes and roundtrips correctly.
@@ -445,5 +456,102 @@ mod tests {
         assert!(setter.validate_window(0, 5).is_ok());
         assert!(setter.validate_window(0, 4).is_err());
         assert!(setter.validate_window(0, 6).is_err());
+    }
+
+    #[test]
+    fn invocation_layout_validates_exact_signature_decomposition_and_setter_lane() {
+        let label = Symbol(7);
+        let mixed = Signature::new(Symbol(10), SignatureKind::Method(2), 1);
+        assert!(InvocationLayout::ordinary(1, Box::new([label])).validate_for_signature(&mixed).is_ok());
+        assert!(
+            InvocationLayout::ordinary(0, Box::new([label, Symbol(8)]))
+                .validate_for_signature(&mixed)
+                .is_err()
+        );
+        assert!(InvocationLayout::setter(1, Box::new([label])).validate_for_signature(&mixed).is_err());
+
+        let setter = Signature::new(Symbol(11), SignatureKind::Setter, 1);
+        assert!(InvocationLayout::setter(0, Box::default()).validate_for_signature(&setter).is_ok());
+        assert!(InvocationLayout::ordinary(0, Box::default()).validate_for_signature(&setter).is_err());
+
+        let subscript_set = Signature::new(Symbol(12), SignatureKind::SubscriptSet(2), 2);
+        assert!(InvocationLayout::setter(1, Box::new([label])).validate_for_signature(&subscript_set).is_ok());
+        assert!(InvocationLayout::setter(2, Box::default()).validate_for_signature(&subscript_set).is_err());
+    }
+
+    #[test]
+    fn invocation_layout_validates_each_rest_capture_mode() {
+        let label = Symbol(20);
+        let extra_label = Symbol(21);
+        let cases = [
+            (
+                Signature::new_with_arity(
+                    Symbol(30),
+                    SignatureKind::Method(1),
+                    1,
+                    Some(RestLayout::new(1, Box::new([]), RestMode::Positional { param_index: 1 })),
+                ),
+                InvocationLayout::ordinary(3, Box::new([])),
+            ),
+            (
+                Signature::new_with_arity(
+                    Symbol(31),
+                    SignatureKind::Method(2),
+                    1,
+                    Some(RestLayout::new(1, Box::new([label]), RestMode::Labeled { param_index: 2 })),
+                ),
+                InvocationLayout::ordinary(1, Box::new([label, extra_label])),
+            ),
+            (
+                Signature::new_with_arity(
+                    Symbol(32),
+                    SignatureKind::Method(2),
+                    1,
+                    Some(RestLayout::new(
+                        1,
+                        Box::new([label]),
+                        RestMode::Split {
+                            positional_param_index: 1,
+                            labeled_param_index: 3,
+                        },
+                    )),
+                ),
+                InvocationLayout::ordinary(2, Box::new([label, extra_label])),
+            ),
+            (
+                Signature::new_with_arity(
+                    Symbol(33),
+                    SignatureKind::Method(2),
+                    1,
+                    Some(RestLayout::new(1, Box::new([label]), RestMode::Complete { param_index: 1 })),
+                ),
+                InvocationLayout::ordinary(2, Box::new([label, extra_label])),
+            ),
+        ];
+
+        for (signature, layout) in cases {
+            assert!(
+                layout.validate_for_signature(&signature).is_ok(),
+                "{:?}",
+                signature.rest.as_ref().unwrap().mode()
+            );
+        }
+
+        let labeled_rest = Signature::new_with_arity(
+            Symbol(34),
+            SignatureKind::Method(2),
+            1,
+            Some(RestLayout::new(1, Box::new([label]), RestMode::Labeled { param_index: 2 })),
+        );
+        assert!(
+            InvocationLayout::ordinary(2, Box::new([label, extra_label]))
+                .validate_for_signature(&labeled_rest)
+                .is_err()
+        );
+        assert!(
+            InvocationLayout::setter(1, Box::new([label, extra_label]))
+                .validate_for_signature(&labeled_rest)
+                .is_err()
+        );
     }
 }

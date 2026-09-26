@@ -14,6 +14,7 @@ use crate::types::kind::KindData;
 use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, QueryBudget};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
+use crate::types::type_member::{ConstTerm, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberDeclarationId, TypeMemberSelector};
 use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
 use crate::types::variance::Variance;
 use crate::types::row::RecordRowField;
@@ -67,6 +68,16 @@ pub enum InferenceTerm {
         trait_ref: InferenceTraitRef,
         requirement: AssociatedTypeRequirementId,
     },
+    /// A source/domain-owned type-member operation whose symbolic children
+    /// must remain visible until query-local substitutions are applied.
+    /// Projection equality is never used to infer its subject or arguments.
+    TypeMemberProjection {
+        subject: InferenceProjectionSubject,
+        selector: TypeMemberSelector,
+        arguments: Box<[InferenceTypeMemberArgument]>,
+        source_declaration: Option<TypeMemberDeclarationId>,
+        result_kind: KindId,
+    },
     TypePack(Box<[InferenceTerm]>),
     LabeledTypePack(Box<[InferenceLabeledTypePackElement]>),
     CompleteTypePack {
@@ -96,6 +107,21 @@ pub enum InferenceTerm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InferenceStaticArgument {
     Term(InferenceTerm),
+    RecordRow(InferenceRecord),
+}
+
+/// Subject lane for a solver-local type-member projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InferenceProjectionSubject {
+    Type(Box<InferenceTerm>),
+    RecordRow(InferenceRecord),
+}
+
+/// Argument lane for a solver-local type-member projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InferenceTypeMemberArgument {
+    Type(InferenceTerm),
+    Const(ConstTerm),
     RecordRow(InferenceRecord),
 }
 
@@ -356,6 +382,22 @@ fn inference_term_contains_row_variable(
         InferenceTerm::Family(family) => family.iter().any(|member| visit!(&member.term)),
         InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
             visit!(subject) || trait_ref.arguments.iter().any(|nested| visit!(nested))
+        }
+        InferenceTerm::TypeMemberProjection { subject, arguments, .. } => {
+            let subject_contains = match subject {
+                InferenceProjectionSubject::Type(term) => visit!(term),
+                InferenceProjectionSubject::RecordRow(row) => {
+                    inference_record_contains_row_variable(row, target, row_solver, var_terms, aliases, visiting)
+                }
+            };
+            subject_contains
+                || arguments.iter().any(|argument| match argument {
+                    InferenceTypeMemberArgument::Type(term) => visit!(term),
+                    InferenceTypeMemberArgument::Const(_) => false,
+                    InferenceTypeMemberArgument::RecordRow(row) => {
+                        inference_record_contains_row_variable(row, target, row_solver, var_terms, aliases, visiting)
+                    }
+                })
         }
         InferenceTerm::TypePack(elements) => elements.iter().any(|nested| visit!(nested)),
         InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|element| visit!(&element.term)),
@@ -1062,8 +1104,8 @@ impl InferenceSession {
                 return_type: Box::new(self.type_id_to_inference(*return_type, subst, store)),
             },
             TypeData::TypeMemberProjection(proj) => {
-                if let crate::types::type_member::ProjectionSubject::Type(subj_ty) = proj.subject {
-                    if store.kind_of(subj_ty) == KindId::COMPLETE_TYPE_PACK && proj.arguments.is_empty() {
+                if let ProjectionSubject::Type(subj_ty) = &proj.subject {
+                    if store.kind_of(*subj_ty) == KindId::COMPLETE_TYPE_PACK && proj.arguments.is_empty() {
                         let lane = match proj.selector.name() {
                             "Positionals" => Some(InferencePackProjectionLane::Positionals),
                             "Labeled" => Some(InferencePackProjectionLane::Labeled),
@@ -1072,13 +1114,13 @@ impl InferenceSession {
                         };
                         if let Some(lane) = lane {
                             return InferenceTerm::PackProjection {
-                                subject: Box::new(self.type_id_to_inference(subj_ty, subst, store)),
+                                subject: Box::new(self.type_id_to_inference(*subj_ty, subst, store)),
                                 lane,
                             };
                         }
                     }
                 }
-                InferenceTerm::Canonical(ty)
+                self.type_member_projection_to_inference(proj, store.kind_of(ty), subst, &HashMap::new(), store)
             }
             _ => InferenceTerm::Canonical(ty),
         }
@@ -1249,8 +1291,8 @@ impl InferenceSession {
                 return_type: Box::new(self.type_id_to_inference_with_rows(*return_type, subst, row_subst, store)),
             },
             TypeData::TypeMemberProjection(proj) => {
-                if let crate::types::type_member::ProjectionSubject::Type(subj_ty) = proj.subject {
-                    if store.kind_of(subj_ty) == KindId::COMPLETE_TYPE_PACK && proj.arguments.is_empty() {
+                if let ProjectionSubject::Type(subj_ty) = &proj.subject {
+                    if store.kind_of(*subj_ty) == KindId::COMPLETE_TYPE_PACK && proj.arguments.is_empty() {
                         let lane = match proj.selector.name() {
                             "Positionals" => Some(InferencePackProjectionLane::Positionals),
                             "Labeled" => Some(InferencePackProjectionLane::Labeled),
@@ -1259,15 +1301,83 @@ impl InferenceSession {
                         };
                         if let Some(lane) = lane {
                             return InferenceTerm::PackProjection {
-                                subject: Box::new(self.type_id_to_inference_with_rows(subj_ty, subst, row_subst, store)),
+                                subject: Box::new(self.type_id_to_inference_with_rows(*subj_ty, subst, row_subst, store)),
                                 lane,
                             };
                         }
                     }
                 }
-                InferenceTerm::Canonical(ty)
+                self.type_member_projection_to_inference(proj, store.kind_of(ty), subst, row_subst, store)
             }
             _ => InferenceTerm::Canonical(ty),
+        }
+    }
+
+    fn type_member_projection_to_inference(
+        &self,
+        projection: &TypeLevelProjection,
+        result_kind: KindId,
+        subst: &HashMap<TypeParameterId, InferenceTerm>,
+        row_subst: &HashMap<TypeParameterId, RecordRowVarId>,
+        store: &TypeStore,
+    ) -> InferenceTerm {
+        let subject = match &projection.subject {
+            ProjectionSubject::Type(ty) => {
+                InferenceProjectionSubject::Type(Box::new(self.type_id_to_inference_with_rows(*ty, subst, row_subst, store)))
+            }
+            ProjectionSubject::RecordRow(row) => {
+                InferenceProjectionSubject::RecordRow(self.record_row_to_inference(*row, subst, row_subst, store))
+            }
+        };
+        let arguments = projection
+            .arguments
+            .iter()
+            .map(|argument| match argument {
+                TypeMemberArgument::Type(ty) => {
+                    InferenceTypeMemberArgument::Type(self.type_id_to_inference_with_rows(*ty, subst, row_subst, store))
+                }
+                TypeMemberArgument::Const(value) => InferenceTypeMemberArgument::Const(value.clone()),
+                TypeMemberArgument::RecordRow(row) => {
+                    InferenceTypeMemberArgument::RecordRow(self.record_row_to_inference(*row, subst, row_subst, store))
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        InferenceTerm::TypeMemberProjection {
+            subject,
+            selector: projection.selector.clone(),
+            arguments,
+            source_declaration: projection.source_declaration.clone(),
+            result_kind,
+        }
+    }
+
+    fn record_row_to_inference(
+        &self,
+        row: crate::types::id::RecordRowId,
+        subst: &HashMap<TypeParameterId, InferenceTerm>,
+        row_subst: &HashMap<TypeParameterId, RecordRowVarId>,
+        store: &TypeStore,
+    ) -> InferenceRecord {
+        let canonical = store.record_row(row);
+        InferenceRecord {
+            fields: canonical
+                .fields
+                .iter()
+                .map(|field| InferenceRecordField {
+                    name: field.name.clone(),
+                    term: self.type_id_to_inference_with_rows(field.ty, subst, row_subst, store),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            tail: match canonical.tail {
+                RecordRowTail::Closed => InferenceRecordTail::Closed,
+                RecordRowTail::Parameter(parameter) => row_subst
+                    .get(&parameter)
+                    .copied()
+                    .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
+                RecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
+            },
         }
     }
 
@@ -1425,6 +1535,18 @@ impl InferenceSession {
                 }
                 let trait_ref = crate::traits::TraitRef::new(trait_ref.declaration.clone(), args);
                 Some(store.associated_projection(subject_ty, trait_ref, requirement.clone()))
+            }
+            InferenceTerm::TypeMemberProjection {
+                subject,
+                selector,
+                arguments,
+                source_declaration,
+                result_kind,
+            } => {
+                let projection = self
+                    .materialize_type_member_projection(subject, selector, arguments, source_declaration.as_ref(), store)
+                    .ok()?;
+                Some(store.type_member_projection(projection, *result_kind))
             }
             InferenceTerm::TypePack(elements) => {
                 let elements = elements
@@ -2000,6 +2122,32 @@ impl InferenceSession {
                 },
                 requirement: requirement.clone(),
             },
+            InferenceTerm::TypeMemberProjection {
+                subject,
+                selector,
+                arguments,
+                source_declaration,
+                result_kind,
+            } => InferenceTerm::TypeMemberProjection {
+                subject: match subject {
+                    InferenceProjectionSubject::Type(term) => InferenceProjectionSubject::Type(Box::new(self.term_for_expected(term))),
+                    InferenceProjectionSubject::RecordRow(row) => InferenceProjectionSubject::RecordRow(self.record_for_expected(row)),
+                },
+                selector: selector.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        InferenceTypeMemberArgument::Type(term) => InferenceTypeMemberArgument::Type(self.term_for_expected(term)),
+                        InferenceTypeMemberArgument::Const(value) => InferenceTypeMemberArgument::Const(value.clone()),
+                        InferenceTypeMemberArgument::RecordRow(row) => {
+                            InferenceTypeMemberArgument::RecordRow(self.record_for_expected(row))
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                source_declaration: source_declaration.clone(),
+                result_kind: *result_kind,
+            },
             InferenceTerm::TypePack(elements) => {
                 InferenceTerm::TypePack(elements.iter().map(|elem| self.term_for_expected(elem)).collect::<Vec<_>>().into_boxed_slice())
             }
@@ -2039,6 +2187,27 @@ impl InferenceSession {
             InferenceTerm::PackProjection { subject, lane } => InferenceTerm::PackProjection {
                 subject: Box::new(self.term_for_expected(subject)),
                 lane: *lane,
+            },
+        }
+    }
+
+    fn record_for_expected(&self, record: &InferenceRecord) -> InferenceRecord {
+        let normalized = self.normalized_record_row(record);
+        InferenceRecord {
+            fields: normalized
+                .fields
+                .iter()
+                .map(|field| InferenceRecordField {
+                    name: field.name.clone(),
+                    term: self.term_for_expected(&field.ty),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            tail: match normalized.tail {
+                RecordRowTermTail::Closed => InferenceRecordTail::Closed,
+                RecordRowTermTail::Parameter(parameter) => InferenceRecordTail::Parameter(parameter),
+                RecordRowTermTail::Projection(projection) => InferenceRecordTail::Projection(projection),
+                RecordRowTermTail::Var(variable) => InferenceRecordTail::Var(variable),
             },
         }
     }
@@ -2140,7 +2309,7 @@ impl InferenceSession {
                     return Err(Box::new(InferenceOutcome::BudgetExceeded(report)));
                 }
                 let rep = self.find_var(var);
-                if !self.substitutions.contains_key(&rep) {
+                if !self.substitutions.contains_key(&rep) && !self.term_has_projection(&term, store) {
                     if let Ok(ty) = self.materialize(&term, store) {
                         match self.bind(rep, ty, store) {
                             Ok(effect) => changed |= effect.is_changed(),
@@ -2605,6 +2774,17 @@ impl InferenceSession {
             InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
                 self.term_has_unresolved_variables(subject) || trait_ref.arguments.iter().any(|arg| self.term_has_unresolved_variables(arg))
             }
+            InferenceTerm::TypeMemberProjection { subject, arguments, .. } => {
+                let subject_unresolved = match subject {
+                    InferenceProjectionSubject::Type(term) => self.term_has_unresolved_variables(term),
+                    InferenceProjectionSubject::RecordRow(row) => self.record_row_has_unresolved_variables(row),
+                };
+                subject_unresolved || arguments.iter().any(|argument| match argument {
+                    InferenceTypeMemberArgument::Type(term) => self.term_has_unresolved_variables(term),
+                    InferenceTypeMemberArgument::Const(_) => false,
+                    InferenceTypeMemberArgument::RecordRow(row) => self.record_row_has_unresolved_variables(row),
+                })
+            }
             InferenceTerm::TypePack(elements) => elements.iter().any(|elem| self.term_has_unresolved_variables(elem)),
             InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| self.term_has_unresolved_variables(&elem.term)),
             InferenceTerm::CompleteTypePack { positionals, labeled } => {
@@ -2741,6 +2921,19 @@ impl InferenceSession {
                     self.collect_term_variables(arg, variables);
                 }
             }
+            InferenceTerm::TypeMemberProjection { subject, arguments, .. } => {
+                match subject {
+                    InferenceProjectionSubject::Type(term) => self.collect_term_variables(term, variables),
+                    InferenceProjectionSubject::RecordRow(row) => self.collect_record_variables(row, variables),
+                }
+                for argument in arguments.iter() {
+                    match argument {
+                        InferenceTypeMemberArgument::Type(term) => self.collect_term_variables(term, variables),
+                        InferenceTypeMemberArgument::Const(_) => {}
+                        InferenceTypeMemberArgument::RecordRow(row) => self.collect_record_variables(row, variables),
+                    }
+                }
+            }
             InferenceTerm::TypePack(elements) => {
                 for elem in elements.iter() {
                     self.collect_term_variables(elem, variables);
@@ -2783,11 +2976,13 @@ impl InferenceSession {
     fn collect_static_argument_variables(&self, argument: &InferenceStaticArgument, variables: &mut HashSet<InferVarId>) {
         match argument {
             InferenceStaticArgument::Term(term) => self.collect_term_variables(term, variables),
-            InferenceStaticArgument::RecordRow(row) => {
-                for field in self.normalized_record_row(row).fields.iter() {
-                    self.collect_term_variables(&field.ty, variables);
-                }
-            }
+            InferenceStaticArgument::RecordRow(row) => self.collect_record_variables(row, variables),
+        }
+    }
+
+    fn collect_record_variables(&self, row: &InferenceRecord, variables: &mut HashSet<InferVarId>) {
+        for field in self.normalized_record_row(row).fields.iter() {
+            self.collect_term_variables(&field.ty, variables);
         }
     }
 
@@ -2849,6 +3044,19 @@ impl InferenceSession {
                     self.record_term_proof_state(arg, proof.clone());
                 }
             }
+            InferenceTerm::TypeMemberProjection { subject, arguments, .. } => {
+                match subject {
+                    InferenceProjectionSubject::Type(term) => self.record_term_proof_state(term, proof.clone()),
+                    InferenceProjectionSubject::RecordRow(row) => self.record_record_proof_state(row, proof.clone()),
+                }
+                for argument in arguments.iter() {
+                    match argument {
+                        InferenceTypeMemberArgument::Type(term) => self.record_term_proof_state(term, proof.clone()),
+                        InferenceTypeMemberArgument::Const(_) => {}
+                        InferenceTypeMemberArgument::RecordRow(row) => self.record_record_proof_state(row, proof.clone()),
+                    }
+                }
+            }
             InferenceTerm::TypePack(elements) => {
                 for elem in elements.iter() {
                     self.record_term_proof_state(elem, proof.clone());
@@ -2891,11 +3099,13 @@ impl InferenceSession {
     fn record_static_argument_proof_state(&mut self, argument: &InferenceStaticArgument, proof: InferenceProofState) {
         match argument {
             InferenceStaticArgument::Term(term) => self.record_term_proof_state(term, proof),
-            InferenceStaticArgument::RecordRow(row) => {
-                for field in self.normalized_record_row(row).fields.iter() {
-                    self.record_term_proof_state(&field.ty, proof.clone());
-                }
-            }
+            InferenceStaticArgument::RecordRow(row) => self.record_record_proof_state(row, proof),
+        }
+    }
+
+    fn record_record_proof_state(&mut self, row: &InferenceRecord, proof: InferenceProofState) {
+        for field in self.normalized_record_row(row).fields.iter() {
+            self.record_term_proof_state(&field.ty, proof.clone());
         }
     }
 
@@ -2948,6 +3158,19 @@ impl InferenceSession {
                     self.record_term_support(arg, support);
                 }
             }
+            InferenceTerm::TypeMemberProjection { subject, arguments, .. } => {
+                match subject {
+                    InferenceProjectionSubject::Type(term) => self.record_term_support(term, support),
+                    InferenceProjectionSubject::RecordRow(row) => self.record_record_support(row, support),
+                }
+                for argument in arguments.iter() {
+                    match argument {
+                        InferenceTypeMemberArgument::Type(term) => self.record_term_support(term, support),
+                        InferenceTypeMemberArgument::Const(_) => {}
+                        InferenceTypeMemberArgument::RecordRow(row) => self.record_record_support(row, support),
+                    }
+                }
+            }
             InferenceTerm::TypePack(elements) => {
                 for elem in elements.iter() {
                     self.record_term_support(elem, support);
@@ -2990,11 +3213,13 @@ impl InferenceSession {
     fn record_static_argument_support(&mut self, argument: &InferenceStaticArgument, support: InferenceSupport) {
         match argument {
             InferenceStaticArgument::Term(term) => self.record_term_support(term, support),
-            InferenceStaticArgument::RecordRow(row) => {
-                for field in self.normalized_record_row(row).fields.iter() {
-                    self.record_term_support(&field.ty, support);
-                }
-            }
+            InferenceStaticArgument::RecordRow(row) => self.record_record_support(row, support),
+        }
+    }
+
+    fn record_record_support(&mut self, row: &InferenceRecord, support: InferenceSupport) {
+        for field in self.normalized_record_row(row).fields.iter() {
+            self.record_term_support(&field.ty, support);
         }
     }
 
@@ -3106,6 +3331,17 @@ impl InferenceSession {
             InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
                 self.occurs_in_term(rep, subject) || trait_ref.arguments.iter().any(|arg| self.occurs_in_term(rep, arg))
             }
+            InferenceTerm::TypeMemberProjection { subject, arguments, .. } => {
+                let in_subject = match subject {
+                    InferenceProjectionSubject::Type(term) => self.occurs_in_term(rep, term),
+                    InferenceProjectionSubject::RecordRow(row) => self.occurs_in_record(rep, row),
+                };
+                in_subject || arguments.iter().any(|argument| match argument {
+                    InferenceTypeMemberArgument::Type(term) => self.occurs_in_term(rep, term),
+                    InferenceTypeMemberArgument::Const(_) => false,
+                    InferenceTypeMemberArgument::RecordRow(row) => self.occurs_in_record(rep, row),
+                })
+            }
             InferenceTerm::TypePack(elements) => elements.iter().any(|elem| self.occurs_in_term(rep, elem)),
             InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| self.occurs_in_term(rep, &elem.term)),
             InferenceTerm::CompleteTypePack { positionals, labeled } => self.occurs_in_term(rep, positionals) || self.occurs_in_term(rep, labeled),
@@ -3125,19 +3361,23 @@ impl InferenceSession {
     fn occurs_in_static_argument(&self, variable: InferVarId, argument: &InferenceStaticArgument) -> bool {
         match argument {
             InferenceStaticArgument::Term(term) => self.occurs_in_term(variable, term),
-            InferenceStaticArgument::RecordRow(row) => self.normalized_record_row(row).fields.iter().any(|field| self.occurs_in_term(variable, &field.ty)),
+            InferenceStaticArgument::RecordRow(row) => self.occurs_in_record(variable, row),
         }
+    }
+
+    fn occurs_in_record(&self, variable: InferVarId, row: &InferenceRecord) -> bool {
+        self.normalized_record_row(row).fields.iter().any(|field| self.occurs_in_term(variable, &field.ty))
     }
 
     /// Checks if `term` contains an associated type projection.
     pub fn term_has_projection(&self, term: &InferenceTerm, store: &TypeStore) -> bool {
         match term {
-            InferenceTerm::AssociatedProjection { .. } => true,
-            InferenceTerm::Canonical(ty) => matches!(store.get(*ty), TypeData::AssociatedProjection(_)),
+            InferenceTerm::AssociatedProjection { .. } | InferenceTerm::TypeMemberProjection { .. } => true,
+            InferenceTerm::Canonical(ty) => matches!(store.get(*ty), TypeData::AssociatedProjection(_) | TypeData::TypeMemberProjection(_)),
             InferenceTerm::Var(v) => {
                 let rep = self.find_var(*v);
                 if let Some(ty) = self.substitutions.get(&rep).copied() {
-                    matches!(store.get(ty), TypeData::AssociatedProjection(_))
+                    matches!(store.get(ty), TypeData::AssociatedProjection(_) | TypeData::TypeMemberProjection(_))
                 } else if let Some(t) = self.var_terms.get(&rep) {
                     self.term_has_projection(t, store)
                 } else {
@@ -3624,6 +3864,7 @@ impl InferenceSession {
                 other @ (InferenceTerm::Record(_)
                 | InferenceTerm::Family(_)
                 | InferenceTerm::AssociatedProjection { .. }
+                | InferenceTerm::TypeMemberProjection { .. }
                 | InferenceTerm::TypePack(_)
                 | InferenceTerm::LabeledTypePack(_)
                 | InferenceTerm::CompleteTypePack { .. }
@@ -3637,6 +3878,7 @@ impl InferenceSession {
                 other @ (InferenceTerm::Record(_)
                 | InferenceTerm::Family(_)
                 | InferenceTerm::AssociatedProjection { .. }
+                | InferenceTerm::TypeMemberProjection { .. }
                 | InferenceTerm::TypePack(_)
                 | InferenceTerm::LabeledTypePack(_)
                 | InferenceTerm::CompleteTypePack { .. }
@@ -3649,7 +3891,7 @@ impl InferenceSession {
             ) => {
                 let canonical = self.type_id_to_inference(*ty, &HashMap::new(), store);
                 if canonical == InferenceTerm::Canonical(*ty) {
-                    if matches!(other, InferenceTerm::AssociatedProjection { .. } | InferenceTerm::PackProjection { .. }) {
+                    if matches!(other, InferenceTerm::AssociatedProjection { .. } | InferenceTerm::TypeMemberProjection { .. } | InferenceTerm::PackProjection { .. }) {
                         return Ok(SolveEffect::Unchanged);
                     }
                     return Err(InferenceFailureReason::StructuralMismatch {
@@ -3831,6 +4073,10 @@ impl InferenceSession {
                     Ok(SolveEffect::Unchanged)
                 }
             }
+            // Type-member operations are not injective. Their subjects and
+            // arguments may become canonical after other constraints solve,
+            // but projection equality must not solve those children backwards.
+            (InferenceTerm::TypeMemberProjection { .. }, _) | (_, InferenceTerm::TypeMemberProjection { .. }) => Ok(SolveEffect::Unchanged),
             _ => Err(InferenceFailureReason::StructuralMismatch {
                 left: Box::new(left.clone()),
                 right: Box::new(right.clone()),
@@ -4379,6 +4625,16 @@ impl InferenceSession {
                 let trait_ref = crate::traits::TraitRef::new(trait_ref.declaration.clone(), arg_tys);
                 Ok(store.associated_projection(subject_ty, trait_ref, requirement.clone()))
             }
+            InferenceTerm::TypeMemberProjection {
+                subject,
+                selector,
+                arguments,
+                source_declaration,
+                result_kind,
+            } => {
+                let projection = self.materialize_type_member_projection(subject, selector, arguments, source_declaration.as_ref(), store)?;
+                Ok(store.type_member_projection(projection, *result_kind))
+            }
             InferenceTerm::TypePack(elements) => {
                 let mut elem_tys = Vec::with_capacity(elements.len());
                 for e in elements.iter() {
@@ -4475,6 +4731,45 @@ impl InferenceSession {
                     .map_err(|_| InferenceMaterializationFailure::UnsupportedDomain)
             }
         }
+    }
+
+    fn materialize_type_member_projection(
+        &self,
+        subject: &InferenceProjectionSubject,
+        selector: &TypeMemberSelector,
+        arguments: &[InferenceTypeMemberArgument],
+        source_declaration: Option<&TypeMemberDeclarationId>,
+        store: &mut TypeStore,
+    ) -> Result<TypeLevelProjection, InferenceMaterializationFailure> {
+        let subject = match subject {
+            InferenceProjectionSubject::Type(term) => ProjectionSubject::Type(self.materialize(term, store)?),
+            InferenceProjectionSubject::RecordRow(row) => match self
+                .materialize_static_argument(&InferenceStaticArgument::RecordRow(row.clone()), store)?
+            {
+                crate::types::store::StaticArgument::RecordRow(row) => ProjectionSubject::RecordRow(row),
+                crate::types::store::StaticArgument::Term(_) => return Err(InferenceMaterializationFailure::InternalInvariant),
+            },
+        };
+        let arguments = arguments
+            .iter()
+            .map(|argument| match argument {
+                InferenceTypeMemberArgument::Type(term) => self.materialize(term, store).map(TypeMemberArgument::Type),
+                InferenceTypeMemberArgument::Const(value) => Ok(TypeMemberArgument::Const(value.clone())),
+                InferenceTypeMemberArgument::RecordRow(row) => match self
+                    .materialize_static_argument(&InferenceStaticArgument::RecordRow(row.clone()), store)?
+                {
+                    crate::types::store::StaticArgument::RecordRow(row) => Ok(TypeMemberArgument::RecordRow(row)),
+                    crate::types::store::StaticArgument::Term(_) => Err(InferenceMaterializationFailure::InternalInvariant),
+                },
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_boxed_slice();
+        Ok(TypeLevelProjection {
+            subject,
+            selector: selector.clone(),
+            arguments,
+            source_declaration: source_declaration.cloned(),
+        })
     }
 
     /// Extracts materialized projections from constraints and var_terms, normalizes them via

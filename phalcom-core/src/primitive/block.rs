@@ -260,9 +260,9 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     // what makes `.each { Fiber.yield(x) }` raise `CannotYieldAcrossNativeFrame`
     // instead of corrupting the suspended position.
     vm.check_native_reentry()?;
-    vm.native_reentry_depth += 1;
+    vm.enter_native_reentry();
     let result = vm.run_until(base_frames);
-    vm.native_reentry_depth -= 1;
+    vm.leave_native_reentry();
     result
 }
 
@@ -326,9 +326,9 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
         CallOutcome::Returned(v) => Ok(v),
         CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {
             vm.check_native_reentry()?;
-            vm.native_reentry_depth += 1;
+            vm.enter_native_reentry();
             let res = vm.run_until(receiver_idx);
-            vm.native_reentry_depth -= 1;
+            vm.leave_native_reentry();
             res
         }
         CallOutcome::SwitchedFiber => Ok(Value::nil()),
@@ -390,9 +390,9 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
         CallOutcome::Returned(v) => Ok(v),
         CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {
             vm.check_native_reentry()?;
-            vm.native_reentry_depth += 1;
+            vm.enter_native_reentry();
             let res = vm.run_until(receiver_idx);
-            vm.native_reentry_depth -= 1;
+            vm.leave_native_reentry();
             res
         }
         CallOutcome::SwitchedFiber => Ok(Value::nil()),
@@ -441,9 +441,9 @@ pub fn block_ensure(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
         CallOutcome::Returned(v) => Ok(v),
         CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {
             vm.check_native_reentry()?;
-            vm.native_reentry_depth += 1;
+            vm.enter_native_reentry();
             let res = vm.run_until(receiver_idx);
-            vm.native_reentry_depth -= 1;
+            vm.leave_native_reentry();
             res
         }
         CallOutcome::SwitchedFiber => Ok(Value::nil()),

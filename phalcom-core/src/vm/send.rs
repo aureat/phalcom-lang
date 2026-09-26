@@ -123,7 +123,7 @@ impl VM {
     /// this remains stable across nested closure calls.
     pub(crate) fn current_access_class(&self) -> Option<ClassId> {
         if let Some(context) = self.native_method_contexts.last() {
-            if self.frames.len() <= context.frames_len {
+            if !self.bytecode_reentered_from(context.activation_id) {
                 return context.access_owner;
             }
         }
@@ -133,7 +133,7 @@ impl VM {
     /// Derives the canonical runtime access origin for the current execution frame.
     pub(crate) fn current_access_origin(&self) -> RuntimeAccessOrigin {
         if let Some(context) = self.native_method_contexts.last() {
-            if self.frames.len() <= context.frames_len {
+            if !self.bytecode_reentered_from(context.activation_id) {
                 return context.origin;
             }
         }
@@ -147,6 +147,29 @@ impl VM {
     /// Combines current access class and access origin into a caller authority tuple.
     pub(crate) fn current_caller_authority(&self) -> (Option<ClassId>, RuntimeAccessOrigin) {
         (self.current_access_class(), self.current_access_origin())
+    }
+
+    /// A nested bytecode drive is identified by the native activation that
+    /// entered it, never by the current VM frame-vector length. Non-local
+    /// returns can truncate that vector while the Rust native body remains live.
+    fn bytecode_reentered_from(&self, activation_id: u64) -> bool {
+        !self.frames.is_empty() && self.native_reentry_owners.last() == Some(&Some(activation_id))
+    }
+
+    fn next_native_context_id(&mut self) -> u64 {
+        let id = self.next_native_activation_id;
+        self.next_native_activation_id = id.checked_add(1).expect("native activation identity exhausted");
+        id
+    }
+
+    pub(crate) fn enter_native_reentry(&mut self) {
+        self.native_reentry_owners.push(self.native_method_contexts.last().map(|context| context.activation_id));
+        self.native_reentry_depth += 1;
+    }
+
+    pub(crate) fn leave_native_reentry(&mut self) {
+        self.native_reentry_depth -= 1;
+        self.native_reentry_owners.pop().expect("native re-entry owner stack must match depth");
     }
 
     fn is_subclass_of(&self, mut class: ClassId, ancestor: ClassId) -> bool {
@@ -281,14 +304,17 @@ impl VM {
                 };
                 let class_sym = self.interner.intern(&class_name_str);
                 let frames_before = self.frames.len();
+                let access_owner = method_obj.access_owner.or(method_obj.holder);
+                let origin = method_obj.origin;
+                let activation_id = self.next_native_context_id();
                 let native_context = crate::vm::NativeMethodContext {
-                    access_owner: method_obj.access_owner.or(method_obj.holder),
-                    origin: method_obj.origin,
+                    access_owner,
+                    origin,
                     diagnostic: crate::error::NativeFrameIdentity {
                         class: class_sym,
                         selector: selector_sym,
                     },
-                    frames_len: frames_before,
+                    activation_id,
                 };
                 self.switch_pending = false;
                 const INLINE_ARGS: usize = 8;
@@ -430,9 +456,8 @@ impl VM {
                     Some(layout) => layout,
                     None => self.invocation_layout_for_selector(selector, arity)?,
                 };
-                if self.heap.method(method).signature.rest.is_none() {
-                    layout.validate_for_kind(self.heap.method(method).signature.kind)?;
-                }
+                layout.validate_for_signature(&self.heap.method(method).signature)?;
+                layout.validate_window(receiver_idx, self.stack.len())?;
                 if layout.physical_arity() != arity {
                     return Err(RuntimeError::Internal(format!(
                         "invocation layout arity {} does not match physical arity {}",
@@ -451,21 +476,19 @@ impl VM {
                     .unwrap_or_else(|| self.heap.class(callee.class(self)).name.clone());
                 let class_sym = self.interner.intern(&class_name);
                 let frames_before = self.frames.len();
+                let access_owner = method_obj.access_owner.or(method_obj.holder);
+                let origin = method_obj.origin;
+                let activation_id = self.next_native_context_id();
                 let native_context = crate::vm::NativeMethodContext {
-                    access_owner: method_obj.access_owner.or(method_obj.holder),
-                    origin: method_obj.origin,
+                    access_owner,
+                    origin,
                     diagnostic: crate::error::NativeFrameIdentity {
                         class: class_sym,
                         selector: selector_sym,
                     },
-                    frames_len: frames_before,
+                    activation_id,
                 };
-                self.native_method_contexts.push(crate::vm::NativeMethodContext {
-                    access_owner: method_obj.access_owner.or(method_obj.holder),
-                    origin: method_obj.origin,
-                    diagnostic: native_context.diagnostic,
-                    frames_len: frames_before,
-                });
+                self.native_method_contexts.push(native_context);
                 self.switch_pending = false;
                 self.native_activation_depth += 1;
                 let result = native_fn(self, receiver, view).map_err(|error| self.with_native_error_origin(error, native_context.diagnostic));
@@ -770,6 +793,8 @@ impl VM {
 
     pub(crate) fn validate_captured_method_shape(&mut self, method: ObjRef, layout: &InvocationLayout) -> PhResult<Symbol> {
         let method_selector = self.heap.method(method).signature.selector;
+        let method_signature = self.heap.method(method).signature.clone();
+        layout.validate_for_signature(&method_signature)?;
         let selector_text = self.resolve_symbol(method_selector).to_owned();
         let (base, expected_slots, _) = decode_selector(&selector_text);
         let signature_kind = self.heap.method(method).signature.kind;
@@ -805,7 +830,7 @@ impl VM {
             ),
         };
         let rest_layout = self.heap.method(method).signature.rest.clone();
-        if let Some(rest) = rest_layout.as_ref() {
+        if rest_layout.is_some() {
             let mut slots = Vec::with_capacity(layout.structural_positionals() + layout.labeled_count());
             slots.extend(std::iter::repeat_n(None, layout.structural_positionals()));
             slots.extend(layout.labels().iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
@@ -819,14 +844,6 @@ impl VM {
                     }
                 })?),
             ));
-            if layout.has_setter_value() || !rest.accepts(layout.structural_positionals(), layout.labels()) {
-                return Err(RuntimeError::Arity {
-                    signature: "call",
-                    expected: expected_positional,
-                    found: layout.physical_arity(),
-                }
-                .into());
-            }
             return Ok(selector);
         }
 
@@ -1101,12 +1118,13 @@ impl VM {
         for (selector, layout) in self.selectors_for_bound_method_family(family.pattern, view.clone())? {
             let method = family.exact_methods.get(&selector).copied().or_else(|| {
                 family.rest_candidates.iter().copied().find(|method| {
-                    self.heap
-                        .method(*method)
-                        .signature
-                        .rest
-                        .as_ref()
-                        .is_some_and(|rest| !layout.has_setter_value() && rest.accepts(layout.structural_positionals(), layout.labels()))
+                    crate::method::InvocationLayout::validate_signature_shape(
+                        &self.heap.method(*method).signature,
+                        layout.structural_positionals(),
+                        layout.labels(),
+                        layout.has_setter_value(),
+                    )
+                    .is_ok()
                 })
             });
             let Some(method) = method else {
@@ -1454,9 +1472,9 @@ impl VM {
         let base_frames = self.frames.len();
         self.dispatch_selector_window_as(receiver_idx, selector, layout, SourceRange::default(), self.current_caller_authority())?;
         self.check_native_reentry()?;
-        self.native_reentry_depth += 1;
+        self.enter_native_reentry();
         let result = self.run_until(base_frames);
-        self.native_reentry_depth -= 1;
+        self.leave_native_reentry();
         result
     }
 
@@ -1506,9 +1524,9 @@ impl VM {
             conformance_environment,
         )?;
         self.check_native_reentry()?;
-        self.native_reentry_depth += 1;
+        self.enter_native_reentry();
         let result = self.run_until(base_frames);
-        self.native_reentry_depth -= 1;
+        self.leave_native_reentry();
         result
     }
 
@@ -1666,8 +1684,9 @@ impl VM {
 #[cfg(test)]
 mod tests {
     use crate::error::{PhError, RuntimeError};
-    use crate::heap::{BoundMethodFamilyObject, FamilyObject, FamilySpec, InstanceObject, MethodFamilyObject, Object};
-    use crate::method::{ArgumentView, CallOutcome, InvocationLayout, MethodObject, Signature, SignatureKind};
+    use crate::frame::CallContext;
+    use crate::heap::{BoundMethodFamilyObject, ClassObject, FamilyObject, FamilySpec, InstanceObject, MethodFamilyObject, Object};
+    use crate::method::{ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodObject, Signature, SignatureKind};
     use crate::value::Value;
     use crate::vm::VM;
     use std::sync::Arc;
@@ -1689,11 +1708,115 @@ mod tests {
     }
 
     #[test]
+    fn native_reentry_uses_new_frame_authority_after_slot_reuse() {
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module("audit", "native_reentry_slot_reuse");
+        let closure = vm.compile_closure(module, "42\n").expect("bytecode closure");
+        let native_owner = vm.heap.alloc_class(ClassObject::bare("NativeOwner"));
+        let bytecode_owner = vm.heap.alloc_class(ClassObject::bare("BytecodeOwner"));
+        vm.heap.closure_mut(closure).lexical_class = Some(bytecode_owner);
+        let original = vm.new_call_frame(closure, CallContext::Module { module }, 0, 0, None);
+        vm.frames.push(original);
+        let name = vm.get_or_intern("auditNative");
+        let activation_id = vm.next_native_context_id();
+        vm.native_method_contexts.push(crate::vm::NativeMethodContext {
+            access_owner: Some(native_owner),
+            origin: crate::method::RuntimeAccessOrigin::none(),
+            diagnostic: crate::error::NativeFrameIdentity { class: name, selector: name },
+            activation_id,
+        });
+        assert_eq!(vm.current_access_class(), Some(native_owner), "native callback owns sends before re-entry");
+
+        // Model a non-local return removing the captured frame, followed by a
+        // new bytecode activation occupying the same vector position.
+        vm.frames.clear();
+        let replacement = vm.new_call_frame(closure, CallContext::Module { module }, 0, 0, None);
+        assert_ne!(original.generation, replacement.generation);
+        vm.frames.push(replacement);
+        vm.enter_native_reentry();
+        assert_eq!(vm.current_access_class(), Some(bytecode_owner), "the live bytecode activation supplies lexical authority");
+        vm.leave_native_reentry();
+    }
+
+    #[test]
+    fn nested_native_reentry_restores_private_access_authority() {
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module("audit", "native_reentry_private_access");
+        let class_a = vm.heap.alloc_class(ClassObject::bare("AccessA"));
+        let class_b = vm.heap.alloc_class(ClassObject::bare("AccessB"));
+        let class_c = vm.heap.alloc_class(ClassObject::bare("AccessC"));
+        let selector = vm.get_or_intern("secret");
+        let private_method = |vm: &mut VM, owner| {
+            let mut method = MethodObject::new_shape_primitive(selector, Signature::new(selector, SignatureKind::Getter, 0), setter_probe, owner);
+            method.visibility = MemberVisibility::Private;
+            vm.heap.alloc(Object::Method(Box::new(method)))
+        };
+        let secret_a = private_method(&mut vm, class_a);
+        let secret_b = private_method(&mut vm, class_b);
+        let secret_c = private_method(&mut vm, class_c);
+        let frame_for = |vm: &mut VM, owner| {
+            let closure = vm.compile_closure(module, "42\n").expect("bytecode closure");
+            vm.heap.closure_mut(closure).lexical_class = Some(owner);
+            vm.new_call_frame(closure, CallContext::Module { module }, 0, 0, None)
+        };
+        let frame_a = frame_for(&mut vm, class_a);
+        vm.frames.push(frame_a);
+        assert!(vm.authorize_method_access(secret_a).is_ok());
+        assert!(vm.authorize_method_access(secret_b).is_err());
+
+        let native_selector = vm.get_or_intern("auditNative");
+        let native_context = |vm: &mut VM, owner| crate::vm::NativeMethodContext {
+            access_owner: Some(owner),
+            origin: crate::method::RuntimeAccessOrigin::none(),
+            diagnostic: crate::error::NativeFrameIdentity { class: native_selector, selector: native_selector },
+            activation_id: vm.next_native_context_id(),
+        };
+        let native_a = native_context(&mut vm, class_a);
+        vm.native_method_contexts.push(native_a);
+        vm.enter_native_reentry();
+        let frame_b = frame_for(&mut vm, class_b);
+        vm.frames.push(frame_b);
+        assert!(vm.authorize_method_access(secret_b).is_ok());
+        assert!(vm.authorize_method_access(secret_a).is_err());
+
+        let native_c = native_context(&mut vm, class_c);
+        vm.native_method_contexts.push(native_c);
+        assert!(vm.authorize_method_access(secret_c).is_ok());
+        assert!(vm.authorize_method_access(secret_b).is_err());
+        vm.enter_native_reentry();
+        let frame_c = frame_for(&mut vm, class_c);
+        vm.frames.push(frame_c);
+        assert!(vm.authorize_method_access(secret_c).is_ok());
+        vm.frames.pop();
+        vm.leave_native_reentry();
+        vm.native_method_contexts.pop();
+        assert!(vm.authorize_method_access(secret_b).is_ok(), "return from native C restores B's lexical authority");
+        assert!(vm.authorize_method_access(secret_c).is_err());
+
+        // A closure defined in B retains B's lexical authority, even while
+        // the outer native A callback remains active.
+        let nested_b = frame_for(&mut vm, class_b);
+        vm.frames.push(nested_b);
+        assert!(vm.authorize_method_access(secret_b).is_ok());
+        vm.frames.pop();
+
+        // Model an error unwinding the re-entered B frame. Leaving that drive
+        // restores native A until its callback itself returns.
+        vm.frames.pop();
+        vm.leave_native_reentry();
+        assert!(vm.authorize_method_access(secret_a).is_ok());
+        assert!(vm.authorize_method_access(secret_b).is_err());
+        vm.native_method_contexts.pop();
+        assert!(vm.authorize_method_access(secret_a).is_ok());
+        assert!(vm.authorize_method_access(secret_b).is_err());
+    }
+
+    #[test]
     fn captured_setter_rejects_an_ordinary_positional_rhs_lane() {
         let mut vm = VM::new();
         let owner = vm.universe.classes.object_class;
         let selector = vm.get_or_intern("value=(_)");
-        let signature = Signature::new(selector, SignatureKind::Setter);
+        let signature = Signature::new(selector, SignatureKind::Setter, 1);
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_shape_primitive(
             selector,
             signature,
@@ -1722,7 +1845,7 @@ mod tests {
         let receiver_id = vm.heap.alloc(Object::Instance(InstanceObject::new(owner, 1)));
         let receiver = Value::obj(receiver_id);
         let selector = vm.get_or_intern("[_,debug]=(_)");
-        let signature = Signature::new(selector, SignatureKind::SubscriptSet(2));
+        let signature = Signature::new(selector, SignatureKind::SubscriptSet(2), 2);
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_shape_primitive(
             selector,
             signature,
@@ -1769,7 +1892,7 @@ mod tests {
         let receiver_id = vm.heap.alloc(Object::Instance(InstanceObject::new(owner, 1)));
         let receiver = Value::obj(receiver_id);
         let selector = vm.get_or_intern("[_,debug]=(_)");
-        let signature = Signature::new(selector, SignatureKind::SubscriptSet(2));
+        let signature = Signature::new(selector, SignatureKind::SubscriptSet(2), 2);
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_shape_primitive(
             selector,
             signature,

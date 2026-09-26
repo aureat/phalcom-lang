@@ -1,4 +1,8 @@
-# LANG007.C3.P4 Continuation Handoff — Intrinsic Structural Data, Structural Kinds, and Product-Shape Expansion
+# Superseded pre-renumbering P4 continuation notes
+
+> Historical interim notes from the earlier P4 numbering collision. The
+> current `LANG007.C3.P4` is the structural-data completion plan. This file is
+> preserved as historical evidence and is not its current handoff.
 
 > **Program:** `LANG007` (Type Data and Unified Algebraic Static Domains)  
 > **Checkpoint:** `LANG007.C3` (Status: `IN_PROGRESS` / `PARTIAL` / `UNVERIFIED`)  

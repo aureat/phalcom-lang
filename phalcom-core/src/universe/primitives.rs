@@ -246,7 +246,7 @@ impl Universe {
             let symbol = vm.get_or_intern(&sig_str);
             let method = MethodObject::new_shape_primitive(
                 symbol,
-                crate::method::Signature::new(symbol, SignatureKind::Method(2)),
+                crate::method::Signature::new(symbol, SignatureKind::Method(2), 1),
                 bool_if_true_if_false_shape,
                 bool_cls,
             );
@@ -308,7 +308,7 @@ impl Universe {
             let symbol = vm.get_or_intern(&sig_str);
             let method = MethodObject::new_shape_primitive(
                 symbol,
-                crate::method::Signature::new(symbol, SignatureKind::Method(2)),
+                crate::method::Signature::new(symbol, SignatureKind::Method(2), 0),
                 option_match_shape,
                 option_cls,
             );

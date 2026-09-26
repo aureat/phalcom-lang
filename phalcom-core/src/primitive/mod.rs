@@ -125,7 +125,7 @@ macro_rules! primitive {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
-        let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
+        let method = MethodObject::new_positional_primitive(symbol, $sig_kind, $func, $class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         $vm.heap.class_mut($class).add_method(symbol, method_id);
         $vm.world_version += 1;
@@ -139,7 +139,7 @@ macro_rules! primitive_shape {
     ($vm:expr, $class:expr, $base:expr, $sig_kind:expr, $func:expr) => {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
-        let method = MethodObject::new_shape_primitive(symbol, crate::method::Signature::new(symbol, $sig_kind), $func, $class);
+        let method = MethodObject::new_shape_primitive(symbol, crate::method::Signature::positional(symbol, $sig_kind), $func, $class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         $vm.heap.class_mut($class).add_method(symbol, method_id);
         $vm.world_version += 1;
@@ -168,7 +168,7 @@ macro_rules! primitive_internal {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
-        let mut method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
+        let mut method = MethodObject::new_positional_primitive(symbol, $sig_kind, $func, $class);
         method.visibility = crate::method::MemberVisibility::Internal;
         method.access_owner = Some($class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
@@ -185,7 +185,7 @@ macro_rules! primitive_static {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
-        let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
+        let method = MethodObject::new_positional_primitive(symbol, $sig_kind, $func, $class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         let meta = $vm.heap.class($class).class;
         $vm.heap.class_mut(meta).add_method(symbol, method_id);
@@ -198,7 +198,7 @@ macro_rules! primitive_static_internal {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
-        let mut method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
+        let mut method = MethodObject::new_positional_primitive(symbol, $sig_kind, $func, $class);
         method.visibility = crate::method::MemberVisibility::Internal;
         method.access_owner = Some($class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));

@@ -85,28 +85,104 @@ impl InvocationLayout {
     }
 
     /// Validates the lane invariant required by a resolved signature kind.
+    #[cfg(test)]
     pub(crate) fn validate_for_kind(&self, kind: SignatureKind) -> Result<(), RuntimeError> {
+        Self::validate_parts_for_kind(kind, self.structural_positionals, self.labels.len(), self.setter_value)
+    }
+
+    fn validate_parts_for_kind(kind: SignatureKind, structural_positionals: usize, labeled_slots: usize, setter_value: bool) -> Result<(), RuntimeError> {
         let requires_setter = matches!(kind, SignatureKind::Setter | SignatureKind::SubscriptSet(_));
-        if self.setter_value != requires_setter {
+        if setter_value != requires_setter {
             return Err(RuntimeError::Internal(format!(
                 "invocation layout setter lane does not match signature kind {kind:?}"
             )));
         }
 
         match kind {
-            SignatureKind::Getter | SignatureKind::Setter if self.structural_positionals != 0 || !self.labels.is_empty() => {
+            SignatureKind::Getter | SignatureKind::Setter if structural_positionals != 0 || labeled_slots != 0 => {
                 Err(RuntimeError::Internal(format!("accessor invocation layout has structural lanes for {kind:?}")))
             }
             SignatureKind::Method(slots) | SignatureKind::SubscriptGet(slots) | SignatureKind::SubscriptSet(slots)
-                if self.structural_positionals + self.labels.len() != slots as usize =>
+                if structural_positionals + labeled_slots != slots as usize =>
             {
                 Err(RuntimeError::Internal(format!(
                     "invocation layout has {} structural slots for {kind:?}",
-                    self.structural_positionals + self.labels.len()
+                    structural_positionals + labeled_slots
                 )))
             }
             _ => Ok(()),
         }
+    }
+
+    /// Validates a selected invocation against the complete runtime signature.
+    /// Exact signatures must match their structural slot count and positional
+    /// decomposition. Rest signatures validate their fixed prefix and capture
+    /// mode through `RestLayout`; setter values remain a separate lane.
+    pub(crate) fn validate_for_signature(&self, signature: &Signature) -> Result<(), RuntimeError> {
+        Self::validate_signature_shape(signature, self.structural_positionals, &self.labels, self.setter_value)
+    }
+
+    /// Shared shape validator used both by invocation layouts and rest-family
+    /// lookup, so candidate selection and activation enforce the same contract.
+    pub(crate) fn validate_signature_shape(
+        signature: &Signature,
+        structural_positionals: usize,
+        labels: &[Symbol],
+        setter_value: bool,
+    ) -> Result<(), RuntimeError> {
+        if let Some(rest) = signature.rest.as_ref() {
+            let SignatureKind::Method(structural_slots) = signature.kind else {
+                return Err(RuntimeError::Internal(format!(
+                    "rest signature has non-method selector kind {:?}",
+                    signature.kind
+                )));
+            };
+            let fixed_structural_slots = rest.fixed_positionals() as usize + rest.fixed_labels().len();
+            if structural_slots as usize != fixed_structural_slots || signature.positional_arity as usize != rest.fixed_positionals() as usize {
+                return Err(RuntimeError::Internal(format!(
+                    "rest signature metadata disagrees with fixed layout: kind={:?}, positional arity={}, fixed positionals={}, fixed labels={}",
+                    signature.kind,
+                    signature.positional_arity,
+                    rest.fixed_positionals(),
+                    rest.fixed_labels().len()
+                )));
+            }
+            if setter_value || !rest.accepts(structural_positionals, labels) {
+                return Err(RuntimeError::Arity {
+                    signature: "call",
+                    expected: signature.positional_arity as usize,
+                    found: structural_positionals + labels.len() + usize::from(setter_value),
+                });
+            }
+            return Ok(());
+        }
+
+        Self::validate_parts_for_kind(signature.kind, structural_positionals, labels.len(), setter_value)?;
+
+        let setter_lane = u8::from(matches!(signature.kind, SignatureKind::Setter | SignatureKind::SubscriptSet(_)));
+        let expected_positionals = signature
+            .positional_arity
+            .checked_sub(setter_lane)
+            .ok_or_else(|| RuntimeError::Internal(format!("signature positional arity {} omits its setter value lane", signature.positional_arity)))?
+            as usize;
+        let structural_slots = match signature.kind {
+            SignatureKind::Method(slots) | SignatureKind::SubscriptGet(slots) | SignatureKind::SubscriptSet(slots) => slots as usize,
+            SignatureKind::Getter | SignatureKind::Setter => 0,
+        };
+        let expected_labels = structural_slots.checked_sub(expected_positionals).ok_or_else(|| {
+            RuntimeError::Internal(format!(
+                "signature positional arity {} exceeds its {structural_slots} structural slots",
+                signature.positional_arity
+            ))
+        })?;
+        if structural_positionals != expected_positionals || labels.len() != expected_labels {
+            return Err(RuntimeError::Internal(format!(
+                "invocation layout has {structural_positionals} positional and {} labeled slots for signature {:?} with {expected_positionals} positional and {expected_labels} labeled slots",
+                labels.len(),
+                signature.kind
+            )));
+        }
+        Ok(())
     }
 
     /// Validates that this layout describes exactly the stack window beginning
@@ -410,9 +486,8 @@ pub struct MethodObject {
 }
 
 impl MethodObject {
-    /// Builds a method with the given `kind`, deriving its signature.
-    pub fn new(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind, holder: Option<ClassId>) -> Self {
-        let signature = Signature::new(selector, sig_kind);
+    /// Builds a method with its complete calling signature.
+    pub fn new(signature: Signature, kind: MethodKind, holder: Option<ClassId>) -> Self {
         MethodObject {
             kind,
             signature,
@@ -428,13 +503,24 @@ impl MethodObject {
 
     /// Builds an unbound method (holder `None`), typically a compiler-produced
     /// closure that is attached to its class later by `Bytecode::Method`.
-    pub fn new_single(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind) -> Self {
-        Self::new(selector, sig_kind, kind, None)
+    pub fn new_single(signature: Signature, kind: MethodKind) -> Self {
+        Self::new(signature, kind, None)
+    }
+
+    /// Builds a holderless method whose structural selector slots are all
+    /// positional. Labeled methods should pass an explicit [`Signature`].
+    pub fn new_single_positional(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind) -> Self {
+        Self::new_single(Signature::positional(selector, sig_kind), kind)
     }
 
     /// Builds a native primitive method held by `holder`.
-    pub fn new_primitive(selector: Symbol, sig_kind: SignatureKind, primitive: LegacyPrimitiveFn, holder: ClassId) -> Self {
-        Self::new(selector, sig_kind, MethodKind::Primitive(PrimitiveFn::Legacy(primitive)), Some(holder))
+    pub fn new_primitive(signature: Signature, primitive: LegacyPrimitiveFn, holder: ClassId) -> Self {
+        Self::new(signature, MethodKind::Primitive(PrimitiveFn::Legacy(primitive)), Some(holder))
+    }
+
+    /// Builds a legacy primitive method from an all-positional selector shape.
+    pub fn new_positional_primitive(selector: Symbol, sig_kind: SignatureKind, primitive: LegacyPrimitiveFn, holder: ClassId) -> Self {
+        Self::new_primitive(Signature::positional(selector, sig_kind), primitive, holder)
     }
 
     /// Builds a method using the shape-aware native ABI and explicit signature.
@@ -444,9 +530,8 @@ impl MethodObject {
         primitive: fn(&mut VM, Value, ArgumentView) -> PhResult<CallOutcome>,
         holder: ClassId,
     ) -> Self {
-        let mut method = Self::new(selector, signature.kind, MethodKind::Primitive(PrimitiveFn::Shape(primitive)), Some(holder));
-        method.signature = signature;
-        method
+        debug_assert_eq!(selector, signature.selector);
+        Self::new(signature, MethodKind::Primitive(PrimitiveFn::Shape(primitive)), Some(holder))
     }
 
     /// Returns this method's selector [`Symbol`].

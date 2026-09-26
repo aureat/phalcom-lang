@@ -15,12 +15,13 @@ prepared: 2026-09-21
 |---|---|---|---|
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
 | `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C3` | frozen C2 substrate |
-| `LANG007.C3` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | none accepted | P4 corrective closure complete; historical clean-predecessor and formatter baselines remain recorded |
+| `LANG007.C3` | `IN_PROGRESS / PARTIAL / UNVERIFIED` | active: `LANG007.C3.P4` | Complete structural kinds, product-shape expansion, Tuple/Record semantics, and the required audit corrections |
 
 ## Current program state
 
-LANG007.C1, C2, and C3 are complete and focused-tested. P3's closure remains
-historical evidence; the adopted P4 corrective closure now completes C3.
+LANG007.C1 and C2 are complete and focused-tested. C3 is reopened for the
+accepted structural-data completion plan. P3.R1 remains the completed record
+for the earlier intrinsic semantic/runtime projection correction.
 
 Current truth:
 
@@ -28,17 +29,16 @@ Current truth:
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_checkpoint: null
-active_plan: null
-next_plan: No accepted successor checkpoint; await the next LANG007 objective.
+  active_checkpoint: LANG007.C3
+  active_plan: LANG007.C3.P4
+  next_plan: Continue P4 from its current checkpoint action.
 ```
 
-`LANG007.C1`, `C2`, and `C3` are complete at focused-tested level. P3 fixed
-the generic associated static-domain payload signature defect; P4 resolves the
-adopted intrinsic binding projection correction. Repository-wide formatter
-drift and documented AST/impl-query/runtime failures reproduce on clean
-predecessors and remain deferred; the full semantic test-binary run is
-incomplete. This state does not claim release certification.
+`LANG007.C1` and `C2` are complete at focused-tested level. C3 remains partial
+while P4 resolves the structural-data acceptance gaps. Repository-wide
+formatter drift and documented P3 AST/impl-query/runtime failures remain
+historical baselines; P4's current verification is recorded separately in the
+checkpoint and must not inherit P3 evidence as new P4 certification.
 
 Implementation, focused testing, and release certification are separate evidence states.
 
@@ -74,12 +74,16 @@ The canonical checkpoint state is maintained in `LANG007.C1/LANG007.C1-CHECKPOIN
 | `LANG007.C3.P1` | unified algebraic data declarations and type-data foundation | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P2` | general static domains, heterogeneous application/inference, associated type data | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
 | `LANG007.C3.P3` | intrinsic structural surface, Universe/corpus/tooling migration, certification and closure | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
-| `LANG007.C3.P4` | explicit intrinsic semantic application and runtime/native owner projections | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C3.P3.R1` | intrinsic semantic application and runtime/native owner projections | `COMPLETE` | `IMPLEMENTED` | `FOCUSED_TESTED` |
+| `LANG007.C3.P4` | intrinsic structural data semantic completion | `IN_PROGRESS` | `PARTIAL` | `UNVERIFIED` |
 
-P4 corrective closeout records:
+P3.R1 corrective closure records:
 
-- `LANG007.C3/LANG007.C3.P4-walkthrough.md`
-- `LANG007.C3/LANG007.C3.P4-handoff.md`
+- `LANG007.C3/LANG007.C3.P3.R1-walkthrough.md`
+- `LANG007.C3/LANG007.C3.P3.R1-handoff.md`
+
+P4 remains active. Its completion walkthrough and handoff will be written only
+after its implementation and required verification gates are complete.
 
 P3 closeout records:
 

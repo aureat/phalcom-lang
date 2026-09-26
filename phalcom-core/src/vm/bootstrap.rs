@@ -66,6 +66,8 @@ impl VM {
             native_activation_depth: 0,
             compiler_internal_dispatch_depth: 0,
             native_method_contexts: Vec::new(),
+            native_reentry_owners: Vec::new(),
+            next_native_activation_id: 0,
             interner,
             reflection_cache: crate::modules::ReflectionCache::new(),
             start_time: Instant::now(),
@@ -930,7 +932,7 @@ impl VM {
         let metaclass = self.heap.class(class).class;
         let selector = self.interner.intern("new(_)");
         if !self.heap.class(metaclass).methods.contains_key(&selector) {
-            let method = crate::method::MethodObject::new_primitive(
+            let method = crate::method::MethodObject::new_positional_primitive(
                 selector,
                 crate::method::SignatureKind::Method(1),
                 crate::primitive::error::native_error_new,

@@ -97,7 +97,9 @@ pub(crate) struct NativeMethodContext {
     pub(crate) access_owner: Option<ClassId>,
     pub(crate) origin: crate::method::RuntimeAccessOrigin,
     pub(crate) diagnostic: crate::error::NativeFrameIdentity,
-    pub(crate) frames_len: usize,
+    /// Unique identity of this live Rust native activation. VM frame indices
+    /// may be truncated and reused while the native callback remains live.
+    pub(crate) activation_id: u64,
 }
 
 /// Identity of a class: the module that declares it, plus its name.
@@ -268,6 +270,10 @@ pub struct VM {
     pub compiler_internal_dispatch_depth: usize,
     /// Stackable lexical contexts for active native primitive bodies.
     pub(crate) native_method_contexts: Vec<NativeMethodContext>,
+    /// The native activation that started each active nested bytecode drive.
+    /// A `None` owner denotes a host-initiated drive without a native caller.
+    pub(crate) native_reentry_owners: Vec<Option<u64>>,
+    pub(crate) next_native_activation_id: u64,
     // Ceilings for both counters live at module scope — see `MAX_CALL_DEPTH` and
     // `MAX_NATIVE_REENTRY` below.
     /// Registered runtime modules keyed by semantic identity.

@@ -94,6 +94,8 @@ impl VM {
             native_activation_depth: _,
             compiler_internal_dispatch_depth: _,
             native_method_contexts: _,
+            native_reentry_owners: _,
+            next_native_activation_id: _,
             next_frame_generation: _,
             // A `u32` counter, no object handles — not a GC root.
             next_fiber_seq: _,

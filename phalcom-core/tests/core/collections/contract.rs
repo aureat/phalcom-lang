@@ -18,6 +18,14 @@ use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
 use phalcom_semantic::core_surface::CoreDeclarationIds;
 use phalcom_semantic::identity::VariantId;
 
+#[derive(Clone, Copy)]
+enum IndexedReadContract {
+    /// Historical List/Set contract: an in-range `at(_)` returns the value.
+    BareValue,
+    /// Tuple's typed contract: an in-range `at(_)` returns `Some(value)`.
+    Option,
+}
+
 /// The static parameters that distinguish one collection kind from another
 /// (as-built.md §2): whether it supports in-place growth, whether it is a
 /// valid `Map`/`Set` key, and whether its iteration order is a function of
@@ -38,6 +46,8 @@ struct ContractSpec {
     /// Lowest arity that remains an instance of this collection family.
     /// Tuple's zero-arity product normalizes to Unit.
     min_arity: usize,
+    /// Precise result shape for a successful indexed read.
+    indexed_read: IndexedReadContract,
 }
 
 /// Sends a nullary selector to `receiver` and returns the result value.
@@ -121,7 +131,14 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
         // L3: at(i) recovers each element by its own `==`, for 0 <= i < n.
         for (i, elem) in elems.iter().enumerate() {
             let got = send1(vm, collection, "at(_)", Value::int(i as i64));
-            let recovered = got.unwrap_some().unwrap_or(got);
+            let recovered = match spec.indexed_read {
+                IndexedReadContract::BareValue => got,
+                IndexedReadContract::Option => {
+                    let expected = elem.wrap_some().expect("fixture value wraps in Some");
+                    assert_eq!(got, expected, "{}: at({i}) must return Some(element)", spec.class_name);
+                    got.unwrap_some().expect("Tuple at(valid) returns Some")
+                }
+            };
             assert!(
                 as_bool(send1(vm, recovered, "==(_)", *elem)),
                 "{}: at({i}) should recover the element it was built with",
@@ -220,6 +237,7 @@ fn list_satisfies_sequence_contract() {
         mutation_returns_receiver: false,
         hashable: false,
         min_arity: 0,
+        indexed_read: IndexedReadContract::BareValue,
     };
     assert_sequence_contract(&mut vm, &spec, build_list);
 }
@@ -248,6 +266,7 @@ fn set_satisfies_sequence_contract() {
         mutation_returns_receiver: true,
         hashable: false,
         min_arity: 0,
+        indexed_read: IndexedReadContract::BareValue,
     };
     assert_sequence_contract(&mut vm, &spec, build_set);
 }
@@ -348,8 +367,28 @@ fn tuple_satisfies_sequence_contract() {
         mutation_returns_receiver: false,
         hashable: true,
         min_arity: 1,
+        indexed_read: IndexedReadContract::Option,
     };
     assert_sequence_contract(&mut vm, &spec, build_tuple);
+}
+
+#[test]
+fn record_get_returns_option_values() {
+    let mut vm = VM::new();
+    let record = eval_literal(&mut vm, "{ name: 42 }");
+    let name = Value::symbol(vm.get_or_intern("name"));
+    let missing_name = Value::symbol(vm.get_or_intern("missing"));
+
+    assert_eq!(
+        send1(&mut vm, record, "get(_)", name),
+        Value::int(42).wrap_some().expect("found Record value wraps in Some"),
+        "Record.get(present) returns Some(value)"
+    );
+    assert_eq!(
+        send1(&mut vm, record, "get(_)", missing_name),
+        Value::none(),
+        "Record.get(missing) returns None"
+    );
 }
 
 #[test]

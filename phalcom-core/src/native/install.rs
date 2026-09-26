@@ -125,11 +125,10 @@ fn install_one_on_owner(vm: &mut VM, desc: &PrimitiveDescriptor, owner: crate::h
 
     let selector = vm.interner.intern(desc.surface.key.selector);
     let signature = desc.runtime_signature(vm, selector);
-    let sig_kind = signature.kind;
     let replaced = vm.heap.class(target).get_method(selector);
 
     let mut method = match desc.entry {
-        PrimitiveEntry::Value(f) => MethodObject::new_primitive(selector, sig_kind, f, owner),
+        PrimitiveEntry::Value(f) => MethodObject::new_primitive(signature.clone(), f, owner),
         PrimitiveEntry::Shape(f) => MethodObject::new_shape_primitive(selector, signature, f, owner),
     };
 
@@ -166,4 +165,161 @@ fn install_one_on_owner(vm: &mut VM, desc: &PrimitiveDescriptor, owner: crate::h
     vm.world_version += 1;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::method::{CallOutcome, RestMode};
+    use crate::value::Value;
+    use phalcom_native_meta::{
+        CallableTypeSpec, EffectSpec, NativeAnchorPolicy, NativeLifecycleSpec, NativeSourceSpec, NativeStability, NativeTrust, ParameterTupleSpec,
+        PrimitiveAbi, PrimitiveKey, PrimitiveSurfaceSpec, RaisesSpec, ReturnFlowSpec, TerminationSpec, TypeExprSpec,
+    };
+
+    static EMPTY_PARAMS: ParameterTupleSpec = ParameterTupleSpec {
+        positional: &[],
+        labeled: &[],
+        rest: None,
+    };
+    static UNKNOWN_RETURN: TypeExprSpec = TypeExprSpec::Unknown;
+    static CALLABLE: CallableTypeSpec = CallableTypeSpec {
+        type_params: &[],
+        params: &EMPTY_PARAMS,
+        return_type: &UNKNOWN_RETURN,
+        constraints: &[],
+    };
+
+    fn test_descriptor(selector: &'static str, abi: PrimitiveAbi, entry: PrimitiveEntry) -> PrimitiveDescriptor {
+        let surface = Box::leak(Box::new(PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: phalcom_native_meta::UniverseKey::Object,
+                side: NativeDispatch::Instance,
+                selector,
+            },
+            visibility: phalcom_native_meta::NativeVisibility::Public,
+            stability: NativeStability::Stable,
+            anchor: NativeAnchorPolicy::Hidden,
+            params: &EMPTY_PARAMS,
+            returns: &UNKNOWN_RETURN,
+            callable: &CALLABLE,
+            raises: RaisesSpec::Unknown,
+            effects: EffectSpec::Unknown,
+            flow: ReturnFlowSpec::Unknown,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec::UNKNOWN,
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: None,
+            conceptual: None,
+        }));
+        PrimitiveDescriptor {
+            surface,
+            abi,
+            entry,
+            source: NativeSourceSpec {
+                module_path: "test",
+                rust_name: "signature_probe",
+                file: "install.rs",
+                line: 1,
+            },
+        }
+    }
+
+    fn value_primitive(_: &mut VM, _: &Value, _: &[Value]) -> PhResult<Value> {
+        Ok(Value::nil())
+    }
+
+    fn shape_primitive(_: &mut VM, _: Value, _: crate::method::ArgumentView) -> PhResult<CallOutcome> {
+        Ok(CallOutcome::Returned(Value::nil()))
+    }
+
+    #[test]
+    fn installed_native_methods_preserve_descriptor_signatures() {
+        let canonical = crate::modules::canonical_universe_program().expect("canonical Universe product");
+        let mut vm = VM::new();
+
+        for descriptor in PRIMITIVES {
+            let owner = if is_primordial_owner(descriptor.surface.key.owner) {
+                vm.universe.classes.resolve(descriptor.surface.key.owner)
+            } else {
+                let anchor = canonical
+                    .source_index()
+                    .members
+                    .get(&super::super::verify::source_key(descriptor.surface.key))
+                    .unwrap_or_else(|| panic!("native descriptor {} has no canonical source anchor", descriptor.surface.key.selector));
+                let module = vm
+                    .module_registry
+                    .get(&anchor.module)
+                    .unwrap_or_else(|| panic!("native descriptor module {} was not materialized", anchor.module))
+                    .object;
+                let class_name = vm.interner.intern(&anchor.class_name);
+                vm.heap
+                    .module(module)
+                    .get(class_name)
+                    .and_then(|value| value.as_obj())
+                    .unwrap_or_else(|| panic!("native descriptor owner {} is not a runtime class", anchor.class_name))
+            };
+            let target = match descriptor.surface.key.side {
+                phalcom_native_meta::NativeDispatch::Instance => owner,
+                phalcom_native_meta::NativeDispatch::Class => vm.heap.class(owner).class,
+            };
+            let selector = vm.get_or_intern(descriptor.surface.key.selector);
+            let installed_method = vm
+                .heap
+                .class(target)
+                .get_method(selector)
+                .unwrap_or_else(|| panic!("native descriptor {} was not installed", descriptor.surface.key.selector));
+            let installed_signature = vm.heap.method(installed_method).signature.clone();
+            let descriptor_signature = descriptor.runtime_signature(&mut vm, selector);
+
+            assert_eq!(
+                installed_signature.selector, descriptor_signature.selector,
+                "{}",
+                descriptor.surface.key.selector
+            );
+            assert_eq!(installed_signature.kind, descriptor_signature.kind, "{}", descriptor.surface.key.selector);
+            assert_eq!(
+                installed_signature.positional_arity, descriptor_signature.positional_arity,
+                "{}",
+                descriptor.surface.key.selector
+            );
+            assert_eq!(installed_signature.rest, descriptor_signature.rest, "{}", descriptor.surface.key.selector);
+        }
+
+        let cases = [
+            ("auditPositionalSignatureProbe(_)", PrimitiveAbi::Value, PrimitiveEntry::Value(value_primitive)),
+            ("auditLabeledSignatureProbe(name)", PrimitiveAbi::Value, PrimitiveEntry::Value(value_primitive)),
+            ("auditMixedSignatureProbe(_,name)", PrimitiveAbi::Shape, PrimitiveEntry::Shape(shape_primitive)),
+            ("[auditIndex]", PrimitiveAbi::Value, PrimitiveEntry::Value(value_primitive)),
+            ("[auditIndex]=(_)", PrimitiveAbi::Shape, PrimitiveEntry::Shape(shape_primitive)),
+            ("auditValueSignatureProbe=(_)", PrimitiveAbi::Value, PrimitiveEntry::Value(value_primitive)),
+            (
+                "auditCompleteRestSignatureProbe(***)",
+                PrimitiveAbi::Shape,
+                PrimitiveEntry::Shape(shape_primitive),
+            ),
+        ];
+
+        for (selector_text, abi, entry) in cases {
+            let descriptor = test_descriptor(selector_text, abi, entry);
+            let owner = vm.universe.classes.object_class;
+            super::install_one_on_owner(&mut vm, &descriptor, owner).expect("synthetic descriptor installs");
+            let selector = vm.get_or_intern(selector_text);
+            let target = vm.universe.classes.object_class;
+            let installed_method = vm.heap.class(target).get_method(selector).expect("synthetic method is installed");
+            let installed_signature = vm.heap.method(installed_method).signature.clone();
+            let descriptor_signature = descriptor.runtime_signature(&mut vm, selector);
+            assert_eq!(installed_signature.selector, descriptor_signature.selector, "{selector_text}");
+            assert_eq!(installed_signature.kind, descriptor_signature.kind, "{selector_text}");
+            assert_eq!(installed_signature.positional_arity, descriptor_signature.positional_arity, "{selector_text}");
+            assert_eq!(installed_signature.rest, descriptor_signature.rest, "{selector_text}");
+            if selector_text.contains("***") {
+                assert!(matches!(installed_signature.rest.as_ref().unwrap().mode(), RestMode::Complete { .. }));
+            }
+        }
+    }
 }

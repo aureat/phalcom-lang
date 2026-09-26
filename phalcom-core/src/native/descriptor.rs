@@ -59,8 +59,10 @@ impl PrimitiveDescriptor {
         let kind = self.runtime_signature_kind();
         let parsed = Selector::try_decode_exact(self.surface.key.selector).expect("descriptor selector must be valid");
         let fixed_positionals = self.fixed_positional_count(&parsed);
+        let setter_value = matches!(kind, SignatureKind::Setter | SignatureKind::SubscriptSet(_));
+        let positional_arity = fixed_positionals + u8::from(setter_value);
         if !self.surface.key.selector.contains("***") {
-            return Signature::new_with_arity(selector, kind, fixed_positionals, None);
+            return Signature::new_with_arity(selector, kind, positional_arity, None);
         }
 
         let marker_index = parsed.slots.len().saturating_sub(1);
@@ -75,7 +77,7 @@ impl PrimitiveDescriptor {
         Signature::new_with_arity(
             selector,
             kind,
-            fixed_positionals,
+            positional_arity,
             Some(RestLayout::new(fixed_positionals, fixed_labels, RestMode::Complete { param_index: 0 })),
         )
     }

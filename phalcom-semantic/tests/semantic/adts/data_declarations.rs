@@ -330,6 +330,27 @@ class Container {
 }
 
 #[test]
+fn projection_free_complete_pack_data_constructor_infers_pack() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data PackBox<***Ps: CompleteTypePack>(***Ps)
+
+class Runner {
+    @class make() -> PackBox<***(Int, String)> {
+        PackBox(1, "value")
+    }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let diagnostics = analysis.snapshot.diagnostics_for(&module);
+    assert!(diagnostics.as_ref().is_none_or(|diagnostics| diagnostics.is_empty()), "diagnostics: {diagnostics:#?}");
+}
+
+#[test]
 fn data_record_construction_and_projection() {
     let module = test_module();
     let source: Arc<str> = Arc::from(

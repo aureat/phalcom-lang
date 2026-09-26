@@ -182,7 +182,7 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
     throw MessageNotUnderstood.new("Tuple does not understand " + message.selector.toString)
   }
 
-  iterator -> TupleIterator { TupleIterator.new(self) }
+  iterator -> TupleIterator<***Es> { TupleIterator.new(self) }
 
   zipped -> TupleZipView { TupleZipView.new(self) }
 
@@ -227,19 +227,19 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   }
 }
 
-class TupleIterator {
-  _source: Dynamic
+class TupleIterator<***Es: CompleteTypePack> {
+  _source: Tuple<***Es>
   _index: Int
   _done: Bool
 
   @constructor
-  new(_ source: Dynamic) {
+  new(_ source: Tuple<***Es>) {
     _source = source
     _index = 0
     _done = false
   }
 
-  next -> Option<Dynamic> {
+  next -> Option<Tuple<***Es>::Element> {
     if _done { return None }
     if _index >= _source.size {
       _done = true
@@ -253,14 +253,14 @@ class TupleIterator {
   iterator { self }
 }
 
-impl CanonicalIterator for TupleIterator {
-  type Item = Dynamic
+impl<***Es: CompleteTypePack> CanonicalIterator for TupleIterator<***Es> {
+  type Item = Tuple<***Es>::Element
 }
 
 impl<***Es: CompleteTypePack> CanonicalIterable for Tuple<***Es> {
-  type Item = Dynamic
-  type Iterator = TupleIterator
-  iterator -> TupleIterator { TupleIterator.new(self) }
+  type Item = Tuple<***Es>::Element
+  type Iterator = TupleIterator<***Es>
+  iterator -> TupleIterator<***Es> { TupleIterator.new(self) }
 }
 
 /// Strict zip produces runtime-shaped tuples because the input lane count is known only at runtime.

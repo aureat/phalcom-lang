@@ -22,7 +22,7 @@ fn compiler_internal_dispatch_authority_is_transient() {
     let selector = vm.interner.intern("compilerAuthorityProbe()");
     let owner = vm.universe.classes.object_class;
 
-    let mut method = MethodObject::new_primitive(selector, SignatureKind::Method(0), internal_probe_primitive, owner);
+    let mut method = MethodObject::new_positional_primitive(selector, SignatureKind::Method(0), internal_probe_primitive, owner);
     method.visibility = MemberVisibility::Internal;
     let method = vm.heap.alloc(Object::Method(Box::new(method)));
 

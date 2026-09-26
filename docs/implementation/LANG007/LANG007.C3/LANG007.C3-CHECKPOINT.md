@@ -33,7 +33,7 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Complete T4 data-constructor shape inference through the shared generic call coordinator, then project specialized product shapes into exact T5 runtime layouts.
+  next_action: Close the TupleIterator projection/conformance regression, then prove native re-entry authority across non-local return and complete the remaining P4 focused gates.
 blocker: none
 ```
 
@@ -1648,23 +1648,26 @@ test with the new Tuple member compiled.
 Current:
 
 ```text
-    active plan:
-    none
-
-latest completed plan:
+active plan:
     LANG007.C3.P4
 
+latest completed plan:
+    LANG007.C3.P3.R1
+
 next task:
-    none accepted
+    Address the blocking specialization-aware TupleIterator regression from
+    the attached architecture audit, then verify the T4 constructor
+    inference/materialization slice and proceed to exact T5 layouts.
 
 next action:
-    Await the next explicitly scoped LANG007 objective. P4 restores C3 closure
-    at focused-tested level; it does not claim release certification.
+    Restore TupleIterator<***Es> and verify Tuple, Iterator, and Iterable item
+    projections preserve Tuple<***Es>::Element without Dynamic.
 ```
 
 P3's final T9/T10 certification section below records the previously completed
-P3 state. It is retained as historical evidence; P4 is the completed
-corrective closure and the current C3 lifecycle state is shown above.
+P3 state. P3.R1 is the completed corrective closure for intrinsic
+semantic-application/runtime-owner separation. P4 is the active structural-data
+completion plan.
 
 ## 21. P3 certification and closure checkpoint — 2026-09-25
 
@@ -1777,7 +1780,7 @@ C3 may be marked `COMPLETE` only when:
 [x] P1 complete
 [x] P2 complete
 [x] P3 complete
-[x] P4 corrective closure complete
+[x] P3.R1 corrective closure complete
 [x] unified algebraic source/semantic model implemented
 [x] type-data static domains implemented
 [x] heterogeneous static application implemented
@@ -1853,7 +1856,82 @@ and `StaticArgument::RecordRow`. No fake components, second solver, or general
 runtime-expansion support in `bind_static_arguments` is introduced.
 
 The P4 plan's T4.4–T4.6 contract was amended with this seam and the single-pass
-requirement. The active implementation slice is T4 constructor inference and
-materialization followed by T5 exact layouts and shared behavior-class
-registration. The generic application syntax remains explicit-expansion-only
+requirement. The data-constructor adapter is present in the shared call path;
+its required focused coverage and shape-materialization behavior remain to be
+verified. The attached architecture audit additionally identifies a blocking
+TupleIterator typing regression, which now takes precedence as the next
+bounded correction. T5 exact layouts and shared behavior-class registration
+remain downstream. Generic application syntax remains explicit-expansion-only
 as specified in P4 §5.4 and the latest architect note.
+
+### Runtime signature correction — 2026-09-26
+
+The attached audit's independent runtime-signature items 2–5 are implemented
+and focused-tested. `SignatureKind` retains structural selector-slot count;
+`Signature` now requires explicit positional arity, and `InvocationLayout`
+continues to carry the setter value as a separate lane. Native installation
+passes the descriptor's complete signature to both value and shape primitive
+constructors. Exact invocation validation checks slot count and positional /
+labeled decomposition; rest candidate lookup and activation share validation
+against the full `RestLayout` and reject setter lanes.
+
+Focused evidence:
+
+- `method::tests::` — 12 passed, including exact, setter, and all four rest
+  capture modes.
+- `native::install::tests::installed_native_methods_preserve_descriptor_signatures`
+  — passed; compares every registered installed descriptor and synthetic
+  positional-only, labeled-only, mixed, subscript-get, subscript-set, setter,
+  and complete-rest cases across both primitive ABIs.
+- `compiler_declaration_dispatch::reflective_send_uses_rest_family_fallback`
+  — passed.
+
+### P4 Tuple::Element inference ruling — user-ratified 2026-09-26
+
+The user supplied an architectural ruling for the blocking specialization-aware
+TupleIterator regression. `Tuple<***Es>::Element` is a source-owned
+domain-native type-member projection. Unqualified lookup must route it through
+the published owner surface and canonical type-member evaluator; it does not
+require trait evidence. Lookup must select among applicable inherent/domain
+and trait-associated candidates as one operation, reporting ambiguity rather
+than choosing by syntax spelling or source order.
+
+The exact failing projection IDs were inspected in the same analyzed snapshot:
+`TypeId(907)` and `TypeId(1023)` are both `Tuple::Element` projections with the
+same `source_declaration` (`Universe::collections.tuple::Tuple::Element`), no
+member arguments, and result kind `Type`. Their symbolic subjects differ:
+`TypeId(906)` retains `TupleFromPacks(Es::Positionals, Es::Labeled)`, while
+`TypeId(1022)` retains the lanes as projections from
+`CompleteTypePack<Es>`. `TypeId(1019)` and `TypeId(1024)` are the corresponding
+`Option` applications; `TypeId(1026)` is the downstream trait-associated
+`Iterable::Iterator::Item` projection. The mismatch is therefore not caused
+by source-member identity divergence.
+
+The corrective owner is query-local inference: `TypeData::TypeMemberProjection`
+must retain its symbolic subject, member arguments, source declaration, and
+result kind through inference substitution and materialization. Projection
+results are not injective; equality of `Tuple<X>::Element` and
+`Tuple<Y>::Element` must never infer `X = Y`. Generic binder correspondence
+must come from the surrounding applied-type constraints. Materialized
+projections reuse `TypeStore::type_member_projection` and the existing
+projection normalizer. CompleteTypePack inference remains unchanged unless a
+projection-free constructor probe still fails after this correction.
+
+The ruling requires a regression for source declaration identity and the full
+Tuple / Iterator / Iterable item chain. Implementation and focused verification
+are in progress. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; this ruling
+does not close T4–T9 or G1–G6.
+
+### P4 native re-entry authority ruling — user-ratified 2026-09-26
+
+The VM execution specification permits a non-local return to remove bytecode
+frames beneath a live native callback. It also states that frame-vector position
+is not activation identity. The user ratified preserving this return behavior
+and using activation identity for native re-entry access authority. A numerical
+`frames.len()` comparison alone is insufficient after truncation and slot reuse.
+The correction must use live frame tokens/generations (or an equivalent stable
+activation identity), retain lexical authority for executing bytecode, and
+restore the native caller's authority when its callback resumes. Build the
+focused non-local-return/reuse reproducer and authority matrix before claiming
+this gate verified. No VM correction or acceptance evidence has yet been
+recorded for this ruling.

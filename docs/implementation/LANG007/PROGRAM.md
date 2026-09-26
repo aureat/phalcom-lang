@@ -34,7 +34,7 @@ LANG007 does not own ordinary runtime collection iteration, general VM dispatch,
 
 ### C1 — Semantic domains and compiler-intrinsic structural type operations
 
-**State:** `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`
+**State:** `IN_PROGRESS / PARTIAL / UNVERIFIED`
 
 C1 is complete and focused-tested across all three numbered plans (P1, P2, P3).
 
@@ -57,18 +57,21 @@ Current numbered plans for C2:
 C3 establishes unified algebraic declarations (`data` for runtime products
 and sums, `type data` for type-level static domains), nominal static-domain
 identity, canonical static terms, heterogeneous static applications, and
-intrinsic structural-domain exposure. P4 completes the adopted correction that
+intrinsic structural-domain exposure. P3.R1 completed the corrective work that
 separates intrinsic semantic application from runtime/native owner projection.
-Deferred repository baselines remain recorded; this does not claim release
-certification.
+The active P4 completes structural kinds, product-shape expansion, and
+Tuple/Record semantic behavior.
 
 Current numbered plans for C3:
 
 - `LANG007.C3.P1` — unified algebraic data declarations and type-data foundation — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C3.P2` — general static domains, heterogeneous application/inference, associated type data — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C3.P3` — intrinsic structural surface, Universe/corpus migration, certification and closure — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
-- `LANG007.C3.P4` — explicit intrinsic semantic application and runtime/native owner projections — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+- `LANG007.C3.P3.R1` — intrinsic semantic application and runtime/native owner projections — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+- `LANG007.C3.P4` — intrinsic structural data semantic completion — `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 
+The active objective and durable progress ledger are in
+[`LANG007.C3-CHECKPOINT.md`](LANG007/LANG007.C3/LANG007.C3-CHECKPOINT.md).
 No successor checkpoint or plan is currently accepted; no C4 is implied.
 
 C1 is the first implementation checkpoint. It establishes the canonical domains, type-member identity/projection machinery, structural operations, persistence/inference integration, and runtime boundary required for:

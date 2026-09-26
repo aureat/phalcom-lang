@@ -77,9 +77,12 @@ fn native_lifecycle_nested_dispatch_and_error_propagation() {
             (name, f),
         ] {
             let s = vm.get_or_intern(n);
-            let m = vm
-                .heap
-                .alloc(Object::Method(Box::new(MethodObject::new_primitive(s, SignatureKind::Method(0), p, class))));
+            let m = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_positional_primitive(
+                s,
+                SignatureKind::Method(0),
+                p,
+                class,
+            ))));
             vm.heap.class_mut(class).add_method(s, m);
         }
         let s = vm.get_or_intern(name);
@@ -102,7 +105,7 @@ fn native_error_provenance_follows_escaping_producer() {
         ("auditOuterFailureFail()", outer_error_after_failure),
     ] {
         let selector = vm.get_or_intern(name);
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_positional_primitive(
             selector,
             SignatureKind::Method(0),
             f,
@@ -127,7 +130,7 @@ fn native_error_provenance_follows_escaping_producer() {
     let class = vm.universe.classes.int_class;
     for (name, f) in [("auditOk()", ok as fn(&mut VM, &Value, &[Value]) -> PhResult<Value>), ("auditFail()", fail)] {
         let selector = vm.get_or_intern(name);
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_positional_primitive(
             selector,
             SignatureKind::Method(0),
             f,
@@ -143,7 +146,7 @@ fn native_error_provenance_follows_escaping_producer() {
         ("auditShapeFailureFail()", shape_error_after_failure),
     ] {
         let selector = vm.get_or_intern(name);
-        let signature = Signature::new(selector, SignatureKind::Method(0));
+        let signature = Signature::new(selector, SignatureKind::Method(0), 0);
         let method = vm
             .heap
             .alloc(Object::Method(Box::new(MethodObject::new_shape_primitive(selector, signature, f, class))));

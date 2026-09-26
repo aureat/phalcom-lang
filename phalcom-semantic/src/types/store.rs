@@ -1016,6 +1016,25 @@ impl TypeStore {
                 kind: labeled_kind,
             });
         }
+        // Reassembling the two canonical lanes of one abstract complete pack
+        // is a product round trip. This only recognizes the store's own
+        // source-less intrinsic projections; arbitrary source members with
+        // the same spelling must not acquire this identity law.
+        if let (TypeData::TypeMemberProjection(pos), TypeData::TypeMemberProjection(lab)) = (self.get(positionals), self.get(labeled)) {
+            if pos.source_declaration.is_none()
+                && lab.source_declaration.is_none()
+                && pos.selector == TypeMemberSelector::named("Positionals")
+                && lab.selector == TypeMemberSelector::named("Labeled")
+                && pos.arguments.is_empty()
+                && lab.arguments.is_empty()
+            {
+                if let (ProjectionSubject::Type(pos_subject), ProjectionSubject::Type(lab_subject)) = (&pos.subject, &lab.subject) {
+                    if pos_subject == lab_subject && self.kind_of(*pos_subject) == KindId::COMPLETE_TYPE_PACK {
+                        return Ok(*pos_subject);
+                    }
+                }
+            }
+        }
         Ok(self.intern_with_kind(TypeData::CompleteTypePack { positionals, labeled }, KindId::COMPLETE_TYPE_PACK))
     }
 
@@ -1880,6 +1899,42 @@ mod tests {
     fn empty_tuple_normalizes_to_unit() {
         let mut store = TypeStore::new();
         assert_eq!(store.tuple(Box::new([])), store.unit());
+    }
+
+    #[test]
+    fn complete_pack_reassembles_only_its_own_intrinsic_lanes() {
+        let mut store = TypeStore::new();
+        let owner = test_decl("PackOwner");
+        let pack = |store: &mut TypeStore, index, name| {
+            let parameter = store.intern_type_parameter(TypeParameterData::new(
+                TypeParameterOwner::Declaration(owner.clone()),
+                index,
+                name,
+                KindId::COMPLETE_TYPE_PACK,
+            ));
+            store.parameter_form(parameter)
+        };
+        let first = pack(&mut store, 0, "First");
+        let second = pack(&mut store, 1, "Second");
+        let first_pos = store.project_positionals(first).expect("positional lane");
+        let first_lab = store.project_labeled(first).expect("labeled lane");
+        let second_lab = store.project_labeled(second).expect("second labeled lane");
+        assert_eq!(store.complete_type_pack(first_pos, first_lab).expect("matching lanes"), first);
+        assert_ne!(store.complete_type_pack(first_pos, second_lab).expect("distinct lanes"), first);
+
+        let foreign_pos = store.type_member_projection(
+            TypeLevelProjection {
+                subject: ProjectionSubject::Type(first),
+                selector: TypeMemberSelector::named("Positionals"),
+                arguments: Box::new([]),
+                source_declaration: Some(super::super::type_member::TypeMemberDeclarationId::new(
+                    test_decl("ForeignPack"),
+                    TypeMemberSelector::named("Positionals"),
+                )),
+            },
+            KindId::TYPE_PACK,
+        );
+        assert_ne!(store.complete_type_pack(foreign_pos, first_lab).expect("foreign member"), first);
     }
 
     #[test]

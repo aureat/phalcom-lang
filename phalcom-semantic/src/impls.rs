@@ -1422,6 +1422,7 @@ pub fn check_witness_compatibility_with_visibility(
     let alpha = callable_generic_alpha_substitution(store, &required.signature.generics, &candidate.generics);
     let mut budget = QueryBudget::default();
     let cancel = CancellationToken::default();
+    let abstract_trait = crate::traits::TraitRef::new(required.requirement.owner.clone(), Box::<[TypeId]>::default());
     for (required_parameter, candidate_parameter) in required.signature.parameters.iter().zip(candidate.parameters.iter()) {
         if required_parameter.rest != candidate_parameter.rest {
             return WitnessCompatibility::Incompatible(WitnessMismatch {
@@ -1437,7 +1438,18 @@ pub fn check_witness_compatibility_with_visibility(
             Err(result) => return result,
         };
         let candidate_type = alpha.apply(store, candidate_type);
-        if let Err(result) = witness_relation_result(check_subtype_bounded(store, hierarchy, required_type, candidate_type, &mut budget, &cancel)) {
+        let (required_type, required_symbolic) = match normalize_witness_type(store, required_type, &abstract_trait, &mut budget, &cancel) {
+            Ok(result) => result,
+            Err(result) => return result,
+        };
+        let (candidate_type, candidate_symbolic) = match normalize_witness_type(store, candidate_type, &abstract_trait, &mut budget, &cancel) {
+            Ok(result) => result,
+            Err(result) => return result,
+        };
+        if let Err(result) = witness_relation_with_symbolic_boundaries(
+            check_subtype_bounded(store, hierarchy, required_type, candidate_type, &mut budget, &cancel),
+            required_symbolic || candidate_symbolic,
+        ) {
             return result;
         }
     }
@@ -1450,13 +1462,59 @@ pub fn check_witness_compatibility_with_visibility(
         Ok(ty) => ty,
         Err(result) => return result,
     };
-    if let Err(result) = witness_relation_result(check_subtype_bounded(store, hierarchy, candidate_return, required_return, &mut budget, &cancel)) {
+    let (candidate_return, candidate_symbolic) = match normalize_witness_type(store, candidate_return, &abstract_trait, &mut budget, &cancel) {
+        Ok(result) => result,
+        Err(result) => return result,
+    };
+    let (required_return, required_symbolic) = match normalize_witness_type(store, required_return, &abstract_trait, &mut budget, &cancel) {
+        Ok(result) => result,
+        Err(result) => return result,
+    };
+    if let Err(result) = witness_relation_with_symbolic_boundaries(
+        check_subtype_bounded(store, hierarchy, candidate_return, required_return, &mut budget, &cancel),
+        candidate_symbolic || required_symbolic,
+    ) {
         return result;
     }
     WitnessCompatibility::Compatible(WitnessCompatibilityProof {
         requirement: required.requirement.clone(),
         candidate: candidate.callable.clone(),
     })
+}
+
+fn normalize_witness_type(
+    store: &mut TypeStore,
+    ty: TypeId,
+    trait_ref: &crate::traits::TraitRef,
+    budget: &mut QueryBudget,
+    cancel: &CancellationToken,
+) -> Result<(TypeId, bool), WitnessCompatibility> {
+    let mut context = crate::types::ProjectionNormalizationContext::new(
+        crate::types::ProjectionNormalizationMode::AbstractTrait { trait_ref },
+        budget,
+        cancel,
+    );
+    match crate::types::normalize_type(store, ty, &mut context) {
+        crate::types::ProjectionNormalizationResult::Normalized(ty) => Ok((ty, false)),
+        crate::types::ProjectionNormalizationResult::Symbolic(ty) => Ok((ty, true)),
+        crate::types::ProjectionNormalizationResult::Incomplete | crate::types::ProjectionNormalizationResult::Recursive => {
+            Err(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))
+        }
+        crate::types::ProjectionNormalizationResult::Unknown(reason) => Err(WitnessCompatibility::Unknown(reason)),
+        crate::types::ProjectionNormalizationResult::Blocked(reason) => Err(WitnessCompatibility::Blocked(reason)),
+        crate::types::ProjectionNormalizationResult::Dynamic(obligation) => Err(WitnessCompatibility::Dynamic(obligation)),
+        crate::types::ProjectionNormalizationResult::Ambiguous(_) => Err(WitnessCompatibility::Unknown(UnknownReason::InferenceAmbiguous)),
+        crate::types::ProjectionNormalizationResult::Cancelled => Err(WitnessCompatibility::Cancelled),
+        crate::types::ProjectionNormalizationResult::BudgetExceeded(report) => Err(WitnessCompatibility::BudgetExceeded(report)),
+        crate::types::ProjectionNormalizationResult::InternalFailure(message) => Err(WitnessCompatibility::InternalFailure(message)),
+    }
+}
+
+fn witness_relation_with_symbolic_boundaries(outcome: RelationOutcome, symbolic: bool) -> Result<(), WitnessCompatibility> {
+    if symbolic && matches!(outcome, RelationOutcome::Refuted(_)) {
+        return Err(WitnessCompatibility::Unknown(UnknownReason::NoTypeEvidence));
+    }
+    witness_relation_result(outcome)
 }
 
 /// Checks a data component as a getter witness without manufacturing a
@@ -1936,7 +1994,12 @@ pub fn build_conformance_witness_plan(
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
                                 crate::types::ProjectionNormalizationResult::Normalized(t) => NormalizedTerm::Canonical(t),
                                 crate::types::ProjectionNormalizationResult::Dynamic(_) => NormalizedTerm::Dynamic,
-                                other => other.type_id().map(NormalizedTerm::Canonical).unwrap_or_else(|| NormalizedTerm::Other(left)),
+                                other => {
+                                    if std::env::var_os("PHALCOM_CONTRACT_TRACE").is_some() {
+                                        eprintln!("contract left {} => {other:?}", store.format_type(ty));
+                                    }
+                                    other.type_id().map(NormalizedTerm::Canonical).unwrap_or_else(|| NormalizedTerm::Other(left))
+                                }
                             },
                             other => NormalizedTerm::Other(other),
                         };

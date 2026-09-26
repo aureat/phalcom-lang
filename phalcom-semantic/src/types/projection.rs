@@ -527,6 +527,9 @@ fn normalize_projection(
                 subject,
                 &trait_ref,
             );
+            if std::env::var_os("PHALCOM_CONTRACT_TRACE").is_some() {
+                eprintln!("projection {} as {} => {resolution:?}", store.format_type(subject), trait_ref.declaration.name);
+            }
             match resolution {
                 ConformanceResolution::Proven(evidence) => {
                     let Some(binding) = evidence.associated_types.get(&projection.requirement) else {
