@@ -127,8 +127,8 @@ class Combiner {
   }
 }
 
-let a = ItemA.new()
-let b = ItemB.new()
+const a = ItemA.new()
+const b = ItemB.new()
 let res = Combiner.combine(a, b)
 "#;
     let (vm, module) = vm_support::run_inline(source).expect("multiple bounds execution");
