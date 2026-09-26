@@ -1655,17 +1655,18 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Continue the attached P4 audit remediation by investigating and classifying
-    the reported runtime regressions against the audit's named predecessor
-    revisions; then classify the remaining semantic failures before resuming the
-    open T4/T5 work.
+    Continue the attached P4 audit remediation at Priority 3: classify the
+    remaining 40 semantic failures against known-green history, then resume the
+    open T4/T5 work and subsequent audit priorities.
 
 next action:
-    Reproduce the reported runtime regressions against the specified revisions
-    and audit the forwarding seams identified by the audit. Keep this as
-    investigation/classification until the failure cause and owning layer are
-    established; do not infer release or checkpoint closure from the focused
-    complete-pack gate.
+    For each audit-listed semantic failure, establish whether it is a current
+    regression, an intentional P4 migration, or a true clean-predecessor
+    baseline. Preserve the three-category audit rule, make only source-backed
+    corrections, and record meaningful results here. Priority 2's nine named
+    runtime selectors are individually focused-tested, but no broad core,
+    workspace, or release gate has passed; P4 remains
+    `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 ```
 
 P3's final T9/T10 certification section below records the previously completed
