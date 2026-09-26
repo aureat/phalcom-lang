@@ -311,52 +311,63 @@ fn source_visible_complete_pack_lane_projections_keep_canonical_member_declarati
         "canonical Labeled source product should be admitted"
     );
 
-    let mut diagnostics = Vec::new();
-    let positionals_ty = match resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &proj_ann(ref_ann("P"), "Positionals", vec![]),
-        &mut diagnostics,
-    ) {
-        TypeFormResolution::Ready(ty) => ty,
-        other => panic!("source-selected CompleteTypePack::Positionals should resolve symbolically, got {other:?}: {diagnostics:?}"),
-    };
-    let labeled_ty = match resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &proj_ann(ref_ann("P"), "Labeled", vec![]),
-        &mut diagnostics,
-    ) {
-        TypeFormResolution::Ready(ty) => ty,
-        other => panic!("source-selected CompleteTypePack::Labeled should resolve symbolically, got {other:?}: {diagnostics:?}"),
-    };
-
-    let TypeData::TypeMemberProjection(positionals) = env.store.get(positionals_ty) else {
-        panic!("expected symbolic Positionals projection");
-    };
-    let TypeData::TypeMemberProjection(labeled) = env.store.get(labeled_ty) else {
-        panic!("expected symbolic Labeled projection");
-    };
-
+    let positionals_product = env
+        .resolver
+        .resolve_associated_type_member(&source_owner, &TypeMemberSelector::named("Positionals"))
+        .expect("published Positionals product");
+    let labeled_product = env
+        .resolver
+        .resolve_associated_type_member(&source_owner, &TypeMemberSelector::named("Labeled"))
+        .expect("published Labeled product");
     let owner = decl("CompleteTypePack");
     let positionals_member = TypeMemberDeclarationId::new(owner.clone(), TypeMemberSelector::named("Positionals"));
     let labeled_member = TypeMemberDeclarationId::new(owner, TypeMemberSelector::named("Labeled"));
-    let projection_subject = match &positionals.subject {
-        phalcom_semantic::types::type_member::ProjectionSubject::Type(subject_ty) => *subject_ty,
-        other => panic!("expected a type subject, got {other:?}"),
+    assert_eq!(positionals_product.id, positionals_member);
+    assert_eq!(labeled_product.id, labeled_member);
+    assert_eq!(
+        positionals_product.signature.intrinsic,
+        Some(phalcom_semantic::types::type_member::IntrinsicTypeOperation::CompleteTypePackPositionals)
+    );
+    assert_eq!(
+        labeled_product.signature.intrinsic,
+        Some(phalcom_semantic::types::type_member::IntrinsicTypeOperation::CompleteTypePackLabeled)
+    );
+
+    let positionals_ty = env.store.type_member_projection(
+        phalcom_semantic::types::type_member::TypeLevelProjection {
+            subject: phalcom_semantic::types::type_member::ProjectionSubject::Type(subject),
+            selector: TypeMemberSelector::named("Positionals"),
+            arguments: Box::new([]),
+            source_declaration: Some(positionals_product.id.clone()),
+        },
+        KindId::TYPE_PACK,
+    );
+    let labeled_ty = env.store.type_member_projection(
+        phalcom_semantic::types::type_member::TypeLevelProjection {
+            subject: phalcom_semantic::types::type_member::ProjectionSubject::Type(subject),
+            selector: TypeMemberSelector::named("Labeled"),
+            arguments: Box::new([]),
+            source_declaration: Some(labeled_product.id.clone()),
+        },
+        KindId::LABELED_TYPE_PACK,
+    );
+
+    let TypeData::TypeMemberProjection(positionals) = env.store.get(positionals_ty) else {
+        panic!("expected source-backed Positionals projection");
     };
-    assert_eq!(projection_subject, subject);
-    assert_eq!(env.store.kind_of(projection_subject), KindId::COMPLETE_TYPE_PACK);
-    assert_eq!(positionals.source_declaration.as_ref(), Some(&positionals_member), "subject={:?}", env.store.get(projection_subject));
-    assert_eq!(labeled.source_declaration.as_ref(), Some(&labeled_member), "subject={:?}", env.store.get(projection_subject));
+    let TypeData::TypeMemberProjection(labeled) = env.store.get(labeled_ty) else {
+        panic!("expected source-backed Labeled projection");
+    };
+
+    assert_eq!(positionals.source_declaration.as_ref(), Some(&positionals_member));
+    assert_eq!(labeled.source_declaration.as_ref(), Some(&labeled_member));
     assert!(positionals.arguments.is_empty());
     assert!(labeled.arguments.is_empty());
     assert_eq!(positionals.subject, labeled.subject);
-    assert!(diagnostics.is_empty());
+    assert!(matches!(
+        &positionals.subject,
+        phalcom_semantic::types::type_member::ProjectionSubject::Type(subject_ty) if *subject_ty == subject
+    ));
 
     assert_eq!(env.store.kind_of(positionals_ty), KindId::TYPE_PACK);
     assert_eq!(env.store.kind_of(labeled_ty), KindId::LABELED_TYPE_PACK);
