@@ -331,8 +331,8 @@ fn source_visible_complete_pack_lane_projections_keep_canonical_member_declarati
     assert!(labeled.arguments.is_empty());
     assert_eq!(positionals.subject, labeled.subject);
     assert!(matches!(
-        positionals.subject,
-        phalcom_semantic::types::type_member::ProjectionSubject::Type(subject_ty) if subject_ty == subject
+        &positionals.subject,
+        phalcom_semantic::types::type_member::ProjectionSubject::Type(subject_ty) if *subject_ty == subject
     ));
     assert!(diagnostics.is_empty());
 
