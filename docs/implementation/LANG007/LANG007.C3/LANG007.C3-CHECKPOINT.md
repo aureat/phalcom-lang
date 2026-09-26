@@ -1655,13 +1655,14 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Address the blocking specialization-aware TupleIterator regression from
-    the attached architecture audit, then verify the T4 constructor
-    inference/materialization slice and proceed to exact T5 layouts.
+    Continue the attached P4 audit remediation with complete-pack canonicalization
+    across internal and source-backed intrinsic projection identity; then classify
+    remaining runtime and semantic regressions before resuming the open T4/T5 work.
 
 next action:
-    Restore TupleIterator<***Es> and verify Tuple, Iterator, and Iterable item
-    projections preserve Tuple<***Es>::Element without Dynamic.
+    Implement the audit handoff's complete-pack source-identity law while
+    preserving canonical TypeMemberDeclarationId and rejecting unrelated
+    user-owned Positionals/Labeled members.
 ```
 
 P3's final T9/T10 certification section below records the previously completed
@@ -1836,11 +1837,12 @@ product-shape expansion, and Tuple/Record semantic completion.
 
 Active plan: [LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md](LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md).
 Current status: `IN_PROGRESS / PARTIAL / UNVERIFIED`.
-Resume baseline: `main` at `567db42b` (`feat(lang007-c3-p4): intrinsic structural data, EmptyRecord tag, record-pattern rest, corpus migration`).
+Audit-remediation baseline: `main` at `86dc7c26` (`test(lang007-c3-p4): expose runtime evidence and specialization gaps`); implementation continues on `codex/lang007-c3-p4-runtime-conformance`.
 The user-ratified Tuple/Record structural behavior-owner refinement is recorded
 in §17. Its source implementation and the latest pack-syntax clarification are
-part of the active tree. No tests or verification have been run during this
-continuation before implementation.
+part of the active tree. Audit-remediation implementation evidence and focused
+results are recorded below; P4 remains open for complete-pack canonicalization,
+remaining regression classification, the outstanding plan tasks, and final gates.
 
 ### P4 constructor-shape consultation — 2026-09-26
 
@@ -1941,3 +1943,43 @@ Focused Verification Evidence:
 - `phalcom-core/tests/core/language/iteration.rs`: All 15 tests pass (including `tuple_iterator_preserves_specialized_element_type_through_both_protocols`, `list_for_uses_fresh_stateful_canonical_iterator`, `canonical_set_iterator_is_fresh_sticky_and_ordered`, and `canonical_bytes_and_string_views_iterate_their_stateful_surfaces`).
 - `phalcom-semantic --lib`: All 119 tests pass.
 
+### P4 audit remediation — conditional call evidence capability — 2026-09-26
+
+The audit exposed that conditional selection identity did not carry the
+selected inherent implementation's executable conformance evidence. The
+architect ratified a semantic-owned capability that combines conditional
+selection, exact impl-owned bindings, and proof provenance for each conformance
+constraint. `phalcom-semantic` publishes that product to both direct calls and
+bound-family members; core projects it through the existing runtime recipe
+machinery. The VM materializes bound-family recipes at capture time and only
+activates the recipe for `SelectedFallback`. A strict-subclass
+`OrdinaryOverride` receives empty type/conformance environments.
+
+Commits on the local remediation branch:
+
+- `6e2197e6` — semantic conditional selected-call capability and proof-source
+  fingerprint/dependency tracking.
+- `ccde8670` — core recipe projection, direct and captured-family activation,
+  and override evidence isolation.
+
+Focused evidence:
+
+- semantic capability publication: Exact, Forwarded, Derived-with-nested-
+  evidence, and same-trait/different-subject tests passed (one each);
+- core `p4_conditional` integration filter: 3 tests passed, covering direct
+  selected fallback, captured-family fallback, and invocation after the
+  creator activation exits;
+- direct and captured-family strict-subclass override unit tests: 1 each
+  passed, both asserting the override frame has an empty conformance
+  environment;
+- `git diff --check` passed before the local runtime commit.
+
+Established invariant: neither direct nor reified conditional dispatch reads
+the caller frame's ambient conformance environment. Exact, forwarded, and
+derived proof sources are projected into the selected callable's own slot
+layout; reified forwarding slots are materialized while the creator frame is
+active. Runtime does not reconstruct evidence from `ImplId`.
+
+The solver-soundness and conditional runtime evidence findings are addressed;
+complete-pack source-backed canonicalization, remaining regression
+classification, T4/T5 and later P4 obligations, and certification remain open.
