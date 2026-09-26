@@ -43,25 +43,45 @@ Result: 1 test selected, 1 passed, 681 filtered. The supervisor independently
 reran this exact selector after both commits. No broad core, workspace, or
 release gate was run.
 
-## Boundary and remaining work
+## Priority 2 focused regression outcomes
 
-The separate rest-method probe
-`p4_specialized_rest_dispatch_preserves_conformance_environment` does not
-currently exercise runtime environment transport: semantic analysis publishes
-`Unknown(DynamicMessageSend)` with no callable or `CallSpecialization`, so core
-emits ordinary `Invoke` with no runtime recipe. Do not use its runtime failure
-as evidence of an environment-drop bug until its semantic dispatch product is
-established.
+The nine audit-named core selectors were each run individually and passed after
+the applicable narrow source-fixture or projection correction. These are
+focused results only; no broad core, workspace, or release gate was run.
 
-The repeated-call probes CV51, `runtime_conformance_environment_reuses_identical_environments`,
-and `bounded_generic_function_dispatches_exact_witness_and_default` had mutable
-module-level `let` inputs. Earlier opaque calls correctly invalidated those
-current facts under the existing flow policy, so the later call had no
-`CallSpecialization` and emitted ordinary `Invoke`. Their intended stable
-runtime values are now `const`; assertions are unchanged and exact selectors
-pass. Commits `8b680710` and `3edca835` record this fixture correction. The flow
-policy was not changed.
+| Audit selector | Correction / classification | Evidence |
+|---|---|---|
+| `language::associated_traits::direct_field_delegation_executes_as_ordinary_accessors` | Changed only the receiver from `let counter` to `const counter`. The index contained an eligible contribution; the receiver had become `Unknown(NoTypeEvidence)` before resolver entry after opaque sends. This was not a missing default-method installation. | `293c8766`; 1 selected, 1 passed |
+| `language::conditional_conformance::cv50_slot_isolation_multiple_evidence_values` | Nested conditional proofs now map through the selected impl's canonical evidence layout; non-callable `DataComponent` slots remain omitted. | `4f0edc63`, `250c4ad4`; 1 selected, 1 passed |
+| `language::conditional_conformance::cv51_environment_reuse_repeated_invocations` | Stabilized the intended inputs as `const`; assertions and flow policy are unchanged. | `8b680710`, `3edca835`; 1 selected, 1 passed |
+| `language::derived_conformance::cv44_repeated_guarded_derived_calls_reuse_runtime_environments` | Changed only `c1` and `c2` from `let` to `const`; assertions are unchanged. | `c0fd12b2`; 1 selected, 1 passed |
+| `language::generic_conformance::bounded_generic_function_dispatches_exact_witness_and_default` | Stabilized the intended input as `const`; assertions and flow policy are unchanged. | `8b680710`, `3edca835`; 1 selected, 1 passed |
+| `language::generic_conformance::multiple_type_parameters_with_distinct_traits_execute` | Stabilized only the inputs whose current facts were invalidated before the calls; assertions are unchanged. | `84051c01`; 1 selected, 1 passed |
+| `language::generic_conformance::owner_and_method_local_evidence_execute_together` | Stabilized `a` and `b`; `w` remains `let` because it has no intervening opaque call. Assertions are unchanged. The test is not ignored in the live tree: `--ignored` selected 0, while the normal exact selector selected and passed 1. | `ae5409b9`; normal exact selector 1 selected, 1 passed |
+| `language::generic_conformance::runtime_conformance_environment_reuses_identical_environments` | Stabilized the intended input as `const`; assertions and flow policy are unchanged. | `8b680710`, `3edca835`; 1 selected, 1 passed |
+| `language::generic_conformance::same_trait_on_distinct_type_parameters_selects_distinct_witnesses` | Stabilized the relevant inputs as `const`; both distinct-witness assertions are unchanged. | `72565cb7`; 1 selected, 1 passed |
 
-The remaining audit runtime failures are not closed by this evidence. Continue
-Priority 2 classification against the named predecessor revisions. P4 lifecycle
-remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+## Forwarding boundary and next action
+
+The selected-fallback branches of `Bytecode::InvokeConditional` and
+`dispatch_conditional_family_entry` already carry their explicit runtime type
+and conformance environments. Ordinary overrides remain evidence-neutral.
+
+No environment-erasing runtime fix was established for rest or module-export
+forwarding. The existing
+`p4_specialized_rest_dispatch_preserves_conformance_environment` probe
+publishes `Unknown(DynamicMessageSend)` without a callable or call
+specialization. A separate bounded-caller-to-rest-target probe likewise had
+`callable=None` and `call_specialization=None` at the `Sink.consume` expression
+(`[330,354]`), so projection supplied no recipe. In the module-export probe,
+`provider.proxy(provider.User.new())` (`[44,79]`) also had no callable or call
+specialization, and the entry recipe map was empty. Both runtime probes stopped
+at recipe-presence checks before execution. No speculative rest or
+module-export adapter change was made; neither probe proves a runtime
+environment drop.
+
+Priority 2's nine named selectors are individually green, not a broad runtime
+certification. Next classify the audit's 40 semantic failures (Priority 3),
+then resume the remaining T4/T5 obligations as directed by the audit. P4
+remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; overall audit and release gates
+remain open.

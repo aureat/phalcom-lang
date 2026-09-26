@@ -2049,7 +2049,26 @@ mutable module-level `let` bindings. With only those inputs changed to `const`,
 the exact tests pass and retain their original runtime assertions. The bounded
 generic witness/default probe needed the same fixture correction. No flow/effect
 policy or assertion was changed. Commits `8b680710` and `3edca835` record these
-fixture-intent corrections; each affected exact selector passed 1/1. The
-remaining runtime-regression classifications, including CV44 and the
-multi-parameter evidence cases, remain open. P4 remains
-`IN_PROGRESS / PARTIAL / UNVERIFIED`.
+fixture-intent corrections; each affected exact selector passed 1/1.
+
+Priority 2's nine audit-named selectors have now each passed individually; this
+does not certify a broad core suite or release gate. CV44's `c1`/`c2` inputs
+were changed to `const` in `c0fd12b2`. Direct-field delegation changed only
+`counter` from `let` to `const` in `293c8766`: the index had an eligible
+contribution, but opaque sends had made the receiver
+`Unknown(NoTypeEvidence)` before resolver entry, so this was not a missing
+default-method installation. The multi-parameter, same-trait/distinct-subject,
+and owner/method-local probes passed with only the affected inputs stabilized
+as `const` in `84051c01`, `72565cb7`, and `ae5409b9`; assertions were unchanged.
+The owner/method test is not ignored in the live tree: ignored mode selected
+zero, while the normal exact selector selected and passed one. Full per-test
+classification is in the [P4 audit remediation record](LANG007.C3.P4-audit-remediation/03-nested-derived-conformance-runtime-layout.md).
+
+The selected-fallback branches of `InvokeConditional` and conditional-family
+dispatch carry their explicit environments; ordinary overrides remain
+evidence-neutral. Rest and module-export source probes produced no callable,
+call specialization, or runtime recipe, so no runtime environment drop was
+proven and no speculative adapter change was made. Next action: classify the
+audit's 40 semantic failures (Priority 3), then resume the remaining T4/T5
+obligations per audit. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; overall
+audit and release gates remain open.
