@@ -385,8 +385,8 @@ class Caller {
   }
 }
 
-let b1 = Box.new(User.new())
-let b2 = Box.new(User.new())
+const b1 = Box.new(User.new())
+const b2 = Box.new(User.new())
 let r1 = Caller.run(b1)
 let r2 = Caller.run(b2)
 "#;
