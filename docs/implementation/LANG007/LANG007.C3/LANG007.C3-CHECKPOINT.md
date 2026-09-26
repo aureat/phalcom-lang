@@ -2041,7 +2041,15 @@ follow-up. The exact CV50 selector passed independently: 1 selected, 1 passed,
 The adjacent rest-method probe is not runtime-environment evidence: its semantic
 expression product is `Unknown(DynamicMessageSend)` with no callable or call
 specialization, so lowering emits ordinary `Invoke` and supplies no recipe to
-the VM. It remains a separate semantic-dispatch question. The exact CV51
-environment-reuse failure is still under investigation; Priority 2 and the
-remaining runtime-regression classifications therefore remain open. P4
-remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+the VM. It remains a separate semantic-dispatch question.
+
+The CV51 and repeated-identical-environment probes initially lost
+`CallSpecialization` after earlier opaque calls because their inputs were
+mutable module-level `let` bindings. With only those inputs changed to `const`,
+the exact tests pass and retain their original runtime assertions. The bounded
+generic witness/default probe needed the same fixture correction. No flow/effect
+policy or assertion was changed. Commits `8b680710` and `3edca835` record these
+fixture-intent corrections; each affected exact selector passed 1/1. The
+remaining runtime-regression classifications, including CV44 and the
+multi-parameter evidence cases, remain open. P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.

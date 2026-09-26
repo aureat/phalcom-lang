@@ -53,7 +53,15 @@ emits ordinary `Invoke` with no runtime recipe. Do not use its runtime failure
 as evidence of an environment-drop bug until its semantic dispatch product is
 established.
 
-The CV51 environment-reuse failure and the remaining audit runtime failures are
-not closed by this evidence. Continue Priority 2 classification against the
-named predecessor revisions. P4 lifecycle remains
-`IN_PROGRESS / PARTIAL / UNVERIFIED`.
+The repeated-call probes CV51, `runtime_conformance_environment_reuses_identical_environments`,
+and `bounded_generic_function_dispatches_exact_witness_and_default` had mutable
+module-level `let` inputs. Earlier opaque calls correctly invalidated those
+current facts under the existing flow policy, so the later call had no
+`CallSpecialization` and emitted ordinary `Invoke`. Their intended stable
+runtime values are now `const`; assertions are unchanged and exact selectors
+pass. Commits `8b680710` and `3edca835` record this fixture correction. The flow
+policy was not changed.
+
+The remaining audit runtime failures are not closed by this evidence. Continue
+Priority 2 classification against the named predecessor revisions. P4 lifecycle
+remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.

@@ -20,9 +20,11 @@ subclass override isolation. Complete-pack source-backed identity is recorded
 in `02`. The next audit item is to investigate and classify the reported runtime
 regressions against the named predecessor revisions; remaining semantic-failure
 classification and T4/T5 obligations are also open. CV50's two-witness nested
-slot regression is fixed and focused-tested in `4f0edc63` / `250c4ad4`; CV51
-and the rest of the runtime-regression matrix remain open. The separate rest
-probe does not yet publish a semantic call specialization and is not evidence
-for runtime environment transport.
+slot regression is fixed and focused-tested in `4f0edc63` / `250c4ad4`. CV51,
+identical-environment reuse, and bounded generic witness/default probes now pass
+with stable `const` inputs (`8b680710`, `3edca835`), preserving their original
+assertions without changing flow semantics. The remaining runtime-regression
+matrix is open. The separate rest probe does not yet publish a semantic call
+specialization and is not evidence for runtime environment transport.
 
 Finishing revision and final P4 outcome are intentionally left open until the full remediation program is complete.
