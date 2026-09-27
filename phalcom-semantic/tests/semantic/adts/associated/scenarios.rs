@@ -194,6 +194,41 @@ fn data_associated_exact_callable_reference_resolves_data_constructor() {
 }
 
 #[test]
+fn ergonomic_primary_constructor_references_resolve_the_same_capabilities() {
+    let case = analyze_adt(
+        "data Tagged<T>(_ value: Int)\ndata Person<T> { name: String, payload: T }\nclass Test { run() { &Tagged<Int>::Construct(_); &Tagged<Int>(_); &Person<Int>::Construct(name: _, payload: _); &Person<Int>(name: _, payload: _) } }\n",
+    );
+    case.assert_no_diagnostics();
+
+    for (canonical_source, ergonomic_source, expected_owner) in [
+        ("&Tagged<Int>::Construct(_)" , "&Tagged<Int>(_)" , "Tagged"),
+        (
+            "&Person<Int>::Construct(name: _, payload: _)",
+            "&Person<Int>(name: _, payload: _)",
+            "Person",
+        ),
+    ] {
+        let canonical = resolution(&case, canonical_source);
+        let ergonomic = resolution(&case, ergonomic_source);
+        let (canonical_member, canonical_target) = match &canonical.kind {
+            AssociatedResolutionKind::ExactCallable { member, target, .. } => (member, target),
+            other => panic!("expected exact canonical constructor capability, got {other:?}"),
+        };
+        let (ergonomic_member, ergonomic_target) = match &ergonomic.kind {
+            AssociatedResolutionKind::ExactCallable { member, target, .. } => (member, target),
+            other => panic!("expected exact ergonomic constructor capability, got {other:?}"),
+        };
+        assert_eq!(canonical.family, ergonomic.family);
+        assert_eq!(canonical_member, ergonomic_member);
+        assert_eq!(canonical_target, ergonomic_target);
+        assert!(matches!(
+            canonical_target,
+            InvocationTargetId::DataConstructor(constructor) if constructor.owner.name.as_ref() == expected_owner
+        ));
+    }
+}
+
+#[test]
 fn data_associated_whole_family_capture_publishes_data_constructor() {
     let case = analyze_adt("data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Construct... } }\n");
     let res = resolution(&case, "&Point::Construct...");

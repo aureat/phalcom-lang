@@ -274,6 +274,10 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
                     let _ = analyze_expr(receiver, context);
                     return unknown_at(context, range);
                 }
+                phalcom_ast::ast::CallableReferenceTarget::PrimaryDataConstructor { receiver, .. } => {
+                    let _ = analyze_expr(receiver, context);
+                    return unknown_at(context, range);
+                }
             };
             let receiver = analyze_expr(receiver, context);
             let spec = selector.normalize().ok().map(|spec| match spec {

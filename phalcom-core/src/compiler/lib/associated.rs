@@ -8,10 +8,11 @@ use crate::modules::semantic_lowering::{
     AssociatedLoweringSpec, CallableReferenceLoweringSpec, DataConstructionLoweringSpec, ExecutableConditionalFamilyEntry, ExecutableFamilyCandidateSet,
     FamilyApplicationLoweringSpec, LoweringSiteKind,
 };
+use crate::parameters::ParameterShape;
 use crate::value::Value;
 use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, CallableReferenceExpr, CallableReferenceTarget, Expr, PackItem};
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::DeclarationId;
 use phalcom_semantic::checker::associated::{BehavioralFamilySpec, FamilyApplicationKind};
 use phalcom_semantic::identity::{DataConstructorId, VariantId};
@@ -519,6 +520,17 @@ impl<'vm> Compiler<'vm> {
         callable.chunk.spans.clear();
         callable.chunk.caches.clear();
         callable.chunk.gcaches.clear();
+        let constructor_labels = operation
+            .slots
+            .iter()
+            .map(|slot| match slot {
+                SelectorSlot::Label(label) => Some(self.vm.interner.intern(label)),
+                SelectorSlot::Positional => None,
+            })
+            .collect::<Option<Vec<_>>>();
+        if let Some(labels) = constructor_labels.filter(|labels| !labels.is_empty()) {
+            callable.parameter_shape = ParameterShape::closure_with_labels(labels);
+        }
         let ctor_idx = callable
             .chunk
             .executable_semantics

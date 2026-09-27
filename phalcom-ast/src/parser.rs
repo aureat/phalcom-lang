@@ -7401,6 +7401,29 @@ impl<'source> Parser<'source> {
                     receiver = self.parse_optional_send(receiver, receiver_start)?;
                 }
                 Token::LParen => {
+                    if matches!(&receiver, Expr::TypeForm(_)) {
+                        let selector_start = self.cur_start();
+                        self.advance();
+                        let (prefix, suffix, gap_range, end) = self.parse_selector_spec_slots(Token::RParen)?;
+                        if gap_range.is_some() {
+                            return Err(SyntaxError {
+                                kind: SyntaxErrorKind::Message("primary data-constructor references require an exact selector".to_string()),
+                                range: selector_start..end,
+                            });
+                        }
+                        let mut slots = prefix;
+                        slots.extend(suffix);
+                        let range = (start..end).into();
+                        return Ok(Expr::CallableReference(Box::new(CallableReferenceExpr {
+                            ampersand_range,
+                            target: CallableReferenceTarget::PrimaryDataConstructor {
+                                receiver: Box::new(receiver),
+                                slots,
+                                selector_range: (selector_start..end).into(),
+                            },
+                            range,
+                        })));
+                    }
                     self.advance();
                     let args = self.parse_arg_list()?;
                     self.expect(&Token::RParen, &["\")\""])?;
@@ -8901,7 +8924,11 @@ impl<'source> Parser<'source> {
                     phalcom_common::selector::SelectorSlot::Positional
                 } else {
                     seen_label = true;
-                    phalcom_common::selector::SelectorSlot::Label(self.expect_identifier(&["label slot"])?)
+                    let label = self.expect_identifier(&["label slot"])?;
+                    if self.eat(&Token::Colon) {
+                        self.expect(&Token::Underscore, &["\"_\""])?;
+                    }
+                    phalcom_common::selector::SelectorSlot::Label(label)
                 };
                 let target = if after_gap { &mut suffix } else { &mut prefix };
                 target.push(SelectorSlotSyntax {

@@ -666,6 +666,9 @@ impl OccurrenceBuilder<'_> {
                     }
                     self.expr(receiver, OccurrenceRole::Reference);
                 }
+                phalcom_ast::ast::CallableReferenceTarget::PrimaryDataConstructor { receiver, .. } => {
+                    self.expr(receiver, OccurrenceRole::Reference);
+                }
             },
             Expr::TupleLiteral(tuple) => {
                 for entry in &tuple.entries {

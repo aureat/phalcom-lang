@@ -1810,6 +1810,7 @@ impl SourceScopeBuilder<'_> {
                 phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. } | phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, .. } => {
                     self.visit_expr(scope, receiver)
                 }
+                phalcom_ast::ast::CallableReferenceTarget::PrimaryDataConstructor { receiver, .. } => self.visit_expr(scope, receiver),
             },
             Expr::Match(match_expr) => {
                 self.visit_expr(scope, &match_expr.value);

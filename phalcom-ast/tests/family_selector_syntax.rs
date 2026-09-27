@@ -137,6 +137,64 @@ fn associated_ampersand_reference_and_parenthesized_invocation_parse() {
 }
 
 #[test]
+fn ergonomic_primary_data_constructor_reference_preserves_written_slots() {
+    let tuple_source = "&Tagged<Int>(_)";
+    let Expr::CallableReference(reference) = parse_expr_stmt(tuple_source) else {
+        panic!("expected callable reference");
+    };
+    let CallableReferenceTarget::PrimaryDataConstructor {
+        receiver,
+        slots,
+        selector_range,
+    } = reference.target
+    else {
+        panic!("expected source-shaped primary-constructor target");
+    };
+    assert!(matches!(*receiver, Expr::TypeForm(_)));
+    assert_eq!(&tuple_source[selector_range.start..selector_range.end], "(_)");
+    assert_eq!(slot_values(&slots), vec![SelectorSlot::Positional]);
+    assert_eq!(&tuple_source[slots[0].range.start..slots[0].range.end], "_");
+
+    let record_source = "&Person<Int>(name: _, payload: _)";
+    let Expr::CallableReference(reference) = parse_expr_stmt(record_source) else {
+        panic!("expected callable reference");
+    };
+    let CallableReferenceTarget::PrimaryDataConstructor {
+        receiver,
+        slots,
+        selector_range,
+    } = reference.target
+    else {
+        panic!("expected source-shaped primary-constructor target");
+    };
+    assert!(matches!(*receiver, Expr::TypeForm(_)));
+    assert_eq!(&record_source[selector_range.start..selector_range.end], "(name: _, payload: _)");
+    assert_eq!(
+        slot_values(&slots),
+        vec![SelectorSlot::Label("name".into()), SelectorSlot::Label("payload".into())]
+    );
+    assert_eq!(&record_source[slots[0].range.start..slots[0].range.end], "name: _");
+    assert_eq!(&record_source[slots[1].range.start..slots[1].range.end], "payload: _");
+
+    let shared_source = "&object.method(_, label: _)";
+    let Expr::CallableReference(reference) = parse_expr_stmt(shared_source) else {
+        panic!("expected ordinary callable reference");
+    };
+    let CallableReferenceTarget::Bound {
+        member: CallableReferenceMemberSyntax::Named { selector, .. },
+        ..
+    } = reference.target
+    else {
+        panic!("expected ordinary bound method selector");
+    };
+    assert!(matches!(
+        selector,
+        phalcom_ast::ast::SelectorSpecSyntax::Exact(exact)
+            if slot_values(&exact.slots) == vec![SelectorSlot::Positional, SelectorSlot::Label("label".into())]
+    ));
+}
+
+#[test]
 fn callable_reference_matrix_keeps_bound_and_associated_targets_distinct() {
     for source in [
         "&object.method",

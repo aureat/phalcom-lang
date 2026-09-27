@@ -57,6 +57,16 @@ impl ParameterShape {
         }
     }
 
+    /// Shape for a generated closure whose fixed parameters are supplied by
+    /// ordinary labeled arguments in declaration order.
+    pub fn closure_with_labels(fixed_labels: Vec<Symbol>) -> Self {
+        Self {
+            fixed_positionals: 0,
+            fixed_labels,
+            rest: None,
+        }
+    }
+
     /// Returns whether an argument shape can bind to these parameters.
     pub fn accepts(&self, args: &ArgumentShape) -> bool {
         let fixed = self.fixed_positionals;

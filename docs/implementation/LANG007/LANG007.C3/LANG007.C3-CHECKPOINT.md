@@ -33,8 +33,8 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Obtain a scope decision on whether T5 includes semantic contextual row selection for nullary generic constructors, or whether the supplemental PhantomRow gap is deferred outside T5. Preserve open-tail rejection meanwhile.
-blocker: supervisor/architect scope decision required for the supplemental empty-layout contextual row case; closed-row runtime representation work is focused-tested.
+  next_action: Finish R2 Steps 8–11 in order, then resume original P4 T6–T13. Step 8's labeled data-constructor thunk path is focused-tested and awaiting review; T5 remains incomplete.
+blocker: none for the current Step 8 slice; P4/T5 and later R2 steps remain open.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1784,15 +1784,22 @@ next task:
     T5 acceptance remains incomplete.
 
 next action:
-    R2 Steps 5 and 6 are reviewed and focused-tested. Step 7 is implemented and
-    focused-tested: `Tagged<Int>(42)` and `Person<Int> { ... }` resolve through
-    the existing primary DataConstructorId path; explicit `.call(...)` remains
-    ordinary method syntax, distinguished from direct parentheses by the
-    parser's method-range authority. Parser, semantic identity/specialization,
-    constructor-visibility, ordinary generic-call, and core tuple/record
-    equivalence controls passed with actual selection on nightly-2026-07-10.
-    Step 7 is IMPLEMENTED / FOCUSED_TESTED pending review. After review, proceed
-    to R2 Step 8 only. T5 and P4 remain incomplete; T4 remains IMPLEMENTED /
+    R2 Steps 5–7 are reviewed and focused-tested. Step 8 is active: add
+    ergonomic `&Tagged<Int>(_)` and labeled `&Person<Int>(name: _, payload: _)`
+    constructor references, preserving their actual source ranges and
+    resolving them to the same primary DataConstructorId capability as
+    `&Type<T>::Construct(...)`. Keep record selector slots in declaration
+    order. No synthetic `Construct` source token or runtime callable category.
+    The runtime extension is limited to generated all-labeled constructor
+    thunks: they use the existing `ParameterShape.fixed_labels` and closure
+    activation path, which validates exact ordered labels and transfers their
+    values into thunk locals. Ordinary source closures retain their
+    positional-only shape. Focused parser and semantic selectors passed 1/1;
+    core constructor-reference invocation passed 1/1, the ordinary-closure
+    positional-only control passed 1/1, and an activation unit test rejected
+    missing, extra, duplicate, reordered, and positional-plus-labeled shapes
+    before changing the stack or entering a frame (1/1). Stop for review
+    before Step 9. T5 and P4 remain incomplete; T4 remains IMPLEMENTED /
     FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:

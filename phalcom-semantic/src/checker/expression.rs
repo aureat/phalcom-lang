@@ -1477,6 +1477,11 @@ fn synthesize_callable_reference(ctx: &mut CheckingContext<'_>, reference: &Call
         CallableReferenceTarget::Associated { receiver, member, .. } => {
             synthesize_associated_callable_reference(ctx, receiver, member, reference.range, expected)
         }
+        CallableReferenceTarget::PrimaryDataConstructor {
+            receiver,
+            slots,
+            selector_range,
+        } => synthesize_primary_data_constructor_reference(ctx, receiver, slots, *selector_range, reference.range, expected),
     }
 }
 
@@ -1500,16 +1505,79 @@ fn synthesize_associated_callable_reference(
         ));
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     }
-    let (base, selector, display_name) = match member {
-        phalcom_ast::ast::CallableReferenceMemberSyntax::Named { name, selector, .. } => (SelectorBase::Named(name.clone()), selector, name.as_str()),
-        phalcom_ast::ast::CallableReferenceMemberSyntax::Operator(selector) => (SelectorBase::Named(selector.base().to_string()), selector, selector.base()),
-        phalcom_ast::ast::CallableReferenceMemberSyntax::Subscript(selector) => (SelectorBase::Subscript, selector, "[]"),
+    let (base, normalized, display_name) = match member {
+        phalcom_ast::ast::CallableReferenceMemberSyntax::Named { name, selector, .. } => {
+            (SelectorBase::Named(name.clone()), selector.normalize().ok(), name.as_str())
+        }
+        phalcom_ast::ast::CallableReferenceMemberSyntax::Operator(selector) => {
+            (SelectorBase::Named(selector.base().to_string()), selector.normalize().ok(), selector.base())
+        }
+        phalcom_ast::ast::CallableReferenceMemberSyntax::Subscript(selector) => (SelectorBase::Subscript, selector.normalize().ok(), "[]"),
     };
+    synthesize_resolved_associated_callable_reference(ctx, owner, base, normalized, display_name, range, expected)
+}
+
+fn synthesize_primary_data_constructor_reference(
+    ctx: &mut CheckingContext<'_>,
+    receiver_expr: &Expr,
+    slots: &[phalcom_ast::ast::SelectorSlotSyntax],
+    selector_range: SourceRange,
+    range: SourceRange,
+    expected: &ExpectedType,
+) -> TypedExpression {
+    let receiver = analyze_expression(ctx, receiver_expr, &ExpectedType::None);
+    let Ok(owner) = resolve_associated_owner(ctx, &receiver, range) else {
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    };
+    if ctx.declaration_is_type_only(&owner.lookup_owner) {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::TypeOnlyRuntimeValue,
+            "type-data cases are static terms and cannot be used as runtime values",
+            range,
+        ));
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    }
+    let Some(data_info) = ctx.data_info(&owner.lookup_owner).cloned() else {
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    };
+    let Ok(selector) = data_info.constructor_selector() else {
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    };
+    if slots.iter().map(|slot| &slot.slot).ne(selector.slots.iter()) {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedCallShapeMissing,
+            "primary data-constructor reference slots must match the declaration-order constructor selector",
+            selector_range,
+        ));
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    }
+
+    synthesize_resolved_associated_callable_reference(
+        ctx,
+        owner,
+        SelectorBase::Named("Construct".to_string()),
+        Some(phalcom_ast::ast::NormalizedSelectorSpec::Exact(selector)),
+        "Construct",
+        range,
+        expected,
+    )
+}
+
+fn synthesize_resolved_associated_callable_reference(
+    ctx: &mut CheckingContext<'_>,
+    owner: AssociatedOwnerResolution,
+    base: SelectorBase,
+    normalized: Option<phalcom_ast::ast::NormalizedSelectorSpec>,
+    display_name: &str,
+    range: SourceRange,
+    expected: &ExpectedType,
+) -> TypedExpression {
     let Ok(family) = resolve_effective_associated_family(ctx, &owner, &base, range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
 
-    let normalized = selector.normalize().ok();
     let member_ids = family
         .members
         .iter()

@@ -264,6 +264,63 @@ let py = p.y
 }
 
 #[test]
+fn data_constructor_reference_sugar_matches_associated_capabilities() {
+    let (vm, module) = run_inline(
+        r#"
+data Tagged<T>(_ id: Int)
+data Person<T> {
+    name: String,
+    payload: T
+}
+
+let tuple_canonical = &Tagged<Int>::Construct(_)
+let tuple_sugar = &Tagged<Int>(_)
+let tuple_a = tuple_canonical(42)
+let tuple_b = tuple_sugar(42)
+let tuple_same = tuple_a === tuple_b
+
+let record_canonical = &Person<Int>::Construct(name: _, payload: _)
+let record_sugar = &Person<Int>(name: _, payload: _)
+let record_a = record_canonical(name: "Ada", payload: 42)
+let record_b = record_sugar(name: "Ada", payload: 42)
+let record_a_name_matches = record_a.name == "Ada"
+let record_a_payload_matches = record_a.payload == 42
+let record_b_name_matches = record_b.name == "Ada"
+let record_b_payload_matches = record_b.payload == 42
+"#,
+    )
+    .expect("ergonomic data-constructor references should execute as canonical capabilities");
+
+    for name in ["tuple_same"] {
+        let symbol = vm.interner.find(name).expect("result symbol");
+        assert_eq!(vm.heap.module(module).get(symbol), Some(Value::bool(true)));
+    }
+    for name in [
+        "record_a_name_matches",
+        "record_a_payload_matches",
+        "record_b_name_matches",
+        "record_b_payload_matches",
+    ] {
+        let symbol = vm.interner.find(name).expect("record field symbol");
+        assert_eq!(vm.heap.module(module).get(symbol), Some(Value::bool(true)), "{name}");
+    }
+}
+
+#[test]
+fn ordinary_source_closures_remain_positional_only() {
+    let error = match run_inline(
+        r#"
+let identity = |value| { value }
+let result = identity(value: 42)
+"#,
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("ordinary source closures must not acquire labeled-call behavior"),
+    };
+    assert!(error.to_string().contains("Method call expected 0 arguments, got 1"), "{error:?}");
+}
+
+#[test]
 fn data_phantom_type_specializations() {
     let (vm, module) = run_inline(
         r#"

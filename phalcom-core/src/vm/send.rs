@@ -757,7 +757,8 @@ impl VM {
         view: ArgumentView,
         source_range: SourceRange,
     ) -> PhResult<CallOutcome> {
-        if view.labeled_count() != 0 {
+        let shape = self.heap.closure(closure_id).callable.parameter_shape.clone();
+        if shape.fixed_labels.is_empty() && view.labeled_count() != 0 {
             return Err(RuntimeError::Arity {
                 signature: "call",
                 expected: view.positional_count(),
@@ -765,8 +766,21 @@ impl VM {
             }
             .into());
         }
-        let shape = self.heap.closure(closure_id).callable.parameter_shape.clone();
         let positional_count = view.positional_count();
+        if !shape.fixed_labels.is_empty() {
+            let arguments = crate::parameters::ArgumentShape {
+                positional_count,
+                labels: view.labels().to_vec(),
+            };
+            if !shape.accepts(&arguments) {
+                return Err(RuntimeError::Arity {
+                    signature: "call",
+                    expected: shape.fixed_positionals + shape.fixed_labels.len(),
+                    found: positional_count + view.labeled_count(),
+                }
+                .into());
+            }
+        }
         if positional_count < shape.fixed_positionals || (shape.rest.is_none() && positional_count != shape.fixed_positionals) {
             return Err(RuntimeError::Arity {
                 signature: "call",
@@ -776,7 +790,17 @@ impl VM {
             .into());
         }
         let receiver_idx = view.receiver_index();
-        if shape.rest.is_some() {
+        if !shape.fixed_labels.is_empty() {
+            // Generated labeled thunks use local-slot declaration order, so
+            // copy the validated label lane into the closure's argument slots
+            // before discarding the caller's physical invocation window.
+            let labeled_values = (0..shape.fixed_labels.len())
+                .map(|index| view.labeled_value(self, index))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| RuntimeError::Internal("validated labeled closure arguments are missing from the stack window".into()))?;
+            self.stack.truncate(receiver_idx + 1);
+            self.stack.extend(labeled_values);
+        } else if shape.rest.is_some() {
             let residual = (shape.fixed_positionals..positional_count)
                 .filter_map(|index| view.positional(self, index))
                 .collect::<Vec<_>>();
@@ -1707,6 +1731,7 @@ mod tests {
         BoundMethodFamilyObject, ClassObject, ConditionalFamilyDispatchEntry, FamilyObject, FamilySpec, InstanceObject, MethodFamilyObject, Object,
     };
     use crate::method::{ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodKind, MethodObject, Signature, SignatureKind};
+    use crate::parameters::ParameterShape;
     use crate::value::Value;
     use crate::vm::VM;
     use std::sync::Arc;
@@ -1725,6 +1750,47 @@ mod tests {
         let encoded = key.as_int().unwrap_or_default() + if debug == Value::bool(true) { 10 } else { 0 } + value.as_int().unwrap_or_default() * 100;
         vm.heap.instance_mut(receiver_id).slots[0] = Value::int(encoded);
         Ok(CallOutcome::Returned(Value::unit()))
+    }
+
+    #[test]
+    fn generated_labeled_closure_shape_rejects_mismatches_before_activation() {
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module("audit", "generated_labeled_closure_shape");
+        let closure = vm.compile_closure(module, "42\n").expect("bytecode closure");
+        let name = vm.get_or_intern("name");
+        let payload = vm.get_or_intern("payload");
+        let extra = vm.get_or_intern("extra");
+        let closure_object = vm.heap.closure_mut(closure);
+        let mut callable = (*closure_object.callable).clone();
+        callable.parameter_shape = ParameterShape::closure_with_labels(vec![name, payload]);
+        closure_object.callable = std::rc::Rc::new(callable);
+
+        let receiver = Value::obj(closure);
+        for (positional_count, labels) in [
+            (0, vec![name]),                 // missing label
+            (0, vec![name, payload, extra]), // extra label
+            (0, vec![name, name]),           // duplicate label
+            (0, vec![payload, name]),        // reordered labels
+            (1, vec![name, payload]),        // positional/labeled shape mismatch
+        ] {
+            vm.stack.clear();
+            vm.stack.push(receiver);
+            vm.stack.extend((0..positional_count + labels.len()).map(|index| Value::int(index as i64)));
+            let before_stack = vm.stack.clone();
+            let before_frames = vm.frames.len();
+            let view = ArgumentView::ordinary_window(0, positional_count, labels.into_boxed_slice(), None, crate::method::RuntimeAccessOrigin::none());
+            let result = vm.activate_closure_call(
+                receiver,
+                closure,
+                None,
+                crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+                view,
+                phalcom_common::range::SourceRange::default(),
+            );
+            assert!(matches!(result, Err(PhError::Runtime(RuntimeError::Arity { .. }))));
+            assert_eq!(vm.stack, before_stack, "invalid labels must not rewrite the caller stack");
+            assert_eq!(vm.frames.len(), before_frames, "invalid labels must not enter the thunk");
+        }
     }
 
     #[test]

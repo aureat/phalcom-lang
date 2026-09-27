@@ -1765,6 +1765,7 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
             phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. } | phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, .. } => {
                 collect_anonymous_product_expr(receiver, out)
             }
+            phalcom_ast::ast::CallableReferenceTarget::PrimaryDataConstructor { receiver, .. } => collect_anonymous_product_expr(receiver, out),
         },
         Expr::RecordConstruction(e) => e.entries.iter().for_each(|entry| collect_anonymous_product_expr(&entry.value, out)),
         Expr::MapLiteral(e) => e.entries.iter().for_each(|entry| match entry {

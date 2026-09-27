@@ -2484,6 +2484,20 @@ pub enum CallableReferenceTarget {
         /// The rightmost associated selector component.
         member: CallableReferenceMemberSyntax,
     },
+    /// A primary data-constructor reference written without its associated
+    /// `Construct` family name, such as `&Tagged<Int>(_)`.
+    ///
+    /// This keeps the actual source shape: the receiver is the written type
+    /// form, and `slots` are the written selector placeholders. Semantic
+    /// analysis resolves it to the canonical data-constructor capability.
+    PrimaryDataConstructor {
+        /// The written declaration-backed type form.
+        receiver: Box<Expr>,
+        /// The written constructor selector slots, including source ranges.
+        slots: Vec<SelectorSlotSyntax>,
+        /// The source range covering the parenthesized selector slots.
+        selector_range: SourceRange,
+    },
 }
 
 /// Selector component targeted by a prefix-`&` reference.
