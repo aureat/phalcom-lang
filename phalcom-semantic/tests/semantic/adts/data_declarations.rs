@@ -658,6 +658,51 @@ class Probe {
 }
 
 #[test]
+fn record_row_constructor_preserves_assumed_generic_field_evidence() {
+    use phalcom_semantic::types::evidence::EvidenceStatus;
+    use phalcom_semantic::types::store::StaticArgument;
+
+    let fixture = Fixture::new(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+
+class Probe {
+    @class
+    make<T>(value: T) {
+        let wrapped = Envelope { id: 1, name: value }
+        wrapped
+    }
+}
+"#,
+    );
+    let make = fixture.callable("Probe", "make", DispatchSide::Class);
+    let parameter = &fixture.binding(make, "value").current;
+    assert_eq!(parameter.status(), Some(EvidenceStatus::Assumed));
+    let parameter_ty = parameter.ty().expect("generic parameter has a canonical type");
+    let constructor = fixture.expression(make, "Envelope { id: 1, name: value }");
+    let constructed_ty = constructor.knowledge.ty().unwrap_or_else(|| {
+        panic!("generic-field constructor lost nominal result: {constructor:#?}")
+    });
+    let phalcom_semantic::types::store::TypeData::Applied { arguments, .. } =
+        fixture.analysis.snapshot.store.get(constructed_ty)
+    else {
+        panic!("constructor result must remain nominal Applied: {constructor:#?}");
+    };
+    let [StaticArgument::RecordRow(row)] = arguments.as_ref() else {
+        panic!("constructor must retain one inferred RecordRow, got {arguments:#?}");
+    };
+    assert_eq!(
+        fixture.analysis.snapshot.store.record_row(*row).find_field("name"),
+        Some(parameter_ty)
+    );
+    assert_eq!(constructor.knowledge.status(), Some(EvidenceStatus::Assumed));
+    assert_ne!(constructor.knowledge.status(), Some(EvidenceStatus::Established));
+}
+
+#[test]
 fn user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple() {
     use phalcom_semantic::types::store::{StaticArgument, TypeData};
 
