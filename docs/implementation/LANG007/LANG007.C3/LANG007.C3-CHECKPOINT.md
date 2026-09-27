@@ -2112,3 +2112,31 @@ Focused evidence with `nightly-2026-07-10`:
 This closes only the concrete materializer duplicate check. CV-14's constructor
 inference and broader T4 acceptance, T5, P4 completion, and release gates remain
 open.
+
+### P4 Phase B T4 — constructor row-lacks call-path discriminator — 2026-09-27
+
+`compute_shape_aware_data_argument_mapping` converts a materialization error to
+`None`, after which associated argument mapping may use the fixed-constructor
+fallback. This mapping is downstream of `apply_resolved_callable`. In the live
+constructor adapter, labels matching fixed Record components are bound to the
+fixed parameters; only unmatched labels contribute to the inferred row. When
+the row expansion is complete, `constrain_record_row_expansion` adds lacks for
+each fixed field before solving the residual row equation. Repeated source
+labels are independently rejected by parsing.
+
+The new source-level discriminator gives the constructor an expected type
+`Envelope<**{ id: Int }>` while constructing its fixed `id` field. The exact
+selector `data_record_constructor_rejects_expected_row_repeating_fixed_label`
+passes (1 selected, 1 passed, pinned `nightly-2026-07-10`): this incompatible
+fixed/expanded shape receives a semantic `GenericInferenceConflict` diagnostic
+at the constructor call. The diagnostic is not `RecordRowLacksViolation`, so
+this evidence establishes rejection but does not claim that this path exercises
+the dedicated lacks-diagnostic mapping. The existing
+`return_record_prefix_contributes_lacks_constraint_to_row_inference` remains a
+separate 1/1 control for the dedicated row-lacks route. The direct materializer
+test remains the precise DuplicateRecordField oracle.
+
+This resolves the `.ok()?` fallback concern for the tested accepted-language
+collision without changing solver ownership or constructor mapping behavior.
+It does not close the remaining CV-14/T4 shape-specialization acceptance, T5,
+P4 completion, or release gates.

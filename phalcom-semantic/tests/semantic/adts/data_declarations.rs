@@ -133,6 +133,34 @@ data Envelope<**Fs: RecordFields> {
 }
 
 #[test]
+fn data_record_constructor_rejects_expected_row_repeating_fixed_label() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+
+class Probe {
+    @class
+    make() -> Envelope<**{ id: Int }> {
+        Envelope { id: 1 }
+    }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let diagnostics = analysis.snapshot.diagnostics_for(&module).expect("diagnostics for module");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::GenericInferenceConflict),
+        "expected the constructor's fixed-field/expanded-row conflict to be diagnosed, got: {diagnostics:#?}"
+    );
+}
+
+#[test]
 fn data_constructor_visibility_is_published_in_the_canonical_product() {
     let module = test_module();
     let source: Arc<str> = Arc::from(
