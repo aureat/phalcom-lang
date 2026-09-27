@@ -33,7 +33,7 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: T4 CV-10..CV-15 is accepted as IMPLEMENTED / FOCUSED_TESTED; begin P4 T5 next. T5 has not started; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+  next_action: Execute P4 T5, beginning with T5.1 separation of shared behavior-class registration from base layout registration; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 blocker: none
 ```
 
@@ -1655,12 +1655,16 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Begin Phase B T5; it has not started.
+    LANG007.C3.P4 T5.1 — separate nominal behavior-class registration from
+    declaration-level base layout registration.
 
 next action:
-    T4's CV-10..CV-15 structural-data acceptance is accepted as
-    IMPLEMENTED / FOCUSED_TESTED on focused selectors. Proceed to T5 next;
-    keep P4 overall IN_PROGRESS / PARTIAL / UNVERIFIED.
+    Verify `RuntimeDataRegistry` can return one behavior class per declaration
+    independently of a fixed base descriptor. Shape-generic data may have a
+    behavior class without a declaration-level layout; fixed-only data
+    registration remains unchanged. Continue to T5.2 only after this focused
+    registry contract is implemented and tested. T4 remains
+    IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
     Priority 3's 40-way pre-remediation classification remains in
