@@ -33,8 +33,8 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Finish R2 Steps 8–11 in order, then resume original P4 T6–T13. Step 8's labeled data-constructor thunk path is focused-tested and awaiting review; T5 remains incomplete.
-blocker: none for the current Step 8 slice; P4/T5 and later R2 steps remain open.
+  next_action: Finish R2 Steps 9–11 in order, then resume original P4 T6–T13. Step 9's shared selector-spec sugar is focused-tested and awaiting review; T5 remains incomplete.
+blocker: none for the current Step 9 slice; P4/T5 and later R2 steps remain open.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1784,23 +1784,22 @@ next task:
     T5 acceptance remains incomplete.
 
 next action:
-    R2 Steps 5–7 are reviewed and focused-tested. Step 8 is active: add
-    ergonomic `&Tagged<Int>(_)` and labeled `&Person<Int>(name: _, payload: _)`
-    constructor references, preserving their actual source ranges and
-    resolving them to the same primary DataConstructorId capability as
-    `&Type<T>::Construct(...)`. Keep record selector slots in declaration
-    order. No synthetic `Construct` source token or runtime callable category.
-    The runtime extension is limited to generated all-labeled constructor
-    thunks: they use the existing `ParameterShape.fixed_labels` and closure
-    activation path, which validates exact ordered labels and transfers their
-    values into thunk locals. Ordinary source closures retain their
-    positional-only shape. Focused parser and semantic selectors passed 1/1;
-    core constructor-reference invocation passed 1/1, the ordinary-closure
-    positional-only control passed 1/1, and an activation unit test rejected
-    missing, extra, duplicate, reordered, and positional-plus-labeled shapes
-    before changing the stack or entering a frame (1/1). Stop for review
-    before Step 9. T5 and P4 remain incomplete; T4 remains IMPLEMENTED /
-    FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+    R2 Steps 5–8 are reviewed and focused-tested. Step 8 commit `1e82f1c3`
+    preserves source-shaped constructor references and adds labeled invocation
+    only to generated all-labeled constructor thunks through the existing
+    ParameterShape/closure activation path; ordinary source closures remain
+    positional-only. Step 9 is IMPLEMENTED / FOCUSED_TESTED pending review:
+    `label_placeholder_sugar_normalizes_across_shared_selector_surfaces`
+    passes (1/1), proving legacy bare labels and `label: _` normalize to the
+    same selectors/patterns for bound references, associated `Construct`
+    references, exact `#foo(...)`, and rest-pattern hash/bound references.
+    Colon-placeholder ranges include the full `label: _` / `tail: _` text
+    where retained by the AST. Canonical encoding remains `foo(label)` and
+    `foo(_, ..., tail)`; no selector encoding or parser implementation change
+    was needed beyond the shared Step 8 parser path. Step 8's parser, semantic,
+    and core constructor-reference selectors were rerun and passed 1/1 each.
+    Stop for review before Step 10. T5 and P4 remain incomplete; T4 remains
+    IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
     Priority 3's 40-way pre-remediation classification remains in

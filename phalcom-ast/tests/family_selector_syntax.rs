@@ -5,7 +5,7 @@ use phalcom_ast::{
     },
     parse_source,
 };
-use phalcom_common::selector::{SelectorKind, SelectorKindPattern, SelectorSlot};
+use phalcom_common::selector::{Selector, SelectorKind, SelectorKindPattern, SelectorSlot};
 
 fn slot_values(slots: &[phalcom_ast::ast::SelectorSlotSyntax]) -> Vec<SelectorSlot> {
     slots.iter().map(|slot| slot.slot.clone()).collect()
@@ -32,6 +32,43 @@ fn associated_invoke(source: &str) -> AssociatedInvokeExpr {
         Expr::AssociatedInvoke(invoke) => *invoke,
         other => panic!("{source:?} should parse as AssociatedInvoke, got {other:?}"),
     }
+}
+
+fn callable_reference_selector(source: &str) -> phalcom_ast::ast::ExactSelectorSyntax {
+    let Expr::CallableReference(reference) = parse_expr_stmt(source) else {
+        panic!("{source:?} should parse as a callable reference");
+    };
+    let member = match reference.target {
+        CallableReferenceTarget::Bound { member, .. } | CallableReferenceTarget::Associated { member, .. } => member,
+        other => panic!("{source:?} has no explicit member selector: {other:?}"),
+    };
+    let CallableReferenceMemberSyntax::Named { selector, .. } = member else {
+        panic!("{source:?} should target a named selector");
+    };
+    let phalcom_ast::ast::SelectorSpecSyntax::Exact(selector) = selector else {
+        panic!("{source:?} should have an exact selector");
+    };
+    selector
+}
+
+fn selector_symbol(source: &str) -> (String, Vec<Option<String>>) {
+    let Expr::Symbol(symbol) = parse_expr_stmt(source) else {
+        panic!("{source:?} should parse as a symbol literal");
+    };
+    let SymbolLiteralKind::Selector { name, labels } = symbol.kind else {
+        panic!("{source:?} should be an exact selector symbol");
+    };
+    (name, labels)
+}
+
+fn selector_pattern_symbol(source: &str) -> phalcom_ast::ast::SelectorPatternSyntax {
+    let Expr::Symbol(symbol) = parse_expr_stmt(source) else {
+        panic!("{source:?} should parse as a symbol literal");
+    };
+    let SymbolLiteralKind::Pattern(pattern) = symbol.kind else {
+        panic!("{source:?} should be a selector pattern symbol");
+    };
+    pattern
 }
 
 #[test]
@@ -192,6 +229,90 @@ fn ergonomic_primary_data_constructor_reference_preserves_written_slots() {
         phalcom_ast::ast::SelectorSpecSyntax::Exact(exact)
             if slot_values(&exact.slots) == vec![SelectorSlot::Positional, SelectorSlot::Label("label".into())]
     ));
+}
+
+#[test]
+fn label_placeholder_sugar_normalizes_across_shared_selector_surfaces() {
+    for (legacy, explicit) in [
+        ("&object.foo(label)", "&object.foo(label: _)"),
+        ("&Person<Int>::Construct(label)", "&Person<Int>::Construct(label: _)"),
+    ] {
+        let legacy_selector = callable_reference_selector(legacy);
+        let explicit_selector = callable_reference_selector(explicit);
+        let legacy_normalized = legacy_selector.normalize().unwrap();
+        let explicit_normalized = explicit_selector.normalize().unwrap();
+        assert_eq!(legacy_normalized, explicit_normalized);
+        assert_eq!(slot_values(&explicit_selector.slots), vec![SelectorSlot::Label("label".into())]);
+        assert_eq!(
+            &explicit[explicit_selector.slots[0].range.start..explicit_selector.slots[0].range.end],
+            "label: _"
+        );
+        assert_eq!(explicit_normalized.encode(), legacy_normalized.encode());
+    }
+
+    let legacy_symbol = selector_symbol("#foo(label)");
+    let explicit_symbol = selector_symbol("#foo(label: _)");
+    assert_eq!(legacy_symbol, explicit_symbol);
+    let encoded = Selector::method(
+        &explicit_symbol.0,
+        explicit_symbol
+            .1
+            .iter()
+            .map(|label| label.as_ref().map_or(SelectorSlot::Positional, |label| SelectorSlot::Label(label.clone())))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert_eq!(encoded.encode(), "foo(label)");
+
+    for (legacy, explicit) in [
+        ("#foo(_, ..., tail)", "#foo(_, ..., tail: _)"),
+        ("&object.foo(_, ..., tail)", "&object.foo(_, ..., tail: _)"),
+    ] {
+        let legacy_pattern = if legacy.starts_with('#') {
+            selector_pattern_symbol(legacy)
+        } else {
+            let Expr::CallableReference(reference) = parse_expr_stmt(legacy) else {
+                panic!("{legacy:?} should parse as a callable reference");
+            };
+            let CallableReferenceTarget::Bound {
+                member: CallableReferenceMemberSyntax::Named { selector, .. },
+                ..
+            } = reference.target
+            else {
+                panic!("{legacy:?} should be a bound named reference");
+            };
+            let phalcom_ast::ast::SelectorSpecSyntax::Pattern(pattern) = selector else {
+                panic!("{legacy:?} should have a selector pattern");
+            };
+            pattern
+        };
+        let explicit_pattern = if explicit.starts_with('#') {
+            selector_pattern_symbol(explicit)
+        } else {
+            let Expr::CallableReference(reference) = parse_expr_stmt(explicit) else {
+                panic!("{explicit:?} should parse as a callable reference");
+            };
+            let CallableReferenceTarget::Bound {
+                member: CallableReferenceMemberSyntax::Named { selector, .. },
+                ..
+            } = reference.target
+            else {
+                panic!("{explicit:?} should be a bound named reference");
+            };
+            let phalcom_ast::ast::SelectorSpecSyntax::Pattern(pattern) = selector else {
+                panic!("{explicit:?} should have a selector pattern");
+            };
+            pattern
+        };
+        assert_eq!(legacy_pattern.normalize().unwrap(), explicit_pattern.normalize().unwrap());
+        assert_eq!(slot_values(&explicit_pattern.prefix), vec![SelectorSlot::Positional]);
+        assert_eq!(slot_values(&explicit_pattern.suffix), vec![SelectorSlot::Label("tail".into())]);
+        assert_eq!(
+            &explicit[explicit_pattern.suffix[0].range.start..explicit_pattern.suffix[0].range.end],
+            "tail: _"
+        );
+        assert_eq!(explicit_pattern.normalize().unwrap().encode(), "foo(_, ..., tail)");
+    }
 }
 
 #[test]
