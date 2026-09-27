@@ -2153,12 +2153,17 @@ and proves the two identities differ.
 | Criterion | Focused evidence found | Remaining direct evidence |
 | --- | --- | --- |
 | CV-10 user Tuple nominal identity | `user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple` — 1/1 | Covered for canonical semantic type identity. |
-| CV-11 user Record nominal identity | No direct user-defined MyRecord-vs-structural-Record assertion found in the focused ADT/row tests. | Add a direct nominal identity discriminator. |
+| CV-11 user Record nominal identity | `user_record_row_data_type_keeps_nominal_identity_distinct_from_record` — 1/1 | Covered for canonical semantic type identity. |
 | CV-12 expanded constructor inference | `projection_free_complete_pack_data_constructor_infers_pack` has an explicit expected result type; it does not isolate value-driven inference. | Prove zero/one/many constructor contributions inferred without contextual result typing. |
 | CV-13 fixed prefix + pack | No direct fixed-prefix expanded-pack constructor result/layout test found. | Add the mixed constructor inference/mapping discriminator. |
 | CV-14 fixed Record + row | `data_record_materialization_rejects_duplicate_fixed_and_expanded_labels` proves materializer rejection; `data_record_constructor_rejects_expected_row_repeating_fixed_label` proves source rejection; `return_record_prefix_contributes_lacks_constraint_to_row_inference` covers symbolic lacks separately. | Add successful fixed+row inference/layout evidence; keep the diagnostic distinction recorded above. |
-| CV-15 heterogeneous nominal RecordRow argument | The materializer test explicitly applies `StaticArgument::RecordRow` and materializes its fields. | Verify the inferred user data constructor result retains that row argument as `Applied`/`StaticArgument::RecordRow`. |
+| CV-15 heterogeneous nominal RecordRow argument | `data_record_materialization_rejects_duplicate_fixed_and_expanded_labels` and `user_record_row_data_type_keeps_nominal_identity_distinct_from_record` explicitly apply `StaticArgument::RecordRow`; the latter verifies the exact row on nominal `Applied`. | Verify an inferred user data constructor result retains that row argument as `Applied`/`StaticArgument::RecordRow`. |
 
-This inventory identifies the next T4 gaps; it is not T4 completion. Continue
-CV-11..CV-15 acceptance before beginning T5. P4 remains
+The CV-11 selector `user_record_row_data_type_keeps_nominal_identity_distinct_from_record`
+passes (1 selected, 1 passed, pinned `nightly-2026-07-10`). It verifies that
+user `MyRecord` stays `Applied` with the exact heterogeneous `RecordRow`, while
+a structural Record formed from the same fields reuses that row identity and
+remains a distinct type. CV-10 and CV-11 nominal identity are now directly
+covered; this inventory is not T4 completion. Continue CV-12..CV-15 before
+beginning T5. P4 remains
 `IN_PROGRESS / PARTIAL / UNVERIFIED`, and audit/release gates remain open.

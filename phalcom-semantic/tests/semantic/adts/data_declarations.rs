@@ -491,6 +491,53 @@ fn user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple() {
 }
 
 #[test]
+fn user_record_row_data_type_keeps_nominal_identity_distinct_from_record() {
+    use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let module = test_module();
+    let source: Arc<str> = Arc::from("data MyRecord<**Fs: RecordFields> { **Fs }\n");
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let declaration = DeclarationId::new(module.clone(), "MyRecord".into());
+    let info = analysis
+        .snapshot
+        .data_semantics
+        .data_info(&declaration)
+        .expect("MyRecord semantic product");
+    let mut store = analysis.snapshot.store.as_ref().clone();
+    let int = store.nominal_type(DeclarationId::new(module.clone(), "Int".into()));
+    let string = store.nominal_type(DeclarationId::new(module, "String".into()));
+    let fields = vec![
+        RecordRowField {
+            name: "age".into(),
+            ty: int,
+        },
+        RecordRowField {
+            name: "name".into(),
+            ty: string,
+        },
+    ];
+    let row = store
+        .record_row_checked(fields.clone(), RecordRowTail::Closed)
+        .expect("heterogeneous RecordRow");
+
+    let nominal = store
+        .apply_static_form(info.root_form, &[StaticArgument::RecordRow(row)])
+        .expect("apply user MyRecord to RecordRow");
+    let structural = store.record(fields.into_boxed_slice());
+
+    assert!(
+        matches!(store.get(nominal), TypeData::Applied { arguments, .. } if arguments.as_ref() == [StaticArgument::RecordRow(row)]),
+        "user data specialization must retain the exact RecordRow argument, got {:?}",
+        store.get(nominal)
+    );
+    assert!(matches!(store.get(structural), TypeData::Record(found) if *found == row));
+    assert_ne!(nominal, structural, "user MyRecord must not collapse to structural Record");
+}
+
+#[test]
 fn data_record_construction_and_projection() {
     let module = test_module();
     let source: Arc<str> = Arc::from(
