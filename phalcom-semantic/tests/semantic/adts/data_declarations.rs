@@ -652,6 +652,8 @@ fn record_row_constructor_preserves_assumed_generic_field_evidence() {
 
     let fixture = Fixture::new(
         r#"
+class Number {}
+
 data Envelope<**Fs: RecordFields> {
     id: Int,
     **Fs
@@ -659,7 +661,7 @@ data Envelope<**Fs: RecordFields> {
 
 class Probe {
     @class
-    make<T>(value: T) {
+    make<T>(value: T) where T <: Number {
         let wrapped = Envelope { id: 1, name: value }
         wrapped
     }
@@ -782,6 +784,8 @@ fn record_row_constructor_preserves_unknown_residual_field_evidence() {
 
     let fixture = Fixture::new(
         r#"
+class Number {}
+
 data Envelope<**Fs: RecordFields> {
     id: Int,
     **Fs
@@ -789,15 +793,15 @@ data Envelope<**Fs: RecordFields> {
 
 class Probe {
     @class
-    make() {
+    make<T>(value: T) where T <: Number {
         let missing
-        Envelope { id: 1, value: missing }
+        Envelope { id: 1, name: value, value: missing }
     }
 }
 "#,
     );
     let make = fixture.callable("Probe", "make", DispatchSide::Class);
-    let constructor = fixture.expression(make, "Envelope { id: 1, value: missing }");
+    let constructor = fixture.expression(make, "Envelope { id: 1, name: value, value: missing }");
     assert!(
         matches!(constructor.knowledge, TypeKnowledge::Unknown(_)),
         "unknown residual-field evidence must remain unknown rather than being treated as an exact empty row: {constructor:#?}"
