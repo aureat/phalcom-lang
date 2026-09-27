@@ -3,7 +3,7 @@
 use crate::heap::{ClassId, Heap};
 use crate::typing::context::TypingContextData;
 use crate::typing::handle::{RuntimeKindRef, RuntimeOverlayTypeId, RuntimeTypeRef};
-use crate::typing::overlay::{RuntimeOverlayKindNode, RuntimeOverlayTypeNode};
+use crate::typing::overlay::{RuntimeOverlayKindNode, RuntimeOverlayTypeNode, RuntimeStaticArgument};
 use crate::typing::registry::RuntimeTypingRegistry;
 use crate::universe::Universe;
 use phalcom_type_meta::type_node::TypeNode;
@@ -24,7 +24,12 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
             RuntimeOverlayTypeNode::Applied { origin, arguments } => {
                 let mut children = Vec::with_capacity(arguments.len() + 1);
                 children.push(*origin);
-                children.extend(arguments.iter().copied());
+                for argument in arguments.iter() {
+                    match argument {
+                        RuntimeStaticArgument::Term(ty) => children.push(*ty),
+                        RuntimeStaticArgument::RecordRow(row) => children.extend(row.fields.iter().map(|field| field.ty)),
+                    }
+                }
                 Some(children)
             }
             RuntimeOverlayTypeNode::Union(members) => Some(members.to_vec()),
@@ -45,8 +50,14 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
                     let mut children = Vec::with_capacity(arguments.len() + 1);
                     children.push(RuntimeTypeRef::Base { pool, node: *origin });
                     for argument in arguments.iter() {
-                        let phalcom_type_meta::type_node::StaticArgumentRef::Term(node) = argument else { return None };
-                        children.push(RuntimeTypeRef::Base { pool, node: *node });
+                        match argument {
+                            phalcom_type_meta::type_node::StaticArgumentRef::Term(node) => {
+                                children.push(RuntimeTypeRef::Base { pool, node: *node });
+                            }
+                            phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
+                                children.extend(row.fields.iter().map(|field| RuntimeTypeRef::Base { pool, node: field.ty }));
+                            }
+                        }
                     }
                     Some(children)
                 }
@@ -57,10 +68,56 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
     }
 }
 
-pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, handle: RuntimeTypeRef) -> Option<Vec<RuntimeTypeRef>> {
+/// Returns the heterogeneous static arguments of an applied type.
+///
+/// Unlike [`arguments`], this projection preserves row arguments rather than
+/// pretending they are proper type terms.
+pub fn static_arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, handle: RuntimeTypeRef) -> Option<Vec<RuntimeStaticArgument>> {
     match handle {
         RuntimeTypeRef::Overlay(id) => match context.overlay.type_node(id)? {
             RuntimeOverlayTypeNode::Applied { arguments, .. } => Some(arguments.to_vec()),
+            _ => None,
+        },
+        RuntimeTypeRef::Base { pool, node } => {
+            let TypeNode::Applied { arguments, .. } = &registry.get_pool(pool)?.bundle.types.get(node.0 as usize)?.form else {
+                return None;
+            };
+            arguments
+                .iter()
+                .map(|argument| match argument {
+                    phalcom_type_meta::type_node::StaticArgumentRef::Term(node) => {
+                        Some(RuntimeStaticArgument::Term(RuntimeTypeRef::Base { pool, node: *node }))
+                    }
+                    phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
+                        Some(RuntimeStaticArgument::RecordRow(crate::typing::overlay::RuntimeRecordRow {
+                            fields: row
+                                .fields
+                                .iter()
+                                .map(|field| crate::typing::overlay::RuntimeRecordField {
+                                    name: field.name.clone(),
+                                    ty: RuntimeTypeRef::Base { pool, node: field.ty },
+                                })
+                                .collect(),
+                            tail: row.tail.clone(),
+                        }))
+                    }
+                })
+                .collect()
+        }
+    }
+}
+
+/// Returns proper type arguments, or `None` when an applied type contains a row argument.
+pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, handle: RuntimeTypeRef) -> Option<Vec<RuntimeTypeRef>> {
+    match handle {
+        RuntimeTypeRef::Overlay(id) => match context.overlay.type_node(id)? {
+            RuntimeOverlayTypeNode::Applied { .. } => static_arguments(context, registry, handle)?
+                .into_iter()
+                .map(|argument| match argument {
+                    RuntimeStaticArgument::Term(ty) => Some(ty),
+                    RuntimeStaticArgument::RecordRow(_) => None,
+                })
+                .collect(),
             RuntimeOverlayTypeNode::Union(members) => Some(members.to_vec()),
             RuntimeOverlayTypeNode::Nominal { .. } => Some(Vec::new()),
             RuntimeOverlayTypeNode::Tuple(elements) => Some(elements.iter().map(|element| element.ty).collect()),
@@ -69,14 +126,13 @@ pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
             RuntimeOverlayTypeNode::TypeLambda { .. } | RuntimeOverlayTypeNode::Special(_) | RuntimeOverlayTypeNode::SelfType(_) => Some(Vec::new()),
         },
         RuntimeTypeRef::Base { pool, node } => match &registry.get_pool(pool)?.bundle.types.get(node.0 as usize)?.form {
-            TypeNode::Applied { arguments, .. } => {
-                let mut result = Vec::with_capacity(arguments.len());
-                for argument in arguments {
-                    let phalcom_type_meta::type_node::StaticArgumentRef::Term(node) = argument else { return None };
-                    result.push(RuntimeTypeRef::Base { pool, node: *node });
-                }
-                Some(result)
-            }
+            TypeNode::Applied { .. } => static_arguments(context, registry, handle)?
+                .into_iter()
+                .map(|argument| match argument {
+                    RuntimeStaticArgument::Term(ty) => Some(ty),
+                    RuntimeStaticArgument::RecordRow(_) => None,
+                })
+                .collect(),
             TypeNode::Union(members) => Some(members.iter().map(|node| RuntimeTypeRef::Base { pool, node: *node }).collect()),
             _ => Some(Vec::new()),
         },
@@ -160,7 +216,22 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
             Some(RuntimeOverlayTypeNode::Applied { origin, arguments }) => {
                 let args = arguments
                     .iter()
-                    .map(|arg| display_inner(context, registry, heap, *arg, depth + 1))
+                    .map(|arg| match arg {
+                        RuntimeStaticArgument::Term(ty) => display_inner(context, registry, heap, *ty, depth + 1),
+                        RuntimeStaticArgument::RecordRow(row) => format!(
+                            "{{{}{}}}",
+                            row.fields
+                                .iter()
+                                .map(|field| format!(
+                                    "{}: {}",
+                                    field.name,
+                                    display_inner(context, registry, heap, field.ty, depth + 1)
+                                ))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            row.tail.as_ref().map_or(String::new(), |tail| format!("{}**R{}", if row.fields.is_empty() { "" } else { ", " }, tail.index))
+                        ),
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{}<{}>", display_inner(context, registry, heap, *origin, depth + 1), args)
@@ -790,18 +861,17 @@ pub fn specialize_type(
     receiver: Option<RuntimeTypeRef>,
 ) -> RuntimeTypeRef {
     let Some(receiver) = receiver else { return raw_type };
-    let receiver_args = arguments(context, registry, receiver).unwrap_or_default();
-    if receiver_args.is_empty() {
-        return raw_type;
-    }
-
     match raw_type {
         RuntimeTypeRef::Base { pool, node } => {
             if let Some(loaded) = registry.get_pool(pool) {
                 if let Some(entry) = loaded.bundle.types.get(node.0 as usize) {
                     if let TypeNode::Parameter(param) = &entry.form {
-                        if let Some(arg) = receiver_args.get(param.index as usize) {
-                            return *arg;
+                        if let Some(receiver_args) = static_arguments(context, registry, receiver) {
+                            if let Some(RuntimeStaticArgument::Term(arg)) = receiver_args.get(param.index as usize) {
+                                return *arg;
+                            }
+                        } else if let Some(arg) = arguments(context, registry, receiver).and_then(|args| args.get(param.index as usize).copied()) {
+                            return arg;
                         }
                     }
                 }

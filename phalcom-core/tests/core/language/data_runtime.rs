@@ -94,6 +94,40 @@ fn p4_registry_separates_declaration_class_from_exact_descriptors() {
 }
 
 #[test]
+fn row_specializations_with_equal_layout_keep_distinct_exact_descriptors() {
+    let mut vm = VM::new();
+    let root_mod = vm.runtime_roots.unwrap().universe;
+    let owner = DeclarationId::new(vm.heap.module(root_mod).id.clone(), "RowGeneric".into());
+    let behavior_class = vm.universe.classes.object_class;
+    let layout = vm.heap.product_layouts.register(
+        ProductLayout::new(vec![ProductComponentLayout {
+            logical_index: 0,
+            word_offset: 0,
+            repr: ProductSlotRepr::Value,
+        }])
+        .expect("one shared physical slot layout"),
+    );
+    let int_row_type = RuntimeTypeRef::Overlay(RuntimeOverlayTypeId(31));
+    let string_row_type = RuntimeTypeRef::Overlay(RuntimeOverlayTypeId(32));
+
+    let int_descriptor = vm.data_registry.register(owner.clone(), behavior_class, Some(int_row_type), layout);
+    let string_descriptor = vm.data_registry.register(owner.clone(), behavior_class, Some(string_row_type), layout);
+    let int_descriptor_again = vm.data_registry.register(owner.clone(), behavior_class, Some(int_row_type), layout);
+
+    assert_ne!(
+        int_descriptor, string_descriptor,
+        "exact row types remain descriptor identity even with equal layouts"
+    );
+    assert_eq!(int_descriptor, int_descriptor_again, "the exact owner/type pair is interned");
+    let int = vm.data_registry.descriptor(int_descriptor).expect("int row descriptor");
+    let string = vm.data_registry.descriptor(string_descriptor).expect("string row descriptor");
+    assert_eq!(int.layout, string.layout);
+    assert_eq!(int.behavior_class, string.behavior_class);
+    assert_eq!(int.exact_type, Some(int_row_type));
+    assert_eq!(string.exact_type, Some(string_row_type));
+}
+
+#[test]
 fn data_nullary_singleton_is_zero_allocation_and_specialization_sensitive() {
     let vm = VM::new();
     let initial_objects = vm.heap.iter_handles_for_test().len();

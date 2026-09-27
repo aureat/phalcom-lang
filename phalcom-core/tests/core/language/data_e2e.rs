@@ -543,6 +543,44 @@ let same_class = int_record.class === string_record.class
 }
 
 #[test]
+fn p4_empty_layout_row_specializations_keep_exact_identity_through_generic_callable() {
+    let (vm, module) = run_inline(
+        r#"
+data PhantomRow<**Fs: RecordFields>()
+
+class Factory {
+  @class make<T>(value: T) -> PhantomRow<**{ payload: T }> {
+    PhantomRow()
+  }
+}
+
+const int_row: PhantomRow<**{ payload: Int }> = Factory.make(value: 1)
+const string_row: PhantomRow<**{ payload: String }> = Factory.make(value: "text")
+const int_row_again: PhantomRow<**{ payload: Int }> = Factory.make(value: 2)
+let same_class = int_row.class === string_row.class
+"#,
+    )
+    .expect("generic callable should preserve phantom row specializations");
+
+    assert_eq!(vm.heap.module(module).get(vm.interner.find("same_class").unwrap()), Some(Value::bool(true)));
+    let descriptor = |name: &str| {
+        let value = vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
+        vm.heap.data(value.as_obj().expect("phantom row is data")).descriptor
+    };
+    let int_id = descriptor("int_row");
+    let string_id = descriptor("string_row");
+    let int_again_id = descriptor("int_row_again");
+    assert_ne!(int_id, string_id, "exact row type identity must survive an empty product layout");
+    assert_eq!(int_id, int_again_id, "the same exact phantom specialization is interned");
+
+    let int = vm.data_registry.descriptor(int_id).expect("Int phantom row descriptor");
+    let string = vm.data_registry.descriptor(string_id).expect("String phantom row descriptor");
+    assert_eq!(int.behavior_class, string.behavior_class);
+    assert_eq!(int.layout, string.layout, "phantom row specializations have the same empty layout");
+    assert_ne!(int.exact_type, string.exact_type);
+}
+
+#[test]
 fn p4_fixed_and_expanded_record_components_use_exact_specialization_slots() {
     let (vm, module) = run_inline(
         r#"

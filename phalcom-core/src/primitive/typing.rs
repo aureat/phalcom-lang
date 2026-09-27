@@ -1065,7 +1065,10 @@ fn descriptor_argument_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
         _ => unreachable!(),
     };
     Ok(Value::int(
-        inspect::arguments(context_data, &vm.typing_registry, handle).map_or(0, |arguments| arguments.len() as i64),
+        inspect::static_arguments(context_data, &vm.typing_registry, handle)
+            .map(|arguments| arguments.len())
+            .or_else(|| inspect::arguments(context_data, &vm.typing_registry, handle).map(|arguments| arguments.len()))
+            .unwrap_or(0) as i64,
     ))
 }
 
@@ -1076,7 +1079,19 @@ fn descriptor_arguments(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
             TypingPayload::Context(data) => data,
             _ => unreachable!(),
         };
-        inspect::arguments(context_data, &vm.typing_registry, handle).unwrap_or_default()
+        if let Some(arguments) = inspect::static_arguments(context_data, &vm.typing_registry, handle) {
+            arguments
+                .into_iter()
+                .map(|argument| match argument {
+                    crate::typing::overlay::RuntimeStaticArgument::Term(ty) => Ok(ty),
+                    crate::typing::overlay::RuntimeStaticArgument::RecordRow(_) => {
+                        Err(RuntimeError::Message("type arguments contain a RecordRow value".into()))
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            inspect::arguments(context_data, &vm.typing_registry, handle).unwrap_or_default()
+        }
     };
     let mut values = Vec::with_capacity(args_handles.len());
     for arg_handle in args_handles {
@@ -1103,9 +1118,19 @@ fn descriptor_argument_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
             TypingPayload::Context(data) => data,
             _ => unreachable!(),
         };
-        inspect::arguments(context_data, &vm.typing_registry, handle)
-            .and_then(|arguments| arguments.get(index as usize).copied())
-            .ok_or_else(|| RuntimeError::Message("type argument index out of range".into()))?
+        if let Some(arguments) = inspect::static_arguments(context_data, &vm.typing_registry, handle) {
+            match arguments.get(index as usize) {
+                Some(crate::typing::overlay::RuntimeStaticArgument::Term(ty)) => *ty,
+                Some(crate::typing::overlay::RuntimeStaticArgument::RecordRow(_)) => {
+                    return Err(RuntimeError::Message("type argument is a RecordRow value".into()).into());
+                }
+                None => return Err(RuntimeError::Message("type argument index out of range".into()).into()),
+            }
+        } else {
+            inspect::arguments(context_data, &vm.typing_registry, handle)
+                .and_then(|arguments| arguments.get(index as usize).copied())
+                .ok_or_else(|| RuntimeError::Message("type argument index out of range".into()))?
+        }
     };
     let descriptor_class = descriptor_class_for_handle(vm, context, child)?;
     crate::typing::reify::reify_type_form(context, child, &vm.typing_registry, &mut vm.heap, descriptor_class)
@@ -2330,7 +2355,10 @@ fn typing_context_apply(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
             .as_typing_object_mut(context)
             .ok_or_else(|| RuntimeError::Internal("typing context disappeared".to_string()))?;
         let TypingPayload::Context(data) = &mut object.payload else { unreachable!() };
-        data.overlay.type_ref(RuntimeOverlayTypeNode::Applied { origin, arguments })
+        data.overlay.type_ref(RuntimeOverlayTypeNode::Applied {
+            origin,
+            arguments: arguments.into_iter().map(crate::typing::overlay::RuntimeStaticArgument::Term).collect(),
+        })
     };
     context_known(vm, context, handle)
 }

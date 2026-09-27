@@ -20,7 +20,7 @@ pub enum RuntimeOverlayTypeNode {
     },
     Applied {
         origin: RuntimeTypeRef,
-        arguments: Box<[RuntimeTypeRef]>,
+        arguments: Box<[RuntimeStaticArgument]>,
     },
     Union(Box<[RuntimeTypeRef]>),
     Tuple(Box<[RuntimeTupleElement]>),
@@ -41,6 +41,23 @@ pub enum RuntimeOverlayTypeNode {
 pub struct RuntimeRecordField {
     pub name: Box<str>,
     pub ty: RuntimeTypeRef,
+}
+
+/// One closed or open record-row argument carried by an applied runtime type.
+///
+/// A row is not itself a type term: keeping it distinct prevents an applied
+/// `RecordFields` argument from being confused with a proper structural record.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeRecordRow {
+    pub fields: Box<[RuntimeRecordField]>,
+    pub tail: Option<phalcom_type_meta::StableTypeParameterRef>,
+}
+
+/// Heterogeneous static argument retained by a runtime applied type.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum RuntimeStaticArgument {
+    Term(RuntimeTypeRef),
+    RecordRow(RuntimeRecordRow),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
