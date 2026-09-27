@@ -1003,6 +1003,60 @@ fn compute_shape_aware_data_argument_mapping(
     adapter.argument_to_components(arguments, &target.signature.parameters, store, &shape)
 }
 
+fn specialize_data_constructor_target(
+    ctx: &mut CheckingContext<'_>,
+    data_info: &DataInfo,
+    supplied_arguments: &[crate::types::store::StaticArgument],
+) -> Option<CallableApplicationTarget> {
+    let mut environment = crate::types::environment::TypeEnvironment::new();
+    let mut fixed_generics = Vec::new();
+    if let Some(generics) = &data_info.generic_signature {
+        for (index, argument) in supplied_arguments.iter().enumerate() {
+            let Some(&parameter) = generics.parameters.get(index) else {
+                continue;
+            };
+            match argument {
+                crate::types::store::StaticArgument::Term(ty) => {
+                    environment.bind_param(parameter, *ty);
+                    fixed_generics.push((parameter, *ty));
+                }
+                crate::types::store::StaticArgument::RecordRow(row) => environment.bind_row(parameter, *row),
+            }
+        }
+    }
+
+    let mut target = callable_target_for_data_info(data_info);
+    let parameters = data_info
+        .constructor
+        .parameters
+        .iter()
+        .map(|parameter| {
+            let ty = TypeView::new(parameter.declared_type.canonical_type()?, environment.clone()).materialize(ctx.store);
+            let mut callable_parameter = CallableParameter::new(
+                parameter.local_name.to_string(),
+                TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+            );
+            if let Some(label) = &parameter.external_label {
+                callable_parameter = callable_parameter.with_label(label.to_string());
+            }
+            Some(callable_parameter)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let result_type = TypeView::new(data_info.constructor.result_type_template, environment).materialize(ctx.store);
+    let signature = CallableSignature::new(
+        target.signature.selector.clone(),
+        parameters,
+        TypeKnowledge::established(result_type, EvidenceOrigin::ConstructorSemantics),
+    )
+    .with_kind(CallableSemanticKind::Constructor);
+    target.signature = if let Some(generics) = &data_info.generic_signature {
+        signature.with_generics(generics.clone())
+    } else {
+        signature
+    };
+    Some(target.with_fixed_generics(fixed_generics))
+}
+
 fn synthesize_record_construction(
     ctx: &mut CheckingContext<'_>,
     record: &phalcom_ast::ast::RecordConstructionExpr,
@@ -1045,19 +1099,22 @@ fn synthesize_record_construction(
     target.access_denied = !ctx.data_constructor_is_accessible(&data_info);
     if !record.type_arguments.is_empty() {
         let formation_site = crate::types::annotation::TypeFormationSite::module(ctx.current_module.clone());
-        let mut fixed_generics = Vec::new();
+        let mut supplied_arguments = Vec::new();
         if let Some(sig) = &data_info.generic_signature {
             for (idx, type_annot) in record.type_arguments.iter().enumerate() {
-                if let Some(&param_id) = sig.parameters.get(idx) {
-                    let (res, _) = ctx.resolve_type_form(ctx.resolver.inner(), &formation_site, type_annot);
-                    if let crate::types::annotation::TypeFormResolution::Ready(ty) = res {
-                        fixed_generics.push((param_id, ty));
+                if sig.parameters.get(idx).is_some() {
+                    let (resolution, _) = ctx.resolve_type_form(ctx.resolver.inner(), &formation_site, type_annot);
+                    if let crate::types::annotation::TypeFormResolution::Ready(ty) = resolution {
+                        supplied_arguments.push(crate::types::store::StaticArgument::Term(ty));
                     }
                 }
             }
         }
-        if !fixed_generics.is_empty() {
-            target = target.with_fixed_generics(fixed_generics);
+        if supplied_arguments.len() == record.type_arguments.len()
+            && let Some(specialized) = specialize_data_constructor_target(ctx, &data_info, &supplied_arguments)
+        {
+            target = specialized;
+            target.access_denied = !ctx.data_constructor_is_accessible(&data_info);
         }
     }
     let result = apply_resolved_callable(ctx, &target, &premise, &args, expected, record.range);
@@ -2919,7 +2976,14 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
         return typed;
     }
 
-    if call.method == "call" {
+    if call.method == "call" && call.method_range.is_none() {
+        // `Type<Args>(...)` is primary data-constructor syntax when the
+        // receiver is a statically resolved declaration-backed data type
+        // form. Keep the ordinary callable protocol below as the fallback for
+        // all other type-form values and runtime expressions.
+        if let Some(typed) = synthesize_applied_data_constructor_call(ctx, &recv_typed, call, expected) {
+            return typed;
+        }
         if let Some(receiver_ty) = recv_typed.knowledge.ty() {
             if matches!(ctx.store.get(receiver_ty), TypeData::Family(_)) {
                 let arguments = application_arguments(&call.args);
@@ -3002,6 +3066,47 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
         )
         .into(),
     }
+}
+
+fn synthesize_applied_data_constructor_call(
+    ctx: &mut CheckingContext<'_>,
+    receiver: &TypedExpression,
+    call: &MethodCallExpr,
+    expected: &ExpectedType,
+) -> Option<TypedExpression> {
+    let Some(SemanticDenotation::TypeForm(owner_form)) = receiver.denotation.as_ref() else {
+        return None;
+    };
+    let (owner, supplied_arguments) = ctx.store.applied_nominal_static_parts(*owner_form)?;
+    let data_info = ctx.data_info(&owner)?.clone();
+
+    let mut target = specialize_data_constructor_target(ctx, &data_info, &supplied_arguments)?;
+    target.access_denied = !ctx.data_constructor_is_accessible(&data_info);
+
+    let arguments = application_arguments(&call.args);
+    let premise = CallPremise::from_typed(ctx, receiver);
+    let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range);
+    let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty());
+    let argument_mapping = result_type
+        .and_then(|result_type| compute_shape_aware_data_argument_mapping(&data_info, &target, &arguments, result_type, ctx.store))
+        .or_else(|| compute_data_argument_mapping_from_pack(&data_info, &call.args));
+    if let (Some(result_type), Some(expression)) = (result_type, ctx.current_expression_id()) {
+        ctx.record_associated_resolution(
+            expression,
+            AssociatedResolution {
+                owner_form: *owner_form,
+                lookup_owner: owner.clone(),
+                family: None,
+                kind: AssociatedResolutionKind::StaticInvoke {
+                    member: AssociatedMemberId::DataConstructor(data_info.constructor.constructor.clone()),
+                    target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
+                    result_type,
+                    argument_mapping,
+                },
+            },
+        );
+    }
+    Some(result.into())
 }
 
 /// Analyzes parser-desugared control sends using their block bodies as

@@ -349,6 +349,34 @@ fn record_construction_with_generic_args_and_qualified_path() {
 }
 
 #[test]
+fn explicit_generic_tuple_constructor_syntax_preserves_type_form_receiver() {
+    let program = parse_source("Tagged<Int>(42)\n", 0).expect("explicit generic constructor parses");
+    let Statement::Expr { expr, .. } = &program.statements[0] else {
+        panic!("expected expression");
+    };
+    let Expr::MethodCall(call) = expr else {
+        panic!("explicit type application remains a call candidate: {expr:#?}");
+    };
+    assert_eq!(call.method, "call");
+    assert!(call.method_range.is_none(), "direct parentheses are distinct from explicit `.call(...)`");
+    let Expr::TypeForm(annotation) = &call.object else {
+        panic!("constructor candidate must retain its applied type form: {:#?}", call.object);
+    };
+    assert!(matches!(annotation.expr, phalcom_ast::ast::TypeAnnotationExpr::Application { .. }));
+    assert_eq!(call.args.len(), 1);
+
+    let explicit_call = parse_source("Tagged<Int>.call(42)\n", 0).expect("explicit call send parses");
+    let Statement::Expr { expr, .. } = &explicit_call.statements[0] else {
+        panic!("expected explicit call expression");
+    };
+    let Expr::MethodCall(explicit_call) = expr else {
+        panic!("expected explicit method send: {expr:#?}");
+    };
+    assert_eq!(explicit_call.method, "call");
+    assert!(explicit_call.method_range.is_some(), "written `.call` must remain ordinary method syntax");
+}
+
+#[test]
 fn data_rejects_method_body() {
     let source = "data Bad {\n  foo() { return 1 }\n}\n";
     let res = parse_source(source, 0);

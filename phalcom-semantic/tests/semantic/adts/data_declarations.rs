@@ -335,6 +335,73 @@ class Caller {
 }
 
 #[test]
+fn explicit_applied_tuple_call_resolves_to_primary_data_constructor() {
+    use phalcom_semantic::checker::associated::AssociatedResolutionKind;
+    use phalcom_semantic::identity::InvocationTargetId;
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let fixture = Fixture::new(
+        r#"
+data Tagged<T>(_ value: Int)
+data Person<T> {
+    name: String,
+    payload: T
+}
+
+class Probe {
+    @class
+    make() {
+        let person = Person<Int> { name: "Ada", payload: 42 }
+        Tagged<Int>(42)
+    }
+}
+"#,
+    );
+    let make = fixture.callable("Probe", "make", DispatchSide::Class);
+    let expression = fixture.expression(make, "Tagged<Int>(42)");
+    let result_ty = expression.knowledge.ty().expect("specialized constructor result");
+    let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(result_ty) else {
+        panic!("explicit specialization must retain nominal Applied identity: {expression:#?}");
+    };
+    assert!(
+        matches!(arguments.as_ref(), [StaticArgument::Term(argument)] if *argument == fixture.ty("Int")),
+        "explicit constructor result arguments: {arguments:#?} (expected Int {:?}; actual {})",
+        fixture.ty("Int"),
+        fixture.analysis.snapshot.store.format_type(arguments[0].as_type_id().unwrap())
+    );
+    let record = fixture.expression(make, "Person<Int> { name: \"Ada\", payload: 42 }");
+    let record_ty = record.knowledge.ty().expect("specialized record constructor result");
+    assert!(matches!(
+        fixture.analysis.snapshot.store.get(record_ty),
+        TypeData::Applied { arguments, .. }
+            if matches!(arguments.as_ref(), [StaticArgument::Term(argument)] if *argument == fixture.ty("Int"))
+    ));
+    let record_resolution = make
+        .associated_resolutions
+        .get(&record.id)
+        .expect("direct record constructor publishes canonical resolution");
+    assert!(matches!(
+        &record_resolution.kind,
+        AssociatedResolutionKind::StaticInvoke {
+            target: InvocationTargetId::DataConstructor(constructor),
+            ..
+        } if constructor.owner == fixture.decl("Person")
+    ));
+
+    let resolution = make
+        .associated_resolutions
+        .get(&expression.id)
+        .expect("direct constructor publishes canonical resolution");
+    assert!(matches!(
+        &resolution.kind,
+        AssociatedResolutionKind::StaticInvoke {
+            target: InvocationTargetId::DataConstructor(constructor),
+            ..
+        } if constructor.owner == fixture.decl("Tagged")
+    ));
+}
+
+#[test]
 fn private_data_constructor_is_available_to_its_owner() {
     let module = test_module();
     let source: Arc<str> = Arc::from(
@@ -367,7 +434,7 @@ data Box<T> private(_ value: T)
 
 class Caller {
     @class make() -> Box<Int> {
-        Box(42)
+        Box<Int>(42)
     }
 }
 "#,

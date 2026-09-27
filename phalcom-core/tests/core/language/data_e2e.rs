@@ -158,6 +158,36 @@ let same_class = a.class === b.class
 }
 
 #[test]
+fn data_explicit_specialization_uses_primary_constructor_for_tuple_and_record() {
+    let (vm, module) = run_inline(
+        r#"
+data Tagged<T>(_ id: Int)
+data Person<T> {
+    name: String,
+    payload: T
+}
+
+let tuple_direct = Tagged<Int>(42)
+let tuple_associated = Tagged<Int>::Construct(42)
+let tuple_same = tuple_direct == tuple_associated
+
+let record_direct = Person<Int> { name: "Ada", payload: 42 }
+let record_associated = Person<Int>::Construct(name: "Ada", payload: 42)
+let record_same = record_direct == record_associated
+let record_payload = record_direct.payload
+"#,
+    )
+    .expect("explicitly specialized primary constructors should execute");
+
+    for name in ["tuple_same", "record_same"] {
+        let symbol = vm.interner.find(name).unwrap();
+        assert_eq!(vm.heap.module(module).get(symbol), Some(Value::bool(true)));
+    }
+    let payload = vm.interner.find("record_payload").unwrap();
+    assert_eq!(vm.heap.module(module).get(payload), Some(Value::int(42)));
+}
+
+#[test]
 fn equal_nested_data_have_equal_hashes() {
     let (vm, module) = run_inline(
         r#"
