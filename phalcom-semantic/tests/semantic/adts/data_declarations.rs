@@ -578,6 +578,86 @@ class Probe {
 }
 
 #[test]
+fn record_row_constructor_infers_fixed_and_residual_fields_without_expected_result() {
+    use phalcom_semantic::data_semantics::{DataProductShapeState, materialize_data_product_shape};
+    use phalcom_semantic::types::row::RecordRowTail;
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let fixture = Fixture::new(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+
+class Probe {
+    @class exercise() {
+        let value = Envelope { id: 1, name: "Ada", age: 42 }
+        value
+    }
+}
+"#,
+    );
+    fixture.assert_no_error_diagnostics();
+    let exercise = fixture.callable("Probe", "exercise", DispatchSide::Class);
+    let expression = fixture.expression(exercise, "Envelope { id: 1, name: \"Ada\", age: 42 }");
+    let result = expression.knowledge.ty().unwrap_or_else(|| {
+        panic!(
+            "constructor result lacks inferred nominal type: {expression:#?}; diagnostics={:#?}",
+            fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
+        )
+    });
+    let declaration = fixture.decl("Envelope");
+    assert_eq!(
+        fixture.analysis.snapshot.store.nominal_origin_declaration(result),
+        Some(&declaration)
+    );
+    let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(result) else {
+        panic!("constructor result must be nominal Applied: {expression:#?}");
+    };
+    let [StaticArgument::RecordRow(row_id)] = arguments.as_ref() else {
+        panic!("Envelope must retain one exact RecordRow argument, got {arguments:#?}");
+    };
+    let row = fixture.analysis.snapshot.store.record_row(*row_id);
+    assert_eq!(row.tail, RecordRowTail::Closed);
+    assert_eq!(
+        row.fields
+            .iter()
+            .map(|field| (field.name.as_ref(), field.ty))
+            .collect::<Vec<_>>(),
+        vec![("age", fixture.ty("Int")), ("name", fixture.ty("String"))]
+    );
+
+    let info = fixture
+        .analysis
+        .snapshot
+        .data_semantics
+        .data_info(&declaration)
+        .expect("Envelope data product");
+    let mut store = fixture.analysis.snapshot.store.as_ref().clone();
+    let shape =
+        materialize_data_product_shape(&mut store, info, result).expect("materialize inferred product shape");
+    assert_eq!(shape.state, DataProductShapeState::Concrete);
+    assert_eq!(
+        shape
+            .components
+            .iter()
+            .map(|component| component.label.as_deref())
+            .collect::<Vec<_>>(),
+        vec![Some("id"), Some("age"), Some("name")]
+    );
+    assert_eq!(
+        shape.components.iter().map(|component| component.ty).collect::<Vec<_>>(),
+        vec![Some(fixture.ty("Int")), Some(fixture.ty("Int")), Some(fixture.ty("String"))]
+    );
+    assert!(shape.components[0].component.is_some(), "fixed id retains declaration component identity");
+    assert!(
+        shape.components[1..].iter().all(|component| component.component.is_none()),
+        "expanded RecordRow fields do not invent component IDs"
+    );
+}
+
+#[test]
 fn user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple() {
     use phalcom_semantic::types::store::{StaticArgument, TypeData};
 
