@@ -162,6 +162,9 @@ pub enum AssociatedLoweringSpec {
     },
     /// Data component projection.
     GetDataComponent { component: DataComponentId, logical_index: u32 },
+    /// Exact projection of a specialization-only product slot. This has no
+    /// declaration component identity and bypasses declaration-slot mapping.
+    GetDataProductSlot { logical_index: u32 },
     /// Direct resolved behavioral call (no hierarchy walk, no dNU).
     InvokeResolvedAssociated { target: ExecutableInvocationTarget, arity: u8 },
     /// Exact behavioral member reification as BoundMethod.
@@ -2297,6 +2300,12 @@ fn project_associated_resolution(
             };
             Ok((LoweringSiteKind::AssociatedLookup, spec))
         }
+        AssociatedResolutionKind::DataExpansionField { logical_index, .. } => Ok((
+            LoweringSiteKind::AssociatedLookup,
+            AssociatedLoweringSpec::GetDataProductSlot {
+                logical_index: *logical_index,
+            },
+        )),
         AssociatedResolutionKind::ExactCallable { target, callable_type, .. } => {
             let spec = match target {
                 InvocationTargetId::Behavioral(c) => AssociatedLoweringSpec::MakeResolvedBoundMethod {

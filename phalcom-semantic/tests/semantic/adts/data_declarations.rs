@@ -198,6 +198,43 @@ data Envelope<**Fs: RecordFields> {
 }
 
 #[test]
+fn expansion_field_projection_preserves_assumed_receiver_evidence() {
+    use phalcom_semantic::checker::AssociatedResolutionKind;
+    use phalcom_semantic::types::evidence::EvidenceStatus;
+
+    let fixture = Fixture::new(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    **Fs
+}
+
+class Probe {
+    read<T>(_ value: Envelope<**{ name: T }>) {
+        value.name
+    }
+}
+"#,
+    );
+    fixture.assert_no_error_diagnostics();
+
+    let callable = fixture.callable("Probe", "read", phalcom_semantic::identity::DispatchSide::Instance);
+    let projection = fixture.expression(callable, "value.name");
+    let projected_type = projection.knowledge.ty().expect("exact expanded field type");
+    assert_eq!(projection.knowledge.status(), Some(EvidenceStatus::Assumed));
+
+    let resolution = callable.associated_resolutions.get(&projection.id).expect("expanded field resolution");
+    let slot = match resolution.kind {
+        AssociatedResolutionKind::DataExpansionField { logical_index, value_type } => {
+            assert_eq!(value_type, projected_type);
+            logical_index
+        }
+        ref other => panic!("expected exact expansion field, got {other:?}"),
+    };
+    assert_eq!(slot, 0, "the one-field exact row has logical slot zero");
+
+}
+
+#[test]
 fn data_record_constructor_rejects_expected_row_repeating_fixed_label() {
     let module = test_module();
     let source: Arc<str> = Arc::from(

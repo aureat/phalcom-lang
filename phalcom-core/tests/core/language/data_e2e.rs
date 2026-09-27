@@ -508,6 +508,41 @@ let first_again_value = first_again
 }
 
 #[test]
+fn p4_shape_generic_construction_through_generic_callable_keeps_behavior_class_identity() {
+    let (vm, module) = run_inline(
+        r#"
+data MyRecord<**Fs: RecordFields> {
+  **Fs
+}
+
+class Factory {
+  @class make_record<T>(value: T) -> MyRecord<**{ payload: T }> {
+    MyRecord { payload: value }
+  }
+}
+
+const int_record: MyRecord<**{ payload: Int }> = Factory.make_record(value: 42)
+const string_record: MyRecord<**{ payload: String }> = Factory.make_record(value: "text")
+let same_class = int_record.class === string_record.class
+"#,
+    )
+    .expect("generic callable should construct exact shape-generic specializations");
+
+    assert_eq!(vm.heap.module(module).get(vm.interner.find("same_class").unwrap()), Some(Value::bool(true)));
+
+    let descriptor = |name: &str| {
+        let value = vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
+        vm.heap.data(value.as_obj().expect("shape-generic record is data")).descriptor
+    };
+    let int_descriptor = descriptor("int_record");
+    let string_descriptor = descriptor("string_record");
+    let int_desc = vm.data_registry.descriptor(int_descriptor).expect("Int specialization descriptor");
+    let string_desc = vm.data_registry.descriptor(string_descriptor).expect("String specialization descriptor");
+    assert_eq!(int_desc.behavior_class, string_desc.behavior_class);
+    assert_ne!(int_desc.exact_type, string_desc.exact_type);
+}
+
+#[test]
 fn p4_fixed_and_expanded_record_components_use_exact_specialization_slots() {
     let (vm, module) = run_inline(
         r#"

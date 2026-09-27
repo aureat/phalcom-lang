@@ -3,6 +3,7 @@
 use phalcom_core::data::RuntimeDataDescriptorId;
 use phalcom_core::primitive::object::{object_hash, object_same};
 use phalcom_core::product::{ProductComponentLayout, ProductLayout, ProductSlotRepr, ProductStorage};
+use phalcom_core::typing::handle::{RuntimeOverlayTypeId, RuntimeTypeRef};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use phalcom_modules::DeclarationId;
@@ -11,6 +12,85 @@ use phalcom_modules::DeclarationId;
 fn value_is_exactly_sixteen_bytes() {
     assert_eq!(std::mem::size_of::<Value>(), 16);
     assert_eq!(std::mem::align_of::<Value>(), 8);
+}
+
+#[test]
+fn p4_registry_separates_declaration_class_from_exact_descriptors() {
+    let mut vm = VM::new();
+    let root_mod = vm.runtime_roots.unwrap().universe;
+    let owner = DeclarationId::new(vm.heap.module(root_mod).id.clone(), "ShapeGeneric".into());
+    let behavior_class = vm.universe.classes.object_class;
+
+    assert_eq!(
+        vm.data_registry.register_behavior_class(owner.clone(), behavior_class),
+        behavior_class
+    );
+    assert_eq!(vm.data_registry.behavior_class_for_declaration(&owner), Some(behavior_class));
+    assert_eq!(vm.data_registry.descriptor_by_declaration(&owner), None);
+
+    let layout_one = vm.heap.product_layouts.register(
+        ProductLayout::new(vec![ProductComponentLayout {
+            logical_index: 0,
+            word_offset: 0,
+            repr: ProductSlotRepr::Int64,
+        }])
+        .expect("one-slot layout"),
+    );
+    let layout_two = vm.heap.product_layouts.register(
+        ProductLayout::new(vec![
+            ProductComponentLayout {
+                logical_index: 0,
+                word_offset: 0,
+                repr: ProductSlotRepr::Int64,
+            },
+            ProductComponentLayout {
+                logical_index: 1,
+                word_offset: 1,
+                repr: ProductSlotRepr::Value,
+            },
+        ])
+        .expect("two-slot layout"),
+    );
+    let exact_one = RuntimeTypeRef::Overlay(RuntimeOverlayTypeId(1));
+    let exact_two = RuntimeTypeRef::Overlay(RuntimeOverlayTypeId(2));
+
+    let one = vm.data_registry.register_with_component_slots(
+        owner.clone(),
+        behavior_class,
+        Some(exact_one),
+        layout_one,
+        Some(vec![0].into_boxed_slice()),
+    );
+    let two = vm.data_registry.register_with_component_slots(
+        owner.clone(),
+        behavior_class,
+        Some(exact_two),
+        layout_two,
+        Some(vec![0, 1].into_boxed_slice()),
+    );
+    let one_again = vm.data_registry.register_with_component_slots(
+        owner.clone(),
+        behavior_class,
+        Some(exact_one),
+        layout_two,
+        Some(vec![0].into_boxed_slice()),
+    );
+
+    assert_eq!(one, one_again, "the same owner and exact type reuse their descriptor");
+    assert_ne!(one, two, "different exact types receive distinct descriptors");
+    let one_descriptor = vm.data_registry.descriptor(one).expect("one descriptor");
+    let two_descriptor = vm.data_registry.descriptor(two).expect("two descriptor");
+    assert_eq!(one_descriptor.behavior_class, behavior_class);
+    assert_eq!(two_descriptor.behavior_class, behavior_class);
+    assert_eq!(one_descriptor.exact_type, Some(exact_one));
+    assert_eq!(two_descriptor.exact_type, Some(exact_two));
+    assert_eq!(
+        one_descriptor.layout, layout_one,
+        "re-registration must not replace the exact layout"
+    );
+    assert_eq!(two_descriptor.layout, layout_two);
+    assert_eq!(one_descriptor.component_slots.as_deref(), Some(&[0][..]));
+    assert_eq!(two_descriptor.component_slots.as_deref(), Some(&[0, 1][..]));
 }
 
 #[test]

@@ -246,4 +246,38 @@ impl VM {
             found: receiver.type_name(),
         })
     }
+
+    /// Loads an exact specialization-local product slot without interpreting
+    /// its index as a declaration component ordinal.
+    pub fn get_data_product_slot(&self, receiver: Value, logical_index: u32) -> Result<Value, RuntimeError> {
+        if receiver.as_data_singleton().is_some() {
+            return Err(RuntimeError::Internal("data singleton has no components".into()));
+        }
+
+        if let Some(obj_ref) = receiver.as_obj()
+            && let Object::Data(data_obj) = self.heap.get(obj_ref)
+        {
+            let desc = self
+                .data_registry
+                .descriptor(data_obj.descriptor)
+                .ok_or_else(|| RuntimeError::Internal("unknown data descriptor".into()))?;
+            let layout = self
+                .heap
+                .product_layouts
+                .get(desc.layout)
+                .ok_or_else(|| RuntimeError::Internal("unknown product layout".into()))?;
+            if layout.component(logical_index).is_none() {
+                return Err(RuntimeError::Internal("unknown exact data product slot".into()));
+            }
+            return data_obj
+                .storage
+                .load_component(layout, logical_index)
+                .map_err(|e| RuntimeError::Internal(e.into()));
+        }
+
+        Err(RuntimeError::Type {
+            expected: "data object",
+            found: receiver.type_name(),
+        })
+    }
 }

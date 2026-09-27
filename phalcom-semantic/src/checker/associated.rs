@@ -43,6 +43,13 @@ pub enum AssociatedResolutionKind {
         member: AssociatedMemberId,
         value_type: TypeId,
     },
+    /// A value field contributed by an exact nominal data expansion. Unlike a
+    /// declared component, this has only specialization-local logical-slot
+    /// identity and must not be assigned a `DataComponentId`.
+    DataExpansionField {
+        logical_index: u32,
+        value_type: TypeId,
+    },
     ExactCallable {
         member: AssociatedMemberId,
         target: InvocationTargetId,
@@ -632,6 +639,21 @@ pub fn specialize_associated_member(
 
 /// Checks if a type contains any unspecialized declaration or local type parameters.
 pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
+    fn static_argument_contains_any_type_parameter(store: &TypeStore, argument: crate::types::store::StaticArgument) -> bool {
+        match argument {
+            crate::types::store::StaticArgument::Term(term) => contains_any_type_parameter(store, term),
+            crate::types::store::StaticArgument::RecordRow(row_id) => {
+                let row = store.record_row(row_id);
+                row.fields.iter().any(|field| contains_any_type_parameter(store, field.ty))
+                    || match row.tail {
+                        crate::types::row::RecordRowTail::Closed => false,
+                        crate::types::row::RecordRowTail::Parameter(_) => true,
+                        crate::types::row::RecordRowTail::Projection(projection) => contains_any_type_parameter(store, projection),
+                    }
+            }
+        }
+    }
+
     fn scoped_contains_any_type_parameter(store: &TypeStore, scoped: crate::types::id::ScopedTypeId) -> bool {
         use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
 
@@ -684,7 +706,7 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
         TypeData::Parameter(_) => true,
         TypeData::Applied { origin, arguments } => {
             contains_any_type_parameter(store, *origin)
-                || arguments.iter().any(|argument| argument.as_type_id().is_some_and(|a| contains_any_type_parameter(store, a)))
+                || arguments.iter().copied().any(|argument| static_argument_contains_any_type_parameter(store, argument))
         }
         TypeData::Union(members) => members.iter().any(|&m| contains_any_type_parameter(store, m)),
         TypeData::Tuple(elems) => elems.iter().any(|e| contains_any_type_parameter(store, e.ty)),

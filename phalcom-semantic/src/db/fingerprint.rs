@@ -1730,6 +1730,26 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
     }
 
+    let expansion_field_count = analysis
+        .associated_resolutions
+        .values()
+        .filter(|resolution| matches!(&resolution.kind, crate::checker::associated::AssociatedResolutionKind::DataExpansionField { .. }))
+        .count();
+    expansion_field_count.hash(&mut hasher);
+    for (expression_id, resolution) in analysis.associated_resolutions.iter() {
+        if let crate::checker::associated::AssociatedResolutionKind::DataExpansionField {
+            logical_index,
+            value_type,
+        } = &resolution.kind
+        {
+            expression_id.hash(&mut hasher);
+            resolution.owner_form.hash(&mut hasher);
+            resolution.lookup_owner.hash(&mut hasher);
+            logical_index.hash(&mut hasher);
+            value_type.hash(&mut hasher);
+        }
+    }
+
     analysis.bindings.len().hash(&mut hasher);
     for (binding_id, binding) in &analysis.bindings {
         binding_id.hash(&mut hasher);

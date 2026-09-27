@@ -2699,6 +2699,11 @@ impl VM {
                     let component = self.get_data_component(receiver, logical_index as u32)?;
                     self.stack.push(component);
                 }
+                Bytecode::GetDataProductSlot(logical_index) => {
+                    let receiver = self.pop()?;
+                    let component = self.get_data_product_slot(receiver, logical_index as u32)?;
+                    self.stack.push(component);
+                }
                 Bytecode::MakeResolvedBoundMethod(target_idx) => {
                     let target = callable.chunk.executable_semantics.associated_target(target_idx).clone();
                     let resolved = self.bind_behavioral_associated_target(&target)?;

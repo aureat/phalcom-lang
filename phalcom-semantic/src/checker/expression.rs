@@ -3858,6 +3858,42 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
                 }
                 return typed;
             }
+
+            // Expansion-only fields have no declaration-owned component ID.
+            // Resolve them from the receiver's exact canonical specialization
+            // and publish a direct logical-slot fact for lowering.
+            if let Ok(shape) = crate::data_semantics::materialize_data_product_shape(ctx.store, &data_info, recv_ty)
+                && shape.state == crate::data_semantics::DataProductShapeState::Concrete
+                && let Some((logical_index, component)) = shape.components.iter().enumerate().find(|(_, component)| {
+                    component.component.is_none()
+                        && (component.local_name.as_deref() == Some(get.property.as_str())
+                            || component.label.as_deref() == Some(get.property.as_str()))
+                        && component.ty.is_some()
+                })
+                && let Some(value_type) = component.ty
+            {
+                let knowledge = recv_typed
+                    .knowledge
+                    .derive_known_type(value_type, EvidenceOrigin::ContextualDerivation)
+                    .with_range(get.range);
+                let mut typed = TypedExpression::new(knowledge);
+                typed.causal_invalidity = recv_typed.causal_invalidity;
+                if let Some(expression) = ctx.current_expression_id() {
+                    ctx.record_associated_resolution(
+                        expression,
+                        AssociatedResolution {
+                            owner_form: recv_ty,
+                            lookup_owner: decl_id.clone(),
+                            family: None,
+                            kind: AssociatedResolutionKind::DataExpansionField {
+                                logical_index: logical_index as u32,
+                                value_type,
+                            },
+                        },
+                    );
+                }
+                return typed;
+            }
         }
     }
 

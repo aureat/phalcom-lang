@@ -110,6 +110,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "InvokeTraitSelected",
     "InvokeTraitRequirement",
     "MakeTraitBoundMethod",
+    "GetDataProductSlot",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -685,8 +686,13 @@ pub enum Bytecode {
     },
 
     /// Extracts a component from a DataObject receiver on top of stack.
-    /// 0: logical component index.
+    /// 0: declaration component ordinal, mapped through the exact descriptor.
     GetDataComponent(u16),
+
+    /// Extracts an expansion-only component by its exact product logical slot.
+    /// This bypasses declaration-component mapping and is only emitted from a
+    /// canonical specialized data-shape projection.
+    GetDataProductSlot(u16),
 
     /// Invokes a conditional inherent method with runtime override preservation.
     /// arity: number of arguments to pop (excluding receiver).
@@ -718,7 +724,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 106;
+    pub const VARIANTS: usize = 107;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -835,6 +841,7 @@ impl Bytecode {
             Bytecode::InvokeTraitSelected { .. } => 102,
             Bytecode::InvokeTraitRequirement { .. } => 103,
             Bytecode::MakeTraitBoundMethod(..) => 104,
+            Bytecode::GetDataProductSlot(..) => 106,
         }
     }
 
