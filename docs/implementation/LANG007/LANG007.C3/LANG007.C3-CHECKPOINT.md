@@ -33,8 +33,8 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Finish R2 Step 10 call-collision coverage, then stop for review before Step 11. Step 9 is IMPLEMENTED / FOCUSED_TESTED; T5 remains incomplete.
-blocker: none for the current Step 10 slice; P4/T5 and later R2 steps remain open.
+  next_action: Step 11 focused T4/T5 matrix is acquired; stop for supervisor review before resuming original P4 T6. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+blocker: no blocker in the named Step 11 matrix; the unrelated deferred rest-dispatch selector remains unresolved.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1780,11 +1780,13 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Continue R2 constructor-surface steps 8–11, then resume original P4 T6–T13.
-    T5 acceptance remains incomplete.
+    R2 Steps 5–11 have focused evidence and are ready for supervisor review.
+    After review, resume original P4 T6–T13 in plan order. P4 remains
+    IN_PROGRESS / PARTIAL / UNVERIFIED; no broad certification has run.
 
 next action:
-    R2 Steps 5–9 are reviewed and focused-tested. Step 8 commit `1e82f1c3`
+    R2 Steps 5–11 are implemented and focused-tested, pending supervisor
+    acceptance. Step 8 commit `1e82f1c3`
     preserves source-shaped constructor references and adds labeled invocation
     only to generated all-labeled constructor thunks through the existing
     ParameterShape/closure activation path; ordinary source closures remain
@@ -1805,8 +1807,49 @@ next action:
     explicit `Tagged.call`/`Tagged<Int>.call`, both explicit behavior references,
     and invocation of the runtime class-object value `factory = Tagged<Int>`
     yield 142 through the user-authored ordinary class-side `call`. A separate
-    constructor-reference variable continues to produce id 42. Step 10 is now
-    ready for review; stop before Step 11. T5 and P4 remain incomplete; T4 remains
+    constructor-reference variable continues to produce id 42.
+
+    Step 11 T4/T5 focused matrix was run serially with the pinned
+    `nightly-2026-07-10` toolchain (`RUSTFLAGS='' RUSTC_WRAPPER=''`):
+    semantic selectors below use
+    `cargo test -p phalcom-semantic --test semantic <selector>`, core source
+    selectors use `cargo test -p phalcom-core --test core <selector>`, core
+    unit selectors use `cargo test -p phalcom-core --lib <selector>`, and the
+    AST selector uses `cargo test -p phalcom-ast --test integration <selector>`.
+
+    - Semantic `phantom_data_constructor_`: 4 selected / 4 passed; exact
+      `phantom_data_constructor_uses_compatible_expected_result_as_assumed_evidence`:
+      1/1; `data_constructor_source_and_expected_result_conflict_is_not_overridden`:
+      1/1.
+    - Semantic `record_row_constructor_`: 7/7; compatible source-established
+      row under expected context: 1/1; `complete_pack_data_constructor_`:
+      5/5; `data_record_materialization_`: 2/2; nominal MyTuple and MyRecord
+      identity selectors: 1/1 each; expected-result row selection, return-
+      irrelevant dynamic row, and exact empty RecordRow proof: 1/1 each.
+    - Core runtime row substitution and open-tail rejection unit selectors:
+      1/1 each; equal-layout distinct exact descriptors: 1/1. Core `p4_`
+      selected 10: 9 passed, 1 failed. The relevant T4/T5 cases all passed:
+      registry/class identity, fixed+expanded Envelope, MyTuple, MyRecord,
+      generic-callable MyRecord, and empty-layout PhantomRow. The remaining
+      test was the separately deferred
+      `language::generic_conformance::p4_specialized_rest_dispatch_preserves_conformance_environment`,
+      failing at `item.print` with `no active conformance target`.
+    - Core constructor-reference alias and fixed-only record controls: 1/1
+      each; nullary phantom runtime specialization: 1/1; AST
+      `label_placeholder_sugar_normalizes_across_shared_selector_surfaces`:
+      1/1.
+
+    The rest-dispatch result is not a certified clean-predecessor baseline or
+    evidence of runtime environment erasure. The prior audit record
+    [`03-nested-derived-conformance-runtime-layout.md`](LANG007.C3.P4-audit-remediation/03-nested-derived-conformance-runtime-layout.md)
+    reports this probe's call as `Unknown(DynamicMessageSend)` with no callable
+    or call specialization, so it never established an environment recipe.
+    `phalcom-core/tests/core/language/generic_conformance.rs` is unchanged
+    from `origin/main` (last changed at `ae5409b9`). This remains a separate
+    deferred semantic-dispatch failure; no rest adapter change was made.
+    No broad T4/T5 suite, workspace gate, or release certification was run.
+    T4/T5 are ready for supervisor acceptance; original P4 T6 is next only
+    after review. T5 remains pending acceptance; T4 remains
     IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
