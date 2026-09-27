@@ -493,7 +493,10 @@ fn row_variables_in_term(term: &InferenceTerm, variables: &mut HashSet<RecordRow
         InferenceTerm::Union(members) => members.iter().for_each(|member| row_variables_in_term(member, variables)),
         InferenceTerm::Tuple(elements) => elements.iter().for_each(|element| row_variables_in_term(&element.term, variables)),
         InferenceTerm::Callable(callable) => {
-            callable.parameters.iter().for_each(|parameter| row_variables_in_term(&parameter.term, variables));
+            callable
+                .parameters
+                .iter()
+                .for_each(|parameter| row_variables_in_term(&parameter.term, variables));
             row_variables_in_term(&callable.return_type, variables);
         }
         InferenceTerm::Family(members) => members.iter().for_each(|member| row_variables_in_term(&member.term, variables)),
@@ -517,15 +520,18 @@ fn row_variables_in_term(term: &InferenceTerm, variables: &mut HashSet<RecordRow
         }
         InferenceTerm::TypePack(elements) => elements.iter().for_each(|element| row_variables_in_term(element, variables)),
         InferenceTerm::LabeledTypePack(elements) => elements.iter().for_each(|element| row_variables_in_term(&element.term, variables)),
-        InferenceTerm::CompleteTypePack { positionals, labeled }
-        | InferenceTerm::TupleFromPacks { positionals, labeled } => {
+        InferenceTerm::CompleteTypePack { positionals, labeled } | InferenceTerm::TupleFromPacks { positionals, labeled } => {
             row_variables_in_term(positionals, variables);
             row_variables_in_term(labeled, variables);
         }
         InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => {
             segments.iter().for_each(|segment| row_variables_in_term(segment, variables));
         }
-        InferenceTerm::CallableFromPacks { positionals, labeled, return_type } => {
+        InferenceTerm::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
             row_variables_in_term(positionals, variables);
             row_variables_in_term(labeled, variables);
             row_variables_in_term(return_type, variables);
