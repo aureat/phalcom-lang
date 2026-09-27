@@ -871,6 +871,25 @@ impl GenericApplicationSession {
         }
     }
 
+    /// Marks only return-relevant row variables that were unsolved before an
+    /// expected-result relation and became solved by that relation. Existing
+    /// value proof is retained, and rows already solved from constructor shape
+    /// are not weakened by a compatible context.
+    pub fn record_expected_result_row_selection(
+        &mut self,
+        term: &InferenceTerm,
+        previously_unsolved: &[RecordRowVarId],
+        solution: &RecordRowSolution<InferenceTerm>,
+    ) {
+        let mut returned = HashSet::new();
+        row_variables_in_term(term, &mut returned);
+        for variable in previously_unsolved {
+            if returned.contains(variable) && solution.term_for(*variable).is_some() {
+                self.row_proofs.entry(*variable).or_insert(super::inference::InferenceProofState::Assumed);
+            }
+        }
+    }
+
     /// Meets ordinary type-variable proofs with only the row proofs reachable
     /// from this result. Solved closed empty rows have no value premise and
     /// are exact; other unproven rows remain underconstrained.

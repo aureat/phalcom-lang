@@ -1343,3 +1343,143 @@ fn data_incremental_imported_component_type_mutation() {
     assert_eq!(container_info.components.len(), 1);
     assert_ne!(info1, container_info);
 }
+
+#[test]
+fn phantom_data_constructor_uses_compatible_expected_result_as_assumed_evidence() {
+    use crate::semantic::support::applied;
+    use phalcom_semantic::types::evidence::EvidenceStatus;
+
+    let fixture = Fixture::new(
+        r#"
+data Phantom<T>()
+
+class Probe {
+    @class
+    run() {
+        let value: Phantom<Int> = Phantom()
+    }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let construction = fixture.expression(run, "Phantom()");
+    let result = construction.knowledge.ty().expect("expected result selects Phantom<T>");
+    fixture.assert_type(result, applied("Phantom", [fixture.ty("Int").into()]));
+    assert_eq!(construction.knowledge.status(), Some(EvidenceStatus::Assumed));
+    assert!(matches!(construction.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready));
+}
+
+#[test]
+fn phantom_data_constructor_without_context_remains_underconstrained() {
+    use phalcom_semantic::checker::analysis::AnalysisStatus;
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+    use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
+
+    let fixture = Fixture::new(
+        r#"
+data Phantom<T>()
+
+class Probe {
+    @class
+    run() {
+        let value = Phantom()
+    }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let construction = fixture.expression(run, "Phantom()");
+    assert_eq!(construction.knowledge, TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable));
+    assert!(matches!(construction.status, AnalysisStatus::Blocked(_)));
+    fixture.assert_diagnostic(DiagnosticCode::GenericInferenceUnderconstrained, 1);
+}
+
+#[test]
+fn phantom_data_constructor_does_not_default_row_without_context() {
+    use phalcom_semantic::checker::analysis::AnalysisStatus;
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let fixture = Fixture::new(
+        r#"
+data PhantomRow<**Fs: RecordFields>()
+
+class Probe {
+    @class
+    run() {
+        let value = PhantomRow()
+    }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let construction = fixture.expression(run, "PhantomRow()");
+    assert!(matches!(construction.status, AnalysisStatus::Blocked(_)));
+    assert!(
+        construction.knowledge.ty().is_none(),
+        "an unsolved phantom row must not default closed: {construction:#?}"
+    );
+    fixture.assert_diagnostic(DiagnosticCode::RecordRowInferenceUnderconstrained, 1);
+}
+
+#[test]
+fn phantom_data_constructor_expected_row_is_context_selected() {
+    use phalcom_semantic::types::evidence::EvidenceStatus;
+    use phalcom_semantic::types::row::RecordRowTail;
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let fixture = Fixture::new(
+        r#"
+data PhantomRow<**Fs: RecordFields>()
+
+class Factory {
+    @class
+    make<T>(value: T) -> PhantomRow<**{ payload: T }> {
+        PhantomRow()
+    }
+}
+"#,
+    );
+    let make = fixture.callable("Factory", "make", DispatchSide::Class);
+    let value_type = fixture.binding(make, "value").current.ty().expect("generic callable parameter has a type");
+    let construction = fixture.expression(make, "PhantomRow()");
+    let result = construction
+        .knowledge
+        .ty()
+        .unwrap_or_else(|| panic!("expected return context must select PhantomRow.Fs: {construction:#?}"));
+    let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(result) else {
+        panic!("context-selected result must remain nominal Applied: {construction:#?}");
+    };
+    let [StaticArgument::RecordRow(row)] = arguments.as_ref() else {
+        panic!("context-selected specialization must retain its RecordRow: {arguments:#?}");
+    };
+    let row = fixture.analysis.snapshot.store.record_row(*row);
+    assert_eq!(row.tail, RecordRowTail::Closed);
+    assert_eq!(row.find_field("payload"), Some(value_type));
+    assert_eq!(construction.knowledge.status(), Some(EvidenceStatus::Assumed));
+}
+
+#[test]
+fn data_constructor_source_and_expected_result_conflict_is_not_overridden() {
+    use phalcom_semantic::checker::analysis::AnalysisStatus;
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let fixture = Fixture::new(
+        r#"
+data Phantom<T>(_ value: T)
+
+class Probe {
+    @class
+    run(_ value: Int) {
+        let result: Phantom<String> = Phantom(value)
+    }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let construction = fixture.expression(run, "Phantom(value)");
+    assert!(
+        matches!(construction.status, AnalysisStatus::Invalid(_)),
+        "source/context conflict must stay invalid: {construction:#?}"
+    );
+    fixture.assert_diagnostic(DiagnosticCode::GenericInferenceConflict, 1);
+}

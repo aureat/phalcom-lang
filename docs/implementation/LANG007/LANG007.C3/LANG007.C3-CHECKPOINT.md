@@ -1198,10 +1198,67 @@ Supplemental discriminator: the focused source test
   rejects that open tail; the T binding does not select a row for it. The
   passing MyRecord generic-callable path has source evidence for its closed
   `payload: T` row, and closed-row substitution passes at the low-level runtime
-  seam. This is a semantic expected-result/constructor-publication scope
-  question, not a reason to relax the open-tail rejection rule. The red
-  supplemental test remains uncommitted as evidence; no source fix was
-  attempted.
+  seam. This is a semantic expected-result/constructor-publication gap, not a
+  reason to relax the open-tail rejection rule. The discriminator is retained
+  as a required semantic acceptance test; see the superseding INC-C3-16 ruling.
+
+### INC-C3-16 — Phantom generic contextual construction and constructor surface — 2026-09-27
+
+Plan/task: LANG007.C3.P4 / T4–T5 semantic/runtime boundary.
+Trigger: the focused empty-layout `PhantomRow` constructor discriminator reaches
+  runtime with an unresolved declaration-owned RecordFields tail even though
+  its generic callable has expected result `PhantomRow<{ payload: T }>`; the
+  accepted language already permits phantom generic data, nullary data
+  constructors, and generic inference from surrounding result context.
+Observed: `PhantomRow()` is applied through the existing primary data
+  constructor/generic application path; this nullary declaration has no
+  product expansion, so no RecordFields constructor adapter is attached. The
+  expected-result relation solves the nested `Applied` RecordRow equation to
+  `{ payload: T }`, but row proof marking handled only a top-level
+  `InferenceTerm::Record`. Publication therefore returned
+  `Unknown(NoTypeEvidence)`, and lowering retained the open constructor
+  template. After semantic publication was repaired, the core discriminator
+  reached execution but exposed a second defect: `LoadDataSingleton` cached a
+  `RuntimeTypeRecipe::Template` descriptor across generic invocations, so the
+  Int, String, and repeated Int values all used one descriptor. Nullary data
+  is represented by `Value::DataSingleton`; the test must read its descriptor
+  directly rather than expecting a heap `DataObject`. The initial adapter
+  hypothesis was disproved by the focused semantic trace.
+Decision: the prior provisional deferral in INC-C3-15 is superseded. Semantic
+  expected-result specialization of otherwise-underconstrained declaration-
+  owned data constructor parameters is in scope. `PhantomRow()` under expected
+  `PhantomRow<{ payload: T }>` must publish that exact symbolic closed-row
+  specialization before lowering. Context-only selection is `Assumed`; it
+  must not override conflicting source evidence or downgrade stronger
+  independent evidence. Without context, phantom parameters remain
+  underconstrained; nullary construction does not default a phantom row to
+  `{}`. This is the ordinary generic application rule, not a RecordFields-only
+  special case.
+Architecture impact: no new inference engine, canonical identity, constructor
+  identity, runtime row-valued environment, runtime row solver, second registry,
+  or specialization-owned behavior class. Runtime exact instantiation must
+  continue rejecting unresolved row tails; semantic analysis must resolve
+  context-selected rows before lowering.
+Plan amendment: the semantic expected-result/primary-constructor gap is an
+  in-scope T4/T5 completion discovered while validating T5. Existing T4 row
+  calculus and proof bridge remain accepted and are not reopened.
+Required verification: ordinary `Phantom<T>()` context selection and
+  no-context underconstraint; PhantomRow context selection with `Assumed`
+  evidence; conflicting source/context evidence reports the ordinary inference
+  conflict; the empty-layout generic-callable core discriminator proves exact
+  descriptor separation/reuse through `DataSingleton`; unresolved runtime row
+  tails remain rejected. Then resume P4's numbered execution order.
+Focused evidence: pinned-toolchain semantic filter `phantom_data_constructor`
+  selected 4 and passed 4; the conflict, existing source-established-row,
+  and existing expected-result-row selectors each selected/passed 1. Core
+  `p4_empty_layout_row_specializations_keep_exact_identity_through_generic_callable`
+  selected/passed 1 after nullary template recipes stopped sharing a per-site
+  descriptor cache. The low-level open-tail rejection, existing nullary
+  singleton identity, and zero-allocation/specialization-sensitive singleton
+  selectors each selected/passed 1. These are focused results, not P4/T5
+  acceptance or release certification.
+Status: ADOPTED — semantic constructor contextual specialization is authorized
+and implemented in this focused slice; T5 and P4 remain incomplete.
 
 Use entries:
 
@@ -1723,16 +1780,17 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Resolve whether nullary generic constructor contextual row selection is
-    within T5 acceptance or should be explicitly deferred beyond T5.
+    Continue R2 constructor-surface steps 5–11, then resume original P4 T6–T13.
+    T5 acceptance remains incomplete.
 
 next action:
-    Obtain the scope decision for the supplemental PhantomRow discriminator.
-    Do not alter expected-result/constructor publication or weaken open-tail
-    rejection without that decision. The closed-row runtime representation
-    slice remains IMPLEMENTED / FOCUSED_TESTED; T5 is still incomplete; T4
-    remains IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL /
-    UNVERIFIED.
+    After review of INC-C3-16's focused semantic and core evidence, continue
+    the ordered R2 constructor-surface tasks. Keep context-only evidence
+    `Assumed`, preserve source/context conflicts and exact open-tail rejection,
+    and do not claim T5 or P4 acceptance from these discriminators. The closed-
+    row runtime representation slice remains IMPLEMENTED / FOCUSED_TESTED; T5
+    is still incomplete; T4 remains IMPLEMENTED / FOCUSED_TESTED; P4 remains
+    IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
     Priority 3's 40-way pre-remediation classification remains in

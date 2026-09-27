@@ -2660,13 +2660,21 @@ impl VM {
                 }
                 Bytecode::LoadDataSingleton(constructor_idx) => {
                     let cache = callable.chunk.executable_semantics.data_construction_cache(constructor_idx);
-                    let desc_id = match cache.get() {
-                        Some(id) => id,
-                        None => {
-                            let spec = callable.chunk.executable_semantics.data_construction(constructor_idx);
-                            let id = self.get_or_bind_data_descriptor(spec)?;
-                            cache.set(Some(id));
-                            id
+                    let spec = callable.chunk.executable_semantics.data_construction(constructor_idx);
+                    let desc_id = if matches!(spec.type_recipe, crate::typing::RuntimeTypeRecipe::Template(_)) {
+                        // A generic nullary constructor can select a different
+                        // exact descriptor in each invocation. Keep the
+                        // per-site cache only for closed recipes; descriptor
+                        // interning handles repeated exact template instances.
+                        self.get_or_bind_data_descriptor(spec)?
+                    } else {
+                        match cache.get() {
+                            Some(id) => id,
+                            None => {
+                                let id = self.get_or_bind_data_descriptor(spec)?;
+                                cache.set(Some(id));
+                                id
+                            }
                         }
                     };
                     self.stack.push(Value::data_singleton(desc_id));

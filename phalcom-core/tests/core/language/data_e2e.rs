@@ -565,7 +565,7 @@ let same_class = int_row.class === string_row.class
     assert_eq!(vm.heap.module(module).get(vm.interner.find("same_class").unwrap()), Some(Value::bool(true)));
     let descriptor = |name: &str| {
         let value = vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
-        vm.heap.data(value.as_obj().expect("phantom row is data")).descriptor
+        value.as_data_singleton().expect("nullary data is a descriptor-bearing singleton")
     };
     let int_id = descriptor("int_row");
     let string_id = descriptor("string_row");

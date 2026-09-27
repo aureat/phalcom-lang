@@ -1873,6 +1873,10 @@ fn apply_generic_callable_in_context(
     let mut row_outcome = row_session.as_mut().map(|rows| {
         ctx.control.relation(|budget, cancellation| rows.solve_rows_for_query(budget, cancellation))
     });
+    let previously_unsolved_rows = match row_outcome.as_ref() {
+        Some(crate::types::row_solver::RecordRowSolveResult::Underconstrained(value)) => value.variables.to_vec(),
+        _ => Vec::new(),
+    };
     let mut row_pending_ancestor = match (row_session.as_ref(), row_outcome.as_ref()) {
         (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution))) => {
             return_term.as_ref().is_some_and(|term| rows.has_pending_ancestor_row_dependency(solution, term))
@@ -1970,11 +1974,6 @@ fn apply_generic_callable_in_context(
                     );
                 }
                 session_handle.borrow_mut().record_context_selection(return_term);
-                if row_expected_constrained
-                    && let Some(rows) = row_session.as_mut()
-                {
-                    rows.record_row_context_selection(return_term);
-                }
                 if let Some(expected_ty) = expected.ty() {
                     for parameter in session_handle.borrow().projected_parameters_for_term(return_term, &var_map) {
                         let explanation = ctx.record_derivation(
@@ -2002,6 +2001,12 @@ fn apply_generic_callable_in_context(
             ));
         if let Some(rows) = row_session.as_mut() {
             row_outcome = Some(ctx.control.relation(|budget, cancellation| rows.solve_rows_for_query(budget, cancellation)));
+            if matches!(&result, crate::checker::inference::InferenceOutcome::Solved(_))
+                && let Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution)) = row_outcome.as_ref()
+                && let Some(return_term) = return_term.as_ref()
+            {
+                rows.record_expected_result_row_selection(return_term, &previously_unsolved_rows, solution);
+            }
         }
         row_pending_ancestor = match (row_session.as_ref(), row_outcome.as_ref()) {
             (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution))) => {
