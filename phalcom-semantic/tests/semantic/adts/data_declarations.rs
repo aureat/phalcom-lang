@@ -455,6 +455,42 @@ class Runner {
 }
 
 #[test]
+fn user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple() {
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let module = test_module();
+    let source: Arc<str> = Arc::from("data MyTuple<***Es: CompleteTypePack>(***Es)\n");
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let declaration = DeclarationId::new(module.clone(), "MyTuple".into());
+    let info = analysis
+        .snapshot
+        .data_semantics
+        .data_info(&declaration)
+        .expect("MyTuple semantic product");
+    let mut store = analysis.snapshot.store.as_ref().clone();
+    let int = store.nominal_type(DeclarationId::new(module.clone(), "Int".into()));
+    let string = store.nominal_type(DeclarationId::new(module, "String".into()));
+    let positionals = store.type_pack(vec![int, string].into_boxed_slice()).expect("positional pack");
+    let labeled = store.labeled_type_pack(Box::new([])).expect("empty labeled pack");
+    let complete = store.complete_type_pack(positionals, labeled).expect("complete pack");
+
+    let nominal = store
+        .apply_static_form(info.root_form, &[StaticArgument::Term(complete)])
+        .expect("apply user MyTuple to CompleteTypePack");
+    let structural = store.tuple_from_packs(positionals, labeled).expect("structural Tuple from same lanes");
+
+    assert!(
+        matches!(store.get(nominal), TypeData::Applied { arguments, .. } if arguments.as_ref() == [StaticArgument::Term(complete)]),
+        "user data specialization must retain its nominal Applied identity, got {:?}",
+        store.get(nominal)
+    );
+    assert!(matches!(store.get(structural), TypeData::Tuple(elements) if elements.len() == 2));
+    assert_ne!(nominal, structural, "user MyTuple must not collapse to structural Tuple");
+}
+
+#[test]
 fn data_record_construction_and_projection() {
     let module = test_module();
     let source: Arc<str> = Arc::from(
