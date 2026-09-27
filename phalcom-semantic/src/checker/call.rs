@@ -1508,6 +1508,12 @@ fn apply_generic_callable_in_context(
                     DataConstructorArgumentRole::RecordField { parameter, .. } => (Some(*parameter), true),
                     DataConstructorArgumentRole::Fixed { .. } => (None, false),
                 };
+                if record_field
+                    && let Some(parameter) = expansion_parameter
+                    && let Some(rows) = row_session.as_mut()
+                {
+                    rows.record_record_row_expansion_premise(parameter, &argument_typed.knowledge);
+                }
                 let expansion_premise_index = if let Some(parameter) = expansion_parameter {
                     expansion_terms.premises.push(DataConstructorExpansionPremise {
                         parameter,
@@ -1777,7 +1783,6 @@ fn apply_generic_callable_in_context(
                     .iter()
                     .filter(|premise| premise.parameter == parameter && premise.record_field)
                 {
-                    rows.record_record_row_expansion_premise(parameter, &premise.knowledge);
                     if let Some(term) = premise.proof_term.as_ref() {
                         session_handle.borrow_mut().record_required_premise(
                             term,
@@ -2345,17 +2350,21 @@ fn publish_generic_return_with_rows(
     let Some(return_term) = return_term else {
         return promote_exact_return(signature_return, ExactReturnOrigin::GenericInference, call_range);
     };
-    let Some(crate::types::row_solver::RecordRowSolveResult::Solved(row_solution)) = row_outcome else {
-        return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
-    };
     if !session.term_has_variables(return_term) && !term_has_row_variables(return_term) {
         return promote_exact_return(signature_return, ExactReturnOrigin::GenericInference, call_range);
     }
+    let row_solution = match row_outcome {
+        Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution)) => Some(solution),
+        _ => None,
+    };
     let proof = rows.proof_state_for_term(session, return_term, row_solution);
     match proof {
         crate::checker::inference::InferenceProofState::Unknown(reason) => TypeKnowledge::Unknown(reason),
         crate::checker::inference::InferenceProofState::Dynamic(reason) => TypeKnowledge::Dynamic(reason),
         crate::checker::inference::InferenceProofState::Established | crate::checker::inference::InferenceProofState::Assumed => {
+            let Some(row_solution) = row_solution else {
+                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+            };
             let instantiation = match rows.build_instantiation_from_active_terms_in_query(session, type_terms, row_solution, ctx.store) {
                 Ok(instantiation) => instantiation,
                 Err(failure) => {

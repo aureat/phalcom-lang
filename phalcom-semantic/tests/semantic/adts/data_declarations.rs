@@ -620,6 +620,7 @@ class Probe {
     };
     let row = fixture.analysis.snapshot.store.record_row(*row_id);
     assert_eq!(row.tail, RecordRowTail::Closed);
+    assert_eq!(expression.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Established));
     assert_eq!(
         row.fields
             .iter()
@@ -700,6 +701,121 @@ class Probe {
     );
     assert_eq!(constructor.knowledge.status(), Some(EvidenceStatus::Assumed));
     assert_ne!(constructor.knowledge.status(), Some(EvidenceStatus::Established));
+}
+
+#[test]
+fn record_row_constructor_meets_mixed_established_and_assumed_fields() {
+    use phalcom_semantic::types::evidence::EvidenceStatus;
+
+    let fixture = Fixture::new(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+
+class Probe {
+    @class
+    make<T>(value: T) {
+        Envelope { id: 1, name: value, age: 42 }
+    }
+}
+"#,
+    );
+    let make = fixture.callable("Probe", "make", DispatchSide::Class);
+    let constructor = fixture.expression(make, "Envelope { id: 1, name: value, age: 42 }");
+    assert!(constructor.knowledge.ty().is_some(), "nominal result survives mixed row evidence: {constructor:#?}");
+    assert_eq!(constructor.knowledge.status(), Some(EvidenceStatus::Assumed));
+}
+
+#[test]
+fn record_row_constructor_publishes_exact_empty_row_as_established() {
+    use phalcom_semantic::types::evidence::EvidenceStatus;
+    use phalcom_semantic::types::row::RecordRowTail;
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let fixture = Fixture::new(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+
+class Probe {
+    @class
+    make() {
+        Envelope { id: 1 }
+    }
+}
+"#,
+    );
+    let make = fixture.callable("Probe", "make", DispatchSide::Class);
+    let constructor = fixture.expression(make, "Envelope { id: 1 }");
+    let result = constructor.knowledge.ty().expect("empty exact row should publish nominal result");
+    let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(result) else {
+        panic!("expected nominal constructor result: {constructor:#?}");
+    };
+    let [StaticArgument::RecordRow(row)] = arguments.as_ref() else {
+        panic!("expected one empty row argument: {arguments:#?}");
+    };
+    assert!(fixture.analysis.snapshot.store.record_row(*row).fields.is_empty());
+    assert_eq!(fixture.analysis.snapshot.store.record_row(*row).tail, RecordRowTail::Closed);
+    assert_eq!(constructor.knowledge.status(), Some(EvidenceStatus::Established));
+}
+
+#[test]
+fn record_row_constructor_preserves_dynamic_residual_field_evidence() {
+    use phalcom_semantic::types::evidence::{DynamicReason, TypeKnowledge};
+
+    let fixture = Fixture::new(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+
+class Probe {
+    @class
+    make(_ dynamic: Dynamic) {
+        Envelope { id: 1, value: dynamic }
+    }
+}
+"#,
+    );
+    let make = fixture.callable("Probe", "make", DispatchSide::Class);
+    let constructor = fixture.expression(make, "Envelope { id: 1, value: dynamic }");
+    assert!(
+        matches!(constructor.knowledge, TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape)),
+        "dynamic residual-field evidence must not be replaced by row-solver uncertainty: {constructor:#?}"
+    );
+}
+
+#[test]
+fn record_row_constructor_preserves_unknown_residual_field_evidence() {
+    use phalcom_semantic::types::evidence::TypeKnowledge;
+
+    let fixture = Fixture::new(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+
+class Probe {
+    @class
+    make() {
+        let missing
+        Envelope { id: 1, value: missing }
+    }
+}
+"#,
+    );
+    let make = fixture.callable("Probe", "make", DispatchSide::Class);
+    let constructor = fixture.expression(make, "Envelope { id: 1, value: missing }");
+    assert!(
+        matches!(constructor.knowledge, TypeKnowledge::Unknown(_)),
+        "unknown residual-field evidence must remain unknown rather than being treated as an exact empty row: {constructor:#?}"
+    );
 }
 
 #[test]

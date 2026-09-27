@@ -145,6 +145,32 @@ class Probe {
 }
 
 #[test]
+fn return_irrelevant_dynamic_row_does_not_weaken_exact_int_result() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  ignore<**S>(_ ignored: { tag: Int, **S }) -> Int {
+    42
+  }
+
+  @class
+  run(_ ignored: Dynamic) {
+    Probe.ignore(ignored)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.ignore(ignored)");
+    assert!(
+        call.knowledge.ty().is_some(),
+        "an unrelated weak row must not weaken the unrelated Int return: {call:#?}"
+    );
+    assert_eq!(call.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Established));
+}
+
+#[test]
 fn row_only_return_is_underconstrained_without_context() {
     let fixture = Fixture::new(
         r#"

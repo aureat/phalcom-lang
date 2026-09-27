@@ -2227,5 +2227,19 @@ The first focused slice implements the query-local proof bridge and passes
 `source_established_row_stays_established_under_compatible_expected_result`
 (1/1). The existing CV-14/CV-15 known-value constructor control remains
 available; no evidence was added to canonical row identity. This is partial
-T4 evidence only: the remaining proof-strength/dependency matrix is still open,
-and P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+T4 evidence only; P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+The second focused slice completes the current proof-strength/dependency
+discriminators: four `row_proof_matrix_tests` pass (Established, Assumed,
+mixed/multiple contributions, Unknown, Dynamic, exact empty row, restricted
+unproven row, nested dependency, and return-irrelevant weak row); six focused
+`record_row_constructor_*` tests pass (known, assumed, mixed, exact empty,
+Unknown, and Dynamic source fields). The two context-selection tests pass
+individually, preserving Assumed for context-only selection and Established
+when compatible context accompanies independent source evidence. The separate
+`return_irrelevant_dynamic_row_does_not_weaken_exact_int_result` test passes
+1/1. Focused commands selected 4 unit tests and 6 constructor tests; each of
+the three integration discriminators selected and passed 1 test. These results
+do not include a separate source-level where-clause-only restriction case, do
+not close all T4 acceptance, and do not assert a broad suite gate; P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
