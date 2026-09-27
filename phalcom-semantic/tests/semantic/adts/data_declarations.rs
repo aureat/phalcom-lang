@@ -134,6 +134,70 @@ data Envelope<**Fs: RecordFields> {
 }
 
 #[test]
+fn data_record_materialization_preserves_symbolic_open_row_shape() {
+    use phalcom_semantic::data_semantics::{DataProductShapeState, materialize_data_product_shape};
+    use phalcom_semantic::types::id::KindId;
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
+    use phalcom_semantic::types::store::StaticArgument;
+
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let declaration = DeclarationId::new(module.clone(), "Envelope".into());
+    let info = analysis
+        .snapshot
+        .data_semantics
+        .data_info(&declaration)
+        .expect("Envelope data product")
+        .as_ref()
+        .clone();
+    let mut store = analysis.snapshot.store.as_ref().clone();
+    let fixed_type = info.components[0].declared_type.canonical_type().expect("fixed field type");
+    let open_tail = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(DeclarationId::new(module, "OpenTail".into())),
+        0,
+        "Tail",
+        KindId::RECORD_ROW,
+    ));
+    let open_row = store
+        .record_row_checked(
+            vec![RecordRowField {
+                name: "name".into(),
+                ty: fixed_type,
+            }],
+            RecordRowTail::Parameter(open_tail),
+        )
+        .expect("open RecordFields row");
+    let specialized = store
+        .apply_static_form(info.root_form, &[StaticArgument::RecordRow(open_row)])
+        .expect("specialize Envelope with the open row");
+    let (owner, arguments) = store.applied_nominal_static_parts(specialized).expect("nominal applied Envelope");
+    assert_eq!(owner, info.owner);
+    assert_eq!(arguments.as_slice(), &[StaticArgument::RecordRow(open_row)]);
+
+    let shape = materialize_data_product_shape(&mut store, &info, specialized).expect("materialize symbolic shape");
+    assert_eq!(shape.state, DataProductShapeState::Symbolic);
+    assert_eq!(shape.components.len(), 2, "the unresolved tail is not treated as an empty concrete row");
+    assert_eq!(shape.components[0].label.as_deref(), Some("id"));
+    assert_eq!(shape.components[0].component, Some(info.components[0].id.clone()));
+    assert_eq!(shape.components[0].ty, Some(fixed_type));
+    assert_eq!(shape.components[1].label.as_deref(), Some("name"));
+    assert_eq!(shape.components[1].component, None);
+    assert_eq!(shape.components[1].ty, Some(fixed_type));
+    assert_eq!(store.record_row(open_row).tail, RecordRowTail::Parameter(open_tail));
+}
+
+#[test]
 fn data_record_constructor_rejects_expected_row_repeating_fixed_label() {
     let module = test_module();
     let source: Arc<str> = Arc::from(
