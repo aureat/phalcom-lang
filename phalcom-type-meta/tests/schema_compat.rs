@@ -1,6 +1,6 @@
 use phalcom_type_meta::bundle::SemanticMetadataBundle;
 use phalcom_type_meta::declaration::{StaticDomainCaseRecord, StaticDomainDeclarationRecord, StaticDomainParameterRecord};
-use phalcom_type_meta::encode::decode_metadata_json;
+use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::generic::{GenericParameterModeRef, StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef};
 use phalcom_type_meta::header::{
@@ -9,8 +9,14 @@ use phalcom_type_meta::header::{
 };
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef, StableStaticDomainDeclarationRef};
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId, StaticDomainRef};
-use phalcom_type_meta::scoped_type::{ScopedOpenRecordTypeRef, ScopedRecordTailRef, ScopedTypeNode, ScopedTypeNodeEntry, ScopedTypeNodeId};
-use phalcom_type_meta::type_node::{OpenRecordTypeRef, RecordFieldRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, TypeNode, TypeNodeEntry, TypeNodeId};
+use phalcom_type_meta::scoped_type::{
+    ScopedOpenRecordTypeRef, ScopedRecordFieldRef, ScopedRecordRowTailRef, ScopedRecordRowTypeRef, ScopedRecordTailRef, ScopedTypeNode, ScopedTypeNodeEntry,
+    ScopedTypeNodeId,
+};
+use phalcom_type_meta::type_node::{
+    OpenRecordTypeRef, RecordFieldRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, TypeMemberProjectionRef, TypeMemberSelectorRef, TypeNode,
+    TypeNodeEntry, TypeNodeId,
+};
 use phalcom_type_meta::validate::{MetadataValidationError, ValidationLimits, validate_metadata_bundle};
 
 fn sample_header(version: u32, record_rows: bool) -> SemanticMetadataHeader {
@@ -60,6 +66,223 @@ fn sample_bundle(version: u32, record_rows: bool) -> SemanticMetadataBundle {
         occurrences: Box::new([]),
         extensions: Box::new([]),
     }
+}
+
+fn scoped_record_row_bundle(version: u32) -> SemanticMetadataBundle {
+    let declaration = schema_v8_static_declaration("RowOwner");
+    let row_parameter = StableTypeParameterRef {
+        owner: StableTypeParameterOwnerRef::Declaration(declaration),
+        index: 0,
+    };
+    let mut bundle = sample_bundle(version, true);
+    bundle.kinds = Box::new([
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::RecordRow,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::Arrow {
+                parameters: Box::new([KindNodeId(0), KindNodeId(1)]),
+                result: KindNodeId(1),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::Arrow {
+                parameters: Box::new([KindNodeId(1)]),
+                result: KindNodeId(1),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle.parameters = Box::new([TypeParameterRecord {
+        id: row_parameter.clone(),
+        name: "Fs".into(),
+        kind: KindNodeId(1),
+        variance: VarianceRef::Invariant,
+        mode: GenericParameterModeRef::LabeledPack,
+        source: None,
+    }]);
+    bundle.types = Box::new([
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Unit,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(1),
+            form: TypeNode::TypeMemberProjection(TypeMemberProjectionRef {
+                subject: TypeNodeId(0),
+                selector: TypeMemberSelectorRef::Named("Fields".into()),
+                arguments: Box::new([]),
+                source_declaration: None,
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle.scoped_types = Box::new([
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::Free(TypeNodeId(0)),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(1),
+            form: ScopedTypeNode::RecordRow(ScopedRecordRowTypeRef {
+                fields: Box::new([ScopedRecordFieldRef {
+                    name: "payload".into(),
+                    ty: ScopedTypeNodeId(0),
+                }]),
+                tail: ScopedRecordRowTailRef::Closed,
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(2),
+            form: ScopedTypeNode::Lambda {
+                parameter_kinds: Box::new([KindNodeId(0), KindNodeId(1)]),
+                parameter_modes: None,
+                body: ScopedTypeNodeId(1),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(1),
+            form: ScopedTypeNode::RecordRow(ScopedRecordRowTypeRef {
+                fields: Box::new([]),
+                tail: ScopedRecordRowTailRef::Bound { depth: 0, index: 1 },
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(1),
+            form: ScopedTypeNode::RecordRow(ScopedRecordRowTypeRef {
+                fields: Box::new([]),
+                tail: ScopedRecordRowTailRef::FreeParameter(row_parameter),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(2),
+            form: ScopedTypeNode::Lambda {
+                parameter_kinds: Box::new([KindNodeId(0), KindNodeId(1)]),
+                parameter_modes: None,
+                body: ScopedTypeNodeId(3),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(1),
+            form: ScopedTypeNode::RecordRow(ScopedRecordRowTypeRef {
+                fields: Box::new([]),
+                tail: ScopedRecordRowTailRef::Projection(TypeNodeId(1)),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle
+}
+
+#[test]
+fn schema_v9_scoped_record_rows_round_trip_all_tail_forms_and_v8_remains_compatible() {
+    let limits = ValidationLimits::default();
+    let mut v8 = sample_bundle(8, true);
+    v8.kinds = Box::new([
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::RecordRow,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::Arrow {
+                parameters: Box::new([KindNodeId(1)]),
+                result: KindNodeId(0),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    v8.scoped_types = Box::new([
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::OpenRecord(ScopedOpenRecordTypeRef {
+                fields: Box::new([]),
+                tail: ScopedRecordTailRef::Bound { depth: 0, index: 0 },
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(2),
+            form: ScopedTypeNode::Lambda {
+                parameter_kinds: Box::new([KindNodeId(1)]),
+                parameter_modes: None,
+                body: ScopedTypeNodeId(0),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    validate_metadata_bundle(&v8, &limits).expect("legacy schema-v8 scoped open-row bundle validates");
+    let encoded_v8 = encode_metadata_json(&v8).unwrap();
+    assert_eq!(decode_metadata_json(&encoded_v8, &limits).unwrap(), v8);
+
+    let bundle = scoped_record_row_bundle(9);
+    validate_metadata_bundle(&bundle, &limits).expect("v9 scoped row args should validate");
+    let encoded = encode_metadata_json(&bundle).unwrap();
+    assert_eq!(decode_metadata_json(&encoded, &limits).unwrap(), bundle);
+
+    let mut old_schema = bundle.clone();
+    old_schema.header.schema_version = 8;
+    assert!(matches!(
+        validate_metadata_bundle(&old_schema, &limits),
+        Err(MetadataValidationError::Malformed(message)) if message.contains("schema before v9")
+    ));
+
+    let mut wrong_kind = bundle.clone();
+    wrong_kind.scoped_types[3].kind = KindNodeId(0);
+    assert!(
+        matches!(validate_metadata_bundle(&wrong_kind, &limits), Err(MetadataValidationError::Malformed(message)) if message.contains("must have kind RecordRow"))
+    );
+
+    let mut wrong_field_kind = bundle.clone();
+    wrong_field_kind.scoped_types[0].kind = KindNodeId(1);
+    assert!(matches!(
+        validate_metadata_bundle(&wrong_field_kind, &limits),
+        Err(MetadataValidationError::Malformed(message)) if message.contains("field 'payload'") && message.contains("must have kind Type")
+    ));
+
+    let mut duplicate = bundle.clone();
+    let ScopedTypeNode::RecordRow(row) = &mut duplicate.scoped_types[1].form else {
+        unreachable!()
+    };
+    row.fields = Box::new([
+        ScopedRecordFieldRef {
+            name: "payload".into(),
+            ty: ScopedTypeNodeId(0),
+        },
+        ScopedRecordFieldRef {
+            name: "payload".into(),
+            ty: ScopedTypeNodeId(0),
+        },
+    ]);
+    assert!(matches!(
+        validate_metadata_bundle(&duplicate, &limits),
+        Err(MetadataValidationError::RecordDuplicateField { .. })
+    ));
+
+    let mut bad_projection = bundle;
+    let ScopedTypeNode::RecordRow(row) = &mut bad_projection.scoped_types[4].form else {
+        unreachable!()
+    };
+    row.tail = ScopedRecordRowTailRef::Projection(TypeNodeId(0));
+    assert!(
+        matches!(validate_metadata_bundle(&bad_projection, &limits), Err(MetadataValidationError::Malformed(message)) if message.contains("projection tail") && message.contains("RecordRow"))
+    );
 }
 
 fn schema_v8_static_declaration(name: &str) -> StableDeclarationRef {
@@ -387,13 +610,13 @@ fn test_unsupported_schema_versions_rejected() {
         }
     );
 
-    // Version 9 (future)
-    let b9 = sample_bundle(9, false);
-    let err9 = validate_metadata_bundle(&b9, &limits).unwrap_err();
+    // Version 10 (future)
+    let b10 = sample_bundle(10, false);
+    let err10 = validate_metadata_bundle(&b10, &limits).unwrap_err();
     assert_eq!(
-        err9,
+        err10,
         MetadataValidationError::UnsupportedSchemaVersion {
-            found: 9,
+            found: 10,
             minimum: MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION,
             maximum: TYPE_METADATA_SCHEMA_VERSION,
         }

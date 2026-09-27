@@ -528,6 +528,7 @@ mod tests {
     use super::*;
     use crate::declarations::bootstrap_universe_declarations;
     use crate::dispatch::SurfaceDispatchResolver;
+    use crate::types::id::KindId;
     use crate::types::parameter::TypeParameterOwner;
     use crate::types::store::TypeStore;
     use phalcom_native_meta::{
@@ -634,5 +635,39 @@ mod tests {
         );
         assert_eq!(dispatch.declaration_for_type(runtime_form), Some(&tuple));
         assert_eq!(dispatch.declaration_for_type(semantic_only_form), None);
+    }
+
+    #[test]
+    fn intrinsic_family_keeps_its_static_contract_separate_from_runtime_form() {
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &crate::core_surface::universe_declaration);
+        for (key, parameter_kind, parameter_mode) in [
+            (
+                UniverseKey::Tuple,
+                KindId::COMPLETE_TYPE_PACK,
+                super::super::parameter::GenericParameterMode::CompletePack,
+            ),
+            (
+                UniverseKey::Record,
+                KindId::RECORD_ROW,
+                super::super::parameter::GenericParameterMode::LabeledPack,
+            ),
+        ] {
+            let declaration = crate::core_surface::universe_declaration(key);
+            let semantic_form = declarations.form(&declaration).expect("intrinsic semantic family");
+            let runtime_form = declarations.runtime_form(&mut store, &declaration).expect("runtime owner projection");
+            assert_eq!(store.kind_of(semantic_form), store.arrow_kind(Box::new([parameter_kind]), KindId::TYPE));
+            assert_eq!(
+                declarations.form(&declaration),
+                Some(semantic_form),
+                "runtime projection must not replace the family form"
+            );
+            assert_eq!(store.kind_of(runtime_form), KindId::TYPE);
+            assert_ne!(semantic_form, runtime_form);
+            let signature = declarations.generic_signature(&declaration).expect("generic family contract");
+            assert_eq!(signature.parameters.len(), 1);
+            assert_eq!(signature.parameter_modes.as_ref(), &[parameter_mode]);
+            assert_eq!(store.type_parameter(signature.parameters[0]).kind, parameter_kind);
+        }
     }
 }

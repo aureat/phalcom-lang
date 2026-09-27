@@ -33,7 +33,7 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Step 11 focused T4/T5 matrix is acquired; stop for supervisor review before resuming original P4 T6. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+  next_action: T5 is IMPLEMENTED / FOCUSED_TESTED and accepted under the R2 amendment. Execute original P4 T6.1–T6.3; preserve later T6/T7–T13 stops. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 blocker: no blocker in the named Step 11 matrix; the unrelated deferred rest-dispatch selector remains unresolved.
 ```
 
@@ -1260,6 +1260,62 @@ Focused evidence: pinned-toolchain semantic filter `phantom_data_constructor`
 Status: ADOPTED — semantic constructor contextual specialization is authorized
 and implemented in this focused slice; T5 and P4 remain incomplete.
 
+### INC-C3-17 — scoped RecordFields application arguments — 2026-09-27
+
+Plan/task: LANG007.C3.P4 / T6.2 — canonical and scoped intrinsic application
+  use the same family contract while preserving heterogeneous row identity.
+Trigger: required T6.2 scoped/canonical convergence cannot represent a
+  resolver-owned `RecordRowId` as a scoped generic application argument.
+Observed: canonical `RecordFamily<**Fs>` preserves
+  `StaticArgument::RecordRow`, while scoped lowering has no row-valued free
+  carrier: `ScopedTypeData::OpenRecord` is a proper structural Record type and
+  `scoped_kind` classifies it as `Type`. The resolver-owned row itself cannot
+  be converted to that shape without changing identity.
+Decision: add a first-class scoped RecordRow carrier, distinct from
+  `ScopedTypeData::OpenRecord`, `TypeId`, and proper `Record`. Preserve the
+  canonical row parameter/field/tail identity when lowering and when a scoped
+  application reduces. Thread it only through the existing scoped arena's
+  kinding, interning/equality, and substitution/application consumers; do not
+  add row-solving authority, encode a row as `TypeId`, or erase a row into a
+  structural Record. Callable-owned free rows remain the accepted source
+  context; this does not enable RecordFields type-lambda binders.
+Architecture impact: extends the existing alpha-normalized scoped type
+  calculus with the row argument category already required by canonical
+  `StaticArgument::RecordRow`; canonical identity/solver/runtime ownership is
+  unchanged.
+Plan amendment: T6.2 implementation must carry scoped RecordRows as
+  heterogeneous application arguments and beta-reduce them through
+  `TypeStore::apply_static_form_with_arena`; unresolved/bound row tails must
+  remain explicit and never be closed or converted to proper Record. The T8
+  metadata preflight is amended to add a schema-v9 scoped `RecordRow` node;
+  schemas v1-v8 remain readable and v8 must reject this v9-only node. Export
+  fields as Type-kinded references and preserve Closed, Bound, stable
+  FreeParameter, and RecordRow-kinded Projection tails.
+Verification required: scoped callable-owned free row under an enclosing
+  type lambda; closed row specialization; row-vs-proper-Record distinction;
+  alpha-equivalence and substitution; ordinary Type-only scoped applications;
+  canonical RecordRow controls; scoped intrinsic Tuple/Record zero and symbolic
+  forms. Existing restriction against declaring RecordFields type-lambda
+  binders remains unchanged.
+Focused evidence: `record_fields_applications_require_expansion_and_preserve_row_arguments`,
+  `scoped_record_row_type_fields_substitute_and_alpha_normalize`,
+  `scoped_type_lambda_record_fields_binders_remain_unsupported`,
+  `scoped_bound_row_tail_remains_domain_specific`,
+  `scoped_zero_tuple_and_record_applications_select_their_declared_domains`,
+  `scoped_complete_pack_expansion_projects_a_tuple_with_bound_elements`,
+  `type_lambda_applications_preserve_canonical_identity`,
+  `zero_user_defined_variadic_applications_retain_the_declared_argument_domains`,
+  and `intrinsic_family_keeps_its_static_contract_separate_from_runtime_form`
+  each selected/passed 1. `schema_v9_scoped_record_rows_round_trip_all_tail_forms_and_v8_remains_compatible`
+  selected/passed 1; the complete `schema_compat` target selected 15 and passed
+  15. `metadata_round_trip_preserves_heterogeneous_application_and_scoped_static_domain_bound`
+  selected/passed 1. The exporter integration assertion verifies an Applied
+  scoped row retains its RecordRow kind, field name/bound field identity, and
+  closed tail through validate/JSON round-trip.
+Status: ADOPTED; scoped row carrier and schema-v9 projection are focused-tested,
+  while T6.2/T8 implementation remains in progress pending review and remaining
+  acceptance coverage. Overall P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+
 Use entries:
 
 ```text
@@ -1780,13 +1836,13 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    R2 Steps 5–11 have focused evidence and are ready for supervisor review.
-    After review, resume original P4 T6–T13 in plan order. P4 remains
-    IN_PROGRESS / PARTIAL / UNVERIFIED; no broad certification has run.
+    Complete original P4 T6 in its bounded slices, then continue T7–T13 in
+    plan order. The R2 T4/T5 amendment is complete; P4 remains
+    IN_PROGRESS / PARTIAL / UNVERIFIED, and broad certification is open.
 
 next action:
-    R2 Steps 5–11 are implemented and focused-tested, pending supervisor
-    acceptance. Step 8 commit `1e82f1c3`
+    R2 Steps 5–11 are implemented and focused-tested; the T4/T5 amendment is
+    accepted. T5 is IMPLEMENTED / FOCUSED_TESTED. Step 8 commit `1e82f1c3`
     preserves source-shaped constructor references and adds labeled invocation
     only to generated all-labeled constructor thunks through the existing
     ParameterShape/closure activation path; ordinary source closures remain
@@ -1848,9 +1904,12 @@ next action:
     from `origin/main` (last changed at `ae5409b9`). This remains a separate
     deferred semantic-dispatch failure; no rest adapter change was made.
     No broad T4/T5 suite, workspace gate, or release certification was run.
-    T4/T5 are ready for supervisor acceptance; original P4 T6 is next only
-    after review. T5 remains pending acceptance; T4 remains
-    IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+    T4 remains IMPLEMENTED / FOCUSED_TESTED and T5 is IMPLEMENTED /
+    FOCUSED_TESTED under the R2 amendment. Original P4 T6.1–T6.3 now have
+    focused semantic and metadata evidence, pending supervisor review; T6.4–
+    T6.8 and T7–T13 remain open. INC-C3-17 records the scoped RecordRow
+    carrier and schema-v9 amendment. Overall checkpoint P4 remains
+    IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
     Priority 3's 40-way pre-remediation classification remains in

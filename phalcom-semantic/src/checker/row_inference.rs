@@ -287,7 +287,7 @@ impl<'a> StableRowLackCollector<'a> {
     }
 
     fn visit_scoped_type(&mut self, scoped: crate::types::id::ScopedTypeId) {
-        use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
+        use crate::types::type_lambda::{ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
         if !self.visited_scoped_types.insert(scoped) {
             return;
         }
@@ -328,6 +328,25 @@ impl<'a> StableRowLackCollector<'a> {
                     }
                 }
                 for field in record.fields.iter() {
+                    self.visit_scoped_type(field.ty);
+                }
+            }
+            ScopedTypeData::RecordRow(row) => {
+                if let ScopedRecordRowTail::FreeParameter(parameter) = row.tail {
+                    for field in row.fields.iter() {
+                        let key = (parameter, field.name.clone());
+                        if self.emitted.insert(key) {
+                            self.lacks.push(StableRecordRowLack {
+                                parameter,
+                                field: field.name.clone(),
+                            });
+                        }
+                    }
+                }
+                if let ScopedRecordRowTail::Projection(projection) = row.tail {
+                    self.visit_type(projection);
+                }
+                for field in row.fields.iter() {
                     self.visit_scoped_type(field.ty);
                 }
             }

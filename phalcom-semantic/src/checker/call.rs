@@ -2809,7 +2809,7 @@ impl<'a> ParameterUseWalker<'a> {
     }
 
     fn visit_scoped_type(&mut self, scoped: ScopedTypeId) -> bool {
-        use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
+        use crate::types::type_lambda::{ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
 
         if !self.seen_scoped_types.insert(scoped) {
             return false;
@@ -2828,6 +2828,14 @@ impl<'a> ParameterUseWalker<'a> {
             ScopedTypeData::OpenRecord(record) => {
                 record.fields.iter().any(|field| self.visit_scoped_type(field.ty))
                     || matches!(record.tail, ScopedRecordTail::FreeParameter(parameter) if self.parameters.contains(&parameter))
+            }
+            ScopedTypeData::RecordRow(row) => {
+                row.fields.iter().any(|field| self.visit_scoped_type(field.ty))
+                    || match row.tail {
+                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } => false,
+                        ScopedRecordRowTail::FreeParameter(parameter) => self.parameters.contains(&parameter),
+                        ScopedRecordRowTail::Projection(projection) => self.visit_type(projection),
+                    }
             }
             ScopedTypeData::Callable(callable) => {
                 callable.parameters.iter().any(|parameter| self.visit_scoped_type(parameter.ty)) || self.visit_scoped_type(callable.return_type)

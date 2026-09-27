@@ -3,7 +3,7 @@
 use super::id::{KindId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId};
 use super::parameter::GenericParameterMode;
 use super::row::{RecordRowFormationError, RecordRowTail};
-use super::store::{PackFormationError, TypeData, TypeStore};
+use super::store::{PackFormationError, StaticArgument, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
 use crate::diagnostic::SemanticSourceSpan;
 use std::collections::HashMap;
@@ -25,6 +25,9 @@ pub enum ScopedTypeData {
     Record(Box<[ScopedRecordField]>),
     /// Scoped open record type with a capture-safe stable row tail.
     OpenRecord(ScopedOpenRecord),
+    /// Row-valued generic argument. Unlike `Record`/`OpenRecord`, this node has
+    /// kind `RecordFields` and is never a proper type on its own.
+    RecordRow(ScopedRecordRow),
     /// Scoped callable type.
     Callable(ScopedCallableType),
     /// Ordered positional pack whose elements may mention bound lambda variables.
@@ -86,6 +89,20 @@ pub enum ScopedRecordTail {
 pub struct ScopedOpenRecord {
     pub fields: Box<[ScopedRecordField]>,
     pub tail: ScopedRecordTail,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ScopedRecordRowTail {
+    Closed,
+    Bound { depth: u32, index: u32 },
+    FreeParameter(TypeParameterId),
+    Projection(TypeId),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ScopedRecordRow {
+    pub fields: Box<[ScopedRecordField]>,
+    pub tail: ScopedRecordRowTail,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -221,6 +238,10 @@ impl TypeLambdaArena {
                 matches!(record.tail, ScopedRecordTail::Bound { depth, .. } if depth >= current_depth)
                     || record.fields.iter().any(|f| self.has_free_bound(f.ty, current_depth))
             }
+            ScopedTypeData::RecordRow(row) => {
+                matches!(row.tail, ScopedRecordRowTail::Bound { depth, .. } if depth >= current_depth)
+                    || row.fields.iter().any(|field| self.has_free_bound(field.ty, current_depth))
+            }
             ScopedTypeData::Callable(call) => {
                 call.parameters.iter().any(|p| self.has_free_bound(p.ty, current_depth)) || self.has_free_bound(call.return_type, current_depth)
             }
@@ -282,6 +303,16 @@ impl TypeLambdaArena {
             ScopedTypeData::OpenRecord(record) => {
                 for f in record.fields.iter() {
                     self.collect_free_types(f.ty, out);
+                }
+            }
+            ScopedTypeData::RecordRow(row) => {
+                for field in row.fields.iter() {
+                    self.collect_free_types(field.ty, out);
+                }
+                if let ScopedRecordRowTail::Projection(projection) = row.tail
+                    && !out.contains(&projection)
+                {
+                    out.push(projection);
                 }
             }
             ScopedTypeData::Callable(call) => {
@@ -430,6 +461,22 @@ impl TypeLambdaArena {
                     .into_boxed_slice();
                 self.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail: record.tail }))
             }
+            ScopedTypeData::RecordRow(row) => {
+                let fields = row
+                    .fields
+                    .iter()
+                    .map(|field| ScopedRecordField {
+                        name: field.name.clone(),
+                        ty: self.substitute_free_scoped(field.ty, substitution, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                let tail = match row.tail {
+                    ScopedRecordRowTail::Projection(projection) => ScopedRecordRowTail::Projection(substitution.apply_with_arena(store, self, projection)),
+                    tail => tail,
+                };
+                self.intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow { fields, tail }))
+            }
             ScopedTypeData::Callable(callable) => {
                 let parameters = callable
                     .parameters
@@ -528,12 +575,12 @@ impl TypeLambdaArena {
             ScopedTypeData::Free(ty) => Ok(ty),
             ScopedTypeData::Applied { origin, arguments } => {
                 let can_origin = self.subst_scoped_to_canonical(origin, depth, args, store)?;
-                let can_args: Vec<TypeId> = arguments
+                let can_args: Vec<StaticArgument> = arguments
                     .iter()
-                    .map(|&a| self.subst_scoped_to_canonical(a, depth, args, store))
+                    .map(|&argument| self.subst_scoped_to_static_argument(argument, depth, args, store))
                     .collect::<Result<_, _>>()?;
                 store
-                    .apply_type_form_with_arena(self, can_origin, &can_args)
+                    .apply_static_form_with_arena(self, can_origin, &can_args)
                     .map_err(BetaReductionError::Application)
             }
             ScopedTypeData::Union(members) => {
@@ -584,6 +631,7 @@ impl TypeLambdaArena {
                 };
                 store.record_row_type_checked(can_fields, tail).map_err(BetaReductionError::RecordRowFormation)
             }
+            ScopedTypeData::RecordRow(_) => Err(BetaReductionError::UnsupportedRecordRowArgument),
             ScopedTypeData::Callable(call) => {
                 let can_params: Vec<super::store::CallableParameterType> = call
                     .parameters
@@ -692,6 +740,37 @@ impl TypeLambdaArena {
         }
     }
 
+    fn subst_scoped_to_static_argument(
+        &mut self,
+        scoped: ScopedTypeId,
+        depth: u32,
+        args: &[TypeId],
+        store: &mut TypeStore,
+    ) -> Result<StaticArgument, BetaReductionError> {
+        let ScopedTypeData::RecordRow(row) = self.get_scoped(scoped).clone() else {
+            return self.subst_scoped_to_canonical(scoped, depth, args, store).map(StaticArgument::Term);
+        };
+
+        let fields = row
+            .fields
+            .iter()
+            .map(|field| {
+                Ok(super::store::RecordTypeField {
+                    name: field.name.clone(),
+                    ty: self.subst_scoped_to_canonical(field.ty, depth, args, store)?,
+                })
+            })
+            .collect::<Result<Vec<_>, BetaReductionError>>()?;
+        let tail = match row.tail {
+            ScopedRecordRowTail::Closed => RecordRowTail::Closed,
+            ScopedRecordRowTail::Bound { .. } => return Err(BetaReductionError::UnsupportedRecordRowArgument),
+            ScopedRecordRowTail::FreeParameter(parameter) => RecordRowTail::Parameter(parameter),
+            ScopedRecordRowTail::Projection(projection) => RecordRowTail::Projection(projection),
+        };
+        let row = store.record_row_checked(fields, tail).map_err(BetaReductionError::RecordRowFormation)?;
+        Ok(StaticArgument::RecordRow(row))
+    }
+
     #[allow(clippy::only_used_in_recursion)]
     fn subst_scoped_partial(&mut self, scoped: ScopedTypeId, depth: u32, args: &[TypeId], store: &mut TypeStore) -> ScopedTypeId {
         match self.get_scoped(scoped).clone() {
@@ -753,6 +832,29 @@ impl TypeLambdaArena {
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
                 self.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail: record.tail }))
+            }
+            ScopedTypeData::RecordRow(row) => {
+                let fields = row
+                    .fields
+                    .iter()
+                    .map(|field| ScopedRecordField {
+                        name: field.name.clone(),
+                        ty: self.subst_scoped_partial(field.ty, depth, args, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                let tail = match row.tail {
+                    ScopedRecordRowTail::Bound { depth: bound_depth, index }
+                        if bound_depth == depth && index >= args.len() as u32 => ScopedRecordRowTail::Bound {
+                            depth: bound_depth,
+                            index: index - args.len() as u32,
+                        },
+                    // A consumed row binder cannot be supplied through this
+                    // type-only beta-reduction API. Source RecordFields
+                    // TypeLambda binders remain rejected by annotation lowering.
+                    tail => tail,
+                };
+                self.intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow { fields, tail }))
             }
             ScopedTypeData::Callable(call) => {
                 let s_params: Vec<ScopedCallableParameter> = call

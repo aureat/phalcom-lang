@@ -655,7 +655,7 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
     }
 
     fn scoped_contains_any_type_parameter(store: &TypeStore, scoped: crate::types::id::ScopedTypeId) -> bool {
-        use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
+        use crate::types::type_lambda::{ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
 
         match store.arena().get_scoped(scoped) {
             ScopedTypeData::Bound { .. } => false,
@@ -669,6 +669,14 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
             ScopedTypeData::OpenRecord(record) => {
                 matches!(record.tail, ScopedRecordTail::FreeParameter(_))
                     || record.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
+            }
+            ScopedTypeData::RecordRow(row) => {
+                row.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
+                    || match row.tail {
+                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } => false,
+                        ScopedRecordRowTail::FreeParameter(_) => true,
+                        ScopedRecordRowTail::Projection(projection) => contains_any_type_parameter(store, projection),
+                    }
             }
             ScopedTypeData::Callable(callable) => {
                 callable

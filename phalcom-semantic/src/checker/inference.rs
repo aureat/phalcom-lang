@@ -16,7 +16,7 @@ use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, QueryB
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use crate::types::type_member::{ConstTerm, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberDeclarationId, TypeMemberSelector};
-use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
+use crate::types::type_lambda::{ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
 use crate::types::variance::Variance;
 use crate::types::row::RecordRowField;
 use crate::types::row_solver::{
@@ -1753,7 +1753,31 @@ impl InferenceSession {
                 origin: Box::new(self.scoped_to_inference(origin, depth, arguments, store)?),
                 arguments: nested_arguments
                     .iter()
-                    .map(|&argument| self.scoped_to_inference(argument, depth, arguments, store).map(InferenceStaticArgument::Term))
+                    .map(|&argument| match store.arena().get_scoped(argument).clone() {
+                        ScopedTypeData::RecordRow(row) => {
+                            let tail = match row.tail {
+                                ScopedRecordRowTail::Closed => InferenceRecordTail::Closed,
+                                ScopedRecordRowTail::Bound { .. } => return None,
+                                ScopedRecordRowTail::FreeParameter(parameter) => InferenceRecordTail::Parameter(parameter),
+                                ScopedRecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
+                            };
+                            Some(InferenceStaticArgument::RecordRow(InferenceRecord {
+                                fields: row
+                                    .fields
+                                    .iter()
+                                    .map(|field| {
+                                        Some(InferenceRecordField {
+                                            name: field.name.clone(),
+                                            term: self.scoped_to_inference(field.ty, depth, arguments, store)?,
+                                        })
+                                    })
+                                    .collect::<Option<Vec<_>>>()?
+                                    .into_boxed_slice(),
+                                tail,
+                            }))
+                        }
+                        _ => self.scoped_to_inference(argument, depth, arguments, store).map(InferenceStaticArgument::Term),
+                    })
                     .collect::<Option<Vec<_>>>()?
                     .into_boxed_slice(),
             }),
@@ -1796,6 +1820,28 @@ impl InferenceSession {
                 };
                 Some(InferenceTerm::Record(InferenceRecord {
                     fields: record
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            Some(InferenceRecordField {
+                                name: field.name.clone(),
+                                term: self.scoped_to_inference(field.ty, depth, arguments, store)?,
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?
+                        .into_boxed_slice(),
+                    tail,
+                }))
+            }
+            ScopedTypeData::RecordRow(row) => {
+                let tail = match row.tail {
+                    ScopedRecordRowTail::Closed => InferenceRecordTail::Closed,
+                    ScopedRecordRowTail::Bound { .. } => return None,
+                    ScopedRecordRowTail::FreeParameter(parameter) => InferenceRecordTail::Parameter(parameter),
+                    ScopedRecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
+                };
+                Some(InferenceTerm::Record(InferenceRecord {
+                    fields: row
                         .fields
                         .iter()
                         .map(|field| {

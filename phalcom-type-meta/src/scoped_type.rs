@@ -48,6 +48,22 @@ pub struct ScopedOpenRecordTypeRef {
     pub tail: ScopedRecordTailRef,
 }
 
+/// Tail identity for a row-valued argument inside a scoped type graph.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub enum ScopedRecordRowTailRef {
+    Closed,
+    Bound { depth: u32, index: u32 },
+    FreeParameter(StableTypeParameterRef),
+    Projection(TypeNodeId),
+}
+
+/// A heterogeneous `RecordFields` argument retained in a scoped application.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct ScopedRecordRowTypeRef {
+    pub fields: Box<[ScopedRecordFieldRef]>,
+    pub tail: ScopedRecordRowTailRef,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct ScopedCallableParamRef {
     pub label: Option<Box<str>>,
@@ -86,6 +102,9 @@ pub enum ScopedTypeNode {
         body: ScopedTypeNodeId,
     },
     OpenRecord(ScopedOpenRecordTypeRef),
+    /// Row-valued `RecordFields` argument. This is distinct from a proper
+    /// structural `Record` or an open structural record type.
+    RecordRow(ScopedRecordRowTypeRef),
     TypePack(Box<[ScopedTypeNodeId]>),
     LabeledTypePack(Box<[ScopedLabeledTypePackElementRef]>),
     CompleteTypePack {

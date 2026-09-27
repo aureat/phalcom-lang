@@ -847,6 +847,37 @@ impl<'a> MetadataExporter<'a> {
                     tail,
                 })
             }
+            ScopedTypeData::RecordRow(ref row) => {
+                let fields = row
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        Ok(ScopedRecordFieldRef {
+                            name: field.name.clone(),
+                            ty: self.export_scoped_type_with_binders(field.ty, binder_kinds)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, MetadataExportError>>()?;
+                let tail = match row.tail {
+                    crate::types::type_lambda::ScopedRecordRowTail::Closed => {
+                        phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Closed
+                    }
+                    crate::types::type_lambda::ScopedRecordRowTail::Bound { depth, index } => {
+                        phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Bound { depth, index }
+                    }
+                    crate::types::type_lambda::ScopedRecordRowTail::FreeParameter(parameter) => {
+                        phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::FreeParameter(self.export_type_parameter(parameter)?)
+                    }
+                    crate::types::type_lambda::ScopedRecordRowTail::Projection(projection) => {
+                        phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Projection(self.export_type_form(projection)?)
+                    }
+                };
+                computed_kind = Some(self.export_kind(KindId::RECORD_ROW)?);
+                ScopedTypeNode::RecordRow(phalcom_type_meta::scoped_type::ScopedRecordRowTypeRef {
+                    fields: fields.into_boxed_slice(),
+                    tail,
+                })
+            }
             ScopedTypeData::Callable(ref call) => {
                 let mut params = Vec::new();
                 for p in call.parameters.iter() {
@@ -1108,6 +1139,30 @@ impl<'a> MetadataExporter<'a> {
                     }
                 }
             }
+            ScopedTypeNode::RecordRow(row) => {
+                fp_b.write_u8(22);
+                fp_b.write_u32(row.fields.len() as u32);
+                for field in row.fields.iter() {
+                    fp_b.write_str(&field.name);
+                    fp_b.write_fingerprint(self.scoped_types[field.ty.0 as usize].structural_fingerprint);
+                }
+                match &row.tail {
+                    phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Closed => fp_b.write_u8(0),
+                    phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Bound { depth, index } => {
+                        fp_b.write_u8(1);
+                        fp_b.write_u32(*depth);
+                        fp_b.write_u32(*index);
+                    }
+                    phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::FreeParameter(parameter) => {
+                        fp_b.write_u8(2);
+                        self.write_stable_parameter_fingerprint(&mut fp_b, parameter);
+                    }
+                    phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Projection(projection) => {
+                        fp_b.write_u8(3);
+                        fp_b.write_fingerprint(self.types[projection.0 as usize].structural_fingerprint);
+                    }
+                }
+            }
         }
         let structural_fingerprint = fp_b.finish();
         let kind_id = if let Some(kind) = computed_kind {
@@ -1126,6 +1181,7 @@ impl<'a> MetadataExporter<'a> {
                 ScopedTypeNode::TypePack(_) | ScopedTypeNode::TypePackConcat(_) => self.export_kind(KindId::TYPE_PACK),
                 ScopedTypeNode::LabeledTypePack(_) | ScopedTypeNode::LabeledTypePackConcat(_) => self.export_kind(KindId::LABELED_TYPE_PACK),
                 ScopedTypeNode::CompleteTypePack { .. } => self.export_kind(KindId::COMPLETE_TYPE_PACK),
+                ScopedTypeNode::RecordRow(_) => self.export_kind(KindId::RECORD_ROW),
                 ScopedTypeNode::PackProjection { lane, .. } => self.export_kind(match lane {
                     phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Positionals => KindId::TYPE_PACK,
                     phalcom_type_meta::scoped_type::ScopedPackProjectionLaneRef::Labeled => KindId::LABELED_TYPE_PACK,

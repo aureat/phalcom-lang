@@ -20,6 +20,7 @@ mod generic_application;
 mod generic_inference_proof_integrity;
 mod generics_core;
 mod identity_diagnostics;
+mod intrinsic_application;
 mod inference;
 mod kinds;
 mod knowledge;

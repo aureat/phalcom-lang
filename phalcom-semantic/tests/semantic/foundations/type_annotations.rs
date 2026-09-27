@@ -15,7 +15,9 @@ use phalcom_semantic::types::parameter::{GenericConstraint, GenericParameterMode
 use phalcom_semantic::types::row::RecordRowTail;
 use phalcom_semantic::types::store::{CallableType, StaticArgument, TypeData, TypeStore};
 use phalcom_semantic::types::substitution::TypeSubstitution;
-use phalcom_semantic::types::type_lambda::{ScopedOpenRecord, ScopedRecordField, ScopedRecordTail, ScopedTypeData, TypeLambdaArena};
+use phalcom_semantic::types::type_lambda::{
+    ScopedOpenRecord, ScopedRecordField, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData, TypeLambdaArena,
+};
 
 const RANGE: SourceRange = SourceRange { start: 0, end: 1 };
 
@@ -713,6 +715,35 @@ fn scoped_bound_row_tail_remains_domain_specific() {
     let mut free_types = Vec::new();
     arena.collect_free_types(open, &mut free_types);
     assert_eq!(free_types, vec![TypeId::DUMMY]);
+
+    let row_field = arena.intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+    let row = arena.intern_scoped(ScopedTypeData::RecordRow(phalcom_semantic::types::type_lambda::ScopedRecordRow {
+        fields: vec![ScopedRecordField {
+            name: "payload".into(),
+            ty: row_field,
+        }]
+        .into_boxed_slice(),
+        tail: ScopedRecordRowTail::Bound { depth: 0, index: 1 },
+    }));
+    assert!(arena.has_free_bound(row, 0), "a bound row tail is a distinct scoped binder reference");
+    let mut store = TypeStore::new();
+    let concrete_type = store.unit();
+    let lambda = arena.intern_lambda_with_modes(
+        vec![KindId::TYPE, KindId::RECORD_ROW].into_boxed_slice(),
+        vec![GenericParameterMode::Single, GenericParameterMode::LabeledPack].into_boxed_slice(),
+        row,
+        KindId::RECORD_ROW,
+        None,
+    );
+    let phalcom_semantic::types::type_lambda::BetaResult::ResidualLambda(residual) = arena.beta_reduce(lambda, &[concrete_type], &mut store).unwrap() else {
+        panic!("partial type application should retain the unsupported row binder as a residual lambda")
+    };
+    let residual = arena.get_lambda(residual);
+    let ScopedTypeData::RecordRow(row) = arena.get_scoped(residual.body) else {
+        panic!("expected row-valued body")
+    };
+    assert_eq!(row.tail, ScopedRecordRowTail::Bound { depth: 0, index: 0 });
+    assert!(matches!(arena.get_scoped(row.fields[0].ty), ScopedTypeData::Free(ty) if *ty == concrete_type));
 }
 
 #[test]
@@ -1656,6 +1687,22 @@ fn intrinsic_tuple_application_reuses_the_complete_pack_structural_family() {
     env.declarations.insert(tuple_binding);
     assert_eq!(env.declarations.intrinsic_runtime_owner(&tuple), None);
     env.resolver.insert("Tuple", tuple);
+
+    let empty_application = application(reference("Tuple"), vec![]);
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(empty_tuple) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &empty_application,
+        &mut diagnostics,
+    ) else {
+        panic!("zero-contribution Tuple should select the empty CompleteTypePack: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(empty_tuple, env.store.unit(), "the empty Tuple projection retains Unit identity");
+
     let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "TupleAlias".into()));
     let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "P", KindId::TYPE_PACK));
     let positional = env.store.parameter_form(parameter);
@@ -1689,6 +1736,84 @@ fn intrinsic_tuple_application_reuses_the_complete_pack_structural_family() {
         !matches!(env.store.get(applied), TypeData::Applied { .. }),
         "intrinsic application must not remain nominal `Applied` data"
     );
+}
+
+#[test]
+fn scoped_zero_tuple_and_record_applications_select_their_declared_domains() {
+    let mut env = setup();
+    env.resolver.insert("Record", DeclarationId::new(env.module.clone(), "Record".into()));
+    let scoped_tuple = type_lambda(&["T"], application(reference("Tuple"), vec![]));
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(tuple_lambda) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &scoped_tuple, &mut diagnostics)
+    else {
+        panic!("scoped zero Tuple should lower: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Lambda(tuple_lambda_id) = env.store.get(tuple_lambda) else {
+        panic!("scoped Tuple application should remain a type lambda");
+    };
+    assert!(matches!(
+        env.store.arena().get_scoped(env.store.arena().get_lambda(*tuple_lambda_id).body),
+        ScopedTypeData::TupleFromPacks { .. }
+    ));
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    assert_eq!(env.store.apply_type_form(tuple_lambda, &[int_ty]).unwrap(), env.store.unit());
+
+    let row_parameter = TypeParameterData::new(
+        TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "ScopedRecordOwner".into())),
+        0,
+        "R",
+        KindId::RECORD_ROW,
+    );
+    let row_parameter = env.store.intern_type_parameter(row_parameter);
+    env.resolver.insert_record_row_binding("R", row_parameter);
+    let record_application = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("Record")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Labeled,
+                operator_range: RANGE,
+                operand: reference("R"),
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let scoped_record = TypeAnnotation {
+        expr: TypeAnnotationExpr::TypeLambda {
+            parameters: vec![phalcom_ast::ast::TypeLambdaParameter {
+                name: "T".into(),
+                name_range: RANGE,
+                kind: None,
+                range: RANGE,
+            }],
+            body: Box::new(record_application),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    diagnostics.clear();
+    let TypeFormResolution::Ready(record_lambda) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &scoped_record,
+        &mut diagnostics,
+    ) else {
+        panic!("scoped zero Record should lower: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Lambda(record_lambda_id) = env.store.get(record_lambda) else {
+        panic!("scoped Record application should remain a type lambda");
+    };
+    assert!(matches!(
+        env.store.arena().get_scoped(env.store.arena().get_lambda(*record_lambda_id).body),
+        ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail: ScopedRecordTail::FreeParameter(parameter) })
+            if fields.is_empty() && *parameter == row_parameter
+    ));
 }
 
 #[test]
@@ -1859,19 +1984,223 @@ fn record_fields_applications_require_expansion_and_preserve_row_arguments() {
     };
     assert_eq!(env.store.record_row(row).tail, RecordRowTail::Parameter(row_parameter));
 
+    let row_expansion_application = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("RecordFamily")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Labeled,
+                operator_range: RANGE,
+                operand: reference("Fs"),
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let scoped_row_application = type_lambda(&["T"], row_expansion_application);
+    diagnostics.clear();
+    let scoped_result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &scoped_row_application,
+        &mut diagnostics,
+    );
+    let TypeFormResolution::Ready(scoped_lambda) = scoped_result else {
+        panic!("scoped generic RecordFields expansion result {scoped_result:?}: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Lambda(scoped_lambda_id) = env.store.get(scoped_lambda) else {
+        panic!("generic RecordFields application should remain scoped in the enclosing type lambda");
+    };
+    assert!(matches!(
+        env.store.arena().get_scoped(env.store.arena().get_lambda(*scoped_lambda_id).body),
+        ScopedTypeData::Applied { arguments, .. }
+            if matches!(env.store.arena().get_scoped(arguments[0]), ScopedTypeData::RecordRow(row)
+                if row.fields.is_empty() && row.tail == ScopedRecordRowTail::FreeParameter(row_parameter))
+    ));
+
+    let scoped_empty_application = type_lambda(&["T"], application(reference("RecordFamily"), vec![]));
+    diagnostics.clear();
+    let TypeFormResolution::Ready(scoped_empty_lambda) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &scoped_empty_application,
+        &mut diagnostics,
+    ) else {
+        panic!("scoped zero RecordFields contribution should select a closed-empty row: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Lambda(scoped_empty_lambda_id) = env.store.get(scoped_empty_lambda) else {
+        panic!("zero RecordFields application should remain scoped in the enclosing type lambda");
+    };
+    assert!(matches!(
+        env.store.arena().get_scoped(env.store.arena().get_lambda(*scoped_empty_lambda_id).body),
+        ScopedTypeData::Applied { arguments, .. }
+            if matches!(env.store.arena().get_scoped(arguments[0]), ScopedTypeData::RecordRow(row)
+                if row.fields.is_empty() && row.tail == ScopedRecordRowTail::Closed)
+    ));
+    let int = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let canonical_zero = env.store.apply_type_form(scoped_empty_lambda, &[int]).unwrap();
+    assert!(matches!(env.store.get(canonical_zero), TypeData::Applied { arguments, .. }
+        if matches!(arguments[0], StaticArgument::RecordRow(row)
+            if env.store.record_row(row).fields.is_empty() && env.store.record_row(row).tail == RecordRowTail::Closed)));
+
     let direct = application(reference("RecordFamily"), vec![reference("Int")]);
     diagnostics.clear();
     assert!(matches!(
-        phalcom_semantic::types::annotation::resolve_type_form(
-            &mut env.store,
-            &env.declarations,
-            &env.resolver,
-            &env.site,
-            &direct,
-            &mut diagnostics,
-        ),
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &direct, &mut diagnostics,),
         TypeFormResolution::Invalid(_)
     ));
+    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported));
+}
+
+#[test]
+fn scoped_record_row_type_fields_substitute_and_alpha_normalize() {
+    use phalcom_semantic::metadata::MetadataExporter;
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::header::MetadataProfile;
+    use phalcom_type_meta::kind::KindNode;
+    use phalcom_type_meta::scoped_type::{ScopedRecordRowTailRef, ScopedTypeNode};
+    use phalcom_type_meta::type_node::TypeNode;
+    use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
+
+    let mut env = setup();
+    let family = DeclarationId::new(env.module.clone(), "ScopedRecordFamily".into());
+    let parameter = env.store.intern_type_parameter(
+        TypeParameterData::new(TypeParameterOwner::Declaration(family.clone()), 0, "Fs", KindId::RECORD_ROW).with_mode(GenericParameterMode::LabeledPack),
+    );
+    let signature = GenericSignature::new(TypeParameterOwner::Declaration(family.clone()), vec![parameter].into_boxed_slice())
+        .with_parameter_modes(vec![GenericParameterMode::LabeledPack].into_boxed_slice());
+    let kind = env.store.arrow_kind(vec![KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+    let form = env.store.nominal_form(family.clone(), kind);
+    env.declarations.insert(phalcom_semantic::declarations::DeclarationTypeInfo {
+        declaration: family.clone(),
+        form,
+        class_object_type: env.store.class_object_type(family.clone()),
+        kind,
+        binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
+        generic_binder_header: Some(phalcom_semantic::types::parameter::GenericBinderHeader::from_signature(&env.store, &signature)),
+        generic_signature: Some(signature),
+        supertype_template: None,
+    });
+    env.resolver.insert("ScopedRecordFamily", family);
+
+    let row_application = |parameter: &str| TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("ScopedRecordFamily")),
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Labeled,
+                operator_range: RANGE,
+                operand: TypeAnnotation {
+                    expr: TypeAnnotationExpr::Record {
+                        fields: vec![phalcom_ast::ast::RecordTypeField {
+                            name: "payload".into(),
+                            ty: reference(parameter),
+                            range: RANGE,
+                        }],
+                        tail: None,
+                        range: RANGE,
+                    },
+                    range: RANGE,
+                },
+                range: RANGE,
+            })],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+
+    let mut diagnostics = Vec::new();
+    let first = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &type_lambda(&["T"], row_application("T")),
+        &mut diagnostics,
+    );
+    let second = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &type_lambda(&["U"], row_application("U")),
+        &mut diagnostics,
+    );
+    let TypeFormResolution::Ready(first) = first else {
+        panic!("expected first lambda: {diagnostics:?}")
+    };
+    let TypeFormResolution::Ready(second) = second else {
+        panic!("expected alpha-renamed lambda: {diagnostics:?}")
+    };
+    assert_eq!(first, second, "row-valued arguments must participate in alpha-normalized interning");
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+    let int = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let applied = env.store.apply_type_form(first, &[int]).unwrap();
+    let TypeData::Applied { arguments, .. } = env.store.get(applied) else {
+        panic!("expected nominal family application")
+    };
+    let StaticArgument::RecordRow(row) = arguments[0] else {
+        panic!("RecordFields argument must remain a row")
+    };
+    let row = env.store.record_row(row);
+    assert_eq!(row.tail, RecordRowTail::Closed);
+    assert_eq!(row.fields.len(), 1);
+    assert_eq!(row.fields[0].name.as_ref(), "payload");
+    assert_eq!(
+        row.fields[0].ty, int,
+        "the enclosing Type binder must substitute inside the row-valued argument"
+    );
+
+    let mut exporter = MetadataExporter::new(&env.store, Some(&env.declarations), None, None, MetadataProfile::RuntimePublic);
+    let lambda_id = exporter.export_type_form(first).expect("export scoped RecordFields application");
+    let bundle = exporter.build_bundle(&[]).expect("build scoped row metadata");
+    let TypeNode::TypeLambda(lambda) = &bundle.types[lambda_id.0 as usize].form else {
+        panic!("expected exported type lambda");
+    };
+    let ScopedTypeNode::Applied { arguments, .. } = &bundle.scoped_types[lambda.body.0 as usize].form else {
+        panic!("expected exported scoped Applied form");
+    };
+    let [row_argument] = arguments.as_ref() else {
+        panic!("expected one RecordFields argument")
+    };
+    let ScopedTypeNode::RecordRow(row) = &bundle.scoped_types[row_argument.0 as usize].form else {
+        panic!("RecordFields argument must export as scoped RecordRow")
+    };
+    assert!(matches!(
+        bundle.kinds[bundle.scoped_types[row_argument.0 as usize].kind.0 as usize].node,
+        KindNode::RecordRow
+    ));
+    assert_eq!(row.fields.len(), 1);
+    assert_eq!(row.fields[0].name.as_ref(), "payload");
+    assert!(matches!(
+        bundle.scoped_types[row.fields[0].ty.0 as usize].form,
+        ScopedTypeNode::Bound { depth: 0, index: 0 }
+    ));
+    assert_eq!(row.tail, ScopedRecordRowTailRef::Closed);
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("exported scoped row metadata validates");
+    let encoded = encode_metadata_json(&bundle).expect("encode scoped row metadata");
+    assert_eq!(decode_metadata_json(&encoded, &ValidationLimits::default()).unwrap(), bundle);
+}
+
+#[test]
+fn scoped_type_lambda_record_fields_binders_remain_unsupported() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &typed_type_lambda(vec![("Fs", KindSyntax::RecordFields(RANGE))], reference("Fs")),
+        &mut diagnostics,
+    );
+    assert!(matches!(result, TypeFormResolution::Invalid(_)));
     assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported));
 }
 

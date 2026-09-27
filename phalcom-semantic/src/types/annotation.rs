@@ -11,8 +11,8 @@ use super::parameter::{
 use super::row::RecordRowTail;
 use super::store::{CallableParameterType, CallableType, RecordTypeField, StaticArgument, TypeData, TypeStore};
 use super::type_lambda::{
-    ScopedCallableParameter, ScopedCallableType, ScopedLabeledTypePackElement, ScopedOpenRecord, ScopedPackProjectionLane, ScopedRecordField, ScopedRecordTail,
-    ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
+    ScopedCallableParameter, ScopedCallableType, ScopedLabeledTypePackElement, ScopedOpenRecord, ScopedPackProjectionLane, ScopedRecordField, ScopedRecordRow,
+    ScopedRecordRowTail, ScopedRecordTail, ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
 };
 use super::type_member::{
     IntrinsicTypeOperation, IntrinsicTypeOwner, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
@@ -782,6 +782,7 @@ fn scoped_kind(store: &mut TypeStore, scoped: crate::types::id::ScopedTypeId, bi
         | ScopedTypeData::Callable(_)
         | ScopedTypeData::TupleFromPacks { .. }
         | ScopedTypeData::CallableFromPacks { .. } => KindResolution::Ready(KindId::TYPE),
+        ScopedTypeData::RecordRow(_) => KindResolution::Ready(KindId::RECORD_ROW),
         ScopedTypeData::TypePack(_) | ScopedTypeData::TypePackConcat(_) => KindResolution::Ready(KindId::TYPE_PACK),
         ScopedTypeData::LabeledTypePack(_) | ScopedTypeData::LabeledTypePackConcat(_) => KindResolution::Ready(KindId::LABELED_TYPE_PACK),
         ScopedTypeData::CompleteTypePack { .. } => KindResolution::Ready(KindId::COMPLETE_TYPE_PACK),
@@ -1058,7 +1059,13 @@ fn lower_scoped_type_form(
             } else {
                 scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, origin, diagnostics))
             };
-            if intrinsic_type_application_for_scoped_form(store, declarations, scoped_origin) == Some(IntrinsicTypeApplication::Record) {
+            if intrinsic_application_has_domain(
+                store,
+                declarations,
+                scoped_origin,
+                IntrinsicTypeApplication::Record,
+                VariadicApplicationDomain::RecordFields,
+            ) {
                 if arguments.is_empty() {
                     return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Record(Box::new([]))));
                 }
@@ -1111,8 +1118,147 @@ fn lower_scoped_type_form(
             }
             if let Some(contract) = scoped_generic_application_contract(store, declarations, scoped_origin)
                 && contract.has_variadic_binder()
+                && contract.variadic_domains().as_deref() == Some(&[VariadicApplicationDomain::RecordFields])
+            {
+                let fixed_count = contract
+                    .parameter_modes
+                    .iter()
+                    .take_while(|mode| **mode == GenericParameterMode::Single)
+                    .count();
+                if arguments.len() < fixed_count || arguments.len() > fixed_count + 1 {
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::TooManyTypeArguments);
+                }
+
+                let mut lowered = Vec::with_capacity(contract.parameter_modes.len());
+                for argument in arguments.iter().take(fixed_count) {
+                    let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                    };
+                    lowered.push(scoped_ready_or_propagate!(lower_scoped_type_form(
+                        store,
+                        declarations,
+                        resolver,
+                        site,
+                        binders,
+                        argument,
+                        diagnostics,
+                    )));
+                }
+
+                    let row = if arguments.len() == fixed_count {
+                    store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow {
+                        fields: Box::new([]),
+                        tail: ScopedRecordRowTail::Closed,
+                    }))
+                } else {
+                    let phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) = &arguments[fixed_count] else {
+                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                    };
+                    if expansion.mode != ExpansionMode::Labeled {
+                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                    }
+                    let row = if let TypeAnnotationExpr::Reference(reference) = &expansion.operand.expr
+                        && reference.members.is_empty()
+                        && let Some(TypeLevelBinding::RecordRow(parameter)) = resolver.resolve_type_level_binding(reference.leaf_name())
+                    {
+                        store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow {
+                            fields: Box::new([]),
+                            tail: ScopedRecordRowTail::FreeParameter(parameter),
+                        }))
+                    } else {
+                        scoped_ready_or_propagate!(lower_scoped_type_form(
+                            store,
+                            declarations,
+                            resolver,
+                            site,
+                            binders,
+                            &expansion.operand,
+                            diagnostics,
+                        ))
+                    };
+                    let row = match store.arena().get_scoped(row).clone() {
+                        ScopedTypeData::Record(fields) => store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow {
+                            fields,
+                            tail: ScopedRecordRowTail::Closed,
+                        })),
+                        ScopedTypeData::OpenRecord(record) => {
+                            let tail = match record.tail {
+                                ScopedRecordTail::FreeParameter(parameter) => ScopedRecordRowTail::FreeParameter(parameter),
+                                ScopedRecordTail::Bound { depth, index } => ScopedRecordRowTail::Bound { depth, index },
+                            };
+                            store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow {
+                                fields: record.fields,
+                                tail,
+                            }))
+                        }
+                        ScopedTypeData::RecordRow(_) => row,
+                        ScopedTypeData::Free(ty) => match store.get(ty).clone() {
+                            TypeData::Record(canonical_row) => {
+                                let canonical = store.record_row(canonical_row).clone();
+                                let fields = canonical
+                                    .fields
+                                    .iter()
+                                    .map(|field| ScopedRecordField {
+                                        name: field.name.clone(),
+                                        ty: intern_scoped_free(store, field.ty),
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .into_boxed_slice();
+                                let tail = match canonical.tail {
+                                    RecordRowTail::Closed => ScopedRecordRowTail::Closed,
+                                    RecordRowTail::Parameter(parameter) => ScopedRecordRowTail::FreeParameter(parameter),
+                                    RecordRowTail::Projection(projection) => ScopedRecordRowTail::Projection(projection),
+                                };
+                                store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow { fields, tail }))
+                            }
+                            TypeData::TypeMemberProjection(_) if store.kind_of(ty) == KindId::RECORD_ROW => {
+                                store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow {
+                                    fields: Box::new([]),
+                                    tail: ScopedRecordRowTail::Projection(ty),
+                                }))
+                            }
+                            _ => return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                        },
+                        _ => return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                    };
+                    match scoped_kind(store, row, binders) {
+                        TypeFormationOutcome::Ready(KindId::RECORD_ROW) => row,
+                        TypeFormationOutcome::Ready(_) | TypeFormationOutcome::Invalid(_) => {
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                        }
+                        TypeFormationOutcome::Dynamic => return TypeFormationOutcome::Dynamic,
+                        TypeFormationOutcome::Missing(reason) => return TypeFormationOutcome::Missing(reason),
+                        TypeFormationOutcome::Unresolved(reason) => return TypeFormationOutcome::Unresolved(reason),
+                        TypeFormationOutcome::Blocked(reason) => return TypeFormationOutcome::Blocked(reason),
+                        TypeFormationOutcome::Cancelled => return TypeFormationOutcome::Cancelled,
+                        TypeFormationOutcome::BudgetExceeded(report) => return TypeFormationOutcome::BudgetExceeded(report),
+                        TypeFormationOutcome::InternalFailure(failure) => return TypeFormationOutcome::InternalFailure(failure),
+                    }
+                };
+                lowered.push(row);
+
+                let origin_kind = scoped_ready_or_propagate!(scoped_kind(store, scoped_origin, binders));
+                let mut argument_kinds = Vec::with_capacity(lowered.len());
+                for &argument in &lowered {
+                    argument_kinds.push(scoped_ready_or_propagate!(scoped_kind(store, argument, binders)));
+                }
+                return match store.apply_kind(origin_kind, &argument_kinds) {
+                    Ok(_) => TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Applied {
+                        origin: scoped_origin,
+                        arguments: lowered.into_boxed_slice(),
+                    })),
+                    Err(KindApplicationError::NotApplicable { .. }) => TypeFormationOutcome::Invalid(TypeFormationInvalid::NotAConstructor),
+                    Err(KindApplicationError::TooManyArguments { .. }) => TypeFormationOutcome::Invalid(TypeFormationInvalid::TooManyTypeArguments),
+                    Err(KindApplicationError::ArgumentKindMismatch { .. }) => TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                };
+            }
+            if let Some(contract) = scoped_generic_application_contract(store, declarations, scoped_origin)
+                && contract.has_variadic_binder()
             {
                 debug_assert_eq!(contract.parameter_kinds.len(), contract.parameter_modes.len());
+                let Some(domains) = contract.variadic_domains() else {
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                };
                 let fixed_count = contract
                     .parameter_modes
                     .iter()
@@ -1196,16 +1342,23 @@ fn lower_scoped_type_form(
                 let labeled = store
                     .arena_mut()
                     .intern_scoped(ScopedTypeData::LabeledTypePackConcat(labeled_segments.into_boxed_slice()));
-                for mode in contract.parameter_modes.iter().skip(fixed_count) {
-                    lowered.push(match mode {
-                        GenericParameterMode::PositionalPack => positionals,
-                        GenericParameterMode::LabeledPack => labeled,
-                        GenericParameterMode::CompletePack => store.arena_mut().intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled }),
-                        GenericParameterMode::Single => return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax),
+                for domain in domains {
+                    lowered.push(match domain {
+                        VariadicApplicationDomain::Positionals => positionals,
+                        VariadicApplicationDomain::Labeled => labeled,
+                        VariadicApplicationDomain::Complete => store.arena_mut().intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled }),
+                        VariadicApplicationDomain::RecordFields => {
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                        }
                     });
                 }
-                if intrinsic_type_application_for_scoped_form(store, declarations, scoped_origin) == Some(IntrinsicTypeApplication::Tuple)
-                    && lowered.len() == 1
+                if intrinsic_application_has_domain(
+                    store,
+                    declarations,
+                    scoped_origin,
+                    IntrinsicTypeApplication::Tuple,
+                    VariadicApplicationDomain::Complete,
+                ) && lowered.len() == 1
                 {
                     if let ScopedTypeData::CompleteTypePack { positionals, labeled } = store.arena().get_scoped(lowered[0]).clone() {
                         return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::TupleFromPacks { positionals, labeled }));
@@ -1686,6 +1839,14 @@ struct GenericApplicationContract {
     parameter_modes: Box<[GenericParameterMode]>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum VariadicApplicationDomain {
+    Positionals,
+    Labeled,
+    Complete,
+    RecordFields,
+}
+
 impl GenericApplicationContract {
     fn from_binder_header(header: &GenericBinderHeader, consumed: usize) -> Option<Self> {
         (consumed <= header.parameters.len()).then(|| Self {
@@ -1703,6 +1864,29 @@ impl GenericApplicationContract {
 
     fn has_variadic_binder(&self) -> bool {
         self.parameter_modes.iter().any(|mode| *mode != GenericParameterMode::Single)
+    }
+
+    fn variadic_domains(&self) -> Option<Vec<VariadicApplicationDomain>> {
+        if self.parameter_kinds.len() != self.parameter_modes.len() {
+            return None;
+        }
+
+        let fixed_count = self.parameter_modes.iter().take_while(|mode| **mode == GenericParameterMode::Single).count();
+        self.parameter_kinds
+            .iter()
+            .skip(fixed_count)
+            .zip(self.parameter_modes.iter().skip(fixed_count))
+            .map(|(kind, mode)| {
+                let domain = match (*kind, *mode) {
+                    (KindId::TYPE_PACK, GenericParameterMode::PositionalPack) => VariadicApplicationDomain::Positionals,
+                    (KindId::LABELED_TYPE_PACK, GenericParameterMode::LabeledPack) => VariadicApplicationDomain::Labeled,
+                    (KindId::RECORD_ROW, GenericParameterMode::LabeledPack) => VariadicApplicationDomain::RecordFields,
+                    (KindId::COMPLETE_TYPE_PACK, GenericParameterMode::CompletePack) => VariadicApplicationDomain::Complete,
+                    _ => return None,
+                };
+                Some(domain)
+            })
+            .collect()
     }
 }
 
@@ -1769,6 +1953,32 @@ fn intrinsic_type_application_for_scoped_form(
         return None;
     };
     intrinsic_type_application_for_form(store, declarations, *origin)
+}
+
+fn intrinsic_application_has_domain(
+    store: &TypeStore,
+    declarations: &DeclarationTypeTable,
+    origin: crate::types::id::ScopedTypeId,
+    intrinsic: IntrinsicTypeApplication,
+    expected_domain: VariadicApplicationDomain,
+) -> bool {
+    intrinsic_type_application_for_scoped_form(store, declarations, origin) == Some(intrinsic)
+        && scoped_generic_application_contract(store, declarations, origin)
+            .and_then(|contract| contract.variadic_domains())
+            .is_some_and(|domains| domains.as_slice() == [expected_domain])
+}
+
+fn intrinsic_application_has_type_domain(
+    store: &TypeStore,
+    declarations: &DeclarationTypeTable,
+    origin: TypeId,
+    intrinsic: IntrinsicTypeApplication,
+    expected_domain: VariadicApplicationDomain,
+) -> bool {
+    intrinsic_type_application_for_form(store, declarations, origin) == Some(intrinsic)
+        && generic_application_contract(store, declarations, origin)
+            .and_then(|contract| contract.variadic_domains())
+            .is_some_and(|domains| domains.as_slice() == [expected_domain])
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2166,7 +2376,13 @@ pub fn resolve_type_form(
             // RecordRow is a separate semantic identity, not a TypeId generic
             // argument. Consume a bound row directly and form the existing
             // structural Record value at this declaration-owned boundary.
-            if intrinsic_type_application_for_form(store, declarations, origin_ty) == Some(IntrinsicTypeApplication::Record) {
+            if intrinsic_application_has_type_domain(
+                store,
+                declarations,
+                origin_ty,
+                IntrinsicTypeApplication::Record,
+                VariadicApplicationDomain::RecordFields,
+            ) {
                 if arguments.is_empty() {
                     let row = match store.record_row_checked(Vec::new(), RecordRowTail::Closed) {
                         Ok(row) => row,
@@ -2354,6 +2570,9 @@ pub fn resolve_type_form(
                 && contract.has_variadic_binder()
             {
                 debug_assert_eq!(contract.parameter_kinds.len(), contract.parameter_modes.len());
+                let Some(domains) = contract.variadic_domains() else {
+                    return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                };
                 enum Contribution {
                     Single(TypeId),
                     Positional(TypeId),
@@ -2489,21 +2708,26 @@ pub fn resolve_type_form(
                         Ok(pack) => pack,
                         Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
                     };
-                    for mode in contract.parameter_modes.iter().skip(fixed_count) {
-                        match mode {
-                            GenericParameterMode::PositionalPack => canonical_arguments.push(positionals),
-                            GenericParameterMode::LabeledPack => canonical_arguments.push(labeled),
-                            GenericParameterMode::CompletePack => match store.complete_type_pack(positionals, labeled) {
+                    for domain in domains {
+                        match domain {
+                            VariadicApplicationDomain::Positionals => canonical_arguments.push(positionals),
+                            VariadicApplicationDomain::Labeled => canonical_arguments.push(labeled),
+                            VariadicApplicationDomain::Complete => match store.complete_type_pack(positionals, labeled) {
                                 Ok(pack) => canonical_arguments.push(pack),
                                 Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
                             },
-                            GenericParameterMode::Single => {
-                                return TypeFormResolution::InternalFailure("non-prefix fixed generic binder escaped signature validation".into());
+                            VariadicApplicationDomain::RecordFields => {
+                                return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
                             }
                         }
                     }
-                    if intrinsic_type_application_for_form(store, declarations, origin_ty) == Some(IntrinsicTypeApplication::Tuple)
-                        && canonical_arguments.len() == 1
+                    if intrinsic_application_has_type_domain(
+                        store,
+                        declarations,
+                        origin_ty,
+                        IntrinsicTypeApplication::Tuple,
+                        VariadicApplicationDomain::Complete,
+                    ) && canonical_arguments.len() == 1
                     {
                         let complete = canonical_arguments[0];
                         let positionals = match store.project_positionals(complete) {
