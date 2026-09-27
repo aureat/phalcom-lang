@@ -1905,9 +1905,18 @@ next action:
     deferred semantic-dispatch failure; no rest adapter change was made.
     No broad T4/T5 suite, workspace gate, or release certification was run.
     T4 remains IMPLEMENTED / FOCUSED_TESTED and T5 is IMPLEMENTED /
-    FOCUSED_TESTED under the R2 amendment. Original P4 T6.1–T6.3 now have
-    focused semantic and metadata evidence, pending supervisor review; T6.4–
-    T6.8 and T7–T13 remain open. INC-C3-17 records the scoped RecordRow
+    FOCUSED_TESTED under the R2 amendment. Original P4 T6.1–T6.3 have focused
+    semantic and metadata evidence, pending supervisor review. T6.5's explicit
+    replace/refresh split and stale-projection regressions were already
+    implemented in `5d18729d` and were reverified in this continuation; the
+    production callsite census uses explicit replace/refresh operations, while
+    `insert` remains a compatibility alias to authoritative replacement.
+    Pinned selectors `runtime_owner_registration_preserves_intrinsic_semantic_application`
+    and `static_domain_projection_survives_shell_refresh_and_authoritative_replacement_retires_it`
+    each selected/passed 1, covering runtime/semantic owner and static-domain
+    projection retirement on authoritative replacement.
+    T6.4 remains sequenced after T9/T10; T6.6 is the next unblocked task, with
+    T6.7–T6.8 and T7–T13 still open. INC-C3-17 records the scoped RecordRow
     carrier and schema-v9 amendment. Overall checkpoint P4 remains
     IN_PROGRESS / PARTIAL / UNVERIFIED.
 
