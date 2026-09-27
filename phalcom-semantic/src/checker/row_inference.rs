@@ -887,15 +887,19 @@ impl GenericApplicationSession {
             }
             let Some(solution) = solution else {
                 visiting.remove(&variable);
-                return application.row_proofs.get(&variable).cloned().unwrap_or(InferenceProofState::Unknown(
-                    crate::types::evidence::UnknownReason::InferenceBlocked,
-                ));
+                return application
+                    .row_proofs
+                    .get(&variable)
+                    .cloned()
+                    .unwrap_or(InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked));
             };
             let Some(row) = solution.term_for(variable) else {
                 visiting.remove(&variable);
-                return application.row_proofs.get(&variable).cloned().unwrap_or(InferenceProofState::Unknown(
-                    crate::types::evidence::UnknownReason::InferenceBlocked,
-                ));
+                return application
+                    .row_proofs
+                    .get(&variable)
+                    .cloned()
+                    .unwrap_or(InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked));
             };
             let mut proof = application.row_proofs.get(&variable).cloned().unwrap_or_else(|| {
                 if row.fields.is_empty() && row.tail == RecordRowTermTail::Closed {
@@ -1174,6 +1178,7 @@ mod stable_row_lacks_tests {
 #[cfg(test)]
 mod row_proof_matrix_tests {
     use super::{GenericApplicationSession, GenericInferenceBinding, InferenceRecord, InferenceRecordTail};
+    use crate::checker::inference::InferenceProofState;
     use crate::identity::{DeclarationId, ModuleId};
     use crate::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
     use crate::types::id::{KindId, TypeParameterId};
@@ -1182,7 +1187,6 @@ mod row_proof_matrix_tests {
     use crate::types::row_solver::{RecordRowSolution, RecordRowTerm, RecordRowTermTail, RecordRowVarId};
     use crate::types::store::TypeStore;
     use std::collections::HashMap;
-    use crate::checker::inference::InferenceProofState;
 
     fn owner() -> DeclarationId {
         DeclarationId::new(ModuleId::universe_root(), "RowProofMatrix".into())
@@ -1192,14 +1196,7 @@ mod row_proof_matrix_tests {
         let mut store = TypeStore::new();
         let owner = TypeParameterOwner::Declaration(owner());
         let parameters = (0..count)
-            .map(|index| {
-                store.intern_type_parameter(TypeParameterData::new(
-                    owner.clone(),
-                    index as u32,
-                    format!("R{index}"),
-                    KindId::RECORD_ROW,
-                ))
-            })
+            .map(|index| store.intern_type_parameter(TypeParameterData::new(owner.clone(), index as u32, format!("R{index}"), KindId::RECORD_ROW)))
             .collect::<Vec<_>>();
         let signature = GenericSignature::new(owner, parameters.clone().into_boxed_slice());
         let application = GenericApplicationSession::new(&signature, &store);
@@ -1220,7 +1217,10 @@ mod row_proof_matrix_tests {
         })
     }
 
-    fn closed_solution(variable: RecordRowVarId, fields: Vec<RecordRowField<crate::checker::InferenceTerm>>) -> RecordRowSolution<crate::checker::InferenceTerm> {
+    fn closed_solution(
+        variable: RecordRowVarId,
+        fields: Vec<RecordRowField<crate::checker::InferenceTerm>>,
+    ) -> RecordRowSolution<crate::checker::InferenceTerm> {
         RecordRowSolution {
             substitutions: HashMap::from([(
                 variable,
@@ -1242,10 +1242,7 @@ mod row_proof_matrix_tests {
         };
         let type_session = crate::checker::InferenceSession::new();
 
-        application.record_record_row_expansion_premise(
-            parameters[0],
-            &TypeKnowledge::established(int, EvidenceOrigin::Syntax),
-        );
+        application.record_record_row_expansion_premise(parameters[0], &TypeKnowledge::established(int, EvidenceOrigin::Syntax));
         assert_eq!(
             application.proof_state_for_term(&type_session, &result_row(variables[0]), Some(&closed_solution(variables[0], vec![field()]))),
             InferenceProofState::Established,
@@ -1259,14 +1256,8 @@ mod row_proof_matrix_tests {
             ty: crate::checker::InferenceTerm::Canonical(int),
         };
         let type_session = crate::checker::InferenceSession::new();
-        application.record_record_row_expansion_premise(
-            parameters[0],
-            &TypeKnowledge::established(int, EvidenceOrigin::Syntax),
-        );
-        application.record_record_row_expansion_premise(
-            parameters[0],
-            &TypeKnowledge::assumed(int, EvidenceOrigin::CallableSignature),
-        );
+        application.record_record_row_expansion_premise(parameters[0], &TypeKnowledge::established(int, EvidenceOrigin::Syntax));
+        application.record_record_row_expansion_premise(parameters[0], &TypeKnowledge::assumed(int, EvidenceOrigin::CallableSignature));
         assert_eq!(
             application.proof_state_for_term(&type_session, &result_row(variables[0]), Some(&closed_solution(variables[0], vec![field()]))),
             InferenceProofState::Assumed,
@@ -1276,14 +1267,8 @@ mod row_proof_matrix_tests {
         let (mut store, mut application, parameters, variables) = new_application(1);
         let int = store.nominal_type(owner());
         let type_session = crate::checker::InferenceSession::new();
-        application.record_record_row_expansion_premise(
-            parameters[0],
-            &TypeKnowledge::established(int, EvidenceOrigin::Syntax),
-        );
-        application.record_record_row_expansion_premise(
-            parameters[0],
-            &TypeKnowledge::established(int, EvidenceOrigin::Syntax),
-        );
+        application.record_record_row_expansion_premise(parameters[0], &TypeKnowledge::established(int, EvidenceOrigin::Syntax));
+        application.record_record_row_expansion_premise(parameters[0], &TypeKnowledge::established(int, EvidenceOrigin::Syntax));
         assert_eq!(
             application.proof_state_for_term(
                 &type_session,
@@ -1291,8 +1276,14 @@ mod row_proof_matrix_tests {
                 Some(&closed_solution(
                     variables[0],
                     vec![
-                        RecordRowField { name: "left".into(), ty: crate::checker::InferenceTerm::Canonical(int) },
-                        RecordRowField { name: "right".into(), ty: crate::checker::InferenceTerm::Canonical(int) },
+                        RecordRowField {
+                            name: "left".into(),
+                            ty: crate::checker::InferenceTerm::Canonical(int)
+                        },
+                        RecordRowField {
+                            name: "right".into(),
+                            ty: crate::checker::InferenceTerm::Canonical(int)
+                        },
                     ],
                 )),
             ),
@@ -1306,17 +1297,17 @@ mod row_proof_matrix_tests {
         let (mut store, mut application, parameters, variables) = new_application(1);
         let int = store.nominal_type(owner());
         let type_session = crate::checker::InferenceSession::new();
-        application.record_record_row_expansion_premise(
-            parameters[0],
-            &TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-        );
+        application.record_record_row_expansion_premise(parameters[0], &TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
         assert_eq!(
             application.proof_state_for_term(
                 &type_session,
                 &result_row(variables[0]),
                 Some(&closed_solution(
                     variables[0],
-                    vec![RecordRowField { name: "value".into(), ty: crate::checker::InferenceTerm::Canonical(int) }],
+                    vec![RecordRowField {
+                        name: "value".into(),
+                        ty: crate::checker::InferenceTerm::Canonical(int)
+                    }],
                 )),
             ),
             InferenceProofState::Unknown(UnknownReason::NoTypeEvidence)
@@ -1325,17 +1316,17 @@ mod row_proof_matrix_tests {
         let (mut store, mut application, parameters, variables) = new_application(1);
         let int = store.nominal_type(owner());
         let type_session = crate::checker::InferenceSession::new();
-        application.record_record_row_expansion_premise(
-            parameters[0],
-            &TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape),
-        );
+        application.record_record_row_expansion_premise(parameters[0], &TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape));
         assert_eq!(
             application.proof_state_for_term(
                 &type_session,
                 &result_row(variables[0]),
                 Some(&closed_solution(
                     variables[0],
-                    vec![RecordRowField { name: "value".into(), ty: crate::checker::InferenceTerm::Canonical(int) }],
+                    vec![RecordRowField {
+                        name: "value".into(),
+                        ty: crate::checker::InferenceTerm::Canonical(int)
+                    }],
                 )),
             ),
             InferenceProofState::Dynamic(DynamicReason::ExplicitEscape)
@@ -1354,14 +1345,17 @@ mod row_proof_matrix_tests {
 
         let (mut store, mut application, parameters, variables) = new_application(1);
         let int = store.nominal_type(owner());
-        application.record_record_row_expansion_premise(
-            parameters[0],
-            &TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-        );
-        application.rows.add_lacks(variables[0], "fixed".into()).expect("lacks constraint should be accepted");
+        application.record_record_row_expansion_premise(parameters[0], &TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+        application
+            .rows
+            .add_lacks(variables[0], "fixed".into())
+            .expect("lacks constraint should be accepted");
         let constrained = closed_solution(
             variables[0],
-            vec![RecordRowField { name: "other".into(), ty: crate::checker::InferenceTerm::Canonical(int) }],
+            vec![RecordRowField {
+                name: "other".into(),
+                ty: crate::checker::InferenceTerm::Canonical(int),
+            }],
         );
         assert_eq!(
             application.proof_state_for_term(&type_session, &result_row(variables[0]), Some(&constrained)),
@@ -1374,18 +1368,9 @@ mod row_proof_matrix_tests {
     fn nested_dependencies_propagate_but_irrelevant_weak_rows_do_not() {
         let (mut store, mut application, parameters, variables) = new_application(3);
         let int = store.nominal_type(owner());
-        application.record_record_row_expansion_premise(
-            parameters[0],
-            &TypeKnowledge::established(int, EvidenceOrigin::Syntax),
-        );
-        application.record_record_row_expansion_premise(
-            parameters[1],
-            &TypeKnowledge::assumed(int, EvidenceOrigin::CallableSignature),
-        );
-        application.record_record_row_expansion_premise(
-            parameters[2],
-            &TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape),
-        );
+        application.record_record_row_expansion_premise(parameters[0], &TypeKnowledge::established(int, EvidenceOrigin::Syntax));
+        application.record_record_row_expansion_premise(parameters[1], &TypeKnowledge::assumed(int, EvidenceOrigin::CallableSignature));
+        application.record_record_row_expansion_premise(parameters[2], &TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape));
         let type_session = crate::checker::InferenceSession::new();
         let nested = RecordRowSolution {
             substitutions: HashMap::from([
@@ -1406,14 +1391,22 @@ mod row_proof_matrix_tests {
                 (
                     variables[1],
                     RecordRowTerm {
-                        fields: vec![RecordRowField { name: "value".into(), ty: crate::checker::InferenceTerm::Canonical(int) }].into_boxed_slice(),
+                        fields: vec![RecordRowField {
+                            name: "value".into(),
+                            ty: crate::checker::InferenceTerm::Canonical(int),
+                        }]
+                        .into_boxed_slice(),
                         tail: RecordRowTermTail::Closed,
                     },
                 ),
                 (
                     variables[2],
                     RecordRowTerm {
-                        fields: vec![RecordRowField { name: "unrelated".into(), ty: crate::checker::InferenceTerm::Canonical(int) }].into_boxed_slice(),
+                        fields: vec![RecordRowField {
+                            name: "unrelated".into(),
+                            ty: crate::checker::InferenceTerm::Canonical(int),
+                        }]
+                        .into_boxed_slice(),
                         tail: RecordRowTermTail::Closed,
                     },
                 ),

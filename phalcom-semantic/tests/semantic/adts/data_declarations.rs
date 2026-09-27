@@ -608,10 +608,7 @@ class Probe {
         )
     });
     let declaration = fixture.decl("Envelope");
-    assert_eq!(
-        fixture.analysis.snapshot.store.nominal_origin_declaration(result),
-        Some(&declaration)
-    );
+    assert_eq!(fixture.analysis.snapshot.store.nominal_origin_declaration(result), Some(&declaration));
     let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(result) else {
         panic!("constructor result must be nominal Applied: {expression:#?}");
     };
@@ -620,31 +617,21 @@ class Probe {
     };
     let row = fixture.analysis.snapshot.store.record_row(*row_id);
     assert_eq!(row.tail, RecordRowTail::Closed);
-    assert_eq!(expression.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Established));
     assert_eq!(
-        row.fields
-            .iter()
-            .map(|field| (field.name.as_ref(), field.ty))
-            .collect::<Vec<_>>(),
+        expression.knowledge.status(),
+        Some(phalcom_semantic::types::evidence::EvidenceStatus::Established)
+    );
+    assert_eq!(
+        row.fields.iter().map(|field| (field.name.as_ref(), field.ty)).collect::<Vec<_>>(),
         vec![("age", fixture.ty("Int")), ("name", fixture.ty("String"))]
     );
 
-    let info = fixture
-        .analysis
-        .snapshot
-        .data_semantics
-        .data_info(&declaration)
-        .expect("Envelope data product");
+    let info = fixture.analysis.snapshot.data_semantics.data_info(&declaration).expect("Envelope data product");
     let mut store = fixture.analysis.snapshot.store.as_ref().clone();
-    let shape =
-        materialize_data_product_shape(&mut store, info, result).expect("materialize inferred product shape");
+    let shape = materialize_data_product_shape(&mut store, info, result).expect("materialize inferred product shape");
     assert_eq!(shape.state, DataProductShapeState::Concrete);
     assert_eq!(
-        shape
-            .components
-            .iter()
-            .map(|component| component.label.as_deref())
-            .collect::<Vec<_>>(),
+        shape.components.iter().map(|component| component.label.as_deref()).collect::<Vec<_>>(),
         vec![Some("id"), Some("age"), Some("name")]
     );
     assert_eq!(
@@ -684,21 +671,17 @@ class Probe {
     assert_eq!(parameter.status(), Some(EvidenceStatus::Assumed));
     let parameter_ty = parameter.ty().expect("generic parameter has a canonical type");
     let constructor = fixture.expression(make, "Envelope { id: 1, name: value }");
-    let constructed_ty = constructor.knowledge.ty().unwrap_or_else(|| {
-        panic!("generic-field constructor lost nominal result: {constructor:#?}")
-    });
-    let phalcom_semantic::types::store::TypeData::Applied { arguments, .. } =
-        fixture.analysis.snapshot.store.get(constructed_ty)
-    else {
+    let constructed_ty = constructor
+        .knowledge
+        .ty()
+        .unwrap_or_else(|| panic!("generic-field constructor lost nominal result: {constructor:#?}"));
+    let phalcom_semantic::types::store::TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(constructed_ty) else {
         panic!("constructor result must remain nominal Applied: {constructor:#?}");
     };
     let [StaticArgument::RecordRow(row)] = arguments.as_ref() else {
         panic!("constructor must retain one inferred RecordRow, got {arguments:#?}");
     };
-    assert_eq!(
-        fixture.analysis.snapshot.store.record_row(*row).find_field("name"),
-        Some(parameter_ty)
-    );
+    assert_eq!(fixture.analysis.snapshot.store.record_row(*row).find_field("name"), Some(parameter_ty));
     assert_eq!(constructor.knowledge.status(), Some(EvidenceStatus::Assumed));
     assert_ne!(constructor.knowledge.status(), Some(EvidenceStatus::Established));
 }
@@ -724,7 +707,10 @@ class Probe {
     );
     let make = fixture.callable("Probe", "make", DispatchSide::Class);
     let constructor = fixture.expression(make, "Envelope { id: 1, name: value, age: 42 }");
-    assert!(constructor.knowledge.ty().is_some(), "nominal result survives mixed row evidence: {constructor:#?}");
+    assert!(
+        constructor.knowledge.ty().is_some(),
+        "nominal result survives mixed row evidence: {constructor:#?}"
+    );
     assert_eq!(constructor.knowledge.status(), Some(EvidenceStatus::Assumed));
 }
 
