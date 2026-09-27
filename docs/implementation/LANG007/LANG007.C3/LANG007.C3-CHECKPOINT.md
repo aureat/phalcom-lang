@@ -1915,9 +1915,12 @@ next action:
     and `static_domain_projection_survives_shell_refresh_and_authoritative_replacement_retires_it`
     each selected/passed 1, covering runtime/semantic owner and static-domain
     projection retirement on authoritative replacement.
-    T6.4 remains sequenced after T9/T10; T6.6 is the next unblocked task, with
-    T6.7–T6.8 and T7–T13 still open. INC-C3-17 records the scoped RecordRow
-    carrier and schema-v9 amendment. Overall checkpoint P4 remains
+    T6.4 remains sequenced after T9/T10. T6.6 continues under the adopted
+    lexical-body amendment INC-C3-19; INC-C3-18's source rewrite is
+    superseded. The canonical bootstrap still requires focused verification
+    through both `universe:errors.result` and `universe:option.option`.
+    T6.7–T6.8 and T7–T13 remain open. INC-C3-17
+    records the scoped RecordRow carrier and schema-v9 amendment. Overall checkpoint P4 remains
     IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
@@ -2534,3 +2537,69 @@ to bypass the gate.
 
 P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; T5 is incomplete, and no
 checkpoint or release acceptance is claimed.
+
+### INC-C3-18 — T6.6 generic exact-case contextual result boundary — 2026-09-27
+
+Normative rule: `docs/specs/objects/enums.md` § nullary variants states that
+`Option::None` evaluates for the inferred or explicitly supplied exact
+`Option<T>` application. A generic expected result may therefore specialize
+an otherwise-underconstrained unqualified exact case only when inference proves
+the same canonical applied enum owner. An explicit conflicting owner and a
+no-context lookup remain unchanged.
+
+Observed: the canonical bootstrap first failed in
+`universe:errors.result::Result.transpose` at its nested `Option::None`. The
+declared result `Option<Result<U, E>>` reaches the body-tail match and the
+`synthesize_match_expr` branch expectation. The failing source used a braced
+match arm; parser `parse_match_arm_branch` represents those braces as an
+`Expr::Block` closure, whose callable return expectation is independent of the
+enclosing non-callable return type. Its tail expression consequently receives
+`ExpectedType::None`. The direct-match semantic discriminator receives the
+expected owner and publishes the exact case. Impl owner/callable parameters
+and the `where T == Option<U>` domain constraint are available in body scope;
+they do not block construction of the declared result type.
+
+Historical decision (superseded by INC-C3-19): the `Result::Ok(option)` arm
+was rewritten as a direct nested `match` because the parser represented its
+braces as a Closure. Preserve the exact-case rule: contextual specialization
+is accepted only after the materialized `ExactCase.enum_type` equals the exact
+expected applied owner; other residual generic values still use the ordinary
+underconstraint guard.
+
+Evidence retained historically: the canonical bootstrap advanced past
+`universe:errors.result` but failed in `universe:option.option` with
+`AssociatedLookupNotLoweredYet`; this was not a passing bootstrap gate. The
+focused semantic generic-context, no-context, conflicting-owner, and
+associated lookup controls each selected/passed 1 test. No codegen fallback
+was restored. The source rewrite and no-parser-change conclusion are
+superseded: match-arm/if braces are lexical control-flow bodies, not Closure
+construction.
+
+### INC-C3-19 — lexical control-flow bodies versus Closure values — 2026-09-27
+
+Decision: represent lexical control-flow bodies distinctly from first-class
+Closure expressions. Braced match arms and source `if` bodies are lexical
+bodies: semantic analysis executes them inline in a nested scope, retains the
+enclosing return/control-flow context and flow, and propagates the expected
+result type. Explicit, parameterized, and trailing Closure syntax remains a
+Closure with independent capture, expectation, and construction behavior.
+Compiler lowering consumes the distinct AST forms; match arms already lower
+their branch blocks inline. Do not restore codegen-time `UniverseKey` name
+recognition or extend this work into a Closure runtime overhaul. Source `while`
+may follow the same lexical model only if the shared representation directly
+requires it for P4 acceptance; consult root before broadening.
+
+INC-C3-18's `Result::Ok(option) => match ...` source rewrite was a workaround
+for conflating braced lexical bodies with Closure construction and is
+superseded. Restore the natural braced match arm in
+`phalcom-core/core/universe/src/errors/result.ph` when the shared semantics
+work is ready. The same rule must fix `Option.filter`'s braced `if` body
+without special-casing either Universe source.
+
+Acceptance requires focused evidence for: match-arm versus Closure AST shape;
+dedicated `if` versus explicit/trailing Closure parsing; expected-result
+propagation through match and `if`; Closure expectation isolation; flow joins
+without Closure construction; inline match lowering without Closure
+construction; and canonical Universe bootstrap through both Result and
+Option. T6.6 remains open until these gates pass; P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
