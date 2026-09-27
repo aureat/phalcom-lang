@@ -644,16 +644,14 @@ fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -
         TypeData::ExactCase { .. } => true,
         TypeData::Applied { origin, arguments } => {
             contains_exact_case(store, *origin)
-                || arguments
-                    .iter()
-                    .any(|argument| argument.as_type_id().is_some_and(|argument| contains_exact_case(store, argument)))
+                || arguments.iter().any(|argument| match argument {
+                    phalcom_semantic::types::store::StaticArgument::Term(argument) => contains_exact_case(store, *argument),
+                    phalcom_semantic::types::store::StaticArgument::RecordRow(row) => contains_exact_case_in_row(store, *row),
+                })
         }
         TypeData::Union(members) => members.iter().any(|&m| contains_exact_case(store, m)),
         TypeData::Tuple(elems) => elems.iter().any(|e| contains_exact_case(store, e.ty)),
-        TypeData::Record(row_id) => {
-            let row = store.record_row(*row_id);
-            row.fields.iter().any(|f| contains_exact_case(store, f.ty))
-        }
+        TypeData::Record(row_id) => contains_exact_case_in_row(store, *row_id),
         TypeData::Callable(call) => call.parameters.iter().any(|p| contains_exact_case(store, p.ty)) || contains_exact_case(store, call.return_type),
         TypeData::Lambda(lambda_id) => {
             let mut free_types = Vec::new();
@@ -661,8 +659,29 @@ fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -
             store.arena().collect_free_types(lambda.body, &mut free_types);
             free_types.into_iter().any(|free_type| contains_exact_case(store, free_type))
         }
+        TypeData::TypeMemberProjection(projection) => {
+            let subject_contains_exact_case = match projection.subject {
+                phalcom_semantic::types::type_member::ProjectionSubject::Type(subject) => contains_exact_case(store, subject),
+                phalcom_semantic::types::type_member::ProjectionSubject::RecordRow(row) => contains_exact_case_in_row(store, row),
+            };
+            subject_contains_exact_case
+                || projection.arguments.iter().any(|argument| match argument {
+                    phalcom_semantic::types::type_member::TypeMemberArgument::Type(argument) => contains_exact_case(store, *argument),
+                    phalcom_semantic::types::type_member::TypeMemberArgument::RecordRow(row) => contains_exact_case_in_row(store, *row),
+                    phalcom_semantic::types::type_member::TypeMemberArgument::Const(_) => false,
+                })
+        }
         _ => false,
     }
+}
+
+fn contains_exact_case_in_row(store: &phalcom_semantic::types::TypeStore, row_id: phalcom_semantic::types::RecordRowId) -> bool {
+    let row = store.record_row(row_id);
+    row.fields.iter().any(|field| contains_exact_case(store, field.ty))
+        || match row.tail {
+            phalcom_semantic::types::RecordRowTail::Projection(projection) => contains_exact_case(store, projection),
+            phalcom_semantic::types::RecordRowTail::Closed | phalcom_semantic::types::RecordRowTail::Parameter(_) => false,
+        }
 }
 
 fn build_data_construction_spec(
@@ -2708,6 +2727,9 @@ mod tests {
     use phalcom_common::selector::Selector;
     use phalcom_modules::identity::ModuleId;
     use phalcom_semantic::identity::{DeclarationId, VariantId};
+    use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
+    use phalcom_semantic::types::store::StaticArgument;
+    use phalcom_semantic::types::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberSelector};
     use phalcom_semantic::types::{KindId, ScopedTypeData, TypeStore};
 
     #[test]
@@ -2722,5 +2744,48 @@ mod tests {
         let lambda = store.type_lambda(lambda);
 
         assert!(contains_exact_case(&store, lambda));
+    }
+
+    #[test]
+    fn exact_case_detection_descends_into_applied_record_rows_and_projection_tails() {
+        let mut store = TypeStore::new();
+        let choice_owner = DeclarationId::new(ModuleId::universe_root(), "Choice".into());
+        let choice = store.nominal_type(choice_owner.clone());
+        let variant = VariantId::new(choice_owner, Selector::method("A", []).expect("variant selector"));
+        let exact_case = store.exact_case_type(&variant, choice).expect("exact case");
+
+        let applied_owner = DeclarationId::new(ModuleId::universe_root(), "RowBox".into());
+        let row_box_kind = store.arrow_kind(Box::new([KindId::RECORD_ROW]), KindId::TYPE);
+        let row_box = store.nominal_form(applied_owner, row_box_kind);
+        let field_row = store
+            .record_row_checked(
+                vec![RecordRowField {
+                    name: "payload".into(),
+                    ty: exact_case,
+                }],
+                RecordRowTail::Closed,
+            )
+            .expect("row with exact case field");
+        let applied_field = store
+            .apply_static_form(row_box, &[StaticArgument::RecordRow(field_row)])
+            .expect("applied row field");
+        assert!(contains_exact_case(&store, applied_field));
+
+        let projected_row = store.type_member_projection(
+            TypeLevelProjection {
+                subject: ProjectionSubject::Type(exact_case),
+                selector: TypeMemberSelector::Named("Fields".into()),
+                arguments: Box::new([]),
+                source_declaration: None,
+            },
+            KindId::RECORD_ROW,
+        );
+        let projected_tail = store
+            .record_row_checked(Vec::new(), RecordRowTail::Projection(projected_row))
+            .expect("projected row tail");
+        let applied_tail = store
+            .apply_static_form(row_box, &[StaticArgument::RecordRow(projected_tail)])
+            .expect("applied projected tail");
+        assert!(contains_exact_case(&store, applied_tail));
     }
 }

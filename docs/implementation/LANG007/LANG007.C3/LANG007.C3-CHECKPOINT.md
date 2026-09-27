@@ -1784,13 +1784,17 @@ next task:
     T5 acceptance remains incomplete.
 
 next action:
-    After review of INC-C3-16's focused semantic and core evidence, continue
-    the ordered R2 constructor-surface tasks. Keep context-only evidence
-    `Assumed`, preserve source/context conflicts and exact open-tail rejection,
-    and do not claim T5 or P4 acceptance from these discriminators. The closed-
-    row runtime representation slice remains IMPLEMENTED / FOCUSED_TESTED; T5
-    is still incomplete; T4 remains IMPLEMENTED / FOCUSED_TESTED; P4 remains
-    IN_PROGRESS / PARTIAL / UNVERIFIED.
+    R2 Step 5's heterogeneous Applied-consumer audit and its two bounded fixes
+    are focused-tested, pending supervisor review. Base metadata display now
+    includes RecordRow field types and open tails; semantic data-construction
+    exact-case detection now visits applied row fields and type-bearing
+    projection tails. The focused display and exact-case tests each selected /
+    passed 1; the existing reflection control selected / passed 1. The T5
+    source matrix selected / passed 5; declaration-class/descriptor interning
+    and equal-layout row identity tests each selected / passed 1; the fixed-
+    only data control selected / passed 1, all on nightly-2026-07-10. After
+    review, continue R2 Step 6 only. T5 and P4 remain incomplete; T4 remains
+    IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
     Priority 3's 40-way pre-remediation classification remains in

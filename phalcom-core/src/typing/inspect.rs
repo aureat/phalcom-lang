@@ -291,7 +291,22 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                                     display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *arg }, depth + 1)
                                 }
                                 phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
-                                    format!("{{{}}}", row.fields.iter().map(|field| field.name.as_ref()).collect::<Vec<_>>().join(", "))
+                                    let fields = row
+                                        .fields
+                                        .iter()
+                                        .map(|field| {
+                                            format!(
+                                                "{}: {}",
+                                                field.name,
+                                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
+                                            )
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    let tail = row.tail.as_ref().map_or(String::new(), |tail| {
+                                        format!("{}**R{}", if fields.is_empty() { "" } else { ", " }, tail.index)
+                                    });
+                                    format!("{{{fields}{tail}}}")
                                 }
                             }
                         })

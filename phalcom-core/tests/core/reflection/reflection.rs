@@ -1,6 +1,8 @@
 use phalcom_core::heap::{ClassObject, ListObject, Object};
 use phalcom_core::product::finish_tuple_value;
-use phalcom_core::typing::handle::MetadataPoolId;
+use phalcom_core::typing::context::TypingContextData;
+use phalcom_core::typing::handle::{MetadataPoolId, RuntimeTypeRef};
+use phalcom_core::typing::inspect;
 use phalcom_core::typing::loader::LoadedSemanticMetadata;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
@@ -19,7 +21,7 @@ use phalcom_type_meta::header::{
 };
 use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, StableDispatchSide, StableFieldRef, StableModuleRef, StableProjectRef};
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
-use phalcom_type_meta::type_node::{TypeNode, TypeNodeEntry, TypeNodeId};
+use phalcom_type_meta::type_node::{RecordFieldRef, RecordRowRef, StaticArgumentRef, TypeNode, TypeNodeEntry, TypeNodeId};
 use std::sync::Arc;
 
 fn send0(vm: &mut VM, receiver: Value, selector: &str) -> Value {
@@ -77,14 +79,24 @@ fn build_test_bundle() -> SemanticMetadataBundle {
         interface_fingerprint: Fingerprint128::ZERO,
     };
 
-    let kinds = Box::new([KindNodeEntry {
-        node: KindNode::Type,
-        structural_fingerprint: Fingerprint128::ZERO,
-    }]);
+    let kinds = Box::new([
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::RecordRow,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
 
     let decl_box = StableDeclarationRef {
         module: test_module(),
         path: vec!["Box".into()].into_boxed_slice(),
+    };
+    let decl_row_box = StableDeclarationRef {
+        module: test_module(),
+        path: vec!["RowBox".into()].into_boxed_slice(),
     };
 
     let types = Box::new([
@@ -120,10 +132,70 @@ fn build_test_bundle() -> SemanticMetadataBundle {
             form: TypeNode::Nominal { declaration: decl_box.clone() },
             structural_fingerprint: Fingerprint128::ZERO,
         },
+        // 4: RowBox
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Nominal {
+                declaration: decl_row_box.clone(),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        // 5: Int
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Nominal {
+                declaration: StableDeclarationRef {
+                    module: test_module(),
+                    path: vec!["Int".into()].into_boxed_slice(),
+                },
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        // 6: RowBox<{payload: Int}>
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Applied {
+                origin: TypeNodeId(4),
+                arguments: vec![StaticArgumentRef::RecordRow(RecordRowRef {
+                    fields: vec![RecordFieldRef {
+                        name: "payload".into(),
+                        ty: TypeNodeId(5),
+                    }]
+                    .into_boxed_slice(),
+                    tail: None,
+                })]
+                .into_boxed_slice(),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        // 7: RowBox<{payload: String, **R0}>
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Applied {
+                origin: TypeNodeId(4),
+                arguments: vec![StaticArgumentRef::RecordRow(RecordRowRef {
+                    fields: vec![RecordFieldRef {
+                        name: "payload".into(),
+                        ty: TypeNodeId(1),
+                    }]
+                    .into_boxed_slice(),
+                    tail: Some(StableTypeParameterRef {
+                        owner: StableTypeParameterOwnerRef::Declaration(decl_box.clone()),
+                        index: 0,
+                    }),
+                })]
+                .into_boxed_slice(),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
     ]);
 
     let param_t_ref = StableTypeParameterRef {
         owner: StableTypeParameterOwnerRef::Declaration(decl_box.clone()),
+        index: 0,
+    };
+    let param_fs_ref = StableTypeParameterRef {
+        owner: StableTypeParameterOwnerRef::Declaration(decl_row_box.clone()),
         index: 0,
     };
 
@@ -132,6 +204,14 @@ fn build_test_bundle() -> SemanticMetadataBundle {
         name: "T".into(),
         kind: KindNodeId(0),
         variance: VarianceRef::Covariant,
+        mode: Default::default(),
+        source: None,
+    };
+    let param_fs = TypeParameterRecord {
+        id: param_fs_ref.clone(),
+        name: "Fs".into(),
+        kind: KindNodeId(1),
+        variance: VarianceRef::Invariant,
         mode: Default::default(),
         source: None,
     };
@@ -144,6 +224,11 @@ fn build_test_bundle() -> SemanticMetadataBundle {
             upper: TypeNodeId(0),
         }]
         .into_boxed_slice(),
+    };
+    let row_gen_sig = GenericSignatureRecord {
+        owner: StableTypeParameterOwnerRef::Declaration(decl_row_box.clone()),
+        parameters: vec![param_fs_ref].into_boxed_slice(),
+        constraints: Box::new([]),
     };
 
     let callable_value = CallableSemanticRecord {
@@ -175,6 +260,20 @@ fn build_test_bundle() -> SemanticMetadataBundle {
         algebraic: None,
         source: None,
     };
+    let row_decl_rec = DeclarationTypeRecord {
+        declaration: decl_row_box,
+        form: TypeNodeId(4),
+        kind: KindNodeId(0),
+        generic_signature: Some(GenericSignatureRecordId(1)),
+        superclass_template: None,
+        instance_callables: Box::new([]),
+        class_callables: Box::new([]),
+        instance_fields: Box::new([]),
+        class_fields: Box::new([]),
+        flags: DeclarationTypeFlags::default(),
+        algebraic: None,
+        source: None,
+    };
 
     let field_val = FieldSemanticRecord {
         field: StableFieldRef {
@@ -195,9 +294,9 @@ fn build_test_bundle() -> SemanticMetadataBundle {
         kinds,
         types,
         scoped_types: Box::new([]),
-        parameters: vec![param_t].into_boxed_slice(),
-        generic_signatures: vec![gen_sig].into_boxed_slice(),
-        declarations: vec![decl_rec].into_boxed_slice(),
+        parameters: vec![param_t, param_fs].into_boxed_slice(),
+        generic_signatures: vec![gen_sig, row_gen_sig].into_boxed_slice(),
+        declarations: vec![decl_rec, row_decl_rec].into_boxed_slice(),
         static_domains: Box::new([]),
         aliases: Box::new([]),
         callables: vec![callable_value].into_boxed_slice(),
@@ -307,6 +406,22 @@ fn spec03_reifies_applied_type_forms_and_returns_bounded_results() {
         vm.heap.string(callable_display.as_obj().expect("callable display string")).as_str(),
         "(Int) -> Int"
     );
+}
+
+#[test]
+fn applied_record_row_metadata_display_preserves_field_types_and_tail() {
+    let mut vm = VM::new();
+    let pool = vm
+        .typing_registry
+        .register_pool(LoadedSemanticMetadata::new(MetadataPoolId(0), Arc::new(build_test_bundle())));
+    let context = TypingContextData::new(vec![pool].into_boxed_slice());
+
+    let int_row = inspect::display(&context, &vm.typing_registry, &vm.heap, RuntimeTypeRef::Base { pool, node: TypeNodeId(6) });
+    let string_row = inspect::display(&context, &vm.typing_registry, &vm.heap, RuntimeTypeRef::Base { pool, node: TypeNodeId(7) });
+
+    assert_eq!(int_row, "RowBox<{payload: Int}>");
+    assert_eq!(string_row, "RowBox<{payload: String, **R0}>");
+    assert_ne!(int_row, string_row);
 }
 
 #[test]
