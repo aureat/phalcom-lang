@@ -191,6 +191,8 @@ pub enum DataProductShapeMaterializationError {
     ExpansionKind { expected: KindId, actual: KindId },
     #[error("RecordFields contribution did not materialize to a Record row")]
     InvalidRecordExpansion,
+    #[error("duplicate Record product field `{field}` after expansion materialization")]
+    DuplicateRecordField { field: Box<str> },
     #[error("type materialization failed: {0}")]
     Type(#[from] crate::types::instantiation::TypeMaterializationError),
     #[error("record row could not be materialized: {0}")]
@@ -225,7 +227,7 @@ pub fn materialize_data_product_shape(
                         None
                     }
                 };
-                components.push(DataProductMaterializedComponent {
+                let materialized = DataProductMaterializedComponent {
                     component: Some(component.id.clone()),
                     local_name: Some(component.local_name.clone()),
                     label: match info.shape {
@@ -235,7 +237,12 @@ pub fn materialize_data_product_shape(
                     ty,
                     source: component.source.clone(),
                     expansion_source: None,
-                });
+                };
+                if info.shape == DataShape::Record {
+                    append_record_component(&mut components, materialized)?;
+                } else {
+                    components.push(materialized);
+                }
             }
             DataProductContribution::Expansion(expansion) => {
                 let Some(operand) = expansion.operand.canonical_type() else {
@@ -465,17 +472,35 @@ fn materialize_record_expansion(
         _ => return Err(DataProductShapeMaterializationError::InvalidRecordExpansion),
     };
     let row_data = store.record_row(row);
-    components.extend(row_data.fields.iter().map(|field| DataProductMaterializedComponent {
-        component: None,
-        local_name: Some(field.name.clone()),
-        label: Some(field.name.clone()),
-        ty: Some(field.ty),
-        source: None,
-        expansion_source: expansion.source.clone(),
-    }));
+    for field in row_data.fields.iter() {
+        append_record_component(
+            components,
+            DataProductMaterializedComponent {
+                component: None,
+                local_name: Some(field.name.clone()),
+                label: Some(field.name.clone()),
+                ty: Some(field.ty),
+                source: None,
+                expansion_source: expansion.source.clone(),
+            },
+        )?;
+    }
     if row_data.tail != RecordRowTail::Closed {
         *state = DataProductShapeState::Symbolic;
     }
+    Ok(())
+}
+
+fn append_record_component(
+    components: &mut Vec<DataProductMaterializedComponent>,
+    component: DataProductMaterializedComponent,
+) -> Result<(), DataProductShapeMaterializationError> {
+    if let Some(label) = component.label.as_ref() {
+        if components.iter().any(|existing| existing.label.as_ref() == Some(label)) {
+            return Err(DataProductShapeMaterializationError::DuplicateRecordField { field: label.clone() });
+        }
+    }
+    components.push(component);
     Ok(())
 }
 

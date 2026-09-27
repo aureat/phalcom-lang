@@ -64,6 +64,75 @@ data User {
 }
 
 #[test]
+fn data_record_materialization_rejects_duplicate_fixed_and_expanded_labels() {
+    use phalcom_semantic::data_semantics::{DataProductShapeMaterializationError, DataProductShapeState, materialize_data_product_shape};
+    use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
+    use phalcom_semantic::types::store::StaticArgument;
+
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let declaration = DeclarationId::new(module, "Envelope".into());
+    let info = analysis
+        .snapshot
+        .data_semantics
+        .data_info(&declaration)
+        .expect("Envelope data product")
+        .as_ref()
+        .clone();
+    let field_type = info.components[0].declared_type.canonical_type().expect("fixed field type");
+    let mut store = analysis.snapshot.store.as_ref().clone();
+
+    let materialize_row = |store: &mut phalcom_semantic::types::store::TypeStore, fields: Vec<RecordRowField>| {
+        let row = store.record_row_checked(fields, RecordRowTail::Closed).expect("well-formed materialized row");
+        let specialized = store
+            .apply_static_form(info.root_form, &[StaticArgument::RecordRow(row)])
+            .expect("specialize Envelope with RecordFields row");
+        materialize_data_product_shape(store, &info, specialized)
+    };
+
+    let concrete = materialize_row(
+        &mut store,
+        vec![RecordRowField {
+            name: "extra".into(),
+            ty: field_type,
+        }],
+    )
+    .expect("non-conflicting row materializes");
+    assert_eq!(concrete.state, DataProductShapeState::Concrete);
+    assert_eq!(concrete.components.len(), 2);
+    assert_eq!(concrete.components[0].label.as_deref(), Some("id"));
+    assert_eq!(concrete.components[1].label.as_deref(), Some("extra"));
+
+    let duplicate = materialize_row(
+        &mut store,
+        vec![
+            RecordRowField {
+                name: "id".into(),
+                ty: field_type,
+            },
+            RecordRowField {
+                name: "extra".into(),
+                ty: field_type,
+            },
+        ],
+    );
+    assert!(
+        matches!(duplicate, Err(DataProductShapeMaterializationError::DuplicateRecordField { ref field }) if field.as_ref() == "id"),
+        "duplicate fixed/expanded label should fail precisely, got {duplicate:#?}"
+    );
+}
+
+#[test]
 fn data_constructor_visibility_is_published_in_the_canonical_product() {
     let module = test_module();
     let source: Arc<str> = Arc::from(

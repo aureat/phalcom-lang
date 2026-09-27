@@ -1655,8 +1655,8 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Resume Phase B T4, beginning with concrete fixed-vs-expanded Record
-    duplicate/lacks validation and direct materializer tests.
+    Continue Phase B T4 after the focused concrete Record materialization
+    duplicate gate; remaining T4 shape-specialization acceptance is open.
 
 next action:
     Audit Priority 3's 40-way pre-remediation classification remains recorded
@@ -1670,9 +1670,12 @@ next action:
     the current exact selector passes for its migrated explicit-expansion
     fixture. The four true predecessor baselines and original classifications
     are unchanged. This classification work does not complete P4 T13; its
-    T1–T12 preconditions remain unmet. Next: Phase B T4, starting with
-    fixed-vs-expanded Record duplicate/lacks validation and direct materializer
-    tests.
+    T1–T12 preconditions remain unmet. The first Phase B T4 materializer slice
+    now rejects a concrete duplicate between fixed Record fields and a
+    materialized row with a field-specific error; its compatible-row direct
+    semantic case passes. The existing symbolic row-lacks control also passes
+    unchanged. Next: continue the remaining T4 shape-specialization acceptance
+    without changing RecordRow identity or solver ownership.
     Priority 2's nine named runtime selectors are individually focused-tested,
     but no broad core, workspace, or release gate has passed; P4 remains
     `IN_PROGRESS / PARTIAL / UNVERIFIED`.
@@ -2080,7 +2083,32 @@ evidence-neutral. Rest and module-export source probes produced no callable,
 call specialization, or runtime recipe, so no runtime environment drop was
 proven and no speculative adapter change was made. Priority 3's 40-way
 classification now has a later full pinned semantic result recorded above:
-37 failures, 3 passes, 42 ignored. The next implementation action is Phase B
-T4, starting with concrete fixed-vs-expanded Record duplicate/lacks validation
-and direct materializer tests. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`;
-overall audit and release gates remain open.
+37 failures, 3 passes, 42 ignored. The first Phase B T4 materializer gate
+rejects concrete fixed/expanded Record duplicate labels, while the symbolic
+row-lacks control remains green. Continue the remaining T4 shape-specialization
+acceptance. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; overall audit and
+release gates remain open.
+
+### P4 Phase B T4 — concrete Record duplicate materialization — 2026-09-27
+
+`materialize_data_product_shape` now detects duplicate logical labels while
+appending both fixed Record components and materialized `RecordFields` row
+fields. It returns `DataProductShapeMaterializationError::DuplicateRecordField`
+with the conflicting label instead of allowing an ambiguous concrete product
+layout. The change remains at the canonical TypeStore-backed materialization
+owner: it adds no component identity, changes no row identity, and does not
+move symbolic lacks checking out of the existing inference solver.
+
+Focused evidence with `nightly-2026-07-10`:
+
+- `data_record_materialization_rejects_duplicate_fixed_and_expanded_labels` —
+  1 selected, 1 passed; also asserts a non-conflicting concrete row preserves
+  the ordered fixed and expanded fields.
+- `return_record_prefix_contributes_lacks_constraint_to_row_inference` —
+  1 selected, 1 passed unchanged as the symbolic row-lacks control.
+- `cargo fmt -p phalcom-semantic -- --check` remains blocked by pre-existing
+  formatting drift elsewhere in the crate; no broad formatting was applied.
+
+This closes only the concrete materializer duplicate check. CV-14's constructor
+inference and broader T4 acceptance, T5, P4 completion, and release gates remain
+open.
