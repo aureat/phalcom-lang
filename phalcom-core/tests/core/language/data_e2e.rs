@@ -188,6 +188,79 @@ let record_payload = record_direct.payload
 }
 
 #[test]
+fn data_constructor_call_collision_preserves_explicit_and_runtime_call_paths() {
+    let (vm, module) = run_inline(
+        r#"
+data Tagged<T>(_ id: Int)
+
+impl<T> Tagged<T> {
+    @class
+    call(_ value: Int) -> Int {
+        value + 100
+    }
+}
+
+let inferred_direct: Tagged<Int> = Tagged(42)
+let specialized_direct = Tagged<Int>(42)
+let associated_direct = Tagged<Int>::Construct(42)
+let inferred_id = inferred_direct.id
+let specialized_id = specialized_direct.id
+let associated_id = associated_direct.id
+
+let constructor_ref_sugar = &Tagged<Int>(_)
+let constructor_ref_associated = &Tagged<Int>::Construct(_)
+let constructor_value = constructor_ref_sugar(42)
+let associated_constructor_value = constructor_ref_associated(42)
+let constructor_ref_id = constructor_value.id
+let associated_constructor_ref_id = associated_constructor_value.id
+
+let explicit_call = Tagged.call(42)
+let explicit_specialized_call = Tagged<Int>.call(42)
+let behavior_ref = &Tagged.call(_)
+let specialized_behavior_ref = &Tagged<Int>.call(_)
+let referenced_behavior = behavior_ref(42)
+let referenced_specialized_behavior = specialized_behavior_ref(42)
+
+let factory = Tagged<Int>
+let runtime_factory_call = factory(42)
+let constructor_factory = &Tagged<Int>(_)
+let constructor_factory_value = constructor_factory(42)
+let constructor_factory_id = constructor_factory_value.id
+"#,
+    )
+    .expect("direct constructors, explicit call sends, and runtime invocation stay distinct");
+
+    for name in [
+        "inferred_id",
+        "specialized_id",
+        "associated_id",
+        "constructor_ref_id",
+        "associated_constructor_ref_id",
+        "constructor_factory_id",
+    ] {
+        assert_eq!(
+            vm.heap.module(module).get(vm.interner.find(name).unwrap()),
+            Some(Value::int(42)),
+            "{name} must come from the primary constructor"
+        );
+    }
+
+    for name in [
+        "explicit_call",
+        "explicit_specialized_call",
+        "referenced_behavior",
+        "referenced_specialized_behavior",
+        "runtime_factory_call",
+    ] {
+        assert_eq!(
+            vm.heap.module(module).get(vm.interner.find(name).unwrap()),
+            Some(Value::int(142)),
+            "{name} must use ordinary class-side call behavior"
+        );
+    }
+}
+
+#[test]
 fn equal_nested_data_have_equal_hashes() {
     let (vm, module) = run_inline(
         r#"

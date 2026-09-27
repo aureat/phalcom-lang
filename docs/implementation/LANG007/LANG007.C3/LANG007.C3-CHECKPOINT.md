@@ -33,8 +33,8 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Finish R2 Steps 9–11 in order, then resume original P4 T6–T13. Step 9's shared selector-spec sugar is focused-tested and awaiting review; T5 remains incomplete.
-blocker: none for the current Step 9 slice; P4/T5 and later R2 steps remain open.
+  next_action: Finish R2 Step 10 call-collision coverage, then stop for review before Step 11. Step 9 is IMPLEMENTED / FOCUSED_TESTED; T5 remains incomplete.
+blocker: none for the current Step 10 slice; P4/T5 and later R2 steps remain open.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1784,7 +1784,7 @@ next task:
     T5 acceptance remains incomplete.
 
 next action:
-    R2 Steps 5–8 are reviewed and focused-tested. Step 8 commit `1e82f1c3`
+    R2 Steps 5–9 are reviewed and focused-tested. Step 8 commit `1e82f1c3`
     preserves source-shaped constructor references and adds labeled invocation
     only to generated all-labeled constructor thunks through the existing
     ParameterShape/closure activation path; ordinary source closures remain
@@ -1798,7 +1798,15 @@ next action:
     `foo(_, ..., tail)`; no selector encoding or parser implementation change
     was needed beyond the shared Step 8 parser path. Step 8's parser, semantic,
     and core constructor-reference selectors were rerun and passed 1/1 each.
-    Stop for review before Step 10. T5 and P4 remain incomplete; T4 remains
+    Step 10 collision coverage is IMPLEMENTED / FOCUSED_TESTED in
+    `data_constructor_call_collision_preserves_explicit_and_runtime_call_paths`
+    (1/1): direct inferred/specialized and associated construction, plus both
+    primary-constructor reference forms, yield the primary value with id 42;
+    explicit `Tagged.call`/`Tagged<Int>.call`, both explicit behavior references,
+    and invocation of the runtime class-object value `factory = Tagged<Int>`
+    yield 142 through the user-authored ordinary class-side `call`. A separate
+    constructor-reference variable continues to produce id 42. Step 10 is now
+    ready for review; stop before Step 11. T5 and P4 remain incomplete; T4 remains
     IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
