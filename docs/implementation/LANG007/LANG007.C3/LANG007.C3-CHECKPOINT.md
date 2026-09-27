@@ -1655,27 +1655,24 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Continue audit Priority 3 remediation for the classified semantic failures;
-    the T12 editor-visible-symbol projection regression is now focused-tested.
-    Resolve the other owned regressions before resuming open T4/T5 work.
+    Resume Phase B T4, beginning with concrete fixed-vs-expanded Record
+    duplicate/lacks validation and direct materializer tests.
 
 next action:
-    Priority 3's 40-way pre-remediation classification evidence is acquired and recorded in
-    `LANG007.C3.P4-audit-remediation/04-semantic-regression-classification.md`.
-    At commit `9e58d3b`, the pinned current-main run had 40 failures; all 40
-    also failed at the clean pre-P4 revision c3862536. Older source-backed
-    PASS records classify 35 as pre-P4-origin regressions; four are true
-    predecessor baselines; the variadic alias is an intentional syntax
-    migration. Since that baseline, the explicit `*` alias migration and the
-    invalid generic declaration-header correction have each passed their exact
-    focused selectors; the full semantic target has not been rerun. The latter
-    blocks only confirmed-invalid class/data signatures, and its two valid
-    signature controls pass. This is audit Priority 3 remediation, not
-    completion of P4 T13: its T1–T12 preconditions remain unmet. Next:
-    continue with the remaining classified regressions without changing
-    assertions; the T12 editor-visible-symbol selector and two prelude-policy
-    controls each pass individually under the pinned toolchain. The full
-    semantic target has not been rerun.
+    Audit Priority 3's 40-way pre-remediation classification remains recorded
+    in `LANG007.C3.P4-audit-remediation/04-semantic-regression-classification.md`.
+    Its original `9e58d3b` run (40 failures) and c386 predecessor evidence are
+    preserved. A full pinned semantic rerun on clean main `bb3d6cd2` selected
+    1711 tests: 1632 passed, 37 failed, and 42 were ignored (exit 101). The
+    failure set is a strict subset: the migrated variadic-alias selector, the
+    invalid generic-header selector, and the editor-visible-symbol selector
+    now pass. The old implicit variadic syntax remains intentionally invalid;
+    the current exact selector passes for its migrated explicit-expansion
+    fixture. The four true predecessor baselines and original classifications
+    are unchanged. This classification work does not complete P4 T13; its
+    T1–T12 preconditions remain unmet. Next: Phase B T4, starting with
+    fixed-vs-expanded Record duplicate/lacks validation and direct materializer
+    tests.
     Priority 2's nine named runtime selectors are individually focused-tested,
     but no broad core, workspace, or release gate has passed; P4 remains
     `IN_PROGRESS / PARTIAL / UNVERIFIED`.
@@ -2081,7 +2078,9 @@ The selected-fallback branches of `InvokeConditional` and conditional-family
 dispatch carry their explicit environments; ordinary overrides remain
 evidence-neutral. Rest and module-export source probes produced no callable,
 call specialization, or runtime recipe, so no runtime environment drop was
-proven and no speculative adapter change was made. Next action: classify the
-audit's 40 semantic failures (Priority 3), then resume the remaining T4/T5
-obligations per audit. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; overall
-audit and release gates remain open.
+proven and no speculative adapter change was made. Priority 3's 40-way
+classification now has a later full pinned semantic result recorded above:
+37 failures, 3 passes, 42 ignored. The next implementation action is Phase B
+T4, starting with concrete fixed-vs-expanded Record duplicate/lacks validation
+and direct materializer tests. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`;
+overall audit and release gates remain open.
