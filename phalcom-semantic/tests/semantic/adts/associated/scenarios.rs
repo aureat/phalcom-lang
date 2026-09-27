@@ -4,7 +4,7 @@ use super::super::support::analyze_adt;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_semantic::checker::{AssociatedResolutionKind, CallableReferenceResolutionKind};
 use phalcom_semantic::diagnostic::DiagnosticCode;
-use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+use phalcom_semantic::identity::{AssociatedFamilyId, CallableId, DataConstructorId, DeclarationId, DispatchSide, InvocationTargetId};
 
 fn resolution<'a>(case: &'a super::super::support::AdtCase, text: &str) -> &'a phalcom_semantic::checker::AssociatedResolution {
     case.analysis
@@ -181,8 +181,8 @@ fn adt_assoc_16_family_value_does_not_escape_member_visibility() {
 
 #[test]
 fn data_associated_exact_callable_reference_resolves_data_constructor() {
-    let case = analyze_adt("data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Point(_, _) } }\n");
-    let res = resolution(&case, "&Point::Point(_, _)");
+    let case = analyze_adt("data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Construct(_, _) } }\n");
+    let res = resolution(&case, "&Point::Construct(_, _)");
     assert!(matches!(
         res.kind,
         AssociatedResolutionKind::ExactCallable {
@@ -195,8 +195,8 @@ fn data_associated_exact_callable_reference_resolves_data_constructor() {
 
 #[test]
 fn data_associated_whole_family_capture_publishes_data_constructor() {
-    let case = analyze_adt("data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Point... } }\n");
-    let res = resolution(&case, "&Point::Point...");
+    let case = analyze_adt("data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Construct... } }\n");
+    let res = resolution(&case, "&Point::Construct...");
     let AssociatedResolutionKind::Family { members, .. } = &res.kind else {
         panic!("expected family resolution");
     };
@@ -212,8 +212,48 @@ fn data_associated_whole_family_capture_publishes_data_constructor() {
 }
 
 #[test]
+fn product_construct_invocation_and_callable_reference_share_primary_constructor() {
+    let case = analyze_adt("data Point(_ x: Int, _ y: Int)\nclass Test { run() { Point::Construct(1, 2); &Point::Construct(_, _) } }\n");
+    case.assert_no_diagnostics();
+
+    let owner = DeclarationId::new(case.module.clone(), "Point".into());
+    let constructor = DataConstructorId::new(owner.clone());
+    let family = case.associated_family("Point", "Construct");
+    assert_eq!(
+        family.id,
+        AssociatedFamilyId::new(owner.clone(), phalcom_common::selector::SelectorBase::Named("Construct".into()))
+    );
+    assert_eq!(
+        family.members.as_ref(),
+        &[phalcom_semantic::associated::AssociatedMemberId::DataConstructor(constructor.clone())]
+    );
+
+    let invocation = resolution(&case, "Point::Construct(1, 2)");
+    assert_eq!(invocation.family.as_ref(), Some(&family.id));
+    assert!(matches!(
+        &invocation.kind,
+        AssociatedResolutionKind::StaticInvoke {
+            member: phalcom_semantic::associated::AssociatedMemberId::DataConstructor(id),
+            target: InvocationTargetId::DataConstructor(target),
+            ..
+        } if id == &constructor && target == &constructor
+    ));
+
+    let reference = resolution(&case, "&Point::Construct(_, _)");
+    assert_eq!(reference.family.as_ref(), Some(&family.id));
+    assert!(matches!(
+        &reference.kind,
+        AssociatedResolutionKind::ExactCallable {
+            member: phalcom_semantic::associated::AssociatedMemberId::DataConstructor(id),
+            target: InvocationTargetId::DataConstructor(target),
+            ..
+        } if id == &constructor && target == &constructor
+    ));
+}
+
+#[test]
 fn inaccessible_data_constructor_is_not_acquirable_by_exact_reference() {
-    let case = analyze_adt("data Secret private(_ value: Int)\nclass Test { run() { &Secret::Secret(_) } }\n");
+    let case = analyze_adt("data Secret private(_ value: Int)\nclass Test { run() { &Secret::Construct(_) } }\n");
     assert!(
         case.analysis
             .snapshot
@@ -226,7 +266,7 @@ fn inaccessible_data_constructor_is_not_acquirable_by_exact_reference() {
 
 #[test]
 fn inaccessible_data_constructor_is_not_captured_by_family_reference() {
-    let case = analyze_adt("data Secret private(_ value: Int)\nclass Test { run() { &Secret::Secret... } }\n");
+    let case = analyze_adt("data Secret private(_ value: Int)\nclass Test { run() { &Secret::Construct... } }\n");
     assert!(
         case.analysis
             .snapshot
@@ -239,7 +279,7 @@ fn inaccessible_data_constructor_is_not_captured_by_family_reference() {
 
 #[test]
 fn inaccessible_data_constructor_is_rejected_by_associated_invocation() {
-    let case = analyze_adt("data Secret private(_ value: Int)\nclass Test { run() { Secret::Secret(42) } }\n");
+    let case = analyze_adt("data Secret private(_ value: Int)\nclass Test { run() { Secret::Construct(42) } }\n");
     assert!(
         case.analysis
             .snapshot
@@ -253,7 +293,7 @@ fn inaccessible_data_constructor_is_rejected_by_associated_invocation() {
 #[test]
 fn authorized_data_constructor_capability_can_escape_its_owner() {
     let case = analyze_adt(
-        "data Secret private(_ value: Int)\nimpl Secret { @class factory() -> (Int) -> Secret { &Secret::Secret(_) } }\nclass Caller { @class use() -> Secret { let f = Secret.factory(); f(42) } }\n",
+        "data Secret private(_ value: Int)\nimpl Secret { @class factory() -> (Int) -> Secret { &Secret::Construct(_) } }\nclass Caller { @class use() -> Secret { let f = Secret.factory(); f(42) } }\n",
     );
     assert!(
         !case
@@ -269,13 +309,21 @@ fn authorized_data_constructor_capability_can_escape_its_owner() {
 #[test]
 fn data_associated_surface_kind_is_data_constructor() {
     let case = analyze_adt("data Point(_ x: Int, _ y: Int)\n");
-    let family = case.associated_family("Point", "Point");
+    let family = case.associated_family("Point", "Construct");
     assert_eq!(family.kind, phalcom_semantic::associated::AssociatedFamilyKind::DataConstructor);
     assert_eq!(family.members.len(), 1);
     assert!(matches!(
         family.members[0],
         phalcom_semantic::associated::AssociatedMemberId::DataConstructor(_)
     ));
+    assert!(
+        case.analysis
+            .snapshot
+            .associated_surfaces
+            .surfaces
+            .get(&DeclarationId::new(case.module.clone(), "Point".into()))
+            .is_some_and(|surface| !surface.families.contains_key(&phalcom_common::selector::SelectorBase::Named("Point".into())))
+    );
 }
 
 #[allow(dead_code)]

@@ -246,7 +246,7 @@ fn adt_incr_11_whitespace_edit_does_not_change_enum_product_fingerprint() {
 #[test]
 fn data_incr_01_cold_incremental_equivalence() {
     let module = module();
-    let source = "data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Point(_, _) } }\n";
+    let source = "data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Construct(_, _) } }\n";
 
     // Cold session
     let mut cold_session = SemanticWorkspaceSession::new();
@@ -268,7 +268,7 @@ fn data_incr_01_cold_incremental_equivalence() {
     assert_eq!(
         cold_assoc
             .families
-            .get(&phalcom_common::selector::SelectorBase::Named("Point".into()))
+            .get(&phalcom_common::selector::SelectorBase::Named("Construct".into()))
             .unwrap()
             .kind,
         phalcom_semantic::associated::AssociatedFamilyKind::DataConstructor

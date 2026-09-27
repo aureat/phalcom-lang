@@ -1780,20 +1780,20 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Continue R2 constructor-surface steps 5–11, then resume original P4 T6–T13.
+    Continue R2 constructor-surface steps 7–11, then resume original P4 T6–T13.
     T5 acceptance remains incomplete.
 
 next action:
-    R2 Step 5's heterogeneous Applied-consumer audit and its two bounded fixes
-    are focused-tested, pending supervisor review. Base metadata display now
-    includes RecordRow field types and open tails; semantic data-construction
-    exact-case detection now visits applied row fields and type-bearing
-    projection tails. The focused display and exact-case tests each selected /
-    passed 1; the existing reflection control selected / passed 1. The T5
-    source matrix selected / passed 5; declaration-class/descriptor interning
-    and equal-layout row identity tests each selected / passed 1; the fixed-
-    only data control selected / passed 1, all on nightly-2026-07-10. After
-    review, continue R2 Step 6 only. T5 and P4 remain incomplete; T4 remains
+    R2 Step 5's heterogeneous Applied-consumer audit and two bounded fixes
+    were reviewed and focused-tested. Step 6 is active: product data publishes
+    its existing primary DataConstructorId under the canonical `Construct`
+    family and operation selector; direct associated invocation and exact
+    callable reference resolve to that same identity. Semantic surface,
+    invocation/reference, visibility, owner-escape, and cold/incremental tests
+    passed; core explicit invocation/reference, generic specialization, and
+    whole-family capture tests passed, all with actual test selection on
+    nightly-2026-07-10. Step 6 is IMPLEMENTED / FOCUSED_TESTED pending review.
+    After review, continue R2 Step 7. T5 and P4 remain incomplete; T4 remains
     IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:

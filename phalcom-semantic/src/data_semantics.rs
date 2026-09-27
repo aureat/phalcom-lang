@@ -144,7 +144,7 @@ impl DataInfo {
     pub fn constructor_selector(&self) -> Result<phalcom_common::selector::Selector, phalcom_common::selector::SelectorError> {
         let op = self.constructor_operation();
         phalcom_common::selector::Selector::new(
-            phalcom_common::selector::SelectorBase::Named(self.owner.name.to_string()),
+            phalcom_common::selector::SelectorBase::Named("Construct".into()),
             phalcom_common::selector::SelectorKind::Method,
             op.slots,
         )

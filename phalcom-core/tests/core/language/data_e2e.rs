@@ -212,19 +212,23 @@ fn data_constructor_first_class_callable_reference() {
     let (vm, module) = run_inline(
         r#"
 data Point(_ x: Int, _ y: Int)
-let ctor = &Point::Point(_, _)
+let ctor = &Point::Construct(_, _)
 let p = ctor(10, 20)
+let explicit = Point::Construct(10, 20)
 let direct = Point(10, 20)
 let same = p === direct
+let same_explicit = p === explicit
 let px = p.x
 let py = p.y
 "#,
     )
     .expect("callable reference to data constructor should execute");
     let same_sym = vm.interner.find("same").unwrap();
+    let same_explicit_sym = vm.interner.find("same_explicit").unwrap();
     let px_sym = vm.interner.find("px").unwrap();
     let py_sym = vm.interner.find("py").unwrap();
     assert_eq!(vm.heap.module(module).get(same_sym), Some(Value::bool(true)));
+    assert_eq!(vm.heap.module(module).get(same_explicit_sym), Some(Value::bool(true)));
     assert_eq!(vm.heap.module(module).get(px_sym), Some(Value::int(10)));
     assert_eq!(vm.heap.module(module).get(py_sym), Some(Value::int(20)));
 }
@@ -234,8 +238,8 @@ fn data_phantom_type_specializations() {
     let (vm, module) = run_inline(
         r#"
 data Tagged<T>(_ id: Int)
-let t1 = Tagged<Int>::Tagged(42)
-let t2 = Tagged<String>::Tagged(42)
+let t1 = Tagged<Int>::Construct(42)
+let t2 = Tagged<String>::Construct(42)
 let same_value = t1.id === t2.id
 let equal = t1 == t2
 let same_class = t1.class === t2.class
@@ -254,8 +258,8 @@ fn data_generic_callable_reference_specialization() {
     let (vm, module) = run_inline(
         r#"
 data Tagged<T>(_ id: Int)
-let make_int = &Tagged<Int>::Tagged(_)
-let make_str = &Tagged<String>::Tagged(_)
+let make_int = &Tagged<Int>::Construct(_)
+let make_str = &Tagged<String>::Construct(_)
 let t1 = make_int(10)
 let t2 = make_str(10)
 let eq = t1 == t2
@@ -277,7 +281,7 @@ fn data_associated_family_dynamic_pack_invocation() {
     let (vm, module) = run_inline(
         r#"
 data Point(_ x: Int, _ y: Int)
-let fam = &Point::Point...
+let fam = &Point::Construct...
 let p = fam(10, 20)
 let px = p.x
 let py = p.y
