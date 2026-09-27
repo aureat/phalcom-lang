@@ -1655,8 +1655,10 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Continue Phase B T4 after the focused concrete Record materialization
-    duplicate gate; remaining T4 shape-specialization acceptance is open.
+    Finish Phase B T4 shape-specialization acceptance. The query-local
+    RecordRow proof-strength/dependency matrix is focused-tested, but the
+    separate source-level where-only restriction test and broader open/symbolic
+    T4 acceptance remain. T5 is downstream and has not started.
 
 next action:
     Audit Priority 3's 40-way pre-remediation classification remains recorded
@@ -1674,8 +1676,9 @@ next action:
     now rejects a concrete duplicate between fixed Record fields and a
     materialized row with a field-specific error; its compatible-row direct
     semantic case passes. The existing symbolic row-lacks control also passes
-    unchanged. Next: continue the remaining T4 shape-specialization acceptance
-    without changing RecordRow identity or solver ownership.
+    unchanged. Next: complete the remaining T4 shape-specialization and
+    open/symbolic acceptance without changing RecordRow identity or solver
+    ownership; T5 remains downstream and not started.
     Priority 2's nine named runtime selectors are individually focused-tested,
     but no broad core, workspace, or release gate has passed; P4 remains
     `IN_PROGRESS / PARTIAL / UNVERIFIED`.
