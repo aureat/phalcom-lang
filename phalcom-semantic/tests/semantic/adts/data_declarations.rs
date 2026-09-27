@@ -152,10 +152,17 @@ class Probe {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
     let diagnostics = analysis.snapshot.diagnostics_for(&module).expect("diagnostics for module");
+    let constructor_text = "Envelope { id: 1 }";
+    let constructor_start = source.find(constructor_text).expect("constructor source span");
+    let constructor_end = constructor_start + constructor_text.len();
     assert!(
-        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::GenericInferenceConflict),
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::GenericInferenceConflict
+                && diagnostic.primary_range.start < constructor_end
+                && constructor_start < diagnostic.primary_range.end
+        }),
         "expected the constructor's fixed-field/expanded-row conflict to be diagnosed, got: {diagnostics:#?}"
     );
 }
