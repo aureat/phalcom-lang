@@ -33,8 +33,8 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Resolve the T5.2 runtime representation decision for applied RecordRow arguments before resuming exact generic-callable specialization; then complete T5 acceptance and its focused gates. Preserve the existing T5 working diff until the decision is recorded.
-blocker: T5.2 exact specialization is blocked because runtime applied-type overlays do not represent RecordRow static arguments.
+  next_action: Implement the adopted INC-C3-15 runtime representation for heterogeneous `Applied` arguments, including closed `RecordRow` substitution, exact overlay interning, and open-tail rejection; then finish T5 acceptance with focused gates. Work resumes from clean local main `0fe6e270`.
+blocker: none; the T5.2 representation decision is adopted and implementation may resume.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1135,6 +1135,48 @@ contributions; explicit structural and bound-pack expansion; fixed-prefix
 application; omitted binder defaults; and explicit compatible annotations.
 Status: ADOPTED / IMPLEMENTATION IN PROGRESS / UNVERIFIED.
 
+### INC-C3-15 — T5.2 runtime heterogeneous applied-type identity — 2026-09-27
+
+Plan/task: LANG007.C3.P4 / T5.2 — exact runtime specialization descriptors for
+  nominal data with heterogeneous static arguments.
+Trigger: mandatory triggers 1, 3, and 11. `RuntimeTypeRecipe::Template` can
+  receive distinct callable-owned type bindings, but runtime applied-type
+  instantiation currently rejects `StaticArgumentRef::RecordRow`; closing the
+  recipe erases distinct exact row specializations.
+Observed: semantic and metadata representations already distinguish
+  `Term(TypeId)` from `RecordRow(RecordRowId)`. `RuntimeOverlayTypeNode::Applied`
+  currently narrows this to `RuntimeTypeRef` arguments, and
+  `instantiate_type_ref` returns `None` for row arguments. Generic callable
+  construction therefore fails once the existing type-parameter detector
+  correctly marks a row-nested parameter as a template.
+Decision: extend the existing runtime overlay's `Applied` argument envelope
+  heterogeneously as `Term(RuntimeTypeRef) | RecordRow(RuntimeRecordRow)`.
+  Keep rows structurally distinct from proper `RuntimeTypeRef` and
+  `RuntimeOverlayTypeNode::Record`. Instantiate ordinary type parameters inside
+  closed row field types from the existing `RuntimeTypeEnvironment`; preserve
+  row identity through the existing overlay interner so exact rows with
+  `payload: Int` and `payload: String` remain distinct. Repeated identical
+  specializations must intern identically.
+  Do not broaden runtime environments to row-valued bindings, add row solving,
+  introduce a second type/descriptor registry, or create specialization-owned
+  behavior classes. Unresolved row tails fail exact instantiation rather than
+  being erased or closed.
+Architecture impact: this faithfully projects the established heterogeneous
+  static-argument model into the existing runtime type interner. The runtime
+  descriptor key remains `(declaration owner, exact runtime type)`, with one
+  behavior class per declaration and exact descriptor/layout state per
+  specialization.
+Plan amendment: T5.2 may resume with closed row substitution only; runtime
+  row-parameter bindings and VM row solving are explicitly not added by this
+  amendment.
+Verification required: row preservation and type substitution; distinct
+  Int/String exact runtime identities despite equal physical layout; repeated
+  specialization interning; row-vs-proper-Record distinction; open-tail
+  rejection; unchanged type-only Applied controls; and the existing T5 class,
+  descriptor, layout, field-access, and generic-callable regressions.
+Status: ADOPTED — T5.2 implementation resumed from clean local main
+  `0fe6e270`; T5 and P4 remain incomplete and unverified beyond focused gates.
+
 Use entries:
 
 ```text
@@ -1655,16 +1697,18 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    LANG007.C3.P4 T5.1 — separate nominal behavior-class registration from
-    declaration-level base layout registration.
+    LANG007.C3.P4 T5.2 — preserve heterogeneous runtime Applied arguments and
+    substitute ordinary type parameters inside closed RecordRow arguments.
 
 next action:
-    Verify `RuntimeDataRegistry` can return one behavior class per declaration
-    independently of a fixed base descriptor. Shape-generic data may have a
-    behavior class without a declaration-level layout; fixed-only data
-    registration remains unchanged. Continue to T5.2 only after this focused
-    registry contract is implemented and tested. T4 remains
-    IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+    Implement the adopted INC-C3-15 overlay representation/substitution fix,
+    beginning with low-level runtime typing tests for row preservation,
+    substitution, exact interning, type/row separation, and open-tail rejection.
+    Then rerun the generic-callable discriminator and remaining focused T5
+    gates. The previous T5.2 blocker is resolved by the adopted decision; do
+    not broaden runtime environments to row-valued bindings or add VM row
+    solving. T4 remains IMPLEMENTED / FOCUSED_TESTED; P4 remains
+    IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
     Priority 3's 40-way pre-remediation classification remains in
@@ -2270,14 +2314,13 @@ type arguments. Keeping the type recipe closed erases the distinction between
 the two row-specialized results; marking it as a template exposes the unsupported
 row reification and fails with `generic data type could not be instantiated`.
 
-This is a runtime type representation/canonical identity decision, not a local
-lowering adjustment. Before resuming, the architect must decide how runtime
-type references and overlays represent, substitute, and intern applied
-`RecordRow` arguments so `{payload: Int}` and `{payload: String}` remain distinct
-exact data types, or specify another canonical identity strategy. Do not use
-erasure, per-specialization classes, another registry, or weaken the exact
-specialization acceptance to bypass the gate. The active T5 implementation diff
-is preserved uncommitted pending that decision.
+This was a runtime type representation/canonical identity decision, not a local
+lowering adjustment. INC-C3-15 below adopts heterogeneous runtime `Applied`
+arguments with closed-row type substitution and exact overlay interning. The
+implementation may now resume from clean local main `0fe6e270`. Do not use
+erasure, per-specialization classes, another registry, broaden runtime
+environments to row-valued bindings, or weaken exact specialization acceptance
+to bypass the gate.
 
 P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; T5 is incomplete, and no
 checkpoint or release acceptance is claimed.
