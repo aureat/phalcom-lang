@@ -1807,6 +1807,11 @@ fn apply_generic_callable_in_context(
                 ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
             }
         } else {
+            let exact_empty_complete_pack = expansion.mode == phalcom_ast::ast::ExpansionMode::Complete
+                && parameter_data.kind == crate::types::id::KindId::COMPLETE_TYPE_PACK
+                && expansion_terms.premises.is_empty()
+                && expansion_terms.positional.is_empty()
+                && expansion_terms.labeled.is_empty();
             let pack_term = match parameter_data.kind {
                 crate::types::id::KindId::TYPE_PACK => InferenceTerm::TypePack(expansion_terms.positional.into_boxed_slice()),
                 crate::types::id::KindId::LABELED_TYPE_PACK => InferenceTerm::LabeledTypePack(expansion_terms.labeled.into_boxed_slice()),
@@ -1833,6 +1838,20 @@ fn apply_generic_callable_in_context(
                         &premise.knowledge,
                         premise.explanation,
                     );
+                }
+                if exact_empty_complete_pack {
+                    let empty_positionals = ctx.store.type_pack(Box::default());
+                    let empty_labeled = ctx.store.labeled_type_pack(Box::default());
+                    if let (Ok(empty_positionals), Ok(empty_labeled)) = (empty_positionals, empty_labeled)
+                        && let Ok(empty_complete) = ctx.store.complete_type_pack(empty_positionals, empty_labeled)
+                    {
+                        session.record_required_premise(
+                            &variable,
+                            ConstraintOrigin::Explicit,
+                            &TypeKnowledge::established(empty_complete, EvidenceOrigin::ConstructorSemantics),
+                            None,
+                        );
+                    }
                 }
                 session.add_constraint(
                     InferenceRelation::Equivalent(variable, pack_term),

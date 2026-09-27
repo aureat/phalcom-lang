@@ -531,6 +531,7 @@ class Probe {
     @class exercise() {
         let single = PackBox(1)
         let many = PackBox(1, "value")
+        let labeled = PackBox(1, labeled: true)
         many
     }
 }
@@ -540,10 +541,12 @@ class Probe {
     let exercise = fixture.callable("Probe", "exercise", DispatchSide::Class);
     let int = fixture.ty("Int");
     let string = fixture.ty("String");
+    let bool = fixture.ty("Bool");
 
-    for (source, expected_lanes) in [
-        ("PackBox(1)", vec![int]),
-        ("PackBox(1, \"value\")", vec![int, string]),
+    for (source, expected_positionals, expected_labeled) in [
+        ("PackBox(1)", vec![int], vec![]),
+        ("PackBox(1, \"value\")", vec![int, string], vec![]),
+        ("PackBox(1, labeled: true)", vec![int], vec![("labeled", bool)]),
     ] {
         let expression = fixture.expression(exercise, source);
         let result = expression.knowledge.ty().unwrap_or_else(|| {
@@ -559,17 +562,185 @@ class Probe {
             panic!("constructor must publish one CompleteTypePack argument: {arguments:#?}");
         };
         let TypeData::CompleteTypePack { positionals, labeled } = fixture.analysis.snapshot.store.get(*complete_pack) else {
-            panic!("constructor argument must be a CompleteTypePack: {:?}", fixture.analysis.snapshot.store.get(*complete_pack));
+            panic!(
+                "constructor argument must be a CompleteTypePack: {:?}",
+                fixture.analysis.snapshot.store.get(*complete_pack)
+            );
         };
         let TypeData::TypePack(positionals) = fixture.analysis.snapshot.store.get(*positionals) else {
             panic!("positional lane must be TypePack");
         };
-        assert_eq!(positionals.as_ref(), expected_lanes.as_slice(), "wrong inferred positional lane for {source}");
-        assert!(
-            matches!(fixture.analysis.snapshot.store.get(*labeled), TypeData::LabeledTypePack(elements) if elements.is_empty()),
-            "unlabeled constructor arguments must leave the labeled lane empty for {source}"
+        assert_eq!(
+            positionals.as_ref(),
+            expected_positionals.as_slice(),
+            "wrong inferred positional lane for {source}"
         );
+        let TypeData::LabeledTypePack(labeled) = fixture.analysis.snapshot.store.get(*labeled) else {
+            panic!("labeled lane must be LabeledTypePack");
+        };
+        assert_eq!(labeled.len(), expected_labeled.len(), "wrong labeled lane length for {source}");
+        for (actual, (label, ty)) in labeled.iter().zip(expected_labeled) {
+            assert_eq!(actual.label.as_ref(), label, "wrong labeled lane label for {source}");
+            assert_eq!(actual.element, ty, "wrong labeled lane type for {source}");
+        }
     }
+}
+
+#[test]
+fn complete_pack_data_constructor_infers_exact_empty_pack_without_expected_result() {
+    use phalcom_semantic::types::evidence::EvidenceStatus;
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let fixture = Fixture::new(
+        r#"
+data PackBox<***Ps: CompleteTypePack>(***Ps)
+
+class Probe {
+    @class exercise() {
+        PackBox()
+    }
+}
+"#,
+    );
+    fixture.assert_no_error_diagnostics();
+    let exercise = fixture.callable("Probe", "exercise", DispatchSide::Class);
+    let expression = fixture.expression(exercise, "PackBox()");
+    let result = expression.knowledge.ty().unwrap_or_else(|| {
+        panic!(
+            "zero constructor must infer nominal PackBox result: expression={expression:#?}; diagnostics={:#?}",
+            fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
+        )
+    });
+    let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(result) else {
+        panic!("zero constructor result must retain nominal Applied identity: {expression:#?}");
+    };
+    let [StaticArgument::Term(complete)] = arguments.as_ref() else {
+        panic!("zero constructor must publish one CompleteTypePack argument: {arguments:#?}");
+    };
+    let TypeData::CompleteTypePack { positionals, labeled } = fixture.analysis.snapshot.store.get(*complete) else {
+        panic!("zero constructor argument must be a CompleteTypePack");
+    };
+    assert!(matches!(fixture.analysis.snapshot.store.get(*positionals), TypeData::TypePack(elements) if elements.is_empty()));
+    assert!(matches!(fixture.analysis.snapshot.store.get(*labeled), TypeData::LabeledTypePack(elements) if elements.is_empty()));
+    assert_eq!(expression.knowledge.status(), Some(EvidenceStatus::Established));
+}
+
+#[test]
+fn complete_pack_data_constructor_empty_result_matches_cold_analysis() {
+    use phalcom_semantic::types::evidence::EvidenceStatus;
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let module = test_module();
+    let initial_source = "data PackBox<***Ps: CompleteTypePack>(***Ps)\n";
+    let source = r#"
+data PackBox<***Ps: CompleteTypePack>(***Ps)
+
+class Probe {
+    @class exercise() {
+        PackBox()
+    }
+}
+"#;
+    let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
+    let _initial = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1));
+    let incremental = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2));
+    let parsed = phalcom_ast::parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let cold = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+
+    let summarize = |snapshot: &phalcom_semantic::snapshot::SemanticSnapshot| {
+        let callable = CallableId::new(
+            DeclarationId::new(module.clone(), "Probe".into()),
+            Selector::method("exercise", []).expect("exercise selector"),
+            DispatchSide::Class,
+        );
+        let expression = snapshot
+            .callable_analyses
+            .get(&callable)
+            .expect("Probe.exercise analysis")
+            .expressions
+            .values()
+            .find(|expression| source.get(expression.range.start..expression.range.end) == Some("PackBox()"))
+            .expect("PackBox constructor expression");
+        let result = expression.knowledge.ty().expect("inferred constructor result");
+        let TypeData::Applied { arguments, .. } = snapshot.store.get(result) else {
+            panic!("constructor result must retain nominal Applied identity: {expression:#?}");
+        };
+        let [StaticArgument::Term(complete)] = arguments.as_ref() else {
+            panic!("constructor must publish one CompleteTypePack argument: {arguments:#?}");
+        };
+        let TypeData::CompleteTypePack { positionals, labeled } = snapshot.store.get(*complete) else {
+            panic!("constructor argument must be CompleteTypePack");
+        };
+        assert!(matches!(snapshot.store.get(*positionals), TypeData::TypePack(elements) if elements.is_empty()));
+        assert!(matches!(snapshot.store.get(*labeled), TypeData::LabeledTypePack(elements) if elements.is_empty()));
+        assert_eq!(expression.knowledge.status(), Some(EvidenceStatus::Established));
+        snapshot.store.format_type(result)
+    };
+
+    assert_eq!(summarize(&cold.snapshot), summarize(&incremental.snapshot));
+}
+
+#[test]
+fn record_row_constructor_result_matches_cold_analysis() {
+    use phalcom_semantic::types::evidence::EvidenceStatus;
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let module = test_module();
+    let initial_source = "data Envelope<**Fs: RecordFields> { id: Int, **Fs }\n";
+    let source = r#"
+data Envelope<**Fs: RecordFields> {
+    id: Int,
+    **Fs
+}
+
+class Probe {
+    @class exercise() {
+        Envelope { id: 1, name: "Ada", age: 42 }
+    }
+}
+"#;
+    let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
+    let _initial = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1));
+    let incremental = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2));
+    let parsed = phalcom_ast::parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let cold = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+
+    let summarize = |snapshot: &phalcom_semantic::snapshot::SemanticSnapshot| {
+        let callable = CallableId::new(
+            DeclarationId::new(module.clone(), "Probe".into()),
+            Selector::method("exercise", []).expect("exercise selector"),
+            DispatchSide::Class,
+        );
+        let expression = snapshot
+            .callable_analyses
+            .get(&callable)
+            .expect("Probe.exercise analysis")
+            .expressions
+            .values()
+            .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Envelope { id: 1, name: \"Ada\", age: 42 }"))
+            .expect("Envelope constructor expression");
+        let result = expression.knowledge.ty().expect("inferred constructor result");
+        let TypeData::Applied { arguments, .. } = snapshot.store.get(result) else {
+            panic!("constructor result must retain nominal Applied identity: {expression:#?}");
+        };
+        let [StaticArgument::RecordRow(row)] = arguments.as_ref() else {
+            panic!("constructor must retain one exact RecordRow argument: {arguments:#?}");
+        };
+        let fields = snapshot
+            .store
+            .record_row(*row)
+            .fields
+            .iter()
+            .map(|field| (field.name.to_string(), snapshot.store.format_type(field.ty)))
+            .collect::<Vec<_>>();
+        assert_eq!(fields.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>(), ["age", "name"]);
+        assert_eq!(expression.knowledge.status(), Some(EvidenceStatus::Established));
+        (snapshot.store.format_type(result), fields)
+    };
+
+    assert_eq!(summarize(&cold.snapshot), summarize(&incremental.snapshot));
 }
 
 #[test]

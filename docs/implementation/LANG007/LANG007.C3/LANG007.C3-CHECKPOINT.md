@@ -33,7 +33,7 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Close the TupleIterator projection/conformance regression, then prove native re-entry authority across non-local return and complete the remaining P4 focused gates.
+  next_action: Complete and review Phase B T4's CV-10..CV-15 structural-data acceptance. Do not begin T5 until T4 disposition is reviewed; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 blocker: none
 ```
 
@@ -1655,32 +1655,29 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Finish Phase B T4 shape-specialization acceptance. The query-local
-    RecordRow proof-strength/dependency matrix is focused-tested, but the
-    separate source-level where-only restriction test and broader open/symbolic
-    T4 acceptance remain. T5 is downstream and has not started.
+    Review the completed focused Phase B T4 CV-10..CV-15 acceptance evidence.
+    T5 is downstream and has not started.
 
 next action:
-    Audit Priority 3's 40-way pre-remediation classification remains recorded
-    in `LANG007.C3.P4-audit-remediation/04-semantic-regression-classification.md`.
-    Its original `9e58d3b` run (40 failures) and c386 predecessor evidence are
-    preserved. A full pinned semantic rerun on clean main `bb3d6cd2` selected
-    1711 tests: 1632 passed, 37 failed, and 42 were ignored (exit 101). The
-    failure set is a strict subset: the migrated variadic-alias selector, the
-    invalid generic-header selector, and the editor-visible-symbol selector
-    now pass. The old implicit variadic syntax remains intentionally invalid;
-    the current exact selector passes for its migrated explicit-expansion
-    fixture. The four true predecessor baselines and original classifications
-    are unchanged. This classification work does not complete P4 T13; its
-    T1–T12 preconditions remain unmet. The first Phase B T4 materializer slice
-    now rejects a concrete duplicate between fixed Record fields and a
-    materialized row with a field-specific error; its compatible-row direct
-    semantic case passes. The existing symbolic row-lacks control also passes
-    unchanged. Next: complete the remaining T4 shape-specialization and
-    open/symbolic acceptance without changing RecordRow identity or solver
-    ownership; T5 remains downstream and not started.
-    Priority 2's nine named runtime selectors are individually focused-tested,
-    but no broad core, workspace, or release gate has passed; P4 remains
+    Review Phase B T4's focused CV-10..CV-15 acceptance and record its
+    disposition. Proceed to T5 only after T4 is accepted and explicitly
+    reviewed; do not begin T5 in this continuation.
+
+residual evidence:
+    Priority 3's 40-way pre-remediation classification remains in
+    `LANG007.C3.P4-audit-remediation/04-semantic-regression-classification.md`;
+    it does not complete P4 T13, whose T1–T12 preconditions remain unmet. The
+    last full pinned semantic run was on clean main `bb3d6cd2` (1711 selected,
+    1632 passed, 37 failed, 42 ignored, exit 101), before the current T4
+    commits. No current broad semantic rerun has been performed. Priority 2's
+    nine named runtime selectors remain individually focused-tested; no broad
+    core, workspace, or release gate has passed. The plan's focused
+    `record_row` filter selected 56 tests: 55 passed and
+    `map_expansion_does_not_fabricate_record_row` failed its expected-Unknown
+    assertion. This is the already-classified Priority 3 current regression
+    (older PASS evidence and failure at c386 are recorded in the per-selector
+    ledger), not a new T4 failure or a clean-predecessor baseline; it remains
+    unresolved outside this T4 slice. P4 remains
     `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 ```
 
@@ -2157,38 +2154,34 @@ and proves the two identities differ.
 | --- | --- | --- |
 | CV-10 user Tuple nominal identity | `user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple` — 1/1 | Covered for canonical semantic type identity. |
 | CV-11 user Record nominal identity | `user_record_row_data_type_keeps_nominal_identity_distinct_from_record` — 1/1 | Covered for canonical semantic type identity. |
-| CV-12 expanded constructor inference | `complete_pack_data_constructor_infers_nonzero_pack_without_expected_result` — 1/1; covers one and heterogeneous many positional arguments without an expected result type. | Zero-argument inference remains open: absent value evidence does not establish an empty pack. |
+| CV-12 expanded constructor inference | `complete_pack_data_constructor_infers_nonzero_pack_without_expected_result` — 1/1; covers one, heterogeneous many, and a labeled lane without an expected result. `complete_pack_data_constructor_infers_exact_empty_pack_without_expected_result` — 1/1; exact empty CompleteTypePack is Established from validated constructor shape. | Covered for zero/one/many positional plus labeled contributions. |
 | CV-13 fixed prefix + pack | `complete_pack_data_constructor_preserves_fixed_prefix_order_without_expected_result` — 1/1; verifies nominal result, inferred pack lanes, and materialized fixed-prefix-then-pack type order without an expected result type. | Covered for one fixed positional prefix plus two expanded lanes. |
-| CV-14 fixed Record + row | `record_row_constructor_infers_fixed_and_residual_fields_without_expected_result` — 1/1; together with duplicate rejection, source conflict, and symbolic-lacks controls. `data_record_materialization_preserves_symbolic_open_row_shape` — 1/1; exact open `RecordRowId` retains its known field, fixed prefix, and `Symbolic` materializer state. | Direct open-shape materialization is covered; source-level open-row constructor inference and broader T4 acceptance remain. |
-| CV-15 heterogeneous nominal RecordRow argument | `record_row_constructor_infers_fixed_and_residual_fields_without_expected_result` — 1/1; inferred nominal result retains its exact heterogeneous `StaticArgument::RecordRow` and materializes it. | Covered for this value-driven constructor route; non-established argument evidence is not tested here. |
+| CV-14 fixed Record + row | `record_row_constructor_infers_fixed_and_residual_fields_without_expected_result` — 1/1; duplicate rejection, source conflict, and symbolic-lacks controls; `data_record_materialization_preserves_symbolic_open_row_shape` — 1/1 retains exact open `RecordRowId`, known field, fixed prefix, and `Symbolic` state. | Covered within accepted surface. Source-level open-row forwarding would require record spread, explicitly deferred by `docs/specs/typing/type/type.record-row.md`; no new syntax is introduced. |
+| CV-15 heterogeneous nominal RecordRow argument | Known-value construction retains exact `StaticArgument::RecordRow`; Assumed, mixed Established/Assumed, exact-empty, Unknown, and Dynamic constructor proof tests pass; `record_row_constructor_result_matches_cold_analysis` — 1/1. | Covered; Unknown/Dynamic remain epistemic-status assertions where no canonical known TypeId is published. |
+| Cold result stability | `complete_pack_data_constructor_empty_result_matches_cold_analysis` — 1/1 and `record_row_constructor_result_matches_cold_analysis` — 1/1 compare nominal result, exact lanes/row fields, and proof status after incremental update against cold analysis. | Covered for inferred CompleteTypePack and heterogeneous RecordRow products. |
 
 The CV-11 selector `user_record_row_data_type_keeps_nominal_identity_distinct_from_record`
 passes (1 selected, 1 passed, pinned `nightly-2026-07-10`). It verifies that
 user `MyRecord` stays `Applied` with the exact heterogeneous `RecordRow`, while
 a structural Record formed from the same fields reuses that row identity and
-remains a distinct type. CV-10 and CV-11 nominal identity are now directly
-covered; this inventory is not T4 completion. Continue CV-12..CV-15 before
-beginning T5. P4 remains
+remains a distinct type. CV-10 and CV-11 nominal identity are directly covered;
+the remaining CV-12..CV-15 evidence and its T4 disposition are summarized below.
+Do not begin T5 before explicit review. P4 remains
 `IN_PROGRESS / PARTIAL / UNVERIFIED`, and audit/release gates remain open.
 
-CV-12 now has direct value-driven one/many evidence. The focused selector
+CV-12 now has direct value-driven zero/one/many evidence. The exact empty case
+passes `complete_pack_data_constructor_infers_exact_empty_pack_without_expected_result`
+(1/1); the validated CompleteTypePack constructor shape selects canonical
+empty positional and labeled lanes and supplies Established
+`ConstructorSemantics` evidence, not a solver default. The one/many selector
 `complete_pack_data_constructor_infers_nonzero_pack_without_expected_result`
-passes (1 selected, 1 passed), asserting that `PackBox(1)` and
-`PackBox(1, "value")` publish nominal `Applied` results with exactly the
-inferred positional lanes and an empty labeled lane. The correction records
-each expanded source argument's actual `TypeKnowledge` as a required premise
-for its selected pack binder, with `DataExpansionArgument` provenance; the
-existing proof-state meet preserves Established/Assumed/Unknown/Dynamic
-strength. The synthetic pack equivalence still performs shape binding and is
-not itself treated as evidence. The contextual control
+passes (1/1) for `PackBox(1)`, `PackBox(1, "value")`, and
+`PackBox(1, labeled: true)`, asserting exact positional and labeled lanes.
+Nonzero source arguments retain their actual `TypeKnowledge` as required
+premises with `DataExpansionArgument` provenance; synthetic pack equivalence
+remains shape binding, not evidence. The contextual control
 `projection_free_complete_pack_data_constructor_infers_pack` also passes
-(1 selected, 1 passed). Zero-argument inference is intentionally not claimed:
-no value premise exists to establish an empty pack, and no zero-pack proof rule
-was added. CV-12 therefore remains partially open alongside CV-13..CV-15.
-This proof transfer applies only to `CompleteTypePack`/`LabeledTypePack` type
-binders; it does not introduce a RecordRow premise transfer or close non-known
-row evidence questions. The RecordRow constructor path remains owned by the
-row solver.
+(1/1). Cold/incremental result stability is covered separately below.
 
 CV-13 now has a direct semantic acceptance test:
 `complete_pack_data_constructor_preserves_fixed_prefix_order_without_expected_result`
@@ -2198,8 +2191,10 @@ application whose CompleteTypePack contains only the `String`/`Bool` expansion
 lanes. `materialize_data_product_shape` returns a concrete shape ordered as
 `Int`, `String`, `Bool`; the fixed prefix retains its declared component ID and
 the expanded lanes do not invent component IDs. No production change was
-needed. CV-12 zero-argument inference and broader open/symbolic RecordRow
-proof-state behavior remain open; T4 and P4 are not complete.
+needed. The constructor application loop in
+`checker/call.rs::apply_generic_callable_in_context` walks the source arguments
+in order and analyzes each residual expression once; the one/many regression
+confirms the resulting lane order without a second constructor inference path.
 
 CV-14/CV-15 now also have a direct known-argument source discriminator:
 `record_row_constructor_infers_fixed_and_residual_fields_without_expected_result`
@@ -2208,8 +2203,10 @@ result type, `Envelope { id: 1, name: "Ada", age: 42 }` publishes nominal
 `Envelope` with the exact closed `StaticArgument::RecordRow` containing
 `age: Int` and `name: String`. Canonical materialization yields `id`, `age`,
 `name` in logical fixed-prefix-then-sorted-row order; only `id` retains a
-declaration component ID. This proves the concrete known-value route, not
-proof-state transfer for non-established row arguments.
+declaration component ID. Assumed, mixed Established/Assumed, exact-empty,
+Unknown, and Dynamic source-row evidence are covered by focused constructor
+tests; the query-local proof matrix preserves only return-relevant strength.
+Cold/incremental parity for the inferred heterogeneous row is also tested.
 
 ### T4 query-local RecordRow proof propagation — first focused gate — 2026-09-27
 
