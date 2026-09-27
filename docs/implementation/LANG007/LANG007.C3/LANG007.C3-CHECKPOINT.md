@@ -33,8 +33,8 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Implement the adopted INC-C3-15 runtime representation for heterogeneous `Applied` arguments, including closed `RecordRow` substitution, exact overlay interning, and open-tail rejection; then finish T5 acceptance with focused gates. Work resumes from clean local main `0fe6e270`.
-blocker: none; the T5.2 representation decision is adopted and implementation may resume.
+  next_action: Obtain a scope decision on whether T5 includes semantic contextual row selection for nullary generic constructors, or whether the supplemental PhantomRow gap is deferred outside T5. Preserve open-tail rejection meanwhile.
+blocker: supervisor/architect scope decision required for the supplemental empty-layout contextual row case; closed-row runtime representation work is focused-tested.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1174,8 +1174,34 @@ Verification required: row preservation and type substitution; distinct
   specialization interning; row-vs-proper-Record distinction; open-tail
   rejection; unchanged type-only Applied controls; and the existing T5 class,
   descriptor, layout, field-access, and generic-callable regressions.
-Status: ADOPTED — T5.2 implementation resumed from clean local main
-  `0fe6e270`; T5 and P4 remain incomplete and unverified beyond focused gates.
+Implementation evidence: the runtime `Applied` overlay now retains
+  `Term(RuntimeTypeRef)` and `RecordRow(RuntimeRecordRow)` separately; closed
+  row fields substitute through the existing type environment and interner,
+  while unresolved tails fail exact instantiation. Legacy type-only argument
+  projection does not flatten row arguments. Low-level row substitution,
+  interning, separation, tail rejection, equal-layout exact descriptor, and
+  ordinary Applied reflection controls passed, as did focused MyTuple,
+  MyRecord, generic-callable, Envelope fixed+expanded, and fixed-only source
+  controls plus `cargo check -p phalcom-core` (all focused selectors selected
+  one test and passed). No broad suite was run.
+Status: ADOPTED; this T5.2 runtime representation slice is IMPLEMENTED /
+  FOCUSED_TESTED. T5 and P4 remain incomplete; this evidence does not certify
+  the remaining T5 acceptance or release gates.
+Supplemental discriminator: the focused source test
+  `p4_empty_layout_row_specializations_keep_exact_identity_through_generic_callable`
+  fails at `PhantomRow()` with the existing `generic data type could not be
+  instantiated` error. A single temporary trace, removed immediately after
+  capture, observed a `Template(Base { pool: 2, node: 1 })` recipe, a live
+  `Factory.make<T>` environment binding T to the runtime Int type, and one
+  `RecordRow` argument with no fields and an unresolved declaration-owned
+  `PhantomRow.Fs` tail (parameter index 0). Exact instantiation correctly
+  rejects that open tail; the T binding does not select a row for it. The
+  passing MyRecord generic-callable path has source evidence for its closed
+  `payload: T` row, and closed-row substitution passes at the low-level runtime
+  seam. This is a semantic expected-result/constructor-publication scope
+  question, not a reason to relax the open-tail rejection rule. The red
+  supplemental test remains uncommitted as evidence; no source fix was
+  attempted.
 
 Use entries:
 
@@ -1697,18 +1723,16 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    LANG007.C3.P4 T5.2 — preserve heterogeneous runtime Applied arguments and
-    substitute ordinary type parameters inside closed RecordRow arguments.
+    Resolve whether nullary generic constructor contextual row selection is
+    within T5 acceptance or should be explicitly deferred beyond T5.
 
 next action:
-    Implement the adopted INC-C3-15 overlay representation/substitution fix,
-    beginning with low-level runtime typing tests for row preservation,
-    substitution, exact interning, type/row separation, and open-tail rejection.
-    Then rerun the generic-callable discriminator and remaining focused T5
-    gates. The previous T5.2 blocker is resolved by the adopted decision; do
-    not broaden runtime environments to row-valued bindings or add VM row
-    solving. T4 remains IMPLEMENTED / FOCUSED_TESTED; P4 remains
-    IN_PROGRESS / PARTIAL / UNVERIFIED.
+    Obtain the scope decision for the supplemental PhantomRow discriminator.
+    Do not alter expected-result/constructor publication or weaken open-tail
+    rejection without that decision. The closed-row runtime representation
+    slice remains IMPLEMENTED / FOCUSED_TESTED; T5 is still incomplete; T4
+    remains IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL /
+    UNVERIFIED.
 
 residual evidence:
     Priority 3's 40-way pre-remediation classification remains in
