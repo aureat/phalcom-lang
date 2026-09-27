@@ -6,6 +6,7 @@ use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::data_semantics::DataShape;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+use crate::semantic::support::Fixture;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -452,6 +453,59 @@ class Runner {
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
     let diagnostics = analysis.snapshot.diagnostics_for(&module);
     assert!(diagnostics.as_ref().is_none_or(|diagnostics| diagnostics.is_empty()), "diagnostics: {diagnostics:#?}");
+}
+
+#[test]
+fn complete_pack_data_constructor_infers_nonzero_pack_without_expected_result() {
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let fixture = Fixture::new(
+        r#"
+data PackBox<***Ps: CompleteTypePack>(***Ps)
+
+class Probe {
+    @class exercise() {
+        let single = PackBox(1)
+        let many = PackBox(1, "value")
+        many
+    }
+}
+"#,
+    );
+    fixture.assert_no_error_diagnostics();
+    let exercise = fixture.callable("Probe", "exercise", DispatchSide::Class);
+    let int = fixture.ty("Int");
+    let string = fixture.ty("String");
+
+    for (source, expected_lanes) in [
+        ("PackBox(1)", vec![int]),
+        ("PackBox(1, \"value\")", vec![int, string]),
+    ] {
+        let expression = fixture.expression(exercise, source);
+        let result = expression.knowledge.ty().unwrap_or_else(|| {
+            panic!(
+                "missing inferred result for {source}: expression={expression:#?}; diagnostics={:#?}",
+                fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
+            )
+        });
+        let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(result) else {
+            panic!("constructor result must retain user nominal Applied identity: {:#?}", expression);
+        };
+        let [StaticArgument::Term(complete_pack)] = arguments.as_ref() else {
+            panic!("constructor must publish one CompleteTypePack argument: {arguments:#?}");
+        };
+        let TypeData::CompleteTypePack { positionals, labeled } = fixture.analysis.snapshot.store.get(*complete_pack) else {
+            panic!("constructor argument must be a CompleteTypePack: {:?}", fixture.analysis.snapshot.store.get(*complete_pack));
+        };
+        let TypeData::TypePack(positionals) = fixture.analysis.snapshot.store.get(*positionals) else {
+            panic!("positional lane must be TypePack");
+        };
+        assert_eq!(positionals.as_ref(), expected_lanes.as_slice(), "wrong inferred positional lane for {source}");
+        assert!(
+            matches!(fixture.analysis.snapshot.store.get(*labeled), TypeData::LabeledTypePack(elements) if elements.is_empty()),
+            "unlabeled constructor arguments must leave the labeled lane empty for {source}"
+        );
+    }
 }
 
 #[test]

@@ -6,6 +6,7 @@
 use super::context::CheckerControl;
 use super::row_inference::{InferenceRecord, InferenceRecordField, InferenceRecordTail};
 use crate::identity::{CallableId, DeclarationId, ExplanationId, ExpressionId, InferVarId};
+use phalcom_common::range::SourceRange;
 use crate::traits::AssociatedTypeRequirementId;
 use crate::types::application::TypeApplicationError;
 use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
@@ -453,6 +454,11 @@ pub enum InferenceRelation {
 /// The origin of an inference constraint for causality and explanation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConstraintOrigin {
+    DataExpansionArgument {
+        call: ExpressionId,
+        argument: SourceRange,
+        parameter: TypeParameterId,
+    },
     Argument {
         call: ExpressionId,
         argument: ExpressionId,
@@ -862,6 +868,7 @@ impl InferenceSession {
             ConstraintOrigin::GenericWhere { .. } => InferenceConstraintRole::DeclarationRestriction,
             ConstraintOrigin::Explicit => InferenceConstraintRole::ExactSemanticSelection,
             ConstraintOrigin::Argument { .. }
+            | ConstraintOrigin::DataExpansionArgument { .. }
             | ConstraintOrigin::BlockParameter { .. }
             | ConstraintOrigin::BlockResult { .. }
             | ConstraintOrigin::CollectionElement { .. } => InferenceConstraintRole::ValueSelection,

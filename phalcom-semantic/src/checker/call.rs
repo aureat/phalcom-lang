@@ -72,6 +72,14 @@ struct DataConstructorExpansionTerms {
     positional: Vec<InferenceTerm>,
     labeled: Vec<crate::checker::inference::InferenceLabeledTypePackElement>,
     fields: Vec<crate::checker::row_inference::InferenceRecordField>,
+    premises: Vec<DataConstructorExpansionPremise>,
+}
+
+struct DataConstructorExpansionPremise {
+    parameter: TypeParameterId,
+    argument: SourceRange,
+    knowledge: TypeKnowledge,
+    explanation: Option<ExplanationId>,
 }
 
 impl DataConstructorShapeAdapter {
@@ -1490,6 +1498,22 @@ fn apply_generic_callable_in_context(
             _ => {
                 let argument_typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
                 record_generic_argument_capture(ctx, &argument_typed);
+                let expansion_parameter = match &role {
+                    DataConstructorArgumentRole::PositionalPack { parameter }
+                    | DataConstructorArgumentRole::LabeledPack { parameter, .. } => {
+                        Some(*parameter)
+                    }
+                    DataConstructorArgumentRole::RecordField { .. }
+                    | DataConstructorArgumentRole::Fixed { .. } => None,
+                };
+                if let Some(parameter) = expansion_parameter {
+                    expansion_terms.premises.push(DataConstructorExpansionPremise {
+                        parameter,
+                        argument: argument.range(),
+                        knowledge: argument_typed.knowledge.clone(),
+                        explanation: argument_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)),
+                    });
+                }
                 let symbolic_argument = argument_typed
                     .symbolic_result
                     .as_ref()
@@ -1758,7 +1782,24 @@ fn apply_generic_callable_in_context(
                 _ => unreachable!("data constructor pack kind was validated above"),
             };
             if let Some(variable) = var_map.get(&parameter).cloned() {
-                session_handle.borrow_mut().add_constraint(
+                let mut session = session_handle.borrow_mut();
+                for premise in expansion_terms
+                    .premises
+                    .iter()
+                    .filter(|premise| premise.parameter == parameter)
+                {
+                    session.record_required_premise(
+                        &variable,
+                        ConstraintOrigin::DataExpansionArgument {
+                            call: call_id,
+                            argument: premise.argument,
+                            parameter,
+                        },
+                        &premise.knowledge,
+                        premise.explanation,
+                    );
+                }
+                session.add_constraint(
                     InferenceRelation::Equivalent(variable, pack_term),
                     ConstraintOrigin::Explicit,
                     None,
