@@ -33,8 +33,8 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Execute P4 T5, beginning with T5.1 separation of shared behavior-class registration from base layout registration; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
-blocker: none
+  next_action: Resolve the T5.2 runtime representation decision for applied RecordRow arguments before resuming exact generic-callable specialization; then complete T5 acceptance and its focused gates. Preserve the existing T5 working diff until the decision is recorded.
+blocker: T5.2 exact specialization is blocked because runtime applied-type overlays do not represent RecordRow static arguments.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -2248,5 +2248,36 @@ context accompanies independent source evidence. The separate
 the three integration discriminators selected and passed 1 test. Together
 with the CV-10..CV-15 evidence above, these results support T4
 `IMPLEMENTED / FOCUSED_TESTED`; they do not assert a broad suite gate or close
-P4. T5 is next and has not started. P4 remains
-`IN_PROGRESS / PARTIAL / UNVERIFIED`.
+P4. T5 has since started and reached the runtime representation blocker below.
+P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+### P4 T5 — runtime specialization representation gate — 2026-09-27
+
+T5 is active but not accepted. The shared declaration behavior class,
+exact descriptor/layout registry path, and specialization-aware expanded-field
+projection have focused evidence: the registry separation test, MyTuple and
+MyRecord specialization tests, the fixed-plus-expanded Envelope field test,
+the fixed-only control, and the semantic assumed-evidence projection test each
+passed individually. No broad plan or release gate was run.
+
+The generic-callable discriminator reaches the planned T5.2 stop condition.
+Its callable environment carries distinct `T=Int` and `T=String` bindings, but
+exact result specialization fails because
+`phalcom-core/src/typing/environment.rs::instantiate_type_ref` declines applied
+types containing `StaticArgumentRef::RecordRow`, and
+`phalcom-core/src/typing/overlay.rs::RuntimeOverlayTypeNode::Applied` stores only
+type arguments. Keeping the type recipe closed erases the distinction between
+the two row-specialized results; marking it as a template exposes the unsupported
+row reification and fails with `generic data type could not be instantiated`.
+
+This is a runtime type representation/canonical identity decision, not a local
+lowering adjustment. Before resuming, the architect must decide how runtime
+type references and overlays represent, substitute, and intern applied
+`RecordRow` arguments so `{payload: Int}` and `{payload: String}` remain distinct
+exact data types, or specify another canonical identity strategy. Do not use
+erasure, per-specialization classes, another registry, or weaken the exact
+specialization acceptance to bypass the gate. The active T5 implementation diff
+is preserved uncommitted pending that decision.
+
+P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; T5 is incomplete, and no
+checkpoint or release acceptance is claimed.
