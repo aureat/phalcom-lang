@@ -2155,7 +2155,7 @@ and proves the two identities differ.
 | CV-10 user Tuple nominal identity | `user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple` — 1/1 | Covered for canonical semantic type identity. |
 | CV-11 user Record nominal identity | `user_record_row_data_type_keeps_nominal_identity_distinct_from_record` — 1/1 | Covered for canonical semantic type identity. |
 | CV-12 expanded constructor inference | `complete_pack_data_constructor_infers_nonzero_pack_without_expected_result` — 1/1; covers one and heterogeneous many positional arguments without an expected result type. | Zero-argument inference remains open: absent value evidence does not establish an empty pack. |
-| CV-13 fixed prefix + pack | No direct fixed-prefix expanded-pack constructor result/layout test found. | Add the mixed constructor inference/mapping discriminator. |
+| CV-13 fixed prefix + pack | `complete_pack_data_constructor_preserves_fixed_prefix_order_without_expected_result` — 1/1; verifies nominal result, inferred pack lanes, and materialized fixed-prefix-then-pack type order without an expected result type. | Covered for one fixed positional prefix plus two expanded lanes. |
 | CV-14 fixed Record + row | `data_record_materialization_rejects_duplicate_fixed_and_expanded_labels` proves materializer rejection; `data_record_constructor_rejects_expected_row_repeating_fixed_label` proves source rejection; `return_record_prefix_contributes_lacks_constraint_to_row_inference` covers symbolic lacks separately. | Add successful fixed+row inference/layout evidence; keep the diagnostic distinction recorded above. |
 | CV-15 heterogeneous nominal RecordRow argument | `data_record_materialization_rejects_duplicate_fixed_and_expanded_labels` and `user_record_row_data_type_keeps_nominal_identity_distinct_from_record` explicitly apply `StaticArgument::RecordRow`; the latter verifies the exact row on nominal `Applied`. | Verify an inferred user data constructor result retains that row argument as `Applied`/`StaticArgument::RecordRow`. |
 
@@ -2185,3 +2185,14 @@ was added. CV-12 therefore remains partially open alongside CV-13..CV-15.
 This proof transfer applies only to `CompleteTypePack`/`LabeledTypePack` type
 binders; it does not close CV-14 RecordRow inference. Successful source-row
 inference remains open pending the row solver's own proof-state contract.
+
+CV-13 now has a direct semantic acceptance test:
+`complete_pack_data_constructor_preserves_fixed_prefix_order_without_expected_result`
+passes (1 selected, 1 passed, pinned `nightly-2026-07-10`). With no expected
+result type, `Prefixed(7, "tail", true)` publishes a nominal `Prefixed`
+application whose CompleteTypePack contains only the `String`/`Bool` expansion
+lanes. `materialize_data_product_shape` returns a concrete shape ordered as
+`Int`, `String`, `Bool`; the fixed prefix retains its declared component ID and
+the expanded lanes do not invent component IDs. No production change was
+needed. CV-12 zero-argument inference and CV-14/CV-15 RecordRow obligations
+remain open; T4 and P4 are not complete.

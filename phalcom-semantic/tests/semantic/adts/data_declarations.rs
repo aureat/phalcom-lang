@@ -509,6 +509,75 @@ class Probe {
 }
 
 #[test]
+fn complete_pack_data_constructor_preserves_fixed_prefix_order_without_expected_result() {
+    use phalcom_semantic::data_semantics::{DataProductShapeState, materialize_data_product_shape};
+    use phalcom_semantic::types::store::{StaticArgument, TypeData};
+
+    let fixture = Fixture::new(
+        r#"
+data Prefixed<***Ps: CompleteTypePack>(_ prefix: Int, ***Ps)
+
+class Probe {
+    @class exercise() {
+        let value = Prefixed(7, "tail", true)
+        value
+    }
+}
+"#,
+    );
+    fixture.assert_no_error_diagnostics();
+    let exercise = fixture.callable("Probe", "exercise", DispatchSide::Class);
+    let expression = fixture.expression(exercise, "Prefixed(7, \"tail\", true)");
+    let result = expression.knowledge.ty().expect("inferred nominal constructor result");
+    let declaration = fixture.decl("Prefixed");
+    assert_eq!(
+        fixture.analysis.snapshot.store.nominal_origin_declaration(result),
+        Some(&declaration)
+    );
+    let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(result) else {
+        panic!("constructor result must preserve nominal Applied identity: {expression:#?}");
+    };
+    let [StaticArgument::Term(complete_pack)] = arguments.as_ref() else {
+        panic!("expected one CompleteTypePack argument, got {arguments:#?}");
+    };
+    let TypeData::CompleteTypePack { positionals, labeled } = fixture.analysis.snapshot.store.get(*complete_pack) else {
+        panic!("expected CompleteTypePack argument");
+    };
+    let TypeData::TypePack(pack_lanes) = fixture.analysis.snapshot.store.get(*positionals) else {
+        panic!("expected positional TypePack lane");
+    };
+    assert_eq!(
+        pack_lanes.as_ref(),
+        &[fixture.ty("String"), fixture.ty("Bool")]
+    );
+    assert!(matches!(
+        fixture.analysis.snapshot.store.get(*labeled),
+        TypeData::LabeledTypePack(elements) if elements.is_empty()
+    ));
+
+    let info = fixture
+        .analysis
+        .snapshot
+        .data_semantics
+        .data_info(&declaration)
+        .expect("Prefixed data product");
+    let mut store = fixture.analysis.snapshot.store.as_ref().clone();
+    let shape =
+        materialize_data_product_shape(&mut store, info, result).expect("materialize inferred product shape");
+    assert_eq!(shape.state, DataProductShapeState::Concrete);
+    let ordered_types = shape.components.iter().map(|component| component.ty).collect::<Vec<_>>();
+    assert_eq!(
+        ordered_types,
+        vec![Some(fixture.ty("Int")), Some(fixture.ty("String")), Some(fixture.ty("Bool"))]
+    );
+    assert!(shape.components[0].component.is_some(), "fixed prefix retains declaration component identity");
+    assert!(
+        shape.components[1..].iter().all(|component| component.component.is_none()),
+        "expanded lanes do not invent component IDs"
+    );
+}
+
+#[test]
 fn user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple() {
     use phalcom_semantic::types::store::{StaticArgument, TypeData};
 
