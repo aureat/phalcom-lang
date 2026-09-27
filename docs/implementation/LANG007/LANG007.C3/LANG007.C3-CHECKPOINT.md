@@ -33,7 +33,7 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: Complete and review Phase B T4's CV-10..CV-15 structural-data acceptance. Do not begin T5 until T4 disposition is reviewed; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+  next_action: T4 CV-10..CV-15 is accepted as IMPLEMENTED / FOCUSED_TESTED; begin P4 T5 next. T5 has not started; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 blocker: none
 ```
 
@@ -1655,13 +1655,12 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Review the completed focused Phase B T4 CV-10..CV-15 acceptance evidence.
-    T5 is downstream and has not started.
+    Begin Phase B T5; it has not started.
 
 next action:
-    Review Phase B T4's focused CV-10..CV-15 acceptance and record its
-    disposition. Proceed to T5 only after T4 is accepted and explicitly
-    reviewed; do not begin T5 in this continuation.
+    T4's CV-10..CV-15 structural-data acceptance is accepted as
+    IMPLEMENTED / FOCUSED_TESTED on focused selectors. Proceed to T5 next;
+    keep P4 overall IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
     Priority 3's 40-way pre-remediation classification remains in
@@ -2164,10 +2163,10 @@ The CV-11 selector `user_record_row_data_type_keeps_nominal_identity_distinct_fr
 passes (1 selected, 1 passed, pinned `nightly-2026-07-10`). It verifies that
 user `MyRecord` stays `Applied` with the exact heterogeneous `RecordRow`, while
 a structural Record formed from the same fields reuses that row identity and
-remains a distinct type. CV-10 and CV-11 nominal identity are directly covered;
-the remaining CV-12..CV-15 evidence and its T4 disposition are summarized below.
-Do not begin T5 before explicit review. P4 remains
-`IN_PROGRESS / PARTIAL / UNVERIFIED`, and audit/release gates remain open.
+remains a distinct type. The CV-10..CV-15 inventory and focused checks below
+are accepted as T4 `IMPLEMENTED / FOCUSED_TESTED`. T5 is next and has not
+started. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`, and audit/release
+gates remain open.
 
 CV-12 now has direct value-driven zero/one/many evidence. The exact empty case
 passes `complete_pack_data_constructor_infers_exact_empty_pack_without_expected_result`
@@ -2242,6 +2241,8 @@ preserving Assumed for context-only selection and Established when compatible
 context accompanies independent source evidence. The separate
 `return_irrelevant_dynamic_row_does_not_weaken_exact_int_result` test passes
 1/1. Focused commands selected 4 unit tests and 6 constructor tests; each of
-the three integration discriminators selected and passed 1 test. These results
-do not close all T4 acceptance or assert a broad suite gate; P4 remains
+the three integration discriminators selected and passed 1 test. Together
+with the CV-10..CV-15 evidence above, these results support T4
+`IMPLEMENTED / FOCUSED_TESTED`; they do not assert a broad suite gate or close
+P4. T5 is next and has not started. P4 remains
 `IN_PROGRESS / PARTIAL / UNVERIFIED`.
