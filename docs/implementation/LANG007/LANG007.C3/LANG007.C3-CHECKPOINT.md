@@ -1917,8 +1917,19 @@ next action:
     projection retirement on authoritative replacement.
     T6.4 remains sequenced after T9/T10. T6.6 continues under the adopted
     lexical-body amendment INC-C3-19; INC-C3-18's source rewrite is
-    superseded. The canonical bootstrap still requires focused verification
-    through both `universe:errors.result` and `universe:option.option`.
+    superseded. Canonical bootstrap is not accepted. On detached clean
+    predecessor `fd88ad76`, the exact `corpus::option` selector passes 1/1;
+    the current uncommitted implementation instead panics before fixture
+    execution at `TypeStore::union`. The predecessor's `corpus::errors`
+    selector fails at a distinct fixture runtime error, while the current
+    implementation panics at the union assertion. A bounded trace shows an
+    improper unapplied `List` refinement from `if list is not List` retained
+    in flow and later consumed at the `Bytes.fromList` loop-header join. The
+    exact causal difference between the new lexical `If` path and the prior
+    `ifTrue`/branch-pair path remains unresolved; this is causally suspect,
+    not a demonstrated baseline. No union, predicate-refinement, loop, or
+    `whileTrue` behavior was changed. T6.6 remains unverified pending
+    architectural disposition.
     T6.7–T6.8 and T7–T13 remain open. INC-C3-17
     records the scoped RecordRow carrier and schema-v9 amendment. Overall checkpoint P4 remains
     IN_PROGRESS / PARTIAL / UNVERIFIED.
@@ -2603,3 +2614,39 @@ without Closure construction; inline match lowering without Closure
 construction; and canonical Universe bootstrap through both Result and
 Option. T6.6 remains open until these gates pass; P4 remains
 `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+Attribution/verification update — 2026-09-28: with `RUSTFLAGS=''` and
+`RUSTC_WRAPPER=''`, the exact selectors were run on detached clean predecessor
+`fd88ad76` using `cargo test -p phalcom-core --test language-corpus
+corpus::errors -- --exact` and the corresponding `corpus::option` command.
+`corpus::option` passed 1/1. `corpus::errors` selected 1 and failed during
+fixture execution in `errors/contracts_invariant_cross_receiver.ph` because
+`B` could not call `invariantEnter()` owned by `<unbound>`; this is materially
+different from the current implementation's pre-fixture union panic and is
+not evidence that the current union failure is a baseline.
+
+In the current uncommitted implementation, both selectors panic before fixture
+execution at `TypeStore::union`'s unchanged `is_proper_type` assertion. A
+temporary trace (removed after capture) identified `BindingId(0)` / `list` at
+`universe:collections.bytes::Bytes.fromList`, declaration range `[5665,5669)`:
+both incoming facts were `Known(TypeId(190), Established, Flow)`, with
+`TypeData::Nominal { declaration: universe:collections.list::List }` and kind
+`(Type) -> Type` (`kind_of != KindId::TYPE`), so this is not a proper Type.
+`bytes.ph` has `if list is not List` at lines 213–215 and the loop at lines
+218–221. Predicate extraction inverts the false polarity to the positive
+`IsInstance(list, List)` observation; `positive_type_refinement` assigns the
+target as `Established(..., Flow)` for an unknown binding without checking
+that the target is a proper Type. The new `Expr::If` path runs
+`analyze_condition_split` and retains `split.when_false` as the normal
+post-if flow; the later `whileTrue` loop-header join consumes that fact.
+
+The predicate/refinement machinery and `analyze_branch_pair` predate this
+change; the predecessor's parser sent source `if` through `ifTrue` and the
+same branch-pair helper also installed `split.when_false`. Thus the clean
+comparison establishes a current-tree regression/cause suspect, but the exact
+delta between the old control-send path and the new lexical `If` path is not
+yet isolated. The assertion and proper-Type boundary remain intact. This is
+an architectural consultation trigger under INC-C3-19; no production repair
+is authorized pending the decision. T6.6 remains `IN_PROGRESS / PARTIAL /
+UNVERIFIED`; neither canonical gate is claimed as passing or as a baseline
+for the current union failure.
