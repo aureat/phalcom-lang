@@ -2206,5 +2206,26 @@ result type, `Envelope { id: 1, name: "Ada", age: 42 }` publishes nominal
 `age: Int` and `name: String`. Canonical materialization yields `id`, `age`,
 `name` in logical fixed-prefix-then-sorted-row order; only `id` retains a
 declaration component ID. This proves the concrete known-value route, not
-proof-state transfer for Assumed/Unknown/Dynamic row arguments; the row solver
-was not changed and no new row proof API was introduced.
+proof-state transfer for non-established row arguments.
+
+### T4 query-local RecordRow proof propagation — first focused gate — 2026-09-27
+
+Architect ruling: proof strength belongs to the active `GenericApplicationSession`
+and is keyed by `RecordRowVarId`; it must not enter canonical `RecordRowId` or
+`RecordRowField`, and `RecordRowSolver` remains epistemic-agnostic. Source
+`RecordField` knowledge is captured before conversion to inference terms, row
+dependencies are followed during return publication, and ordinary type proof
+is met only with row proof reachable from the returned term. Fixed/lacks/where
+constraints do not establish value evidence. A context-selected row is
+Assumed, except that compatible context must not downgrade independent
+Established source evidence. A solved exact closed-empty row is Established;
+Unknown and Dynamic retain the weakest status.
+
+The first focused slice implements the query-local proof bridge and passes
+`record_row_constructor_preserves_assumed_generic_field_evidence` (1/1),
+`expected_result_can_select_row` (1/1, now asserts Assumed), and
+`source_established_row_stays_established_under_compatible_expected_result`
+(1/1). The existing CV-14/CV-15 known-value constructor control remains
+available; no evidence was added to canonical row identity. This is partial
+T4 evidence only: the remaining proof-strength/dependency matrix is still open,
+and P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.

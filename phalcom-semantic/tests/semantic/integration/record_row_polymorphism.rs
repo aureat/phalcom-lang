@@ -116,6 +116,31 @@ class Probe {
     let row = fixture.analysis.snapshot.store.record_row(*row_id);
     assert_eq!(row.tail, RecordRowTail::Closed);
     assert_eq!(row.fields.iter().map(|field| field.name.as_ref()).collect::<Vec<_>>(), vec!["item", "name"]);
+    assert_eq!(call.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
+    assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
+}
+
+#[test]
+fn source_established_row_stays_established_under_compatible_expected_result() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  preserve<**R>(_ value: { item: Int, **R }) -> { item: Int, **R } {
+    value
+  }
+
+  @class
+  run() {
+    let result: { item: Int, name: String } = Probe.preserve({item: 1, name: "x"})
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.preserve({item: 1, name: \"x\"})");
+    assert!(call.knowledge.ty().is_some(), "compatible source and context should publish the row: {call:#?}");
+    assert_eq!(call.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Established));
     assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
 }
 

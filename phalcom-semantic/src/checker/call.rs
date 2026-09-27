@@ -80,6 +80,8 @@ struct DataConstructorExpansionPremise {
     argument: SourceRange,
     knowledge: TypeKnowledge,
     explanation: Option<ExplanationId>,
+    record_field: bool,
+    proof_term: Option<InferenceTerm>,
 }
 
 impl DataConstructorShapeAdapter {
@@ -1498,22 +1500,27 @@ fn apply_generic_callable_in_context(
             _ => {
                 let argument_typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
                 record_generic_argument_capture(ctx, &argument_typed);
-                let expansion_parameter = match &role {
+                let (expansion_parameter, record_field) = match &role {
                     DataConstructorArgumentRole::PositionalPack { parameter }
                     | DataConstructorArgumentRole::LabeledPack { parameter, .. } => {
-                        Some(*parameter)
+                        (Some(*parameter), false)
                     }
-                    DataConstructorArgumentRole::RecordField { .. }
-                    | DataConstructorArgumentRole::Fixed { .. } => None,
+                    DataConstructorArgumentRole::RecordField { parameter, .. } => (Some(*parameter), true),
+                    DataConstructorArgumentRole::Fixed { .. } => (None, false),
                 };
-                if let Some(parameter) = expansion_parameter {
+                let expansion_premise_index = if let Some(parameter) = expansion_parameter {
                     expansion_terms.premises.push(DataConstructorExpansionPremise {
                         parameter,
                         argument: argument.range(),
                         knowledge: argument_typed.knowledge.clone(),
                         explanation: argument_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)),
+                        record_field,
+                        proof_term: None,
                     });
-                }
+                    Some(expansion_terms.premises.len() - 1)
+                } else {
+                    None
+                };
                 let symbolic_argument = argument_typed
                     .symbolic_result
                     .as_ref()
@@ -1534,6 +1541,9 @@ fn apply_generic_callable_in_context(
                     ))
                 });
                 if let Some(term) = inferred_term {
+                    if let Some(index) = expansion_premise_index {
+                        expansion_terms.premises[index].proof_term = Some(term.clone());
+                    }
                     match role {
                         DataConstructorArgumentRole::PositionalPack { parameter } => {
                             expansion_terms.parameter = Some(parameter);
@@ -1653,6 +1663,7 @@ fn apply_generic_callable_in_context(
                         match rows.constrain_known_record_argument(evidence.ty(), formal_record, ctx.store) {
                             Ok(Some(field_constraints)) => {
                                 row_argument_constrained = true;
+                                rows.record_known_record_argument_premise(formal_record, &argument_typed.knowledge);
                                 for (actual_field, formal_field) in field_constraints {
                                     session_handle.borrow_mut().add_constraint_with_support(
                                         InferenceRelation::Subtype(actual_field, formal_field),
@@ -1761,6 +1772,25 @@ fn apply_generic_callable_in_context(
             }
         } else if adapter.shape == DataShape::Record {
             if let Some(rows) = row_session.as_mut() {
+                for premise in expansion_terms
+                    .premises
+                    .iter()
+                    .filter(|premise| premise.parameter == parameter && premise.record_field)
+                {
+                    rows.record_record_row_expansion_premise(parameter, &premise.knowledge);
+                    if let Some(term) = premise.proof_term.as_ref() {
+                        session_handle.borrow_mut().record_required_premise(
+                            term,
+                            ConstraintOrigin::DataExpansionArgument {
+                                call: call_id,
+                                argument: premise.argument,
+                                parameter,
+                            },
+                            &premise.knowledge,
+                            premise.explanation,
+                        );
+                    }
+                }
                 if let Err(failure) = rows.constrain_record_row_expansion(
                     parameter,
                     std::mem::take(&mut expansion_terms.fields),
@@ -1916,6 +1946,11 @@ fn apply_generic_callable_in_context(
                     );
                 }
                 session_handle.borrow_mut().record_context_selection(return_term);
+                if row_expected_constrained
+                    && let Some(rows) = row_session.as_mut()
+                {
+                    rows.record_row_context_selection(return_term);
+                }
                 if let Some(expected_ty) = expected.ty() {
                     for parameter in session_handle.borrow().projected_parameters_for_term(return_term, &var_map) {
                         let explanation = ctx.record_derivation(
@@ -2316,7 +2351,7 @@ fn publish_generic_return_with_rows(
     if !session.term_has_variables(return_term) && !term_has_row_variables(return_term) {
         return promote_exact_return(signature_return, ExactReturnOrigin::GenericInference, call_range);
     }
-    let proof = session.proof_state_for_term(return_term);
+    let proof = rows.proof_state_for_term(session, return_term, row_solution);
     match proof {
         crate::checker::inference::InferenceProofState::Unknown(reason) => TypeKnowledge::Unknown(reason),
         crate::checker::inference::InferenceProofState::Dynamic(reason) => TypeKnowledge::Dynamic(reason),

@@ -373,6 +373,7 @@ pub struct GenericApplicationSession {
     pub rows: RecordRowSolver,
     pub parameter_bindings: std::collections::HashMap<TypeParameterId, GenericInferenceBinding>,
     row_equations: Vec<(RecordRowTerm, RecordRowTerm)>,
+    row_proofs: std::collections::HashMap<RecordRowVarId, super::inference::InferenceProofState>,
     query_session: Option<Rc<RefCell<super::inference::InferenceCoordinator>>>,
     query_frame: Option<super::inference::InferenceFrameId>,
 }
@@ -474,6 +475,80 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
     }
 }
 
+fn row_variables_in_term(term: &InferenceTerm, variables: &mut HashSet<RecordRowVarId>) {
+    match term {
+        InferenceTerm::Record(record) => record_row_variables(record, variables),
+        InferenceTerm::Applied { origin, arguments } => {
+            row_variables_in_term(origin, variables);
+            for argument in arguments.iter() {
+                static_argument_row_variables(argument, variables);
+            }
+        }
+        InferenceTerm::StaticData { arguments, .. } => {
+            for argument in arguments.iter() {
+                static_argument_row_variables(argument, variables);
+            }
+        }
+        InferenceTerm::ExactCase { enum_type, .. } => row_variables_in_term(enum_type, variables),
+        InferenceTerm::Union(members) => members.iter().for_each(|member| row_variables_in_term(member, variables)),
+        InferenceTerm::Tuple(elements) => elements.iter().for_each(|element| row_variables_in_term(&element.term, variables)),
+        InferenceTerm::Callable(callable) => {
+            callable.parameters.iter().for_each(|parameter| row_variables_in_term(&parameter.term, variables));
+            row_variables_in_term(&callable.return_type, variables);
+        }
+        InferenceTerm::Family(members) => members.iter().for_each(|member| row_variables_in_term(&member.term, variables)),
+        InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
+            row_variables_in_term(subject, variables);
+            trait_ref.arguments.iter().for_each(|argument| row_variables_in_term(argument, variables));
+        }
+        InferenceTerm::TypeMemberProjection { subject, arguments, .. } => {
+            use super::inference::{InferenceProjectionSubject, InferenceTypeMemberArgument};
+            match subject {
+                InferenceProjectionSubject::Type(term) => row_variables_in_term(term, variables),
+                InferenceProjectionSubject::RecordRow(row) => record_row_variables(row, variables),
+            }
+            for argument in arguments.iter() {
+                match argument {
+                    InferenceTypeMemberArgument::Type(term) => row_variables_in_term(term, variables),
+                    InferenceTypeMemberArgument::Const(_) => {}
+                    InferenceTypeMemberArgument::RecordRow(row) => record_row_variables(row, variables),
+                }
+            }
+        }
+        InferenceTerm::TypePack(elements) => elements.iter().for_each(|element| row_variables_in_term(element, variables)),
+        InferenceTerm::LabeledTypePack(elements) => elements.iter().for_each(|element| row_variables_in_term(&element.term, variables)),
+        InferenceTerm::CompleteTypePack { positionals, labeled }
+        | InferenceTerm::TupleFromPacks { positionals, labeled } => {
+            row_variables_in_term(positionals, variables);
+            row_variables_in_term(labeled, variables);
+        }
+        InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => {
+            segments.iter().for_each(|segment| row_variables_in_term(segment, variables));
+        }
+        InferenceTerm::CallableFromPacks { positionals, labeled, return_type } => {
+            row_variables_in_term(positionals, variables);
+            row_variables_in_term(labeled, variables);
+            row_variables_in_term(return_type, variables);
+        }
+        InferenceTerm::PackProjection { subject, .. } => row_variables_in_term(subject, variables),
+        InferenceTerm::Canonical(_) | InferenceTerm::Var(_) | InferenceTerm::Rigid(_) => {}
+    }
+}
+
+fn static_argument_row_variables(argument: &super::inference::InferenceStaticArgument, variables: &mut HashSet<RecordRowVarId>) {
+    match argument {
+        super::inference::InferenceStaticArgument::Term(term) => row_variables_in_term(term, variables),
+        super::inference::InferenceStaticArgument::RecordRow(row) => record_row_variables(row, variables),
+    }
+}
+
+fn record_row_variables(row: &InferenceRecord, variables: &mut HashSet<RecordRowVarId>) {
+    if let InferenceRecordTail::Var(variable) = row.tail {
+        variables.insert(variable);
+    }
+    row.fields.iter().for_each(|field| row_variables_in_term(&field.term, variables));
+}
+
 fn static_argument_has_row_variables(argument: &super::inference::InferenceStaticArgument) -> bool {
     match argument {
         super::inference::InferenceStaticArgument::Term(term) => term_has_row_variables(term),
@@ -514,6 +589,7 @@ impl GenericApplicationSession {
             rows,
             parameter_bindings,
             row_equations: Vec::new(),
+            row_proofs: std::collections::HashMap::new(),
             query_session: None,
             query_frame: None,
         }
@@ -560,6 +636,7 @@ impl GenericApplicationSession {
             rows: RecordRowSolver::new(),
             parameter_bindings,
             row_equations: Vec::new(),
+            row_proofs: std::collections::HashMap::new(),
             query_session: Some(session),
             query_frame: Some(frame),
         }
@@ -749,6 +826,99 @@ impl GenericApplicationSession {
         };
         session.borrow_mut().enqueue_record_row_equation(&left, &right);
         Ok(())
+    }
+
+    /// Records the value evidence that established one contribution to an
+    /// inferred row. This state belongs to the application query, never to the
+    /// canonical RecordRow identity.
+    pub fn record_record_row_expansion_premise(&mut self, parameter: TypeParameterId, knowledge: &crate::types::evidence::TypeKnowledge) {
+        let Some(GenericInferenceBinding::RecordRow(variable)) = self.parameter_bindings.get(&parameter).copied() else {
+            return;
+        };
+        let proof = super::inference::InferenceProofState::from_knowledge(knowledge);
+        self.row_proofs
+            .entry(variable)
+            .and_modify(|current| *current = current.clone().meet(proof.clone()))
+            .or_insert(proof);
+    }
+
+    /// Preserves independent value evidence when a known source record
+    /// determines the residual portion of a formal row.
+    pub fn record_known_record_argument_premise(&mut self, formal: &InferenceRecord, knowledge: &crate::types::evidence::TypeKnowledge) {
+        let InferenceRecordTail::Var(variable) = formal.tail else {
+            return;
+        };
+        let proof = super::inference::InferenceProofState::from_knowledge(knowledge);
+        self.row_proofs
+            .entry(variable)
+            .and_modify(|current| *current = current.clone().meet(proof.clone()))
+            .or_insert(proof);
+    }
+
+    /// Context may select an otherwise unconstrained row in the published
+    /// result, but that selection is only assumed evidence.
+    pub fn record_row_context_selection(&mut self, term: &InferenceTerm) {
+        let mut variables = HashSet::new();
+        row_variables_in_term(term, &mut variables);
+        for variable in variables {
+            self.row_proofs.entry(variable).or_insert(super::inference::InferenceProofState::Assumed);
+        }
+    }
+
+    /// Meets ordinary type-variable proofs with only the row proofs reachable
+    /// from this result. Solved closed empty rows have no value premise and
+    /// are exact; other unproven rows remain underconstrained.
+    pub fn proof_state_for_term(
+        &self,
+        type_session: &super::inference::InferenceSession,
+        term: &InferenceTerm,
+        solution: &RecordRowSolution<InferenceTerm>,
+    ) -> super::inference::InferenceProofState {
+        fn visit_row(
+            application: &GenericApplicationSession,
+            type_session: &super::inference::InferenceSession,
+            variable: RecordRowVarId,
+            solution: &RecordRowSolution<InferenceTerm>,
+            visiting: &mut HashSet<RecordRowVarId>,
+        ) -> super::inference::InferenceProofState {
+            use super::inference::InferenceProofState;
+            if !visiting.insert(variable) {
+                return InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked);
+            }
+            let Some(row) = solution.term_for(variable) else {
+                visiting.remove(&variable);
+                return InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked);
+            };
+            let mut proof = application.row_proofs.get(&variable).cloned().unwrap_or_else(|| {
+                if row.fields.is_empty() && row.tail == RecordRowTermTail::Closed {
+                    InferenceProofState::Established
+                } else {
+                    InferenceProofState::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence)
+                }
+            });
+            let mut nested = HashSet::new();
+            for field in row.fields.iter() {
+                proof = proof.meet(type_session.proof_state_for_term(&field.ty));
+                row_variables_in_term(&field.ty, &mut nested);
+            }
+            if let RecordRowTermTail::Var(tail) = row.tail {
+                nested.insert(tail);
+            }
+            for dependency in nested {
+                proof = proof.meet(visit_row(application, type_session, dependency, solution, visiting));
+            }
+            visiting.remove(&variable);
+            proof
+        }
+
+        let mut variables = HashSet::new();
+        row_variables_in_term(term, &mut variables);
+        let mut proof = type_session.proof_state_for_term(term);
+        let mut visiting = HashSet::new();
+        for variable in variables {
+            proof = proof.meet(visit_row(self, type_session, variable, solution, &mut visiting));
+        }
+        proof
     }
 
     pub fn solve_rows(&mut self, store: &TypeStore, budget: &mut QueryBudget, cancellation: &CancellationToken) -> RecordRowSolveResult {
