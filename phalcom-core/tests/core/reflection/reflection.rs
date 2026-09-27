@@ -88,6 +88,13 @@ fn build_test_bundle() -> SemanticMetadataBundle {
             node: KindNode::RecordRow,
             structural_fingerprint: Fingerprint128::ZERO,
         },
+        KindNodeEntry {
+            node: KindNode::Arrow {
+                parameters: vec![KindNodeId(1)].into_boxed_slice(),
+                result: KindNodeId(0),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
     ]);
 
     let decl_box = StableDeclarationRef {
@@ -134,7 +141,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
         },
         // 4: RowBox
         TypeNodeEntry {
-            kind: KindNodeId(0),
+            kind: KindNodeId(2),
             form: TypeNode::Nominal {
                 declaration: decl_row_box.clone(),
             },
@@ -180,7 +187,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
                     }]
                     .into_boxed_slice(),
                     tail: Some(StableTypeParameterRef {
-                        owner: StableTypeParameterOwnerRef::Declaration(decl_box.clone()),
+                        owner: StableTypeParameterOwnerRef::Declaration(decl_row_box.clone()),
                         index: 0,
                     }),
                 })]
@@ -263,7 +270,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
     let row_decl_rec = DeclarationTypeRecord {
         declaration: decl_row_box,
         form: TypeNodeId(4),
-        kind: KindNodeId(0),
+        kind: KindNodeId(2),
         generic_signature: Some(GenericSignatureRecordId(1)),
         superclass_template: None,
         instance_callables: Box::new([]),
