@@ -33,8 +33,21 @@ verification: UNVERIFIED
 active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
-  next_action: T5 is IMPLEMENTED / FOCUSED_TESTED and accepted under the R2 amendment. Execute original P4 T6.1–T6.3; preserve later T6/T7–T13 stops. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
-blocker: no blocker in the named Step 11 matrix; the unrelated deferred rest-dispatch selector remains unresolved.
+next_action: >
+  T6.6's supplemental family-classifier discriminators pass focused testing;
+  its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
+  clean-predecessor fixture error, not a PASS. Keep TypeStore::union, loop
+  joining/whileTrue, and lexical-body semantics unchanged. T6.7–T6.8 and
+  T7.1–T7.11 plus T8.1–T8.5 are implemented and focused-tested. The adopted
+  2026-09-28 T8.5 ruling permits statically projectable Record rows and labeled
+  Tuple lanes, rejects Map-to-Record with a direct diagnostic, and preserves
+  shared runtime lane machinery. T8.5 is IMPLEMENTED / FOCUSED_TESTED; continue
+  with T8.6 under the active plan. T6.4 remains
+  sequenced after T9/T10. Keep `corpus::bytes`
+  unclear/nonblocking. Priority 3 categorical classification is already
+  recorded; causal isolation, remediation/migration decisions, and residual
+  disposition remain. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+blocker: none; T8.6 and later plan work remain open.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1836,9 +1849,16 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    Complete original P4 T6 in its bounded slices, then continue T7–T13 in
-    plan order. The R2 T4/T5 amendment is complete; P4 remains
-    IN_PROGRESS / PARTIAL / UNVERIFIED, and broad certification is open.
+    T7.9–T7.11 and T8.1–T8.5 are IMPLEMENTED / FOCUSED_TESTED. T8.5 preserves
+    Record/open-row and labeled-Tuple Record spreads, rejects Map-to-Record for
+    both bindings and literals with the same semantic diagnostic, retains
+    Map-to-Map and Record/Tuple-to-Map behavior, and leaves shared runtime lane
+    machinery unchanged. Continue with T8.6–T12, Priority 3 causal/residual
+    disposition, and T13. The
+    INC-C3-19 producer correction and focused lexical-body acceptance evidence
+    are recorded below. Keep TypeStore::union, loop flow, and lexical-body
+    semantics unchanged. T6.4 remains sequenced after T9/T10. P4 remains
+    IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
 
 next action:
     R2 Steps 5–11 are implemented and focused-tested; the T4/T5 amendment is
@@ -1915,29 +1935,122 @@ next action:
     and `static_domain_projection_survives_shell_refresh_and_authoritative_replacement_retires_it`
     each selected/passed 1, covering runtime/semantic owner and static-domain
     projection retirement on authoritative replacement.
-    T6.4 remains sequenced after T9/T10. T6.6 continues under the adopted
-    lexical-body amendment INC-C3-19; INC-C3-18's source rewrite is
-    superseded. Canonical bootstrap is not accepted. On detached clean
-    predecessor `fd88ad76`, the exact `corpus::option` selector passes 1/1;
-    the current uncommitted implementation instead panics before fixture
-    execution at `TypeStore::union`. The predecessor's `corpus::errors`
-    selector fails at a distinct fixture runtime error, while the current
-    implementation panics at the union assertion. A bounded trace shows an
-    improper unapplied `List` refinement from `if list is not List` retained
-    in flow and later consumed at the `Bytes.fromList` loop-header join. The
-    exact causal difference between the new lexical `If` path and the prior
-    `ifTrue`/branch-pair path remains unresolved; this is causally suspect,
-    not a demonstrated baseline. No union, predicate-refinement, loop, or
-    `whileTrue` behavior was changed. T6.6 remains unverified pending
-    architectural disposition.
-    T6.7–T6.8 and T7–T13 remain open. INC-C3-17
-    records the scoped RecordRow carrier and schema-v9 amendment. Overall checkpoint P4 remains
+    T6.4 remains sequenced after T9/T10. INC-C3-18's source rewrite is
+    superseded. The adopted INC-C3-19 producer correction and its focused
+    acceptance evidence are recorded below. The exact predecessor exposure
+    delta is not needed to establish the rule. No union, loop-flow,
+    `whileTrue`, or lexical-body change was made. T6.7 is IMPLEMENTED /
+    FOCUSED_TESTED: `compile_intrinsic_runtime_data` selects the preinstalled
+    Tuple or Record class from `facade.owner`; source identity locates/binds
+    the facade but does not derive the runtime owner. The semantic
+    `runtime_structural_declarations_bind_canonical_platform_owners` test and
+    core Tuple reuse, Record reuse, and absent-facade fail-closed selectors
+    each passed 1/1. T6.8 is IMPLEMENTED / FOCUSED_TESTED with no production
+    changes: canonical Tuple/Record owners, owner-module rejection, covering
+    and specialized domains, equivalent target identity, RecordFields row
+    binding, and ordinary member-collision policy are covered. The seven
+    focused semantic selectors each passed 1/1: Tuple structural owner and
+    equivalent spellings; Record structural owner/equivalent spellings plus
+    row identity; foreign Tuple/Record rejection; RecordRow and
+    CompleteTypePack covering materialization; equivalent structural targets;
+    and direct/spread Tuple/Record collision handling. T7.1 is IMPLEMENTED /
+    FOCUSED_TESTED with no source change. The semantic
+    `intrinsic_structural_source_facades_bind_existing_authorities_without_nominal_forms`
+    test verifies the four source anchors map to existing kind/owner authority,
+    with no nominal form or nominal static domain. Semantic
+    `complete_type_pack_kind_resolution_uses_its_canonical_facade_declaration`
+    verifies binder resolution, and core
+    `boot_01_bootstrap_measurement_separates_catalog_closure_and_execution`
+    confirms these anchors do not create runtime classes. All three selectors
+    passed 1/1. T7.2 is IMPLEMENTED / FOCUSED_TESTED with no edits. The
+    Universe source declares the pack-domain operations listed in the plan;
+    the evaluator catalog is mapped by owner/selector, while projection
+    resolution still requires the published associated source product and a
+    matching intrinsic operation. No new concat API is required by the
+    effective spec. Focused selectors
+    `intrinsic_type_member_source_products_match_the_evaluator_catalog`,
+    `canonical_tuple_intrinsic_impl_member_publishes_through_associated_surface`,
+    and `intrinsic_type_member_source_site_targets_canonical_owner_and_selector`
+    each passed 1/1. T7.3 is IMPLEMENTED / FOCUSED_TESTED. The projection
+    normalizer now routes CompleteTypePack Positionals/Labeled through the
+    canonical lane results and shares positional/labeled map helpers with
+    TypePackMap/LabeledTypePackMap; concrete outputs normalize and symbolic
+    outputs retain the exact source-backed residual. Selectors
+    `complete_type_pack_projections_and_map_preserve_both_lanes`,
+    `test_tuple_and_record_map_projection`, and
+    `source_visible_complete_pack_lane_projections_keep_canonical_member_declarations`
+    each passed 1/1. T7.4 is IMPLEMENTED / FOCUSED_TESTED with no production
+    change: concrete `Tuple::Element` unions positional and labeled payloads,
+    empty Tuple yields `Never`, and an unenumerable `TupleFromPacks` retains
+    the source-backed projection. Selectors
+    `tuple_element_unions_payloads_and_preserves_unsolved_pack_projection`
+    and `tuple_entries_is_complete_pack_projection_for_concrete_and_symbolic_tuples`
+    each passed 1/1. T7.5 is IMPLEMENTED / FOCUSED_TESTED with no production
+    change: `Record::Value` unions all payloads in a closed row, returns
+    `Never` for an empty Record, and keeps open-row results symbolic rather
+    than omitting the unknown tail. Selector
+    `record_value_unions_closed_fields_and_preserves_open_row_projection`
+    passed 1/1. T7.6's actual-Universe source/evaluator catalog check is now
+    implemented and focused-tested (new selector 1/1; existing catalog
+    selector 1/1); this is test-only and source-visible evaluators are the full
+    current catalog. T7.7 is IMPLEMENTED / FOCUSED_TESTED without edits:
+    Tuple behavior is under `impl<***Es: CompleteTypePack> Tuple<***Es>` and
+    Record behavior under `impl<**Fs: RecordFields> Record<**Fs>`; member
+    signatures consume their specialized Element/Value projections. Six
+    focused Tuple/Record construction, generic-callable, specialization-slot,
+    iterator, and get selectors passed 1/1. T6.6's supplemental family tests
+    are focused-tested. T7.8 is IMPLEMENTED / FOCUSED_TESTED: Tuple raw element
+    access returns `Tuple<***Es>::Element`, Record raw value access returns
+    `Record<**Fs>::Value`; public Option behavior is preserved by checked
+    wrappers and invalid direct internal reads fail closed. The exact
+    specialized type/behavior, sequence, and Record-get selectors each passed
+    1/1. T7.9 is IMPLEMENTED / FOCUSED_TESTED: the new
+    `tuple_lane_observers_preserve_exact_structural_types_and_values`
+    regression verifies exact Tuple lane observer result types and values;
+    the new selector and `dynamic_tuple_preserves_lanes_and_normalizes_empty_expansion`
+    each passed 1/1. No production change was needed because source signatures
+    and VM primitives already preserve the structural Tuple lanes. T7.10 is
+    IMPLEMENTED / FOCUSED_TESTED: the iterator regression now requires exact
+    `Tuple<***(Int, String)>::Element` typing for both `next` and the `for`
+    protocol item; `tuple_iterator_preserves_specialized_element_type_through_both_protocols`
+    passed 1/1 on the pinned toolchain. T7.11 is IMPLEMENTED / FOCUSED_TESTED:
+    runtime-shaped construction, slicing, and TupleZip items stay Dynamic,
+    while fixed-shape iteration remains typed. The audit found TupleZip calling public optional
+    `at(_)` as if it returned an element; it now uses bounds-checked `tuple[i]`
+    under its `i < size` loop. The new
+    `runtime_shaped_tuple_slice_and_zip_stay_behind_dynamic_boundary` selector
+    passed 1/1 on supervisor rerun. T8.1 is IMPLEMENTED / FOCUSED_TESTED: the
+    existing parser directly maps bare braces to Record literal/type/pattern
+    forms while preserving explicit Map and nominal construction; the new
+    `bare_braces_are_records_across_expression_type_and_pattern_positions`
+    AST selector passed 1/1 on supervisor rerun. T8.2 is IMPLEMENTED /
+    FOCUSED_TESTED: `#{` already tokenized/routed to Set; corrected a stale
+    parser comment and added lexer/parser controls for empty/populated Set,
+    bare Record distinction, and non-enabled Set spread. The focused selector
+    passed 1/1 on supervisor rerun, with compiler spread rejection unchanged.
+    T8.3 is IMPLEMENTED / FOCUSED_TESTED: `MapLiteralExpr` preserves its
+    explicit source head; semantic checking resolves canonical Universe Map
+    identity and rejects local value/declaration shadows. The AST source-head
+    and semantic canonical-head selectors passed 1/1 each on supervisor rerun.
+    T8.4 is IMPLEMENTED / FOCUSED_TESTED: a semantic discriminator covers
+    explicit specialization, entry/context inference, Map expansion, and
+    empty-map underconstraint without Dynamic defaults; a core runtime test
+    preserves successful expansion and duplicate-key rejection. Both focused
+    selectors passed 1/1 on supervisor rerun. No production change was needed.
+    Broader `collections` selectors failed before Map cases in unrelated
+    iterator/negative-fixture paths; they are not T8.4 acceptance evidence and
+    are not reclassified here. T8.5 resumes under the adopted ruling below.
+    INC-C3-17 records the scoped RecordRow carrier and schema-v9
+    amendment. Overall checkpoint P4 remains
     IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 residual evidence:
-    Priority 3's 40-way pre-remediation classification remains in
-    `LANG007.C3.P4-audit-remediation/04-semantic-regression-classification.md`;
-    it does not complete P4 T13, whose T1–T12 preconditions remain unmet. The
+    Priority 3's 40-way categorical classification is already recorded in
+    `LANG007.C3.P4-audit-remediation/04-semantic-regression-classification.md`
+    (35 current regressions, 4 true clean-predecessor baselines, 1 intentional
+    P4 migration). Remaining Priority 3 work is causal isolation, remediation
+    or migration decisions, and final residual disposition; classification
+    alone does not complete P4 T13, whose T1–T12 preconditions remain unmet. The
     last full pinned semantic run was on clean main `bb3d6cd2` (1711 selected,
     1632 passed, 37 failed, 42 ignored, exit 101), before the current T4
     commits. No current broad semantic rerun has been performed. Priority 2's
@@ -1950,6 +2063,14 @@ residual evidence:
     ledger), not a new T4 failure or a clean-predecessor baseline; it remains
     unresolved outside this T4 slice. P4 remains
     `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+2026-09-28 formatting evidence: a targeted `rustfmt --check` covered all eight
+modified Rust source/test files. It reported formatting suggestions only in
+pre-existing unchanged sections of `phalcom-semantic/tests/semantic/impls/targets.rs`;
+the newly modified lines were clean. A workspace-wide `cargo fmt --all -- --check`
+was attempted and reported formatting diffs across numerous unchanged files
+in other crates; no broad formatting rewrite was applied. This is not a
+workspace or release certification result.
 ```
 
 P3's final T9/T10 certification section below records the previously completed
@@ -2625,7 +2746,8 @@ fixture execution in `errors/contracts_invariant_cross_receiver.ph` because
 different from the current implementation's pre-fixture union panic and is
 not evidence that the current union failure is a baseline.
 
-In the current uncommitted implementation, both selectors panic before fixture
+At the pre-remediation implementation snapshot committed as `27d224a5` on
+`main` and pushed to `origin/main`, both selectors panicked before fixture
 execution at `TypeStore::union`'s unchanged `is_proper_type` assertion. A
 temporary trace (removed after capture) identified `BindingId(0)` / `list` at
 `universe:collections.bytes::Bytes.fromList`, declaration range `[5665,5669)`:
@@ -2640,13 +2762,181 @@ that the target is a proper Type. The new `Expr::If` path runs
 `analyze_condition_split` and retains `split.when_false` as the normal
 post-if flow; the later `whileTrue` loop-header join consumes that fact.
 
-The predicate/refinement machinery and `analyze_branch_pair` predate this
-change; the predecessor's parser sent source `if` through `ifTrue` and the
-same branch-pair helper also installed `split.when_false`. Thus the clean
-comparison establishes a current-tree regression/cause suspect, but the exact
-delta between the old control-send path and the new lexical `If` path is not
-yet isolated. The assertion and proper-Type boundary remain intact. This is
-an architectural consultation trigger under INC-C3-19; no production repair
-is authorized pending the decision. T6.6 remains `IN_PROGRESS / PARTIAL /
-UNVERIFIED`; neither canonical gate is claimed as passing or as a baseline
-for the current union failure.
+The confirmed defect is that the trusted type-test refinement producer could
+admit a higher-kinded declaration-family form into ordinary value
+`TypeKnowledge`. The lexical `If` path is an exposure/retention delta: it
+allows the later join to observe the invalid fact, but the full predecessor
+masking behavior is not isolated. The predicate/refinement machinery and
+`analyze_branch_pair` predate this change; the predecessor's parser sent source
+`if` through `ifTrue` and the same branch-pair helper also installed
+`split.when_false`. Do not restore predecessor information loss as a repair.
+The `TypeStore::union` assertion and proper-Type boundary remain intact.
+
+Supplemental ruling — 2026-09-28 (adopted): the defect is at the static
+refinement producer boundary, not in `TypeStore::union`, loop joining, or
+lexical `if`. Keep three projections distinct: declaration identity; the
+runtime class-object/value projection accepted by the classifier method; and
+the type-family projection (for example `List : Type -> Type`, whose applied
+`List<Int>` is a proper `Type`). A runtime classifier test remains a valid
+Boolean even when it cannot produce a representable static refinement.
+
+`FlowPredicate` is the existing static-refinement IR, not a general runtime
+proposition. Emit a predicate only when the canonical runtime classifier has a
+supported interpretation and the runtime observation entails the proposed
+proper static value type. Properness is necessary but not sufficient for
+future applied-generic classifiers: runtime ancestry alone does not prove
+generic arguments. For now, fail closed for bare higher-kinded families and
+unsupported/applied generic forms; preserve prior `TypeKnowledge` and do not
+invent an erased specialization, existential, or placeholder type. Future
+family-aware filtering may refine already-known proper alternatives or use a
+dedicated runtime-class fact domain, but that work is outside P4. Keep a
+defensive proper-type check at publication.
+
+The shipped `Object#is` implementation is subclass-inclusive and
+`Object#is!` is exact-class equality (`core/universe/src/object/object.ph`);
+the normative reflection-pattern document defers runtime `is` semantics.
+Therefore do not equate `is!` with ordinary subtype exclusion: its positive
+branch may derive weaker membership when sound, but its false branch emits no
+`IsNotInstance` predicate without an exact-class type representation. This
+records current runtime implementation semantics, not a new normative rule.
+
+The bounded implementation leaves runtime Bool evaluation unchanged, rejects
+unsupported classifier-to-static projections at the producer, and preserves
+the strict union invariant and lexical/loop behavior. Existing INC-C3-19
+evidence covers proper nominal positive/negative `is`, bare-family predicate
+omission, unsupported applied-generic targets, exact-class `is!`, inline
+lowering without Closure construction, natural braced `Result.transpose`,
+direct `Bytes.fromList`, and Option filter/canonical Option execution. The
+supplemental matrix is now focused-tested: source-backed bare `List` and
+`is not List` expressions yield Bool knowledge without error diagnostics;
+both polarities omit unsupported predicates and preserve known `List<Int>`;
+branch/loop joins retain the applied fact; and false exact-class `is!`
+preserves a subclass fact. The source expressions' analysis status is
+`Blocked(UnknownType(NoTypeEvidence))` because canonical `Object.is` leaves
+its classifier parameter unannotated. This is missing static argument evidence,
+not an invalid Bool result or published refinement; no signature/reification
+change is authorized. Focused test results are listed below.
+
+The focused acceptance evidence is now recorded: the parser/semantic/branch
+controls listed above, plus inline lowering without Closure construction,
+natural braced `Result.transpose`, direct `Bytes.fromList`, and Option
+filter/canonical Option execution. `corpus::errors` now reaches fixture
+execution and has the same `invariantEnter` unbound-owner error as `fd88ad76`;
+classify that selector `BASELINE_BLOCKED`, not PASS. `corpus::option` passes
+1/1, and the focused `Result.transpose` test passes 1/1.
+
+The separate `corpus::bytes` selector selected 1 and failed during compilation
+of `bytes_equality_and_keys.ph` with `type.generic.underconstrained`. That
+fixture does not use a type-test predicate, and the direct
+`canonical_bytes_and_string_views_iterate_their_stateful_surfaces` test
+invoking `Bytes.fromList` passes 1/1. Classify the broader selector as
+unclear/nonblocking for INC-C3-19; do not change unrelated generic inference.
+
+Implementation/verification update — 2026-09-28: the producer now admits only
+the resolved declaration's direct nominal form after a proper-type check, and
+the transfer boundary independently rejects non-proper `IsInstance` /
+`IsNotInstance` targets before changing knowledge or publishing a flow fact.
+The added producer discriminator, existing AST predicate-extraction control,
+added direct transfer guard, and existing pure transfer matrix each selected
+and passed 1/1. The exact `corpus::option` selector passed 1/1. The exact
+`corpus::errors` selector now reaches fixture execution and fails at
+`contracts_invariant_cross_receiver/invariantEnter` with an unbound-owner
+runtime error, matching the exact failure observed on clean predecessor
+`fd88ad76`; it no longer panics at `TypeStore::union`. Treat that selector as
+`BASELINE_BLOCKED`, not PASS. Focused regression selectors:
+
+- `semantic::foundations::flow_graph::type_test_refinements_require_supported_proper_targets_and_respect_exactness` — 1/1.
+- `semantic::capabilities::flow_branches::bare_generic_type_tests_preserve_applied_facts_through_branch_and_loop_joins` — 1/1.
+- `test_predicate_extraction_from_ast` — 1/1.
+- `non_proper_type_test_targets_do_not_change_or_publish_flow_facts` — 1/1.
+- `test_predicate_transfer_pure_matrix` — 1/1.
+- `language::compiler_lowering_scenarios::lexical_if_and_match_branches_lower_inline_without_closure_construction` — 1/1.
+- `language::algebraic_data_scenarios::result_transpose_executes_natural_braced_lexical_match_arm` — 1/1.
+- `language::iteration::canonical_bytes_and_string_views_iterate_their_stateful_surfaces` — 1/1.
+- `object_model_invariants::isa_is_reflexive_and_superclass_closed` — 1/1 (runtime classifier Bool/subclass behavior).
+
+Existing checkpoint-recorded AST, flow/expected-result, and Closure-isolation
+controls remain reused evidence; no duplicate rerun was needed. The exact
+`corpus::bytes` failure described above is recorded as an unclear residual and
+is not treated as a failure of the focused `Bytes.fromList` test.
+
+Supplemental architect guidance — 2026-09-28: keep the runtime classifier
+proposition separate from the static refinement derived from it. Preserve all
+three projections—declaration identity, runtime class-object/value projection,
+and type-family projection. Properness is necessary but not the complete future
+soundness rule: runtime observation must entail the proposed proper static
+type, including applied generic arguments. Do not migrate
+`FlowPredicate::target` to `ProperTypeId` unless the live IR is shown to mean
+only static refinement and the migration is genuinely mechanical; for P4,
+retain the bounded producer guard and defensive transfer guard. Failure to
+derive refinement means only “no formal flow refinement,” never an invalid
+runtime expression or condition. The direct discriminators for valid-Bool
+`is`/`is not List`, preservation of known `List<Int>` in both polarities,
+branch/loop join safety, and exact-class `is!` false behavior are now
+focused-tested. Existing proper nominal, unsupported applied-generic, Bytes,
+Option, Result, no-Closure, and clean-predecessor evidence remains recorded;
+do not weaken the union invariant or repair loop/lexical code.
+
+The 2026-09-28 amendment resolves the architectural disposition under
+INC-C3-19, and the producer repair plus supplemental discriminators have
+focused evidence. The canonical `corpus::errors` failure remains
+BASELINE_BLOCKED, not PASS; this does not promote overall P4 verification.
+T7.9–T7.11 are now IMPLEMENTED / FOCUSED_TESTED: lane observers retain exact
+structural products, specialized iteration retains `Tuple::Element`, and
+runtime-shaped slicing/zip remain behind bounded Dynamic APIs. T7.11 also
+corrects TupleZip's use of the newly honest optional `at(_)` observer. T8.1–
+T8.4 are IMPLEMENTED / FOCUSED_TESTED; resume T8.5 under the adopted ruling
+below, then continue with T8.6–T12.
+
+T8.3 preserves the explicit Map source head and its range in `MapLiteralExpr`.
+Semantic checking resolves that head through the existing type resolver and
+requires the canonical Universe `Map` declaration identity; a local value or
+declaration shadow emits a deterministic diagnostic and yields unknown
+knowledge rather than silently constructing the builtin. The AST identity and
+semantic canonical-head selectors passed 1/1 each on supervisor rerun. No
+string-only identity registry or compiler-side special case was added.
+
+T8.4 is IMPLEMENTED / FOCUSED_TESTED with no production change required. The
+semantic selector covers explicit specialization, entry/context inference,
+Map expansion, and empty-map underconstraint; the direct core selector proves
+successful expansion preserves entries and duplicate expanded keys are still
+rejected. Both passed 1/1 on supervisor rerun. Broader collections selectors
+failed before the Map cases in unrelated iterator/negative-fixture paths and
+are not treated as T8.4 evidence or reclassified here.
+
+T8.5 architectural ruling adopted 2026-09-28: Record spread is a
+shape-preserving operation and requires static projection to `RecordFields`.
+Record rows and labeled Tuple lanes are valid sources; a mixed Tuple contributes
+only its labeled lane, through a checked projection that does not equate
+`LabeledTypePack` with `RecordFields`. Symbolic/open Record rows remain valid
+when represented faithfully. Map-to-Record is invalid even for a literal and
+must produce a direct diagnostic because `Map<K,V>` does not encode its exact
+key set. Admission is type/shape-based, never expression-provenance-based.
+Map-to-Map remains unchanged, and Record/Tuple-to-Map remains valid through the
+existing entry-inference path. Preserve the broader runtime labeled-lane
+machinery; do not fabricate rows, use Dynamic, or introduce another solver.
+This supersedes the prior T8.5 hold. T8.5 is IMPLEMENTED / FOCUSED_TESTED.
+Semantic selectors passed: `record_spread` selected 3/3; the exact mixed
+labeled-Tuple projection selector selected/passed 1/1. The core direct-runtime
+selector `static_labeled_sources_spread_into_record_and_collections` passed
+1/1, covering Tuple/Record-to-Record and Tuple/Record/Map-to-Map; the migrated
+`labeled_spread_record_map.ph` fixture was run directly with the Phalcom CLI
+and its output matched the updated expected sidecar. The existing Map expansion
+selector passed 1/1, retaining Map-to-Map success and duplicate-key rejection.
+Map bindings and Map literals both produce the same `RecordSpreadSourceUnsupported`
+diagnostic; symbolic/open Record row identity, closed specialization,
+destination duplicate rejection, and unproven row-lacks remain covered.
+The aggregate `collections` selector fails before reaching this fixture when
+`boundedness_take_bounds_unbounded.ph` hits the inherited
+`TakeIterator.toList` runtime error; `collections_literals_negative` fails in
+the unrelated `map_key_eq_mutates_same_map_during_overwrite_rejected.ph`
+fixture with `type.generic.underconstrained`. These are not T8.5 failures or
+acceptance evidence and are not classified as baselines here. Continue with
+T8.6.
+Priority 3
+categories are already recorded; causal isolation, remediation or migration
+decisions, and final residual disposition remain. Run T13 only after its
+prerequisites. The interim
+[P4 walkthrough](LANG007.C3.P4-walkthrough.md) records the current snapshot
+and remaining work. It is not the T13 final walkthrough or a P4 completion
+claim.

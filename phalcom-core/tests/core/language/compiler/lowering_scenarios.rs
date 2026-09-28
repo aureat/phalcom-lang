@@ -116,3 +116,21 @@ fn adt_lower_12_non_proven_match_is_rejected_before_bytecode_fallback() {
     let result = compile_inline("data State { @variant Ready @variant Done }\nlet result = match State::Ready { State::Ready => 1 }\n");
     assert!(result.is_err(), "non-exhaustive source match must not use bytecode fallback");
 }
+
+#[test]
+fn lexical_if_and_match_branches_lower_inline_without_closure_construction() {
+    let source = "data State { @variant Ready @variant Done }\nconst conditional = if true { 1 } else { 2 }\nconst matched = match State::Ready { State::Ready => { 3 } State::Done => { 4 } }\n";
+    let (vm, _program, closure) = compile_inline(source).expect("lexical control regions should compile");
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(
+        !code.iter().any(|instruction| matches!(instruction, Bytecode::Closure(_))),
+        "lexical if/match bodies execute inline and must not construct Closure values: {code:?}"
+    );
+
+    let (vm, _program, closure) = compile_inline("const action = || { 5 }\n").expect("explicit Closure should compile");
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(
+        code.iter().any(|instruction| matches!(instruction, Bytecode::Closure(_))),
+        "explicit Closure remains a first-class value"
+    );
+}

@@ -2444,6 +2444,45 @@ Replace repeated module/name matching for Tuple/Record/static kind anchors where
 
 String/source-path recognition may remain at the one bootstrap boundary that maps authored source to a canonical Universe key. It must not be repeated in semantic application, native import, or codegen.
 
+##### Supplemental acceptance amendment — INC-C3-19 (2026-09-28)
+
+The architectural ruling for the `Bytes.fromList` classifier failure is
+adopted here without changing the numbered task structure. Keep declaration
+identity, runtime class-object/value projection, and type-family projection
+distinct. `FlowPredicate` currently represents static refinement, not the
+runtime proposition itself. A runtime classifier condition remains a valid
+Boolean when no sound static refinement can be represented.
+
+The producer may publish a refinement only when the canonical runtime
+classifier has a supported interpretation and the runtime observation entails
+the proposed proper static value type. A proper type proof is necessary but
+not sufficient for applied generic classifiers unless runtime generic
+arguments are actually checked/reified. For this plan's current surface, bare
+higher-kinded families and unsupported/applied generic classifier forms yield
+no static predicate and preserve prior `TypeKnowledge`; do not invent erased,
+existential, or placeholder types. Keep a defensive proper-type check at
+publication. Do not change `TypeStore::union`, loop/`whileTrue` flow, or the
+lexical-body implementation.
+
+The shipped `Object#is` is subclass-inclusive and `Object#is!` is exact-class
+equality; the normative reflection-pattern spec defers runtime `is` semantics.
+Consequently, exact `is!` false must not reuse subtype-negative
+`IsNotInstance` refinement; positive `is!` may only yield weaker membership
+when that implication is sound. This documents current implementation
+semantics, not a new normative language rule.
+
+Focused discriminators: ordinary proper nominal `is` positive/negative
+refinement remains intact; bare `List` remains a valid Bool with no improper
+refinement; an existing proper fact is preserved; applied generic targets
+without runtime reification fail closed; exact-class `is!` does not exclude
+subclasses on false. Then run the targeted `Bytes.fromList`, `corpus::option`,
+and `corpus::errors` checks, distinguishing semantic/bootstrap success from a
+later fixture error. Finish the other T6.6 acceptance gates separately:
+inline match/`if` lowering without Closure construction, Closure isolation,
+natural braced `Result.transpose` and `Option.filter`, and canonical Universe
+bootstrap through Result and Option. This amendment does not by itself accept
+T6.6 or change P4 verification status.
+
 #### T6.7 — Runtime facade lowering consumes owner
 
 `compile_intrinsic_runtime_data` currently reads `facade.owner` but re-derives `ClassKey(module,name)`.
@@ -3023,9 +3062,25 @@ Bare Record literal keeps the existing `RecordLiteralEntry::Expansion` runtime b
 {name: "Altun", **rest}
 ```
 
-Semantic typing must require a structural Record source with statically known/symbolic `RecordFields` identity, compose rows through the canonical row authority, and enforce duplicate/lacks obligations.
+Semantic typing requires the source to be statically projectable to
+`RecordFields`; compose rows through the canonical row authority and enforce
+duplicate/lacks obligations. A Record carries its exact or symbolic row. A
+labeled Tuple may contribute its labeled lane through the checked
+`LabeledTypePack`-to-`RecordFields` projection; mixed Tuple positional elements
+do not participate. These domains remain distinct, and a symbolic Tuple lane
+that cannot be faithfully projected fails closed.
 
-A Map is not a legal Record spread source solely because it also supports `**` in Map construction.
+A Map is never a legal Record spread source, even when written as a literal
+with statically visible keys: its type does not encode its exact key set.
+Reject Map-to-Record spread with a direct semantic diagnostic explaining that
+Record spread requires a statically known field shape. Do not special-case
+literal provenance, fabricate a row, use `Dynamic`, or change the shared
+runtime labeled-lane machinery. Map-to-Map remains unchanged; Record/labeled-
+Tuple-to-Map remains valid through the existing entry-inference path.
+
+Architectural ruling adopted 2026-09-28: Record spread is shape-preserving,
+whereas Map spread is entry-producing. Runtime support for a broader labeled
+lane does not grant every source construct the same source-level admission.
 
 #### T8.6 — Replace `| R` record-tail source syntax
 

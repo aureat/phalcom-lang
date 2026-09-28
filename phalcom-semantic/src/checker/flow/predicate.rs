@@ -2,7 +2,9 @@ use crate::checker::context::CheckingContext;
 use crate::checker::typed_expr::TypedExpression;
 use crate::identity::{BindingId, CallableId, PredicateId};
 use crate::types::id::TypeId;
+use crate::types::store::TypeData;
 use phalcom_ast::ast::{BinaryOp, Expr, PackItem, UnaryOp};
+use phalcom_modules::DeclarationId;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum PredicateAuthority {
@@ -150,10 +152,17 @@ pub fn extract_predicate_shape(ctx: &mut CheckingContext<'_>, expr: &Expr, truth
                         ..
                     } => {
                         let decl = ctx.resolve_type_name(type_name)?;
-                        ctx.nominal_type_of(&decl)?
+                        trusted_refinement_target_for_class_test(ctx, &decl)?
                     }
                     _ => return None,
                 };
+
+                // `is!` tests exact direct class identity. Its false branch may
+                // still be a subclass instance of the target, so it cannot be
+                // represented by the subtype-negative `IsNotInstance` fact.
+                if call.method == "is!" && !truth {
+                    return None;
+                }
                 if truth {
                     Some(FlowPredicate::IsInstance { binding, target: target_ty })
                 } else {
@@ -355,6 +364,24 @@ pub fn extract_predicate_shape(ctx: &mut CheckingContext<'_>, expr: &Expr, truth
         }
         _ => None,
     }
+}
+
+/// Returns the direct nominal declaration type that a canonical class test can
+/// safely expose as membership evidence.
+///
+/// A bare generic declaration is a constructor, not a runtime instance type;
+/// an applied generic target also remains unsupported until its exact runtime
+/// classifier/reification is checked. Thus this deliberately accepts only the
+/// declaration's own nominal, proper form. A successful canonical `is` test
+/// against that direct nominal classifier entails membership; a mere proper
+/// kind on some other type form would not establish that runtime relation.
+fn trusted_refinement_target_for_class_test(ctx: &mut CheckingContext<'_>, declaration: &DeclarationId) -> Option<TypeId> {
+    let target = ctx.nominal_type_of(declaration)?;
+    if !matches!(ctx.store.get(target), TypeData::Nominal { declaration: target_decl } if target_decl == declaration) {
+        return None;
+    }
+    ctx.store.proper_type(target).ok()?;
+    Some(target)
 }
 
 /// Extracts a trusted flow predicate only when semantic identity authorizes formal proof.

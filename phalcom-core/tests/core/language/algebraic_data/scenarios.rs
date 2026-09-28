@@ -149,6 +149,13 @@ fn adt_vert_01_generic_result_crosses_constructor_match_and_runtime() {
 }
 
 #[test]
+fn result_transpose_executes_natural_braced_lexical_match_arm() {
+    let source = "let transposed = Result<Option<Int>, String>::Ok(Option<Int>::None).transpose()\nlet result = transposed.isNone\n";
+    let (vm, module) = run_inline(source).expect("Result.transpose should compile and execute with its natural braced arm");
+    assert_eq!(slot(&vm, module, "result"), Some(Value::bool(true)));
+}
+
+#[test]
 fn adt_vert_02_gadt_evaluator_erases_proof_at_runtime() {
     let source = "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nlet value = Expr<Int>::Int(42)\nlet result = match value { Expr::Int(x) => x }\n";
     let (vm, module) = run_inline(source).expect("GADT vertical program should run");

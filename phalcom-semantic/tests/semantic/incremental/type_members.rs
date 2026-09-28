@@ -23,6 +23,74 @@ fn getter_callable(module: &ModuleId, owner: &str, name: &str) -> CallableId {
 }
 
 #[test]
+fn canonical_universe_intrinsic_type_members_match_evaluator_catalog() {
+    use phalcom_common::modifier::ImplementationKind;
+    use phalcom_semantic::types::type_member::{IntrinsicTypeOperation, lookup_intrinsic_type_operation};
+
+    // SemanticWorkspaceSession bootstraps these products by parsing the actual
+    // canonical Universe sources and passing each TypeMemberDef through the
+    // production declaration builder; this is deliberately distinct from the
+    // hand-installed SimpleTypeResolver catalog used by low-level tests.
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module(), "class Probe {}\n", 1));
+    let snapshot = update.snapshot;
+    let mut store = (*snapshot.store).clone();
+
+    for operation in IntrinsicTypeOperation::ALL {
+        let mut matching = snapshot
+            .type_member_declarations
+            .iter()
+            .filter(|(_, product)| product.signature.intrinsic == Some(operation));
+        let (member_id, product) = matching
+            .next()
+            .unwrap_or_else(|| panic!("canonical Universe source is missing {}", operation.name()));
+        assert!(matching.next().is_none(), "canonical Universe source declares {} more than once", operation.name());
+
+        let owner = snapshot
+            .declarations
+            .intrinsic_type_owner(&member_id.owner)
+            .unwrap_or_else(|| panic!("{} is not attached to a canonical intrinsic owner", operation.name()));
+        assert_eq!(lookup_intrinsic_type_operation(owner, &member_id.selector), Some(operation));
+
+        let (expected_parameters, expected_result) = operation.signature_kinds(&mut store);
+        let actual_parameters = product
+            .signature
+            .parameters
+            .iter()
+            .map(|parameter| match &parameter.domain {
+                phalcom_semantic::types::type_member::TypeMemberDomain::Kind(kind) => *kind,
+            })
+            .collect::<Vec<_>>();
+        let phalcom_semantic::types::type_member::TypeMemberDomain::Kind(actual_result) = &product.signature.result_domain;
+        assert_eq!(actual_parameters.as_slice(), expected_parameters.as_ref(), "{} parameters", operation.name());
+        assert_eq!(*actual_result, expected_result, "{} result", operation.name());
+    }
+
+    // Conversely, every actual source declaration marked `intrinsic` on an
+    // intrinsic owner must map to precisely the evaluator selected by its
+    // canonical owner+selector. There is no separate private evaluator catalog:
+    // `IntrinsicTypeOperation::ALL` is the complete source-selectable set.
+    let intrinsic_products = snapshot
+        .type_member_declarations
+        .values()
+        .filter(|product| product.signature.implementation == ImplementationKind::Intrinsic)
+        .collect::<Vec<_>>();
+    for product in intrinsic_products {
+        let owner = snapshot
+            .declarations
+            .intrinsic_type_owner(&product.id.owner)
+            .expect("source intrinsic member owner must be canonical");
+        let operation = lookup_intrinsic_type_operation(owner, &product.id.selector)
+            .unwrap_or_else(|| panic!("source intrinsic member {} has no evaluator", product.id.selector.name()));
+        assert_eq!(product.signature.intrinsic, Some(operation));
+        assert!(
+            IntrinsicTypeOperation::ALL.contains(&operation),
+            "compiler-private operations cannot be published as source intrinsic members"
+        );
+    }
+}
+
+#[test]
 fn source_type_members_publish_checked_signatures_without_changing_namespace_selection() {
     use phalcom_semantic::associated::{AssociatedFamilyKind, AssociatedMemberId};
     use phalcom_semantic::types::type_member::{

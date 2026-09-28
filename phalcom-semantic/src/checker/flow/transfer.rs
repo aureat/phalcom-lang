@@ -24,6 +24,15 @@ pub enum PredicateTransfer {
 
 /// Applies a trusted predicate and returns the transfer outcome.
 pub fn apply_predicate(state: &mut FlowState, predicate: &TrustedFlowPredicate, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy) -> PredicateTransfer {
+    if let FlowPredicate::IsInstance { target, .. } | FlowPredicate::IsNotInstance { target, .. } = &predicate.predicate
+        && store.proper_type(*target).is_err()
+    {
+        // Internal producers (including exact-case refinement) still carry a
+        // TypeId. Fail closed before either changing flow knowledge or
+        // publishing the predicate in the fact set.
+        return PredicateTransfer::Unchanged;
+    }
+
     let binding = predicate.predicate.binding();
     let prior = binding.and_then(|binding| state.get_current_type(binding)).cloned();
     let Some(binding) = binding else {

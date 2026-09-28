@@ -1,6 +1,5 @@
 {#head: 0, #left: 2, #right: 3, #tail: 8}
 {#recordLeft: 4, #recordRight: 5}
-{#mapLeft: 6, #mapRight: 7}
 true
 {#held: [1, 2], #after: ()}
 {#trailing: 1}

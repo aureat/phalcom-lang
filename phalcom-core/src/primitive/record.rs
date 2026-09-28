@@ -39,18 +39,14 @@ pub fn record_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
 #[phalcom_native_macros::primitive(Record, "rawValueAt(_)", visibility = internal)]
 pub fn record_raw_value_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if receiver.is_empty_record() {
-        return Ok(vm.none_value());
+        return Err(crate::error::RuntimeError::Internal("Record rawValueAt called without a field".to_string()).into());
     }
     let id = expect_record(vm, receiver)?;
     let index = expect_index(&args[0])?;
-    match vm
-        .record_view(id)
+    vm.record_view(id)
         .ok_or_else(|| crate::error::RuntimeError::Internal("Record descriptor is unavailable".to_string()))?
         .values()
         .get(index)
         .copied()
-    {
-        Some(value) => Ok(crate::primitive::option::wrap_some(vm, value)?),
-        None => Ok(vm.none_value()),
-    }
+        .ok_or_else(|| crate::error::RuntimeError::Internal("Record rawValueAt index is out of range".to_string()).into())
 }

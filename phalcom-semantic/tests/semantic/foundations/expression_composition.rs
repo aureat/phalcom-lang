@@ -118,6 +118,109 @@ class Probe {
 }
 
 #[test]
+fn explicit_map_literal_requires_the_canonical_universe_head() {
+    let canonical = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let values = Map<String, Int> { key: 1 }
+    let empty: Map<String, Int> = Map {}
+  }
+}
+"#,
+    );
+    let run = canonical.callable("Probe", "run", DispatchSide::Class);
+    assert_eq!(
+        canonical.expression(run, "Map<String, Int> { key: 1 }").knowledge.status(),
+        Some(EvidenceStatus::Established)
+    );
+    assert_eq!(canonical.expression(run, "Map {}").knowledge.status(), Some(EvidenceStatus::Assumed));
+    canonical.assert_no_error_diagnostics();
+
+    let shadowed_value = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let Map = 1
+    let values = Map { key: 1 }
+  }
+}
+"#,
+    );
+    let run = shadowed_value.callable("Probe", "run", DispatchSide::Class);
+    assert!(matches!(
+        shadowed_value.expression(run, "Map { key: 1 }").knowledge,
+        TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
+    ));
+    assert_eq!(shadowed_value.diagnostics(DiagnosticCode::AnnotationUnresolved).len(), 1);
+
+    let shadowed_declaration = Fixture::new(
+        r#"
+class Map {}
+
+class Probe {
+  @class
+  run() {
+    let values = Map { key: 1 }
+  }
+}
+"#,
+    );
+    let run = shadowed_declaration.callable("Probe", "run", DispatchSide::Class);
+    assert!(matches!(
+        shadowed_declaration.expression(run, "Map { key: 1 }").knowledge,
+        TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
+    ));
+    assert_eq!(shadowed_declaration.diagnostics(DiagnosticCode::AnnotationUnresolved).len(), 1);
+}
+
+#[test]
+fn map_literal_specialization_uses_entry_and_context_evidence_without_defaulting_empty_maps() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let explicit = Map<String, Int> { ["key"]: 1 }
+    let inferred = Map { [1]: "value" }
+    let symbol_key = Map { key: 1 }
+    let source = Map { key: 1 }
+    let expanded = Map { **source }
+    let contextual: Map<Int, String> = Map { [1]: "context" }
+    let empty = Map {}
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+
+    for (name, expected) in [
+        ("explicit", "Map<String, Int>"),
+        ("inferred", "Map<Int, String>"),
+        ("symbol_key", "Map<Symbol, Int>"),
+        ("source", "Map<Symbol, Int>"),
+        ("expanded", "Map<Symbol, Int>"),
+        ("contextual", "Map<Int, String>"),
+    ] {
+        let ty = fixture
+            .binding(run, name)
+            .current
+            .ty()
+            .unwrap_or_else(|| panic!("{name} should have a Map type"));
+        assert_eq!(fixture.analysis.snapshot.store.format_type(ty), expected, "unexpected {name} type");
+    }
+
+    assert_eq!(
+        fixture.expression(run, "Map {}").knowledge,
+        TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+        "an uncontextualized empty Map must remain underconstrained rather than defaulting its arguments"
+    );
+    fixture.assert_no_error_diagnostics();
+}
+
+#[test]
 fn tuple_and_record_members_preserve_unknown_and_assumed_state() {
     let unknown = Fixture::new(
         r#"

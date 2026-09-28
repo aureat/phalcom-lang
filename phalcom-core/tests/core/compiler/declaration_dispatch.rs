@@ -217,6 +217,62 @@ fn intrinsic_tuple_facade_reuses_the_preinstalled_runtime_class() {
     assert_eq!(after, before, "the source facade must reuse the canonical runtime class object");
 }
 
+#[test]
+fn intrinsic_record_facade_reuses_the_preinstalled_runtime_class() {
+    let mut vm = VM::new();
+    let module_id = ModuleId::universe(ModulePath::from_components(
+        ["collections", "record"]
+            .into_iter()
+            .map(|part| ModuleComponent::from_identifier(part).expect("valid module component"))
+            .collect::<Vec<_>>(),
+    ));
+    let module = vm.module_registry.get(&module_id).expect("Record source module is materialized").object;
+    let before = vm.universe_global(&["collections", "record"], "Record").expect("Record is bootstrapped");
+    let declaration = DeclarationId::new(module_id.clone(), "Record".into());
+    let mut lowering = ModuleLoweringSemantics::new(module_id);
+    lowering.intrinsic_runtime_facades = vec![IntrinsicRuntimeFacadeLoweringSpec {
+        declaration,
+        owner: IntrinsicRuntimeOwner::Record,
+    }]
+    .into_boxed_slice();
+    vm.heap.module_mut(module).lowering = Some(Arc::new(lowering));
+
+    let closure = vm
+        .compile_closure_as(module, "intrinsic data Record<**Fs> { **Fs }\n", UnitKind::Repl)
+        .expect("intrinsic Record facade compiles against its existing owner");
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(!code.iter().any(|op| matches!(
+        op,
+        phalcom_core::bytecode::Bytecode::Data(_) | phalcom_core::bytecode::Bytecode::FinalizeData(_)
+    )));
+    vm.run_cell(module, closure).expect("Record facade rebind executes");
+    let after = vm
+        .universe_global(&["collections", "record"], "Record")
+        .expect("Record binding remains present");
+    assert_eq!(after, before, "the source facade must reuse the canonical runtime Record class object");
+}
+
+#[test]
+fn intrinsic_structural_data_without_facade_semantics_fails_closed() {
+    let mut vm = VM::new();
+    let module_id = ModuleId::universe(ModulePath::from_components(
+        ["collections", "tuple"]
+            .into_iter()
+            .map(|part| ModuleComponent::from_identifier(part).expect("valid module component"))
+            .collect::<Vec<_>>(),
+    ));
+    let module = vm.module_registry.get(&module_id).expect("Tuple source module is materialized").object;
+    vm.heap.module_mut(module).lowering = Some(Arc::new(ModuleLoweringSemantics::new(module_id)));
+
+    let error = vm
+        .compile_closure_as(module, "intrinsic data Tuple<***Es>(***Es)\n", UnitKind::Repl)
+        .expect_err("missing semantic owner product must not trigger name-based runtime-owner guessing");
+    assert!(
+        error.to_string().contains("has no canonical facade binding"),
+        "expected a typed missing-facade error, got: {error}"
+    );
+}
+
 // --- Duplicate Selector Checks ---
 
 #[test]

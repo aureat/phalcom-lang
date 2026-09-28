@@ -7,9 +7,10 @@ use phalcom_semantic::diagnostic::SemanticSourceSpan;
 use phalcom_semantic::enum_semantics::{EnumInfo, EnumSemanticTable, VariantInfo, VariantShape};
 use phalcom_semantic::identity::{DeclarationId, ImplId, ImplLocalId, VariantId};
 use phalcom_semantic::impls::{
-    ConformanceTarget, ImplApplicabilityResult, InherentImplApplicability, InherentImplDomain, InherentImplTarget, check_impl_domain_applicability,
-    conformance_is_authorized, resolve_conformance_head, resolve_inherent_impl_target,
+    ConformanceTarget, ImplApplicabilityResult, InherentImplApplicability, InherentImplDomain, InherentImplTarget, build_effective_surface,
+    build_inherent_impl_contribution, check_impl_domain_applicability, conformance_is_authorized, resolve_conformance_head, resolve_inherent_impl_target,
 };
+use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::traits::{TraitHeader, TraitHeaderTable};
 use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeResolver};
 use phalcom_semantic::types::evidence::UnknownReason;
@@ -712,6 +713,27 @@ fn record_structural_impls_use_canonical_owner_and_equivalent_spellings() {
         panic!("the RecordFields family head should be covering")
     };
     assert_eq!(substitution.impl_to_decl.len(), 1);
+    let implementation_parameter = *substitution.impl_to_decl.keys().next().expect("RecordFields impl binder");
+    let declaration_parameter = substitution.impl_to_decl[&implementation_parameter];
+    let instantiation = substitution.to_instantiation(ctx.store).expect("domain-aware RecordFields instantiation");
+    assert!(
+        instantiation.type_binding(implementation_parameter).is_none(),
+        "RecordFields must remain outside the proper TypeId binding domain"
+    );
+    let row_binding = instantiation.row_binding(implementation_parameter).expect("RecordFields row binding");
+    assert_eq!(
+        ctx.store.record_row(row_binding).tail,
+        phalcom_semantic::types::row::RecordRowTail::Parameter(declaration_parameter),
+        "row-aware materialization must preserve the mapped declaration parameter"
+    );
+    let TypeData::Record(target_row) = ctx.store.get(covering_target.target_type) else {
+        panic!("canonical structural Record family application should materialize as a Record row")
+    };
+    assert_eq!(
+        ctx.store.record_row(*target_row).tail,
+        phalcom_semantic::types::row::RecordRowTail::Parameter(implementation_parameter),
+        "the selected structural target should retain the implementation row binder"
+    );
 
     let direct = phalcom_ast::parse("impl { name: String } {}\n", 0);
     assert!(direct.errors.is_empty(), "parse errors: {:?}", direct.errors);
@@ -1053,4 +1075,73 @@ fn structural_impl_equivalent_spellings_produce_identical_targets() {
     assert_eq!(record_direct.declaration(), &record_decl);
     assert_eq!(record_spread.declaration(), &record_decl);
     assert_eq!(record_direct.target_type, record_spread.target_type);
+}
+
+#[test]
+fn equivalent_structural_impl_spellings_reach_the_same_member_collision_policy() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    let tuple_decl = register_tuple_family(&mut store, &mut declarations, &mut resolver);
+    let record_decl = register_record_family(&mut store, &mut declarations, &mut resolver);
+    let module = tuple_decl.module.clone();
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+
+    let mut contributions = Vec::new();
+    for (local_id, source) in [
+        (0, "impl (Int, String) { marker() -> Int { 0 } }\n"),
+        (1, "impl Tuple<***(Int, String)> { marker() -> Int { 1 } }\n"),
+    ] {
+        let parsed = phalcom_ast::parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors for {source:?}: {:?}", parsed.errors);
+        let phalcom_ast::ast::Statement::Impl(impl_def) = &parsed.program.statements[0] else {
+            panic!("expected impl")
+        };
+        let contribution = build_inherent_impl_contribution(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(local_id)), impl_def);
+        assert!(contribution.diagnostics.is_empty(), "impl diagnostics: {:?}", contribution.diagnostics);
+        assert_eq!(contribution.target.declaration(), &tuple_decl);
+        contributions.push(contribution);
+    }
+
+    let primary_surface = DeclarationSurface::new(Some(tuple_decl.clone()));
+    let effective = build_effective_surface(&tuple_decl, &primary_surface, &Default::default(), &contributions, None, None);
+    assert!(
+        effective
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::ImplMemberConflict),
+        "equivalent direct/family spellings must reach ordinary same-owner member collision handling: {:?}",
+        effective.diagnostics
+    );
+
+    drop(ctx);
+    let record_module = record_decl.module.clone();
+    let mut record_ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, record_module.clone());
+    let mut record_contributions = Vec::new();
+    for (local_id, source) in [
+        (2, "impl { name: String } { marker() -> Int { 0 } }\n"),
+        (3, "impl Record<**{ name: String }> { marker() -> Int { 1 } }\n"),
+    ] {
+        let parsed = phalcom_ast::parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors for {source:?}: {:?}", parsed.errors);
+        let phalcom_ast::ast::Statement::Impl(impl_def) = &parsed.program.statements[0] else {
+            panic!("expected impl")
+        };
+        let contribution = build_inherent_impl_contribution(&mut record_ctx, &ImplId::new(record_module.clone(), ImplLocalId(local_id)), impl_def);
+        assert!(contribution.diagnostics.is_empty(), "impl diagnostics: {:?}", contribution.diagnostics);
+        assert_eq!(contribution.target.declaration(), &record_decl);
+        record_contributions.push(contribution);
+    }
+
+    let primary_surface = DeclarationSurface::new(Some(record_decl.clone()));
+    let effective = build_effective_surface(&record_decl, &primary_surface, &Default::default(), &record_contributions, None, None);
+    assert!(
+        effective
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::ImplMemberConflict),
+        "equivalent direct/spread Record spellings must reach ordinary same-owner member collision handling: {:?}",
+        effective.diagnostics
+    );
 }

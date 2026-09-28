@@ -8,10 +8,10 @@ fn tuple_iterator_preserves_specialized_element_type_through_both_protocols() {
 let tuple: Tuple<***(Int, String)> = (1, "value")
 let element: Tuple<***(Int, String)>::Element = tuple[0]
 let elementFromUnion: Int | String = element
-let next: Option<Int | String> = tuple.iterator.next
+let next: Option<Tuple<***(Int, String)>::Element> = tuple.iterator.next
 let iterated = 0
 for value in tuple {
-  let protocolItem: Int | String = value
+  let protocolItem: Tuple<***(Int, String)>::Element = value
   iterated = iterated + 1
 }
 let result = next.isSome and iterated == 2
@@ -19,6 +19,65 @@ let result = next.isSome and iterated == 2
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("specialized Tuple iterator types compile");
     let mut vm = vm_support::universe_vm();
     vm.run_compiled(&program).expect("specialized Tuple iterator executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}
+
+#[test]
+fn tuple_and_record_raw_observers_keep_exact_types_and_public_options() {
+    let source = r#"
+let tuple: Tuple<***(Int, String)> = (7, "tail")
+let first: Option<Int> = tuple.at(0)
+let last: Option<String> = tuple.at(-1)
+let firstMethod: Option<Int> = tuple.first
+let lastMethod: Option<String> = tuple.last
+let outOfRange: Option<Int> = tuple.at(2)
+let indexed: String = tuple[1]
+let emptyTuple = ()
+
+let record: Record<**{ count: Int }> = { count: 7 }
+let present: Option<Int> = record.get(#count)
+let missing: Option<Int> = record.get(#absent)
+
+let firstMatches = first.match(some: |value| { value == 7 }, none: || { false })
+let lastMatches = last.match(some: |value| { value == "tail" }, none: || { false })
+let firstMethodMatches = firstMethod.match(some: |value| { value == 7 }, none: || { false })
+let lastMethodMatches = lastMethod.match(some: |value| { value == "tail" }, none: || { false })
+let presentMatches = present.match(some: |value| { value == 7 }, none: || { false })
+let result = firstMatches and lastMatches and firstMethodMatches and lastMethodMatches and outOfRange.isNone and indexed == "tail" and emptyTuple.first.isNone and emptyTuple.last.isNone and presentMatches and missing.isNone
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("exact Tuple/Record observer types compile");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("public Tuple/Record optional behavior executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}
+
+#[test]
+fn runtime_shaped_tuple_slice_and_zip_stay_behind_dynamic_boundary() {
+    let source = r#"
+let tuple: Tuple<***(Int, String, Bool)> = (1, "middle", true)
+let slice = tuple[1..3]
+let slicePreservesRuntimeShape = slice.size == 2 and slice[0] == "middle" and slice[1] == true
+
+let zipped = ([1, 2], ["a", "b"]).zipped.iterator
+let firstPair = zipped.next.match(
+  some: |pair| { pair.size == 2 and pair[0] == 1 and pair[1] == "a" },
+  none: || { false }
+)
+let secondPair = zipped.next.match(
+  some: |pair| { pair.size == 2 and pair[0] == 2 and pair[1] == "b" },
+  none: || { false }
+)
+let exhausted = zipped.next.isNone
+let result = slicePreservesRuntimeShape and firstPair and secondPair and exhausted
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source)))
+        .expect("runtime-shaped Tuple operations compile through their dynamic boundary");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("runtime-shaped Tuple operations execute");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
     let symbol = vm.interner.find("result").expect("result symbol");
     assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");

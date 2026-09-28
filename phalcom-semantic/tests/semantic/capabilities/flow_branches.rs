@@ -2,6 +2,42 @@ use crate::semantic::support::{Fixture, assert_source_contract, assert_validated
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::{EvidenceStatus, TypeKnowledge, UnknownReason};
 
+/// LAW: bare generic classifiers remain valid Bool tests but publish no improper refinement.
+#[test]
+fn bare_generic_type_tests_preserve_applied_facts_through_branch_and_loop_joins() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  check(_ flag: Bool, _ input: List<Int>) -> List<Int> {
+    let positive = input is List
+    let negative = input is not List
+    if flag and input is List {
+      let positive_branch = input
+    } else {
+      let negative_branch = input
+    }
+    let keep_going = flag
+    while keep_going and input is not List {
+      keep_going = false
+    }
+    input
+  }
+}
+"#,
+    );
+
+    let run = f.callable("Probe", "check", DispatchSide::Class);
+    let bool_ty = f.ty("Bool");
+    assert_eq!(f.expression(run, "input is List").knowledge.ty(), Some(bool_ty));
+    assert_eq!(f.expression_n(run, "input is not List", 0).knowledge.ty(), Some(bool_ty));
+
+    let input = f.binding(run, "input");
+    let declared = input.declared_type().expect("List<Int> input contract");
+    assert_eq!(input.current.ty(), Some(declared), "branch and loop joins must retain the applied List<Int> fact");
+    f.assert_no_error_diagnostics();
+}
+
 /// LAW: both reachable branch literals establish one precise joined result.
 #[test]
 fn same_type_branch_results_establish_single_result_type() {

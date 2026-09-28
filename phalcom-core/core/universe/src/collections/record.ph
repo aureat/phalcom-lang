@@ -14,15 +14,12 @@ intrinsic type EmptyRecord = Record<>
 impl<**Fs: RecordFields> Record<**Fs> {
   internal native rawSize -> Int
   internal native rawLabelAt(_ index: Int) -> Symbol
-  internal native rawValueAt(_ index: Int) -> Option<Record<**Fs>::Value>
+  internal native rawValueAt(_ index: Int) -> Record<**Fs>::Value
   size { self.rawSize }
   labelAt(_ index) { self.rawLabelAt(index) }
 
   private rawValueAtChecked(_ index: Int) -> Record<**Fs>::Value {
-    self.rawValueAt(index).match(
-      some: |value| { value },
-      none: || { throw IndexError.new("Record index out of range") }
-    )
+    self.rawValueAt(index)
   }
 
   /// Returns the value for `key`, or `None` when the label is absent.
@@ -30,7 +27,7 @@ impl<**Fs: RecordFields> Record<**Fs> {
     let i = 0
     while i < self.size {
       if self.labelAt(i) === key {
-        return self.rawValueAt(i)
+        return Some(self.rawValueAt(i))
       }
       i = i + 1
     }

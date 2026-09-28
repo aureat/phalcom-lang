@@ -16,6 +16,13 @@ use phalcom_ast::token::Token;
 fn tokens(src: &str) -> Vec<Token> {
     Lexer::new(src).map(|spanned| spanned.expect("fixture should lex without error").1).collect()
 }
+
+#[test]
+fn set_opener_has_its_own_token_and_bare_braces_remain_distinct() {
+    assert_eq!(tokens("#{}"), vec![Token::SetLBrace, Token::RBrace, Token::Eof]);
+    assert_eq!(tokens("{}"), vec![Token::LBrace, Token::RBrace, Token::Eof]);
+}
+
 #[test]
 fn let_binding() {
     insta::assert_debug_snapshot!(tokens("let x = 42"));

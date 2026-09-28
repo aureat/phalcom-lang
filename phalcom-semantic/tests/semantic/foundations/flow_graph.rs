@@ -160,6 +160,107 @@ fn test_predicate_extraction_from_ast() {
 }
 
 #[test]
+fn type_test_refinements_require_supported_proper_targets_and_respect_exactness() {
+    let (mut store, mut hierarchy, resolver, decls, module) = setup_test_env();
+    let string_decl = DeclarationId::new(module.clone(), "String".into());
+    let subclass_decl = DeclarationId::new(module.clone(), "StringSubclassForTypeTest".into());
+    hierarchy.insert(subclass_decl.clone(), string_decl.clone());
+    let mut ctx = phalcom_semantic::checker::context::CheckingContext::new(&mut store, &hierarchy, &resolver, &decls, module.clone());
+    let binding = match ctx.bind_pattern_binding(
+        "x",
+        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
+        phalcom_common::range::SourceRange::default(),
+    ) {
+        phalcom_semantic::checker::binding::BindingDeclarationResult::Inserted(binding)
+        | phalcom_semantic::checker::binding::BindingDeclarationResult::Redeclared(binding) => binding,
+    };
+
+    let string_ty = ctx.nominal_type_of(&string_decl).expect("String declaration type");
+    assert_eq!(ctx.store.kind_of(string_ty), KindId::TYPE);
+
+    let is_string = parse_expr_helper("x is String");
+    assert_eq!(
+        extract_predicate_shape(&mut ctx, &is_string, true),
+        Some(FlowPredicate::IsInstance { binding, target: string_ty }),
+    );
+    assert_eq!(
+        extract_predicate_shape(&mut ctx, &is_string, false),
+        Some(FlowPredicate::IsNotInstance { binding, target: string_ty }),
+    );
+
+    let strict_string = parse_expr_helper("x is! String");
+    assert_eq!(
+        extract_predicate_shape(&mut ctx, &strict_string, true),
+        Some(FlowPredicate::IsInstance { binding, target: string_ty }),
+        "exact-class success may provide the weaker membership fact",
+    );
+    assert_eq!(
+        extract_predicate_shape(&mut ctx, &strict_string, false),
+        None,
+        "failing an exact-class test does not exclude subclasses",
+    );
+
+    let list_decl = DeclarationId::new(module, "List".into());
+    let list_form = ctx.nominal_type_of(&list_decl).expect("List declaration form");
+    assert_ne!(
+        ctx.store.kind_of(list_form),
+        KindId::TYPE,
+        "bare generic List is a constructor, not a proper target"
+    );
+    let int_decl = DeclarationId::new(string_decl.module.clone(), "Int".into());
+    let int_ty = ctx.nominal_type_of(&int_decl).expect("Int declaration type");
+    let applied_list = ctx.store.apply_type_form(list_form, &[int_ty]).expect("List<Int> remains a valid applied type");
+    assert_eq!(
+        ctx.store.kind_of(applied_list),
+        KindId::TYPE,
+        "the unsupported bare-family check must not damage proper applications"
+    );
+    let before = ctx.flow.get_current_type(binding).cloned();
+    let bare_list_positive = parse_expr_helper("x is List");
+    let bare_list_negative = parse_expr_helper("x is not List");
+    for expression in [&bare_list_positive, &bare_list_negative] {
+        for truth in [true, false] {
+            assert_eq!(
+                extract_predicate_shape(&mut ctx, expression, truth),
+                None,
+                "unsupported generic-family classifier must not produce a static refinement on either edge"
+            );
+        }
+    }
+    assert_eq!(ctx.flow.get_current_type(binding).cloned(), before, "unsupported target must not publish flow knowledge");
+
+    let applied_list_knowledge = TypeKnowledge::established(applied_list, EvidenceOrigin::Syntax);
+    ctx.flow.assign(binding, applied_list_knowledge.clone());
+    for expression in [&bare_list_positive, &bare_list_negative] {
+        for truth in [true, false] {
+            assert_eq!(extract_predicate_shape(&mut ctx, expression, truth), None);
+            assert_eq!(
+                ctx.flow.get_current_type(binding),
+                Some(&applied_list_knowledge),
+                "an unsupported test must preserve a previously established List<Int> fact"
+            );
+        }
+    }
+
+    let applied_generic_target = parse_expr_helper("x is List<Int>");
+    assert_eq!(
+        extract_predicate_shape(&mut ctx, &applied_generic_target, true),
+        None,
+        "applied generic classifiers need checked runtime reification, not only a proper type",
+    );
+
+    let subclass_ty = ctx.store.nominal(subclass_decl);
+    let subclass_knowledge = TypeKnowledge::established(subclass_ty, EvidenceOrigin::Syntax);
+    ctx.flow.assign(binding, subclass_knowledge.clone());
+    assert_eq!(extract_predicate_shape(&mut ctx, &strict_string, false), None);
+    assert_eq!(
+        ctx.flow.get_current_type(binding),
+        Some(&subclass_knowledge),
+        "false `is! String` must preserve a String subclass fact",
+    );
+}
+
+#[test]
 fn test_predicate_refinement_and_inversion() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();

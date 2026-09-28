@@ -6933,7 +6933,7 @@ impl<'source> Parser<'source> {
                 if let Some((target, type_arguments)) = Self::extract_record_construction_target(&expr) {
                     if target.root == "Map" && target.members.is_empty() {
                         let type_args = if type_arguments.is_empty() { None } else { Some(type_arguments) };
-                        expr = self.parse_map_literal(start, type_args)?;
+                        expr = self.parse_map_literal(start, target, type_args)?;
                         trailing_target = TrailingTarget::None;
                         continue;
                     }
@@ -9226,7 +9226,7 @@ impl<'source> Parser<'source> {
 
     fn parse_set_literal(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
-        self.advance(); // `Map`
+        self.advance(); // `#{`
         self.skip_newlines();
         if self.eat(&Token::RBrace) {
             return Ok(Expr::SetLiteral(Box::new(SetLiteralExpr {
@@ -9270,11 +9270,12 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    fn parse_map_literal(&mut self, start: usize, type_arguments: Option<Vec<TypeAnnotation>>) -> ParserResult<Expr> {
+    fn parse_map_literal(&mut self, start: usize, head: StaticSymbolRef, type_arguments: Option<Vec<TypeAnnotation>>) -> ParserResult<Expr> {
         self.expect(&Token::LBrace, &["\"{\""])?;
         self.skip_newlines();
         if self.eat(&Token::RBrace) {
             return Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {
+                head,
                 type_arguments,
                 entries: Vec::new(),
                 range: (start..self.prev_end).into(),
@@ -9341,6 +9342,7 @@ impl<'source> Parser<'source> {
         self.skip_newlines();
         self.expect(&Token::RBrace, &["\"}\""])?;
         Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {
+            head,
             type_arguments,
             entries,
             range: (start..self.prev_end).into(),
@@ -10035,6 +10037,29 @@ mod tests {
         assert_eq!(map.entries.len(), 2);
         assert!(matches!(map.entries[0], MapLiteralEntry::Expansion { .. }));
         assert!(matches!(map.entries[1], MapLiteralEntry::Association { .. }));
+    }
+
+    #[test]
+    fn explicit_map_heads_preserve_source_identity_and_type_arguments() {
+        let Statement::Expr { expr, .. } = only_statement("Map<String, Int> { key: 1 }") else {
+            panic!("expected an expression statement");
+        };
+        let Expr::MapLiteral(map) = expr else {
+            panic!("expected a Map literal, got {expr:?}");
+        };
+        assert_eq!(map.head.root, "Map");
+        assert!(map.head.members.is_empty());
+        assert_eq!(map.head.range.start, 0);
+        assert_eq!(map.type_arguments.as_ref().map(Vec::len), Some(2));
+
+        let Statement::Expr { expr, .. } = only_statement("Map { key: 1 }") else {
+            panic!("expected an expression statement");
+        };
+        let Expr::MapLiteral(map) = expr else {
+            panic!("expected a Map literal, got {expr:?}");
+        };
+        assert_eq!(map.head.root, "Map");
+        assert!(map.type_arguments.is_none());
     }
 
     #[test]

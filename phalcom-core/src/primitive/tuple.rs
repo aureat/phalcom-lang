@@ -89,20 +89,22 @@ pub fn tuple_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
 #[phalcom_native_macros::primitive(Tuple, "rawAt(_)", visibility = internal)]
 pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if receiver.is_unit() {
-        return Ok(vm.none_value());
+        return Err(RuntimeError::Internal("Tuple rawAt called without an element".to_string()).into());
     }
     let id: ObjRef = expect_tuple(vm, receiver)?;
     let len = vm
         .tuple_view(id)
         .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
         .len();
-    match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
-        super::index::NormalizedIndex::Valid(idx) => match vm.tuple_view(id).and_then(|tuple| tuple.get(idx)) {
-            Some(value) => Ok(crate::primitive::option::wrap_some(vm, value)?),
-            None => Ok(vm.none_value()),
-        },
-        super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
-    }
+    let index = match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
+        super::index::NormalizedIndex::Valid(index) => index,
+        super::index::NormalizedIndex::OutOfRange => {
+            return Err(RuntimeError::Internal("Tuple rawAt index is out of range".to_string()).into());
+        }
+    };
+    vm.tuple_view(id)
+        .and_then(|tuple| tuple.get(index))
+        .ok_or_else(|| RuntimeError::Internal("Tuple rawAt index is out of range".to_string()).into())
 }
 
 #[phalcom_native_macros::primitive(Tuple, "rawPositionalSize", visibility = internal)]

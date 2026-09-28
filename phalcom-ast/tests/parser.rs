@@ -20,7 +20,7 @@
 use phalcom_ast::{
     ast::{
         AssociatedMemberSyntax, ClassMember, ExpansionMode, Expr, GenericArgumentSyntax, GenericConstraintSyntax, ImplementationKind, KindSyntax, MemberBody,
-        RecordLiteralEntry, ReturnStatement, Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeCallableItem, TypeMemberArgumentSyntax,
+        RecordLiteralEntry, ReturnStatement, SetLiteralEntry, Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeCallableItem, TypeMemberArgumentSyntax,
         TypeMemberParameterDomainSyntax, TypeMemberResultSyntax, TypeMemberSelectorSyntax, TypeTupleItem, VarianceSyntax,
     },
     error::SyntaxErrorKind,
@@ -511,6 +511,95 @@ fn record_literals_accept_trailing_commas() {
             "{source:?} parsed wrong entry kind",
         );
     }
+}
+
+#[test]
+fn bare_braces_are_records_across_expression_type_and_pattern_positions() {
+    let source = r#"
+const empty = {}
+const record = { field: value }
+const mapping = Map { field: value }
+Person { field: value }
+type Row = { field: Int }
+match subject {
+  { field: captured } => captured
+  Map { #field: mapped } => mapped
+}
+"#;
+    let program = parse_source(source, 0).expect("Record and explicit Map forms parse");
+
+    let Statement::Let(empty) = &program.statements[0] else {
+        panic!("expected an empty-record binding");
+    };
+    assert!(matches!(empty.value.as_ref(), Some(Expr::RecordLiteral(record)) if record.entries.is_empty()));
+
+    let Statement::Let(record) = &program.statements[1] else {
+        panic!("expected a record binding");
+    };
+    assert!(matches!(record.value.as_ref(), Some(Expr::RecordLiteral(_))));
+
+    let Statement::Let(mapping) = &program.statements[2] else {
+        panic!("expected a Map binding");
+    };
+    assert!(matches!(mapping.value.as_ref(), Some(Expr::MapLiteral(_))));
+
+    let Statement::Expr {
+        expr: Expr::RecordConstruction(construction),
+        ..
+    } = &program.statements[3]
+    else {
+        panic!("nominal `Person {{ ... }}` remains record construction");
+    };
+    assert_eq!(construction.target.root, "Person");
+
+    let Statement::TypeAlias(alias) = &program.statements[4] else {
+        panic!("expected a structural type alias");
+    };
+    assert!(matches!(&alias.body.expr, TypeAnnotationExpr::Record { .. }));
+
+    let Statement::Expr {
+        expr: Expr::Match(match_expr), ..
+    } = &program.statements[5]
+    else {
+        panic!("expected a match expression");
+    };
+    assert!(matches!(&match_expr.arms[0].pattern, phalcom_ast::ast::Pattern::Record { .. }));
+    assert!(matches!(&match_expr.arms[1].pattern, phalcom_ast::ast::Pattern::Map { .. }));
+}
+
+#[test]
+fn set_opener_parses_empty_and_populated_set_literals() {
+    let source = "#{}\n#{1}\n#{1, 2, 3}\n#{*source}\n{}\n";
+    let program = parse_source(source, 0).expect("Set and Record literal syntax parses");
+    assert_eq!(program.statements.len(), 5);
+
+    for (index, expected_entries) in [(0, 0), (1, 1), (2, 3)] {
+        let Statement::Expr {
+            expr: Expr::SetLiteral(set), ..
+        } = &program.statements[index]
+        else {
+            panic!("statement {index} should be a Set literal");
+        };
+        assert_eq!(set.entries.len(), expected_entries);
+        assert!(set.entries.iter().all(|entry| matches!(entry, SetLiteralEntry::Element { .. })));
+    }
+
+    let Statement::Expr {
+        expr: Expr::SetLiteral(set), ..
+    } = &program.statements[3]
+    else {
+        panic!("Set spread syntax remains represented for its targeted compiler rejection");
+    };
+    assert!(matches!(set.entries.as_slice(), [SetLiteralEntry::Expansion { .. }]));
+
+    let Statement::Expr {
+        expr: Expr::RecordLiteral(record),
+        ..
+    } = &program.statements[4]
+    else {
+        panic!("bare braces remain Record syntax");
+    };
+    assert!(record.entries.is_empty());
 }
 
 #[test]

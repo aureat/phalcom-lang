@@ -6,6 +6,7 @@ use phalcom_semantic::checker::flow::state::FlowState;
 use phalcom_semantic::checker::flow::transfer::{PredicateTransfer, apply_predicate};
 use phalcom_semantic::identity::BindingId;
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
@@ -256,5 +257,33 @@ fn test_predicate_transfer_pure_matrix() {
         assert!(matches!(res, PredicateTransfer::Refined(_)));
         let cur = state.get_current_type(b).unwrap();
         assert_eq!(*cur, TypeKnowledge::Unknown(UnknownReason::InferenceConflict));
+    }
+}
+
+#[test]
+fn non_proper_type_test_targets_do_not_change_or_publish_flow_facts() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let module = ModuleId::universe_root();
+    let list_decl = DeclarationId::new(module, "List".into());
+    let list_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let list_form = store.nominal_form(list_decl, list_kind);
+    assert!(store.proper_type(list_form).is_err());
+
+    let binding = BindingId(1);
+    for predicate in [
+        FlowPredicate::IsInstance { binding, target: list_form },
+        FlowPredicate::IsNotInstance { binding, target: list_form },
+    ] {
+        let mut state = FlowState::new();
+        let prior = TypeKnowledge::Unknown(UnknownReason::UncheckedExpression);
+        state.declare(binding, "x", SourceRange::default(), None, prior.clone(), true);
+
+        assert_eq!(
+            apply_predicate(&mut state, &predicate.clone().authoritative(), &mut store, &hierarchy),
+            PredicateTransfer::Unchanged,
+        );
+        assert_eq!(state.get_current_type(binding), Some(&prior));
+        assert!(!state.facts.contains(&predicate), "invalid target must not publish a formal flow fact");
     }
 }

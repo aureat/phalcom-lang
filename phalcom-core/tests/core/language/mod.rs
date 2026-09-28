@@ -55,6 +55,10 @@ mod golden;
 mod inherent_impl;
 #[path = "iteration.rs"]
 mod iteration;
+#[path = "record_spread.rs"]
+mod record_spread;
+#[path = "maps.rs"]
+mod maps;
 #[path = "numeric_diagnostics.rs"]
 mod numeric_diagnostics;
 #[path = "numeric_values.rs"]

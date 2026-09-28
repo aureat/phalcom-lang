@@ -354,3 +354,166 @@ class Probe {
     let field_names = row.fields.iter().map(|f| f.name.as_ref()).collect::<Vec<_>>();
     assert_eq!(field_names, vec!["cached", "mapped", "name", "value"]);
 }
+
+#[test]
+fn record_spread_preserves_symbolic_row_and_composes_closed_specialization() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  spread<**R>(_ source: { name: String, **R }) -> { id: Int, name: String, **R } {
+    { id: 7, **source }
+  }
+
+  @class
+  run() {
+    let result = Probe.spread({ name: "Ada", age: 42 })
+  }
+}
+"#,
+    );
+    let spread = fixture.callable("Probe", "spread", DispatchSide::Class);
+    let body = fixture.expression(spread, "{ id: 7, **source }");
+    let body_ty = body.knowledge.ty().expect("symbolic Record spread result");
+    let TypeData::Record(body_row_id) = fixture.analysis.snapshot.store.get(body_ty) else {
+        panic!("expected Record body result, got {:?}", fixture.analysis.snapshot.store.get(body_ty));
+    };
+    let body_tail = fixture.analysis.snapshot.store.record_row(*body_row_id).tail;
+    assert!(matches!(body_tail, RecordRowTail::Parameter(_)));
+    let source = fixture.expression(spread, "source");
+    let source_ty = source.knowledge.ty().expect("generic Record source type");
+    let TypeData::Record(source_row_id) = fixture.analysis.snapshot.store.get(source_ty) else {
+        panic!("expected symbolic Record source, got {:?}", fixture.analysis.snapshot.store.get(source_ty));
+    };
+    assert_eq!(
+        body_tail,
+        fixture.analysis.snapshot.store.record_row(*source_row_id).tail,
+        "spread must retain the canonical row parameter identity"
+    );
+
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.spread({ name: \"Ada\", age: 42 })");
+    let call_ty = call.knowledge.ty().expect("specialized Record spread result");
+    let TypeData::Record(call_row_id) = fixture.analysis.snapshot.store.get(call_ty) else {
+        panic!("expected specialized Record, got {:?}", fixture.analysis.snapshot.store.get(call_ty));
+    };
+    let row = fixture.analysis.snapshot.store.record_row(*call_row_id);
+    assert_eq!(row.tail, RecordRowTail::Closed);
+    assert_eq!(
+        row.fields
+            .iter()
+            .map(|field| (field.name.as_ref(), fixture.analysis.snapshot.store.format_type(field.ty)))
+            .collect::<Vec<_>>(),
+        vec![("age", "Int".into()), ("id", "Int".into()), ("name", "String".into())]
+    );
+    assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
+    fixture.assert_no_error_diagnostics();
+}
+
+#[test]
+fn mixed_labeled_tuple_spread_projects_only_its_labeled_lane_to_record() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let source = (1, "ignored", name: "Ada", age: 42)
+    let result = { **source }
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let result = fixture.expression(run, "{ **source }");
+    let ty = result.knowledge.ty().expect("labeled Tuple lane has a RecordFields projection");
+    let TypeData::Record(row_id) = fixture.analysis.snapshot.store.get(ty) else {
+        panic!("expected Record projection, got {:?}", fixture.analysis.snapshot.store.get(ty));
+    };
+    let row = fixture.analysis.snapshot.store.record_row(*row_id);
+    assert_eq!(row.tail, RecordRowTail::Closed);
+    assert_eq!(
+        row.fields
+            .iter()
+            .map(|field| (field.name.as_ref(), fixture.analysis.snapshot.store.format_type(field.ty)))
+            .collect::<Vec<_>>(),
+        vec![("age", "Int".into()), ("name", "String".into())]
+    );
+    assert!(matches!(result.status, AnalysisStatus::Ready), "{result:#?}");
+    fixture.assert_no_error_diagnostics();
+}
+
+#[test]
+fn record_spread_rejects_map_binding_and_literal_with_the_same_diagnostic() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let source = Map { name: "Ada" }
+    let fromBinding = { **source }
+    let fromLiteral = { **Map<Symbol, String> { name: "Ada" } }
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    for source in ["{ **source }", "{ **Map<Symbol, String> { name: \"Ada\" } }"] {
+        let spread = fixture.expression(run, source);
+        assert!(spread.knowledge.ty().is_none(), "Map spread must not publish a Record: {spread:#?}");
+        assert!(matches!(spread.status, AnalysisStatus::Invalid(_)), "Map spread must be rejected: {spread:#?}");
+    }
+    fixture.assert_diagnostic(DiagnosticCode::RecordSpreadSourceUnsupported, 2);
+    let messages = fixture
+        .diagnostics(DiagnosticCode::RecordSpreadSourceUnsupported)
+        .into_iter()
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect::<Vec<_>>();
+    assert!(messages.iter().all(|message| message.contains("runtime-dependent key set")));
+}
+
+#[test]
+fn record_spread_keeps_duplicate_and_open_row_lacks_checks() {
+    let duplicate = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let source = { name: "spread" }
+    let result = { name: "literal", **source }
+  }
+}
+"#,
+    );
+    let run = duplicate.callable("Probe", "run", DispatchSide::Class);
+    let spread = duplicate.expression(run, "{ name: \"literal\", **source }");
+    assert!(spread.knowledge.ty().is_none(), "duplicate spread field must not publish a Record: {spread:#?}");
+    assert!(
+        matches!(spread.status, AnalysisStatus::Invalid(_)),
+        "duplicate spread field must invalidate: {spread:#?}"
+    );
+    duplicate.assert_diagnostic(DiagnosticCode::RecordDuplicateField, 1);
+
+    let open_row = Fixture::new(
+        r#"
+class Probe {
+  @class
+  extend<**R>(_ source: { name: String, **R }) {
+    { **source, tag: 1 }
+  }
+
+  @class
+  run() {
+    Probe.extend({ name: "spread" })
+  }
+}
+"#,
+    );
+    let extend = open_row.callable("Probe", "extend", DispatchSide::Class);
+    let spread = open_row.expression(extend, "{ **source, tag: 1 }");
+    assert!(spread.knowledge.ty().is_none(), "unproven row lacks must not publish a Record: {spread:#?}");
+    assert!(
+        matches!(spread.status, AnalysisStatus::Invalid(_)),
+        "unproven row extension must invalidate: {spread:#?}"
+    );
+    open_row.assert_diagnostic(DiagnosticCode::RecordRowLacksUnproven, 1);
+}

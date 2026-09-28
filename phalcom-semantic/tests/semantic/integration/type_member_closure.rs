@@ -481,6 +481,417 @@ fn tuple_entries_is_complete_pack_projection_for_concrete_and_symbolic_tuples() 
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 
+#[test]
+fn complete_type_pack_projections_and_map_preserve_both_lanes() {
+    use phalcom_semantic::types::type_member::TypeMemberDeclarationId;
+
+    let mut env = setup();
+    let int_ty = env.store.nominal(decl("Int"));
+    let bool_ty = env.store.nominal(decl("Bool"));
+    let string_ty = env.store.nominal(decl("String"));
+    let list_form = env.declarations.form(&decl("List")).expect("canonical List form");
+    let owner = decl("CompleteTypePack");
+    let positionals_member = TypeMemberDeclarationId::new(owner.clone(), TypeMemberSelector::named("Positionals"));
+    let labeled_member = TypeMemberDeclarationId::new(owner.clone(), TypeMemberSelector::named("Labeled"));
+    let map_member = TypeMemberDeclarationId::new(owner, TypeMemberSelector::named("Map"));
+
+    let positionals = env.store.type_pack(Box::new([int_ty, bool_ty])).expect("positional lane");
+    let labeled = env
+        .store
+        .labeled_type_pack(Box::new([
+            LabeledTypePackElement {
+                label: "name".into(),
+                element: string_ty,
+            },
+            LabeledTypePackElement {
+                label: "flag".into(),
+                element: int_ty,
+            },
+        ]))
+        .expect("labeled lane");
+    let complete = env.store.complete_type_pack(positionals, labeled).expect("complete pack");
+
+    let positional_projection = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(complete),
+            selector: TypeMemberSelector::named("Positionals"),
+            arguments: Box::new([]),
+            source_declaration: Some(positionals_member.clone()),
+        },
+        KindId::TYPE_PACK,
+    );
+    let labeled_projection = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(complete),
+            selector: TypeMemberSelector::named("Labeled"),
+            arguments: Box::new([]),
+            source_declaration: Some(labeled_member.clone()),
+        },
+        KindId::LABELED_TYPE_PACK,
+    );
+    let mapped_projection = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(complete),
+            selector: TypeMemberSelector::named("Map"),
+            arguments: Box::new([TypeMemberArgument::Type(list_form)]),
+            source_declaration: Some(map_member.clone()),
+        },
+        KindId::COMPLETE_TYPE_PACK,
+    );
+
+    let mut budget = QueryBudget::new(200);
+    let cancel = CancellationToken::new();
+    let conformance_index = phalcom_semantic::impls::ConformanceIndex::new();
+    let witness_plans = std::collections::BTreeMap::new();
+    let trait_surfaces = phalcom_semantic::traits::TraitSurfaceTable::new();
+    let hierarchy = phalcom_semantic::types::relation::MapTypeHierarchy::new();
+    let mode = ProjectionNormalizationMode::Exact {
+        conformance_index: &conformance_index,
+        witness_plans: &witness_plans,
+        trait_surfaces: &trait_surfaces,
+        derived_rules: None,
+        declarations: &env.declarations,
+        hierarchy: &hierarchy,
+    };
+    let mut context = ProjectionNormalizationContext::new(mode, &mut budget, &cancel);
+
+    assert_eq!(
+        normalize_type(&mut env.store, positional_projection, &mut context),
+        ProjectionNormalizationResult::Normalized(positionals),
+        "Positionals returns the exact positional lane"
+    );
+    assert_eq!(
+        normalize_type(&mut env.store, labeled_projection, &mut context),
+        ProjectionNormalizationResult::Normalized(labeled),
+        "Labeled returns the exact labeled lane"
+    );
+
+    let list_int = env.store.apply_type_form(list_form, &[int_ty]).expect("List<Int>");
+    let list_bool = env.store.apply_type_form(list_form, &[bool_ty]).expect("List<Bool>");
+    let list_string = env.store.apply_type_form(list_form, &[string_ty]).expect("List<String>");
+    let expected_positionals = env.store.type_pack(Box::new([list_int, list_bool])).expect("mapped positional lane");
+    let expected_labeled = env
+        .store
+        .labeled_type_pack(Box::new([
+            LabeledTypePackElement {
+                label: "name".into(),
+                element: list_string,
+            },
+            LabeledTypePackElement {
+                label: "flag".into(),
+                element: list_int,
+            },
+        ]))
+        .expect("mapped labeled lane");
+    let expected_complete = env
+        .store
+        .complete_type_pack(expected_positionals, expected_labeled)
+        .expect("mapped complete pack");
+    assert_eq!(
+        normalize_type(&mut env.store, mapped_projection, &mut context),
+        ProjectionNormalizationResult::Normalized(expected_complete),
+        "Map applies independently to both lanes without moving elements across them"
+    );
+    let TypeData::CompleteTypePack {
+        positionals: mapped_pos,
+        labeled: mapped_lab,
+    } = env.store.get(expected_complete)
+    else {
+        panic!("mapped result must remain a CompleteTypePack");
+    };
+    assert_eq!(*mapped_pos, expected_positionals);
+    assert_eq!(*mapped_lab, expected_labeled);
+
+    let symbolic_lane_owner = TypeParameterOwner::Declaration(decl("SymbolicCompletePackLanes"));
+    let positional_parameter = env
+        .store
+        .intern_type_parameter(TypeParameterData::new(symbolic_lane_owner.clone(), 0, "P", KindId::TYPE_PACK));
+    let labeled_parameter = env
+        .store
+        .intern_type_parameter(TypeParameterData::new(symbolic_lane_owner, 1, "L", KindId::LABELED_TYPE_PACK));
+    let symbolic_positional_form = env.store.parameter_form(positional_parameter);
+    let symbolic_labeled_form = env.store.parameter_form(labeled_parameter);
+    let symbolic_complete = env
+        .store
+        .complete_type_pack(symbolic_positional_form, symbolic_labeled_form)
+        .expect("symbolic CompleteTypePack lanes");
+    let symbolic_lane_map = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(symbolic_complete),
+            selector: TypeMemberSelector::named("Map"),
+            arguments: Box::new([TypeMemberArgument::Type(list_form)]),
+            source_declaration: Some(map_member.clone()),
+        },
+        KindId::COMPLETE_TYPE_PACK,
+    );
+    assert_eq!(
+        normalize_type(&mut env.store, symbolic_lane_map, &mut context),
+        ProjectionNormalizationResult::Symbolic(symbolic_lane_map),
+        "a complete pack with unresolved lane contents retains its canonical Map projection"
+    );
+
+    let symbolic_parameter = env.store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(decl("SymbolicCompletePack")),
+        0,
+        "P",
+        KindId::COMPLETE_TYPE_PACK,
+    ));
+    let symbolic_subject = env.store.parameter_form(symbolic_parameter);
+    for (selector, arguments, source_declaration, expected_kind) in [
+        (
+            TypeMemberSelector::named("Positionals"),
+            Box::new([]) as Box<[TypeMemberArgument]>,
+            positionals_member,
+            KindId::TYPE_PACK,
+        ),
+        (
+            TypeMemberSelector::named("Labeled"),
+            Box::new([]) as Box<[TypeMemberArgument]>,
+            labeled_member,
+            KindId::LABELED_TYPE_PACK,
+        ),
+        (
+            TypeMemberSelector::named("Map"),
+            Box::new([TypeMemberArgument::Type(list_form)]) as Box<[TypeMemberArgument]>,
+            map_member,
+            KindId::COMPLETE_TYPE_PACK,
+        ),
+    ] {
+        let symbolic_projection = env.store.type_member_projection(
+            TypeLevelProjection {
+                subject: ProjectionSubject::Type(symbolic_subject),
+                selector: selector.clone(),
+                arguments: arguments.clone(),
+                source_declaration: Some(source_declaration.clone()),
+            },
+            expected_kind,
+        );
+        assert_eq!(
+            normalize_type(&mut env.store, symbolic_projection, &mut context),
+            ProjectionNormalizationResult::Symbolic(symbolic_projection),
+            "symbolic CompleteTypePack projections remain canonical residual projections"
+        );
+        let TypeData::TypeMemberProjection(residual) = env.store.get(symbolic_projection) else {
+            panic!("symbolic result must preserve its projection node");
+        };
+        assert_eq!(residual.subject, ProjectionSubject::Type(symbolic_subject));
+        assert_eq!(residual.selector, selector);
+        assert_eq!(residual.arguments.as_ref(), arguments.as_ref());
+        assert_eq!(residual.source_declaration.as_ref(), Some(&source_declaration));
+    }
+}
+
+#[test]
+fn tuple_element_unions_payloads_and_preserves_unsolved_pack_projection() {
+    use phalcom_semantic::types::type_member::TypeMemberDeclarationId;
+
+    let mut env = setup();
+    let tuple_owner = decl("Tuple");
+    let element_member = TypeMemberDeclarationId::new(tuple_owner.clone(), TypeMemberSelector::named("Element"));
+    let int_ty = env.store.nominal(decl("Int"));
+    let bool_ty = env.store.nominal(decl("Bool"));
+    let string_ty = env.store.nominal(decl("String"));
+
+    let mixed_tuple = env.store.tuple(Box::new([
+        TupleTypeElement::unlabeled(int_ty),
+        TupleTypeElement::unlabeled(bool_ty),
+        TupleTypeElement::labeled("name", string_ty),
+    ]));
+    let mixed_element = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(mixed_tuple),
+            selector: TypeMemberSelector::named("Element"),
+            arguments: Box::new([]),
+            source_declaration: Some(element_member.clone()),
+        },
+        KindId::TYPE,
+    );
+    let empty_tuple = env.store.tuple(Box::new([]));
+    let empty_element = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(empty_tuple),
+            selector: TypeMemberSelector::named("Element"),
+            arguments: Box::new([]),
+            source_declaration: Some(element_member.clone()),
+        },
+        KindId::TYPE,
+    );
+
+    let mut budget = QueryBudget::new(200);
+    let cancel = CancellationToken::new();
+    let conformance_index = phalcom_semantic::impls::ConformanceIndex::new();
+    let witness_plans = std::collections::BTreeMap::new();
+    let trait_surfaces = phalcom_semantic::traits::TraitSurfaceTable::new();
+    let hierarchy = phalcom_semantic::types::relation::MapTypeHierarchy::new();
+    let mode = ProjectionNormalizationMode::Exact {
+        conformance_index: &conformance_index,
+        witness_plans: &witness_plans,
+        trait_surfaces: &trait_surfaces,
+        derived_rules: None,
+        declarations: &env.declarations,
+        hierarchy: &hierarchy,
+    };
+    let mut context = ProjectionNormalizationContext::new(mode, &mut budget, &cancel);
+
+    let expected_union = env.store.union(&[int_ty, bool_ty, string_ty]);
+    assert_eq!(
+        normalize_type(&mut env.store, mixed_element, &mut context),
+        ProjectionNormalizationResult::Normalized(expected_union),
+        "Element unions both positional and labeled payloads"
+    );
+    assert_eq!(
+        normalize_type(&mut env.store, empty_element, &mut context),
+        ProjectionNormalizationResult::Normalized(env.store.never()),
+        "the empty Tuple element union is Never"
+    );
+
+    let symbolic_owner = TypeParameterOwner::Declaration(decl("SymbolicTupleElement"));
+    let positionals = env
+        .store
+        .intern_type_parameter(TypeParameterData::new(symbolic_owner.clone(), 0, "Ps", KindId::TYPE_PACK));
+    let labeled = env
+        .store
+        .intern_type_parameter(TypeParameterData::new(symbolic_owner, 1, "Ls", KindId::LABELED_TYPE_PACK));
+    let positionals_form = env.store.parameter_form(positionals);
+    let labeled_form = env.store.parameter_form(labeled);
+    let symbolic_tuple = env
+        .store
+        .tuple_from_packs(positionals_form, labeled_form)
+        .expect("symbolic tuple from unresolved lanes");
+    assert!(matches!(env.store.get(symbolic_tuple), TypeData::TupleFromPacks { .. }));
+    let symbolic_element = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(symbolic_tuple),
+            selector: TypeMemberSelector::named("Element"),
+            arguments: Box::new([]),
+            source_declaration: Some(element_member.clone()),
+        },
+        KindId::TYPE,
+    );
+    let ProjectionNormalizationResult::Symbolic(residual_id) = normalize_type(&mut env.store, symbolic_element, &mut context) else {
+        panic!("an unenumerable TupleFromPacks Element must remain symbolic");
+    };
+    let TypeData::TypeMemberProjection(residual) = env.store.get(residual_id) else {
+        panic!("symbolic Element must remain a type-member projection");
+    };
+    assert_eq!(residual.selector, TypeMemberSelector::named("Element"));
+    assert_eq!(residual.subject, ProjectionSubject::Type(symbolic_tuple));
+    assert_eq!(residual.source_declaration.as_ref(), Some(&element_member));
+    assert_eq!(env.store.kind_of(residual_id), KindId::TYPE);
+}
+
+#[test]
+fn record_value_unions_closed_fields_and_preserves_open_row_projection() {
+    use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
+    use phalcom_semantic::types::type_member::TypeMemberDeclarationId;
+
+    let mut env = setup();
+    let value_member = TypeMemberDeclarationId::new(decl("Record"), TypeMemberSelector::named("Value"));
+    let int_ty = env.store.nominal(decl("Int"));
+    let bool_ty = env.store.nominal(decl("Bool"));
+    let string_ty = env.store.nominal(decl("String"));
+
+    let closed_record = env.store.record(Box::new([
+        RecordRowField {
+            name: "count".into(),
+            ty: int_ty,
+        },
+        RecordRowField {
+            name: "enabled".into(),
+            ty: bool_ty,
+        },
+        RecordRowField {
+            name: "label".into(),
+            ty: string_ty,
+        },
+    ]));
+    let closed_value = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(closed_record),
+            selector: TypeMemberSelector::named("Value"),
+            arguments: Box::new([]),
+            source_declaration: Some(value_member.clone()),
+        },
+        KindId::TYPE,
+    );
+    let empty_record = env.store.record(Box::new([]));
+    let empty_value = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(empty_record),
+            selector: TypeMemberSelector::named("Value"),
+            arguments: Box::new([]),
+            source_declaration: Some(value_member.clone()),
+        },
+        KindId::TYPE,
+    );
+
+    let mut budget = QueryBudget::new(200);
+    let cancel = CancellationToken::new();
+    let conformance_index = phalcom_semantic::impls::ConformanceIndex::new();
+    let witness_plans = std::collections::BTreeMap::new();
+    let trait_surfaces = phalcom_semantic::traits::TraitSurfaceTable::new();
+    let hierarchy = phalcom_semantic::types::relation::MapTypeHierarchy::new();
+    let mode = ProjectionNormalizationMode::Exact {
+        conformance_index: &conformance_index,
+        witness_plans: &witness_plans,
+        trait_surfaces: &trait_surfaces,
+        derived_rules: None,
+        declarations: &env.declarations,
+        hierarchy: &hierarchy,
+    };
+    let mut context = ProjectionNormalizationContext::new(mode, &mut budget, &cancel);
+
+    let expected_union = env.store.union(&[int_ty, bool_ty, string_ty]);
+    assert_eq!(
+        normalize_type(&mut env.store, closed_value, &mut context),
+        ProjectionNormalizationResult::Normalized(expected_union),
+        "Value unions every payload in a closed Record row"
+    );
+    let never = env.store.never();
+    assert_eq!(
+        normalize_type(&mut env.store, empty_value, &mut context),
+        ProjectionNormalizationResult::Normalized(never),
+        "Value of an empty closed Record is Never"
+    );
+
+    let row_parameter = env.store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(decl("SymbolicRecordValue")),
+        0,
+        "R",
+        KindId::RECORD_ROW,
+    ));
+    let open_record = env
+        .store
+        .record_row_type_checked(
+            vec![RecordRowField {
+                name: "known".into(),
+                ty: int_ty,
+            }],
+            RecordRowTail::Parameter(row_parameter),
+        )
+        .expect("open Record row with a canonical row-variable tail");
+    let open_value = env.store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::Type(open_record),
+            selector: TypeMemberSelector::named("Value"),
+            arguments: Box::new([]),
+            source_declaration: Some(value_member.clone()),
+        },
+        KindId::TYPE,
+    );
+    let ProjectionNormalizationResult::Symbolic(residual_id) = normalize_type(&mut env.store, open_value, &mut context) else {
+        panic!("Value cannot enumerate a complete payload set for an open Record row");
+    };
+    assert_ne!(residual_id, int_ty, "the known field must not be unioned while ignoring the open tail");
+    let TypeData::TypeMemberProjection(residual) = env.store.get(residual_id) else {
+        panic!("open-row Value must remain a type-member projection");
+    };
+    assert_eq!(residual.selector, TypeMemberSelector::named("Value"));
+    assert_eq!(residual.subject, ProjectionSubject::Type(open_record));
+    assert_eq!(residual.source_declaration.as_ref(), Some(&value_member));
+    assert_eq!(env.store.kind_of(residual_id), KindId::TYPE);
+}
+
 // ---------------------------------------------------------------------------
 // 3. Associated-Type Compatibility: Trait projections remain evidence-resolved
 // ---------------------------------------------------------------------------

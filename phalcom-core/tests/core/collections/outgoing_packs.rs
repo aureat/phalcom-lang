@@ -141,6 +141,24 @@ let result = Receiver.new().sum(***first, *second, ***((3, 4)))
 }
 
 #[test]
+fn tuple_lane_observers_preserve_exact_structural_types_and_values() {
+    let value = on_large_stack(|| {
+        eval_source(
+            r#"
+let mixed: (Int, String, tag: Bool) = (1, "two", tag: true)
+let positionals: (Int, String) = mixed.positionals
+let labeled: (tag: Bool) = mixed.labeled
+let labeledValue: Option<Bool> = labeled.at(0)
+let labeledMatches = labeledValue.match(some: |value| { value }, none: || { false })
+let result = positionals.size == 2 and positionals[0] == 1 and positionals[1] == "two" and labeled.size == 1 and labeled.labelAt(0) == #tag and labeledMatches
+"#,
+            "result",
+        )
+    });
+    assert_eq!(value.expect("Tuple lane observers preserve their structural products"), Value::bool(true));
+}
+
+#[test]
 fn dynamic_tuple_preserves_lanes_and_normalizes_empty_expansion() {
     let value = on_large_stack(|| {
         eval_source(

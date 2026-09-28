@@ -35,7 +35,7 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   @class
   internal native rawFromList(_ value: List<Dynamic>) -> Dynamic
   internal native rawSize -> Int
-  internal native rawAt(_ index: Int) -> Option<Tuple<***Es>::Element>
+  internal native rawAt(_ index: Int) -> Tuple<***Es>::Element
   internal native rawPositionalSize -> Int
   internal native rawLabelAt(_ index: Int) -> Symbol
   internal native rawPositionals -> Tuple<*Positionals>
@@ -49,12 +49,12 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
 
   first {
     if self.size == 0 { return None }
-    return self.rawAt(0)
+    return Some(self.rawAt(0))
   }
 
   last {
     if self.size == 0 { return None }
-    return self.rawAt(self.size - 1)
+    return Some(self.rawAt(self.size - 1))
   }
 
   /// Renders elements in positional order using each element's string form.
@@ -71,7 +71,15 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
     return s + ")"
   }
 
-  at(_ i) -> Option<Tuple<***Es>::Element> { self.rawAt(i) }
+  at(_ i) -> Option<Tuple<***Es>::Element> {
+    let len = self.size
+    let index = i
+    if index < 0 { index = len + index }
+    if index >= 0 and index < len {
+      return Some(self.rawAt(index))
+    }
+    return None
+  }
 
   private findLabel(_ sym) {
     let num_labeled = self.size - self.rawPositionalSize
@@ -86,16 +94,13 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   }
 
   private rawAtChecked(_ index: Int) -> Tuple<***Es>::Element {
-    self.rawAt(index).match(
-      some: |value| { value },
-      none: || { throw IndexError.new("Tuple index out of range") }
-    )
+    self.rawAt(index)
   }
 
   private access(_ key) {
     if key is Symbol {
       return self.findLabel(key).match(
-        some: |idx| { self.rawAt(idx) },
+        some: |idx| { Some(self.rawAt(idx)) },
         none: || { None }
       )
     }
@@ -103,7 +108,7 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
     let i = key
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
-      return self.rawAt(i)
+      return Some(self.rawAt(i))
     }
     return None
   }
@@ -273,7 +278,7 @@ class TupleZipIterator {
     _iterators = List<Dynamic>.new()
     let i = 0
     while i < tuple.size {
-      _iterators.rawPush(tuple.at(i).iterator)
+      _iterators.rawPush(tuple[i].iterator)
       i = i + 1
     }
     _done = false

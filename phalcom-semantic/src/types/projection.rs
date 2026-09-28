@@ -989,15 +989,7 @@ fn normalize_intrinsic_projection(
                 TypeData::TypePack(elems) => elems,
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            let mut transformed_elements = Vec::with_capacity(elems.len());
-            for &elem in elems.iter() {
-                let applied = store.apply_type_form(transform_fn, &[elem]).unwrap_or(elem);
-                let norm_res = normalize_type(store, applied, context);
-                let Some(norm_ty) = norm_res.type_id() else { return Some(norm_res) };
-                transformed_elements.push(norm_ty);
-            }
-            let normalized = store.type_pack(transformed_elements.into_boxed_slice()).ok()?;
-            Some(ProjectionNormalizationResult::Normalized(normalized))
+            normalize_type_pack_lane(store, &elems, transform_fn, context)
         }
         IntrinsicTypeOperation::LabeledTypePackMap => {
             let transform_fn = match arguments.first()? {
@@ -1008,18 +1000,7 @@ fn normalize_intrinsic_projection(
                 TypeData::LabeledTypePack(elems) => elems,
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            let mut transformed_elements = Vec::with_capacity(elems.len());
-            for elem in elems.iter() {
-                let applied = store.apply_type_form(transform_fn, &[elem.element]).unwrap_or(elem.element);
-                let norm_res = normalize_type(store, applied, context);
-                let Some(norm_ty) = norm_res.type_id() else { return Some(norm_res) };
-                transformed_elements.push(super::store::LabeledTypePackElement {
-                    label: elem.label.clone(),
-                    element: norm_ty,
-                });
-            }
-            let normalized = store.labeled_type_pack(transformed_elements.into_boxed_slice()).ok()?;
-            Some(ProjectionNormalizationResult::Normalized(normalized))
+            normalize_labeled_type_pack_lane(store, &elems, transform_fn, context)
         }
         IntrinsicTypeOperation::RecordFields => {
             // The projection remains a TypeId here because normalization is
@@ -1073,33 +1054,71 @@ fn normalize_intrinsic_projection(
                 TypeData::TypePack(elems) => elems,
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            let mut transformed_pos = Vec::with_capacity(pos_elems.len());
-            for &elem in pos_elems.iter() {
-                let applied = store.apply_type_form(transform_fn, &[elem]).unwrap_or(elem);
-                let norm_res = normalize_type(store, applied, context);
-                let Some(norm_ty) = norm_res.type_id() else { return Some(norm_res) };
-                transformed_pos.push(norm_ty);
-            }
-            let norm_pos = store.type_pack(transformed_pos.into_boxed_slice()).ok()?;
+            let norm_pos = match normalize_type_pack_lane(store, &pos_elems, transform_fn, context)? {
+                ProjectionNormalizationResult::Normalized(pack) => pack,
+                other => return Some(other),
+            };
 
             let lab_elems = match store.get(lab_ty).clone() {
                 TypeData::LabeledTypePack(elems) => elems,
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            let mut transformed_lab = Vec::with_capacity(lab_elems.len());
-            for elem in lab_elems.iter() {
-                let applied = store.apply_type_form(transform_fn, &[elem.element]).unwrap_or(elem.element);
-                let norm_res = normalize_type(store, applied, context);
-                let Some(norm_ty) = norm_res.type_id() else { return Some(norm_res) };
-                transformed_lab.push(super::store::LabeledTypePackElement {
-                    label: elem.label.clone(),
-                    element: norm_ty,
-                });
-            }
-            let norm_lab = store.labeled_type_pack(transformed_lab.into_boxed_slice()).ok()?;
+            let norm_lab = match normalize_labeled_type_pack_lane(store, &lab_elems, transform_fn, context)? {
+                ProjectionNormalizationResult::Normalized(pack) => pack,
+                other => return Some(other),
+            };
 
             let normalized = store.complete_type_pack(norm_pos, norm_lab).ok()?;
             Some(ProjectionNormalizationResult::Normalized(normalized))
         }
     }
+}
+
+/// Applies the canonical positional pack-map operation to a concrete lane.
+/// Complete packs reuse this same authority instead of reimplementing mapping.
+fn normalize_type_pack_lane(
+    store: &mut TypeStore,
+    elements: &[crate::types::id::TypeId],
+    transform_fn: crate::types::id::TypeId,
+    context: &mut ProjectionNormalizationContext<'_>,
+) -> Option<ProjectionNormalizationResult> {
+    let mut transformed = Vec::with_capacity(elements.len());
+    for &element in elements {
+        let applied = store.apply_type_form(transform_fn, &[element]).unwrap_or(element);
+        let normalized = normalize_type(store, applied, context);
+        let Some(normalized_type) = normalized.type_id() else {
+            return Some(normalized);
+        };
+        transformed.push(normalized_type);
+    }
+    store
+        .type_pack(transformed.into_boxed_slice())
+        .ok()
+        .map(ProjectionNormalizationResult::Normalized)
+}
+
+/// Applies the canonical labeled pack-map operation to a concrete lane while
+/// preserving each label and its position.
+fn normalize_labeled_type_pack_lane(
+    store: &mut TypeStore,
+    elements: &[super::store::LabeledTypePackElement],
+    transform_fn: crate::types::id::TypeId,
+    context: &mut ProjectionNormalizationContext<'_>,
+) -> Option<ProjectionNormalizationResult> {
+    let mut transformed = Vec::with_capacity(elements.len());
+    for element in elements {
+        let applied = store.apply_type_form(transform_fn, &[element.element]).unwrap_or(element.element);
+        let normalized = normalize_type(store, applied, context);
+        let Some(normalized_type) = normalized.type_id() else {
+            return Some(normalized);
+        };
+        transformed.push(super::store::LabeledTypePackElement {
+            label: element.label.clone(),
+            element: normalized_type,
+        });
+    }
+    store
+        .labeled_type_pack(transformed.into_boxed_slice())
+        .ok()
+        .map(ProjectionNormalizationResult::Normalized)
 }

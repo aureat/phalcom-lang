@@ -2240,6 +2240,19 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
 
 fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast::MapLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let map_decl = ctx.core_ids.map.clone();
+    let type_level_shadow = map.head.members.is_empty() && ctx.resolver.resolve_type_level_binding(&map.head.root).is_some();
+    let value_shadow = map.head.members.is_empty() && ctx.lookup_binding_info(&map.head.root).is_some();
+    let head_members = map.head.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+    let resolved_head = ctx.resolve_type_name_with_path(&map.head.root, &head_members);
+    let canonical_map_head = !type_level_shadow && !value_shadow && resolved_head.as_ref() == Some(&map_decl);
+    if !canonical_map_head {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            "explicit Map literal head must resolve to the canonical Universe Map declaration",
+            map.head.range,
+        ));
+    }
     let symbol_decl = ctx.core_ids.symbol.clone();
     let (expected_key, expected_val) = expected.map_key_val_types(ctx.store, &map_decl);
 
@@ -2322,7 +2335,9 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
     };
     let key_lane = lane(key_knowledge);
     let value_lane = lane(value_knowledge);
-    let knowledge = if let (Some(k), Some(v)) = (explicit_key_ty, explicit_val_ty) {
+    let knowledge = if !canonical_map_head {
+        TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
+    } else if let (Some(k), Some(v)) = (explicit_key_ty, explicit_val_ty) {
         if let Some(form) = map_form {
             match ctx.store.map_of(form, k, v) {
                 Ok(map_ty) => TypeKnowledge::established(map_ty, EvidenceOrigin::Syntax),
@@ -2529,6 +2544,9 @@ enum RecordLiteralShapeFailure {
         field: Box<str>,
         range: SourceRange,
     },
+    MapSpreadSource {
+        range: SourceRange,
+    },
     OpenTailConflict {
         range: SourceRange,
     },
@@ -2562,6 +2580,11 @@ fn emit_record_literal_shape_failure(ctx: &mut CheckingContext<'_>, failure: Rec
         RecordLiteralShapeFailure::DuplicateField { field, range } => (
             DiagnosticCode::RecordDuplicateField,
             format!("duplicate field `{field}` in record literal"),
+            range,
+        ),
+        RecordLiteralShapeFailure::MapSpreadSource { range } => (
+            DiagnosticCode::RecordSpreadSourceUnsupported,
+            "Record spread requires a statically known RecordFields shape; Map has a runtime-dependent key set".into(),
             range,
         ),
         RecordLiteralShapeFailure::OpenTailConflict { range } => (
@@ -2676,7 +2699,19 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
             RecordLiteralEntry::Expansion { expr, range } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
                 let strict_duplicate_check = typed.knowledge.ty().is_some_and(|ty| matches!(ctx.store.get(ty), TypeData::Record(_)));
-                match crate::checker::composition::project_record_shape(ctx.store, &typed.knowledge) {
+                let map_source = typed
+                    .knowledge
+                    .ty()
+                    .is_some_and(|ty| ctx.store.nominal_origin_declaration(ty) == Some(&ctx.core_ids.map));
+                if map_source {
+                    shape_failure.get_or_insert(RecordLiteralShapeFailure::MapSpreadSource { range: *range });
+                }
+                let projection = if map_source {
+                    Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression))
+                } else {
+                    crate::checker::composition::project_record_shape(ctx.store, &typed.knowledge)
+                };
+                match projection {
                     Ok(projection) => {
                         if let Some(existing_tail) = open_tail {
                             if existing_tail != projection.tail && projection.tail != RecordRowTail::Closed {

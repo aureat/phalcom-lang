@@ -2856,6 +2856,9 @@ pub struct RecordConstructionEntry {
 
 #[derive(Debug, Clone)]
 pub struct MapLiteralExpr {
+    /// The explicit source head whose semantic target must be the canonical
+    /// Universe Map declaration.
+    pub head: StaticSymbolRef,
     pub type_arguments: Option<Vec<TypeAnnotation>>,
     pub entries: Vec<MapLiteralEntry>,
     pub range: SourceRange,
