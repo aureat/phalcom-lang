@@ -42,16 +42,21 @@ next_action: >
   also passed 1/1 each. T6.4 is IMPLEMENTED / FOCUSED_TESTED:
   Both inline and standalone Universe source selection include `option/unit`,
   so canonical entry, standalone fixture, and traceback compilation consume
-  the source-backed Unit alias without
-  a name fallback or runtime class mapping. The exact specialized
+  the source-backed Unit alias without a name fallback or runtime class
+  mapping. The exact specialized
   iterator/bootstrap selector, standalone labeled-spread traceback selector,
   and T11.2 runtime-shaped Tuple slice/zip boundary selector each
   passed 1/1 under `nightly-2026-07-10`. T11.1 declarations are satisfied and
   T11.2 is IMPLEMENTED / FOCUSED_TESTED. T11.4 is IMPLEMENTED /
   FOCUSED_TESTED: Map-intent bare-brace literals use explicit `Map` heads;
   focused Map selectors and direct migrated fixtures pass. `corpus::collections`
-  and `corpus::system` failures are encountered but not certified baselines.
-  Keep TypeStore::union, loop
+  remains blocked before the migrated fixtures by `TakeIterator.toList`; this
+  is encountered, not a certified baseline. T11.5 is IMPLEMENTED /
+  FOCUSED_TESTED: simple static Set population uses `#{...}` while empty,
+  mutating, dynamically populated, and rejection-focused Set.new cases remain.
+  The Set parser selector and `corpus::system` passed 1/1; the earlier system
+  underconstraint at `Set.new()` was resolved by the literal. Keep
+  TypeStore::union, loop
   joining/whileTrue, and lexical-body semantics unchanged.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
@@ -2061,11 +2066,19 @@ next action:
     `corpus::collections` group fails
     before reaching migrated Map fixtures at `boundedness_take_bounds_unbounded.ph`
     because `TakeIterator` lacks `toList`. `corpus::system` reaches the
-    collection-rendering fixture but fails at the untouched `Set.new()` line
-    with generic underconstraint; the preceding Map literal is not the
-    reported failure. These aggregate failures are recorded as encountered,
-    not certified baselines or Map failures. T11.4 is IMPLEMENTED /
-    FOCUSED_TESTED; T11.5 is next.
+    collection-rendering fixture; its initial `Set.new()` underconstraint was
+    resolved by T11.5 below. This collections aggregate failure is encountered,
+    not a certified baseline or Map failure. T11.4 is IMPLEMENTED /
+    FOCUSED_TESTED. T11.5 is IMPLEMENTED / FOCUSED_TESTED: the parser's
+    empty/populated Set literal selector and `corpus::system` passed 1/1 after
+    converting its simple `1, 2` population to `#{1, 2}`. Other simple static
+    population sites in list/nested/iteration fixtures were converted too, but
+    their direct checks stop earlier at unchanged `Map.new()` generic
+    underconstraint, before reaching the Set expressions; these are recorded
+    as encountered and unclassified, not as Set failures or certified
+    baselines. Empty, mutation/dedup, custom-hash, membership, rejection,
+    concurrency, and dynamic accumulation cases retain `Set.new()`. T11.6 is
+    next.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure

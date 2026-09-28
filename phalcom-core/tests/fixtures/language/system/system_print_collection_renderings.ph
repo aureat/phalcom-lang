@@ -14,9 +14,7 @@ System.print(l)
 const m = Map {a: 1, b: 2}
 System.print(m)
 
-const s = Set.new()
-s.add(1)
-s.add(2)
+const s = #{1, 2}
 System.print(s)
 
 const t = (3, 4)

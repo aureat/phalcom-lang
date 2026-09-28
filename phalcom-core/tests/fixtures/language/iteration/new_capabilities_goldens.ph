@@ -16,7 +16,7 @@ const m_reduced = m.fold(initial: "", using: |acc, k| { acc + k })
 System.print(m_reduced) // "ab"
 
 // Set capabilities
-const s = Set.new().add(10).add(20)
+const s = #{10, 20}
 System.print(s.isEmpty) // false
 System.print(s.includes(10)) // true
 System.print(s.includes(15)) // false

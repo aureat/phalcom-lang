@@ -19,7 +19,7 @@ byGroup.at("odds", put: [1, 3])
 System.print(byGroup["evens"])
 System.print(byGroup["odds"].size)
 
-const mixed = (1..=3, Set.new().add(1).add(2))
+const mixed = (1..=3, #{1, 2})
 System.print(mixed.size)
 System.print(mixed.at(0).toList)
 System.print(mixed.at(1).size)

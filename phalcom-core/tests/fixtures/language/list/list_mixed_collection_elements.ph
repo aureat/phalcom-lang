@@ -8,7 +8,7 @@
 const l = []
 l.append((1, 2))
 l.append(Map.new().at("k", put: 1))
-l.append(Set.new().add(1).add(2))
+l.append(#{1, 2})
 System.print(l.size)
 System.print(l.at(0))
 System.print(l.at(1))
