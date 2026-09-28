@@ -1000,10 +1000,6 @@ fn lower_scoped_type_form(
                         let never = store.never();
                         return TypeFormationOutcome::Ready(intern_scoped_free(store, never));
                     }
-                    "Unit" => {
-                        let unit = store.unit();
-                        return TypeFormationOutcome::Ready(intern_scoped_free(store, unit));
-                    }
                     // `Some` and `None` are the runtime behavior classes of
                     // the canonical Option variants. They are not ordinary
                     // prelude value bindings, but remain valid nominal type
@@ -2315,7 +2311,6 @@ pub fn resolve_type_form(
                 }
                 match name {
                     "Never" => return TypeFormResolution::Ready(store.never()),
-                    "Unit" => return TypeFormResolution::Ready(store.unit()),
                     "Some" | "None" => {
                         let key = if name == "Some" {
                             phalcom_native_meta::UniverseKey::Some

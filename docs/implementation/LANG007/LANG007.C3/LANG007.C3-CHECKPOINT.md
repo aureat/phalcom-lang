@@ -57,7 +57,18 @@ next_action: >
   and `.class`, equality, hash stability, lane observers, Unit rendering, and
   empty iteration are covered. Focused product/value tests and the source-level
   runtime discriminator passed; `Value::class` is the immediate runtime type
-  observation authority. T6.4 remains sequenced after T9/T10. T10 adopts the
+  observation authority. T6.4 is now IMPLEMENTED / FOCUSED_TESTED after T9/T10:
+  the live intrinsic application/runtime-owner enums and runtime class catalog
+  have no Unit case or Unit-to-ClassId mapping; source `Unit` remains the
+  PreludeTypeMap-owned alias, and empty Tuple reduction remains `store.unit()`.
+  The two bare-reference `Unit` shortcuts were removed; explicit `()` syntax
+  remains structural. Existing selectors `unit_is_not_a_separate_intrinsic_semantic_declaration`,
+  `prelude_map_contains_only_explicit_source_backed_type_names`,
+  `unqualified_unit_type_reference_uses_exact_prelude_alias_declaration`,
+  `zero_intrinsic_applications_select_complete_pack_and_record_row_domains`,
+  and `generated_empty_tuple_return_resolves_to_canonical_unit_type`, together
+  with T9's empty-product runtime selector, provide focused evidence. T11 is
+  next. T10 adopts the
   2026-09-28 ruling: remove Unit from the runtime-support key/catalog, while
   preserving source visibility through canonical `option/unit::Unit` in the
   existing `PreludeTypeMap`. Native Unit returns use structural empty-tuple
@@ -1918,7 +1929,9 @@ next task:
     T13. The
     INC-C3-19 producer correction and focused lexical-body acceptance evidence
     are recorded below. Keep TypeStore::union, loop flow, and lexical-body
-    semantics unchanged. T6.4 remains sequenced after T9/T10. P4 remains
+    semantics unchanged. T6.4 is now IMPLEMENTED / FOCUSED_TESTED after T9/T10:
+    bare Unit type references use the exact prelude source alias rather than a
+    name fallback, while structural `()` remains canonical Unit. T11 is next. P4 remains
     IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
 
 next action:
@@ -1996,7 +2009,12 @@ next action:
     and `static_domain_projection_survives_shell_refresh_and_authoritative_replacement_retires_it`
     each selected/passed 1, covering runtime/semantic owner and static-domain
     projection retirement on authoritative replacement.
-    T6.4 remains sequenced after T9/T10. INC-C3-18's source rewrite is
+    T6.4 is now IMPLEMENTED / FOCUSED_TESTED after T9/T10: the bare-name Unit
+    fallback was removed from both type-formation paths, and a traced resolver
+    regression proves unqualified Unit uses the exact `option/unit::Unit`
+    prelude declaration and alias form. Unit has no intrinsic application,
+    runtime owner, or runtime class mapping; explicit `()` and zero-pack Tuple
+    still resolve to `store.unit()`. T11 is next. INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure
     delta is not needed to establish the rule. No union, loop-flow,
