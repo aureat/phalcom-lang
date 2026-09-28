@@ -940,6 +940,103 @@ fn binder_mode_changes_metadata_interface_fingerprint() {
 }
 
 #[test]
+fn parameter_mode_and_kind_metadata_round_trip_independently() {
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::generic::GenericParameterModeRef;
+
+    fn exported(kind: KindId, mode: GenericParameterMode) -> phalcom_type_meta::bundle::SemanticMetadataBundle {
+        let mut store = TypeStore::new();
+        let owner = TypeParameterOwner::Declaration(dummy_decl("ModeKindMatrix"));
+        let parameter = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", kind).with_mode(mode));
+        let signature = GenericSignature::new(owner, Box::new([parameter])).with_parameter_modes(Box::new([mode]));
+        let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        exporter.export_generic_signature(&signature).unwrap();
+        let bundle = exporter.build_bundle(&[]).unwrap();
+        validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+
+        let encoded = encode_metadata_json(&bundle).unwrap();
+        let decoded = decode_metadata_json(&encoded, &ValidationLimits::default()).unwrap();
+        assert_eq!(decoded.parameters[0].kind, bundle.parameters[0].kind);
+        assert_eq!(decoded.parameters[0].mode, bundle.parameters[0].mode);
+        decoded
+    }
+
+    let labeled_pack = exported(KindId::LABELED_TYPE_PACK, GenericParameterMode::LabeledPack);
+    let labeled_row = exported(KindId::RECORD_ROW, GenericParameterMode::LabeledPack);
+    let single_row = exported(KindId::RECORD_ROW, GenericParameterMode::Single);
+
+    for (bundle, expected_kind, expected_mode) in [
+        (
+            &labeled_pack,
+            phalcom_type_meta::kind::KindNode::LabeledTypePack,
+            GenericParameterModeRef::LabeledPack,
+        ),
+        (&labeled_row, phalcom_type_meta::kind::KindNode::RecordRow, GenericParameterModeRef::LabeledPack),
+        (&single_row, phalcom_type_meta::kind::KindNode::RecordRow, GenericParameterModeRef::Single),
+    ] {
+        assert_eq!(bundle.kinds[bundle.parameters[0].kind.0 as usize].node, expected_kind);
+        assert_eq!(bundle.parameters[0].mode, expected_mode);
+    }
+
+    assert_ne!(
+        labeled_row.header.interface_fingerprint, single_row.header.interface_fingerprint,
+        "same RecordRow kind with different expansion modes must remain distinct in the interface fingerprint"
+    );
+    assert_ne!(
+        labeled_pack.header.interface_fingerprint, labeled_row.header.interface_fingerprint,
+        "same LabeledPack mode with different semantic kinds must remain distinct in the interface fingerprint"
+    );
+}
+
+#[test]
+fn scoped_record_row_lambda_keeps_kind_and_mode_separate_through_fingerprinting() {
+    use phalcom_semantic::types::type_lambda::ScopedTypeData;
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::generic::GenericParameterModeRef;
+    use phalcom_type_meta::scoped_type::ScopedTypeNode;
+
+    fn exported(mode: GenericParameterMode) -> phalcom_type_meta::bundle::SemanticMetadataBundle {
+        let mut store = TypeStore::new();
+        let body = store.arena_mut().intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+        let lambda = store
+            .arena_mut()
+            .intern_lambda_with_modes(Box::new([KindId::RECORD_ROW]), Box::new([mode]), body, KindId::RECORD_ROW, None);
+        let kind = store.arrow_kind(Box::new([KindId::RECORD_ROW]), KindId::RECORD_ROW);
+        let ty = store.intern_with_kind(phalcom_semantic::types::store::TypeData::Lambda(lambda), kind);
+        let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        exporter.export_type_form(ty).unwrap();
+        let bundle = exporter.build_bundle(&[]).unwrap();
+        validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+
+        let encoded = encode_metadata_json(&bundle).unwrap();
+        decode_metadata_json(&encoded, &ValidationLimits::default()).unwrap()
+    }
+
+    let labeled = exported(GenericParameterMode::LabeledPack);
+    let single = exported(GenericParameterMode::Single);
+    for (bundle, expected_mode) in [(&labeled, GenericParameterModeRef::LabeledPack), (&single, GenericParameterModeRef::Single)] {
+        let phalcom_type_meta::type_node::TypeNode::TypeLambda(lambda) = &bundle.types[0].form else {
+            panic!("expected exported type lambda")
+        };
+        assert_eq!(lambda.parameter_modes, Some(vec![expected_mode].into_boxed_slice()));
+        assert_eq!(
+            bundle.kinds[lambda.parameter_kinds[0].0 as usize].node,
+            phalcom_type_meta::kind::KindNode::RecordRow
+        );
+        assert!(
+            bundle
+                .scoped_types
+                .iter()
+                .any(|entry| matches!(entry.form, ScopedTypeNode::Bound { depth: 0, index: 0 }))
+        );
+    }
+    assert_ne!(
+        labeled.types[0].structural_fingerprint, single.types[0].structural_fingerprint,
+        "scoped lambda fingerprints must include mode independently of the shared RecordRow kind"
+    );
+}
+
+#[test]
 fn p3_metadata_exports_scoped_pack_aliases_under_schema_v4() {
     use phalcom_semantic::types::type_lambda::ScopedTypeData;
     use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};

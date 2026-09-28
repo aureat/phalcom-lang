@@ -34,7 +34,7 @@ active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
 next_action: >
-  Continue original P4 at T12.2; T12.1 confirmed the existing metadata tag
+  Continue original P4 at T12.3; T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.
   T11.6 is focused-tested, while its aggregate
@@ -77,7 +77,19 @@ next_action: >
   `schema_v9_scoped_record_rows_round_trip_all_tail_forms_and_v8_remains_compatible`
   selector passed 1/1, including v8 round-trip compatibility and rejection of
   the v9-only scoped node under schema v8. No schema bump or wire-tag rename
-  was made for terminology. T12.2 is next.
+  was made for terminology. T12.2 is IMPLEMENTED / FOCUSED_TESTED: metadata
+  persists semantic kind and expansion mode separately across parameter
+  records and scoped lambdas. The required `(LabeledPack, LabeledTypePack)`,
+  `(LabeledPack, RecordRow)`, and `(Single, RecordRow)` pairs validate and
+  survive JSON decode and validated VM metadata loading; changing only mode
+  for RecordRow changes both generic interface and scoped-lambda structural
+  fingerprints. Semantic selectors
+  `parameter_mode_and_kind_metadata_round_trip_independently` and
+  `scoped_record_row_lambda_keeps_kind_and_mode_separate_through_fingerprinting`
+  passed 1/1 each; core selector
+  `metadata_loader_preserves_parameter_mode_and_kind_independently` passed
+  1/1. Existing compatibility validation remains: it admits these intended
+  pairs without deriving either field from the other. T12.3 is next.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
   clean-predecessor fixture error, not a PASS. Keep TypeStore::union, loop
@@ -1980,7 +1992,7 @@ next task:
     are recorded below. Keep TypeStore::union, loop flow, and lexical-body
     semantics unchanged. T6.4 is now IMPLEMENTED / FOCUSED_TESTED after T9/T10:
     bare Unit type references use the exact prelude source alias rather than a
-    name fallback, while structural `()` remains canonical Unit. T12.2 is next. P4 remains
+    name fallback, while structural `()` remains canonical Unit. T12.3 is next. P4 remains
     IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
 
 next action:
@@ -2106,8 +2118,8 @@ next action:
     `map_key_eq_mutates_same_map_during_overwrite_rejected.ph` underconstraint,
     before these cases. Direct CLI checks confirmed the diagnostics for the
     three edited fixtures; the aggregate failure is encountered, not
-    baseline-certified. T12.1 is IMPLEMENTED / FOCUSED_TESTED with no source
-    change; T12.2 is next.
+    baseline-certified. T12.1 and T12.2 are IMPLEMENTED / FOCUSED_TESTED;
+    T12.3 is next.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure

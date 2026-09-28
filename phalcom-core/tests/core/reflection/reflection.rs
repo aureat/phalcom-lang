@@ -316,6 +316,58 @@ fn build_test_bundle() -> SemanticMetadataBundle {
 }
 
 #[test]
+fn metadata_loader_preserves_parameter_mode_and_kind_independently() {
+    use phalcom_core::typing::loader::load_metadata_bundle;
+    use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath};
+    use phalcom_semantic::metadata::export::MetadataExporter;
+    use phalcom_semantic::types::parameter::GenericParameterMode;
+    use phalcom_semantic::types::{GenericSignature, KindId, TypeParameterData, TypeParameterOwner, TypeStore};
+    use phalcom_type_meta::generic::GenericParameterModeRef;
+    use phalcom_type_meta::validate::ValidationLimits;
+
+    let owner_ref = DeclarationId::new(
+        ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("mode_kind").unwrap()])),
+        "ModeKind".into(),
+    );
+    let cases = [
+        (
+            KindId::LABELED_TYPE_PACK,
+            GenericParameterMode::LabeledPack,
+            phalcom_type_meta::kind::KindNode::LabeledTypePack,
+            GenericParameterModeRef::LabeledPack,
+        ),
+        (
+            KindId::RECORD_ROW,
+            GenericParameterMode::LabeledPack,
+            phalcom_type_meta::kind::KindNode::RecordRow,
+            GenericParameterModeRef::LabeledPack,
+        ),
+        (
+            KindId::RECORD_ROW,
+            GenericParameterMode::Single,
+            phalcom_type_meta::kind::KindNode::RecordRow,
+            GenericParameterModeRef::Single,
+        ),
+    ];
+
+    for (index, (kind, mode, expected_kind, expected_mode)) in cases.into_iter().enumerate() {
+        let mut store = TypeStore::new();
+        let owner = TypeParameterOwner::Declaration(owner_ref.clone());
+        let parameter = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "P", kind).with_mode(mode));
+        let signature = GenericSignature::new(owner, Box::new([parameter])).with_parameter_modes(Box::new([mode]));
+        let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        exporter.export_generic_signature(&signature).unwrap();
+        let bundle = exporter.build_bundle(&[]).unwrap();
+
+        let loaded =
+            load_metadata_bundle(MetadataPoolId(index as u32), Arc::new(bundle), &ValidationLimits::default()).expect("valid mode/kind pair should load");
+        let parameter = &loaded.bundle.parameters[0];
+        assert_eq!(loaded.bundle.kinds[parameter.kind.0 as usize].node, expected_kind);
+        assert_eq!(parameter.mode, expected_mode);
+    }
+}
+
+#[test]
 fn spec03_bootstraps_typing_surface_and_context_capabilities() {
     let mut vm = VM::new();
     let typing_class = vm.universe.typing_classes.get("Typing").expect("Typing class");
