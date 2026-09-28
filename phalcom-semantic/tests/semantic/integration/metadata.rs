@@ -783,6 +783,7 @@ fn unit_and_empty_record_alias_metadata_round_trip_as_structural_zero_forms() {
 
     let mut store = TypeStore::new();
     let unit_form = store.unit();
+    assert_eq!(store.tuple(Box::new([])), unit_form, "the empty Tuple specialization is canonical Unit");
     let empty_record_form = store.record(Box::new([]));
     assert!(matches!(store.get(unit_form), phalcom_semantic::types::store::TypeData::Unit));
     assert!(matches!(store.get(empty_record_form), phalcom_semantic::types::store::TypeData::Record(row) if store.record_row(*row).fields.is_empty()));
