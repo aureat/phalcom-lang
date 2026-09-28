@@ -34,7 +34,12 @@ active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
 next_action: >
-  Continue original P4 at T11.3. T6.4 is IMPLEMENTED / FOCUSED_TESTED:
+  Continue original P4 at T11.4. T11.3 found no executable legacy Record
+  literals using `#{...}` in first-party `.ph` sources or the named AST,
+  semantic, core, and LSP source/test surfaces; no migration edit was needed.
+  Bare-brace Record, Set-opener, and legacy Record-as-Set diagnostic controls
+  passed 1/1 each. Record-spread Map rejection and labeled-spread core controls
+  also passed 1/1 each. T6.4 is IMPLEMENTED / FOCUSED_TESTED:
   inline Universe source selection now includes `option/unit`, allowing
   canonical bootstrap to consume the source-backed Unit alias without a name
   fallback or runtime class mapping. The exact specialized iterator/bootstrap
@@ -2031,7 +2036,13 @@ next action:
     Tuple still resolve to `store.unit()`. The canonical specialized iterator
     selector and runtime-shaped Tuple slice/zip boundary selector each passed
     1/1 under the pinned toolchain. T11.1 is satisfied and T11.2 is
-    IMPLEMENTED / FOCUSED_TESTED; T11.3 is next.
+    IMPLEMENTED / FOCUSED_TESTED. T11.3 is IMPLEMENTED / FOCUSED_TESTED with
+    no source migration required: the first-party `.ph` census found only a
+    Symbol-rendering comment, and the Rust-source census found valid Set
+    syntax/parser controls plus the intentional old-Record migration
+    diagnostic, but no executable legacy Record literal. Its focused bare-
+    brace Record, Set literal, migration-diagnostic, Map-spread rejection, and
+    labeled-spread controls each passed 1/1. T11.4 is next.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure
