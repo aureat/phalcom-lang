@@ -244,16 +244,16 @@ fn generated_empty_tuple_return_resolves_to_canonical_unit_type() {
         &phalcom_semantic::core_surface::universe_declaration,
         &GENERATED_EMPTY_TUPLE,
     )
-    .expect("native Tuple<> return type");
+    .expect("native structural empty-Tuple metadata");
 
     assert_eq!(
         resolved, expected,
-        "native metadata must resolve Tuple<> to the same canonical Unit type as source alias"
+        "native structural empty-Tuple metadata must resolve to the canonical zero-product Unit type"
     );
     assert_eq!(
         resolved,
         store.unit(),
-        "the exact zero-product Tuple application is the canonical semantic unit type"
+        "the zero-product tuple is the canonical semantic unit type"
     );
 }
 
