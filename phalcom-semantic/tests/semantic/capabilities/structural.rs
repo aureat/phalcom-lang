@@ -157,13 +157,13 @@ fn contextual_product_components_propagate_to_nested_literals() {
 class Probe {
   @class
   run() {
-    let pair: (List<Int>, Map<Symbol, List<Int>>) = ([], {key: []})
+    let pair: (List<Int>, Map<Symbol, List<Int>>) = ([], Map {key: []})
   }
 }
 "#,
     );
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    let pair = f.expression(run, "([], {key: []})");
+    let pair = f.expression(run, "([], Map {key: []})");
     let pair_ty = pair.knowledge.ty().expect("contextual tuple result");
     f.assert_type(
         pair_ty,

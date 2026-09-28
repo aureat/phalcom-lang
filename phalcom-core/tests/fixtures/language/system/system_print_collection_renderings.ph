@@ -2,7 +2,7 @@
 // spec: system.md; values-and-absence.md §3.2; U-COLLTYPES plan.md
 // status: PASS
 // `System.print` on every collection kind renders via that value's OWN
-// `toString`, no wrapper — `List` brackets, the `{k: v}` map literal's
+// `toString`, no wrapper — `List` brackets, the `Map {k: v}` map literal's
 // `#sym: val` rendering, `Set(...)`, tuple parens, and `Range`'s `a..b`
 // syntax-literal-shaped render, plus `None`/`Some(_)` for good measure.
 
@@ -11,7 +11,7 @@ l.append(1)
 l.append(2)
 System.print(l)
 
-const m = {a: 1, b: 2}
+const m = Map {a: 1, b: 2}
 System.print(m)
 
 const s = Set.new()

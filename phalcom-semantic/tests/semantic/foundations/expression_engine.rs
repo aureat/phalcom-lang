@@ -62,7 +62,7 @@ const c = "phalcom"
 const d = true
 const e = #test
 const f = [1, 2, 3]
-const g = { key: 100 }
+const g = Map { key: 100 }
 const i = (1, "two")
 const j = { name: "Alice", age: 30 }
 "#;

@@ -16,7 +16,7 @@ class ExplodingKey {
 const value = || { trace.append("value"); 1 }
 const later = || { trace.append("later"); 2 }
 const caught = || {
-  const ignored = {
+  const ignored = Map {
     [ExplodingKey.new()]: value.call(),
     [#later]: later.call(),
   }

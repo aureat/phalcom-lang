@@ -68,7 +68,7 @@ fn test_labeled_spread_traceback_includes_spread_site() {
     let file_path = std::env::temp_dir().join(format!("traceback_labeled_spread_{}.ph", std::process::id()));
     fs::write(
         &file_path,
-        "class BadKey {\n  @constructor new() { _enabled = false }\n  enable() { _enabled = true }\n  hash { if (_enabled) { throw Error.new(\"hash boom\") }; 1 }\n}\nconst key = BadKey.new()\nconst source = { [key]: 1 }\nkey.enable()\n{ **source }\n",
+        "class BadKey {\n  @constructor new() { _enabled = false }\n  enable() { _enabled = true }\n  hash { if (_enabled) { throw Error.new(\"hash boom\") }; 1 }\n}\nconst key = BadKey.new()\nconst source = Map { [key]: 1 }\nkey.enable()\nMap { **source }\n",
     )
     .unwrap();
 

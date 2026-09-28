@@ -14,7 +14,7 @@ const laterKey = || { trace.append("later-key"); #later }
 const laterValue = || { trace.append("later-value"); 3 }
 
 const caught = || {
-  const ignored = {
+  const ignored = Map {
     [key1.call()]: value1.call(),
     [key2.call()]: value2.call(),
     [laterKey.call()]: laterValue.call(),

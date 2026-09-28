@@ -73,14 +73,14 @@ fn map_unknown_key_and_value_do_not_disappear() {
 class Probe {
   @class
   run() {
-    let values = { key: missing }
+    let values = Map { key: missing }
   }
 }
 "#,
     );
     let run = value_fixture.callable("Probe", "run", DispatchSide::Class);
     assert_eq!(
-        value_fixture.expression(run, "{ key: missing }").knowledge,
+        value_fixture.expression(run, "Map { key: missing }").knowledge,
         TypeKnowledge::Unknown(UnknownReason::UnresolvedName("missing".into()))
     );
 
@@ -89,14 +89,14 @@ class Probe {
 class Probe {
   @class
   run() {
-    let values = { [missing]: 1 }
+    let values = Map { [missing]: 1 }
   }
 }
 "#,
     );
     let run = key_fixture.callable("Probe", "run", DispatchSide::Class);
     assert_eq!(
-        key_fixture.expression(run, "{ [missing]: 1 }").knowledge,
+        key_fixture.expression(run, "Map { [missing]: 1 }").knowledge,
         TypeKnowledge::Unknown(UnknownReason::UnresolvedName("missing".into()))
     );
 }
@@ -108,13 +108,13 @@ fn assumed_map_value_weakens_map_evidence() {
 class Probe {
   @class
   run(_ value: Int) {
-    let values = { key: value }
+    let values = Map { key: value }
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    assert_eq!(fixture.expression(run, "{ key: value }").knowledge.status(), Some(EvidenceStatus::Assumed));
+    assert_eq!(fixture.expression(run, "Map { key: value }").knowledge.status(), Some(EvidenceStatus::Assumed));
 }
 
 #[test]
@@ -325,8 +325,8 @@ class Probe {
     let list = [*values, 3]
     let tuple_values = (1, 2)
     let tuple = (*tuple_values, 3)
-    let mapping = { base: 1 }
-    let map = { **mapping, key: 2 }
+    let mapping = Map { base: 1 }
+    let map = Map { **mapping, key: 2 }
     let source = {base: 1}
     let record = {**source, name: 2}
   }
@@ -550,7 +550,7 @@ class Probe {
   run() {
     let list = [*missing, 1]
     let tuple = (*missing, 1)
-    let map = { **missing, key: 1 }
+    let map = Map { **missing, key: 1 }
     let record = {**missing, key: 1}
   }
 }
@@ -558,7 +558,7 @@ class Probe {
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
     let expected = TypeKnowledge::Unknown(UnknownReason::UnresolvedName("missing".into()));
-    for expression in ["[*missing, 1]", "(*missing, 1)", "{ **missing, key: 1 }", "{**missing, key: 1}"] {
+    for expression in ["[*missing, 1]", "(*missing, 1)", "Map { **missing, key: 1 }", "{**missing, key: 1}"] {
         assert_eq!(fixture.expression(run, expression).knowledge, expected, "{expression}");
     }
 }

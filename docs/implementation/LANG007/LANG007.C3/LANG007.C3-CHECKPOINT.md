@@ -34,18 +34,24 @@ active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
 next_action: >
-  Continue original P4 at T11.4. T11.3 found no executable legacy Record
+  Continue original P4 at T11.5. T11.3 found no executable legacy Record
   literals using `#{...}` in first-party `.ph` sources or the named AST,
   semantic, core, and LSP source/test surfaces; no migration edit was needed.
   Bare-brace Record, Set-opener, and legacy Record-as-Set diagnostic controls
   passed 1/1 each. Record-spread Map rejection and labeled-spread core controls
   also passed 1/1 each. T6.4 is IMPLEMENTED / FOCUSED_TESTED:
-  inline Universe source selection now includes `option/unit`, allowing
-  canonical bootstrap to consume the source-backed Unit alias without a name
-  fallback or runtime class mapping. The exact specialized iterator/bootstrap
-  selector and T11.2 runtime-shaped Tuple slice/zip boundary selector each
+  Both inline and standalone Universe source selection include `option/unit`,
+  so canonical entry, standalone fixture, and traceback compilation consume
+  the source-backed Unit alias without
+  a name fallback or runtime class mapping. The exact specialized
+  iterator/bootstrap selector, standalone labeled-spread traceback selector,
+  and T11.2 runtime-shaped Tuple slice/zip boundary selector each
   passed 1/1 under `nightly-2026-07-10`. T11.1 declarations are satisfied and
-  T11.2 is IMPLEMENTED / FOCUSED_TESTED. Keep TypeStore::union, loop
+  T11.2 is IMPLEMENTED / FOCUSED_TESTED. T11.4 is IMPLEMENTED /
+  FOCUSED_TESTED: Map-intent bare-brace literals use explicit `Map` heads;
+  focused Map selectors and direct migrated fixtures pass. `corpus::collections`
+  and `corpus::system` failures are encountered but not certified baselines.
+  Keep TypeStore::union, loop
   joining/whileTrue, and lexical-body semantics unchanged.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
@@ -2030,8 +2036,9 @@ next action:
     T6.4 is IMPLEMENTED / FOCUSED_TESTED after T9/T10: the bare-name Unit
     fallback was removed from both type-formation paths, and unqualified Unit
     resolves through the exact `option/unit::Unit` prelude declaration and
-    alias form. Inline Universe selection now includes `option/unit`, fixing
-    canonical bootstrap while keeping Unit absent from intrinsic application,
+    alias form. Inline and standalone Universe selection include
+    `option/unit`, fixing canonical bootstrap and standalone fixture/traceback
+    compilation while keeping Unit absent from intrinsic application,
     runtime-owner, and runtime-class mappings. Explicit `()` and zero-pack
     Tuple still resolve to `store.unit()`. The canonical specialized iterator
     selector and runtime-shaped Tuple slice/zip boundary selector each passed
@@ -2042,7 +2049,23 @@ next action:
     syntax/parser controls plus the intentional old-Record migration
     diagnostic, but no executable legacy Record literal. Its focused bare-
     brace Record, Set literal, migration-diagnostic, Map-spread rejection, and
-    labeled-spread controls each passed 1/1. T11.4 is next.
+    labeled-spread controls each passed 1/1. T11.4 migrates first-party Map
+    literal heads explicitly without changing Record syntax. The semantic
+    `map_literal_specialization_uses_entry_and_context_evidence_without_defaulting_empty_maps`
+    and core `language::maps::map_literal_expansion_preserves_values_and_rejects_duplicate_keys`
+    selectors passed 1/1; `corpus::indexing` and the labeled-spread traceback
+    selector passed 1/1 after standalone source selection gained `option/unit`.
+    Direct execution of migrated symbol-key, evaluation-order, and key-hash
+    Map fixtures produced their expected outputs; static duplicate-key and
+    non-Symbol spread fixtures retained their targeted diagnostics. The
+    `corpus::collections` group fails
+    before reaching migrated Map fixtures at `boundedness_take_bounds_unbounded.ph`
+    because `TakeIterator` lacks `toList`. `corpus::system` reaches the
+    collection-rendering fixture but fails at the untouched `Set.new()` line
+    with generic underconstraint; the preceding Map literal is not the
+    reported failure. These aggregate failures are recorded as encountered,
+    not certified baselines or Map failures. T11.4 is IMPLEMENTED /
+    FOCUSED_TESTED; T11.5 is next.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure
