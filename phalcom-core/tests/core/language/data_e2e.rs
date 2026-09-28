@@ -719,6 +719,56 @@ let first_again_value = first_again
 }
 
 #[test]
+fn cross_module_import_reconstructs_generic_data_product_shapes_from_source_declarations() {
+    let temp = tempfile::tempdir().expect("temporary project");
+    let root = temp.path();
+    let source = root.join("src");
+    std::fs::create_dir_all(&source).expect("source directory");
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"shape_import\"\nnamespace = \"shape_import\"\nversion = \"0.1.0\"\nentry = \"shape_import.main\"\n",
+    )
+    .expect("project manifest");
+    std::fs::write(source.join("package.ph"), "expose .provider\nexpose .main\n").expect("package manifest");
+    std::fs::write(
+        source.join("provider.ph"),
+        r#"
+data Envelope<**Fs: RecordFields> { id: Int, **Fs }
+data Packed<***Es: CompleteTypePack>(***Es)
+export Envelope, Packed
+"#,
+    )
+    .expect("provider source");
+    std::fs::write(
+        source.join("main.ph"),
+        r#"
+from .provider import Envelope, Packed
+
+let envelope = Envelope { id: 7, name: "Ada", age: 42 }
+let name = envelope.name
+let age = envelope.age
+let id = envelope.id
+let packed = Packed(1, "x")
+let packed_again = Packed(2, "y")
+let same_packed_behavior = packed.class === packed_again.class
+"#,
+    )
+    .expect("consumer source");
+
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(root.to_path_buf())).expect("cross-module data project compiles");
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("cross-module data project executes");
+    let entry_id = program.initialization_order.last().expect("entry module");
+    let module = vm.module_registry.get(entry_id).expect("entry module registered").object;
+    let get = |name: &str| vm.heap.module(module).get(vm.interner.find(name).expect("interned binding"));
+    assert_eq!(get("id"), Some(Value::int(7)));
+    assert_eq!(get("name").map(|value| value.to_string(&vm)).as_deref(), Some("Ada"));
+    assert_eq!(get("age"), Some(Value::int(42)));
+    assert!(matches!(get("packed"), Some(value) if value.as_obj().is_some()));
+    assert_eq!(get("same_packed_behavior"), Some(Value::bool(true)));
+}
+
+#[test]
 fn p4_shape_generic_construction_through_generic_callable_keeps_behavior_class_identity() {
     let (vm, module) = run_inline(
         r#"

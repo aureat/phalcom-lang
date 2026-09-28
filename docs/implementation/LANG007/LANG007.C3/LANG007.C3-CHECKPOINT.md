@@ -34,7 +34,7 @@ active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
 next_action: >
-  Continue original P4 at T12.3; T12.1 confirmed the existing metadata tag
+  Continue original P4 at T12.4; T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.
   T11.6 is focused-tested, while its aggregate
@@ -89,7 +89,17 @@ next_action: >
   passed 1/1 each; core selector
   `metadata_loader_preserves_parameter_mode_and_kind_independently` passed
   1/1. Existing compatibility validation remains: it admits these intended
-  pairs without deriving either field from the other. T12.3 is next.
+  pairs without deriving either field from the other. T12.3 is IMPLEMENTED /
+  FOCUSED_TESTED without a metadata schema change: a cross-module consumer
+  imports public provider declarations for a fixed-prefix `RecordFields`
+  product and a `CompleteTypePack` product, constructs both, accesses the
+  generated Record fields, and executes successfully. Exact core selector
+  `cross_module_import_reconstructs_generic_data_product_shapes_from_source_declarations`
+  passed 1/1. This import path analyzes the provider's authored source into
+  canonical `DataInfo`/shape templates; the semantic metadata bundle has no
+  static typechecking importer (the core loader validates and retains runtime
+  metadata), so no downstream consumer currently requires a serialized
+  product-shape template. T12.4 is next.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
   clean-predecessor fixture error, not a PASS. Keep TypeStore::union, loop
@@ -1992,7 +2002,7 @@ next task:
     are recorded below. Keep TypeStore::union, loop flow, and lexical-body
     semantics unchanged. T6.4 is now IMPLEMENTED / FOCUSED_TESTED after T9/T10:
     bare Unit type references use the exact prelude source alias rather than a
-    name fallback, while structural `()` remains canonical Unit. T12.3 is next. P4 remains
+    name fallback, while structural `()` remains canonical Unit. T12.4 is next. P4 remains
     IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
 
 next action:
@@ -2119,7 +2129,7 @@ next action:
     before these cases. Direct CLI checks confirmed the diagnostics for the
     three edited fixtures; the aggregate failure is encountered, not
     baseline-certified. T12.1 and T12.2 are IMPLEMENTED / FOCUSED_TESTED;
-    T12.3 is next.
+    T12.3 is IMPLEMENTED / FOCUSED_TESTED; T12.4 is next.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure
