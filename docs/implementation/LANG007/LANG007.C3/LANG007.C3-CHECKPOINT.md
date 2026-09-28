@@ -34,15 +34,14 @@ active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
 next_action: >
-  Reopen T6.4 before continuing T11. The isolated Unit alias resolver-trace
-  test passes, but the canonical core selector
-  `language::iteration::tuple_iterator_preserves_specialized_element_type_through_both_protocols`
-  selects 1 and fails before executing its fixture: canonical bootstrap reports
-  unresolved `Unit` annotations in `universe:collections.bytes` and
-  `universe:collections.list`, followed by list generic-underconstraint
-  diagnostics. T6.4 is PARTIAL / UNVERIFIED pending attribution and architect
-  direction. Do not count this as T11.2 acceptance; determine why canonical
-  bootstrap cannot consume the source-backed alias before resuming T11.
+  Continue original P4 at T11.3. T6.4 is IMPLEMENTED / FOCUSED_TESTED:
+  inline Universe source selection now includes `option/unit`, allowing
+  canonical bootstrap to consume the source-backed Unit alias without a name
+  fallback or runtime class mapping. The exact specialized iterator/bootstrap
+  selector and T11.2 runtime-shaped Tuple slice/zip boundary selector each
+  passed 1/1 under `nightly-2026-07-10`. T11.1 declarations are satisfied and
+  T11.2 is IMPLEMENTED / FOCUSED_TESTED. Keep TypeStore::union, loop
+  joining/whileTrue, and lexical-body semantics unchanged.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
   clean-predecessor fixture error, not a PASS. Keep TypeStore::union, loop
@@ -66,12 +65,12 @@ next_action: >
   and `.class`, equality, hash stability, lane observers, Unit rendering, and
   empty iteration are covered. Focused product/value tests and the source-level
   runtime discriminator passed; `Value::class` is the immediate runtime type
-  observation authority. T6.4's catalog/source-boundary changes remain
-  implemented, but overall T6.4 is PARTIAL / UNVERIFIED: the live intrinsic
+  observation authority. T6.4's catalog/source-boundary changes are
+  IMPLEMENTED / FOCUSED_TESTED: the live intrinsic
   application/runtime-owner enums and runtime class catalog have no Unit case
   or Unit-to-ClassId mapping; source `Unit` remains the PreludeTypeMap-owned
-  alias, and empty Tuple reduction remains `store.unit()`. The isolated alias
-  resolver test is insufficient to establish canonical bootstrap resolution.
+  alias, and empty Tuple reduction remains `store.unit()`. Canonical bootstrap
+  now includes the `option/unit` source module.
   The two bare-reference `Unit` shortcuts were removed; explicit `()` syntax
   remains structural. Existing selectors `unit_is_not_a_separate_intrinsic_semantic_declaration`,
   `prelude_map_contains_only_explicit_source_backed_type_names`,
@@ -79,13 +78,10 @@ next_action: >
   `zero_intrinsic_applications_select_complete_pack_and_record_row_domains`,
   and `generated_empty_tuple_return_resolves_to_canonical_unit_type`, together
   with T9's empty-product runtime selector, provide isolated focused evidence.
-  However, the canonical core iterator selector
-  `language::iteration::tuple_iterator_preserves_specialized_element_type_through_both_protocols`
-  currently fails before its fixture body with unresolved `Unit` annotations
-  in `universe:collections.bytes` and `universe:collections.list`, followed by
-  list generic-underconstraint diagnostics. This leaves T6.4
-  PARTIAL / UNVERIFIED; attribute the canonical-bootstrap alias-resolution gap
-  and obtain architect direction before continuing T11. T10 adopts the
+  The canonical core iterator selector initially exposed that the inline
+  Universe source-selection filter omitted `option/unit`; adding that source
+  module fixed bootstrap without restoring either removed Unit fallback. The
+  iterator selector now passes. T10 adopts the
   2026-09-28 ruling: remove Unit from the runtime-support key/catalog, while
   preserving source visibility through canonical `option/unit::Unit` in the
   existing `PreludeTypeMap`. Native Unit returns use structural empty-tuple
@@ -2026,17 +2022,16 @@ next action:
     and `static_domain_projection_survives_shell_refresh_and_authoritative_replacement_retires_it`
     each selected/passed 1, covering runtime/semantic owner and static-domain
     projection retirement on authoritative replacement.
-    T6.4 remains PARTIAL / UNVERIFIED after T9/T10: the bare-name Unit fallback
-    was removed from both type-formation paths, and the isolated traced
-    resolver regression proves unqualified Unit uses the exact
-    `option/unit::Unit` prelude declaration and alias form. Unit has no
-    intrinsic application, runtime owner, or runtime class mapping; explicit
-    `()` and zero-pack Tuple still resolve to `store.unit()`. But the canonical
-    iterator selector
-    `language::iteration::tuple_iterator_preserves_specialized_element_type_through_both_protocols`
-    fails before fixture execution because canonical bootstrap reports
-    unresolved Unit in `universe:collections.bytes` and `universe:collections.list`.
-    Resolve this source-authority gap before claiming T11.2 acceptance.
+    T6.4 is IMPLEMENTED / FOCUSED_TESTED after T9/T10: the bare-name Unit
+    fallback was removed from both type-formation paths, and unqualified Unit
+    resolves through the exact `option/unit::Unit` prelude declaration and
+    alias form. Inline Universe selection now includes `option/unit`, fixing
+    canonical bootstrap while keeping Unit absent from intrinsic application,
+    runtime-owner, and runtime-class mappings. Explicit `()` and zero-pack
+    Tuple still resolve to `store.unit()`. The canonical specialized iterator
+    selector and runtime-shaped Tuple slice/zip boundary selector each passed
+    1/1 under the pinned toolchain. T11.1 is satisfied and T11.2 is
+    IMPLEMENTED / FOCUSED_TESTED; T11.3 is next.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure
