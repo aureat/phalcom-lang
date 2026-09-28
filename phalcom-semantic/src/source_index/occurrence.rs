@@ -557,9 +557,19 @@ impl OccurrenceBuilder<'_> {
             }
             Expr::IfLet(if_let) => {
                 self.expr(&if_let.value, OccurrenceRole::Read);
-                self.block(&if_let.then_body);
+                self.statements(&if_let.then_body.body);
                 if let Some(else_body) = &if_let.else_body {
-                    self.block(else_body);
+                    self.statements(&else_body.body);
+                }
+            }
+            Expr::If(if_expr) => {
+                self.expr(&if_expr.condition, OccurrenceRole::Read);
+                self.statements(&if_expr.then_body.body);
+                if let Some(else_body) = &if_expr.else_body {
+                    match else_body {
+                        phalcom_ast::ast::IfElseBody::Block(block) => self.statements(&block.body),
+                        phalcom_ast::ast::IfElseBody::ElseIf(expr) => self.expr(expr, OccurrenceRole::Read),
+                    }
                 }
             }
             Expr::WhileLet(while_let) => {
@@ -730,7 +740,10 @@ impl OccurrenceBuilder<'_> {
             Expr::Match(match_expr) => {
                 self.expr(&match_expr.value, OccurrenceRole::Read);
                 for arm in &match_expr.arms {
-                    self.expr(&arm.branch, OccurrenceRole::Read);
+                    match &arm.branch {
+                        phalcom_ast::ast::MatchArmBody::Expression(expr) => self.expr(expr, OccurrenceRole::Read),
+                        phalcom_ast::ast::MatchArmBody::Block(block) => self.statements(&block.body),
+                    }
                 }
             }
             Expr::RecordConstruction(rc) => {

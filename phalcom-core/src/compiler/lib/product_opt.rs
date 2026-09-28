@@ -828,6 +828,22 @@ impl<'a> ProductPlanner<'a> {
                     }
                 }
             }
+            Expr::If(if_expr) => {
+                self.visit_expression(&if_expr.condition, UseContext::Value);
+                for stmt in &if_expr.then_body.body {
+                    self.visit_statement(stmt);
+                }
+                if let Some(else_body) = &if_expr.else_body {
+                    match else_body {
+                        phalcom_ast::ast::IfElseBody::Block(block) => {
+                            for stmt in &block.body {
+                                self.visit_statement(stmt);
+                            }
+                        }
+                        phalcom_ast::ast::IfElseBody::ElseIf(expr) => self.visit_expression(expr, UseContext::Value),
+                    }
+                }
+            }
             Expr::WhileLet(while_let) => {
                 self.current_loop_depth += 1;
                 self.visit_expression(&while_let.value, UseContext::Value);
@@ -964,7 +980,14 @@ impl<'a> ProductPlanner<'a> {
         }
 
         for arm in &match_expr.arms {
-            self.visit_expression(&arm.branch, UseContext::Value);
+            match &arm.branch {
+                phalcom_ast::ast::MatchArmBody::Expression(expr) => self.visit_expression(expr, UseContext::Value),
+                phalcom_ast::ast::MatchArmBody::Block(block) => {
+                    for statement in &block.body {
+                        self.visit_statement(statement);
+                    }
+                }
+            }
         }
     }
 }

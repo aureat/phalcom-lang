@@ -85,6 +85,7 @@ class Probe {
     let observed = x
   }
 }
+
 "#,
     );
     let run = f.callable("Probe", "run", DispatchSide::Class);
@@ -92,6 +93,33 @@ class Probe {
         f.binding(run, "observed").current.ty().expect("joined mutation"),
         &[f.ty("Int"), f.ty("String")],
     );
+}
+
+/// LAW: a one-armed lexical `if` is an effect-only Unit expression, not an
+/// Option-lifted closure send.
+#[test]
+fn one_armed_if_remains_unit_and_preserves_branch_effects() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ flag: Bool) {
+    let observed = 0
+    let value = if flag {
+      observed = 1
+    }
+    let result = observed
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    assert_eq!(
+        f.binding(run, "value").current.ty(),
+        Some(f.analysis.snapshot.store.unit()),
+        "a one-armed if has Unit type"
+    );
+    f.assert_binding_established(run, "result", f.ty("Int"));
 }
 
 /// LAW: if let success region executes as control region and preserves outer mutation.

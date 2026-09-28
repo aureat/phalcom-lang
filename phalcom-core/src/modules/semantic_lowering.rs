@@ -1732,6 +1732,16 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
                 collect_anonymous_product_statements(&body.body, out);
             }
         }
+        Expr::If(e) => {
+            collect_anonymous_product_expr(&e.condition, out);
+            collect_anonymous_product_statements(&e.then_body.body, out);
+            if let Some(body) = &e.else_body {
+                match body {
+                    phalcom_ast::ast::IfElseBody::Block(block) => collect_anonymous_product_statements(&block.body, out),
+                    phalcom_ast::ast::IfElseBody::ElseIf(expr) => collect_anonymous_product_expr(expr, out),
+                }
+            }
+        }
         Expr::WhileLet(e) => {
             collect_anonymous_product_expr(&e.value, out);
             collect_anonymous_product_statements(&e.body, out);
@@ -1785,7 +1795,10 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
         }),
         Expr::Match(e) => {
             collect_anonymous_product_expr(&e.value, out);
-            e.arms.iter().for_each(|arm| collect_anonymous_product_expr(&arm.branch, out));
+            e.arms.iter().for_each(|arm| match &arm.branch {
+                phalcom_ast::ast::MatchArmBody::Expression(expr) => collect_anonymous_product_expr(expr, out),
+                phalcom_ast::ast::MatchArmBody::Block(block) => collect_anonymous_product_statements(&block.body, out),
+            });
         }
         Expr::Int { .. }
         | Expr::Float { .. }

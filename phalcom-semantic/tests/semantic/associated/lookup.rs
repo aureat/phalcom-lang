@@ -7,6 +7,7 @@ use phalcom_semantic::checker::associated::BehavioralFamilySpec;
 use phalcom_semantic::checker::{AssociatedResolutionKind, CallableReferenceResolutionKind};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+use phalcom_semantic::types::store::TypeData;
 
 #[test]
 fn associated_owner_rejects_runtime_value_type_form() {
@@ -118,6 +119,201 @@ class Test {
     assert!(none_expr.knowledge.is_known(), "None should have known type");
     let none_res = none_analysis.associated_resolutions.get(&none_expr.id).expect("none resolution");
     assert!(matches!(&none_res.kind, AssociatedResolutionKind::ExactValue { .. }));
+}
+
+#[test]
+fn nullary_variant_lookup_uses_generic_expected_result_without_accepting_unconstrained_owner() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Option<T> {
+  @variant Some(_ value: T)
+  @variant None
+}
+
+data Result<T, E> {
+  @variant Ok(_ value: T)
+  @variant Error(_ error: E)
+}
+
+impl<T, E> Result<T, E> {
+  transpose<U>() -> Option<Result<U, E>> where T == Option<U> {
+    match self {
+      Result::Ok(option) => {
+        match option {
+          Option::Some(item) => Option::Some(Result::Ok(item))
+          Option::None => Option::None
+        }
+      }
+      Result::Error(error) => Option::Some(Result::Error(error))
+    }
+  }
+}
+
+class Probe {
+  @class
+  contextual<U, E>() -> Option<Result<U, E>> {
+    Option::None
+  }
+
+  @class
+  conditional(_ flag: Bool) -> Option<Int> {
+    if flag {
+      Option::None
+    } else {
+      Option::None
+    }
+  }
+
+  @class
+  conflicting_owner() -> Option<String> {
+    Option<Int>::None
+  }
+
+  @class
+  no_context() {
+    Option::None
+  }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+
+    let probe = DeclarationId::new(module.clone(), "Probe".into());
+    let contextual = CallableId::new(probe.clone(), Selector::method("contextual", []).unwrap(), DispatchSide::Class);
+    let contextual_analysis = analysis.snapshot.callable_analyses.get(&contextual).expect("contextual callable");
+    let contextual_expr = contextual_analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Option::None"))
+        .expect("contextual Option::None expression");
+    let resolution = contextual_analysis
+        .associated_resolutions
+        .get(&contextual_expr.id)
+        .unwrap_or_else(|| {
+            panic!(
+                "generic expected result must publish the canonical singleton resolution; fact={:?}; diagnostics={:#?}",
+                contextual_expr.knowledge, analysis.snapshot.diagnostics
+            )
+        });
+    let AssociatedResolutionKind::ExactValue { value_type, .. } = resolution.kind else {
+        panic!("expected exact singleton resolution, got {:?}", resolution.kind);
+    };
+    let TypeData::ExactCase { enum_type, .. } = analysis.snapshot.store.get(value_type) else {
+        panic!("expected exact enum case, got {}", analysis.snapshot.store.format_type(value_type));
+    };
+    let TypeData::Applied { arguments, .. } = analysis.snapshot.store.get(*enum_type) else {
+        panic!("expected specialized applied enum owner, got {}", analysis.snapshot.store.format_type(*enum_type));
+    };
+    let Some(specialized_result) = arguments.first().and_then(|argument| argument.as_type_id()) else {
+        panic!("expected the contextual enum argument to be a proper type: {arguments:?}");
+    };
+    let TypeData::Applied { .. } = analysis.snapshot.store.get(specialized_result) else {
+        panic!("expected Result<U, E> to remain the exact owner argument, got {}", analysis.snapshot.store.format_type(specialized_result));
+    };
+
+    let conditional = CallableId::new(
+        probe.clone(),
+        Selector::method("conditional", [SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Class,
+    );
+    let conditional_analysis = analysis.snapshot.callable_analyses.get(&conditional).expect("conditional callable");
+    let conditional_cases = conditional_analysis
+        .expressions
+        .values()
+        .filter(|expression| source.get(expression.range.start..expression.range.end) == Some("Option::None"))
+        .collect::<Vec<_>>();
+    assert_eq!(conditional_cases.len(), 2, "both if branches retain their exact-case expressions");
+    for expression in conditional_cases {
+        assert!(
+            conditional_analysis.associated_resolutions.contains_key(&expression.id),
+            "the if branch must receive expected Option<Int>; fact={:?}, diagnostics={:#?}",
+            expression.knowledge,
+            analysis.snapshot.diagnostics
+        );
+    }
+
+    let transpose = CallableId::new(
+        DeclarationId::new(module.clone(), "Result".into()),
+        Selector::method("transpose", []).unwrap(),
+        DispatchSide::Instance,
+    );
+    let nested_analysis = analysis.snapshot.callable_analyses.get(&transpose).expect("Result.transpose callable");
+    let nested_none = nested_analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Option::None"))
+        .expect("transpose nested match Option::None expression");
+    assert!(
+        nested_analysis.associated_resolutions.contains_key(&nested_none.id),
+        "nested match branch should receive the same expected owner application; fact={:?}, diagnostics={:#?}, matches={:#?}",
+        nested_none.knowledge,
+        analysis.snapshot.diagnostics,
+        nested_analysis.match_resolutions
+    );
+
+    let conflict = CallableId::new(
+        DeclarationId::new(module.clone(), "Probe".into()),
+        Selector::method("conflicting_owner", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let conflict_analysis = analysis.snapshot.callable_analyses.get(&conflict).expect("conflicting_owner callable");
+    let conflict_expr = conflict_analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Option<Int>::None"))
+        .expect("explicitly specialized Option<Int>::None expression");
+    let conflict_resolution = conflict_analysis
+        .associated_resolutions
+        .get(&conflict_expr.id)
+        .expect("explicit owner remains a canonical associated resolution");
+    let AssociatedResolutionKind::ExactValue { value_type, .. } = conflict_resolution.kind else {
+        panic!("expected exact singleton resolution, got {:?}", conflict_resolution.kind);
+    };
+    let TypeData::ExactCase { enum_type, .. } = analysis.snapshot.store.get(value_type) else {
+        panic!("expected exact enum case, got {}", analysis.snapshot.store.format_type(value_type));
+    };
+    let TypeData::Applied { arguments, .. } = analysis.snapshot.store.get(*enum_type) else {
+        panic!("expected explicit applied enum owner, got {}", analysis.snapshot.store.format_type(*enum_type));
+    };
+    let Some(explicit_owner_argument) = arguments.first().and_then(|argument| argument.as_type_id()) else {
+        panic!("expected explicit Option<Int> type argument: {arguments:?}");
+    };
+    assert_eq!(
+        analysis.snapshot.store.format_type(explicit_owner_argument),
+        "Int",
+        "the expected Option<String> result must not overwrite the explicit Option<Int> owner"
+    );
+
+    let no_context = CallableId::new(probe, Selector::method("no_context", []).unwrap(), DispatchSide::Class);
+    let no_context_analysis = analysis.snapshot.callable_analyses.get(&no_context).expect("no_context callable");
+    let no_context_expr = no_context_analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Option::None"))
+        .expect("uncontextual Option::None expression");
+    assert!(no_context_analysis.associated_resolutions.get(&no_context_expr.id).is_none());
+    let underconstrained = analysis
+        .snapshot
+        .diagnostics
+        .values()
+        .flat_map(|diagnostics| diagnostics.iter())
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedGenericUnderconstrained)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        underconstrained.len(),
+        1,
+        "only the no-context owner should remain underconstrained: {:#?}",
+        analysis.snapshot.diagnostics
+    );
+    assert_eq!(
+        underconstrained[0].primary_range,
+        no_context_expr.range,
+        "the no-context case must remain underconstrained: {:#?}",
+        analysis.snapshot.diagnostics
+    );
 }
 
 #[test]

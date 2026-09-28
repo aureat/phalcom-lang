@@ -1707,9 +1707,24 @@ impl SourceScopeBuilder<'_> {
                 self.visit_expr(scope, &if_let.value);
                 let then_scope = self.new_scope(scope, if_let.then_body.range);
                 self.declare_pattern(then_scope, &if_let.pattern, SourceBindingKind::Destructure, true);
-                self.visit_block_contents(then_scope, &if_let.then_body);
+                self.visit_statements(then_scope, &if_let.then_body.body, false);
                 if let Some(else_body) = &if_let.else_body {
-                    self.visit_block_contents(scope, else_body);
+                    let else_scope = self.new_scope(scope, else_body.range);
+                    self.visit_statements(else_scope, &else_body.body, false);
+                }
+            }
+            Expr::If(if_expr) => {
+                self.visit_expr(scope, &if_expr.condition);
+                let then_scope = self.new_scope(scope, if_expr.then_body.range);
+                self.visit_statements(then_scope, &if_expr.then_body.body, false);
+                if let Some(else_body) = &if_expr.else_body {
+                    match else_body {
+                        phalcom_ast::ast::IfElseBody::Block(block) => {
+                            let else_scope = self.new_scope(scope, block.range);
+                            self.visit_statements(else_scope, &block.body, false);
+                        }
+                        phalcom_ast::ast::IfElseBody::ElseIf(expr) => self.visit_expr(scope, expr),
+                    }
                 }
             }
             Expr::WhileLet(while_let) => {
@@ -1817,7 +1832,10 @@ impl SourceScopeBuilder<'_> {
                 for arm in &match_expr.arms {
                     let arm_scope = self.new_scope(scope, arm.range);
                     self.declare_pattern(arm_scope, &arm.pattern, SourceBindingKind::Destructure, false);
-                    self.visit_expr(arm_scope, &arm.branch);
+                    match &arm.branch {
+                        phalcom_ast::ast::MatchArmBody::Expression(expr) => self.visit_expr(arm_scope, expr),
+                        phalcom_ast::ast::MatchArmBody::Block(block) => self.visit_statements(arm_scope, &block.body, false),
+                    }
                 }
             }
             Expr::RecordConstruction(record) => {

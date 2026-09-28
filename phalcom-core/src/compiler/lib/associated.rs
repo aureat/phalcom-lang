@@ -10,10 +10,9 @@ use crate::modules::semantic_lowering::{
 };
 use crate::parameters::ParameterShape;
 use crate::value::Value;
-use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, CallableReferenceExpr, CallableReferenceTarget, Expr, PackItem};
+use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, CallableReferenceExpr, CallableReferenceTarget, Expr, PackItem};
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::{Selector, SelectorSlot};
-use phalcom_modules::DeclarationId;
+use phalcom_common::selector::SelectorSlot;
 use phalcom_semantic::checker::associated::{BehavioralFamilySpec, FamilyApplicationKind};
 use phalcom_semantic::identity::{DataConstructorId, VariantId};
 use phalcom_semantic::types::FamilyOperationShape;
@@ -280,30 +279,6 @@ impl<'vm> Compiler<'vm> {
             }
         }
 
-        // Fallback for standalone/unlinked compilation
-        if let Expr::Var { value: name, .. } = &expr.receiver {
-            let module_id = self.vm.heap.module(self.module).id.clone();
-            let owner = phalcom_native_meta::UniverseKey::from_name(name)
-                .map(phalcom_semantic::core_surface::universe_declaration)
-                .unwrap_or_else(|| DeclarationId::new(module_id, name.clone().into_boxed_str()));
-            if let AssociatedMemberSyntax::Named(named) = &expr.member {
-                let selector = match Selector::getter(named.base.clone()) {
-                    Ok(sel) => sel,
-                    Err(_) => return Err(CompilerError::AssociatedLookupNotLoweredYet(expr.range)),
-                };
-                let variant_id = VariantId::new(owner, selector);
-                let var_idx = self
-                    .functions
-                    .last_mut()
-                    .unwrap()
-                    .chunk
-                    .executable_semantics
-                    .add_variant_target(&variant_id, expr.range)?;
-                self.emit(Bytecode::LoadVariantSingleton(var_idx), expr.range);
-                return Ok(());
-            }
-        }
-
         Err(CompilerError::AssociatedLookupNotLoweredYet(expr.range))
     }
 
@@ -394,47 +369,6 @@ impl<'vm> Compiler<'vm> {
                 }
                 _ => {}
             }
-        }
-
-        // Fallback for standalone/unlinked compilation
-        if let Expr::Var { value: name, .. } = &expr.receiver {
-            let module_id = self.vm.heap.module(self.module).id.clone();
-            let owner = phalcom_native_meta::UniverseKey::from_name(name)
-                .map(phalcom_semantic::core_surface::universe_declaration)
-                .unwrap_or_else(|| DeclarationId::new(module_id, name.clone().into_boxed_str()));
-            let mut slots = Vec::new();
-            for item in &expr.args {
-                match item {
-                    PackItem::Positional { .. } => slots.push(phalcom_common::selector::SelectorSlot::Positional),
-                    PackItem::Labeled { label, .. } => match label {
-                        phalcom_ast::ast::PackLabel::Static { text, .. } => slots.push(phalcom_common::selector::SelectorSlot::Label(text.clone())),
-                        phalcom_ast::ast::PackLabel::Computed { .. } => slots.push(phalcom_common::selector::SelectorSlot::Positional),
-                    },
-                    PackItem::Expand { .. } => slots.push(phalcom_common::selector::SelectorSlot::Positional),
-                }
-            }
-            let selector = match Selector::new(
-                phalcom_common::selector::SelectorBase::Named(expr.base.clone()),
-                phalcom_common::selector::SelectorKind::Method,
-                slots.into_boxed_slice(),
-            ) {
-                Ok(sel) => sel,
-                Err(_) => return Err(CompilerError::AssociatedInvokeNotLoweredYet(expr.range)),
-            };
-            let variant_id = VariantId::new(owner, selector);
-            for arg in &expr.args {
-                self.compile_pack_item(arg.clone())?;
-            }
-            let arity = checked_send_arity("standalone variant construction", expr.args.len(), expr.range)?;
-            let var_idx = self
-                .functions
-                .last_mut()
-                .unwrap()
-                .chunk
-                .executable_semantics
-                .add_variant_target(&variant_id, expr.range)?;
-            self.emit(Bytecode::ConstructVariant { variant: var_idx, arity }, expr.range);
-            return Ok(());
         }
 
         Err(CompilerError::AssociatedInvokeNotLoweredYet(expr.range))

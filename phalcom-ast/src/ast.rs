@@ -2125,6 +2125,9 @@ pub enum Expr {
     IfLet(Box<IfLetExpr>),
     /// A refutable pattern loop.
     WhileLet(Box<WhileLetExpr>),
+    /// A lexical conditional expression. Its branch bodies execute inline;
+    /// they are not Closure values.
+    If(Box<IfExpr>),
     /// The ordinary expression value represented by `...`.
     Ellipsis {
         range: SourceRange,
@@ -2196,6 +2199,7 @@ impl Expr {
             Expr::ComparisonChain(e) => e.range,
             Expr::IfLet(e) => e.range,
             Expr::WhileLet(e) => e.range,
+            Expr::If(e) => e.range,
             Expr::Ellipsis { range } => *range,
             Expr::UnqualifiedCall(e) => e.range,
             Expr::MethodCall(e) => e.range,
@@ -2234,9 +2238,49 @@ pub struct MatchExpr {
 #[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: Pattern,
-    pub branch: Box<Expr>,
+    pub branch: MatchArmBody,
     pub arrow_range: SourceRange,
     pub range: SourceRange,
+}
+
+/// A match branch is either an ordinary expression or an inline lexical
+/// block. Braced match branches deliberately do not use `Expr::Block`, which
+/// represents a first-class Closure value.
+#[derive(Debug, Clone)]
+pub enum MatchArmBody {
+    Expression(Box<Expr>),
+    Block(LexicalBlock),
+}
+
+impl MatchArmBody {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Expression(expr) => expr.range(),
+            Self::Block(block) => block.range,
+        }
+    }
+}
+
+/// A brace-delimited executable region that introduces lexical scope but
+/// does not construct a Closure.
+#[derive(Debug, Clone)]
+pub struct LexicalBlock {
+    pub body: Vec<Statement>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct IfExpr {
+    pub condition: Expr,
+    pub then_body: LexicalBlock,
+    pub else_body: Option<IfElseBody>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub enum IfElseBody {
+    Block(LexicalBlock),
+    ElseIf(Box<Expr>),
 }
 
 /// Range bounds as written in source. Omitted bounds are structurally absent,
@@ -2280,8 +2324,8 @@ pub enum RelationOp {
 pub struct IfLetExpr {
     pub pattern: Pattern,
     pub value: Expr,
-    pub then_body: BlockExpr,
-    pub else_body: Option<BlockExpr>,
+    pub then_body: LexicalBlock,
+    pub else_body: Option<LexicalBlock>,
     pub range: SourceRange,
 }
 

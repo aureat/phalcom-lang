@@ -307,6 +307,30 @@ impl CfgBuilder {
                 }
                 return Vec::new();
             }
+            Expr::If(if_expr) => {
+                let cond_node = self.graph.add_node(FlowNodeKind::BranchCondition, if_expr.range);
+                for prev in incoming {
+                    self.graph.add_edge_with_kind(prev, cond_node, FlowEdgeKind::Normal, None);
+                }
+                let then_tails = self.build_statements(&if_expr.then_body.body, vec![cond_node]);
+                let else_tails = match &if_expr.else_body {
+                    Some(phalcom_ast::ast::IfElseBody::Block(block)) => self.build_statements(&block.body, vec![cond_node]),
+                    Some(phalcom_ast::ast::IfElseBody::ElseIf(expr)) => {
+                        self.build_expression_flow(expr, expr.range(), stmt_idx, vec![cond_node])
+                    }
+                    None => vec![cond_node],
+                };
+                let mut all_tails = then_tails;
+                all_tails.extend(else_tails);
+                if all_tails.is_empty() {
+                    return Vec::new();
+                }
+                let join_node = self.graph.add_node(FlowNodeKind::Join, if_expr.range);
+                for tail in all_tails {
+                    self.graph.add_edge_with_kind(tail, join_node, FlowEdgeKind::Normal, None);
+                }
+                return vec![join_node];
+            }
             Expr::WhileLet(while_let) => {
                 let header_node = self.graph.add_node(FlowNodeKind::LoopHeader, while_let.range);
                 for prev in incoming {

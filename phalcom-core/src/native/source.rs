@@ -84,6 +84,48 @@ pub struct NativeMemberAnchor {
     pub typed: bool,
 }
 
+/// Result of resolving one authored source declaration against the canonical
+/// Universe source identity table.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SourceUniverseIdentity {
+    NotUniverseName,
+    WrongModule(UniverseKey),
+    Canonical(UniverseKey),
+}
+
+impl SourceUniverseIdentity {
+    fn canonical_key(self) -> Option<UniverseKey> {
+        match self {
+            Self::Canonical(key) => Some(key),
+            Self::NotUniverseName | Self::WrongModule(_) => None,
+        }
+    }
+
+    fn is_known_name(self) -> bool {
+        !matches!(self, Self::NotUniverseName)
+    }
+}
+
+/// Maps authored source identity to a canonical Universe key at the source
+/// indexing boundary. Downstream indexers consume this result rather than
+/// independently matching declaration names and module paths.
+fn source_universe_identity(module: &ModuleId, name: &str) -> SourceUniverseIdentity {
+    let Some(key) = UniverseKey::from_name(name) else {
+        return SourceUniverseIdentity::NotUniverseName;
+    };
+    let expected_path = ModulePath::from_components(
+        key.source_path()
+            .iter()
+            .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("valid Universe module component"))
+            .collect::<Vec<_>>(),
+    );
+    if module.path == expected_path {
+        SourceUniverseIdentity::Canonical(key)
+    } else {
+        SourceUniverseIdentity::WrongModule(key)
+    }
+}
+
 /// Owned source-side key for a native member.
 ///
 /// Rust descriptors use `&'static str` so they can live in the distributed
@@ -333,34 +375,42 @@ impl NativeSourceIndex {
         }
         for stmt in &program.statements {
             match stmt {
-                Statement::Class(class_def) => self.index_class(module, class_def)?,
+                Statement::Class(class_def) => {
+                    let identity = source_universe_identity(module, &class_def.name);
+                    self.index_class(module, class_def, identity)?;
+                }
                 Statement::Data(data_def)
                     if data_def.phase == phalcom_ast::ast::AlgebraicPhase::Runtime
                         && data_def.implementation == ImplementationKind::Intrinsic =>
                 {
-                    self.index_intrinsic_runtime_data(module, data_def)?;
+                    let identity = source_universe_identity(module, &data_def.name);
+                    self.index_intrinsic_runtime_data(module, data_def, identity)?;
                 }
-                Statement::Data(data_def) if data_def.is_sum() => self.index_enum(module, data_def)?,
-                Statement::Impl(impl_def) => self.index_impl(module, impl_def)?,
+                Statement::Data(data_def) if data_def.is_sum() => {
+                    let identity = source_universe_identity(module, &data_def.name);
+                    self.index_enum(module, data_def, identity)?;
+                }
+                Statement::Impl(impl_def) => {
+                    let identity = impl_def
+                        .target
+                        .origin_symbol_ref()
+                        .map(|target| source_universe_identity(module, &target.root))
+                        .unwrap_or(SourceUniverseIdentity::NotUniverseName);
+                    self.index_impl(module, impl_def, identity)?;
+                }
                 _ => {}
             }
         }
         Ok(())
     }
 
-    fn index_intrinsic_runtime_data(&mut self, module: &ModuleId, data_def: &phalcom_ast::ast::DataDef) -> Result<(), String> {
-        let named_key = UniverseKey::from_name(&data_def.name);
-        let universe_key = named_key.filter(|key| {
-            matches!(key, UniverseKey::Tuple | UniverseKey::Record)
-                && module.path
-                    == ModulePath::from_components(
-                        key.source_path()
-                            .iter()
-                            .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("valid component"))
-                            .collect::<Vec<_>>(),
-                    )
-        });
-        let Some(key) = universe_key else {
+    fn index_intrinsic_runtime_data(
+        &mut self,
+        module: &ModuleId,
+        data_def: &phalcom_ast::ast::DataDef,
+        source_identity: SourceUniverseIdentity,
+    ) -> Result<(), String> {
+        let Some(key @ (UniverseKey::Tuple | UniverseKey::Record)) = source_identity.canonical_key() else {
             return Err(format!("intrinsic runtime data {} is not a canonical Tuple/Record source declaration", data_def.name));
         };
         let superclass = UNIVERSE_CLASS_RELATIONS
@@ -402,22 +452,17 @@ impl NativeSourceIndex {
         Ok(())
     }
 
-    fn index_impl(&mut self, module: &ModuleId, impl_def: &phalcom_ast::ast::ImplDef) -> Result<(), String> {
+    fn index_impl(
+        &mut self,
+        module: &ModuleId,
+        impl_def: &phalcom_ast::ast::ImplDef,
+        source_identity: SourceUniverseIdentity,
+    ) -> Result<(), String> {
         let Some(target_ref) = impl_def.target.origin_symbol_ref() else {
             return Ok(());
         };
         let target_name = &target_ref.root;
-        let named_key = UniverseKey::from_name(target_name);
-        let universe_key = named_key.filter(|key| {
-            let expected = ModulePath::from_components(
-                key.source_path()
-                    .iter()
-                    .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("valid component"))
-                    .collect::<Vec<_>>(),
-            );
-            module.path == expected
-        });
-        let Some(owner_key) = universe_key else {
+        let Some(owner_key) = source_identity.canonical_key() else {
             return Ok(());
         };
 
@@ -436,19 +481,15 @@ impl NativeSourceIndex {
         Ok(())
     }
 
-    fn index_enum(&mut self, module: &ModuleId, enum_def: &phalcom_ast::ast::EnumDef) -> Result<(), String> {
+    fn index_enum(
+        &mut self,
+        module: &ModuleId,
+        enum_def: &phalcom_ast::ast::EnumDef,
+        source_identity: SourceUniverseIdentity,
+    ) -> Result<(), String> {
         let has_native_modifier = enum_def.implementation == ImplementationKind::Native;
-        let named_key = UniverseKey::from_name(&enum_def.name);
-        let universe_key = named_key.filter(|key| {
-            let expected = ModulePath::from_components(
-                key.source_path()
-                    .iter()
-                    .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("valid component"))
-                    .collect::<Vec<_>>(),
-            );
-            module.path == expected
-        });
-        if has_native_modifier && named_key.is_some() && universe_key.is_none() {
+        let universe_key = source_identity.canonical_key();
+        if has_native_modifier && source_identity.is_known_name() && universe_key.is_none() {
             return Err(format!("native enum {} is declared outside canonical source module", enum_def.name));
         }
 
@@ -568,19 +609,15 @@ impl NativeSourceIndex {
         Ok(())
     }
 
-    fn index_class(&mut self, module: &ModuleId, class_def: &ClassDef) -> Result<(), String> {
+    fn index_class(
+        &mut self,
+        module: &ModuleId,
+        class_def: &ClassDef,
+        source_identity: SourceUniverseIdentity,
+    ) -> Result<(), String> {
         let has_native_modifier = class_def.implementation == ImplementationKind::Native;
-        let named_key = UniverseKey::from_name(&class_def.name);
-        let universe_key = named_key.filter(|key| {
-            let expected = ModulePath::from_components(
-                key.source_path()
-                    .iter()
-                    .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("valid component"))
-                    .collect::<Vec<_>>(),
-            );
-            module.path == expected
-        });
-        if has_native_modifier && named_key.is_some() && universe_key.is_none() {
+        let universe_key = source_identity.canonical_key();
+        if has_native_modifier && source_identity.is_known_name() && universe_key.is_none() {
             return Err(format!("native class {} is declared outside canonical source module", class_def.name));
         }
         let superclass = class_def.superclass_ref().map(|reference| reference.leaf_name().to_owned());

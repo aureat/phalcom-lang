@@ -709,6 +709,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
 
             super::control::join_branch_results(ctx, val_typed.causal_invalidity, &then_result, &else_result, expected, if_let.range)
         }
+        Expr::If(if_expr) => synthesize_if_expr(ctx, if_expr, expected),
         Expr::WhileLet(while_let) => {
             let before = ctx.flow.clone();
 
@@ -878,6 +879,65 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         // remain explicitly unavailable to ordinary source semantics.
         Expr::RecordConstruction(record) => synthesize_record_construction(ctx, record, expected),
     }
+}
+
+fn synthesize_if_expr(ctx: &mut CheckingContext<'_>, if_expr: &phalcom_ast::ast::IfExpr, expected: &ExpectedType) -> TypedExpression {
+    use super::control::{ExecutableRegionResult, analyze_condition_split, analyze_executable_region, join_branch_results};
+
+    let before = ctx.flow.clone();
+    let split = analyze_condition_split(ctx, &if_expr.condition);
+
+    let no_branch_result_expectation = ExpectedType::None;
+    let branch_expected = if if_expr.else_body.is_some() { expected } else { &no_branch_result_expectation };
+    let then_result = if split.when_true.is_reachable() {
+        ctx.flow = split.when_true;
+        analyze_executable_region(ctx, &if_expr.then_body.body, if_expr.then_body.range, branch_expected)
+    } else {
+        ExecutableRegionResult {
+            value: None,
+            flow: FlowState::unreachable(),
+            causal_invalidity: CausalInvalidity::Clean,
+        }
+    };
+
+    ctx.flow = before;
+    let else_result = match &if_expr.else_body {
+        Some(phalcom_ast::ast::IfElseBody::Block(block)) if split.when_false.is_reachable() => {
+            ctx.flow = split.when_false;
+            analyze_executable_region(ctx, &block.body, block.range, branch_expected)
+        }
+        Some(phalcom_ast::ast::IfElseBody::ElseIf(expr)) if split.when_false.is_reachable() => {
+            ctx.flow = split.when_false;
+            let value = analyze_expression(ctx, expr, branch_expected);
+            ExecutableRegionResult {
+                causal_invalidity: value.causal_invalidity,
+                value: Some(value),
+                flow: ctx.flow.clone(),
+            }
+        }
+        Some(_) => ExecutableRegionResult {
+            value: None,
+            flow: FlowState::unreachable(),
+            causal_invalidity: CausalInvalidity::Clean,
+        },
+        None if split.when_false.is_reachable() => ExecutableRegionResult {
+            value: Some(TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, if_expr.range)),
+            flow: split.when_false,
+            causal_invalidity: CausalInvalidity::Clean,
+        },
+        None => ExecutableRegionResult {
+            value: None,
+            flow: FlowState::unreachable(),
+            causal_invalidity: CausalInvalidity::Clean,
+        },
+    };
+
+    let mut result = join_branch_results(ctx, split.causal_invalidity, &then_result, &else_result, expected, if_expr.range);
+    if if_expr.else_body.is_none() {
+        result.knowledge = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::Flow);
+        result.local_type = None;
+    }
+    result
 }
 
 pub(crate) fn callable_target_for_data_info(data_info: &DataInfo) -> CallableApplicationTarget {
@@ -4667,7 +4727,14 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
                     expected.origin().unwrap_or(crate::checker::expected::ExpectationOrigin::ExplicitCheck),
                 )
             });
-            let branch_typed = analyze_expression(ctx, &arm.branch, branch_expected.as_ref().unwrap_or(expected));
+            let branch_expected = branch_expected.as_ref().unwrap_or(expected);
+            let branch_typed = match &arm.branch {
+                phalcom_ast::ast::MatchArmBody::Expression(expr) => analyze_expression(ctx, expr, branch_expected),
+                phalcom_ast::ast::MatchArmBody::Block(block) => {
+                    let region = super::control::analyze_executable_region(ctx, &block.body, block.range, branch_expected);
+                    region.value.unwrap_or_else(|| TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range))
+                }
+            };
             ctx.active_local_constraints = prior_local_constraints;
             Some((branch_typed, ctx.flow.clone(), proof.clone()))
         } else {

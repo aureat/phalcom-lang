@@ -133,6 +133,32 @@ let value = (&Weird::Marker...)(1)
 }
 
 #[test]
+fn missing_associated_lowering_fails_closed_without_guessing_owner_by_name() {
+    for (source, expects_lookup) in [
+        ("let value = Option<Int>::None\n", true),
+        ("let value = Option<Int>::Some(1)\n", false),
+    ] {
+        let mut program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source)))
+            .expect("source should produce canonical associated lowering");
+        let entry = program.entry.clone();
+        let lowering = Arc::make_mut(&mut program.modules.get_mut(&entry).expect("entry module").lowering);
+        assert_eq!(lowering.associated.len(), 1, "fixture must exercise one associated operation");
+        lowering.associated.clear();
+
+        let mut vm = VM::new();
+        vm.materialize_program(&program).expect("program should materialize");
+        let error = vm
+            .compile_program_module_closure(&entry, source, &program)
+            .expect_err("missing semantic identity must not be reconstructed from source spelling");
+        match (expects_lookup, error) {
+            (true, PhError::Compile(CompilerError::AssociatedLookupNotLoweredYet(_))) => {}
+            (false, PhError::Compile(CompilerError::AssociatedInvokeNotLoweredYet(_))) => {}
+            (expected_lookup, other) => panic!("unexpected missing-associated-lowering result ({expected_lookup}): {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn bound_callable_reference_uses_family_lowering_and_evaluates_receiver_once() {
     let source = r#"
 class Router {

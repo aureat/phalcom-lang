@@ -3,7 +3,7 @@ use crate::compiler::lib::Compiler;
 use crate::compiler::lib::error::CompilerError;
 use crate::compiler::lib::scope::BareNameResolution;
 use crate::modules::semantic_lowering::{ExecutableBindingSpec, ExecutableMatchArm, ExecutablePattern, LoweringSiteKind, MatchLoweringSpec};
-use phalcom_ast::ast::{Expr, MatchExpr, Pattern};
+use phalcom_ast::ast::{Expr, MatchArmBody, MatchExpr, Pattern};
 use phalcom_common::range::SourceRange;
 
 impl<'vm> Compiler<'vm> {
@@ -72,7 +72,7 @@ impl<'vm> Compiler<'vm> {
                     self.commit_pattern_frame(&frame, arm.range)?;
 
                     // Compile arm branch (inline for block, expr otherwise)
-                    self.compile_match_branch(*arm.branch, arm.range)?;
+                    self.compile_match_branch(arm.branch, arm.range)?;
                     self.emit(Bytecode::SetLocal(result_slot), arm.range);
                     self.emit(Bytecode::Pop, arm.range);
 
@@ -133,7 +133,7 @@ impl<'vm> Compiler<'vm> {
             self.commit_pattern_frame(&frame, arm.range)?;
 
             // Compile arm branch (inline for block, expr otherwise)
-            self.compile_match_branch(*arm.branch, arm.range)?;
+            self.compile_match_branch(arm.branch, arm.range)?;
             self.emit(Bytecode::SetLocal(result_slot), arm.range);
             self.emit(Bytecode::Pop, arm.range);
 
@@ -167,10 +167,10 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
-    fn compile_match_branch(&mut self, branch: Expr, range: SourceRange) -> Result<(), CompilerError> {
+    fn compile_match_branch(&mut self, branch: MatchArmBody, _range: SourceRange) -> Result<(), CompilerError> {
         match branch {
-            Expr::Block(block) => self.compile_inline_block_body(*block),
-            other => self.compile_expr(other),
+            MatchArmBody::Block(block) => self.compile_inline_lexical_body(block.body, block.range),
+            MatchArmBody::Expression(expr) => self.compile_expr(*expr),
         }
     }
 

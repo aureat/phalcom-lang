@@ -398,6 +398,25 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
             let _ = analyze_expr(&if_let.value, context);
             literal(context, context.builtins.boolean.clone(), range)
         }
+        Expr::If(if_expr) => {
+            let _ = analyze_expr(&if_expr.condition, context);
+            for statement in &if_expr.then_body.body {
+                let _ = analyze_statement(statement, context);
+            }
+            if let Some(else_body) = &if_expr.else_body {
+                match else_body {
+                    phalcom_ast::ast::IfElseBody::Block(block) => {
+                        for statement in &block.body {
+                            let _ = analyze_statement(statement, context);
+                        }
+                    }
+                    phalcom_ast::ast::IfElseBody::ElseIf(expr) => {
+                        let _ = analyze_expr(expr, context);
+                    }
+                }
+            }
+            unknown_at(context, range)
+        }
         Expr::WhileLet(while_let) => {
             let _ = analyze_expr(&while_let.value, context);
             literal(context, context.builtins.boolean.clone(), range)
@@ -405,7 +424,16 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
         Expr::Match(match_expr) => {
             let _ = analyze_expr(&match_expr.value, context);
             for arm in &match_expr.arms {
-                let _ = analyze_expr(&arm.branch, context);
+                match &arm.branch {
+                    phalcom_ast::ast::MatchArmBody::Expression(expr) => {
+                        let _ = analyze_expr(expr, context);
+                    }
+                    phalcom_ast::ast::MatchArmBody::Block(block) => {
+                        for statement in &block.body {
+                            let _ = analyze_statement(statement, context);
+                        }
+                    }
+                }
             }
             unknown_at(context, range)
         }

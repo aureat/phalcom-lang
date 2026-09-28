@@ -1,0 +1,5 @@
+[project]
+name = "prolog"
+namespace = "prolog"
+version = "0.1.0"
+entry = "prolog.main"

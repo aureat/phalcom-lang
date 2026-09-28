@@ -1760,6 +1760,7 @@ impl<'vm> Compiler<'vm> {
                 self.release_pack_scratch_from(first_chain_slot, operand_slots.len() + chain.operators.len(), chain.range);
             }
             Expr::IfLet(if_let) => self.compile_if_let(*if_let)?,
+            Expr::If(if_expr) => self.compile_if_expr(*if_expr)?,
             Expr::WhileLet(while_let) => self.compile_while_let(*while_let)?,
             Expr::Match(match_expr) => self.compile_match_expr(match_expr)?,
             Expr::Ellipsis { range } => {
@@ -2027,7 +2028,7 @@ impl<'vm> Compiler<'vm> {
         self.emit_pattern_match_tests(&node.pattern, value_slot, &mut failures)?;
         self.commit_pattern_bindings(&node.pattern, value_slot)?;
         let match_local_count = self.functions.last().unwrap().num_locals - pattern_base;
-        self.compile_inline_block_body(node.then_body)?;
+        self.compile_inline_lexical_body(node.then_body.body, node.then_body.range)?;
         self.end_scope(range);
         if node.else_body.is_none() {
             self.emit(Bytecode::WrapSome, range);
@@ -2043,12 +2044,43 @@ impl<'vm> Compiler<'vm> {
         self.emit_release_scratch_range(pattern_base as u16, match_local_count, range);
         self.emit_release_scratch_range(value_slot, 1, range);
         if let Some(else_body) = node.else_body {
-            self.compile_inline_block_body(else_body)?;
+            self.compile_inline_lexical_body(else_body.body, else_body.range)?;
         } else {
             self.emit(Bytecode::Nil, range);
         }
         let end = self.chunk_len();
         self.patch_forward_jump_to(success_end, end);
+        self.end_scope(range);
+        Ok(())
+    }
+
+    fn compile_if_expr(&mut self, node: phalcom_ast::ast::IfExpr) -> Result<(), CompilerError> {
+        let range = node.range;
+        self.begin_scope();
+        self.compile_expr(node.condition)?;
+        let to_else = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+        self.compile_inline_lexical_body(node.then_body.body, node.then_body.range)?;
+        let unit_constant = if node.else_body.is_none() {
+            self.emit(Bytecode::Pop, range);
+            let index = self.add_constant(crate::value::Value::unit(), range)?;
+            self.emit(Bytecode::Constant(index), range);
+            Some(index)
+        } else {
+            None
+        };
+        let to_end = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump_to(to_else, self.chunk_len());
+        match node.else_body {
+            Some(phalcom_ast::ast::IfElseBody::Block(block)) => {
+                self.compile_inline_lexical_body(block.body, block.range)?;
+            }
+            Some(phalcom_ast::ast::IfElseBody::ElseIf(expr)) => self.compile_expr(*expr)?,
+            None => {
+                let index = unit_constant.expect("one-arm if records its Unit constant");
+                self.emit(Bytecode::Constant(index), range);
+            }
+        }
+        self.patch_forward_jump_to(to_end, self.chunk_len());
         self.end_scope(range);
         Ok(())
     }

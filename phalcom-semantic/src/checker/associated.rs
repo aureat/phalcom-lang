@@ -3,6 +3,7 @@
 use crate::associated::{AssociatedFamilyKind, AssociatedMemberId};
 use crate::checker::context::CheckingContext;
 use crate::checker::expected::ExpectedType;
+use crate::checker::inference::{ConstraintOrigin, InferenceCoordinator, InferenceOutcome, InferenceRelation, InferenceTerm};
 use crate::checker::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{AssociatedFamilyId, DeclarationId, ExpressionId, InvocationTargetId};
@@ -11,6 +12,7 @@ use crate::types::environment::TypeView;
 use crate::types::family::FamilyOperationShape;
 use crate::types::id::{KindId, TypeId};
 use crate::types::relation::is_subtype;
+use crate::types::parameter::TypeParameterOwner;
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorPattern, SelectorSlot};
@@ -854,9 +856,15 @@ pub fn check_reification_underconstrained(
                 }
             }
         }
+        if let Some(specialized) = contextualize_exact_case_owner(ctx, value_type, expected_ty) {
+            resolved_type = specialized;
+        }
     }
 
-    if contains_any_type_parameter(ctx.store, resolved_type) {
+    let exact_case_owner_matches_expected = expected.ty().is_some_and(|expected_ty| {
+        matches!(ctx.store.get(resolved_type), TypeData::ExactCase { enum_type, .. } if *enum_type == expected_ty)
+    });
+    if !exact_case_owner_matches_expected && contains_any_type_parameter(ctx.store, resolved_type) {
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::AssociatedGenericUnderconstrained,
@@ -870,6 +878,86 @@ pub fn check_reification_underconstrained(
     }
 
     Ok(resolved_type)
+}
+
+/// Specializes an unqualified exact enum case only when the expected type is
+/// the same canonical applied enum owner. The declaration's own parameters
+/// are inference variables; all other parameters remain rigid canonical terms.
+fn contextualize_exact_case_owner(ctx: &mut CheckingContext<'_>, value_type: TypeId, expected_type: TypeId) -> Option<TypeId> {
+    let TypeData::ExactCase { enum_type, variant } = ctx.store.get(value_type).clone() else {
+        return None;
+    };
+    let TypeData::Applied {
+        origin: actual_origin,
+        arguments: actual_arguments,
+    } = ctx.store.get(enum_type).clone()
+    else {
+        return None;
+    };
+    let TypeData::Applied {
+        origin: expected_origin,
+        arguments: expected_arguments,
+    } = ctx.store.get(expected_type).clone()
+    else {
+        return None;
+    };
+    if actual_origin != expected_origin || actual_arguments.len() != expected_arguments.len() {
+        return None;
+    }
+
+    let owner = ctx.store.variant_identity(variant).owner.clone();
+    let owner_parameters = ctx
+        .store
+        .type_parameters_for_owner(&TypeParameterOwner::Declaration(owner));
+    if owner_parameters.len() != actual_arguments.len() {
+        return None;
+    }
+
+    let mut inference = InferenceCoordinator::new();
+    let frame = inference.root_frame();
+    let mut type_substitution = std::collections::HashMap::new();
+    let mut row_substitution = std::collections::HashMap::new();
+    for (parameter, argument) in owner_parameters.into_iter().zip(actual_arguments.iter()) {
+        let kind = ctx.store.type_parameter(parameter).kind;
+        match (kind, argument) {
+            (KindId::RECORD_ROW, crate::types::store::StaticArgument::RecordRow(_)) => {
+                let row_variable = inference.fresh_record_row_variable_in_frame(frame);
+                inference.bind_record_row_parameter(frame, parameter, row_variable);
+                row_substitution.insert(parameter, row_variable);
+            }
+            (KindId::RECORD_ROW, _) => return None,
+            (_, crate::types::store::StaticArgument::Term(argument))
+                if matches!(ctx.store.get(*argument), TypeData::Parameter(actual_parameter) if *actual_parameter == parameter) =>
+            {
+                let variable = inference.fresh_variable_in_frame(frame, kind);
+                type_substitution.insert(parameter, InferenceTerm::Var(variable));
+            }
+            (_, crate::types::store::StaticArgument::Term(_)) => {}
+            (_, crate::types::store::StaticArgument::RecordRow(_)) => return None,
+        }
+    }
+
+    let actual_term = inference.type_id_to_inference_with_rows(enum_type, &type_substitution, &row_substitution, ctx.store);
+    let expected_term = inference.type_id_to_inference_with_rows(expected_type, &Default::default(), &Default::default(), ctx.store);
+    inference.add_constraint(
+        InferenceRelation::Equivalent(actual_term.clone(), expected_term),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    if !matches!(inference.solve_with_control(ctx.store, &ctx.hierarchy, &ctx.control), InferenceOutcome::Solved(_)) {
+        return None;
+    }
+
+    let specialized_case = InferenceTerm::ExactCase {
+        variant,
+        enum_type: Box::new(actual_term),
+    };
+    let specialized = inference.materialize(&specialized_case, ctx.store).ok()?;
+    matches!(
+        ctx.store.get(specialized),
+        TypeData::ExactCase { enum_type, .. } if *enum_type == expected_type
+    )
+    .then_some(specialized)
 }
 
 #[cfg(test)]

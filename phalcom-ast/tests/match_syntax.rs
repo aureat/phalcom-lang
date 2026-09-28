@@ -1,5 +1,5 @@
 use phalcom_ast::{
-    ast::{Expr, MatchArm, MatchExpr, Pattern, Statement, VariantPattern, VariantPatternArgument, VariantPatternMode},
+    ast::{Expr, MatchArm, MatchArmBody, MatchExpr, PackItem, Pattern, Statement, VariantPattern, VariantPatternArgument, VariantPatternMode},
     parse_source,
 };
 use phalcom_common::range::SourceRange;
@@ -32,20 +32,20 @@ fn match_expression_ast_shape() {
                     },
                     range: dummy_range,
                 }),
-                branch: Box::new(Expr::Var {
+                branch: MatchArmBody::Expression(Box::new(Expr::Var {
                     value: "x".into(),
                     range: dummy_range,
-                }),
+                })),
                 arrow_range: dummy_range,
                 range: dummy_range,
             },
             MatchArm {
                 pattern: Pattern::Wildcard { range: dummy_range },
-                branch: Box::new(Expr::Int {
+                branch: MatchArmBody::Expression(Box::new(Expr::Int {
                     digits: "0".into(),
                     radix: 10,
                     range: dummy_range,
-                }),
+                })),
                 arrow_range: dummy_range,
                 range: dummy_range,
             },
@@ -104,7 +104,49 @@ fn parse_basic_match_expression() {
     assert!(matches!(args1[0].pattern, Pattern::Wildcard { .. }));
     assert_eq!(args1[1].label.as_deref(), Some("reason"));
     assert!(matches!(args1[1].pattern, Pattern::Name { ref name, .. } if name == "message"));
-    assert!(matches!(*arm1.branch, Expr::Block(_)));
+    assert!(matches!(arm1.branch, MatchArmBody::Block(_)));
+}
+
+#[test]
+fn control_flow_braces_are_lexical_and_closure_braces_remain_values() {
+    let source = r#"
+const matched = match flag {
+  _ => { 1 }
+}
+const conditional = if flag { 1 } else { 0 }
+const explicit = || { 1 }
+const parameterized = |value| { value }
+items.map { value }
+"#;
+    let program = parse_source(source, 0).expect("source should parse");
+
+    let Statement::Let(matched_binding) = &program.statements[0] else {
+        panic!("expected match binding");
+    };
+    let Some(Expr::Match(matched)) = &matched_binding.value else {
+        panic!("expected match expression");
+    };
+    assert!(matches!(&matched.arms[0].branch, MatchArmBody::Block(_)));
+
+    let Statement::Let(if_binding) = &program.statements[1] else {
+        panic!("expected if binding");
+    };
+    assert!(matches!(if_binding.value.as_ref(), Some(Expr::If(_))));
+
+    let Statement::Let(closure_binding) = &program.statements[2] else {
+        panic!("expected explicit Closure binding");
+    };
+    assert!(matches!(closure_binding.value.as_ref(), Some(Expr::Block(_))));
+
+    let Statement::Let(parameterized_binding) = &program.statements[3] else {
+        panic!("expected parameterized Closure binding");
+    };
+    assert!(matches!(parameterized_binding.value.as_ref(), Some(Expr::Block(_))));
+
+    let Statement::Expr { expr: Expr::MethodCall(call), .. } = &program.statements[4] else {
+        panic!("expected ordinary call with trailing Closure");
+    };
+    assert!(matches!(call.args[0], PackItem::Positional { expr: Expr::Block(_), .. }));
 }
 
 #[test]

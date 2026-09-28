@@ -283,12 +283,15 @@ impl<'vm> Compiler<'vm> {
     ///
     /// Propagates any error compiling the block's statements.
     pub(super) fn compile_inline_block_body(&mut self, block: BlockExpr) -> Result<(), CompilerError> {
+        self.compile_inline_lexical_body(block.body, block.range)
+    }
+
+    pub(super) fn compile_inline_lexical_body(&mut self, body: Vec<Statement>, range: SourceRange) -> Result<(), CompilerError> {
         self.begin_scope();
-        let range = block.range;
-        let len = block.body.len();
+        let len = body.len();
         let mut leaves_value = false;
         let mut tail_binding = false;
-        for (i, statement) in block.body.into_iter().enumerate() {
+        for (i, statement) in body.into_iter().enumerate() {
             let is_last = i == len - 1;
             let tail_let = is_last && matches!(&statement, Statement::Let(_));
             if is_last {

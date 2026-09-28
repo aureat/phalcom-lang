@@ -8117,14 +8117,7 @@ impl<'source> Parser<'source> {
         name
     }
 
-    /// Parses a `{ statements }` body into a 0-parameter, statement-bodied
-    /// [`BlockExpr`] spanning `start..prev_end` after the closing brace.
-    ///
-    /// Shared by [`Parser::parse_if`] and [`Parser::parse_while`]: `if`/
-    /// `while` are keyword sugar over sends of literal blocks
-    /// (control-flow.md §1; U5-plan.md BD-U5-1 Option A), so every arm they
-    /// parse becomes exactly the same [`Expr::Block`] node a bare `{ }`
-    /// literal would produce.
+    /// Parses an explicit brace-delimited Closure expression.
     ///
     /// # Errors
     ///
@@ -8144,6 +8137,19 @@ impl<'source> Parser<'source> {
         })))
     }
 
+    /// Parses a brace-delimited lexical body for control flow. Unlike
+    /// `parse_brace_block`, this does not create an `Expr::Block` Closure.
+    fn parse_lexical_block(&mut self) -> ParserResult<LexicalBlock> {
+        let start = self.cur_start();
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        let body = self.parse_block_statements()?;
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        Ok(LexicalBlock {
+            body,
+            range: (start..self.prev_end).into(),
+        })
+    }
+
     /// Wraps `expr` in a synthetic 0-parameter block whose single statement
     /// is `expr`, spanning `expr`'s own range. Used to give a nested `if`
     /// expression (the `else if` chain) the same block shape as an ordinary
@@ -8159,18 +8165,7 @@ impl<'source> Parser<'source> {
         }))
     }
 
-    /// Parses `if condition { ... } (else (if ... | { ... }))?` as sacred-selector
-    /// message sends over block literals (control-flow.md §1, §3;
-    /// U5-plan.md §4.1, BD-U5-1 Option A): a bare `if` desugars to
-    /// `cond.ifTrue(_:)`; an `if`/`else` desugars to the paired
-    /// `cond.ifTrue(_:ifFalse:)` selector — **not** the spec's illustrative
-    /// `ifTrue{}.ifNone{}` `Option` chain, keeping U5 independent of U6's
-    /// `Option` (see `Universe::install_primitives`' `bool_if_true_if_false`
-    /// registration for why: Phalcom's selector model has no Smalltalk-style
-    /// independently-worded keyword pair, so the paired arm is spelled with
-    /// one positional block plus one `ifFalse:`-labeled block instead).
-    /// `else if` chains by recursing and wrapping the nested `if` expression
-    /// in a synthetic block ([`Self::wrap_expr_as_block`]).
+    /// Parses source `if` as lexical control flow, not as Closure-valued sends.
     ///
     /// # Errors
     ///
@@ -8183,15 +8178,9 @@ impl<'source> Parser<'source> {
             let pattern = self.parse_pattern()?;
             self.expect(&Token::Equal, &["\"=\""])?;
             let value = self.parse_expr_without_trailing_closures()?;
-            let then_body = match self.parse_brace_block()? {
-                Expr::Block(block) => *block,
-                _ => unreachable!("parse_brace_block must produce a block"),
-            };
+            let then_body = self.parse_lexical_block()?;
             let else_body = if self.eat(&Token::Else) {
-                Some(match self.parse_brace_block()? {
-                    Expr::Block(block) => *block,
-                    _ => unreachable!("parse_brace_block must produce a block"),
-                })
+                Some(self.parse_lexical_block()?)
             } else {
                 None
             };
@@ -8204,39 +8193,23 @@ impl<'source> Parser<'source> {
                 range,
             })));
         }
-        let cond = self.parse_expr_without_trailing_closures()?;
-        let then_arm = self.parse_brace_block()?;
-        let then_range = then_arm.range();
-
-        let mut args = vec![PackItem::Positional {
-            expr: then_arm,
-            range: then_range,
-        }];
-
-        if self.eat(&Token::Else) {
-            let else_arm = if matches!(self.peek(), Token::If) {
-                Self::wrap_expr_as_block(self.parse_if()?)
+        let condition = self.parse_expr_without_trailing_closures()?;
+        let then_body = self.parse_lexical_block()?;
+        let else_body = if self.eat(&Token::Else) {
+            Some(if matches!(self.peek(), Token::If) {
+                IfElseBody::ElseIf(Box::new(self.parse_if()?))
             } else {
-                self.parse_brace_block()?
-            };
-            let else_range = else_arm.range();
-            args.push(PackItem::Labeled {
-                label: PackLabel::Static {
-                    text: "ifFalse".to_string(),
-                    range: else_range,
-                },
-                value: else_arm,
-                range: else_range,
-            });
-        }
+                IfElseBody::Block(self.parse_lexical_block()?)
+            })
+        } else {
+            None
+        };
 
         let range = (start..self.prev_end).into();
-        Ok(Expr::MethodCall(Box::new(MethodCallExpr {
-            object: cond,
-            method: "ifTrue".to_string(),
-            method_range: None,
-            args,
-            invocation_authority: Default::default(),
+        Ok(Expr::If(Box::new(IfExpr {
+            condition,
+            then_body,
+            else_body,
             range,
         })))
     }
@@ -8293,7 +8266,7 @@ impl<'source> Parser<'source> {
             self.expect(&Token::FatArrow, &["\"=>\""])?;
             let arrow_range = (arrow_start..self.prev_end).into();
             self.skip_newlines();
-            let branch = Box::new(self.parse_match_arm_branch()?);
+            let branch = self.parse_match_arm_branch()?;
             let arm_range = (arm_start..self.prev_end).into();
             arms.push(MatchArm {
                 pattern,
@@ -8310,7 +8283,7 @@ impl<'source> Parser<'source> {
         Ok(Expr::Match(MatchExpr { value, arms, range }))
     }
 
-    fn parse_match_arm_branch(&mut self) -> ParserResult<Expr> {
+    fn parse_match_arm_branch(&mut self) -> ParserResult<MatchArmBody> {
         if matches!(self.peek(), Token::LBrace) {
             let next_is_map = (matches!(self.peek_next(), Token::Identifier(_) | Token::String(_) | Token::QuotedSymbol(_))
                 && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::Colon)))
@@ -8319,10 +8292,10 @@ impl<'source> Parser<'source> {
                     Token::LBracket | Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power
                 );
             if !next_is_map {
-                return self.parse_brace_block();
+                return self.parse_lexical_block().map(MatchArmBody::Block);
             }
         }
-        self.parse_expr()
+        self.parse_expr().map(|expr| MatchArmBody::Expression(Box::new(expr)))
     }
 
     fn is_match_expression(&self) -> bool {
