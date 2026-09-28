@@ -466,11 +466,34 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    /// Emits one compiler-authorized internal operator send. VM authorization
+    /// covers only this dispatch and is removed before the callee executes.
+    pub(super) fn emit_compiler_internal_operator_send(
+        &mut self,
+        name: &str,
+        arity: u8,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        let labels = vec![None; arity as usize];
+        let selector = encode_selector(name, &labels, SignatureKind::Method(arity));
+        let selector_sym = self.vm.interner.intern(&selector);
+        let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
+        self.emit_invoke(arity, selector_idx, range, InvocationAuthority::CompilerInternal)
+    }
+
     /// Emits a 0-arity getter send for `name` using its raw-name selector.
     pub(super) fn emit_getter_send(&mut self, name: &str, range: SourceRange) -> Result<(), CompilerError> {
         let selector_sym = self.vm.interner.intern(name);
         let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
         self.emit(Bytecode::Invoke(0, selector_idx), range);
         Ok(())
+    }
+
+    /// Emits one compiler-authorized internal getter send. VM authorization
+    /// covers only this dispatch and is removed before the callee executes.
+    pub(super) fn emit_compiler_internal_getter_send(&mut self, name: &str, range: SourceRange) -> Result<(), CompilerError> {
+        let selector_sym = self.vm.interner.intern(name);
+        let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
+        self.emit_invoke(0, selector_idx, range, InvocationAuthority::CompilerInternal)
     }
 }

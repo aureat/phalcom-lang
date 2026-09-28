@@ -611,7 +611,7 @@ impl<'vm> Compiler<'vm> {
 
         self.emit(Bytecode::GetLocal(counter), range);
         self.emit(Bytecode::GetLocal(value_slot), range);
-        self.emit_getter_send("rawSize", range)?;
+        self.emit_compiler_internal_getter_send("rawSize", range)?;
         self.emit_operator_send("<", 1, range)?;
         let done = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
 
@@ -621,7 +621,7 @@ impl<'vm> Compiler<'vm> {
             let sym_idx = self.add_constant(Value::symbol(sym), range)?;
             self.emit(Bytecode::GetLocal(value_slot), range);
             self.emit(Bytecode::GetLocal(counter), range);
-            self.emit_operator_send("rawLabelAt", 1, range)?;
+            self.emit_compiler_internal_operator_send("rawLabelAt", 1, range)?;
             self.emit(Bytecode::Constant(sym_idx), range);
             self.emit_operator_send("!=", 1, range)?;
             let skip_jump = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
@@ -631,10 +631,10 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::GetLocal(builder_slot), range);
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit(Bytecode::GetLocal(counter), range);
-        self.emit_operator_send("rawLabelAt", 1, range)?;
+        self.emit_compiler_internal_operator_send("rawLabelAt", 1, range)?;
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit(Bytecode::GetLocal(counter), range);
-        self.emit_operator_send("rawValueAt", 1, range)?;
+        self.emit_compiler_internal_operator_send("rawValueAt", 1, range)?;
         self.emit(Bytecode::RecordLiteralAppend, range);
 
         let append_end = self.chunk_len();

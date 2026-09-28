@@ -517,3 +517,58 @@ class Probe {
     );
     open_row.assert_diagnostic(DiagnosticCode::RecordRowLacksUnproven, 1);
 }
+
+#[test]
+fn record_pattern_remainder_subtracts_known_fields_and_preserves_open_tail() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  closed() {
+    let source = { name: "Ada", age: 42, city: "Istanbul" }
+    let { name, **rest } = source
+    let observed_name = name
+    let observed = rest
+  }
+
+  @class
+  open<**R>(_ source: { name: String, age: Int, **R }) {
+    let { name, **rest } = source
+    let observed = rest
+  }
+}
+"#,
+    );
+
+    let closed = fixture.callable("Probe", "closed", DispatchSide::Class);
+    let closed_name = fixture.expression(closed, "name").knowledge.ty().expect("closed field binding type");
+    assert_eq!(fixture.analysis.snapshot.store.format_type(closed_name), "String");
+    let closed_rest = fixture.expression(closed, "rest").knowledge.ty().expect("closed residual Record type");
+    let TypeData::Record(closed_row_id) = fixture.analysis.snapshot.store.get(closed_rest) else {
+        panic!("expected closed residual Record, got {:?}", fixture.analysis.snapshot.store.get(closed_rest));
+    };
+    let closed_row = fixture.analysis.snapshot.store.record_row(*closed_row_id);
+    assert_eq!(closed_row.tail, RecordRowTail::Closed);
+    assert_eq!(
+        closed_row.fields.iter().map(|field| (field.name.as_ref(), fixture.analysis.snapshot.store.format_type(field.ty))).collect::<Vec<_>>(),
+        vec![("age", "Int".into()), ("city", "String".into())]
+    );
+
+    let open = fixture.callable("Probe", "open", DispatchSide::Class);
+    let source = fixture.binding(open, "source").current.ty().expect("open source Record type");
+    let rest = fixture.expression(open, "rest").knowledge.ty().expect("open residual Record type");
+    let TypeData::Record(source_row_id) = fixture.analysis.snapshot.store.get(source) else {
+        panic!("expected open source Record, got {:?}", fixture.analysis.snapshot.store.get(source));
+    };
+    let TypeData::Record(rest_row_id) = fixture.analysis.snapshot.store.get(rest) else {
+        panic!("expected open residual Record, got {:?}", fixture.analysis.snapshot.store.get(rest));
+    };
+    let source_row = fixture.analysis.snapshot.store.record_row(*source_row_id);
+    let rest_row = fixture.analysis.snapshot.store.record_row(*rest_row_id);
+    assert_eq!(rest_row.tail, source_row.tail, "the residual keeps the source's canonical open tail");
+    assert_eq!(
+        rest_row.fields.iter().map(|field| (field.name.as_ref(), fixture.analysis.snapshot.store.format_type(field.ty))).collect::<Vec<_>>(),
+        vec![("age", "Int".into())]
+    );
+    fixture.assert_no_error_diagnostics();
+}

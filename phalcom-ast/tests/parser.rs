@@ -568,6 +568,56 @@ match subject {
 }
 
 #[test]
+fn record_pattern_remainder_is_terminal_and_map_patterns_are_explicit() {
+    use phalcom_ast::ast::Pattern;
+
+    let source = r#"
+let { name, **rest } = person
+let { name, **_ } = person
+let { #name: value } = record
+let Map { #name: value } = mapping
+"#;
+    let program = parse_source(source, 0).expect("Record remainder and explicit Map patterns parse");
+    assert_eq!(program.statements.len(), 4);
+
+    let Statement::Let(rest_binding) = &program.statements[0] else {
+        panic!("expected a Record remainder binding");
+    };
+    assert!(matches!(
+        &rest_binding.pattern,
+        Pattern::Record { entries, rest: Some(rest), .. }
+            if entries.len() == 1
+                && entries[0].label == "name"
+                && matches!(rest.as_ref(), Pattern::Name { name, .. } if name == "rest")
+    ));
+
+    let Statement::Let(discard_binding) = &program.statements[1] else {
+        panic!("expected a discarded Record remainder binding");
+    };
+    assert!(matches!(
+        &discard_binding.pattern,
+        Pattern::Record { rest: Some(rest), .. } if matches!(rest.as_ref(), Pattern::Wildcard { .. })
+    ));
+
+    let Statement::Let(bare_hash_binding) = &program.statements[2] else {
+        panic!("expected a bare-brace Record pattern");
+    };
+    assert!(matches!(&bare_hash_binding.pattern, Pattern::Record { .. }));
+
+    let Statement::Let(explicit_map_binding) = &program.statements[3] else {
+        panic!("expected an explicit Map pattern");
+    };
+    assert!(matches!(&explicit_map_binding.pattern, Pattern::Map { .. }));
+
+    for invalid in [
+        "let { name, **rest, age } = person",
+        "let { name, **rest, **other } = person",
+    ] {
+        assert!(parse_source(invalid, 0).is_err(), "invalid remainder form should be rejected: {invalid}");
+    }
+}
+
+#[test]
 fn set_opener_parses_empty_and_populated_set_literals() {
     let source = "#{}\n#{1}\n#{1, 2, 3}\n#{*source}\n{}\n";
     let program = parse_source(source, 0).expect("Set and Record literal syntax parses");

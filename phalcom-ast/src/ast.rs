@@ -1948,7 +1948,7 @@ pub enum Pattern {
         /// Source span of the complete record pattern.
         range: SourceRange,
     },
-    /// An open map pattern such as `{#name: value}`.
+    /// An open map pattern such as `Map {#name: value}`.
     Map {
         /// Required key/value patterns.
         entries: Vec<MapPatternEntry>,

@@ -490,6 +490,63 @@ fn bind_declaration_pattern(
                 );
             }
         }
+        Pattern::Record { entries, rest, .. } => {
+            let source_row = fact.knowledge.ty().and_then(|source| match ctx.store.get(source) {
+                crate::types::store::TypeData::Record(row_id) => Some(ctx.store.record_row(*row_id).clone()),
+                _ => None,
+            });
+            for entry in entries {
+                let field_knowledge = source_row
+                    .as_ref()
+                    .and_then(|row| row.find_field(&entry.label))
+                    .map(|field_ty| fact.knowledge.derive_known_type(field_ty, EvidenceOrigin::PatternDecomposition))
+                    .unwrap_or_else(|| match &fact.knowledge {
+                        TypeKnowledge::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
+                        TypeKnowledge::Dynamic(reason) => TypeKnowledge::Dynamic(reason.clone()),
+                        TypeKnowledge::Known(_) => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
+                    });
+                bind_declaration_pattern(
+                    ctx,
+                    &entry.pattern,
+                    ValueSemanticFact::new(field_knowledge),
+                    None,
+                    causal_invalidity,
+                    mutable,
+                    range,
+                    explanation,
+                    None,
+                );
+            }
+            if let Some(rest_pattern) = rest {
+                let rest_knowledge = if let Some(row) = source_row {
+                    let remainder_fields = row
+                        .fields
+                        .into_iter()
+                        .filter(|field| !entries.iter().any(|entry| entry.label == field.name.as_ref()))
+                        .collect();
+                    match ctx.store.record_row_checked(remainder_fields, row.tail) {
+                        Ok(row_id) => {
+                            let rest_ty = ctx.store.intern_with_kind(crate::types::store::TypeData::Record(row_id), crate::types::id::KindId::TYPE);
+                            fact.knowledge.derive_known_type(rest_ty, EvidenceOrigin::PatternDecomposition)
+                        }
+                        Err(_) => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
+                    }
+                } else {
+                    TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
+                };
+                bind_declaration_pattern(
+                    ctx,
+                    rest_pattern,
+                    ValueSemanticFact::new(rest_knowledge),
+                    None,
+                    causal_invalidity,
+                    mutable,
+                    range,
+                    explanation,
+                    None,
+                );
+            }
+        }
         _ => {}
     }
 }

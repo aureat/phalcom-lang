@@ -57,6 +57,8 @@ mod inherent_impl;
 mod iteration;
 #[path = "record_spread.rs"]
 mod record_spread;
+#[path = "record_patterns.rs"]
+mod record_patterns;
 #[path = "maps.rs"]
 mod maps;
 #[path = "numeric_diagnostics.rs"]
