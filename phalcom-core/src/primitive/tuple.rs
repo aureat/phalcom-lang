@@ -14,7 +14,7 @@
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::ObjRef;
-use crate::primitive::{expect_list, expect_tuple};
+use crate::primitive::{expect_list, expect_tuple_view};
 use crate::product::finish_tuple;
 use crate::value::Value;
 use crate::vm::VM;
@@ -75,99 +75,57 @@ pub fn tuple_from_list_internal(vm: &mut VM, _receiver: &Value, args: &[Value]) 
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Tuple`.
 #[phalcom_native_macros::primitive(Tuple, "rawSize", visibility = internal)]
 pub fn tuple_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    if receiver.is_unit() {
-        return Ok(Value::int(0));
-    }
-    let id: ObjRef = expect_tuple(vm, receiver)?;
-    let len = vm
-        .tuple_view(id)
-        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
-        .len();
+    let len = expect_tuple_view(vm, receiver)?.len();
     Ok(Value::int(len as i64))
 }
 
 #[phalcom_native_macros::primitive(Tuple, "rawAt(_)", visibility = internal)]
 pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    if receiver.is_unit() {
-        return Err(RuntimeError::Internal("Tuple rawAt called without an element".to_string()).into());
-    }
-    let id: ObjRef = expect_tuple(vm, receiver)?;
-    let len = vm
-        .tuple_view(id)
-        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
-        .len();
+    let tuple = expect_tuple_view(vm, receiver)?;
+    let len = tuple.len();
     let index = match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
         super::index::NormalizedIndex::Valid(index) => index,
         super::index::NormalizedIndex::OutOfRange => {
             return Err(RuntimeError::Internal("Tuple rawAt index is out of range".to_string()).into());
         }
     };
-    vm.tuple_view(id)
-        .and_then(|tuple| tuple.get(index))
+    tuple
+        .get(index)
         .ok_or_else(|| RuntimeError::Internal("Tuple rawAt index is out of range".to_string()).into())
 }
 
 #[phalcom_native_macros::primitive(Tuple, "rawPositionalSize", visibility = internal)]
 pub fn tuple_raw_positional_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    if receiver.is_unit() {
-        return Ok(Value::int(0));
-    }
-    let id = expect_tuple(vm, receiver)?;
-    let len = vm
-        .tuple_view(id)
-        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
-        .positional_len();
+    let len = expect_tuple_view(vm, receiver)?.positional_len();
     Ok(Value::int(len as i64))
 }
 
 #[phalcom_native_macros::primitive(Tuple, "rawLabelAt(_)", visibility = internal)]
 pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    if receiver.is_unit() {
-        return Err(RuntimeError::Internal("Tuple rawLabelAt called without a labeled entry".to_string()).into());
-    }
-    let id = expect_tuple(vm, receiver)?;
-    let len = vm
-        .tuple_view(id)
-        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
-        .labels()
-        .len();
+    let tuple = expect_tuple_view(vm, receiver)?;
+    let len = tuple.labels().len();
     match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
         super::index::NormalizedIndex::Valid(idx) => {
-            let label = vm
-            .tuple_view(id)
-            .and_then(|tuple| tuple.labels().get(idx).copied())
-            .ok_or_else(|| RuntimeError::Internal("Tuple rawLabelAt index is out of range".to_string()))?;
+            let label = tuple
+                .labels()
+                .get(idx)
+                .copied()
+                .ok_or_else(|| RuntimeError::Internal("Tuple rawLabelAt index is out of range".to_string()))?;
             Ok(Value::symbol(label))
         }
-        super::index::NormalizedIndex::OutOfRange => {
-            Err(RuntimeError::Internal("Tuple rawLabelAt index is out of range".to_string()).into())
-        }
+        super::index::NormalizedIndex::OutOfRange => Err(RuntimeError::Internal("Tuple rawLabelAt index is out of range".to_string()).into()),
     }
 }
 
 #[phalcom_native_macros::primitive(Tuple, "rawPositionals", visibility = internal)]
 pub fn tuple_raw_positionals(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    if receiver.is_unit() {
-        return Ok(Value::unit());
-    }
-    let id = expect_tuple(vm, receiver)?;
-    let values = vm
-        .tuple_view(id)
-        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
-        .positionals();
+    let values = expect_tuple_view(vm, receiver)?.positionals();
     finish_tuple(vm, values, Vec::new()).map_err(|error| crate::product::runtime_error(vm, "Tuple label", error).into())
 }
 
 #[phalcom_native_macros::primitive(Tuple, "rawLabeled", visibility = internal)]
 pub fn tuple_raw_labeled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    if receiver.is_unit() {
-        return Ok(Value::unit());
-    }
-    let id = expect_tuple(vm, receiver)?;
-    let entries = vm
-        .tuple_view(id)
-        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
-        .labeled_entries();
+    let entries = expect_tuple_view(vm, receiver)?.labeled_entries();
     finish_tuple(vm, Vec::new(), entries).map_err(|error| crate::product::runtime_error(vm, "Tuple label", error).into())
 }
 
@@ -184,24 +142,9 @@ pub fn tuple_raw_labeled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
 /// malformed, or the bounds do not satisfy `0 <= start <= end <= tuple size`.
 #[phalcom_native_macros::primitive(Tuple, "rawSlice(_,_)" , visibility = internal)]
 pub fn tuple_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    if receiver.is_unit() {
-        let start = expect_index(&args[0])?;
-        let end = expect_index(&args[1])?;
-        if start == 0 && end == 0 {
-            return Ok(Value::unit());
-        }
-        return Err(RuntimeError::Type {
-            expected: "slice bounds satisfying 0 <= start <= end <= tuple size",
-            found: "invalid slice bounds",
-        }
-        .into());
-    }
-    let id = expect_tuple(vm, receiver)?;
+    let tuple = expect_tuple_view(vm, receiver)?;
     let start = expect_index(&args[0])?;
     let end = expect_index(&args[1])?;
-    let tuple = vm
-        .tuple_view(id)
-        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?;
     if start > end || end > tuple.len() {
         return Err(RuntimeError::Type {
             expected: "slice bounds satisfying 0 <= start <= end <= tuple size",

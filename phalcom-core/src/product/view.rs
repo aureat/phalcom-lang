@@ -8,18 +8,26 @@ use crate::vm::VM;
 
 /// Read-only view over a materialized Tuple and its shared metadata.
 pub struct TupleView<'a> {
-    object: &'a crate::heap::TupleObject,
-    shape: &'a super::TupleProductShape,
-    layout: &'a super::ProductLayout,
+    object: Option<&'a crate::heap::TupleObject>,
+    shape: Option<&'a super::TupleProductShape>,
+    layout: Option<&'a super::ProductLayout>,
 }
 
 impl<'a> TupleView<'a> {
+    fn empty() -> Self {
+        Self {
+            object: None,
+            shape: None,
+            layout: None,
+        }
+    }
+
     fn load(&self, index: usize) -> Option<Value> {
-        self.object.storage().load_component(self.layout, index as u32).ok()
+        self.object?.storage().load_component(self.layout?, index as u32).ok()
     }
 
     pub fn len(&self) -> usize {
-        self.shape.total_len() as usize
+        self.shape.map_or(0, |shape| shape.total_len() as usize)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -27,11 +35,11 @@ impl<'a> TupleView<'a> {
     }
 
     pub fn positional_len(&self) -> usize {
-        self.shape.positional_len as usize
+        self.shape.map_or(0, |shape| shape.positional_len as usize)
     }
 
     pub fn labeled_len(&self) -> usize {
-        self.shape.labels.len()
+        self.shape.map_or(0, |shape| shape.labels.len())
     }
 
     pub fn get(&self, index: usize) -> Option<Value> {
@@ -51,11 +59,11 @@ impl<'a> TupleView<'a> {
     }
 
     pub fn labels(&self) -> &[Symbol] {
-        &self.shape.labels
+        self.shape.map_or(&[], |shape| shape.labels.as_ref())
     }
 
     pub fn get_label(&self, label: Symbol) -> Option<Value> {
-        self.shape
+        self.shape?
             .labels
             .iter()
             .position(|candidate| *candidate == label)
@@ -69,35 +77,49 @@ impl<'a> TupleView<'a> {
 
 /// Read-only view over a materialized Record and its shared metadata.
 pub struct RecordView<'a> {
-    object: &'a crate::heap::RecordObject,
-    shape: &'a super::RecordProductShape,
-    layout: &'a super::ProductLayout,
+    object: Option<&'a crate::heap::RecordObject>,
+    shape: Option<&'a super::RecordProductShape>,
+    layout: Option<&'a super::ProductLayout>,
 }
 
 impl<'a> RecordView<'a> {
+    fn empty() -> Self {
+        Self {
+            object: None,
+            shape: None,
+            layout: None,
+        }
+    }
+
     pub fn len(&self) -> usize {
-        self.shape.len()
+        self.shape.map_or(0, super::RecordProductShape::len)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.shape.is_empty()
+        self.shape.map_or(true, super::RecordProductShape::is_empty)
     }
 
     pub fn labels(&self) -> &[Symbol] {
-        &self.shape.presentation_labels
+        self.shape.map_or(&[], |shape| shape.presentation_labels.as_ref())
     }
 
     pub fn values(&self) -> Vec<Value> {
-        self.shape
+        let (Some(object), Some(shape), Some(layout)) = (self.object, self.shape, self.layout) else {
+            return Vec::new();
+        };
+        shape
             .presentation_to_logical
             .iter()
-            .filter_map(|logical| self.object.storage().load_component(self.layout, *logical).ok())
+            .filter_map(|logical| object.storage().load_component(layout, *logical).ok())
             .collect()
     }
 
     pub fn get(&self, label: Symbol) -> Option<Value> {
-        let logical = self.shape.logical_labels.iter().position(|candidate| *candidate == label)?;
-        self.object.storage().load_component(self.layout, logical as u32).ok()
+        let (Some(object), Some(shape), Some(layout)) = (self.object, self.shape, self.layout) else {
+            return None;
+        };
+        let logical = shape.logical_labels.iter().position(|candidate| *candidate == label)?;
+        object.storage().load_component(layout, logical as u32).ok()
     }
 
     pub fn entries(&self) -> Vec<(Symbol, Value)> {
@@ -118,7 +140,20 @@ impl VM {
         let Some(ProductShape::Tuple(shape)) = self.product_shapes.get(shape_id) else {
             return None;
         };
-        Some(TupleView { object, shape, layout })
+        Some(TupleView {
+            object: Some(object),
+            shape: Some(shape),
+            layout: Some(layout),
+        })
+    }
+
+    /// Canonical value-level Tuple view. The immediate Unit is the zero-length
+    /// Tuple and is represented directly without allocating a heap object.
+    pub fn tuple_view_value(&self, value: Value) -> Option<TupleView<'_>> {
+        if value.is_unit() {
+            return Some(TupleView::empty());
+        }
+        self.tuple_view(value.as_obj()?)
     }
 
     pub fn record_view(&self, id: ObjRef) -> Option<RecordView<'_>> {
@@ -127,6 +162,19 @@ impl VM {
         let Some(ProductShape::Record(shape)) = self.product_shapes.get(shape_id) else {
             return None;
         };
-        Some(RecordView { object, shape, layout })
+        Some(RecordView {
+            object: Some(object),
+            shape: Some(shape),
+            layout: Some(layout),
+        })
+    }
+
+    /// Canonical value-level Record view. EmptyRecord is the zero-field Record
+    /// and is represented directly without allocating a heap object.
+    pub fn record_view_value(&self, value: Value) -> Option<RecordView<'_>> {
+        if value.is_empty_record() {
+            return Some(RecordView::empty());
+        }
+        self.record_view(value.as_obj()?)
     }
 }

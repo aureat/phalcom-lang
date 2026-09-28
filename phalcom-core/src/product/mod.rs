@@ -272,6 +272,30 @@ mod tests {
                 assert_eq!(finish_tuple(&mut vm, Vec::new(), Vec::new()), Ok(Value::unit()));
                 assert_eq!(finish_record(&mut vm, Vec::new()), Ok(Value::empty_record()));
                 assert_ne!(Value::unit(), Value::empty_record());
+                assert!(vm.tuple_view_value(Value::unit()).unwrap().is_empty());
+                assert!(vm.tuple_view_value(Value::unit()).unwrap().values().is_empty());
+                assert!(vm.record_view_value(Value::empty_record()).unwrap().is_empty());
+                assert!(vm.record_view_value(Value::empty_record()).unwrap().entries().is_empty());
+
+                let empty_tuple_spec = AnonymousProductConstructionLoweringSpec {
+                    kind: AnonymousProductConstructionKind::Tuple {
+                        positional_len: 0,
+                        labels: Box::new([]),
+                    },
+                    layout: super::layout::ProductLayoutSpec::new(Vec::new()),
+                    type_recipe: crate::typing::RuntimeTypeRecipe::Closed(crate::typing::RuntimeTypeRef::Overlay(crate::typing::RuntimeOverlayTypeId(0))),
+                };
+                let empty_record_spec = AnonymousProductConstructionLoweringSpec {
+                    kind: AnonymousProductConstructionKind::Record {
+                        presentation_labels: Box::new([]),
+                        logical_labels: Box::new([]),
+                        source_to_logical: Box::new([]),
+                    },
+                    layout: super::layout::ProductLayoutSpec::new(Vec::new()),
+                    type_recipe: crate::typing::RuntimeTypeRecipe::Closed(crate::typing::RuntimeTypeRef::Overlay(crate::typing::RuntimeOverlayTypeId(0))),
+                };
+                assert_eq!(finish_tuple_from_spec(&mut vm, &empty_tuple_spec, Vec::new()), Ok(Value::unit()));
+                assert_eq!(finish_record_from_spec(&mut vm, &empty_record_spec, Vec::new()), Ok(Value::empty_record()));
 
                 assert_eq!(vm.heap.live_count(), before);
             })

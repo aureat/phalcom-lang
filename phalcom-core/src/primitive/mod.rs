@@ -371,18 +371,28 @@ pub(crate) fn expect_tuple(vm: &VM, value: &Value) -> PhResult<ObjRef> {
     .into())
 }
 
-/// Extracts a positive `Record` heap object.
-pub(crate) fn expect_record(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    if let Some(id) = value.as_obj() {
-        if vm.heap.as_record(id).is_some() {
-            return Ok(id);
+/// Extracts the canonical Tuple view from a value, including immediate Unit
+/// as the zero-length Tuple without allocating a heap object.
+pub(crate) fn expect_tuple_view<'a>(vm: &'a VM, value: &Value) -> PhResult<crate::product::TupleView<'a>> {
+    vm.tuple_view_value(*value).ok_or_else(|| {
+        RuntimeError::Type {
+            expected: "Tuple",
+            found: value.type_name(),
         }
-    }
-    Err(RuntimeError::Type {
-        expected: "Record",
-        found: value.type_name(),
-    }
-    .into())
+        .into()
+    })
+}
+
+/// Extracts the canonical Record view from a value, including immediate
+/// EmptyRecord as the zero-field Record without allocating a heap object.
+pub(crate) fn expect_record<'a>(vm: &'a VM, value: &Value) -> PhResult<crate::product::RecordView<'a>> {
+    vm.record_view_value(*value).ok_or_else(|| {
+        RuntimeError::Type {
+            expected: "Record",
+            found: value.type_name(),
+        }
+        .into()
+    })
 }
 
 /// Extracts a range's [`ObjRef`] handle from a receiver value.

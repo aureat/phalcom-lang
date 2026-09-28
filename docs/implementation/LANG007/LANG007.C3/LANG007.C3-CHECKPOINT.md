@@ -51,12 +51,17 @@ next_action: >
   patterns. T8.9 confirms braced source-level `@!` metadata literals remain
   `MetadataLiteral::Record`. T8.10 adds targeted old Set/record-tail parser
   messages and canonical-Map/structural-Record binding guidance without
-  reinterpreting valid Set syntax. T6.4 remains
-  sequenced after T9/T10. Keep `corpus::bytes`
+  reinterpreting valid Set syntax. T9.1–T9.6 are now IMPLEMENTED /
+  FOCUSED_TESTED: the distinct EmptyRecord immediate is retained, value-level
+  Tuple/Record views expose Unit/EmptyRecord as zero-length without allocation,
+  and `.class`, equality, hash stability, lane observers, Unit rendering, and
+  empty iteration are covered. Focused product/value tests and the source-level
+  runtime discriminator passed; `Value::class` is the immediate runtime type
+  observation authority. T6.4 remains sequenced after T9/T10. Keep `corpus::bytes`
   unclear/nonblocking. Priority 3 categorical classification is already
   recorded; causal isolation, remediation/migration decisions, and residual
   disposition remain. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
-blocker: none; T9–T12 and later plan work remain open.
+blocker: none; T10–T12 and later plan work remain open.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1869,8 +1874,16 @@ next task:
     `braced_module_metadata_literals_remain_records` parser selector passes
     1/1. T8.10's old braced-record Set message, `| R` to `**R` message, and
     canonical Map-expected/Record-actual binding guidance selectors pass 1/1
-    each; the existing Set literal control remains green. Continue with
-    T9–T12, Priority 3 causal/residual
+    each; the existing Set literal control remains green. T9.1–T9.6 are
+    IMPLEMENTED / FOCUSED_TESTED: value-level `TupleView`/`RecordView` adapters
+    represent Unit/EmptyRecord as canonical zero-length views without heap
+    allocation; Tuple and Record observers consume those views, while the
+    existing ObjRef view entry points remain available. Empty spec/dynamic
+    construction paths, Value equality/hash/same-bits, source `==`/`===`,
+    size/positionals/labeled/toString/iteration, and `.class` checks are covered.
+    Focused product and Value selectors plus the language E2E selector each
+    passed 1/1; `Value::class` is the established immediate runtime type
+    observation authority. Continue with T10–T12, Priority 3 causal/residual
     disposition, and T13. The
     INC-C3-19 producer correction and focused lexical-body acceptance evidence
     are recorded below. Keep TypeStore::union, loop flow, and lexical-body

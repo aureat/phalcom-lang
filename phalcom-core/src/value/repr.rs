@@ -428,6 +428,23 @@ mod tests {
     }
 
     #[test]
+    fn empty_record_immediate_identity_is_stable_and_distinct_from_unit() {
+        let empty_record = Value::empty_record();
+        let another_empty_record = Value::empty_record();
+        let unit = Value::unit();
+
+        assert!(empty_record.is_empty_record());
+        assert!(!empty_record.is_unit());
+        assert_eq!(empty_record, another_empty_record);
+        assert_eq!(calculate_hash(&empty_record), calculate_hash(&another_empty_record));
+        assert!(empty_record.same_bits(another_empty_record));
+
+        assert_ne!(unit, empty_record);
+        assert!(!unit.same_bits(empty_record));
+        assert_eq!(empty_record.gc_obj_ref(), None);
+    }
+
+    #[test]
     fn arbitrary_nan_bit_patterns_round_trip() {
         // IEEE 754 allows many distinct NaN encodings; all must survive the
         // payload round-trip. Two distinct NaN payloads are unequal by

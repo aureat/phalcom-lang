@@ -106,6 +106,53 @@ let eq = e1 === e2
 }
 
 #[test]
+fn empty_tuple_and_record_keep_distinct_runtime_classes_and_equality() {
+    let src = r#"
+let unit = ()
+let empty_record = {}
+
+let tuple_class = unit.class === Tuple
+let record_class = empty_record.class === Record
+let unit_size = unit.size
+let record_size = empty_record.size
+let empty_positionals = unit.positionals
+let empty_labeled = unit.labeled
+let unit_string = unit.toString == "()"
+let unit_iteration_empty = unit.iterator.next.isNone
+let unit_hash_equal = unit.hash == ().hash
+let record_hash_equal = empty_record.hash == {}.hash
+let unit_equal = unit == ()
+let record_equal = empty_record == {}
+let cross_equal = unit == empty_record
+let unit_same = unit === ()
+let record_same = empty_record === {}
+let tuple_lanes_empty = empty_positionals == () and empty_labeled == ()
+"#;
+    let (vm, module) = run_inline(src).expect("empty structural values should execute");
+    for (name, expected) in [
+        ("tuple_class", true),
+        ("record_class", true),
+        ("unit_equal", true),
+        ("record_equal", true),
+        ("unit_same", true),
+        ("record_same", true),
+        ("tuple_lanes_empty", true),
+        ("unit_hash_equal", true),
+        ("record_hash_equal", true),
+        ("cross_equal", false),
+        ("unit_string", true),
+        ("unit_iteration_empty", true),
+    ] {
+        let symbol = vm.interner.find(name).unwrap();
+        assert_eq!(vm.heap.module(module).get(symbol), Some(Value::bool(expected)), "{name}");
+    }
+    for name in ["unit_size", "record_size"] {
+        let symbol = vm.interner.find(name).unwrap();
+        assert_eq!(vm.heap.module(module).get(symbol), Some(Value::int(0)), "{name}");
+    }
+}
+
+#[test]
 fn data_nested_product_composition() {
     let src = r#"
 data Point(_ x: Int, _ y: Int)
