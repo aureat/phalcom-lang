@@ -298,7 +298,7 @@ pub struct TypeLevelProjection {
     /// the owner's AssociatedSurface, including a source declaration backed by
     /// a compiler intrinsic evaluator. Source-authored public intrinsic
     /// projections must retain this identity; `None` is reserved for internal
-    /// synthetic projections. Older metadata may still represent projections
-    /// without this identity for wire compatibility.
+    /// synthetic semantic projections. Legacy wire omission is handled by the
+    /// optional metadata field, not by importing source-less values here.
     pub source_declaration: Option<TypeMemberDeclarationId>,
 }

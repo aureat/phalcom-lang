@@ -747,8 +747,11 @@ fn record_fields_projection_preserves_exact_row_identity() {
         .source_declaration
         .as_ref()
         .expect("public source projection retains its member identity");
-    assert_eq!(exported_member.selector.as_ref(), "Fields");
-    assert_eq!(exported_member.owner.path.last().map(AsRef::as_ref), Some("Record"));
+    let expected_stable_member = phalcom_type_meta::identity::StableTypeMemberRef {
+        owner: phalcom_semantic::metadata::stable_identity::to_stable_declaration(&expected_member.owner),
+        selector: expected_member.selector.name().into(),
+    };
+    assert_eq!(exported_member, &expected_stable_member);
     phalcom_type_meta::validate::validate_metadata_bundle(&bundle, &phalcom_type_meta::validate::ValidationLimits::default())
         .expect("source-member projection bundle validates");
 
