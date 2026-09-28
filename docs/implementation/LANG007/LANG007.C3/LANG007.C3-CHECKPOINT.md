@@ -34,7 +34,9 @@ active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
 next_action: >
-  Continue original P4 at T11.5. T11.3 found no executable legacy Record
+  Continue original P4 at T12; T11.6 is focused-tested, while its aggregate
+  negative-fixture selector is encountered/unclassified due to the earlier
+  Map-key mutation fixture's generic underconstraint. T11.3 found no executable legacy Record
   literals using `#{...}` in first-party `.ph` sources or the named AST,
   semantic, core, and LSP source/test surfaces; no migration edit was needed.
   Bare-brace Record, Set-opener, and legacy Record-as-Set diagnostic controls
@@ -57,7 +59,15 @@ next_action: >
   The Set parser selector and `corpus::system` passed 1/1; the earlier system
   underconstraint at `Set.new()` was resolved by the literal. Keep
   TypeStore::union, loop
-  joining/whileTrue, and lexical-body semantics unchanged.
+  joining/whileTrue, and lexical-body semantics unchanged. T11.6 is
+  IMPLEMENTED / FOCUSED_TESTED: three Map-specific negative spread fixtures
+  now use explicit `Map` heads; `**1` keeps its semantic diagnostic, and
+  `*source`/`***source` have the current parser's `Expected one of ";",
+  newline` diagnostic. The aggregate negative-fixture selector selected 1 but
+  stopped at an earlier unchanged `map_key_eq_mutates_same_map_during_overwrite_rejected.ph`
+  underconstraint, before these cases. Direct CLI checks confirmed the
+  diagnostics for the three edited fixtures; the aggregate failure is
+  encountered, not baseline-certified. T12 is next.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
   clean-predecessor fixture error, not a PASS. Keep TypeStore::union, loop
@@ -2078,7 +2088,15 @@ next action:
     as encountered and unclassified, not as Set failures or certified
     baselines. Empty, mutation/dedup, custom-hash, membership, rejection,
     concurrency, and dynamic accumulation cases retain `Set.new()`. T11.6 is
-    next.
+    IMPLEMENTED / FOCUSED_TESTED: three Map-specific negative spread fixtures
+    now use explicit `Map` heads; `**1` keeps its semantic diagnostic, and
+    `*source`/`***source` have the current parser's `Expected one of ";",
+    newline` diagnostic. The aggregate negative-fixture selector selected 1
+    but stopped at an earlier unchanged
+    `map_key_eq_mutates_same_map_during_overwrite_rejected.ph` underconstraint,
+    before these cases. Direct CLI checks confirmed the diagnostics for the
+    three edited fixtures; the aggregate failure is encountered, not
+    baseline-certified. T12 is next.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure

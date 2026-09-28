@@ -1,1 +1,1 @@
-{ *source }
+Map { *source }
