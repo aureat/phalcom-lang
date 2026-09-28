@@ -579,7 +579,6 @@ impl CoreClasses {
             UniverseKey::Ordering => self.ordering_class,
             UniverseKey::Some => self.some_class,
             UniverseKey::None => self.none_class,
-            UniverseKey::Unit => self.tuple_class,
             UniverseKey::EmptyRecord => self.record_class,
             UniverseKey::Collection => self.collection_class,
             UniverseKey::List => self.list_class,

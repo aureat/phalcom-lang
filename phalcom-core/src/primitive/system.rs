@@ -13,8 +13,8 @@ use num_traits::{Signed, ToPrimitive};
     System,
     "print(_)",
     params = [Object],
-    returns = Unit,
-    types = "(Object) -> Unit",
+    returns = "()",
+    types = "(Object) -> ()",
     side = class
 )]
 pub fn system_class_print(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -160,8 +160,8 @@ pub fn system_take_unhandled_scheduled_failures(vm: &mut VM, _receiver: &Value, 
 #[phalcom_native_macros::primitive(
     System,
     "reportUnhandledScheduledFailures",
-    returns = Unit,
-    types = "() -> Unit",
+    returns = "()",
+    types = "() -> ()",
     side = class,
     visibility = internal
 )]
@@ -194,8 +194,8 @@ pub fn system_wake(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
     System,
     "gc",
     params = [],
-    returns = Unit,
-    types = "() -> Unit",
+    returns = "()",
+    types = "() -> ()",
     side = class
 )]
 pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -208,8 +208,8 @@ pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Va
     System,
     "rawWrite(_)",
     params = [String],
-    returns = Unit,
-    types = "(String) -> Unit",
+    returns = "()",
+    types = "(String) -> ()",
     side = class,
     visibility = internal
 )]

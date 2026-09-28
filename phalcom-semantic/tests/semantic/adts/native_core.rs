@@ -12,6 +12,12 @@ static GENERATED_LIST_OF_T: phalcom_native_meta::TypeExprSpec = phalcom_native_m
     origin: &GENERATED_LIST_FORM,
     arguments: &GENERATED_LIST_ARGUMENTS,
 };
+static GENERATED_EMPTY_TUPLE_PARAMS: phalcom_native_meta::ParameterTupleSpec = phalcom_native_meta::ParameterTupleSpec {
+    positional: &[],
+    labeled: &[],
+    rest: None,
+};
+static GENERATED_EMPTY_TUPLE: phalcom_native_meta::TypeExprSpec = phalcom_native_meta::TypeExprSpec::Tuple(&GENERATED_EMPTY_TUPLE_PARAMS);
 
 #[test]
 fn bootstrapped_core_option_is_canonical_enum() {
@@ -222,6 +228,33 @@ class Probe {
     assert!(matches!(call.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready), "{call:#?}");
     assert_eq!(call.knowledge.status(), Some(EvidenceStatus::Assumed));
     fixture.assert_no_error_diagnostics();
+}
+
+#[test]
+fn generated_empty_tuple_return_resolves_to_canonical_unit_type() {
+    let fixture = crate::semantic::support::Fixture::new("class Probe {\n}\n");
+    let declarations = (*fixture.analysis.snapshot.declarations).clone();
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let expected = store.unit();
+
+    let resolved = phalcom_semantic::types::native::resolve_native_type_form(
+        &mut store,
+        &declarations,
+        &std::collections::HashMap::new(),
+        &phalcom_semantic::core_surface::universe_declaration,
+        &GENERATED_EMPTY_TUPLE,
+    )
+    .expect("native Tuple<> return type");
+
+    assert_eq!(
+        resolved, expected,
+        "native metadata must resolve Tuple<> to the same canonical Unit type as source alias"
+    );
+    assert_eq!(
+        resolved,
+        store.unit(),
+        "the exact zero-product Tuple application is the canonical semantic unit type"
+    );
 }
 
 #[test]

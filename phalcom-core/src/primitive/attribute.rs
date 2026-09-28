@@ -16,8 +16,8 @@ use crate::vm::VM;
     Object,
     "attachAttribute(_)",
     params = [Object],
-    returns = Unit,
-    types = "(Object) -> Unit",
+    returns = "()",
+    types = "(Object) -> ()",
     visibility = internal
 )]
 pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -89,8 +89,8 @@ pub fn method_attribute_attributes(vm: &mut VM, receiver: &Value, args: &[Value]
     Object,
     "freezeAttributes()",
     params = [],
-    returns = Unit,
-    types = "() -> Unit",
+    returns = "()",
+    types = "() -> ()",
     visibility = internal
 )]
 pub fn attribute_freeze(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {

@@ -57,15 +57,19 @@ next_action: >
   and `.class`, equality, hash stability, lane observers, Unit rendering, and
   empty iteration are covered. Focused product/value tests and the source-level
   runtime discriminator passed; `Value::class` is the immediate runtime type
-  observation authority. T6.4 remains sequenced after T9/T10. T10 is stopped
-  before edits at its explicit Universe-key ownership consultation trigger:
-  `UniverseKey::Unit` is still catalogued as `RuntimeSupportClass`, and shared
-  bootstrap/module/native consumers assume every catalog entry resolves to a
-  runtime `ClassId`. Await an architectural ruling before T10 or dependent work.
+  observation authority. T6.4 remains sequenced after T9/T10. T10 adopts the
+  2026-09-28 ruling: remove Unit from the runtime-support key/catalog, while
+  preserving source visibility through canonical `option/unit::Unit` in the
+  existing `PreludeTypeMap`. Native Unit returns use structural empty-tuple
+  `()` metadata, resolving through the semantic zero-product type. Focused
+  semantic prelude/declaration/editor, native signature, runtime class lookup,
+  and core-check evidence is recorded in §20. T10 is IMPLEMENTED /
+  FOCUSED_TESTED; the isolated unrelated floor-census discrepancy does not
+  show a Unit binding or class-count regression.
   Keep `corpus::bytes` unclear/nonblocking. Priority 3 categorical classification
   is already recorded; causal isolation, remediation/migration decisions, and
   residual disposition remain. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
-blocker: T10 UniverseKey::Unit semantic-alias versus runtime-class ownership ruling.
+blocker: none for the adopted T10 ownership design; focused acceptance remains in progress.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1888,21 +1892,30 @@ next task:
     Focused product and Value selectors plus the language E2E selector each
     passed 1/1; `Value::class` is the established immediate runtime type
     observation authority. T9.1–T9.6 were committed and pushed as `3507cdff`.
-    T10 is BLOCKED before edits by its explicit stop trigger. `unit_class` is
-    already absent and source aliases `Unit = Tuple<>` / `EmptyRecord = Record<>`
-    already exist, but `UniverseKey::Unit` remains a `RuntimeSupportClass` in
-    `UNIVERSE_BINDINGS`. The bounded consumer census found runtime-ClassId
-    assumptions in `modules/builtin_materialize.rs`, `vm/bootstrap.rs`,
-    `modules/materialize.rs`, `vm/associated.rs`, `vm/api.rs`,
-    `native/install.rs`, and the current `System.print`/`gc` Unit type recipes.
-    A separate semantic-alias binding would therefore alter shared native-meta,
-    bootstrap, module-registration, associated lookup, and native-owner
-    contracts. No T10 files were edited. Obtain a ruling on whether to split
-    semantic aliases from runtime-class bindings or remove Unit from the
-    runtime catalog and preserve its source alias through semantic type
-    publication; do not continue T10 or dependent work before that decision.
-    Once resolved, continue with T10–T12, Priority 3 causal/residual
-    disposition, and T13. The
+    T10 adopts the ruling to remove `UniverseKey::Unit` and its
+    `UNIVERSE_BINDINGS` row entirely. The runtime catalog stays homogeneous:
+    every retained key resolves to a real ClassId. Unit remains visible as the
+    exact source alias `option/unit::Unit` through the existing source catalog
+    and `PreludeTypeMap`; no alias registry, synthetic class, or Unit-to-Tuple
+    runtime resolver mapping is added. Tuple/Record retain their direct runtime
+    owners. Native primitive return contracts formerly written as Unit now use
+    the structural empty tuple `()` TypeExprSpec; a semantic resolver test
+    proves this resolves to `store.unit()`, while runtime primitives continue
+    returning `Value::unit()`. T10.2/3 source ownership was already correct:
+    Unit source contains only the alias and Tuple owns its generic behavior;
+    the existing runtime class census excludes Unit. Focused tests pass for
+    Unit's absence as an intrinsic declaration, exact source-backed prelude and
+    editor visibility, Tuple/Record owner registration, native structural
+    return resolution and metadata, and builtin runtime class lookup. The
+    native-surface generator check and `cargo check -p phalcom-core` pass. The
+    focused object-model floor-census test
+    (`floor_census_matches_installed_bindings`) reports only the unchanged
+    `System class#monotonicNanoseconds` entry as listed but not installed, with
+    no extra installed bindings. This is `D — unrelated baseline`: both
+    `primitive/time.rs` and the census row are unchanged, and the Unit-specific
+    catalog/class lookup test passes. T10 is IMPLEMENTED / FOCUSED_TESTED;
+    after review continue T11–T12, Priority 3 causal/residual disposition, and
+    T13. The
     INC-C3-19 producer correction and focused lexical-body acceptance evidence
     are recorded below. Keep TypeStore::union, loop flow, and lexical-body
     semantics unchanged. T6.4 remains sequenced after T9/T10. P4 remains

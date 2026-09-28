@@ -1,4 +1,4 @@
-use phalcom_modules::identity::ModuleId;
+use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath};
 use phalcom_native_meta::universe::UniverseKey;
 use phalcom_semantic::core_surface::universe_declaration;
 use phalcom_semantic::declarations::bootstrap_universe_declarations;
@@ -100,9 +100,16 @@ fn option_case_behavior_classes_are_not_semantic_declarations() {
 fn unit_is_not_a_separate_intrinsic_semantic_declaration() {
     let mut store = TypeStore::new();
     let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
-    let unit = universe_declaration(UniverseKey::Unit);
+    let unit_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("option").unwrap(),
+        ModuleComponent::from_identifier("unit").unwrap(),
+    ]));
+    let unit = DeclarationId::new(unit_module, "Unit".into());
 
-    assert!(declarations.get(&unit).is_none(), "Unit is a source alias of Tuple<> rather than an intrinsic nominal declaration");
+    assert!(
+        declarations.get(&unit).is_none(),
+        "Unit is a source alias of Tuple<> rather than an intrinsic nominal declaration"
+    );
     assert_eq!(declarations.intrinsic_runtime_owner(&unit), None);
 }
 
@@ -128,7 +135,11 @@ fn runtime_structural_declarations_bind_canonical_platform_owners() {
         let expected_runtime_form = store.nominal_type(declaration.clone());
         assert_eq!(declarations.runtime_form(&mut store, &declaration), Some(expected_runtime_form));
     }
-    let unit = universe_declaration(UniverseKey::Unit);
+    let unit_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("option").unwrap(),
+        ModuleComponent::from_identifier("unit").unwrap(),
+    ]));
+    let unit = DeclarationId::new(unit_module, "Unit".into());
     assert_eq!(declarations.runtime_form(&mut store, &unit), None);
 }
 

@@ -71,7 +71,6 @@ pub fn resolve_native_type_form(
 ) -> Result<TypeId, NativeTypeResolutionError> {
     match spec {
         TypeExprSpec::Never => Ok(store.never()),
-        TypeExprSpec::Universe(UniverseKey::Unit) => Ok(store.unit()),
         TypeExprSpec::Universe(key) => {
             let decl = universe_resolver(*key);
             if let Some(mut form) = declarations.runtime_form(store, &decl) {

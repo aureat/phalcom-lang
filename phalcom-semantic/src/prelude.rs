@@ -12,10 +12,10 @@ static CANONICAL_UNIVERSE_PRELUDE: OnceLock<Arc<PreludeTypeMap>> = OnceLock::new
 /// Canonical source-visible type names supplied implicitly by the Phalcom
 /// prelude.
 ///
-/// Prelude membership comes only from explicit `UNIVERSE_BINDINGS.prelude`
-/// policy. Each entry is additionally proven to exist in the canonical
-/// Universe source catalog and points directly at that source-owned
-/// `DeclarationId`; no synthetic root/prelude declaration is manufactured.
+/// Prelude membership comes from explicit `UNIVERSE_BINDINGS.prelude` policy,
+/// plus the canonical source-backed Unit alias exception. Both are represented
+/// only in this `PreludeTypeMap`; no separate alias catalog or synthetic
+/// root/prelude declaration is manufactured.
 #[derive(Clone, Debug, Default)]
 pub struct PreludeTypeMap {
     entries: BTreeMap<Box<str>, DeclarationId>,
@@ -39,6 +39,18 @@ impl PreludeTypeMap {
             };
             entries.insert(binding.name.into(), DeclarationId::new(module, name.into()));
         }
+
+        // Unit is the source alias `Tuple<>`, not a runtime-support class. Keep
+        // its implicit source name visible through this canonical catalog.
+        let unit_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("option").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("unit").expect("canonical Universe component"),
+        ]));
+        assert!(
+            catalog.contains_declaration(&unit_module, "Unit"),
+            "canonical Unit alias must exist in Universe source"
+        );
+        entries.insert("Unit".into(), DeclarationId::new(unit_module, "Unit".into()));
 
         let duration_module = ModuleId::universe(ModulePath::from_components(vec![
             ModuleComponent::from_identifier("time").expect("canonical Universe component"),

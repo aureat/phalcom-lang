@@ -59,6 +59,12 @@ impl UniverseSourceDeclarationCatalog {
             Err(ModuleResolutionError::ModuleNotFound(format!("canonical Universe declaration {module}::{name} is absent from source")).into())
         }
     }
+
+    /// Reports whether the canonical source catalog contains this exact
+    /// source-owned declaration identity.
+    pub fn contains_declaration(&self, module: &ModuleId, name: &str) -> bool {
+        self.declarations.get(module).is_some_and(|declarations| declarations.contains_key(name))
+    }
 }
 
 fn parsed_cache() -> &'static Mutex<HashMap<ModuleId, Result<Arc<ParsedModuleUnit>, ModuleLoadError>>> {

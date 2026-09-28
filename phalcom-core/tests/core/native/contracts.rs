@@ -5,8 +5,15 @@ use phalcom_core::primitive::string::string_raw_byte_at;
 use phalcom_core::primitive::system::{system_class_print, system_gc};
 use phalcom_core::primitive::time::{system_clock_monotonic_nanoseconds, system_wall_clock_unix_nanoseconds};
 use phalcom_core::value::Value;
-use phalcom_native_meta::{EffectSpec, NativeEffect, TypeExprSpec, UniverseKey};
+use phalcom_native_meta::{EffectSpec, NativeEffect, ParameterTupleSpec, TypeExprSpec, UniverseKey};
 use phalcom_native_surface::NATIVE_SURFACES;
+
+static EMPTY_TUPLE_PARAMS: ParameterTupleSpec = ParameterTupleSpec {
+    positional: &[],
+    labeled: &[],
+    rest: None,
+};
+static EMPTY_TUPLE_TYPE: TypeExprSpec = TypeExprSpec::Tuple(&EMPTY_TUPLE_PARAMS);
 
 fn native_record(selector: &str) -> &'static phalcom_native_surface::NativeSurfaceRecord {
     NATIVE_SURFACES
@@ -40,12 +47,20 @@ fn system_gc_runtime_returns_unit() {
 #[test]
 fn system_native_metadata_matches_language_contracts() {
     let print = native_record("print(_)");
-    assert_eq!(print.returns(), &TypeExprSpec::Universe(UniverseKey::Unit));
-    assert_eq!(print.callable().return_type, &TypeExprSpec::Universe(UniverseKey::Unit));
+    let unit_type = &EMPTY_TUPLE_TYPE;
+    assert_eq!(print.returns(), unit_type);
+    assert_eq!(print.callable().return_type, unit_type);
 
     let gc = native_record("gc");
-    assert_eq!(gc.returns(), &TypeExprSpec::Universe(UniverseKey::Unit));
-    assert_eq!(gc.callable().return_type, &TypeExprSpec::Universe(UniverseKey::Unit));
+    assert_eq!(gc.returns(), unit_type);
+    assert_eq!(gc.callable().return_type, unit_type);
+}
+
+#[test]
+fn unit_alias_is_not_a_runtime_class_catalog_entry() {
+    let vm = native_vm();
+    assert!(vm.resolve_builtin_class_name("Unit").is_none(), "Unit is a semantic alias, not a runtime class");
+    assert_eq!(vm.resolve_builtin_class_name("Tuple"), Some(vm.universe.classes.tuple_class));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use phalcom_modules::linker::LinkedProgram;
 use phalcom_modules::project::ProjectUniverse;
-use phalcom_modules::{ModuleId, ModulePath, SyntheticProjectIdAllocator};
+use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, SyntheticProjectIdAllocator};
 use phalcom_semantic::core_surface::universe_declaration;
 use phalcom_semantic::types::TypeResolver;
 use phalcom_semantic::{DeclarationId, LinkedTypeResolver, PreludeTypeMap};
@@ -44,6 +44,18 @@ fn prelude_map_contains_only_explicit_source_backed_type_names() {
             continue;
         }
         let declaration = prelude.get(name).unwrap_or_else(|| panic!("{name} must be in the canonical prelude"));
+        if name == "Unit" {
+            let unit_module = ModuleId::universe(ModulePath::from_components(vec![
+                ModuleComponent::from_identifier("option").unwrap(),
+                ModuleComponent::from_identifier("unit").unwrap(),
+            ]));
+            assert_eq!(declaration, &DeclarationId::new(unit_module, "Unit".into()));
+            assert!(
+                phalcom_native_meta::UniverseKey::from_name("Unit").is_none(),
+                "Unit must not resolve as a runtime class key"
+            );
+            continue;
+        }
         let key = phalcom_native_meta::UniverseKey::from_name(name).expect("canonical Universe key");
         assert_eq!(
             declaration,

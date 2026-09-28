@@ -140,8 +140,8 @@ pub fn system_leak_report(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> Ph
     side = class,
     visibility = internal,
     params = [Bool],
-    returns = Unit,
-    types = "(Bool) -> Unit",
+    returns = "()",
+    types = "(Bool) -> ()",
     effects = pure
 )]
 pub fn system_strict_resources(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
