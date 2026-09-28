@@ -768,6 +768,82 @@ fn test_metadata_exports_transparent_alias_records_and_generic_forms() {
 }
 
 #[test]
+fn unit_and_empty_record_alias_metadata_round_trip_as_structural_zero_forms() {
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+
+    let unit_declaration = phalcom_semantic::PreludeTypeMap::canonical_universe()
+        .get("Unit")
+        .cloned()
+        .expect("Unit keeps its source-owned prelude declaration");
+    let record_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("collections").unwrap(),
+        ModuleComponent::from_identifier("record").unwrap(),
+    ]));
+    let empty_record_declaration = DeclarationId::new(record_module.clone(), "EmptyRecord".into());
+
+    let mut store = TypeStore::new();
+    let unit_form = store.unit();
+    let empty_record_form = store.record(Box::new([]));
+    assert!(matches!(store.get(unit_form), phalcom_semantic::types::store::TypeData::Unit));
+    assert!(matches!(store.get(empty_record_form), phalcom_semantic::types::store::TypeData::Record(row) if store.record_row(*row).fields.is_empty()));
+
+    let mut aliases = TypeAliasTable::new();
+    for (declaration, form) in [(unit_declaration.clone(), unit_form), (empty_record_declaration.clone(), empty_record_form)] {
+        aliases.insert(TypeAliasInfo {
+            declaration: declaration.clone(),
+            kind: KindId::TYPE,
+            kind_shape: "Type".into(),
+            generic_signature: None,
+            form,
+            structural_form: if declaration.name.as_ref() == "Unit" { "Tuple<>" } else { "Record<>" }.into(),
+            dependencies: Box::new([]),
+            source: SemanticSourceSpan::new(declaration.module.clone(), SourceRange { start: 0, end: 1 }),
+        });
+    }
+
+    let bundle = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic)
+        .with_aliases(&aliases)
+        .build_bundle(&[])
+        .expect("zero-product aliases export as transparent alias records");
+    assert!(bundle.declarations.is_empty(), "the aliases are not runtime nominal declarations or data roots");
+    assert_eq!(bundle.aliases.len(), 2);
+
+    let unit_alias = bundle
+        .aliases
+        .iter()
+        .find(|alias| alias.declaration.path.last().is_some_and(|part| part.as_ref() == "Unit"))
+        .expect("Unit alias record");
+    assert_eq!(
+        unit_alias.declaration,
+        phalcom_semantic::metadata::stable_identity::to_stable_declaration(&unit_declaration),
+        "Unit retains its exact prelude/source declaration identity"
+    );
+    assert!(matches!(&bundle.types[unit_alias.target.0 as usize].form, TypeNode::Unit));
+
+    let empty_record_alias = bundle
+        .aliases
+        .iter()
+        .find(|alias| alias.declaration.path.last().is_some_and(|part| part.as_ref() == "EmptyRecord"))
+        .expect("EmptyRecord alias record");
+    assert_eq!(
+        empty_record_alias.declaration,
+        phalcom_semantic::metadata::stable_identity::to_stable_declaration(&empty_record_declaration),
+        "EmptyRecord retains its exact Record source declaration identity"
+    );
+    assert!(matches!(&bundle.types[empty_record_alias.target.0 as usize].form, TypeNode::Record(fields) if fields.is_empty()));
+    assert!(bundle.types.iter().all(|entry| !matches!(
+        &entry.form,
+        TypeNode::Nominal { declaration }
+            if declaration.path.last().is_some_and(|part| matches!(part.as_ref(), "Unit" | "EmptyRecord"))
+    )));
+
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("transparent alias metadata validates");
+    let json = encode_metadata_json(&bundle).expect("encode alias metadata");
+    let imported = decode_metadata_json(&json, &ValidationLimits::default()).expect("import alias metadata");
+    assert_eq!(imported, bundle, "import preserves both source alias identities and structural targets");
+}
+
+#[test]
 fn test_metadata_rejects_stale_alias_form_before_publication() {
     let store = TypeStore::new();
     let alias = dummy_decl("BrokenAlias");

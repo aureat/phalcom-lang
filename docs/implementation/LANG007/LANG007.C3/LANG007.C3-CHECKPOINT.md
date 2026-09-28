@@ -109,7 +109,13 @@ next_action: >
   source-backed `Record::Fields` export and validation; type-meta selector
   `older_projection_metadata_without_source_identity_remains_compatible`
   verifies a schema-v8 projection with the field omitted decodes and validates.
-  T12.5 is next.
+  T12.5 is IMPLEMENTED / FOCUSED_TESTED with no production change: exact
+  `PreludeTypeMap` Unit and source `collections/record::EmptyRecord` identities
+  round-trip as `TypeNode::Unit` and closed-empty `TypeNode::Record`, not
+  nominal declarations. Semantic selector
+  `unit_and_empty_record_alias_metadata_round_trip_as_structural_zero_forms`
+  passed 1/1 through RuntimePublic export, validation, JSON decode, and exact
+  alias-identity checks. T12.6 is next.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
   clean-predecessor fixture error, not a PASS. Keep TypeStore::union, loop
@@ -2012,7 +2018,7 @@ next task:
     are recorded below. Keep TypeStore::union, loop flow, and lexical-body
     semantics unchanged. T6.4 is now IMPLEMENTED / FOCUSED_TESTED after T9/T10:
     bare Unit type references use the exact prelude source alias rather than a
-    name fallback, while structural `()` remains canonical Unit. T12.5 is next. P4 remains
+    name fallback, while structural `()` remains canonical Unit. T12.6 is next. P4 remains
     IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
 
 next action:
@@ -2139,9 +2145,10 @@ next action:
     before these cases. Direct CLI checks confirmed the diagnostics for the
     three edited fixtures; the aggregate failure is encountered, not
     baseline-certified. T12.1 and T12.2 are IMPLEMENTED / FOCUSED_TESTED;
-    T12.3 and T12.4 are IMPLEMENTED / FOCUSED_TESTED; T12.5 is next. T12.4's
+    T12.3–T12.5 are IMPLEMENTED / FOCUSED_TESTED. T12.4's
     RuntimePublic `Record::Fields` source-identity export/validation selector
     and schema-v8 omitted-source compatibility selector each passed 1/1.
+    T12.5's Unit/EmptyRecord alias metadata round-trip selector passed 1/1.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure
