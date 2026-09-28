@@ -38,22 +38,25 @@ next_action: >
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
   clean-predecessor fixture error, not a PASS. Keep TypeStore::union, loop
   joining/whileTrue, and lexical-body semantics unchanged. T6.7–T6.8 and
-  T7.1–T7.11 plus T8.1–T8.5 are implemented and focused-tested. The adopted
+  T7.1–T7.11 plus T8.1–T8.10 are implemented and focused-tested. The adopted
   2026-09-28 T8.5 ruling permits statically projectable Record rows and labeled
   Tuple lanes, rejects Map-to-Record with a direct diagnostic, and preserves
   shared runtime lane machinery. T8.5 is IMPLEMENTED / FOCUSED_TESTED; continue
-  with T8.6–T8.8 under the active plan. T8.6–T8.8 are IMPLEMENTED /
+  with T8.6–T8.10 under the active plan. T8.6–T8.10 are IMPLEMENTED /
   FOCUSED_TESTED. T8.7 declaration-pattern binding preserves known field
   knowledge and residual RecordRow identity/tail; generated runtime remainder
   extraction uses the existing one-dispatch compiler-internal authority for
   `rawSize`/`rawLabelAt`/`rawValueAt`, without widening VM authorization.
   T8.8 parser evidence distinguishes explicit `Map { ... }` from bare Record
-  patterns. T6.4 remains
+  patterns. T8.9 confirms braced source-level `@!` metadata literals remain
+  `MetadataLiteral::Record`. T8.10 adds targeted old Set/record-tail parser
+  messages and canonical-Map/structural-Record binding guidance without
+  reinterpreting valid Set syntax. T6.4 remains
   sequenced after T9/T10. Keep `corpus::bytes`
   unclear/nonblocking. Priority 3 categorical classification is already
   recorded; causal isolation, remediation/migration decisions, and residual
   disposition remain. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
-blocker: none; T8.6 and later plan work remain open.
+blocker: none; T9–T12 and later plan work remain open.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1855,15 +1858,19 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    T7.9–T7.11 and T8.1–T8.8 are IMPLEMENTED / FOCUSED_TESTED. T8.5 preserves
+    T7.9–T7.11 and T8.1–T8.10 are IMPLEMENTED / FOCUSED_TESTED. T8.5 preserves
     Record/open-row and labeled-Tuple Record spreads, rejects Map-to-Record for
     both bindings and literals with the same semantic diagnostic, retains
     Map-to-Map and Record/Tuple-to-Map behavior, and leaves shared runtime lane
     machinery unchanged. T8.7's parser, semantic row-subtraction, and runtime
     exact-unmatched-fields selectors pass; generated raw Record observer sends
     use the established single-dispatch compiler-internal authority. T8.8's
-    explicit-Map-vs-bare-Record pattern parser discriminator passes. Continue
-    with T8.9–T12, Priority 3 causal/residual
+    explicit-Map-vs-bare-Record pattern parser discriminator passes. T8.9's
+    `braced_module_metadata_literals_remain_records` parser selector passes
+    1/1. T8.10's old braced-record Set message, `| R` to `**R` message, and
+    canonical Map-expected/Record-actual binding guidance selectors pass 1/1
+    each; the existing Set literal control remains green. Continue with
+    T9–T12, Priority 3 causal/residual
     disposition, and T13. The
     INC-C3-19 producer correction and focused lexical-body acceptance evidence
     are recorded below. Keep TypeStore::union, loop flow, and lexical-body

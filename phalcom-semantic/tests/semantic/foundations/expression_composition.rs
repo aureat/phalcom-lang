@@ -221,6 +221,24 @@ class Probe {
 }
 
 #[test]
+fn record_initializer_for_canonical_map_annotation_suggests_explicit_map_head() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let associations: Map<String, Int> = { key: 1 }
+  }
+}
+"#,
+    );
+    let diagnostics = fixture.diagnostics(DiagnosticCode::BindingInitializerMismatch);
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].helps.iter().any(|help| help.contains("Map { ... }")), "{:#?}", diagnostics[0]);
+    fixture.assert_no_diagnostic(DiagnosticCode::AnnotationUnresolved);
+}
+
+#[test]
 fn tuple_and_record_members_preserve_unknown_and_assumed_state() {
     let unknown = Fixture::new(
         r#"

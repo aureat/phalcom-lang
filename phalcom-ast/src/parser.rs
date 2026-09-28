@@ -2375,6 +2375,9 @@ impl<'source> Parser<'source> {
 
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             self.skip_newlines();
+            if matches!(self.peek(), Token::Pipe) {
+                return Err(self.error_message_here("record row tails use `**R`; replace the old `| R` spelling"));
+            }
             if matches!(self.peek(), Token::DoubleAsterisk) {
                 let tail_start = self.cur_start();
                 self.advance();
@@ -2416,6 +2419,9 @@ impl<'source> Parser<'source> {
             }
         }
         self.skip_newlines();
+        if matches!(self.peek(), Token::Pipe) {
+            return Err(self.error_message_here("record row tails use `**R`; replace the old `| R` spelling"));
+        }
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
         Ok(TypeAnnotation {
@@ -9247,6 +9253,9 @@ impl<'source> Parser<'source> {
                 });
             } else {
                 let expr = self.parse_expr()?;
+                if matches!(self.peek(), Token::Colon) {
+                    return Err(self.error_message_here("structural Records use `{name: value}`; `#{...}` is Set syntax"));
+                }
                 entries.push(SetLiteralEntry::Element {
                     expr,
                     range: (entry_start..self.prev_end).into(),

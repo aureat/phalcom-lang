@@ -20,6 +20,7 @@
 use phalcom_ast::{
     ast::{
         AssociatedMemberSyntax, ClassMember, ExpansionMode, Expr, GenericArgumentSyntax, GenericConstraintSyntax, ImplementationKind, KindSyntax, MemberBody,
+        MetadataLiteral,
         RecordLiteralEntry, ReturnStatement, SetLiteralEntry, Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeCallableItem, TypeMemberArgumentSyntax,
         TypeMemberParameterDomainSyntax, TypeMemberResultSyntax, TypeMemberSelectorSyntax, TypeTupleItem, VarianceSyntax,
     },
@@ -653,6 +654,13 @@ fn set_opener_parses_empty_and_populated_set_literals() {
 }
 
 #[test]
+fn old_braced_record_set_spelling_gets_targeted_migration_message() {
+    let error = parse_display("#{name: value}\n");
+    assert!(error.contains("structural Records use `{name: value}`"), "unexpected diagnostic: {error}");
+    assert!(error.contains("`#{...}` is Set syntax"), "unexpected diagnostic: {error}");
+}
+
+#[test]
 fn class_keyword_send_in_method_body_targets_self_class() {
     let program = parse_source("class Counter {\n  bump() {\n    class.bump()\n  }\n}\n", 0).expect("method body containing `class.bump()` should parse");
 
@@ -972,6 +980,18 @@ fn parse_module_metadata_header() {
     assert_eq!(program.preamble.metadata[0].name, "documentation");
     assert_eq!(program.preamble.metadata[1].name, "stability");
     assert_eq!(program.preamble.dependencies.len(), 1);
+}
+
+#[test]
+fn braced_module_metadata_literals_remain_records() {
+    let program = parse_source("@! schema({ fields: { name: \"Ada\" }, empty: {} })\n", 0).expect("braced metadata records parse");
+    let arguments = &program.preamble.metadata[0].arguments;
+    let [MetadataLiteral::Record(fields)] = arguments.as_slice() else {
+        panic!("braced metadata argument should be a Record: {arguments:#?}");
+    };
+    assert_eq!(fields.len(), 2);
+    assert!(matches!(fields[0].1, MetadataLiteral::Record(_)));
+    assert!(matches!(fields[1].1, MetadataLiteral::Record(ref empty) if empty.is_empty()));
 }
 
 #[test]
@@ -1411,7 +1431,8 @@ fn parse_expansion_binders_with_explicit_semantic_kinds_and_defaulted_modes() {
 
 #[test]
 fn record_row_type_tail_requires_explicit_double_asterisk() {
-    assert!(parse_source("type Old<R> = { name: String, | R }\n", 0).is_err());
+    let old_tail = parse_display("type Old<R> = { name: String, | R }\n");
+    assert!(old_tail.contains("record row tails use `**R`"), "unexpected diagnostic: {old_tail}");
     assert!(parse_source("type Current<**R> = { name: String, **R }\n", 0).is_ok());
     assert!(parse_source("type Bad = Record<name: String>\n", 0).is_err());
     assert!(parse_source("type BadPack = Product<Int, String, flag: Bool>\n", 0).is_err());

@@ -16,6 +16,7 @@ use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{ContractAssumptionEligibility, DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use crate::types::rigid::LocalType;
+use crate::types::store::TypeData;
 use phalcom_ast::ast::{BindingKind, Pattern, Statement};
 
 /// Checks a single statement, updating context bindings, recording exits, and
@@ -104,6 +105,15 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 }
                 if let Some(val) = &binding.value {
                     diag = diag.with_label(val.range(), "inferred type");
+                }
+                if let (Some(expected), TypeKnowledge::Known(actual)) = (contract.as_ref().map(|contract| contract.ty), &val_typed.knowledge) {
+                    let expected_is_canonical_map = ctx
+                        .store
+                        .applied_nominal_static_parts(expected)
+                        .is_some_and(|(declaration, arguments)| declaration == ctx.core_ids.map && arguments.len() == 2);
+                    if expected_is_canonical_map && matches!(ctx.store.get(actual.ty()), TypeData::Record(_)) {
+                        diag = diag.with_help("use `Map { ... }` for runtime-keyed associations; `{ ... }` constructs a structural Record");
+                    }
                 }
                 if let (Some(callable), Some(explanation)) = (ctx.current_callable.clone(), relation_explanation) {
                     diag = diag.with_explanation(crate::diagnostic::ExplanationRef::new(callable, explanation));
