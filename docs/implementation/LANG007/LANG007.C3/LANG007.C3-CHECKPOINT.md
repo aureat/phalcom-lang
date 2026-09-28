@@ -57,11 +57,15 @@ next_action: >
   and `.class`, equality, hash stability, lane observers, Unit rendering, and
   empty iteration are covered. Focused product/value tests and the source-level
   runtime discriminator passed; `Value::class` is the immediate runtime type
-  observation authority. T6.4 remains sequenced after T9/T10. Keep `corpus::bytes`
-  unclear/nonblocking. Priority 3 categorical classification is already
-  recorded; causal isolation, remediation/migration decisions, and residual
-  disposition remain. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
-blocker: none; T10–T12 and later plan work remain open.
+  observation authority. T6.4 remains sequenced after T9/T10. T10 is stopped
+  before edits at its explicit Universe-key ownership consultation trigger:
+  `UniverseKey::Unit` is still catalogued as `RuntimeSupportClass`, and shared
+  bootstrap/module/native consumers assume every catalog entry resolves to a
+  runtime `ClassId`. Await an architectural ruling before T10 or dependent work.
+  Keep `corpus::bytes` unclear/nonblocking. Priority 3 categorical classification
+  is already recorded; causal isolation, remediation/migration decisions, and
+  residual disposition remain. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+blocker: T10 UniverseKey::Unit semantic-alias versus runtime-class ownership ruling.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1883,7 +1887,21 @@ next task:
     size/positionals/labeled/toString/iteration, and `.class` checks are covered.
     Focused product and Value selectors plus the language E2E selector each
     passed 1/1; `Value::class` is the established immediate runtime type
-    observation authority. Continue with T10–T12, Priority 3 causal/residual
+    observation authority. T9.1–T9.6 were committed and pushed as `3507cdff`.
+    T10 is BLOCKED before edits by its explicit stop trigger. `unit_class` is
+    already absent and source aliases `Unit = Tuple<>` / `EmptyRecord = Record<>`
+    already exist, but `UniverseKey::Unit` remains a `RuntimeSupportClass` in
+    `UNIVERSE_BINDINGS`. The bounded consumer census found runtime-ClassId
+    assumptions in `modules/builtin_materialize.rs`, `vm/bootstrap.rs`,
+    `modules/materialize.rs`, `vm/associated.rs`, `vm/api.rs`,
+    `native/install.rs`, and the current `System.print`/`gc` Unit type recipes.
+    A separate semantic-alias binding would therefore alter shared native-meta,
+    bootstrap, module-registration, associated lookup, and native-owner
+    contracts. No T10 files were edited. Obtain a ruling on whether to split
+    semantic aliases from runtime-class bindings or remove Unit from the
+    runtime catalog and preserve its source alias through semantic type
+    publication; do not continue T10 or dependent work before that decision.
+    Once resolved, continue with T10–T12, Priority 3 causal/residual
     disposition, and T13. The
     INC-C3-19 producer correction and focused lexical-body acceptance evidence
     are recorded below. Keep TypeStore::union, loop flow, and lexical-body
