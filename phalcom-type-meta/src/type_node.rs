@@ -78,6 +78,9 @@ pub struct TypeMemberProjectionRef {
     pub subject: TypeNodeId,
     pub selector: TypeMemberSelectorRef,
     pub arguments: Box<[TypeMemberArgumentRef]>,
+    /// Stable source member identity for source-selected projections. New
+    /// public source-authored intrinsic projections retain this field; `None`
+    /// remains accepted for older metadata and internal synthetic projections.
     #[serde(default)]
     pub source_declaration: Option<crate::identity::StableTypeMemberRef>,
 }

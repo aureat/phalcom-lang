@@ -296,6 +296,9 @@ pub struct TypeLevelProjection {
     pub arguments: Box<[TypeMemberArgument]>,
     /// Present when this projection selected a checked source declaration via
     /// the owner's AssociatedSurface, including a source declaration backed by
-    /// a compiler intrinsic evaluator.
+    /// a compiler intrinsic evaluator. Source-authored public intrinsic
+    /// projections must retain this identity; `None` is reserved for internal
+    /// synthetic projections. Older metadata may still represent projections
+    /// without this identity for wire compatibility.
     pub source_declaration: Option<TypeMemberDeclarationId>,
 }

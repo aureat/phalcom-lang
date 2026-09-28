@@ -730,8 +730,27 @@ fn record_fields_projection_preserves_exact_row_identity() {
     let TypeData::TypeMemberProjection(fields_projection) = env.store.get(fields) else {
         panic!("Record::Fields should remain a row-valued type-member projection");
     };
-    assert_eq!(fields_projection.source_declaration.as_ref(), Some(&TypeMemberDeclarationId::new(decl("Record"), TypeMemberSelector::named("Fields"))));
+    let expected_member = TypeMemberDeclarationId::new(decl("Record"), TypeMemberSelector::named("Fields"));
+    assert_eq!(fields_projection.source_declaration.as_ref(), Some(&expected_member));
     assert!(matches!(&fields_projection.subject, ProjectionSubject::Type(subject) if *subject == source_record));
+
+    let mut exporter =
+        phalcom_semantic::metadata::MetadataExporter::new(&env.store, None, None, None, phalcom_type_meta::header::MetadataProfile::RuntimePublic);
+    let fields_node = exporter
+        .export_type_form(fields)
+        .expect("source-authored Record::Fields projection is exportable");
+    let bundle = exporter.build_bundle(&[]).expect("source-authored projection metadata");
+    let phalcom_type_meta::type_node::TypeNode::TypeMemberProjection(exported) = &bundle.types[fields_node.0 as usize].form else {
+        panic!("expected exported type-member projection");
+    };
+    let exported_member = exported
+        .source_declaration
+        .as_ref()
+        .expect("public source projection retains its member identity");
+    assert_eq!(exported_member.selector.as_ref(), "Fields");
+    assert_eq!(exported_member.owner.path.last().map(AsRef::as_ref), Some("Record"));
+    phalcom_type_meta::validate::validate_metadata_bundle(&bundle, &phalcom_type_meta::validate::ValidationLimits::default())
+        .expect("source-member projection bundle validates");
 
     let TypeFormResolution::Ready(reapplied) = resolve_type_form(
         &mut env.store,

@@ -1415,6 +1415,9 @@ impl<'a> MetadataExporter<'a> {
                     subject,
                     selector,
                     arguments: arguments.into_boxed_slice(),
+                    // Preserve the identity selected by semantic resolution;
+                    // never synthesize one here. Source-authored intrinsic
+                    // projections are required to arrive with this identity.
                     source_declaration: proj.source_declaration.as_ref().map(|id| phalcom_type_meta::identity::StableTypeMemberRef {
                         owner: self.stable_declaration(&id.owner),
                         selector: id.selector.name().into(),

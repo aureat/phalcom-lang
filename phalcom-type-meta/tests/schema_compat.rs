@@ -395,6 +395,54 @@ fn schema_v8_requires_a_catalog_for_nominal_and_associated_static_domain_kinds()
 }
 
 #[test]
+fn older_projection_metadata_without_source_identity_remains_compatible() {
+    use phalcom_type_meta::encode::decode_metadata_json;
+
+    let mut bundle = sample_bundle(8, false);
+    bundle.types = Box::new([
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Unit,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::TypeMemberProjection(TypeMemberProjectionRef {
+                subject: TypeNodeId(0),
+                selector: TypeMemberSelectorRef::Named("Fields".into()),
+                arguments: Box::new([]),
+                source_declaration: None,
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+
+    let mut wire = serde_json::to_value(&bundle).expect("schema-v8 bundle serializes");
+    fn remove_projection_source_identity(value: &mut serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::Object(object) => {
+                if let Some(serde_json::Value::Object(projection)) = object.get_mut("TypeMemberProjection") {
+                    return projection.remove("source_declaration").is_some();
+                }
+                object.values_mut().any(remove_projection_source_identity)
+            }
+            serde_json::Value::Array(items) => items.iter_mut().any(remove_projection_source_identity),
+            _ => false,
+        }
+    }
+    assert!(
+        remove_projection_source_identity(&mut wire),
+        "projection field should be present in current serialization"
+    );
+
+    let decoded = decode_metadata_json(&wire.to_string(), &ValidationLimits::default()).expect("legacy source-less projection remains valid metadata");
+    let TypeNode::TypeMemberProjection(projection) = &decoded.types[1].form else {
+        panic!("expected decoded type-member projection");
+    };
+    assert!(projection.source_declaration.is_none());
+}
+
+#[test]
 fn schema_v8_rejects_duplicate_declarations_and_duplicate_or_unsorted_cases() {
     let limits = ValidationLimits::default();
     let (mut bundle, declaration) = schema_v8_nominal_domain_bundle(8);
