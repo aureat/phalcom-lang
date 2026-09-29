@@ -2335,9 +2335,7 @@ fn project_associated_resolution(
         }
         AssociatedResolutionKind::DataExpansionField { logical_index, .. } => Ok((
             LoweringSiteKind::AssociatedLookup,
-            AssociatedLoweringSpec::GetDataProductSlot {
-                logical_index: *logical_index,
-            },
+            AssociatedLoweringSpec::GetDataProductSlot { logical_index: *logical_index },
         )),
         AssociatedResolutionKind::ExactCallable { target, callable_type, .. } => {
             let spec = match target {

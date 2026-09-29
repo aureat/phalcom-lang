@@ -468,12 +468,7 @@ impl<'vm> Compiler<'vm> {
 
     /// Emits one compiler-authorized internal operator send. VM authorization
     /// covers only this dispatch and is removed before the callee executes.
-    pub(super) fn emit_compiler_internal_operator_send(
-        &mut self,
-        name: &str,
-        arity: u8,
-        range: SourceRange,
-    ) -> Result<(), CompilerError> {
+    pub(super) fn emit_compiler_internal_operator_send(&mut self, name: &str, arity: u8, range: SourceRange) -> Result<(), CompilerError> {
         let labels = vec![None; arity as usize];
         let selector = encode_selector(name, &labels, SignatureKind::Method(arity));
         let selector_sym = self.vm.interner.intern(&selector);

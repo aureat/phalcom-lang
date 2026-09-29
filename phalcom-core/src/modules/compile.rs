@@ -486,12 +486,7 @@ impl ProgramAnalyzer {
                 for node in provider
                     .nodes()
                     .iter()
-                    .filter(|node| {
-                        matches!(
-                            node.path,
-                            ["collections", ..] | ["scalar", "string"] | ["option", "unit"]
-                        )
-                    })
+                    .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", "string"] | ["option", "unit"]))
                 {
                     let path = ModulePath::from_components(
                         node.path

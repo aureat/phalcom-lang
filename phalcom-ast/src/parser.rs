@@ -8185,11 +8185,7 @@ impl<'source> Parser<'source> {
             self.expect(&Token::Equal, &["\"=\""])?;
             let value = self.parse_expr_without_trailing_closures()?;
             let then_body = self.parse_lexical_block()?;
-            let else_body = if self.eat(&Token::Else) {
-                Some(self.parse_lexical_block()?)
-            } else {
-                None
-            };
+            let else_body = if self.eat(&Token::Else) { Some(self.parse_lexical_block()?) } else { None };
             let range = (start..self.prev_end).into();
             return Ok(Expr::IfLet(Box::new(IfLetExpr {
                 pattern,

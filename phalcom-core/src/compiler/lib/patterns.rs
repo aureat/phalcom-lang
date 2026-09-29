@@ -594,12 +594,7 @@ impl<'vm> Compiler<'vm> {
         Ok(rest_slot)
     }
 
-    fn emit_record_rest_temp(
-        &mut self,
-        value_slot: u16,
-        matched_labels: &[String],
-        range: SourceRange,
-    ) -> Result<u16, CompilerError> {
+    fn emit_record_rest_temp(&mut self, value_slot: u16, matched_labels: &[String], range: SourceRange) -> Result<u16, CompilerError> {
         self.emit(Bytecode::NewRecordLiteralBuilder, range);
         let builder_slot = self.claim_pattern_temp("$pattern_record_builder", range)?;
 

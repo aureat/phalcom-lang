@@ -133,7 +133,32 @@ next_action: >
   c386; c386 subsequently changed captured-method shape validation, while no
   P4/T13 commit edits either the test or `vm/send.rs`. Classify this as D / out
   of P4 causality, but not a verified baseline because it is a post-c386
-  discrepancy. G6 remains incomplete; do not repeat the workspace test.
+  discrepancy. The authorized workspace-test retry's command session was lost
+  after the core library target; no final Cargo exit summary or later workspace
+  target results were captured, so this is incomplete/unknown after core, not
+  a workspace total. Do not repeat the workspace test. The single planned
+  `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy --workspace --all-targets -- -D
+  warnings` gate exited 101. It reported `match_like_matches_macro` for the
+  pre-P4 boolean `starts_expression` match in `phalcom-ast/src/parser.rs`
+  (P4 only added token alternatives), plus pre-existing type-meta lints:
+  `result_large_err`, `manual_range_patterns`, and `op_ref` in
+  `phalcom-type-meta`; no clippy-only fixes were made. The single
+  `cargo fmt --all -- --check` gate exited 1 with broad formatting drift
+  (5,263 output lines) across the workspace. Its diffs include P4-authored
+  hunks in `phalcom-ast/src/parser.rs:8187-8189`,
+  `phalcom-core/src/compiler/lib/patterns.rs:597-602`,
+  `phalcom-core/src/compiler/lib/scope.rs:469-475`,
+  `phalcom-core/src/modules/compile.rs:486-490`,
+  `phalcom-core/src/modules/semantic_lowering.rs:2336-2340`, and
+  `phalcom-core/tests/core/language/data_e2e.rs:623-642`, along with broad
+  unrelated/pre-existing drift. Those six cited hunk blocks received only
+  rustfmt-equivalent formatting edits; targeted
+  `rustfmt --edition 2024 --check` on those six Rust files now passes. The
+  workspace-wide format gate remains unpassed; no broad formatting was
+  applied. Global `git diff --check` exited 2 solely for six trailing-
+  whitespace lines in the preserved user-edited
+  `docs/__unstructured__/Untitled 1.md`; that file was not edited. G6 is
+  incomplete and P4 remains PARTIAL / UNVERIFIED.
   T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.

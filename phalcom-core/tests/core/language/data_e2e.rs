@@ -618,7 +618,6 @@ let same = t1 === t2
     assert_eq!(vm.heap.module(main_mod).get(same_sym), Some(Value::bool(true)));
 }
 
-
 #[test]
 fn p4_shape_generic_tuple_specializations_share_behavior_and_keep_exact_descriptors() {
     let (vm, module) = run_inline(
@@ -637,10 +636,7 @@ let same_class = one.class === two.class
     )
     .expect("shape-generic tuple data should execute");
 
-    assert_eq!(
-        vm.heap.module(module).get(vm.interner.find("same_class").unwrap()),
-        Some(Value::bool(true))
-    );
+    assert_eq!(vm.heap.module(module).get(vm.interner.find("same_class").unwrap()), Some(Value::bool(true)));
 
     let descriptor = |name: &str| {
         let value = vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
@@ -656,7 +652,10 @@ let same_class = one.class === two.class
 
     let one_desc = vm.data_registry.descriptor(one).expect("one descriptor");
     let two_desc = vm.data_registry.descriptor(two).expect("two descriptor");
-    assert_eq!(one_desc.behavior_class, two_desc.behavior_class, "specializations must share one behavior class");
+    assert_eq!(
+        one_desc.behavior_class, two_desc.behavior_class,
+        "specializations must share one behavior class"
+    );
     assert_ne!(one_desc.exact_type, two_desc.exact_type, "exact semantic type identity must remain distinct");
     assert_ne!(one_desc.layout, two_desc.layout, "different tuple arities must use exact layouts");
 }
@@ -684,22 +683,10 @@ let first_again_value = first_again
     )
     .expect("shape-generic record data should execute");
 
-    assert_eq!(
-        vm.heap.module(module).get(vm.interner.find("name").unwrap()).unwrap().to_string(&vm),
-        "Ada"
-    );
-    assert_eq!(
-        vm.heap.module(module).get(vm.interner.find("age").unwrap()),
-        Some(Value::int(42))
-    );
-    assert_eq!(
-        vm.heap.module(module).get(vm.interner.find("active").unwrap()),
-        Some(Value::bool(true))
-    );
-    assert_eq!(
-        vm.heap.module(module).get(vm.interner.find("same_class").unwrap()),
-        Some(Value::bool(true))
-    );
+    assert_eq!(vm.heap.module(module).get(vm.interner.find("name").unwrap()).unwrap().to_string(&vm), "Ada");
+    assert_eq!(vm.heap.module(module).get(vm.interner.find("age").unwrap()), Some(Value::int(42)));
+    assert_eq!(vm.heap.module(module).get(vm.interner.find("active").unwrap()), Some(Value::bool(true)));
+    assert_eq!(vm.heap.module(module).get(vm.interner.find("same_class").unwrap()), Some(Value::bool(true)));
 
     let descriptor = |name: &str| {
         let value = vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
@@ -858,8 +845,5 @@ let title = envelope.title
     .expect("fixed plus expanded record data should execute");
 
     assert_eq!(vm.heap.module(module).get(vm.interner.find("id").unwrap()), Some(Value::int(7)));
-    assert_eq!(
-        vm.heap.module(module).get(vm.interner.find("title").unwrap()).unwrap().to_string(&vm),
-        "hello"
-    );
+    assert_eq!(vm.heap.module(module).get(vm.interner.find("title").unwrap()).unwrap().to_string(&vm), "hello");
 }

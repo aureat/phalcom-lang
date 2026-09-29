@@ -4,34 +4,33 @@ kind: implementation-walkthrough
 status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
-as_of: 2026-09-28
+as_of: 2026-09-29
 ---
 
-# LANG007.C3.P4 Walkthrough — Interim Progress Record
+# LANG007.C3.P4 Walkthrough — T13 Certification Outcome
 
-> This is an interim record requested before P4 completion. It does not replace
-> the T13 final acceptance walkthrough: extend this file with the CV-01–CV-47
-> matrix, final failure classifications, and broad certification evidence only
-> after T1–T12 meet their focused acceptance conditions.
+> T13 focused stabilization and the single authorized certification attempt
+> are recorded below. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`: the
+> broad gates are not all green, and this walkthrough does not claim C3
+> closure or release certification.
 
 ## Current disposition
 
-P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. The implementation snapshot is
-on local `main` at `27d224a5` (`chore: deliver current workspace changes`),
-which had been pushed to `origin/main`. At that earlier delivery, local and
-remote `main` matched and the working tree was clean. Since then, the focused
-producer correction, T6.7 and T7–T8 implementation/tests, and this record have
-accumulated as uncommitted changes on local `main`; `origin/main` still points
-to `27d224a5`. The unrelated `docs/.obsidian/workspace.json` and
-`docs/__unstructured__/Untitled 1.md` edits are preserved. The current tree is
-not clean, and delivery status is not behavioral acceptance.
+P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. At this update, local `main`
+is at `dde05a96`, six commits ahead of `origin/main` (`184a3608`). The current
+uncommitted P4-owned changes are the T13 checkpoint update and localized
+rustfmt-only corrections in six Rust files; the user-edited
+`docs/.obsidian/workspace.json` and `docs/__unstructured__/Untitled 1.md` are
+preserved and excluded from delivery. No push was performed by this
+continuation.
 
-The live repository state was rechecked on 2026-09-28: `HEAD` is
-`27d224a59e92` on local `main`, `origin/main` tracks that commit, and the live
-remote `main` ref also resolves to `27d224a59e92`. P4 changes and this record
-are uncommitted. The supplied architect note references `8268c54e`, which is
-not the revision present in this checkout, so that snapshot is not used in
-place of the verified live state.
+The T13 certification result is incomplete: the one authorized full workspace
+test retry lost its command session after reporting the `phalcom-core --lib`
+target (157 run, 155 passed, 2 failed), with no final Cargo exit summary or
+later target results captured. The repeated exact selectors confirm each
+failure individually; their classifications and the remaining G6 command
+results are in the T13 section below and the checkpoint. No workspace-wide
+pass or release completion is claimed.
 
 The lexical-block implementation remains unchanged. The architect's
 2026-09-28 supplemental ruling under [INC-C3-19](LANG007.C3-CHECKPOINT.md)
@@ -411,33 +410,64 @@ outside this ruling. The existing core
 `isa_is_reflexive_and_superclass_closed` runtime Bool/subclass control passed
 1/1 on supervisor rerun.
 
-## Remaining work, in order
+## T13 — Certification outcome and residual disposition
 
-1. **Continue with T8.6–T12 in plan order.** T8.5 is IMPLEMENTED /
-   FOCUSED_TESTED under the adopted source-domain ruling recorded above.
-   T7.9–T7.11 and
-   T8.1–T8.4 are IMPLEMENTED / FOCUSED_TESTED as recorded above. T6.6's supplemental
-   classifier suite is focused-tested; canonical `corpus::errors` remains
-   BASELINE_BLOCKED—not PASS—at the clean-predecessor fixture error. T6.7,
-   T6.8, and T7.1–T7.11 are complete at focused-test strength; T6.4 remains
-   sequenced after T9/T10. Complete the
-   source-visible structural APIs, runtime zero-product/owner work, metadata
-   and tooling obligations, and the remaining plan acceptance matrix.
-2. **Complete Priority 3 causal/residual disposition.** The separate ledger
-   already classifies all 40 original failures: 35 current regressions, 4 true
-   clean-predecessor baselines, and 1 intentional P4 migration. The later
-   pinned run leaves 37 failures (33 classified regressions plus 4 baselines).
-   Remaining work is causal isolation, remediation/migration decisions, and
-   final residual disposition; the existing classification does not complete
-   T13.
-3. **Run T13 only after its prerequisites.** Map CV-01–CV-47, perform the
-   required search-based census, make the single broad workspace certification
-   attempt, classify residual failures, update the checkpoint, and finish the
-   final P4 walkthrough and handoff. Do not promote P4 or C3 verification based
-   on Git cleanliness or the delivery commit.
+### Focused gates
 
-The [C3 checkpoint](LANG007.C3-CHECKPOINT.md) remains the shared source of truth
-for plan status, verification evidence, and the active next action. The active
-[P4 plan](LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md)
-and [R2 architect ruling](LANG007.C3.P4-R2.md) define the requirements and
-constraints this interim record follows.
+The search-based T13.1 census corrected the effective iterator spec: generic
+Tuple iteration yields `Tuple<***Es>::Element`; only `rawFromList`, `rawSlice`,
+and TupleZip remain documented runtime-shaped Dynamic boundaries. The G1–G4
+focused gates passed as recorded in the checkpoint. G5 focused system,
+indexing, source census, and Universe-bootstrap selectors passed; the two
+required collection aggregates remain encountered failures before migrated
+fixtures (`TakeIterator.toList` and the map-mutation fixture's
+`type.generic.underconstrained`) and are not baseline-certified.
+
+### Broad gates attempted
+
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check --workspace --all-targets` passed
+  with the recorded existing dead-code warning.
+- The first `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test --workspace` attempt
+  stopped at the AST integration target with three stale test-oracle failures;
+  the focused AST oracle and snapshot corrections are committed. One authorized
+  full retry progressed to `phalcom-core --lib` and reported 157 tests, 155
+  passed, 2 failed. The process session was lost before a final Cargo exit
+  summary; no later workspace target results or workspace-wide total are
+  claimed. Exact serial selectors confirmed the two failures:
+  `universe::tests::kernel_option_match_override_reroutes_every_combinator`
+  (1 failed), already recorded as the LANG005.C4 internal generic call-entry
+  failure; and
+  `vm::send::tests::captured_setter_rejects_an_ordinary_positional_rhs_lane`
+  (1 failed). The latter had an earlier LANG004 R1 PASS before c386; c386
+  changed captured-method shape validation. No P4/T13 commit changes that test
+  or `vm/send.rs`, so it is outside P4 causality but not a verified baseline.
+- The single `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy --workspace
+  --all-targets -- -D warnings` attempt exited 101. It reported the
+  `match_like_matches_macro` lint on the pre-P4 `starts_expression` boolean
+  match (P4 only added token alternatives) and pre-P4 type-meta lints
+  `result_large_err`, `manual_range_patterns`, and `op_ref`. No unrelated lint
+  fixes were made.
+- The single `cargo fmt --all -- --check` attempt exited 1 with extensive
+  workspace formatting drift (5,263 output lines). Six identified P4-authored
+  Rust hunk blocks received only localized rustfmt-equivalent edits. Targeted
+  `rustfmt --edition 2024 --check` over
+  `phalcom-ast/src/parser.rs`, `phalcom-core/src/compiler/lib/patterns.rs`,
+  `phalcom-core/src/compiler/lib/scope.rs`,
+  `phalcom-core/src/modules/compile.rs`,
+  `phalcom-core/src/modules/semantic_lowering.rs`, and
+  `phalcom-core/tests/core/language/data_e2e.rs` then passed. The workspace
+  format gate remains unpassed; no broad formatting was applied.
+- Global `git diff --check` exited 2 only on six trailing-whitespace lines in
+  the preserved user edit `docs/__unstructured__/Untitled 1.md`; it was not
+  changed. `docs/.obsidian/workspace.json` was also preserved.
+
+### Final state
+
+G6 is incomplete: the workspace-test retry has unknown scope after the core
+library target, clippy failed, the workspace format gate failed, and the global
+diff check is blocked by the preserved user note. No architectural decision is
+currently requested by this evidence; no unrelated core fix or broad formatting
+change was attempted. P4 and C3 remain `IN_PROGRESS / PARTIAL / UNVERIFIED`,
+not `RELEASE_COMPLETE`. Do not repeat the workspace test or alter the two core
+failure paths without a cause-backed instruction. The checkpoint remains the
+authoritative status record; the current local changes were not pushed.
