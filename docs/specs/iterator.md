@@ -437,7 +437,7 @@ The standard iterable families use the following `Iterable::Item` bindings:
 | `List<T>` | `T` |
 | `Set<T>` | `T` |
 | `Map<K, V>` | `(key: K, value: V)` |
-| `Tuple` | `Dynamic` |
+| `Tuple<***Es: CompleteTypePack>` | `Tuple<***Es>::Element` |
 | `Bytes` | `Int` |
 | `Range` | `Number` |
 
@@ -459,7 +459,11 @@ When retained as one value, the entry preserves its labels and supports the ordi
 
 Key-only and value-only traversal are separate collection views or operations; the Map's own item is the entry.
 
-`Tuple` uses `Dynamic` as its initial common iteration item type. This specification does not define heterogeneous element-union inference.
+Tuple iteration preserves its specialized structural element type through the
+canonical `Tuple<***Es>::Element` member. Runtime-shaped `TupleZip` views remain
+behind their documented dynamic boundary because their lane count and result
+Tuple shape are known only at runtime. This specification does not define an
+alternative heterogeneous element-union inference rule.
 
 ## Protocol boundaries
 

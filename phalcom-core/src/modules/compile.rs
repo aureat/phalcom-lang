@@ -56,11 +56,11 @@ fn add_runtime_trait_environment_roots(
     }
 }
 
-fn inherent_impl_generic_signature<'a>(
+fn inherent_impl_domain_for_callable<'a>(
     snapshot: &'a phalcom_semantic::SemanticSnapshot,
     callable: &phalcom_semantic::identity::CallableId,
     expected_impl: Option<&phalcom_semantic::identity::ImplId>,
-) -> Option<&'a phalcom_semantic::types::parameter::GenericSignature> {
+) -> Option<&'a phalcom_semantic::impls::InherentImplDomain> {
     let phalcom_semantic::impls::CallableDefinitionOrigin::InherentImpl(source_impl) = &snapshot.callable_definitions.get(callable)?.origin else {
         return None;
     };
@@ -73,7 +73,15 @@ fn inherent_impl_generic_signature<'a>(
         .values()
         .flat_map(|members| members.members.iter())
         .find(|member| &member.impl_id == source_impl)
-        .and_then(|member| member.domain.generic_signature.as_ref())
+        .map(|member| member.domain.as_ref())
+}
+
+fn inherent_impl_generic_signature<'a>(
+    snapshot: &'a phalcom_semantic::SemanticSnapshot,
+    callable: &phalcom_semantic::identity::CallableId,
+    expected_impl: Option<&phalcom_semantic::identity::ImplId>,
+) -> Option<&'a phalcom_semantic::types::parameter::GenericSignature> {
+    inherent_impl_domain_for_callable(snapshot, callable, expected_impl).and_then(|domain| domain.generic_signature.as_ref())
 }
 
 /// Entry selection for a program compilation.
@@ -1224,13 +1232,13 @@ impl ProgramCompiler {
                             capability.selection.impl_id
                         ))
                     })?;
-                    let impl_signature = inherent_impl_generic_signature(&analyzed.semantic, callee, Some(&capability.selection.impl_id)).ok_or_else(|| {
+                    let impl_domain = inherent_impl_domain_for_callable(&analyzed.semantic, callee, Some(&capability.selection.impl_id)).ok_or_else(|| {
                         ProgramCompileError::GenericEvidenceLayout(format!(
                             "selected conditional impl {:?} does not match the source impl of callable {:?}",
                             capability.selection.impl_id, callee
                         ))
                     })?;
-                    let signature_obligations = impl_signature
+                    let signature_obligations = impl_domain
                         .constraints
                         .iter()
                         .filter(|constraint| matches!(constraint, phalcom_semantic::types::parameter::GenericConstraint::Conforms { .. }))
@@ -1243,15 +1251,22 @@ impl ProgramCompiler {
                             signature_obligations
                         )));
                     }
-                    let impl_environment = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-                        &impl_signature.constraints,
-                        impl_signature.owner.clone(),
-                        &analyzed.semantic.trait_surfaces,
-                    )
-                    .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
-                    callee_evidence = callee_evidence
-                        .try_compose(&impl_environment, &analyzed.semantic.trait_surfaces)
+                    if let Some(impl_signature) = impl_domain.generic_signature.as_ref() {
+                        let impl_environment = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                            &impl_domain.constraints,
+                            impl_signature.owner.clone(),
+                            &analyzed.semantic.trait_surfaces,
+                        )
                         .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                        callee_evidence = callee_evidence
+                            .try_compose(&impl_environment, &analyzed.semantic.trait_surfaces)
+                            .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                    } else if !impl_domain.constraints.is_empty() {
+                        return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+                            "selected conditional impl {:?} has constraints but no generic signature",
+                            capability.selection.impl_id
+                        )));
+                    }
                 }
                 if let Some(sig) = analyzed.semantic.callable_signatures.get(callee) {
                     if let Some(generics) = &sig.generics {
