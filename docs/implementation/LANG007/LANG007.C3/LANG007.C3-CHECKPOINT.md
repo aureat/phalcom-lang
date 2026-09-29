@@ -43,9 +43,14 @@ next_action: >
   class callable inferred-return publication exists. `Iterator.take` is
   separately blocked by `RecursiveFixpoint`; T13 may not add trait-default
   return inference/publication.
-  The actual-expression gate now uses a canonically known ListIterator receiver
-  (`receiver.toList`) plus an ineligible Int negative control. Both focused
-  source-level selectors passed 1/1. The natural `.iter.take(10).toList`
+  The actual-expression gate uses a canonically known ListIterator receiver
+  (`receiver.toList`) plus an ineligible Int negative control; both selectors
+  passed 1/1. `ordinary_trait_lowering_preserves_exact_and_derived_dispatch_evidence`
+  passed 1/1 and compares the full Exact/Derived semantic selections to compiled
+  `TraitInvocationSpec` products. `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p
+  phalcom-semantic` and `env RUSTFLAGS= RUSTC_WRAPPER= cargo check -p
+  phalcom-core` passed with the existing dead-code warning. The natural
+  `.iter.take(10).toList`
   discriminator remains ignored as BLOCKED by INC-C3-20; it is not acceptance
   evidence. G5 aggregates remain unpassed/uncertified and G6 remains incomplete.
   T13.1 census found and corrected the effective iterator-spec claim: generic
@@ -1650,12 +1655,17 @@ inferred-return publication exists and is outside this ruling; `Iterator.take`
 is additionally blocked by `RecursiveFixpoint`. T13 does not add
 trait-default return inference/publication; that is a separate semantic design
 item. T13's actual-expression gate is amended to use
-a known receiver and a negative ineligible receiver. The canonical-Universe
-ListIterator source test proves `Iterable::toList`, guarded Derived provenance,
-nested Exact Iterator evidence, and rule/nested-proof dependencies; the Int
-control receives no Derived `Iterable::toList` evidence. Each focused selector
-passed 1/1. The natural chain remains ignored as BLOCKED by INC-C3-20. Priority
-3 is unchanged; P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+  a known receiver and a negative ineligible receiver. The canonical-Universe
+  ListIterator source test proves `Iterable::toList`, guarded Derived provenance,
+  nested Exact Iterator evidence, and rule/nested-proof dependencies; the Int
+  control receives no Derived `Iterable::toList` evidence. The new core selector
+  `ordinary_trait_lowering_preserves_exact_and_derived_dispatch_evidence` passed
+  1/1 and verifies full Exact/Derived selection equality between semantic sites
+  and compiled lowering specs. Explicit `cargo check -p phalcom-semantic` and
+  `cargo check -p phalcom-core` passed (one existing dead-code warning each).
+  The natural chain remains ignored as BLOCKED by INC-C3-20. Priority 3 is
+  unchanged; P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. Stop for
+  supervisor review; do not replay G5/G6 or broad workspace gates.
 
 ### INC-C3-20 — unannotated trait-default return blocks actual guarded dispatch — 2026-09-29
 

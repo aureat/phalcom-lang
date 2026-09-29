@@ -421,6 +421,41 @@ required collection aggregates remain encountered failures before migrated
 fixtures (`TakeIterator.toList` and the map-mutation fixture's
 `type.generic.underconstrained`) and are not baseline-certified.
 
+### INC-C3-20 ruling amendment and focused matrix audit
+
+Outcome B is scoped to unannotated trait-default return results: they are not
+published as a canonical return-signature contract consumable by trait
+dispatch. Ordinary class callable inferred-return publication exists;
+`Iterator.take` is separately blocked by `RecursiveFixpoint`. T13 does not add
+trait-default return inference/publication. The natural
+`(0..).iter.take(10).toList` selector is retained as ignored/blocked, not
+acceptance evidence. The ruling amends only the actual-expression gate to a
+canonically known receiver; P4/C3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`,
+and Priority 3 is unchanged.
+
+The ruling's focused matrix is audited against the incident, checkpoint, live
+tests, and lowering source without rerunning selectors:
+
+| Matrix item | Recorded evidence / disposition |
+|---|---|
+| Exact trait default | `trait_dispatch_query_selects_an_exact_trait_default` — 1/1 PASS; asserts Exact evidence and `TraitDefault`. |
+| Concrete guarded Derived | `trait_dispatch_query_accepts_guarded_derived_evidence_without_broadening_ineligible_receivers` — 1/1 PASS; `GuardedRule` and nested Exact proof. The known source receiver is additionally covered by `known_list_iterator_source_receiver_gets_guarded_iterable_to_list_evidence` — 1/1 PASS. |
+| Symbolic constrained Derived | `symbolic_assumed_iterator_dispatches_guarded_derived_iterable_default` — 1/1 PASS; `Caller<I> where I |= Iterator`, Derived proof with nested Assumed evidence. |
+| Ineligible known receiver | `known_non_iterator_source_receiver_does_not_get_derived_iterable_dispatch` — 1/1 PASS; known Int receives no Derived `Iterable::toList`. The semantic concrete test also checks an unsatisfied receiver and an unrelated same-selector trait. |
+| Coherence conflict | `trait_dispatch_does_not_hide_canonical_coherence_conflict_behind_another_selector_candidate` — 1/1 PASS; canonical exact-plus-derived Iterable conflict remains visible beside another same-selector trait. |
+| Actual known-receiver expression | `known_list_iterator_source_receiver_gets_guarded_iterable_to_list_evidence` — 1/1 PASS; source `[1, 2].iterator` supplies a known ListIterator for `receiver.toList`. |
+| Proof/dependency capture | Same known-receiver selector asserts canonical Iterable owner/selector, `TraitDispatchSite::Evidenced`, guarded rule/source identity, exact subject/ref, nested Exact Iterator proof, and guarded/nested conformance plus trait-surface dependencies. |
+| Exact lowering projection without proof search | `ordinary_trait_lowering_preserves_exact_and_derived_dispatch_evidence` — 1/1 PASS; compiles the analyzed source and compares the complete Exact semantic selection to the entry module's `TraitInvocationSpec` at the same source range. `semantic_lowering.rs:1338` clones the already selected `Evidenced` product; `:1523` projects Exact iteration evidence. Existing `trait_evidenced_default_and_witness_execute_without_target_installation` also exercises an exact default at runtime. |
+| Derived lowering projection without proof search | Same new selector — 1/1 PASS; compares the complete GuardedRule Derived selection, including nested Exact evidence, to the lowered spec at the `receiver.toList` range. Ordinary lowering clones the selected product at `semantic_lowering.rs:1338`; the Exact/Derived iteration paths at `:1523`/`:1552` likewise project supplied evidence and do not call a resolver. |
+| `cargo check -p phalcom-semantic` | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic` — PASS; one existing `apply_type_form_with_arena` dead-code warning. |
+| `cargo check -p phalcom-core` | `env RUSTFLAGS= RUSTC_WRAPPER= cargo check -p phalcom-core` — PASS; same existing dead-code warning. |
+
+The §13 focused matrix is now recorded as satisfied. Stop for supervisor review
+before further T13 work. G5 collection aggregates remain unpassed/uncertified,
+G6 remains incomplete, and this focused result does not mark T13 or P4 complete.
+Do not replay G5, G6, workspace tests, or broad lint/format gates under the
+ruling.
+
 ### Broad gates attempted
 
 - `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check --workspace --all-targets` passed

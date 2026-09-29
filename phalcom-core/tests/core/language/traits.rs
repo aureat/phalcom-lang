@@ -75,6 +75,88 @@ let result = Caller.new().run(User.new())
 }
 
 #[test]
+fn ordinary_trait_lowering_preserves_exact_and_derived_dispatch_evidence() {
+    let source = r#"
+trait ExactTag { value -> Int { 1 } }
+class ExactReceiver {}
+impl ExactTag for ExactReceiver {}
+
+class Caller {
+  inspect(_ exact: ExactReceiver) -> Int {
+    let exactValue = exact.value
+    let receiver = [1, 2].iterator
+    let list = receiver.toList
+    exactValue + list.size
+  }
+}
+"#;
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source)))
+        .expect("canonical Universe source should analyze");
+    assert!(
+        !analyzed.semantic.has_errors(),
+        "semantic diagnostics: {:#?}",
+        analyzed.semantic.diagnostics
+    );
+
+    let find_selection = |occurrence: &str| {
+        analyzed
+            .semantic
+            .callable_analyses
+            .iter()
+            .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+            .flat_map(|(_, analysis)| analysis.expressions.values())
+            .find_map(|expression| {
+                if source.get(expression.range.start..expression.range.end)? != occurrence {
+                    return None;
+                }
+                match expression.trait_dispatch.as_ref()? {
+                    phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) => {
+                        Some((expression.range, selection))
+                    }
+                    _ => None,
+                }
+            })
+            .unwrap_or_else(|| panic!("missing evidenced trait dispatch at {occurrence}"))
+    };
+
+    let (exact_range, exact_selection) = find_selection("exact.value");
+    assert!(matches!(
+        &exact_selection.evidence,
+        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_)
+    ));
+    let (derived_range, derived_selection) = find_selection("receiver.toList");
+    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived_evidence) =
+        &derived_selection.evidence
+    else {
+        panic!("expected guarded Derived semantic evidence, got {:#?}", derived_selection.evidence);
+    };
+    assert!(matches!(
+        &derived_evidence.origin,
+        phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule { .. }
+    ));
+
+    let compiled = ProgramCompiler::compile_analyzed(&analyzed).expect("selected trait dispatches lower");
+    let lowering = &compiled.modules[&analyzed.entry].lowering;
+    for (range, expected_selection) in [
+        (exact_range, exact_selection),
+        (derived_range, derived_selection),
+    ] {
+        let spec = lowering
+            .trait_invocations
+            .iter()
+            .find_map(|(site, spec)| {
+                (site.range == range && site.kind == phalcom_core::modules::semantic_lowering::LoweringSiteKind::TraitInvoke)
+                    .then_some(spec)
+            })
+            .unwrap_or_else(|| panic!("missing TraitInvocationSpec at {range:?}"));
+        assert_eq!(
+            &spec.selection, expected_selection,
+            "lowering must preserve the complete canonical selection and evidence"
+        );
+    }
+}
+
+#[test]
 fn trait_evidenced_bound_reference_executes_detached_default() {
     let source = r#"
 trait Identified {

@@ -16,7 +16,10 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
   return inference/publication. The actual
   guarded-dispatch gate is amended to an analyzed `receiver.toList` over a
   canonically known ListIterator, plus an ineligible Int receiver control.
-  Both focused selectors passed 1/1. The natural
+  Both focused selectors passed 1/1. `ordinary_trait_lowering_preserves_exact_and_derived_dispatch_evidence`
+  passed 1/1 and verifies Exact and GuardedRule Derived selections survive
+  unchanged into compiled `TraitInvocationSpec`s. Both explicit semantic/core
+  crate checks passed with the existing dead-code warning. The natural
   `(0..).iter.take(10).toList` discriminator remains ignored as
   `BLOCKED by INC-C3-20`; it is not T13 acceptance evidence. Priority 3 is
   unchanged.
@@ -42,7 +45,7 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 - `/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core/src/vm/send.rs::VM::validate_captured_method_shape` and `captured_setter_rejects_an_ordinary_positional_rhs_lane` — post-c386 discrepancy; no P4 path change found.
 
 ## Resume plan
-1. Continue only the supervisor-authorized remaining T13 work from the active plan/checkpoint. The INC-C3-20 return-inference question is resolved; do not reopen it inside T13.
+1. Stop for supervisor review of the now-recorded §13 focused matrix. The INC-C3-20 return-inference question is resolved; do not reopen it inside T13. G5 collection aggregates and G6 remain incomplete; do not replay them without new authorization.
 2. Keep the natural iterator chain blocked and ignored; do not infer a receiver type in dispatch or edit library/fixture/VM behavior to make it pass.
 3. Preserve all user edits and keep P4 verification `UNVERIFIED` until evidence meets the plan's named certification criteria. G5 aggregates and G6 remain incomplete; no T13/P4 completion claim is supported.
 
