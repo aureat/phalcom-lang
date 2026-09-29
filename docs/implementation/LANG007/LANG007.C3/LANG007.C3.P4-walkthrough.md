@@ -450,11 +450,13 @@ tests, and lowering source without rerunning selectors:
 | `cargo check -p phalcom-semantic` | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic` — PASS; one existing `apply_type_form_with_arena` dead-code warning. |
 | `cargo check -p phalcom-core` | `env RUSTFLAGS= RUSTC_WRAPPER= cargo check -p phalcom-core` — PASS; same existing dead-code warning. |
 
-The §13 focused matrix is now recorded as satisfied. Stop for supervisor review
-before further T13 work. G5 collection aggregates remain unpassed/uncertified,
-G6 remains incomplete, and this focused result does not mark T13 or P4 complete.
-Do not replay G5, G6, workspace tests, or broad lint/format gates under the
-ruling.
+The §13 focused matrix is satisfied and supervisor-reviewed; stop at the
+architect ruling §15 boundary. G5 collection aggregates remain
+unpassed/uncertified, G6 remains incomplete, and the natural chain remains
+blocked/ignored. P4/C3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; this focused
+matrix does not mark T13 or P4 complete. No further broad, corpus, or workspace
+rerun, and no trait-default return inference, is authorized under this ruling.
+Crossing the boundary requires new user or architect authorization.
 
 ### Broad gates attempted
 

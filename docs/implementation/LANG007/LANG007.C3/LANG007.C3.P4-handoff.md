@@ -45,9 +45,9 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 - `/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core/src/vm/send.rs::VM::validate_captured_method_shape` and `captured_setter_rejects_an_ordinary_positional_rhs_lane` — post-c386 discrepancy; no P4 path change found.
 
 ## Resume plan
-1. Stop for supervisor review of the now-recorded §13 focused matrix. The INC-C3-20 return-inference question is resolved; do not reopen it inside T13. G5 collection aggregates and G6 remain incomplete; do not replay them without new authorization.
+1. The §13 focused matrix is satisfied and supervisor-reviewed; stop at the architect ruling §15 boundary. INC-C3-20 is resolved as Outcome B for unannotated trait-default returns; do not add trait-default return inference. G5 collection aggregates remain unpassed/uncertified and G6 remains incomplete. No further broad, corpus, or workspace rerun is authorized under this ruling. Crossing the boundary requires new user or architect authorization.
 2. Keep the natural iterator chain blocked and ignored; do not infer a receiver type in dispatch or edit library/fixture/VM behavior to make it pass.
-3. Preserve all user edits and keep P4 verification `UNVERIFIED` until evidence meets the plan's named certification criteria. G5 aggregates and G6 remain incomplete; no T13/P4 completion claim is supported.
+3. Preserve all user edits and keep P4/C3 `IN_PROGRESS / PARTIAL / UNVERIFIED`; G5 aggregates remain unpassed/uncertified and G6 incomplete. No T13/P4 completion claim is supported.
 
 ## Do not re-explore
 - The T13.1 iterator census, G1–G5 focused selector results, T12.6 incremental matrix, and T12.7 editor matrix are already recorded in the checkpoint.

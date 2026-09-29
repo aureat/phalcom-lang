@@ -52,7 +52,12 @@ next_action: >
   phalcom-core` passed with the existing dead-code warning. The natural
   `.iter.take(10).toList`
   discriminator remains ignored as BLOCKED by INC-C3-20; it is not acceptance
-  evidence. G5 aggregates remain unpassed/uncertified and G6 remains incomplete.
+  evidence. G5 collection aggregates remain unpassed/uncertified and G6 remains
+  incomplete. The §13 focused matrix is satisfied and supervisor-reviewed;
+  stop at the architect ruling §15 boundary. No further broad, corpus, or
+  workspace rerun, and no trait-default return inference, is authorized under
+  this ruling. Crossing that boundary requires new user or architect
+  authorization. T13/P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
   T13.1 census found and corrected the effective iterator-spec claim: generic
   Tuple iteration yields `Tuple<***Es>::Element`; only runtime-shaped
   `rawFromList`, `rawSlice`, and TupleZip APIs remain Dynamic. G1 AST/parser/
@@ -1663,9 +1668,13 @@ item. T13's actual-expression gate is amended to use
   1/1 and verifies full Exact/Derived selection equality between semantic sites
   and compiled lowering specs. Explicit `cargo check -p phalcom-semantic` and
   `cargo check -p phalcom-core` passed (one existing dead-code warning each).
-  The natural chain remains ignored as BLOCKED by INC-C3-20. Priority 3 is
-  unchanged; P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. Stop for
-  supervisor review; do not replay G5/G6 or broad workspace gates.
+  The natural chain remains blocked/ignored under INC-C3-20. Priority 3 is
+  unchanged; P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. The §13 focused
+  matrix is satisfied and supervisor-reviewed; stop at architect ruling §15.
+  G5 collection aggregates remain unpassed/uncertified and G6 incomplete. No
+  further broad, corpus, or workspace rerun, and no trait-default return
+  inference, is authorized under this ruling. Crossing this boundary requires
+  new user or architect authorization.
 
 ### INC-C3-20 — unannotated trait-default return blocks actual guarded dispatch — 2026-09-29
 
