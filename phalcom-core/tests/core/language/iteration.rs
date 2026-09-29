@@ -25,6 +25,7 @@ let result = next.isSome and iterated == 2
 }
 
 #[test]
+#[ignore = "BLOCKED by INC-C3-20: Iterable.iter's published call result remains Unknown(UnannotatedDeclaration), so the natural chain never reaches guarded toList applicability"]
 fn unbounded_take_to_list_keeps_guarded_iterable_dispatch_evidence() {
     let source = r#"
 class Caller {
@@ -80,6 +81,143 @@ class Caller {
         &derived.origin,
         phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule { .. }
     ));
+}
+
+#[test]
+fn known_list_iterator_source_receiver_gets_guarded_iterable_to_list_evidence() {
+    let source = r#"
+class Caller {
+  inspect -> Int {
+    let receiver = [1, 2].iterator
+    receiver.toList.size
+    0
+  }
+}
+"#;
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical Universe source should analyze");
+    assert!(!analyzed.semantic.has_errors(), "semantic diagnostics: {:#?}", analyzed.semantic.diagnostics);
+
+    let (callable, callable_analysis, text, selection) = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+        .find_map(|(callable, analysis)| {
+            analysis.expressions.values().find_map(|expression| {
+                let text = source.get(expression.range.start..expression.range.end)?;
+                if text != "receiver.toList" {
+                    return None;
+                }
+                let phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) = expression.trait_dispatch.as_ref()? else {
+                    return None;
+                };
+                Some((callable, analysis, text, selection))
+            })
+        })
+        .expect("the actual receiver.toList expression must publish evidenced trait dispatch");
+
+    assert_eq!(selection.requirement.selector.encode(), "toList");
+    assert_eq!(selection.requirement.owner.name, "Iterable".into());
+    assert!(matches!(
+        selection.selection,
+        phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
+    ));
+
+    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) = &selection.evidence else {
+        panic!("expected canonical guarded Derived evidence, got {:#?}", selection.evidence);
+    };
+    let phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule {
+        rule,
+        exact_subject,
+        exact_trait_ref,
+    } = &derived.origin
+    else {
+        panic!("expected the guarded Iterator => Iterable rule, got {:#?}", derived.origin);
+    };
+    assert_eq!(rule.impl_id, selection.source_impl);
+    assert_eq!(exact_trait_ref.declaration, selection.requirement.owner);
+    assert_eq!(*exact_subject, selection.exact_target);
+    assert!(matches!(
+        derived.nested.as_ref(),
+        [phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_)
+        )]
+    ));
+
+    let dependencies = &callable_analysis.semantic_dependencies;
+    assert!(
+        dependencies.contains(&phalcom_semantic::checker::analysis::SemanticDependency::ConformanceDispatch(
+            rule.impl_id.clone()
+        ))
+    );
+    assert!(dependencies.contains(&phalcom_semantic::checker::analysis::SemanticDependency::TraitSurface(
+        exact_trait_ref.declaration.clone()
+    )));
+    let nested_exact = match derived.nested.as_ref() {
+        [
+            phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(
+                exact,
+            )),
+        ] => exact,
+        other => panic!("expected exactly one nested exact Iterator proof, got {other:#?}"),
+    };
+    assert!(
+        dependencies.contains(&phalcom_semantic::checker::analysis::SemanticDependency::ConformanceDispatch(
+            nested_exact.source_impl.clone()
+        ))
+    );
+    assert!(dependencies.contains(&phalcom_semantic::checker::analysis::SemanticDependency::TraitSurface(
+        nested_exact.exact_trait_ref.declaration.clone()
+    )));
+
+    assert_eq!(text, "receiver.toList");
+    let receiver_origin = match analyzed.semantic.store.get(selection.exact_target) {
+        phalcom_semantic::types::TypeData::Applied { origin, .. } => *origin,
+        other => panic!("expected a known applied ListIterator receiver, got {other:?}"),
+    };
+    let phalcom_semantic::types::TypeData::Nominal {
+        declaration: receiver_declaration,
+    } = analyzed.semantic.store.get(receiver_origin)
+    else {
+        panic!(
+            "expected a nominal ListIterator origin, got {:#?}",
+            analyzed.semantic.store.get(receiver_origin)
+        );
+    };
+    assert_eq!(receiver_declaration.name, "ListIterator".into());
+    assert!(callable.owner.module() == &analyzed.entry);
+}
+
+#[test]
+fn known_non_iterator_source_receiver_does_not_get_derived_iterable_dispatch() {
+    let source = r#"
+class Caller {
+  inspect -> Int {
+    let receiver: Int = 1
+    receiver.toList
+    0
+  }
+}
+"#;
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical Universe source should analyze");
+    let expression = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+        .flat_map(|(_, analysis)| analysis.expressions.values())
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("receiver.toList"))
+        .expect("the negative-control source expression is analyzed");
+    assert!(
+        !matches!(
+            expression.trait_dispatch.as_ref(),
+            Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection))
+                if selection.requirement.owner.name == "Iterable".into()
+                    && selection.requirement.selector.encode() == "toList"
+                    && matches!(selection.evidence, phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(_))
+        ),
+        "an ineligible known Int receiver must not acquire Derived Iterable::toList evidence: {expression:#?}"
+    );
 }
 
 #[test]

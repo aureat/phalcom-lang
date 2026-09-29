@@ -3980,11 +3980,33 @@ dispatch-local proof solver/index authority, change language meaning or the
 compiler/VM ABI, install trait defaults on concrete classes, or alter Priority
 3 classifications. Preserve existing ambiguity/coherence and inherent-override
 behavior. Focused acceptance includes the guarded
-`Iterator => Iterable` rule for concrete `TakeIterator`, symbolic
-`I where I |= Iterator`, guard rejection, unrelated same-selector traits,
-nested derivation, ambiguous/coherent overlap, and the expression-level
-`.take(10).toList` path. Keep P4/C3 status `IN_PROGRESS / PARTIAL / UNVERIFIED`
-until the named evidence is complete.
+`Iterator => Iterable` rule for concrete and symbolic receivers, guard
+rejection, unrelated same-selector traits, nested derivation,
+ambiguous/coherent overlap, and an actual source expression calling
+`receiver.toList` on a canonically known Iterator receiver. The natural
+`(0..).iter.take(10).toList` chain is a separate blocked integration
+discriminator under INC-C3-20, not a passing T13 gate. Keep P4/C3 status
+`IN_PROGRESS / PARTIAL / UNVERIFIED` until the named evidence is complete.
+
+### Adopted INC-C3-20 disposition — Outcome B and known-receiver gate — 2026-09-29
+
+The bounded callable-result census established Outcome B for unannotated
+trait-default bodies: their return results are not currently published as a
+canonical return-signature contract consumable by trait dispatch. Ordinary
+class callable inferred-return publication exists and is outside this ruling.
+`Iterator.take` is additionally blocked by `RecursiveFixpoint`. T13 must not
+introduce trait-default return-signature inference/publication. That requires a
+separate semantic design/remediation item covering publication, generic/Self
+substitution, recursion, dependencies, metadata, and cold/incremental behavior.
+
+The T13 actual-expression gate is amended to analyze `receiver.toList` where
+the receiver's concrete Iterator type is already known from a canonical source
+signature, and to include an ineligible known-receiver negative control. It
+must assert canonical `Iterable::toList`, `TraitDispatchSite::Evidenced`, the
+guarded Derived rule/provenance, and recorded proof dependencies. The natural
+`(0..).iter.take(10).toList` discriminator remains in the suite but is ignored
+as `BLOCKED by INC-C3-20`; it is not acceptance evidence. Priority 3 remains
+unchanged, and P4/C3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 
 ### Preconditions
 

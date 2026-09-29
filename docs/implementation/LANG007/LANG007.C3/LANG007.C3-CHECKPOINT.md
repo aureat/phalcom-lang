@@ -37,8 +37,17 @@ next_action: >
   T12.7 is IMPLEMENTED / FOCUSED_TESTED across commits `a66b8906`,
   `a9e584b7`, and `8727d5df`; its source-index, navigation, completion, and
   syntax-token selectors each passed 1/1. T12.8 normative spec convergence is
-  IMPLEMENTED / documentation-only; no Cargo tests were run. T13 is active,
-  with INC-C3-20 OPEN pending architectural direction.
+  IMPLEMENTED / documentation-only; no Cargo tests were run. T13 is active.
+  INC-C3-20 ruling is adopted with Outcome B: unannotated trait-default return
+  results are not a canonical contract consumable by trait dispatch; ordinary
+  class callable inferred-return publication exists. `Iterator.take` is
+  separately blocked by `RecursiveFixpoint`; T13 may not add trait-default
+  return inference/publication.
+  The actual-expression gate now uses a canonically known ListIterator receiver
+  (`receiver.toList`) plus an ineligible Int negative control. Both focused
+  source-level selectors passed 1/1. The natural `.iter.take(10).toList`
+  discriminator remains ignored as BLOCKED by INC-C3-20; it is not acceptance
+  evidence. G5 aggregates remain unpassed/uncertified and G6 remains incomplete.
   T13.1 census found and corrected the effective iterator-spec claim: generic
   Tuple iteration yields `Tuple<***Es>::Element`; only runtime-shaped
   `rawFromList`, `rawSlice`, and TupleZip APIs remain Dynamic. G1 AST/parser/
@@ -310,13 +319,19 @@ next_action: >
   show a Unit binding or class-count regression.
   Keep `corpus::bytes` unclear/nonblocking. Priority 3 categorical classification
   is already recorded; causal isolation, remediation/migration decisions, and
-  residual disposition remain. INC-C3-20 is OPEN: the required actual
-  `.iter.take(10).toList` semantic product is absent because chained receiver
-  types remain `Unknown(UnannotatedDeclaration)` after the unannotated
-  `Iterable.iter` default. T13/P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED;
-  Priority 3 is unchanged. No runtime fixture or `corpus::collections` run was
-  performed.
-blocker: INC-C3-20 awaits direction on canonical return-signature inference/publication for unannotated trait-default chains.
+  residual disposition remain. INC-C3-20 ruling is adopted: Outcome B applies
+  to unannotated trait-default returns, whose results are not a canonical
+  contract consumable by trait dispatch; ordinary class callable inferred
+  returns exist, and `Iterator.take` is separately blocked by
+  `RecursiveFixpoint`. T13 does not add trait-default return inference/
+  publication; further work requires separate semantic design. The natural
+  `.iter.take(10).toList` expression still has
+  `Unknown(UnannotatedDeclaration)` after `Iterable.iter` and remains blocked.
+  T13's amended known-receiver gate passes its positive and negative source-level
+  selectors. T13/P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED; Priority 3
+  is unchanged. No runtime fixture, `corpus::collections`, workspace test, or
+  broad certification gate was run for this amendment.
+blocker: INC-C3-20 natural iterator-chain integration remains blocked under Outcome B; no T13 return-inference expansion is authorized.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1621,21 +1636,40 @@ Constraints: add no proof solver or dispatch-local proof authority. Preserve
 Verification required: exact and derived trait defaults, concrete and symbolic
   receivers, unsatisfied guards, unrelated same-selector traits, nested proof
   provenance, ambiguity/exact-derived overlap, inherent precedence, actual
-  `.take(10).toList` evidence, and focused invalidation if supported by the
-  existing dependency graph.
+  `receiver.toList` evidence for a canonically known Iterator receiver with an
+  ineligible known-receiver control, and focused invalidation if supported by
+  the existing dependency graph. The natural `.iter.take(10).toList` chain is
+  separately blocked under INC-C3-20 and is not an acceptance gate.
+
+### Adopted INC-C3-20 ruling — Outcome B / known-receiver gate — 2026-09-29
+
+The bounded callable-result census established Outcome B for unannotated
+trait-default bodies: their return results are not a canonical published
+return-signature contract consumable by trait dispatch. Ordinary class callable
+inferred-return publication exists and is outside this ruling; `Iterator.take`
+is additionally blocked by `RecursiveFixpoint`. T13 does not add
+trait-default return inference/publication; that is a separate semantic design
+item. T13's actual-expression gate is amended to use
+a known receiver and a negative ineligible receiver. The canonical-Universe
+ListIterator source test proves `Iterable::toList`, guarded Derived provenance,
+nested Exact Iterator evidence, and rule/nested-proof dependencies; the Int
+control receives no Derived `Iterable::toList` evidence. Each focused selector
+passed 1/1. The natural chain remains ignored as BLOCKED by INC-C3-20. Priority
+3 is unchanged; P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 ### INC-C3-20 — unannotated trait-default return blocks actual guarded dispatch — 2026-09-29
 
-Status: OPEN; implementation stopped for architectural direction. See
+Status: RULING ADOPTED; Outcome B established, with natural integration still
+BLOCKED. See
 [`INC-C3-20.md`](INC-C3-20.md) for the required incident packet. The actual
-inline-method selector fails 1/1: `Iterable::iter` is selected exactly, but
+inline-method selector historically failed 1/1: `Iterable::iter` is selected exactly, but
 its unannotated default return remains `Unknown(UnannotatedDeclaration)`, so
 the `.take(10).toList` receiver products remain unknown and no
 `Iterable::toList` evidence is published. Exact default, concrete guarded,
 symbolic guarded, coherence, and core compile selectors pass. No runtime
-fixture or aggregate collection test was run. The requested decision is
-whether T13 may include canonical body-inferred return-signature publication
-or should separate/amend the actual-expression gate. Priority 3 and overall
+fixture or aggregate collection test was run for the ruling amendment. The
+adopted disposition forbids return-signature inference in T13 and replaces the
+acceptance expression with a known-receiver source gate. Priority 3 and overall
 P4/C3 verification remain unchanged.
 
 Use entries:

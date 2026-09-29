@@ -9,8 +9,20 @@
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Branch: `main`
 - Starting revision: `d99ee4d3b9ede47acab171c12221677ca8fa6adc`
-- Current revision: `d99ee4d3b9ede47acab171c12221677ca8fa6adc`
+- Current revision: `c687bf9e25e72b42beb4da0e708db47288e0eda8` (continuation baseline; incident started at the revision below)
 - Commits made for this incident: none
+
+## 1a. Adopted disposition — 2026-09-29
+
+The architect ruling is adopted. The bounded return-product census established
+Outcome B: unannotated trait-default body returns are not currently published
+as a canonical return-signature contract consumable by trait dispatch. This is
+not a claim about ordinary class callables, whose inferred-return publication
+exists. T13 is not authorized to add trait-default return inference/publication.
+The `Iterator.take` body is additionally blocked by `RecursiveFixpoint`. Keep the natural
+iterator-chain discriminator blocked and use the amended known-receiver
+source-expression gate for T13 guarded-dispatch acceptance. Priority 3 is
+unchanged; P4/C3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 
 ## 2. Escalation trigger
 
@@ -133,9 +145,11 @@ Focused passing evidence:
 
 Focused failing evidence:
 
-- `unbounded_take_to_list_keeps_guarded_iterable_dispatch_evidence` — selected
-  1, failed because no `Iterable::toList` evidence product exists; actual chain
-  and Unknown knowledge are recorded above.
+- Historical pre-ruling run of
+  `unbounded_take_to_list_keeps_guarded_iterable_dispatch_evidence` selected 1
+  and failed because no `Iterable::toList` evidence product exists; actual
+  chain and Unknown knowledge are recorded above. The test is now retained as
+  ignored with a blocked reason and is not acceptance evidence.
 
 The first command variant included `--exact` and selected zero tests; it is not
 counted as evidence. The non-exact focused selector above selected one test.
@@ -181,12 +195,40 @@ applicability. Changing how that signature is inferred/published may alter
 canonical semantic products, dependency/invalidation behavior, and downstream
 consumers; that scope was not authorized by the adopted T13 ruling.
 
-## 14. Decision requested
+## 14. Decision disposition
 
-May T13 expand into canonical return-signature inference/publication for
-unannotated trait-default chains so the required actual-expression gate can
-obtain its receiver type, or should that gate be separated/amended while T13
-remains limited to dispatch over already-known receiver types?
+The ruling answers the original request: Outcome B is established for
+unannotated trait-default bodies, so T13 must not add canonical inferred-return
+publication for that category. Ordinary class callable inference is outside
+this disposition. Trait-default return publication requires a separate
+semantic design/remediation item. T13's actual
+expression gate is instead amended to exercise `receiver.toList` where the
+receiver's concrete Iterator type is already canonically known, plus a known
+ineligible receiver negative control. The natural iterator chain remains
+blocked, not deleted or rewritten.
 
-Do not resolve this by guessing a type in trait dispatch, editing the library
-or fixture, special-casing `TakeIterator`, or changing VM search behavior.
+Do not resolve the natural chain by guessing in trait dispatch, editing library
+or fixture semantics, special-casing `TakeIterator`, propagating dispatch
+through Unknown, or changing VM search behavior.
+
+## 20. Known-receiver gate evidence — 2026-09-29
+
+The amended source-level positive uses `[1, 2].iterator`, whose explicit
+canonical `List<T>::iterator -> ListIterator<T>` signature supplies the
+concrete receiver type. The expression `receiver.toList` publishes canonical
+`Iterable::toList` as `TraitDispatchSite::Evidenced`; evidence is Derived from
+the guarded `Iterator => Iterable` rule, retains the nested Exact Iterator
+proof, and the callable records both the guarded rule and nested conformance
+dependencies. A source-level Int receiver is the negative control and receives
+no Derived `Iterable::toList` evidence.
+
+Focused selectors, each selected 1 and passed:
+
+- `known_list_iterator_source_receiver_gets_guarded_iterable_to_list_evidence`
+- `known_non_iterator_source_receiver_does_not_get_derived_iterable_dispatch`
+
+The natural-chain selector selected 1 but was ignored with
+`BLOCKED by INC-C3-20`. No runtime fixture, `corpus::collections`, workspace
+test, or broad certification gate was run for this amendment. No production
+semantic/compiler/VM code, Universe source, fixture source, or Priority 3
+classification changed.

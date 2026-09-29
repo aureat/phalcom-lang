@@ -8,8 +8,20 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 
 ## Current state
 - Status: T1–T12 evidence and G1–G5 focused selector results/dispositions are recorded; the G5 collection aggregates remain unpassed/uncertified. G6 is incomplete and P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+- INC-C3-20's architect ruling is adopted with Outcome B for unannotated
+  trait-default returns: they are not a canonical return-signature contract
+  consumable by trait dispatch. Ordinary class callable inferred-return
+  publication exists and is outside this ruling; `Iterator.take` is separately
+  blocked by `RecursiveFixpoint`. T13 may not add trait-default
+  return inference/publication. The actual
+  guarded-dispatch gate is amended to an analyzed `receiver.toList` over a
+  canonically known ListIterator, plus an ineligible Int receiver control.
+  Both focused selectors passed 1/1. The natural
+  `(0..).iter.take(10).toList` discriminator remains ignored as
+  `BLOCKED by INC-C3-20`; it is not T13 acceptance evidence. Priority 3 is
+  unchanged.
 - The one authorized workspace-test retry was run after correcting three stale AST test/snapshot oracles. Its process session disappeared after `phalcom-core --lib` reported 157 run, 155 passed, 2 failed. There is no captured final Cargo exit summary or evidence about later workspace targets. Do not describe this as a workspace-wide test total.
-- After the scoped T13 delivery, only the two preserved user paths remain modified. Do not edit or stage `docs/.obsidian/workspace.json` or `docs/__unstructured__/Untitled 1.md`.
+- The current INC-C3-20 amendment touches only its incident/checkpoint/plan/handoff records and the focused core test. The staged-and-unstaged user change `docs/specs/tuple-and-record-typing.md` is also preserved; do not edit or stage that file, `docs/.obsidian/workspace.json`, or `docs/__unstructured__/Untitled 1.md`.
 - No push was performed in this continuation.
 
 ## Evidence and decisions
@@ -30,9 +42,9 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 - `/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core/src/vm/send.rs::VM::validate_captured_method_shape` and `captured_setter_rejects_an_ordinary_positional_rhs_lane` — post-c386 discrepancy; no P4 path change found.
 
 ## Resume plan
-1. Read the current checkpoint and this handoff; do not repeat the workspace test or rerun unchanged broad gates.
-2. Obtain supervisor direction on whether any further G6 investigation is required. If asked to investigate either core failure, start with its recorded origin and a bounded causal check; do not weaken semantics or change expected results speculatively.
-3. Preserve all user edits and keep P4 verification `UNVERIFIED` until evidence meets the plan's named certification criteria.
+1. Continue only the supervisor-authorized remaining T13 work from the active plan/checkpoint. The INC-C3-20 return-inference question is resolved; do not reopen it inside T13.
+2. Keep the natural iterator chain blocked and ignored; do not infer a receiver type in dispatch or edit library/fixture/VM behavior to make it pass.
+3. Preserve all user edits and keep P4 verification `UNVERIFIED` until evidence meets the plan's named certification criteria. G5 aggregates and G6 remain incomplete; no T13/P4 completion claim is supported.
 
 ## Do not re-explore
 - The T13.1 iterator census, G1–G5 focused selector results, T12.6 incremental matrix, and T12.7 editor matrix are already recorded in the checkpoint.
