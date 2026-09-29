@@ -26,7 +26,7 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 - The one authorized workspace-test retry was run after correcting three stale AST test/snapshot oracles. Its process session disappeared after `phalcom-core --lib` reported 157 run, 155 passed, 2 failed. There is no captured final Cargo exit summary or evidence about later workspace targets. Do not describe this as a workspace-wide test total.
 - The current INC-C3-20 amendment touches only its incident/checkpoint/plan/handoff records and the focused core test. The staged-and-unstaged user change `docs/specs/tuple-and-record-typing.md` is also preserved; do not edit or stage that file, `docs/.obsidian/workspace.json`, or `docs/__unstructured__/Untitled 1.md`.
 - The focused-matrix/checkpoint/handoff/walkthrough update was pushed to `main` at `5b629c8f5f04b275cafa7726bb3f4ce5a60e5173`; `main` matched `origin/main` at that point. The user spec edit remains `AM` and untouched.
-- INC-C3-21 is adopted and its companion [LANG007.C3.P4.R1 plan](LANG007.C3.P4.R1-canonical-inferred-result-contracts.md) is the active next scope, separate from T13. Start with the read-only T1 census; production edits wait for supervisor review. The ruling does not authorize broad G5/G6/workspace certification.
+- INC-C3-21 is adopted and its companion [LANG007.C3.P4.R1 plan](LANG007.C3.P4.R1-canonical-inferred-result-contracts.md) is the active next scope, separate from T13. T1's read-only source census is complete and supervisor-reviewed; proceed to T2 under its shared-signature/no-parallel-result-state guardrails. The ruling does not authorize broad G5/G6/workspace certification.
 
 ## Evidence and decisions
 - `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check --workspace --all-targets` — PASS, with one existing dead-code warning.
@@ -46,7 +46,7 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 - `/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core/src/vm/send.rs::VM::validate_captured_method_shape` and `captured_setter_rejects_an_ordinary_positional_rhs_lane` — post-c386 discrepancy; no P4 path change found.
 
 ## Resume plan
-1. The §13 focused matrix is satisfied and supervisor-reviewed. INC-C3-20 remains Outcome B for T13: do not fold trait-default return inference into T13. INC-C3-21 separately authorizes P4.R1; continue with T1 and wait for supervisor review before production edits. Broad G5/G6 remains outside this scope.
+1. The §13 focused matrix is satisfied and supervisor-reviewed. INC-C3-20 remains Outcome B for T13: do not fold trait-default return inference into T13. INC-C3-21 separately authorizes P4.R1; T1 identified the absent `CallableSignatureTable` entry as the refresh skip. Continue with T2 without introducing duplicate inferred-result state. Broad G5/G6 remains outside this scope.
 2. Keep the natural iterator chain blocked and ignored; do not infer a receiver type in dispatch or edit library/fixture/VM behavior to make it pass.
 3. Preserve all user edits and keep P4/C3 `IN_PROGRESS / PARTIAL / UNVERIFIED`; G5 aggregates remain unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored. Priority 3 is unchanged. No T13/P4 completion claim is supported.
 

@@ -143,3 +143,31 @@ Implementation identity, authorized under the ruling, is `LANG007.C3.P4.R1` in
 [`LANG007.C3.P4.R1-canonical-inferred-result-contracts.md`](LANG007.C3.P4.R1-canonical-inferred-result-contracts.md).
 T1 is read-only; production edits require supervisor review of its source map
 and causal hypothesis. P4/C3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+## 16. T1 source census and supervisor disposition
+
+The read-only T1 census found that ordinary class callable signatures are
+inserted into `CallableSignatureTable` before body analysis
+(`session.rs` near 4430). Trait-default signatures are built into
+`TraitSurfaceMember` (`traits.rs` near 477), while their bodies are analyzed
+into `callable_analyses` (`session.rs` near 5693). The shared
+`refresh_inferred_callable_results` loop skips a body when
+`callable_signatures.get_for_body(callable)` has no entry (`session.rs` near
+9913); that is the concrete current publication gap.
+
+Trait-body analysis records a `TraitSurface` dependency and consumes that
+surface signature; `project_semantic_signature` currently projects
+`declared_return`, and `TraitSurfaceMember::instantiate` specializes only that
+declared result. Callable result fingerprints include `inferred_return`, while
+trait-surface fingerprints include member signatures. Metadata export reads
+inferred return from `CallableSignatureTable` and has no `TraitSurface` input.
+The ordinary publication test exists, as do trait-surface and incremental
+trait-body controls, but the incremental default control is explicitly
+annotated; no paired omitted-result default publication test was found.
+
+Supervisor review confirms the gap is in publication/consumer projection, not
+body-result availability. This is not an architecture blocker by itself.
+Proceed with P4.R1 T2 only if all consumers observe the single canonical
+callable-signature result and no parallel inferred-result state is introduced.
+T1 made no code changes and ran no tests; P4/C3 and the P4 G5/G6 dispositions
+are unchanged.

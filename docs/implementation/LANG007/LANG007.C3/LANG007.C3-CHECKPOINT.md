@@ -57,9 +57,16 @@ next_action: >
   incomplete. The §13 focused matrix is satisfied and supervisor-reviewed.
   T13 stopped at the architect ruling §15 boundary: INC-C3-20 still prohibits
   adding trait-default inference to T13 and does not authorize broad G5/G6
-  certification. Separately, INC-C3-21 is now adopted and P4.R1 is active;
-  start with its bounded read-only T1 source census, then obtain supervisor
-  review before production edits. G5 collection aggregates remain
+  certification. Separately, INC-C3-21 is now adopted and P4.R1 is active.
+  T1's bounded read-only census is complete and supervisor-reviewed, with no
+  code or tests changed. Ordinary class signatures enter
+  `CallableSignatureTable` before body analysis; trait-default body analyses
+  exist but are skipped by result refresh because `get_for_body` has no table
+  entry. Their signatures live in `TraitSurfaceMember`, which refresh does not
+  update; trait-call projection currently returns the declared result. T2 may
+  proceed only through the canonical signature authority, with the surface
+  remaining a projection and no parallel result state. G5 collection
+  aggregates remain
   unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored.
   P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. The only added corpus gate
   is the direct `corpus::collections` selector after R1's chain gate passes.
@@ -1704,15 +1711,23 @@ P4/C3 verification remain unchanged.
 Status: ADOPTED. The architect authorized canonical inferred result contracts
 for body-bearing callables, including trait defaults, through the existing
 callable signature authority. This is scoped in companion plan
-`LANG007.C3.P4.R1`; T1 is a bounded read-only source census and production edits
-wait for supervisor review. The ruling preserves explicit annotations, caller
+`LANG007.C3.P4.R1`. T1 completed read-only: ordinary signatures enter
+`CallableSignatureTable` before body analysis, while trait-default signatures
+remain in `TraitSurfaceMember`; their bodies exist in `callable_analyses` but
+are skipped by `refresh_inferred_callable_results` when `get_for_body` finds
+no table entry. Trait calls project the surface member signature, whose
+`project_semantic_signature` currently uses the declared result. Supervisor
+review confirmed this as the observed publication gap; no code or tests
+changed. T2 may proceed only through the canonical signature authority, with
+no parallel inferred-result state. The ruling
+preserves explicit annotations, caller
 independence, symbolic generic/Self substitution, existing metadata/signature
 representation, and the no-general-recursive-fixpoint boundary. It requires
 causal attribution of `Iterator.take`'s `RecursiveFixpoint` and focused natural
 chain verification after both stages are canonical. It does not amend T13 or
 certify G5/G6. See [`INC-C3-21.md`](INC-C3-21.md) and the
 [`P4.R1 plan`](LANG007.C3.P4.R1-canonical-inferred-result-contracts.md).
-No source changes or tests have yet been made under R1. P4/C3 remains
+No production source changes or tests have yet been made under R1. P4/C3 remains
 IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 Use entries:
@@ -2236,8 +2251,8 @@ latest completed plan:
 
 next task:
     The active plan is LANG007.C3.P4.R1 under adopted INC-C3-21. Its immediate
-    next task is T1: a bounded read-only source census, followed by supervisor
-    review before production edits. This is separate from T13 and does not
+    next task is T2: shared canonical result publication and parity controls,
+    scoped by the supervisor-reviewed T1 source census. This is separate from T13 and does not
     change T13's §15 stop, certify G5/G6, or authorize workspace/release gates.
     G5 collection aggregates remain unpassed/uncertified, G6 is incomplete, the
     natural chain is blocked/ignored, and P4/C3 remains IN_PROGRESS / PARTIAL /

@@ -98,16 +98,33 @@ T1 verifies exact owners before any edit. Starting points:
 - `phalcom-semantic/src/session.rs`:
   `InferredCallableRefreshInputs`, `refresh_inferred_callable_results`,
   `publishable_inferred_return`, `DownstreamCallableBodyState`,
-  `declaration_signature_source_fingerprints`.
+  `declaration_signature_source_fingerprints`. Class method signatures enter
+  the table before body analysis near 4430; trait-default bodies enter
+  `callable_analyses` near 5693; refresh skips a body near 9913 when
+  `get_for_body` finds no table entry.
 - `phalcom-semantic/src/signature.rs`:
   `CallableSemanticSignature` and `CallableSignatureTable`.
+- `phalcom-semantic/src/traits.rs`: `build_trait_surface` stores a
+  `CallableSemanticSignature` in each `TraitSurfaceMember`; `instantiate`
+  currently specializes `declared_return` only. This existing surface is a
+  projection, not authorization for a second inferred-result authority.
+- `phalcom-semantic/src/db/query.rs` and
+  `phalcom-semantic/src/checker/body.rs`: trait-default body analysis consumes
+  a `TraitSurface` signature/dependency; verify how consumers observe the
+  canonical result and invalidate it.
 - `phalcom-semantic/src/checker/body.rs` and
   `checker/declaration_signature.rs`: body analysis and explicit/unannotated
   result setup.
+- `checker/declaration_signature.rs::project_semantic_signature` currently
+  projects `declared_return`; trait call resolution passes
+  `TraitSurfaceMember.signature` through this projection.
 - `phalcom-semantic/src/checker/inference.rs` and `checker/call.rs`: symbolic
   results and use-site substitution; verify the actual owner.
-- `phalcom-semantic/src/db/fingerprint.rs`: result/interface fingerprint.
-- `phalcom-semantic/src/metadata/export.rs`: callable result export.
+- `phalcom-semantic/src/db/fingerprint.rs`: signature result fingerprint
+  (around 492) and trait-surface member signature fingerprint (around 1525).
+- `phalcom-semantic/src/metadata/export.rs`: exporter receives
+  `CallableSignatureTable` and reads inferred results for callable records
+  (around 137 and 1953); it does not receive `TraitSurface`.
 - Semantic integration tests and the core collection corpus harness: T1 finds
   exact test modules and selectors.
 
@@ -150,12 +167,51 @@ smallest ordinary/default discriminator. No production edits or broad tests.
 update §4 with verified anchors if needed. Supervisor review is a prerequisite
 for T2.
 
+**T1 outcome (2026-09-29, read-only):** ordinary class signatures enter
+`CallableSignatureTable` before body analysis. Trait default signatures are
+stored in `TraitSurfaceMember`; their bodies are analyzed and retained in
+`callable_analyses`, but `refresh_inferred_callable_results` skips them when
+`get_for_body` finds no table entry. The analysis records a `TraitSurface`
+dependency; no inferred result is published into the trait member signature.
+`project_semantic_signature` projects `declared_return`, and trait call
+consumers project `TraitSurfaceMember.signature`.
+The metadata exporter consumes the callable table, while trait-surface and
+callable-signature fingerprints are separate. This confirms a
+producer/publication gap, not an architecture blocker. No paired omitted-result
+ordinary/default publication test was found; no files or tests were changed in
+T1.
+
+Existing selectors: ordinary
+`capabilities::callable_publication::publication::branch_derived_tail_type_is_published_to_unannotated_callable_signature`;
+trait-surface
+`capabilities::traits::trait_surface_publishes_all_behavior_shapes_before_default_body_analysis`;
+incremental
+`incremental::traits::trait_body_edit_reuses_surface_and_unrelated_default_but_refreshes_changed_body`
+(currently annotated defaults). Minimal new control: an ordinary class method
+and omitted-result trait default each return the same known literal; compare
+the ordinary inferred/published result with the default body's normal-exit
+summary and canonical trait signature, without caller expected-type evidence.
+
 ### T2 — Shared publication and parity
 
 Extend the existing canonical producer so body-bearing trait defaults without
 explicit results publish through the same signature path as ordinary inferred
 results, preserving declaration identity and canonical generic/`Self` context.
-Do not add inference in `trait_dispatch.rs` or compiler lowering. Add paired
+T1 verified that `project_semantic_signature` currently returns
+`declared_return`, and trait consumers project `TraitSurfaceMember.signature`.
+Determine and implement the narrow existing-authority path by which those
+consumers observe the canonical result; do not merely populate a table entry
+that no trait call reads. Keep body checking constrained by `declared_return`;
+the inferred result must not become its own body-analysis premise.
+The existing `TraitSurfaceMember` may expose a projection, but it must consume
+the same canonical signature/result; do not create independently mutable
+inferred-result copies or a trait-specific cache. Ensure existing trait call,
+body-analysis, and dispatch-eligibility consumers observe the contract through
+that authority and dependencies track the signature they actually consume.
+Do not add inference in `trait_dispatch.rs` or compiler lowering. If this
+consumer integration requires a second result owner or creates a dependency
+cycle that cannot be resolved within the ruling, stop and consult rather than
+duplicating state. Add paired
 ordinary/default semantic tests and prove caller expected type cannot seed a
 provider result. Use T1's exact test location/selector.
 
