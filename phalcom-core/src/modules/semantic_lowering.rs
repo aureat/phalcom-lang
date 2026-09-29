@@ -1534,6 +1534,7 @@ fn project_for_iteration_requirement(
                     callable: Some(signature.callable.clone()),
                     signature: signature.clone(),
                     evidence_fingerprint: exact.fingerprint,
+                    evidence: evidence.clone(),
                     selection,
                     requirement_targets: exact.requirements.clone(),
                 };
@@ -1575,6 +1576,7 @@ fn project_for_iteration_requirement(
                     callable: Some(signature.callable.clone()),
                     signature: signature.clone(),
                     evidence_fingerprint,
+                    evidence: evidence.clone(),
                     selection,
                     requirement_targets: derived.requirements().clone(),
                 };

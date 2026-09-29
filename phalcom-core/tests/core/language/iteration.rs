@@ -1,5 +1,5 @@
 use super::vm_support;
-use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCompiler};
 use std::sync::Arc;
 
 #[test]
@@ -22,6 +22,64 @@ let result = next.isSome and iterated == 2
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
     let symbol = vm.interner.find("result").expect("result symbol");
     assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}
+
+#[test]
+fn unbounded_take_to_list_keeps_guarded_iterable_dispatch_evidence() {
+    let source = r#"
+class Caller {
+  inspect -> Int {
+    System.print((0..).iter.take(10).toList.size)
+    0
+  }
+}
+"#;
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source)))
+        .expect("canonical Universe source should analyze");
+    assert!(
+        !analyzed.semantic.has_errors(),
+        "semantic diagnostics: {:#?}",
+        analyzed.semantic.diagnostics
+    );
+    let dispatch = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+        .flat_map(|(_, callable)| callable.expressions.values())
+        .find_map(|expression| {
+            let text = source.get(expression.range.start..expression.range.end)?;
+            if !text.contains(".take(10).toList") {
+                return None;
+            }
+            match expression.trait_dispatch.as_ref()? {
+                phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)
+                    if selection.requirement.selector.encode() == "toList" =>
+                {
+                    Some((text, selection))
+                }
+                _ => None,
+            }
+        })
+        .expect("the actual take/toList chain must publish an evidenced Iterable::toList dispatch");
+    let (text, selection) = dispatch;
+    assert!(
+        text.contains(".iter.take(10).toList"),
+        "wrong source occurrence: {text}"
+    );
+    assert_eq!(selection.requirement.owner.name, "Iterable".into());
+    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) =
+        &selection.evidence
+    else {
+        panic!(
+            "expected guarded Derived evidence for Iterable::toList, got {:#?}",
+            selection.evidence
+        );
+    };
+    assert!(matches!(
+        &derived.origin,
+        phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule { .. }
+    ));
 }
 
 #[test]

@@ -37,7 +37,8 @@ next_action: >
   T12.7 is IMPLEMENTED / FOCUSED_TESTED across commits `a66b8906`,
   `a9e584b7`, and `8727d5df`; its source-index, navigation, completion, and
   syntax-token selectors each passed 1/1. T12.8 normative spec convergence is
-  IMPLEMENTED / documentation-only; no Cargo tests were run. T13 is next.
+  IMPLEMENTED / documentation-only; no Cargo tests were run. T13 is active,
+  with INC-C3-20 OPEN pending architectural direction.
   T13.1 census found and corrected the effective iterator-spec claim: generic
   Tuple iteration yields `Tuple<***Es>::Element`; only runtime-shaped
   `rawFromList`, `rawSlice`, and TupleZip APIs remain Dynamic. G1 AST/parser/
@@ -309,8 +310,13 @@ next_action: >
   show a Unit binding or class-count regression.
   Keep `corpus::bytes` unclear/nonblocking. Priority 3 categorical classification
   is already recorded; causal isolation, remediation/migration decisions, and
-  residual disposition remain. P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
-blocker: none for the adopted T10 ownership design; focused acceptance remains in progress.
+  residual disposition remain. INC-C3-20 is OPEN: the required actual
+  `.iter.take(10).toList` semantic product is absent because chained receiver
+  types remain `Unknown(UnannotatedDeclaration)` after the unannotated
+  `Iterable.iter` default. T13/P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED;
+  Priority 3 is unchanged. No runtime fixture or `corpus::collections` run was
+  performed.
+blocker: INC-C3-20 awaits direction on canonical return-signature inference/publication for unannotated trait-default chains.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -1593,6 +1599,44 @@ Focused evidence: `record_fields_applications_require_expansion_and_preserve_row
 Status: ADOPTED; scoped row carrier and schema-v9 projection are focused-tested,
   while T6.2/T8 implementation remains in progress pending review and remaining
   acceptance coverage. Overall P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+
+### T13 amendment — guarded conformance evidence for ordinary trait dispatch — 2026-09-29
+
+Plan/task: LANG007.C3.P4 / T13 — `TakeIterator.toList` fails after bootstrap
+  reaches the existing blanket `impl<I> Iterable for I where I |= Iterator`.
+Trigger: ordinary trait dispatch discovers explicit `ConformanceIndex`
+  contributions, while valid guarded/derived conformances are resolved by the
+  canonical generic conformance proof engine but are not considered as
+  selector candidates.
+Adopted decision: guarded/derived conformances are valid evidence sources for
+  ordinary trait dispatch. Discover candidate members by selector, then ask the
+  one canonical conformance resolver for applicability and proof. A successful
+  Exact, Forwarded, or Derived proof may publish the existing
+  `TraitDispatchSite::Evidenced` product and must retain rule identity,
+  substitutions, nested proof provenance, and dependencies.
+Constraints: add no proof solver or dispatch-local proof authority. Preserve
+  ambiguity/coherence behavior, stable identities, the existing compiler/VM
+  trait-default path, language behavior, ABI, and Priority 3 classifications.
+  Overall T13/P4/C3 status remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+Verification required: exact and derived trait defaults, concrete and symbolic
+  receivers, unsatisfied guards, unrelated same-selector traits, nested proof
+  provenance, ambiguity/exact-derived overlap, inherent precedence, actual
+  `.take(10).toList` evidence, and focused invalidation if supported by the
+  existing dependency graph.
+
+### INC-C3-20 — unannotated trait-default return blocks actual guarded dispatch — 2026-09-29
+
+Status: OPEN; implementation stopped for architectural direction. See
+[`INC-C3-20.md`](INC-C3-20.md) for the required incident packet. The actual
+inline-method selector fails 1/1: `Iterable::iter` is selected exactly, but
+its unannotated default return remains `Unknown(UnannotatedDeclaration)`, so
+the `.take(10).toList` receiver products remain unknown and no
+`Iterable::toList` evidence is published. Exact default, concrete guarded,
+symbolic guarded, coherence, and core compile selectors pass. No runtime
+fixture or aggregate collection test was run. The requested decision is
+whether T13 may include canonical body-inferred return-signature publication
+or should separate/amend the actual-expression gate. Priority 3 and overall
+P4/C3 verification remain unchanged.
 
 Use entries:
 

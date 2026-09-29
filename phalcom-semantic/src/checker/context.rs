@@ -2571,6 +2571,115 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
+    fn resolve_evidenced_trait_target(&mut self, receiver: TypeId, selector: &Selector, side: DispatchSide) -> Option<ResolvedDispatchResult> {
+        let view = self.conformance_semantics?;
+        let resolution = crate::trait_dispatch::resolve_trait_evidenced_candidates(
+            view.trait_dispatch,
+            view.conformance_index,
+            view.witness_plans,
+            view.trait_surfaces,
+            view.derived_conformance_rules,
+            Some(&self.generic_evidence),
+            self.declarations,
+            self.store,
+            &self.hierarchy,
+            receiver,
+            selector,
+            side,
+        );
+        match resolution {
+            crate::trait_dispatch::TraitDispatchResolution::Found(selection) => {
+                let callable = selection.callable.clone().unwrap_or_else(|| selection.requirement.source_callable());
+                let signature = crate::checker::declaration_signature::project_semantic_signature(&selection.signature);
+                self.dependencies.insert(callable.clone());
+                self.record_semantic_dependency(SemanticDependency::ConformanceDispatch(selection.source_impl.clone()));
+                self.record_semantic_dependency(SemanticDependency::TraitSurface(selection.requirement.owner.clone()));
+                if let crate::generic_evidence::GenericConformanceEvidence::Derived(evidence) = &selection.evidence {
+                    self.record_derived_conformance_dependencies(evidence);
+                }
+                if let Some(expression) = self.current_expression_id() {
+                    self.resolved_callables.insert(expression, callable.clone());
+                    self.resolved_trait_dispatches
+                        .insert(expression, crate::trait_dispatch::TraitDispatchSite::Evidenced(selection.clone()));
+                }
+                let visibility = view
+                    .trait_surfaces
+                    .get(&selection.requirement.owner)
+                    .and_then(|surface| surface.get(&selection.requirement))
+                    .map(|member| member.visibility)
+                    .unwrap_or(crate::surface::MemberVisibility::Public);
+                Some(ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(ResolvedDispatch {
+                    callable,
+                    signature,
+                    visibility,
+                    access_denied: false,
+                    specialization: None,
+                    conditional: None,
+                    conditional_capability: None,
+                    trait_dispatch: Some(selection),
+                    abstract_contract: false,
+                    visited_owners: vec![].into_boxed_slice(),
+                }))))
+            }
+            crate::trait_dispatch::TraitDispatchResolution::Ambiguous(candidates) => {
+                if let Some(expression) = self.current_expression_id() {
+                    self.resolved_trait_dispatch_candidates.insert(expression, candidates.clone());
+                }
+                let ambiguous = candidates
+                    .into_iter()
+                    .map(|candidate| {
+                        let callable = crate::trait_dispatch::selected_callable(&candidate.selection)
+                            .unwrap_or_else(|| candidate.requirement.source_callable());
+                        let visibility = view
+                            .trait_surfaces
+                            .get(&candidate.requirement.owner)
+                            .and_then(|surface| surface.get(&candidate.requirement))
+                            .map(|member| member.visibility)
+                            .unwrap_or(crate::surface::MemberVisibility::Public);
+                        ResolvedDispatch {
+                            callable,
+                            signature: crate::checker::declaration_signature::project_semantic_signature(&candidate.signature),
+                            visibility,
+                            access_denied: false,
+                            specialization: None,
+                            conditional: None,
+                            conditional_capability: None,
+                            trait_dispatch: None,
+                            abstract_contract: false,
+                            visited_owners: vec![].into_boxed_slice(),
+                        }
+                    })
+                    .collect();
+                Some(ResolvedDispatchResult::Ambiguous(ambiguous))
+            }
+            crate::trait_dispatch::TraitDispatchResolution::Missing => None,
+            crate::trait_dispatch::TraitDispatchResolution::Incomplete(impl_id) => {
+                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Incomplete(impl_id)))
+            }
+            crate::trait_dispatch::TraitDispatchResolution::CoherenceConflict(impl_ids) => {
+                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(impl_ids)))
+            }
+            crate::trait_dispatch::TraitDispatchResolution::Unknown(reason) => {
+                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason)))
+            }
+            crate::trait_dispatch::TraitDispatchResolution::Blocked(reason) => {
+                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Blocked(reason)))
+            }
+            crate::trait_dispatch::TraitDispatchResolution::Dynamic(obligation) => {
+                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Dynamic(obligation)))
+            }
+            crate::trait_dispatch::TraitDispatchResolution::Cancelled => {
+                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Cancelled))
+            }
+            crate::trait_dispatch::TraitDispatchResolution::BudgetExceeded(report) => {
+                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(report)))
+            }
+            crate::trait_dispatch::TraitDispatchResolution::InternalFailure(message) => {
+                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(message)))
+            }
+        }
+    }
+
     /// Resolves dispatch against `dispatch_receiver` while optionally
     /// specializing the selected signature against a distinct proper type
     /// form.  Class-object values carry dispatch identity, whereas an applied
@@ -2588,6 +2697,9 @@ impl<'a> CheckingContext<'a> {
         }
         let Some((decl, side)) = self.dispatch_owner_for_lookup(dispatch_receiver, lookup.clone()) else {
             if let Some(result) = self.resolve_assumed_trait_target(dispatch_receiver, selector, DispatchSide::Instance) {
+                return result;
+            }
+            if let Some(result) = self.resolve_evidenced_trait_target(dispatch_receiver, selector, DispatchSide::Instance) {
                 return result;
             }
             return ResolvedDispatchResult::Missing { visited_owners: Box::new([]) };
@@ -2760,6 +2872,8 @@ impl<'a> CheckingContext<'a> {
                         view.conformance_index,
                         view.witness_plans,
                         view.trait_surfaces,
+                        view.derived_conformance_rules,
+                        Some(&self.generic_evidence),
                         self.declarations,
                         self.store,
                         &self.hierarchy,
@@ -2774,6 +2888,9 @@ impl<'a> CheckingContext<'a> {
                             self.dependencies.insert(callable.clone());
                             self.record_semantic_dependency(SemanticDependency::ConformanceDispatch(selection.source_impl.clone()));
                             self.record_semantic_dependency(SemanticDependency::TraitSurface(selection.requirement.owner.clone()));
+                            if let crate::generic_evidence::GenericConformanceEvidence::Derived(evidence) = &selection.evidence {
+                                self.record_derived_conformance_dependencies(evidence);
+                            }
                             if let Some(expression) = self.current_expression_id() {
                                 self.resolved_callables.insert(expression, callable.clone());
                                 self.resolved_trait_dispatches
@@ -2829,6 +2946,9 @@ impl<'a> CheckingContext<'a> {
                         crate::trait_dispatch::TraitDispatchResolution::Missing => {}
                         crate::trait_dispatch::TraitDispatchResolution::Incomplete(impl_id) => {
                             return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Incomplete(impl_id));
+                        }
+                        crate::trait_dispatch::TraitDispatchResolution::CoherenceConflict(impl_ids) => {
+                            return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(impl_ids));
                         }
                         crate::trait_dispatch::TraitDispatchResolution::Unknown(reason) => {
                             return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason));

@@ -3930,7 +3930,9 @@ pub(crate) fn apply_union_resolved_call(
                     crate::trait_dispatch::TraitDispatchTerminal::Cancelled => TypeKnowledge::Unknown(UnknownReason::InferenceCancelled),
                     crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBudgetExceeded),
                     crate::trait_dispatch::TraitDispatchTerminal::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
-                    crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_) | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => {
+                    crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_)
+                    | crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(_)
+                    | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => {
                         TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
                     }
                 };
@@ -3947,7 +3949,9 @@ pub(crate) fn apply_union_resolved_call(
                         );
                         Some(AnalysisStatus::InternalFailure(incident))
                     }
-                    crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_) | crate::trait_dispatch::TraitDispatchTerminal::Unknown(_) => None,
+                    crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_)
+                    | crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(_)
+                    | crate::trait_dispatch::TraitDispatchTerminal::Unknown(_) => None,
                 };
                 if let Some(arm_status) = arm_status {
                     meet_union_status(&mut status, arm_status);
@@ -4046,7 +4050,9 @@ pub(crate) fn analyze_unresolved_application(
             crate::trait_dispatch::TraitDispatchTerminal::Cancelled => TypeKnowledge::Unknown(UnknownReason::InferenceCancelled),
             crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBudgetExceeded),
             crate::trait_dispatch::TraitDispatchTerminal::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
-            crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_) | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => {
+            crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_)
+            | crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(_)
+            | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => {
                 TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
             }
         },
@@ -4065,7 +4071,9 @@ pub(crate) fn analyze_unresolved_application(
                 );
                 Some(AnalysisStatus::InternalFailure(incident))
             }
-            crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_) | crate::trait_dispatch::TraitDispatchTerminal::Unknown(_) => None,
+            crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_)
+            | crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(_)
+            | crate::trait_dispatch::TraitDispatchTerminal::Unknown(_) => None,
         },
         _ => None,
     };
@@ -4122,7 +4130,7 @@ fn emit_trait_dispatch_ambiguity(ctx: &mut CheckingContext<'_>, range: SourceRan
         diagnostic = diagnostic.with_note(format!(
             "candidate {}: exact target {:?}, trait {:?}, selector {:?}, requirement {:?}, source impl {:?}, selection {:?}",
             index + 1,
-            candidate.evidence.exact_target,
+            candidate.exact_target,
             candidate.exact_trait_ref,
             candidate.requirement.selector,
             candidate.requirement,

@@ -3968,6 +3968,24 @@ Record metadata version decision, incremental gates, and tooling/spec convergenc
 
 Run the bounded stabilization matrix, classify failures, perform the one required broad post-P4 certification pass, and leave durable repository state that truthfully describes what shipped.
 
+### Adopted T13 amendment — guarded/derived conformance evidence
+
+Guarded and derived conformances are valid evidence sources for ordinary trait
+dispatch. Discover members by selector, then resolve applicability only through
+the existing canonical conformance proof authority. Successful Exact,
+Forwarded, or Derived proofs may produce the existing
+`TraitDispatchSite::Evidenced` product and must preserve the selected rule,
+substitution, nested proof provenance, and semantic dependencies. Do not add a
+dispatch-local proof solver/index authority, change language meaning or the
+compiler/VM ABI, install trait defaults on concrete classes, or alter Priority
+3 classifications. Preserve existing ambiguity/coherence and inherent-override
+behavior. Focused acceptance includes the guarded
+`Iterator => Iterable` rule for concrete `TakeIterator`, symbolic
+`I where I |= Iterator`, guard rejection, unrelated same-selector traits,
+nested derivation, ambiguous/coherent overlap, and the expression-level
+`.take(10).toList` path. Keep P4/C3 status `IN_PROGRESS / PARTIAL / UNVERIFIED`
+until the named evidence is complete.
+
 ### Preconditions
 
 T1–T12 complete with their focused acceptance conditions.

@@ -902,7 +902,7 @@ fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
     summary.fact_count.hash(hasher);
 }
 
-fn hash_iteration_evidence(evidence: &crate::generic_evidence::GenericConformanceEvidence, hasher: &mut impl Hasher) {
+pub(crate) fn hash_generic_conformance_evidence(evidence: &crate::generic_evidence::GenericConformanceEvidence, hasher: &mut impl Hasher) {
     match evidence {
         crate::generic_evidence::GenericConformanceEvidence::Exact(exact) => {
             0u8.hash(hasher);
@@ -941,7 +941,7 @@ fn hash_iteration_evidence(evidence: &crate::generic_evidence::GenericConformanc
                 match nested {
                     crate::generic_evidence::NestedGenericEvidence::Conformance(nested) => {
                         0u8.hash(hasher);
-                        hash_iteration_evidence(nested, hasher);
+                        hash_generic_conformance_evidence(nested, hasher);
                     }
                     crate::generic_evidence::NestedGenericEvidence::Equivalent => 1u8.hash(hasher),
                     crate::generic_evidence::NestedGenericEvidence::Subtype => 2u8.hash(hasher),
@@ -949,6 +949,14 @@ fn hash_iteration_evidence(evidence: &crate::generic_evidence::GenericConformanc
             }
         }
     }
+}
+
+pub(crate) fn generic_conformance_evidence_fingerprint(
+    evidence: &crate::generic_evidence::GenericConformanceEvidence,
+) -> ProductFingerprint {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hash_generic_conformance_evidence(evidence, &mut hasher);
+    ProductFingerprint::new(hasher.finish())
 }
 
 fn hash_conditional_selected_call_capability(
@@ -988,7 +996,7 @@ fn hash_conditional_selected_call_capability(
                 match &binding.source {
                     crate::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
                         0u8.hash(hasher);
-                        hash_iteration_evidence(&crate::generic_evidence::GenericConformanceEvidence::Exact(evidence.clone()), hasher);
+                        hash_generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::Exact(evidence.clone()), hasher);
                     }
                     crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance } => {
                         1u8.hash(hasher);
@@ -996,7 +1004,7 @@ fn hash_conditional_selected_call_capability(
                     }
                     crate::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
                         2u8.hash(hasher);
-                        hash_iteration_evidence(&crate::generic_evidence::GenericConformanceEvidence::Derived(evidence.clone()), hasher);
+                        hash_generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::Derived(evidence.clone()), hasher);
                     }
                 }
             }
@@ -1014,7 +1022,7 @@ fn hash_iteration_requirement(requirement: &crate::checker::analysis::ForIterati
         } => {
             0u8.hash(hasher);
             conformance.hash(hasher);
-            hash_iteration_evidence(evidence, hasher);
+            hash_generic_conformance_evidence(evidence, hasher);
             requirement.hash(hasher);
             callable_signature_product_fingerprint(signature).raw().hash(hasher);
         }

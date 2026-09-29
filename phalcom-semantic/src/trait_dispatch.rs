@@ -7,9 +7,9 @@
 
 use crate::db::ProductFingerprint;
 use crate::declarations::DeclarationTypeTable;
-use crate::generic_evidence::GenericConformanceKey;
+use crate::generic_evidence::{GenericConformanceEvidence, GenericConformanceKey, GenericConformanceProof, GenericEvidenceEnvironment};
 use crate::identity::{CallableId, DataComponentId, DeclarationId, DispatchSide, ImplId, TypeId, VariantId};
-use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceTarget, ConformanceWitnessPlan, RequirementSelectionTemplate};
+use crate::impls::{ConformanceIndex, ConformanceTarget, ConformanceWitnessPlan, RequirementSelectionTemplate};
 use crate::signature::CallableSemanticSignature;
 use crate::traits::{TraitRef, TraitRequirementId, TraitSurfaceTable};
 use crate::types::evidence::UnknownReason;
@@ -175,13 +175,15 @@ impl TraitDispatchIndex {
 /// One exact, proven trait requirement exposed by ordinary lookup.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraitEvidencedMemberCandidate {
+    pub exact_target: TypeId,
     pub exact_trait_ref: TraitRef,
     pub requirement: TraitRequirementId,
     pub source_impl: ImplId,
-    pub evidence: std::sync::Arc<ConformanceEvidence>,
+    pub evidence: GenericConformanceEvidence,
     pub evidence_fingerprint: ProductFingerprint,
     pub selection: RequirementSelectionTemplate,
     pub signature: CallableSemanticSignature,
+    pub requirement_targets: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
     pub convergence: TraitDispatchConvergenceKey,
 }
 
@@ -214,6 +216,9 @@ pub struct TraitDispatchSelection {
     pub callable: Option<CallableId>,
     pub signature: CallableSemanticSignature,
     pub evidence_fingerprint: ProductFingerprint,
+    /// Canonical proof product authorizing this selection, including any
+    /// guarded rule substitution and nested conformance evidence.
+    pub evidence: GenericConformanceEvidence,
     pub selection: RequirementSelectionTemplate,
     pub requirement_targets: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
 }
@@ -242,6 +247,7 @@ pub enum TraitDispatchSite {
 pub enum TraitDispatchResolution {
     Found(TraitDispatchSelection),
     Ambiguous(Box<[TraitEvidencedMemberCandidate]>),
+    CoherenceConflict(Box<[ImplId]>),
     Missing,
     Incomplete(ImplId),
     Unknown(UnknownReason),
@@ -258,6 +264,7 @@ pub enum TraitDispatchResolution {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TraitDispatchTerminal {
     Incomplete(ImplId),
+    CoherenceConflict(Box<[ImplId]>),
     Unknown(UnknownReason),
     Blocked(BlockReason),
     Dynamic(DynamicBoundaryObligation),
@@ -282,6 +289,8 @@ pub fn resolve_trait_evidenced_candidates(
     conformance_index: &ConformanceIndex,
     plans: &std::collections::BTreeMap<ImplId, std::sync::Arc<ConformanceWitnessPlan>>,
     trait_surfaces: &TraitSurfaceTable,
+    derived_rules: &crate::derived_conformance::DerivedConformanceRuleIndex,
+    lexical_evidence: Option<&GenericEvidenceEnvironment>,
     declarations: &DeclarationTypeTable,
     store: &mut TypeStore,
     hierarchy: &dyn TypeHierarchy,
@@ -289,73 +298,89 @@ pub fn resolve_trait_evidenced_candidates(
     selector: &Selector,
     side: DispatchSide,
 ) -> TraitDispatchResolution {
-    let Some(target_family) = target_family_for_receiver(store, receiver) else {
-        return TraitDispatchResolution::Missing;
-    };
+    let target_family = target_family_for_receiver(store, receiver);
+    let mut candidate_goals = std::collections::BTreeSet::new();
+    // Source surfaces own selector discovery. Explicit conformance products
+    // and guarded-rule consequents contribute only possible canonical trait
+    // goals; neither is treated as evidence until the generic proof authority
+    // resolves that goal below.
+    for (trait_declaration, surface) in trait_surfaces.iter() {
+        let requirements = surface
+            .iter()
+            .filter(|(_, member)| member.requirement.selector == *selector && member.requirement.side == side)
+            .map(|(requirement, _)| requirement.clone())
+            .collect::<Vec<_>>();
+        if requirements.is_empty() {
+            continue;
+        }
+
+        if let Some(target_family) = target_family.as_ref() {
+            for contribution in index.candidates_for(target_family, selector, side) {
+                if contribution.trait_declaration != *trait_declaration {
+                    continue;
+                }
+                let Some(source) = conformance_index.get(&contribution.impl_id) else {
+                    continue;
+                };
+                for requirement in &requirements {
+                    candidate_goals.insert((source.trait_ref.clone(), requirement.clone()));
+                }
+            }
+        }
+
+        for rule in derived_rules.rules_for_trait(trait_declaration) {
+            let mut substitution = crate::types::substitution::TypeSubstitution::new();
+            substitution.bind(rule.target_parameter, receiver);
+            let trait_ref = crate::generic_evidence::substitute_trait_ref(&rule.trait_ref, &substitution, store);
+            for requirement in &requirements {
+                candidate_goals.insert((trait_ref.clone(), requirement.clone()));
+            }
+        }
+    }
+
     let mut proven = Vec::new();
     let mut terminal = None;
-    for contribution in index.candidates_for(&target_family, selector, side) {
-        let Some(source) = conformance_index.get(&contribution.impl_id) else {
-            continue;
-        };
-        let matches = conformance_index.query_exact(store, receiver, &source.trait_ref);
-        let Some(head) = matches.into_iter().find(|head| head.impl_id == contribution.impl_id) else {
-            continue;
-        };
-        if !trait_surfaces.contains(&contribution.trait_declaration) {
-            retain_terminal(
-                &mut terminal,
-                TraitDispatchResolution::InternalFailure("trait surface is unavailable for dispatch candidate".into()),
-            );
-            continue;
-        }
-        match crate::impls::resolve_conformance_evidence_with_surfaces(
-            conformance_index,
-            plans,
-            trait_surfaces,
-            declarations,
-            store,
-            hierarchy,
-            receiver,
-            &head.exact_trait_ref,
-        ) {
-            ConformanceResolution::Proven(evidence) => {
-                let Some(requirement) = evidence.requirement_views.get(&contribution.requirement) else {
-                    retain_terminal(
-                        &mut terminal,
-                        TraitDispatchResolution::InternalFailure("trait requirement is absent from exact evidence".into()),
-                    );
-                    continue;
-                };
-                let Some(selection) = evidence.requirements.get(&contribution.requirement).cloned() else {
-                    retain_terminal(
-                        &mut terminal,
-                        TraitDispatchResolution::InternalFailure("trait requirement selection is absent from exact evidence".into()),
-                    );
-                    continue;
-                };
-                let signature = requirement.signature.clone();
-                let convergence = selection_convergence_key(&selection, evidence.fingerprint);
-                proven.push(TraitEvidencedMemberCandidate {
-                    exact_trait_ref: evidence.exact_trait_ref.clone(),
-                    requirement: contribution.requirement.clone(),
-                    source_impl: contribution.impl_id.clone(),
-                    evidence_fingerprint: evidence.fingerprint,
-                    evidence,
-                    selection,
-                    signature,
-                    convergence,
-                });
+    for (trait_ref, requirement) in candidate_goals {
+        let proof = crate::generic_evidence::query_generic_conformance_proof(
+            &crate::types::parameter::TypeTerm::Canonical(receiver),
+            &trait_ref,
+            lexical_evidence,
+            Some(conformance_index),
+            Some(plans),
+            Some(trait_surfaces),
+            Some(derived_rules),
+            Some(declarations),
+            Some(hierarchy),
+            Some(&mut *store),
+        );
+        match proof {
+            GenericConformanceProof::Proven(evidence) => {
+                if let Some(candidate) = candidate_from_proof(evidence, receiver, &requirement) {
+                    proven.push(candidate);
+                }
             }
-            ConformanceResolution::Incomplete(impl_id) => retain_terminal(&mut terminal, TraitDispatchResolution::Incomplete(impl_id)),
-            ConformanceResolution::Unknown(reason) => retain_terminal(&mut terminal, TraitDispatchResolution::Unknown(reason)),
-            ConformanceResolution::Blocked(reason) => retain_terminal(&mut terminal, TraitDispatchResolution::Blocked(reason)),
-            ConformanceResolution::Dynamic(obligation) => retain_terminal(&mut terminal, TraitDispatchResolution::Dynamic(obligation)),
-            ConformanceResolution::Cancelled => retain_terminal(&mut terminal, TraitDispatchResolution::Cancelled),
-            ConformanceResolution::BudgetExceeded(report) => retain_terminal(&mut terminal, TraitDispatchResolution::BudgetExceeded(report)),
-            ConformanceResolution::InternalFailure(message) => retain_terminal(&mut terminal, TraitDispatchResolution::InternalFailure(message)),
-            ConformanceResolution::NotDeclared | ConformanceResolution::InvalidSource(_) | ConformanceResolution::CoherenceConflict(_) => {}
+            GenericConformanceProof::Ambiguous(evidences) => {
+                for evidence in evidences.into_vec() {
+                    if let Some(candidate) = candidate_from_proof(evidence, receiver, &requirement) {
+                        proven.push(candidate);
+                    }
+                }
+            }
+            GenericConformanceProof::CoherenceConflict(impls) => {
+                retain_terminal(&mut terminal, TraitDispatchResolution::CoherenceConflict(impls));
+            }
+            GenericConformanceProof::Incomplete(impl_id) => retain_terminal(&mut terminal, TraitDispatchResolution::Incomplete(impl_id)),
+            GenericConformanceProof::Unknown(reason) => retain_terminal(&mut terminal, TraitDispatchResolution::Unknown(reason)),
+            GenericConformanceProof::Blocked(reason) => retain_terminal(&mut terminal, TraitDispatchResolution::Blocked(reason)),
+            GenericConformanceProof::Dynamic(obligation) => retain_terminal(&mut terminal, TraitDispatchResolution::Dynamic(obligation)),
+            GenericConformanceProof::Cancelled => retain_terminal(&mut terminal, TraitDispatchResolution::Cancelled),
+            GenericConformanceProof::BudgetExceeded(report) => retain_terminal(&mut terminal, TraitDispatchResolution::BudgetExceeded(report)),
+            GenericConformanceProof::InternalFailure(message) => retain_terminal(&mut terminal, TraitDispatchResolution::InternalFailure(message)),
+            GenericConformanceProof::Missing => {}
         }
+    }
+    if let Some(conflict @ TraitDispatchResolution::CoherenceConflict(_)) = terminal.as_ref() {
+        return conflict.clone();
     }
     if proven.is_empty() {
         return terminal.unwrap_or(TraitDispatchResolution::Missing);
@@ -372,11 +397,63 @@ pub fn resolve_trait_evidenced_candidates(
             callable: selected_callable(&candidate.selection),
             signature: candidate.signature,
             evidence_fingerprint: candidate.evidence_fingerprint,
+            evidence: candidate.evidence,
             selection: candidate.selection,
-            requirement_targets: candidate.evidence.requirements.clone(),
+            requirement_targets: candidate.requirement_targets,
         });
     }
     TraitDispatchResolution::Ambiguous(proven.into_boxed_slice())
+}
+
+fn candidate_from_proof(
+    evidence: GenericConformanceEvidence,
+    exact_target: TypeId,
+    requirement_id: &TraitRequirementId,
+) -> Option<TraitEvidencedMemberCandidate> {
+    let (source_impl, exact_trait_ref, requirement_views, selections) = match &evidence {
+        GenericConformanceEvidence::Exact(exact) => (
+            exact.source_impl.clone(),
+            exact.exact_trait_ref.clone(),
+            &exact.requirement_views,
+            &exact.requirements,
+        ),
+        GenericConformanceEvidence::Derived(derived) => {
+            let source_impl = match &derived.origin {
+                crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => exact_source.source_impl.clone(),
+                crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, .. } => rule.impl_id.clone(),
+            };
+            let exact_trait_ref = match &derived.origin {
+                crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => exact_source.exact_trait_ref.clone(),
+                crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { exact_trait_ref, .. } => exact_trait_ref.clone(),
+            };
+            (source_impl, exact_trait_ref, derived.requirement_views(), derived.requirements())
+        }
+        // Direct generic assumptions retain their established
+        // `TraitDispatchSite::Assumed` path in the checker.
+        GenericConformanceEvidence::Assumed(_) => return None,
+    };
+    let requirement = requirement_views.get(requirement_id)?;
+    let selection = selections.get(requirement_id)?.clone();
+    let signature = requirement.signature.clone();
+    let requirement_targets = selections.clone();
+    let evidence_fingerprint = evidence_fingerprint(&evidence);
+    let convergence = selection_convergence_key(&selection, evidence_fingerprint);
+    Some(TraitEvidencedMemberCandidate {
+        exact_target,
+        exact_trait_ref,
+        requirement: requirement_id.clone(),
+        source_impl,
+        evidence,
+        evidence_fingerprint,
+        selection,
+        signature,
+        requirement_targets,
+        convergence,
+    })
+}
+
+fn evidence_fingerprint(evidence: &GenericConformanceEvidence) -> ProductFingerprint {
+    crate::db::fingerprint::generic_conformance_evidence_fingerprint(evidence)
 }
 
 pub fn selected_callable(selection: &RequirementSelectionTemplate) -> Option<CallableId> {
@@ -450,6 +527,7 @@ fn retain_terminal(slot: &mut Option<TraitDispatchResolution>, candidate: TraitD
 /// states must remain stronger than ordinary lack of evidence.
 fn trait_dispatch_terminal_rank(resolution: &TraitDispatchResolution) -> u8 {
     match resolution {
+        TraitDispatchResolution::CoherenceConflict(_) => 110,
         TraitDispatchResolution::Incomplete(_) => 100,
         TraitDispatchResolution::InternalFailure(_) => 90,
         TraitDispatchResolution::Cancelled => 80,
@@ -457,7 +535,9 @@ fn trait_dispatch_terminal_rank(resolution: &TraitDispatchResolution) -> u8 {
         TraitDispatchResolution::Blocked(_) => 60,
         TraitDispatchResolution::Dynamic(_) => 50,
         TraitDispatchResolution::Unknown(_) => 40,
-        TraitDispatchResolution::Found(_) | TraitDispatchResolution::Ambiguous(_) | TraitDispatchResolution::Missing => 0,
+        TraitDispatchResolution::Found(_)
+        | TraitDispatchResolution::Ambiguous(_)
+        | TraitDispatchResolution::Missing => 0,
     }
 }
 

@@ -167,6 +167,195 @@ fn trait_dispatch_query_returns_exact_proven_requirement_selection() {
         selection.selection,
         phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { .. }
     ));
+    assert!(matches!(selection.evidence, phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_)));
+}
+
+#[test]
+fn trait_dispatch_query_selects_an_exact_trait_default() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module, "User".into()))
+        .expect("User type");
+    let resolution = output.snapshot.resolve_trait_evidenced_candidates(
+        user,
+        &Selector::getter("tag").expect("tag selector"),
+        DispatchSide::Instance,
+    );
+    let phalcom_semantic::TraitDispatchResolution::Found(selection) = resolution else {
+        panic!("expected exact trait default selection, got {resolution:?}");
+    };
+    assert!(matches!(
+        selection.evidence,
+        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_)
+    ));
+    assert!(matches!(
+        selection.selection,
+        phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
+    ));
+}
+
+#[test]
+fn trait_dispatch_query_accepts_guarded_derived_evidence_without_broadening_ineligible_receivers() {
+    let module = test_module();
+    let source = r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+    tag -> String { "iterable" }
+}
+
+trait Named { tag -> String { "named" } }
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class User {}
+impl Iterator for User { type Item = String }
+class Other {}
+impl Named for Other {}
+class Neither {}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User type");
+    let other = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "Other".into()))
+        .expect("Other type");
+    let selector = Selector::getter("tag").expect("tag selector");
+    let resolution = output.snapshot.resolve_trait_evidenced_candidates(user, &selector, DispatchSide::Instance);
+    let phalcom_semantic::TraitDispatchResolution::Found(selection) = resolution else {
+        panic!("expected guarded Iterable default, got {resolution:?}");
+    };
+    assert_eq!(selection.requirement.owner.name, "Iterable".into());
+    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) = &selection.evidence else {
+        panic!("expected canonical guarded derived proof, got {:#?}", selection.evidence);
+    };
+    assert!(matches!(
+        &derived.origin,
+        phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule { .. }
+    ));
+    assert!(matches!(
+        derived.nested.as_ref(),
+        [phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_)
+        )]
+    ));
+
+    let unrelated = output.snapshot.resolve_trait_evidenced_candidates(other, &selector, DispatchSide::Instance);
+    let phalcom_semantic::TraitDispatchResolution::Found(unrelated_selection) = unrelated else {
+        panic!("expected the unrelated exact trait to remain its own candidate, got {unrelated:?}");
+    };
+    assert_eq!(unrelated_selection.requirement.owner.name, "Named".into());
+    let neither = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module, "Neither".into()))
+        .expect("Neither type");
+    let missing = output.snapshot.resolve_trait_evidenced_candidates(neither, &selector, DispatchSide::Instance);
+    assert!(matches!(missing, phalcom_semantic::TraitDispatchResolution::Missing), "{missing:?}");
+}
+
+#[test]
+fn symbolic_assumed_iterator_dispatches_guarded_derived_iterable_default() {
+    let module = test_module();
+    let source = r#"
+trait Iterator { type Item }
+trait Iterable {
+    type Iterator
+    type Item
+    tag -> String { "iterable" }
+}
+impl<T> Iterable for T where T |= Iterator {
+    type Iterator = T
+    type Item = T::Item
+}
+
+class Caller<I> where I |= Iterator {
+    inspect(_ value: I) -> String { value.tag }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let caller = DeclarationId::new(module, "Caller".into());
+    let analysis = output
+        .snapshot
+        .callable_analyses
+        .iter()
+        .find_map(|(callable, analysis)| (callable.try_declaration_owner() == Some(&caller)).then_some(analysis))
+        .expect("Caller.inspect analysis");
+    let expression = analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("value.tag"))
+        .expect("value.tag expression");
+    let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) = expression.trait_dispatch.as_ref() else {
+        panic!("expected evidence-backed trait dispatch; expression={expression:#?}; diagnostics={:#?}", output.snapshot.diagnostics);
+    };
+    assert_eq!(selection.requirement.owner.name, "Iterable".into());
+    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) = &selection.evidence else {
+        panic!("expected Derived proof, got {:#?}", selection.evidence);
+    };
+    assert!(matches!(
+        derived.nested.as_ref(),
+        [phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(_)
+        )]
+    ));
+}
+
+#[test]
+fn trait_dispatch_does_not_hide_canonical_coherence_conflict_behind_another_selector_candidate() {
+    let module = test_module();
+    let source = r#"
+trait Iterator {}
+trait Iterable { tag -> String { "iterable" } }
+trait Independent { tag -> String { "independent" } }
+
+impl<T> Iterable for T where T |= Iterator {}
+class User {}
+impl Iterator for User {}
+impl Iterable for User {}
+impl Independent for User {}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module, "User".into()))
+        .expect("User type");
+    let resolution = output.snapshot.resolve_trait_evidenced_candidates(
+        user,
+        &Selector::getter("tag").expect("tag selector"),
+        DispatchSide::Instance,
+    );
+    assert!(
+        matches!(resolution, phalcom_semantic::TraitDispatchResolution::CoherenceConflict(ref impls) if impls.len() == 2),
+        "the canonical Iterable coherence conflict must not be hidden by Independent::tag: {resolution:?}"
+    );
 }
 
 #[test]
@@ -201,6 +390,8 @@ fn trait_dispatch_query_matches_the_exact_generic_target_application() {
         &output.snapshot.conformance_index,
         &output.snapshot.conformance_witness_plans,
         &output.snapshot.trait_surfaces,
+        &output.snapshot.derived_conformance_rules,
+        None,
         &output.snapshot.declarations,
         &mut store,
         output.snapshot.hierarchy.as_ref(),
@@ -213,6 +404,8 @@ fn trait_dispatch_query_matches_the_exact_generic_target_application() {
         &output.snapshot.conformance_index,
         &output.snapshot.conformance_witness_plans,
         &output.snapshot.trait_surfaces,
+        &output.snapshot.derived_conformance_rules,
+        None,
         &output.snapshot.declarations,
         &mut store,
         output.snapshot.hierarchy.as_ref(),
@@ -316,6 +509,8 @@ fn trait_dispatch_exact_enum_case_does_not_propagate_to_root_or_sibling() {
         &output.snapshot.conformance_index,
         &output.snapshot.conformance_witness_plans,
         &output.snapshot.trait_surfaces,
+        &output.snapshot.derived_conformance_rules,
+        None,
         &output.snapshot.declarations,
         &mut store,
         output.snapshot.hierarchy.as_ref(),
@@ -332,6 +527,8 @@ fn trait_dispatch_exact_enum_case_does_not_propagate_to_root_or_sibling() {
         &output.snapshot.conformance_index,
         &output.snapshot.conformance_witness_plans,
         &output.snapshot.trait_surfaces,
+        &output.snapshot.derived_conformance_rules,
+        None,
         &output.snapshot.declarations,
         &mut store,
         output.snapshot.hierarchy.as_ref(),

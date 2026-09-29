@@ -831,13 +831,15 @@ impl<'a> EditorSemanticQuery<'a> {
                             callable: Some(callable),
                             signature: candidate.signature,
                             evidence_fingerprint: candidate.evidence_fingerprint,
+                            evidence: candidate.evidence,
                             selection: candidate.selection,
-                            requirement_targets: Default::default(),
+                            requirement_targets: candidate.requirement_targets,
                         })
                     })
                     .collect(),
                 TraitDispatchResolution::Missing
                 | TraitDispatchResolution::Incomplete(_)
+                | TraitDispatchResolution::CoherenceConflict(_)
                 | TraitDispatchResolution::Unknown(_)
                 | TraitDispatchResolution::Blocked(_)
                 | TraitDispatchResolution::Dynamic(_)
