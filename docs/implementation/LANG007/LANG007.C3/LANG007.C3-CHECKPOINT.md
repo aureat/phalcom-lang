@@ -120,7 +120,20 @@ next_action: >
   `family_selector_syntax::associated_operator_and_subscript_parse_correctly`,
   `impl_syntax::intrinsic_type_member_declaration_parses_in_inherent_impl`,
   and `lexer::selector_spec_components` now pass 1/1 each after updating the
-  tests/snapshot. One full workspace test retry is pending; G6 is not complete.
+  tests/snapshot. The one authorized `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test
+  --workspace` retry reached `phalcom-core --lib` and reported 157 run, 155
+  passed, 2 failed; the command session disappeared before a final Cargo exit
+  summary, so the result is incomplete/unknown after that target and is not a
+  workspace-wide total. The two failures were independently confirmed with
+  exact selectors: `universe::tests::kernel_option_match_override_reroutes_every_combinator`
+  failed 1/1 with the Some-through-none-arm assertion; this is the existing
+  internal generic call-entry failure already recorded in LANG005.C4. The
+  exact `vm::send::tests::captured_setter_rejects_an_ordinary_positional_rhs_lane`
+  selector also failed 1/1. Its earlier LANG004 R1 evidence passed before
+  c386; c386 subsequently changed captured-method shape validation, while no
+  P4/T13 commit edits either the test or `vm/send.rs`. Classify this as D / out
+  of P4 causality, but not a verified baseline because it is a post-c386
+  discrepancy. G6 remains incomplete; do not repeat the workspace test.
   T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.
