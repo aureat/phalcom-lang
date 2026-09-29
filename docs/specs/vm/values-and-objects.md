@@ -199,7 +199,7 @@ The `meta` word is currently partitioned as follows:
 bit 63                                      bit 0
 ┌──────────────────────┬────────────────────┬──────────┐
 │ reserved             │ Some depth         │ tag      │
-│ bits 40..=63         │ bits 8..=39        │ 0..=255  │
+│ bits 40..=63         │ bits 8..=39        │ 0..=7    │
 │ 24 bits              │ 32 bits            │ 8 bits   │
 └──────────────────────┴────────────────────┴──────────┘
 ```

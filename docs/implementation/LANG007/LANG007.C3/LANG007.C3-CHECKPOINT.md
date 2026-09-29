@@ -36,10 +36,9 @@ next_plan: none accepted
 next_action: >
   T12.7 is IMPLEMENTED / FOCUSED_TESTED across commits `a66b8906`,
   `a9e584b7`, and `8727d5df`; its source-index, navigation, completion, and
-    syntax-token selectors each passed 1/1. T12.8 normative spec convergence is
-  the active next task. Update only the current effective structural and VM
-  contracts, then continue to T13 after review. T12.1 confirmed the existing
-  metadata tag
+  syntax-token selectors each passed 1/1. T12.8 normative spec convergence is
+  IMPLEMENTED / documentation-only; no Cargo tests were run. T13 is next.
+  T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.
   T11.6 is focused-tested, while its aggregate
@@ -136,7 +135,8 @@ next_action: >
   dependency invalidation graph; no P4-specific invalidation registry was
   added. The initial failure was a fixture public-surface boundary, not a
   dependency-graph defect. No production export, linker, or dependency-closure
-  change was made; no plan amendment is required. T12.8 is next. P4 remains
+  change was made; no plan amendment is required. T12.8 is complete; T13 is
+  next. P4 remains
   IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
@@ -2066,7 +2066,8 @@ next task:
     `collection_literal_value_positions_use_runtime_completion_namespace`;
     `phalcom-lsp --test semantic_tokens_current_syntax`
     `record_map_and_set_literals_follow_their_distinct_source_syntax`.
-    T12.8 normative spec convergence is active. P4 remains IN_PROGRESS
+    T12.8 normative spec convergence is IMPLEMENTED / documentation-only;
+    no Cargo tests were run. T13 is next. P4 remains IN_PROGRESS
     / PARTIAL / UNVERIFIED; broad certification is open.
     P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
 
@@ -2203,8 +2204,8 @@ next action:
     test-only source override preserves production `EmptyRecord` visibility
     while exercising ordinary import, dependency, fingerprint, and
     cold/incremental analysis. T12.7 LSP/editor acceptance is IMPLEMENTED /
-    FOCUSED_TESTED as recorded above. Continue with T12.8 normative spec
-    convergence; do not begin T13 until T12.8 is complete.
+    FOCUSED_TESTED as recorded above. T12.8 normative spec convergence is
+    complete; T13 may proceed.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure
