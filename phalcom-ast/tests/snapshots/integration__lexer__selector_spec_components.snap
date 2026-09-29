@@ -68,7 +68,7 @@ expression: "tokens(\"#name #name() #name(_) #name(foo) #name... #name(...) #nam
     Identifier(
         "key",
     ),
-    Colon,
+    Comma,
     Identifier(
         "value",
     ),

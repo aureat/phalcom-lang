@@ -107,6 +107,16 @@ fn associated_operator_and_subscript_parse_correctly() {
         panic!("expected Subscript member");
     };
     assert_eq!(exact.slots.len(), 2);
+
+    // `*` is an ordinary operator selector in a chained associated lookup;
+    // it is distinct from the selector-pattern wildcard `...`.
+    let lookup = associated_lookup("receiver::name::*");
+    let AssociatedMemberSyntax::Operator(phalcom_ast::ast::SelectorSpecSyntax::Exact(exact)) = lookup.member else {
+        panic!("expected chained associated operator lookup");
+    };
+    assert_eq!(exact.base, "*");
+    assert_eq!(exact.slots.len(), 1);
+    assert!(matches!(lookup.receiver, Expr::AssociatedLookup(_)));
 }
 
 #[test]
@@ -122,7 +132,7 @@ fn associated_direct_invoke_parses_correctly() {
 
 #[test]
 fn legacy_family_and_shape_errors_are_diagnosed() {
-    for source in ["receiver::name::", "receiver::name::*", "receiver::name::()"] {
+    for source in ["receiver::name::", "receiver::name::()"] {
         assert!(parse_source(source, 0).is_err(), "obsolete syntax should be rejected: {source:?}");
     }
 }

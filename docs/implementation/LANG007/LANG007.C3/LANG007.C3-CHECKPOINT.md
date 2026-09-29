@@ -108,6 +108,19 @@ next_action: >
   fixtures, but remain encountered, not baseline-certified. Focused G5
   migration/source evidence is recorded; do not claim a green aggregate
   collection gate.
+  G6 has started: `cargo check --workspace --all-targets` passed with one
+  existing dead-code warning. The first `cargo test --workspace` attempt
+  stopped in `phalcom-ast --test integration` (283 selected, 279 passed,
+  3 failed, 1 ignored) on three stale test oracles: the associated `*`
+  operator chain was still labeled obsolete, `CompleteTypePack` expected the
+  old `StaticDomain` AST form, and the Set lexer snapshot expected a colon for
+  comma-separated `#{...}`. No production parser/lexer change was needed.
+  Exact focused selectors
+  `family_selector_syntax::legacy_family_and_shape_errors_are_diagnosed`,
+  `family_selector_syntax::associated_operator_and_subscript_parse_correctly`,
+  `impl_syntax::intrinsic_type_member_declaration_parses_in_inherent_impl`,
+  and `lexer::selector_spec_components` now pass 1/1 each after updating the
+  tests/snapshot. One full workspace test retry is pending; G6 is not complete.
   T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.

@@ -173,10 +173,16 @@ fn intrinsic_type_member_declaration_parses_in_inherent_impl() {
     };
     assert_eq!(member.implementation, phalcom_common::modifier::ImplementationKind::Intrinsic);
     assert!(matches!(member.selector, phalcom_ast::ast::TypeMemberSelectorSyntax::Named { ref name, .. } if name == "Entries"));
-    assert!(matches!(member.result, phalcom_ast::ast::TypeMemberResultSyntax::Kind(phalcom_ast::ast::KindSyntax::StaticDomain { .. })));
+    assert!(matches!(
+        member.result,
+        phalcom_ast::ast::TypeMemberResultSyntax::Kind(phalcom_ast::ast::KindSyntax::CompleteTypePack(_))
+    ));
 
     let conformance = "impl Marker for Tuple { intrinsic type Entries: CompleteTypePack }\n";
-    assert!(parse_source(conformance, 0).is_err(), "conformance impl cannot define intrinsic owner type members");
+    assert!(
+        parse_source(conformance, 0).is_err(),
+        "conformance impl cannot define intrinsic owner type members"
+    );
 }
 
 #[test]
