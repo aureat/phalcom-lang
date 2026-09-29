@@ -7,9 +7,9 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 - Authority: `/Users/altunhasanli/dev/phalcom/phalcom/docs/implementation/LANG007/LANG007.C3/LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md` T13 / §16; checkpoint is the shared state.
 
 ## Current state
-- Status: T1–T12 focused implementation evidence is recorded; G1–G5 focused stabilization is complete; G6 is incomplete and P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+- Status: T1–T12 evidence and G1–G5 focused selector results/dispositions are recorded; the G5 collection aggregates remain unpassed/uncertified. G6 is incomplete and P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 - The one authorized workspace-test retry was run after correcting three stale AST test/snapshot oracles. Its process session disappeared after `phalcom-core --lib` reported 157 run, 155 passed, 2 failed. There is no captured final Cargo exit summary or evidence about later workspace targets. Do not describe this as a workspace-wide test total.
-- The tree contains only the two preserved user edits plus the current P4 formatting/checkpoint/walkthrough/handoff delivery until that delivery is committed. Do not edit or stage `docs/.obsidian/workspace.json` or `docs/__unstructured__/Untitled 1.md`.
+- After the scoped T13 delivery, only the two preserved user paths remain modified. Do not edit or stage `docs/.obsidian/workspace.json` or `docs/__unstructured__/Untitled 1.md`.
 - No push was performed in this continuation.
 
 ## Evidence and decisions

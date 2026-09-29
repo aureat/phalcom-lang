@@ -151,7 +151,7 @@ next_action: >
   `phalcom-core/src/modules/compile.rs:486-490`,
   `phalcom-core/src/modules/semantic_lowering.rs:2336-2340`, and
   `phalcom-core/tests/core/language/data_e2e.rs:623-642`, along with broad
-  unrelated/pre-existing drift. Those six cited hunk blocks received only
+  unrelated/pre-existing drift. P4-authored blocks in six files received only
   rustfmt-equivalent formatting edits; targeted
   `rustfmt --edition 2024 --check` on those six Rust files now passes. The
   workspace-wide format gate remains unpassed; no broad formatting was

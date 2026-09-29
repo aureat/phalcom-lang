@@ -16,13 +16,11 @@ as_of: 2026-09-29
 
 ## Current disposition
 
-P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. At this update, local `main`
-is at `dde05a96`, six commits ahead of `origin/main` (`184a3608`). The current
-uncommitted P4-owned changes are the T13 checkpoint update and localized
-rustfmt-only corrections in six Rust files; the user-edited
-`docs/.obsidian/workspace.json` and `docs/__unstructured__/Untitled 1.md` are
-preserved and excluded from delivery. No push was performed by this
-continuation.
+P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. The final T13 records and
+localized rustfmt-only corrections were committed on local `main` as
+`40974862`; no push was performed by this continuation. The user-edited
+`docs/.obsidian/workspace.json` and `docs/__unstructured__/Untitled 1.md` were
+preserved and excluded from delivery. They remain the only modified paths.
 
 The T13 certification result is incomplete: the one authorized full workspace
 test retry lost its command session after reporting the `phalcom-core --lib`
