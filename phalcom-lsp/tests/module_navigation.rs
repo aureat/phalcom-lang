@@ -426,3 +426,71 @@ async fn goto_definition_on_universe_class_returns_canonical_location() {
         "expected canonical Universe or physical location, got {uri_str}"
     );
 }
+
+#[tokio::test]
+async fn goto_definition_on_structural_type_members_uses_canonical_owner_source() {
+    let workspace = ScratchWorkspace::new("structural_type_member_nav");
+    workspace.write("package.ph", "");
+    let source = concat!(
+        "from universe.collections.tuple import Tuple, CompleteTypePack\n",
+        "from universe.collections.record import Record, RecordFields\n",
+        "type TupleProjection<***Es: CompleteTypePack> = Tuple<***Es>::Entries\n",
+        "type RecordFieldsProjection<**Fs: RecordFields> = Record<**Fs>::Fields\n",
+        "type RecordValueProjection<**Fs: RecordFields> = Record<**Fs>::Value\n",
+        "export TupleProjection, RecordFieldsProjection, RecordValueProjection\n",
+    );
+    let main_path = workspace.write("main.ph", source);
+
+    let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
+    let (server_read, server_write) = tokio::io::split(server_end);
+    let (service, socket) = LspService::new(Backend::new);
+    tokio::spawn(async move {
+        Server::new(server_read, server_write, socket).serve(service).await;
+    });
+
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "processId": null, "rootUri": workspace.uri(), "capabilities": {} }
+        }),
+    )
+    .await;
+    let _ = read_response(&mut client_end, 1).await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
+
+    let main_uri = Url::from_file_path(&main_path).unwrap().to_string();
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": { "uri": main_uri, "languageId": "phalcom", "version": 1, "text": source }
+            }
+        }),
+    )
+    .await;
+
+    let cases = [
+        (2, "Entries", "collections/tuple", 27),
+        (3, "Fields", "collections/record", 73),
+        (4, "Value", "collections/record", 74),
+    ];
+    let mut request_id = 1;
+    for (line, selector, expected_path, expected_line) in cases {
+        let character = source.lines().nth(line).unwrap().rfind(selector).unwrap();
+        let response = wait_for_definition(&mut client_end, &mut request_id, &main_uri, line, character).await;
+        let locations = response["result"].as_array().expect("definition location array");
+        assert_eq!(locations.len(), 1, "{selector}: {response:#?}");
+        let location = &locations[0];
+        let uri = location["uri"].as_str().expect("definition URI");
+        assert!(
+            uri.contains(expected_path),
+            "{selector} should navigate to its canonical authored module, got {uri}"
+        );
+        assert_eq!(location["range"]["start"]["line"].as_u64(), Some(expected_line), "{selector}: {location:#?}");
+    }
+}

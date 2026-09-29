@@ -4,6 +4,8 @@ intrinsic type data TypePack
 intrinsic type data LabeledTypePack
 intrinsic type data CompleteTypePack
 
+export CompleteTypePack
+
 impl TypePack {
   intrinsic type Map<F: Type -> Type>: TypePack
 }

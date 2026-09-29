@@ -6,7 +6,7 @@ use phalcom_semantic::checker::flow::graph::FlowGraph;
 use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::explain::ExplanationArena;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, FieldId, SourceOwner, SourceSiteId, SourceSiteLocalId, SourceSiteRef};
-use phalcom_semantic::source_index::resolve_type_reference_targets;
+use phalcom_semantic::source_index::{resolve_type_member_projection_targets, resolve_type_reference_targets};
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::{
@@ -148,6 +148,125 @@ fn intrinsic_impl_type_member_source_site_keeps_owner_and_selector_identity() {
         Some(phalcom_semantic::SourceSiteKind::TypeMember(target)) if target == &id
     ));
     assert_eq!(index.targets.get(&source.declaration_site), Some(&SemanticTargetId::TypeMember(id)));
+}
+
+#[test]
+fn structural_projection_occurrences_navigate_to_owner_qualified_source_members() {
+    let module = ModuleId::universe_root();
+    let source = r#"
+intrinsic type data CompleteTypePack
+intrinsic type data RecordFields
+intrinsic data Tuple<***Es>(***Es)
+intrinsic data Record<**Fs> { **Fs }
+impl<***Es> Tuple<***Es> { intrinsic type Entries: CompleteTypePack }
+impl<**Fs> Record<**Fs> {
+  intrinsic type Fields: RecordFields
+  intrinsic type Value: Type
+}
+type TupleEntryPack<***Es: CompleteTypePack> = Tuple<***Es>::Entries
+type RecordFieldRow<**Fs: RecordFields> = Record<**Fs>::Fields
+type RecordFieldValue<**Fs: RecordFields> = Record<**Fs>::Value
+type OrdinaryEnumCase = UnresolvedEnum::Some
+"#;
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let tuple = DeclarationId::new(module.clone(), "Tuple".into());
+    let record = DeclarationId::new(module.clone(), "Record".into());
+    let entries = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
+        tuple.clone(),
+        phalcom_semantic::types::type_member::TypeMemberSelector::named("Entries"),
+    );
+    let fields = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
+        record.clone(),
+        phalcom_semantic::types::type_member::TypeMemberSelector::named("Fields"),
+    );
+    let value =
+        phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(record, phalcom_semantic::types::type_member::TypeMemberSelector::named("Value"));
+    let mut resolver = SimpleTypeResolver::new();
+    resolver.insert("Tuple", tuple.clone());
+    resolver.insert("Record", value.owner.clone());
+    resolver.insert("UnresolvedEnum", DeclarationId::new(module.clone(), "UnresolvedEnum".into()));
+    let products = [
+        type_member_product(
+            entries.clone(),
+            phalcom_semantic::types::type_member::IntrinsicTypeOperation::TupleEntries,
+            phalcom_semantic::types::id::KindId::COMPLETE_TYPE_PACK,
+        ),
+        type_member_product(
+            fields.clone(),
+            phalcom_semantic::types::type_member::IntrinsicTypeOperation::RecordFields,
+            phalcom_semantic::types::id::KindId::RECORD_ROW,
+        ),
+        type_member_product(
+            value.clone(),
+            phalcom_semantic::types::type_member::IntrinsicTypeOperation::RecordValue,
+            phalcom_semantic::types::id::KindId::TYPE,
+        ),
+    ];
+    for (owner, members) in [(tuple, &products[..1]), (value.owner.clone(), &products[1..])] {
+        let (surface, diagnostics) = phalcom_semantic::associated::build_associated_surface_with_type_members(
+            &owner,
+            None,
+            members,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &module,
+            None,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        resolver.associated_surfaces.insert(owner, surface);
+        for product in members {
+            resolver.type_member_declarations.insert(product.id.clone(), Arc::new(product.clone()));
+        }
+    }
+
+    let targets = resolve_type_member_projection_targets(&module, &parsed.program, &resolver);
+    assert_eq!(
+        targets.values().cloned().collect::<std::collections::BTreeSet<_>>(),
+        [entries.clone(), fields.clone(), value.clone()].into(),
+        "only canonical associated type members are indexed; an unresolved enum-case candidate is not a type-member reference: {:#?}",
+        parsed.program
+    );
+
+    let mut context = SourceIndexContext::default();
+    for (range, member) in targets {
+        context.type_member_projection_targets.insert((module.clone(), range), member);
+    }
+    let mut scopes = build_source_scope_index(module.clone(), &parsed.program, &context);
+    let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, Some(&context));
+    let references = phalcom_semantic::ModuleReferenceContribution::from_module_index(
+        &scopes,
+        occurrences.all(),
+        &|site| occurrences.target_for(site).cloned(),
+        &BTreeMap::new(),
+    );
+
+    for member in [entries, fields, value] {
+        let target = SemanticTargetId::TypeMember(member.clone());
+        let source = scopes.type_member_sources.get(&member).expect("authored type-member source");
+        assert_eq!(references.definitions[&target].as_ref(), &[source.declaration_site.clone()]);
+        assert_eq!(references.semantic_references[&target].len(), 1, "one exact projection use for {member:?}");
+    }
+}
+
+fn type_member_product(
+    id: phalcom_semantic::types::type_member::TypeMemberDeclarationId,
+    intrinsic: phalcom_semantic::types::type_member::IntrinsicTypeOperation,
+    result_kind: phalcom_semantic::types::id::KindId,
+) -> phalcom_semantic::db::product::TypeMemberDeclarationProduct {
+    use phalcom_semantic::types::type_member::{TypeMemberDomain, TypeMemberSignature};
+
+    phalcom_semantic::db::product::TypeMemberDeclarationProduct {
+        signature: TypeMemberSignature {
+            selector: id.selector.clone(),
+            parameters: Box::new([]),
+            result_domain: TypeMemberDomain::Kind(result_kind),
+            intrinsic: Some(intrinsic),
+            implementation: phalcom_common::modifier::ImplementationKind::Intrinsic,
+        },
+        id,
+        source_range: SourceRange { start: 0, end: 0 },
+    }
 }
 
 #[test]

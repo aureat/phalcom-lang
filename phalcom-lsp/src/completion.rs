@@ -3,7 +3,7 @@
 //! Recovery stays deliberately syntax-light so a dangling dot or incomplete
 //! chained send remains useful while the editor buffer is not parseable.
 
-use phalcom_ast::ast::{Pattern, Program, Statement};
+use phalcom_ast::ast::{GenericParameterSyntax, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorKind};
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position};
@@ -17,6 +17,7 @@ pub(crate) struct CompilerCompletionContext<'a> {
     pub module: &'a phalcom_modules::ModuleId,
     pub text: &'a str,
     pub offset: usize,
+    pub type_kind_position: bool,
 }
 
 /// Recovered member-completion target from an incomplete editor buffer.
@@ -145,7 +146,9 @@ fn is_identifier_byte(byte: u8) -> bool {
 /// therefore produce no fabricated member surface. Non-member completion is
 /// deliberately bounded to names visible in the current compiler source shard.
 pub(crate) fn compiler_contextual_completions(db: &phalcom_semantic::SemanticSnapshot, context: CompilerCompletionContext<'_>) -> Vec<CompletionItem> {
-    let mut items = if target_at_offset(context.text, context.offset).is_some() {
+    let mut items = if context.type_kind_position {
+        compiler_type_kind_completions(db, context.module, context.offset)
+    } else if target_at_offset(context.text, context.offset).is_some() {
         match context.resolved {
             Some(resolved) if resolved.alternatives.len() > 1 => compiler_union_completions(db, resolved, context.lexical_class, context.privileged),
             Some(resolved) => resolved
@@ -156,11 +159,121 @@ pub(crate) fn compiler_contextual_completions(db: &phalcom_semantic::SemanticSna
             None => Vec::new(),
         }
     } else {
-        compiler_visible_completions(db, context.module, context.offset)
+        compiler_value_completions(db, context.module, context.offset)
     };
     items.sort_by(|left, right| left.label.cmp(&right.label));
     items.dedup_by(|left, right| left.label == right.label);
     items
+}
+
+fn compiler_type_kind_completions(db: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId, offset: usize) -> Vec<CompletionItem> {
+    let visible = db.editor().visible_symbols_at(module, offset);
+    visible
+        .into_iter()
+        .filter(|symbol| is_type_data_symbol(db, symbol))
+        .map(|symbol| CompletionItem {
+            label: symbol.name.to_string(),
+            kind: Some(CompletionItemKind::TYPE_PARAMETER),
+            insert_text: Some(symbol.name.to_string()),
+            insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
+fn compiler_value_completions(db: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId, offset: usize) -> Vec<CompletionItem> {
+    db.editor()
+        .visible_symbols_at(module, offset)
+        .into_iter()
+        .filter(|symbol| !is_type_data_symbol(db, symbol))
+        .map(|symbol| CompletionItem {
+            label: symbol.name.to_string(),
+            kind: Some(CompletionItemKind::VARIABLE),
+            insert_text: Some(symbol.name.to_string()),
+            insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
+fn is_type_data_symbol(db: &phalcom_semantic::SemanticSnapshot, symbol: &phalcom_semantic::VisibleSymbol) -> bool {
+    let declaration = match &symbol.target {
+        phalcom_semantic::SemanticTargetId::Declaration(declaration) => Some(declaration.clone()),
+        phalcom_semantic::SemanticTargetId::Binding(site) => db
+            .source_index()
+            .module_for_site(site)
+            .and_then(|module| module.structure.import_origin(site))
+            .and_then(|origin| match &origin.remote_target {
+                phalcom_semantic::SemanticTargetId::Declaration(declaration) => Some(declaration.clone()),
+                phalcom_semantic::SemanticTargetId::ModuleBinding(symbol) => {
+                    Some(phalcom_semantic::DeclarationId::new(symbol.module.clone(), symbol.name.clone()))
+                }
+                _ => None,
+            }),
+        _ => None,
+    };
+    let Some(declaration) = declaration else {
+        return false;
+    };
+    let Some(source) = db.source_index().declaration_source(&declaration) else {
+        return false;
+    };
+    source.kind == phalcom_semantic::source_index::SourceDeclarationKind::TypeData
+}
+
+/// Detects an AST-authored generic kind position so completion can stay in the
+/// type-level namespace rather than mixing in runtime lexical values.
+pub(crate) fn is_generic_kind_position(program: &Program, offset: usize) -> bool {
+    fn parameters_match(parameters: &[GenericParameterSyntax], offset: usize) -> bool {
+        parameters.iter().filter_map(|parameter| parameter.kind.as_ref()).any(|kind| {
+            let range = kind.range();
+            range.start <= offset && offset <= range.end
+        })
+    }
+
+    fn behavior_matches(behavior: &phalcom_ast::ast::BehaviorMember, offset: usize) -> bool {
+        match behavior {
+            phalcom_ast::ast::BehaviorMember::Method(method) => parameters_match(&method.generic_parameters, offset),
+            phalcom_ast::ast::BehaviorMember::Getter(getter) => parameters_match(&getter.generic_parameters, offset),
+            phalcom_ast::ast::BehaviorMember::Setter(setter) => parameters_match(&setter.generic_parameters, offset),
+            phalcom_ast::ast::BehaviorMember::Index(index) => parameters_match(&index.generic_parameters, offset),
+        }
+    }
+
+    program.statements.iter().any(|statement| match statement {
+        Statement::Class(class) => {
+            parameters_match(&class.generic_parameters, offset)
+                || class.members.iter().any(|member| match member {
+                    phalcom_ast::ast::ClassMember::Method(method) => parameters_match(&method.generic_parameters, offset),
+                    phalcom_ast::ast::ClassMember::Index(index) => parameters_match(&index.generic_parameters, offset),
+                    _ => false,
+                })
+        }
+        Statement::Data(data) => {
+            parameters_match(&data.generic_parameters, offset)
+                || data
+                    .cases()
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|case| parameters_match(&case.generic_parameters, offset))
+        }
+        Statement::Trait(trait_def) => {
+            parameters_match(&trait_def.generic_parameters, offset)
+                || trait_def
+                    .members
+                    .iter()
+                    .any(|member| member.behavior().is_some_and(|behavior| behavior_matches(behavior, offset)))
+        }
+        Statement::TypeAlias(alias) => parameters_match(&alias.generic_parameters, offset),
+        Statement::Impl(impl_def) => {
+            parameters_match(&impl_def.generic_parameters, offset)
+                || impl_def.members.iter().any(|member| match member {
+                    phalcom_ast::ast::ImplMember::Behavior(behavior) => behavior_matches(behavior, offset),
+                    _ => false,
+                })
+        }
+        _ => false,
+    })
 }
 
 fn compiler_union_completions(
@@ -255,25 +368,6 @@ fn compiler_class_completions(
     items.sort_by(|left, right| left.label.cmp(&right.label));
     items.dedup_by(|left, right| left.label == right.label);
     items
-}
-
-fn compiler_visible_completions(db: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId, offset: usize) -> Vec<CompletionItem> {
-    let names = db
-        .editor()
-        .visible_symbols_at(module, offset)
-        .into_iter()
-        .map(|symbol| symbol.name.to_string())
-        .collect::<std::collections::BTreeSet<_>>();
-    names
-        .into_iter()
-        .map(|name| CompletionItem {
-            label: name.clone(),
-            kind: Some(CompletionItemKind::VARIABLE),
-            insert_text: Some(name),
-            insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-            ..CompletionItem::default()
-        })
-        .collect()
 }
 
 /// Returns syntax-only names while the pinned compiler publication is stale or

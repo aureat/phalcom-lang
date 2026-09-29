@@ -1,5 +1,7 @@
 intrinsic type data RecordFields
 
+export RecordFields
+
 impl RecordFields {
   intrinsic type Map<F: Type -> Type>: RecordFields
 }

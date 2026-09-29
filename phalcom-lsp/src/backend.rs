@@ -1711,6 +1711,7 @@ impl LanguageServer for Backend {
                     module,
                     text: &request.document.text,
                     offset,
+                    type_kind_position: completion::is_generic_kind_position(&request.document.parse.program, offset),
                 },
             )
         } else {

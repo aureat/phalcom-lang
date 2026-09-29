@@ -47,6 +47,10 @@ pub struct SourceIndexContext {
     /// Resolution is performed by the compiler type resolver before occurrence
     /// construction; the source index only publishes the resulting identity.
     pub type_reference_targets: BTreeMap<(ModuleId, SourceRange), DeclarationId>,
+    /// Canonical type-member projection targets keyed by source module and the
+    /// authored selector range. Owners are resolved through the linked type
+    /// resolver; selector spelling alone is never treated as identity.
+    pub type_member_projection_targets: BTreeMap<(ModuleId, SourceRange), crate::types::type_member::TypeMemberDeclarationId>,
     /// Exact trait-owned associated declarations keyed by conformance binding
     /// LHS range. The semantic session supplies this identity map.
     pub associated_type_targets: BTreeMap<(ModuleId, SourceRange), AssociatedTypeRequirementId>,
@@ -96,6 +100,7 @@ pub fn resolve_type_reference_targets(module: &ModuleId, program: &Program, reso
         module,
         resolver,
         targets: BTreeMap::new(),
+        type_member_targets: BTreeMap::new(),
     };
     let bound = BTreeSet::new();
     for statement in &program.statements {
@@ -104,10 +109,31 @@ pub fn resolve_type_reference_targets(module: &ModuleId, program: &Program, reso
     collector.targets
 }
 
+/// Resolves authored type-member projection selectors to canonical owner and
+/// selector identities for source-index occurrence publication.
+pub fn resolve_type_member_projection_targets(
+    module: &ModuleId,
+    program: &Program,
+    resolver: &dyn TypeResolver,
+) -> BTreeMap<SourceRange, crate::types::type_member::TypeMemberDeclarationId> {
+    let mut collector = TypeReferenceTargetCollector {
+        module,
+        resolver,
+        targets: BTreeMap::new(),
+        type_member_targets: BTreeMap::new(),
+    };
+    let bound = BTreeSet::new();
+    for statement in &program.statements {
+        collector.statement(statement, &bound);
+    }
+    collector.type_member_targets
+}
+
 struct TypeReferenceTargetCollector<'a> {
     module: &'a ModuleId,
     resolver: &'a dyn TypeResolver,
     targets: BTreeMap<SourceRange, DeclarationId>,
+    type_member_targets: BTreeMap<SourceRange, crate::types::type_member::TypeMemberDeclarationId>,
 }
 
 impl TypeReferenceTargetCollector<'_> {
@@ -494,9 +520,23 @@ impl TypeReferenceTargetCollector<'_> {
             }
             TypeAnnotationExpr::ExactEnumCase {
                 enum_target,
+                variant_name,
+                variant_name_range,
                 generic_arguments,
+                payload_shape,
                 ..
             } => {
+                // `Owner::Member` is intentionally parsed as an exact-case candidate.
+                // Only publish it as a type-member reference when the checked
+                // associated surface selects a source declaration. Ordinary enum
+                // cases remain owned by the static-case catalog.
+                if generic_arguments.is_empty() && payload_shape.is_none() {
+                    self.record_type_member_target(
+                        enum_target,
+                        crate::types::type_member::TypeMemberSelector::named(variant_name.as_str()),
+                        *variant_name_range,
+                    );
+                }
                 self.annotation(enum_target, bound);
                 for argument in generic_arguments {
                     self.annotation(argument, bound);
@@ -510,7 +550,10 @@ impl TypeReferenceTargetCollector<'_> {
                     self.annotation(&spec.value, bound);
                 }
             }
-            TypeAnnotationExpr::TypeMemberProjection { subject, arguments, .. } => {
+            TypeAnnotationExpr::TypeMemberProjection {
+                subject, selector, arguments, ..
+            } => {
+                self.record_type_member_target(subject, crate::types::type_member::TypeMemberSelector::from_syntax(selector), selector.range());
                 self.annotation(subject, bound);
                 for argument in arguments {
                     if let phalcom_ast::ast::TypeMemberArgumentSyntax::TypeForm(ty) = argument {
@@ -546,6 +589,26 @@ impl TypeReferenceTargetCollector<'_> {
             }
             _ => self.annotation(annotation, bound),
         }
+    }
+
+    fn record_type_member_target(&mut self, subject: &TypeAnnotation, selector: crate::types::type_member::TypeMemberSelector, range: SourceRange) {
+        let Some(owner) = type_member_subject_owner(subject, self.module, self.resolver) else {
+            return;
+        };
+        if let Some(product) = self.resolver.resolve_associated_type_member(&owner, &selector) {
+            self.type_member_targets.insert(range, product.id.clone());
+        }
+    }
+}
+
+fn type_member_subject_owner(annotation: &TypeAnnotation, module: &ModuleId, resolver: &dyn TypeResolver) -> Option<DeclarationId> {
+    match &annotation.expr {
+        TypeAnnotationExpr::Reference(reference) => {
+            let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+            resolver.resolve_type_name(module, &reference.root, &members)
+        }
+        TypeAnnotationExpr::Application { origin, .. } => type_member_subject_owner(origin, module, resolver),
+        _ => None,
     }
 }
 

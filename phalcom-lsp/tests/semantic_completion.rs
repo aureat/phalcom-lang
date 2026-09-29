@@ -13,7 +13,6 @@ async fn complete_fixture(relative: &str, marker: &str) -> Vec<String> {
     let mut lsp = TestLsp::start().await;
     lsp.initialize(None).await;
     lsp.open_and_wait(&uri, &fixture.text).await;
-
     let response = lsp.completion(&uri, fixture.position(marker)).await;
     let labels = completion_labels(&response);
 
@@ -29,6 +28,36 @@ async fn user_instance_completion_uses_declared_surface() {
     assert!(labels.iter().any(|x| x == "name"), "{labels:#?}");
     assert!(labels.iter().any(|x| x == "rename(_)"), "{labels:#?}");
     assert!(!labels.iter().any(|x| x == "ifTrue(_)"), "{labels:#?}");
+}
+
+#[tokio::test]
+async fn generic_kind_completion_uses_source_kind_names_not_runtime_values() {
+    let record_kind = complete_fixture("semantic/type_kind_completion.ph", "record_kind").await;
+    assert!(record_kind.iter().any(|label| label == "RecordFields"), "{record_kind:#?}");
+    assert!(record_kind.iter().any(|label| label == "CompleteTypePack"), "{record_kind:#?}");
+    assert!(
+        !record_kind.iter().any(|label| label == "RecordRow"),
+        "internal row vocabulary leaked: {record_kind:#?}"
+    );
+    assert!(
+        !record_kind.iter().any(|label| label == "runtimeValue"),
+        "runtime binding leaked into kind completion: {record_kind:#?}"
+    );
+
+    let pack_kind = complete_fixture("semantic/type_kind_completion.ph", "pack_kind").await;
+    assert!(pack_kind.iter().any(|label| label == "CompleteTypePack"), "{pack_kind:#?}");
+    assert!(pack_kind.iter().any(|label| label == "RecordFields"), "{pack_kind:#?}");
+
+    let runtime_value = complete_fixture("semantic/type_kind_completion.ph", "runtime_value").await;
+    assert!(runtime_value.iter().any(|label| label == "runtimeValue"), "{runtime_value:#?}");
+    assert!(
+        !runtime_value.iter().any(|label| label == "RecordFields"),
+        "kind-only name leaked into runtime completion: {runtime_value:#?}"
+    );
+    assert!(
+        !runtime_value.iter().any(|label| label == "CompleteTypePack"),
+        "kind-only name leaked into runtime completion: {runtime_value:#?}"
+    );
 }
 
 #[tokio::test]

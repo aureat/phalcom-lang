@@ -203,6 +203,21 @@ impl OccurrenceIndex {
                     Some(SemanticTargetId::Declaration(declaration)),
                 );
             }
+            let type_member_references = context
+                .type_member_projection_targets
+                .iter()
+                .filter(|((owner, _), _)| owner == &module)
+                .map(|((_, range), member)| (*range, member.clone()))
+                .collect::<Vec<_>>();
+            for (range, member) in type_member_references {
+                visitor.record_targeted(
+                    range,
+                    OccurrenceKind::Member,
+                    OccurrenceRole::Reference,
+                    None,
+                    Some(SemanticTargetId::TypeMember(member)),
+                );
+            }
         }
         result = Self::new(visitor.occurrences, visitor.targets);
         result

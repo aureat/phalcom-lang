@@ -39,7 +39,10 @@ use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{CallableSemanticSignature, CallableSignatureTable, FieldSignatureTable};
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
-use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
+use crate::source_index::{
+    SourceIndexContext, SourceSemanticIndex, build_source_scope_index,
+    resolve_type_member_projection_targets, resolve_type_reference_targets,
+};
 use crate::traits::{TraitHeader, TraitRef, TraitSurfaceTable, build_trait_surface};
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::annotation::{
@@ -8736,6 +8739,9 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         }
         for (range, declaration) in resolve_type_reference_targets(module, &source.program, type_resolver) {
             context.type_reference_targets.insert((module.clone(), range), declaration);
+        }
+        for (range, member) in resolve_type_member_projection_targets(module, &source.program, type_resolver) {
+            context.type_member_projection_targets.insert((module.clone(), range), member);
         }
     }
     let mut imported_target_modules = BTreeSet::new();

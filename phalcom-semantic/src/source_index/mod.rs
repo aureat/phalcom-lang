@@ -24,7 +24,7 @@ pub mod scope;
 pub mod site;
 pub mod symbol;
 
-pub use builder::{SourceIndexContext, build_source_scope_index, resolve_type_reference_targets};
+pub use builder::{SourceIndexContext, build_source_scope_index, resolve_type_member_projection_targets, resolve_type_reference_targets};
 pub use occurrence::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use reference::{ModuleReferenceContribution, ReferenceIndex, TargetReferenceSet};
 pub use scope::{
