@@ -115,7 +115,28 @@ next_action: >
   nominal declarations. Semantic selector
   `unit_and_empty_record_alias_metadata_round_trip_as_structural_zero_forms`
   passed 1/1 through RuntimePublic export, validation, JSON decode, and exact
-  alias-identity checks. T12.6 is next.
+  alias-identity checks. T12.6 is active. Four non-alias edit families had
+  focused passes before the current session-bootstrap change and must be
+  rerun against its final diff. The Unit/EmptyRecord consumer row currently
+  is unverified because the fixture's `provider -> Universe::collections.record`
+  import is rejected as `NonExportedImport`: canonical `record.ph` declares
+  `EmptyRecord` but does not export it. This is a fixture/export prerequisite,
+  not evidence that generic dependency closure drops a resolved edge. The
+  focused `t12_6_unit_empty_record_alias_consumer_edit_matches_cold_analysis`
+  selector ran 1 test and failed because cold `Zero` was absent; the snapshot
+  had no semantic diagnostics. The warm alias-presence assertion passed, but
+  its value was not compared; the cold alias-presence assertion failed, so the
+  alias differential did not complete. A link trace attributes the blocked
+  provider interface to the missing export.
+  Existing workspace overlay API cannot replace a canonical Universe source
+  (`ImportRootCollision` on the reserved `universe` root), and
+  `UniverseSourceProvider` exposes no injectable test source. The Unit runtime-
+  catalog ruling remains unchanged; no alias registry, resolver fallback,
+  linker change, or canonical export change was made. T12.6 remains active
+  pending an architect ruling on whether `EmptyRecord` is intended to be a
+  canonical public import, requiring an export change, or should be verified
+  through a test-only canonical-source injection seam. Do not resume this row
+  before that direction is recorded.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
   clean-predecessor fixture error, not a PASS. Keep TypeStore::union, loop
@@ -2018,8 +2039,14 @@ next task:
     are recorded below. Keep TypeStore::union, loop flow, and lexical-body
     semantics unchanged. T6.4 is now IMPLEMENTED / FOCUSED_TESTED after T9/T10:
     bare Unit type references use the exact prelude source alias rather than a
-    name fallback, while structural `()` remains canonical Unit. T12.6 is next. P4 remains
-    IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
+    name fallback, while structural `()` remains canonical Unit. T12.6 is
+    active but not complete: canonical Unit source-alias seeding in the
+    existing alias worklist now lets the initial Unit consumer publish. The
+    Unit-to-EmptyRecord row is UNVERIFIED: its import is rejected because the
+    canonical `EmptyRecord` alias is not exported, and the current test APIs
+    cannot provide an in-memory canonical Universe source override. No linker,
+    dependency-closure, or canonical-export change has been authorized.
+    P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
 
 next action:
     R2 Steps 5–11 are implemented and focused-tested; the T4/T5 amendment is

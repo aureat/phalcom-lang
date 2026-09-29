@@ -15,6 +15,7 @@ mod recomputation_metrics;
 mod record_rows;
 pub(crate) mod support;
 mod traits;
+mod t12_6;
 mod type_members;
 mod type_store_revisions;
 mod workspace_indexing;

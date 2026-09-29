@@ -715,6 +715,7 @@ impl SemanticWorkspaceSession {
         let mut base_enum_requirement_products = Vec::new();
 
         let provider = phalcom_modules::UniverseSourceProvider::new();
+        let mut canonical_alias_sources = BTreeMap::new();
 
         // Canonical source enums and data are not native-meta classes. Add their
         // declaration forms before constructing the linked resolver so
@@ -734,6 +735,11 @@ impl SemanticWorkspaceSession {
             // Phase 1: publish structural data/enum products for the complete
             // module before resolving any inherent impl target in that module.
             for stmt in &parsed.program.statements {
+                if let Statement::TypeAlias(alias) = stmt {
+                    let declaration = DeclarationId::new(module_id.clone(), alias.name.clone().into());
+                    canonical_alias_sources.insert(declaration, (module_id.clone(), alias.clone()));
+                    continue;
+                }
                 if let phalcom_ast::ast::Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                     if base_declarations.get(&decl_id).is_some() || base_declarations.is_intrinsic_static_domain(&decl_id) {
@@ -1310,7 +1316,7 @@ impl SemanticWorkspaceSession {
             declaration_signature_reverse_dependencies: BTreeMap::new(),
             declaration_signature_fingerprints: BTreeMap::new(),
             inherent_impl_surface_owners: BTreeMap::new(),
-            alias_sources: BTreeMap::new(),
+            alias_sources: canonical_alias_sources,
             alias_dependencies: BTreeMap::new(),
             alias_reverse_dependencies: BTreeMap::new(),
             alias_contract_dependencies: BTreeMap::new(),
@@ -2378,6 +2384,23 @@ impl SemanticWorkspaceSession {
                 );
             }
         }
+        // A removed source overlay for a canonical Universe module reveals
+        // that module's source-backed alias declarations again. Keep these
+        // contributions in the same alias worklist as workspace aliases.
+        if !removed_modules.is_empty() {
+            let provider = phalcom_modules::UniverseSourceProvider::new();
+            for module in &removed_modules {
+                alias_sources.retain(|declaration, _| &declaration.module != module);
+                let Ok(source) = provider.load_parsed(module) else {
+                    continue;
+                };
+                for statement in &source.program.statements {
+                    let Statement::TypeAlias(alias) = statement else { continue };
+                    let declaration = DeclarationId::new(module.clone(), alias.name.clone().into());
+                    alias_sources.insert(declaration, (module.clone(), alias.clone()));
+                }
+            }
+        }
         let mut shell_table = DeclarationShellTable::default();
         let alias_declarations = alias_sources.keys().cloned().collect::<BTreeSet<_>>();
         let mut initial_blueprints: Vec<DeclarationBlueprint> = declarations
@@ -2802,6 +2825,12 @@ impl SemanticWorkspaceSession {
             if let Some(shard) = self.semantic_structure_shards.get(module) {
                 alias_recomputed_declarations.extend(shard.aliases.iter().cloned());
             }
+        }
+        if previous_snapshot.is_none() {
+            // Canonical source aliases are seeded from Universe source AST at
+            // session bootstrap, then lowered by this ordinary first-update
+            // alias worklist rather than by a parallel prelude form table.
+            alias_recomputed_declarations.extend(alias_sources.keys().cloned());
         }
         // Alias source edits are not identity edits, so the source shard delta
         // alone cannot seed retained alias consumers. Walk the compact retained
