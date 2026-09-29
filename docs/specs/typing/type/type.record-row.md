@@ -384,4 +384,3 @@ Mutable field handling must not reuse immutable depth-subtyping rules without ch
 - object state/interface exposure
 - nominal classes with structural record views
 - row union/difference operations
-- record spread syntax

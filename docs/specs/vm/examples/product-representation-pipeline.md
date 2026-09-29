@@ -1019,7 +1019,8 @@ The empty structural record product:
 {}
 ```
 
-also reaches the canonical zero-product representation at the runtime construction boundary.
+uses the distinct `Value::empty_record()` immediate at the runtime
+construction boundary. It is not the Unit immediate.
 
 No positive `RecordObject` exists.
 
@@ -1445,7 +1446,8 @@ record expression
  -> Value
 ```
 
-Empty Record stops at the canonical zero product.
+Empty Record stops at its canonical `EmptyRecord` immediate; it does not use
+Unit or materialize a positive `RecordObject`.
 
 ---
 

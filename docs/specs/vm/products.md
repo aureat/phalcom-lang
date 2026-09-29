@@ -856,11 +856,13 @@ The empty Record product:
 {}
 ```
 
-normalizes to the same canonical zero-product representation as Unit.
+normalizes to the distinct `EmptyRecord` immediate representation, not Unit.
 
 The VM MUST NOT allocate a positive `RecordObject` for an empty record.
 
-This physical normalization does not erase the source-language distinction where source syntax or static typing retains one; the VM value representation uses the canonical zero product.
+The source alias is `EmptyRecord = Record<>`; `Value::class` maps this
+immediate to the Record class. Its physical zero-product optimization does not
+erase its distinct static or runtime identity.
 
 ---
 
@@ -1488,7 +1490,8 @@ nominal descriptor                anonymous descriptor
           materialized product value
 ```
 
-Specialized representations such as Unit, nullary data/variant singletons, or native `Option` bypass positive storage.
+Specialized representations such as Unit, EmptyRecord, nullary data/variant
+singletons, or native `Option` bypass positive storage.
 
 ---
 
@@ -1763,7 +1766,7 @@ A program MUST NOT be able to determine whether a transparent product was contin
 | Uses `ProductStorage` when materialized positive | yes | yes | yes | yes |
 | Descriptor kind | anonymous | anonymous | data descriptor | variant descriptor |
 | Exact runtime type retention | optional `RuntimeTypeRef` | optional `RuntimeTypeRef` | optional `RuntimeTypeRef` | semantic/runtime type system as required |
-| Nullary optimization | Unit | Unit | `DataSingleton` | `AdtSingleton` or constructor-specific representation |
+| Nullary optimization | Unit | EmptyRecord | `DataSingleton` | `AdtSingleton` or constructor-specific representation |
 | Backing allocation identity observable | no | no | no | case identity is variant-based, not layout-based |
 | GADT proof evidence stored per value | n/a | n/a | n/a | no |
 
@@ -1821,7 +1824,9 @@ Record encounter/presentation order MUST remain available where language semanti
 
 ### P-12 — Empty anonymous products
 
-The runtime MUST NOT materialize positive zero-component Tuple/Record heap objects; they normalize to the canonical zero product.
+The runtime MUST NOT materialize positive zero-component Tuple/Record heap
+objects. Empty Tuple and empty Record use distinct canonical immediate values:
+Unit and EmptyRecord respectively.
 
 ### P-13 — Nominal data identity
 

@@ -34,7 +34,12 @@ active_plan: LANG007.C3.P4
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted
 next_action: >
-  Continue original P4 at T12.4; T12.1 confirmed the existing metadata tag
+  T12.7 is IMPLEMENTED / FOCUSED_TESTED across commits `a66b8906`,
+  `a9e584b7`, and `8727d5df`; its source-index, navigation, completion, and
+    syntax-token selectors each passed 1/1. T12.8 normative spec convergence is
+  the active next task. Update only the current effective structural and VM
+  contracts, then continue to T13 after review. T12.1 confirmed the existing
+  metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.
   T11.6 is focused-tested, while its aggregate
@@ -131,7 +136,7 @@ next_action: >
   dependency invalidation graph; no P4-specific invalidation registry was
   added. The initial failure was a fixture public-surface boundary, not a
   dependency-graph defect. No production export, linker, or dependency-closure
-  change was made; no plan amendment is required. T12.7 is next. P4 remains
+  change was made; no plan amendment is required. T12.8 is next. P4 remains
   IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
@@ -2045,8 +2050,24 @@ next task:
     dependency-closure change was made. Changed aliases seed existing
     declaration-shell dependency roots, with no P4-specific invalidation
     registry. The 26-test `phalcom-modules --test workspace_session` suite also
-    passes. T12.7 (LSP/editor) is next. P4 remains IN_PROGRESS / PARTIAL /
-    UNVERIFIED; broad certification is open.
+    passes. T12.7 (LSP/editor) is IMPLEMENTED / FOCUSED_TESTED: commits
+    `a66b8906`, `a9e584b7`, and `8727d5df` cover source-index products,
+    canonical navigation/hover/references/rename, kind/value completion
+    separation, and Record/Map/Set token classification. Focused selectors
+    (each selected 1 / passed 1): `phalcom-semantic --test semantic`
+    `intrinsic_type_member_source_site_targets_canonical_owner_and_selector`,
+    `structural_projection_occurrences_navigate_to_owner_qualified_source_members`,
+    `product_expansion_parameters_and_record_remainders_have_source_targets`;
+    `phalcom-lsp --test module_navigation`
+    `goto_definition_on_structural_type_members_uses_canonical_owner_source`,
+    `goto_definition_tracks_product_binders_and_record_remainders`;
+    `phalcom-lsp --test semantic_completion`
+    `generic_kind_completion_uses_source_kind_names_not_runtime_values`,
+    `collection_literal_value_positions_use_runtime_completion_namespace`;
+    `phalcom-lsp --test semantic_tokens_current_syntax`
+    `record_map_and_set_literals_follow_their_distinct_source_syntax`.
+    T12.8 normative spec convergence is active. P4 remains IN_PROGRESS
+    / PARTIAL / UNVERIFIED; broad certification is open.
     P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
 
 next action:
@@ -2181,8 +2202,9 @@ next action:
     `phalcom-modules --test workspace_session` passed 26/26. The ruling-approved
     test-only source override preserves production `EmptyRecord` visibility
     while exercising ordinary import, dependency, fingerprint, and
-    cold/incremental analysis. Continue with T12.7 LSP/editor acceptance; do
-    not begin T12.8 until T12.7 is complete.
+    cold/incremental analysis. T12.7 LSP/editor acceptance is IMPLEMENTED /
+    FOCUSED_TESTED as recorded above. Continue with T12.8 normative spec
+    convergence; do not begin T13 until T12.8 is complete.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure

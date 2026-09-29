@@ -113,6 +113,7 @@ Conceptually:
                   │                         Object
                   │
                   ├── Unit
+                  ├── EmptyRecord
                   ├── Bool
                   ├── Int
                   ├── Float
@@ -198,7 +199,7 @@ The `meta` word is currently partitioned as follows:
 bit 63                                      bit 0
 ┌──────────────────────┬────────────────────┬──────────┐
 │ reserved             │ Some depth         │ tag      │
-│ bits 40..=63         │ bits 8..=39        │ 0..=7    │
+│ bits 40..=63         │ bits 8..=39        │ 0..=255  │
 │ 24 bits              │ 32 bits            │ 8 bits   │
 └──────────────────────┴────────────────────┴──────────┘
 ```
@@ -233,6 +234,7 @@ The current tag set is:
 | 7 | `None` | surface Option absence |
 | 8 | `AdtSingleton` | `RuntimeVariantId` |
 | 9 | `DataSingleton` | `RuntimeDataDescriptorId` |
+| 10 | `EmptyRecord` | no payload |
 
 Adding a new `ValueTag` requires review of:
 
@@ -306,13 +308,24 @@ This VM rule only specifies the runtime representation consequence.
 
 The VM MUST NOT allocate a `TupleObject` merely to represent the empty tuple.
 
-This establishes:
+This establishes at the runtime representation level:
 
 ```text
 () ≡ Unit immediate representation
 ```
 
-at the runtime representation level.
+`EmptyRecord` is a separate immediate representation:
+
+```text
+tag        = EmptyRecord
+payload    = 0
+some_depth = 0
+```
+
+It represents the distinct zero-field Record alias `Record<>`; it is not the
+Unit value. `Value::class` maps Unit to Tuple and EmptyRecord to Record. The VM
+MUST NOT allocate a positive `RecordObject` merely to represent the empty
+Record.
 
 ---
 
@@ -1001,7 +1014,8 @@ Class mapping is allowed to inspect:
 | `AdtSingleton(rid)` | registered variant behavior class |
 | `DataSingleton(did)` | registered data behavior class |
 | private `Nil` | internal nil class; MUST NOT surface |
-| `Unit` | Unit class |
+| `Unit` | Tuple class |
+| `EmptyRecord` | Record class |
 | `Bool(true)` | True class |
 | `Bool(false)` | False class |
 | `Int` | Int class |
@@ -1245,7 +1259,8 @@ An arbitrary-precision result that falls back into the `i64` range MUST normaliz
 
 ## 61. Unit versus Tuple
 
-The zero-arity tuple is normalized to immediate `Unit`.
+The zero-arity Tuple is `Unit = Tuple<>` and is normalized to the immediate
+Unit value.
 
 Positive-arity tuple values use the Tuple product representation.
 
@@ -1255,6 +1270,9 @@ Thus:
 ()            → Value::Unit
 (a, ...)      → Object::Tuple
 ```
+
+The empty Record is distinct: `Record<> = EmptyRecord` uses its own immediate
+tag and maps to the Record class; it does not normalize to Unit.
 
 The exact tuple shape/descriptor model is described below.
 
@@ -1718,6 +1736,7 @@ A useful implementation taxonomy is:
 
 ```text
 Unit
+EmptyRecord
 Bool
 Int / LargeInt mathematical integer value
 Float
@@ -2481,7 +2500,10 @@ runtime Value
     │       └── surface class None
     │
     ├── tag Unit
-    │       └── Unit
+    │       └── Tuple
+    │
+    ├── tag EmptyRecord
+    │       └── Record
     │
     ├── tag Bool
     │       ├── true  → True

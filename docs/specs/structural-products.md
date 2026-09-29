@@ -77,22 +77,43 @@ identity is determined by key/type association, not source or presentation
 order. Canonical field sorting is an implementation normalization, not a
 source-level ordering rule.
 
+### 3.1 Record values and spread
+
+Record value literals use bare braces, such as `{name: value}`. A `**source`
+entry contributes a statically projectable `RecordFields` shape. A Record
+source contributes its closed or symbolic row. A labeled Tuple source may
+contribute only its labeled lane, through the checked
+`LabeledTypePack`-to-`RecordFields` projection; its positional lane does not
+participate. Row composition preserves symbolic tails and enforces the
+canonical duplicate/lacks obligations.
+
+A Map is not a legal Record spread source, including an explicit Map literal:
+Map type does not encode a statically exact key set. The source forms remain
+distinct: `{...}` is Record syntax, `Map {...}` is Map syntax, and `#{...}` is
+Set syntax. This identifies their heads only; it does not redefine broader
+Map or Set entry semantics.
+
+Record spread does not create a mixed Tuple/Record destructuring rule or a
+generalized product protocol. The shared runtime product substrate does not
+collapse Tuple, Record, Map, and Set into one source-level product category.
+
 ## 4. Zero product and `Unit`
 
-The syntax `()` denotes the zero-arity structural product. Its canonical proper
-type is `Unit`, not a second empty Tuple type:
+The syntax `()` denotes the zero-arity Tuple. Its canonical proper type is
+`Unit = Tuple<>`, not a second empty Tuple type:
 
 ```text
-Tuple([], []) ≡ Unit ≡ ()
+Tuple([], []) ≡ Tuple<> ≡ Unit ≡ ()
 ```
 
-This semantic rule is independent of the runtime behavior class of `Unit`.
+The source alias `Unit` does not create a separate runtime owner or class;
+runtime class mapping is specified by the VM and maps Unit to Tuple.
 Positive-arity Tuple shapes remain structural Tuple types.
 
-An empty Record remains the structural type `Record({})`; it is not the same
-static type as `Unit`. The VM may realize its empty runtime value with the
-canonical zero-product representation, as long as any retained static or
-reflective Record identity is preserved according to the applicable boundary.
+An empty Record remains the structural type `Record({})`, canonically aliased
+as `EmptyRecord = Record<>`; it is not the same static type as `Unit`. Runtime
+representation and class mapping are specified by the VM value and product
+specifications.
 
 The empty product operations are:
 
@@ -273,7 +294,7 @@ expressions do not gain inherent behavior owners through this rule.
 | **STRUCT-TUPLE-LABEL-ORDER** | Tuple label order participates in structural identity. |
 | **STRUCT-RECORD-KEY-IDENTITY** | Record identity is determined by key/type association, not presentation order. |
 | **STRUCT-PACK-ROW-DISTINCT** | `LabeledTypePack` and `RecordFields` are distinct domains and identities. |
-| **STRUCT-ZERO-PRODUCT** | `()` is the zero product and canonicalizes to `Unit`. |
+| **STRUCT-ZERO-PRODUCT** | `()` is the zero-arity Tuple and canonicalizes to `Unit = Tuple<>`; an empty Record canonicalizes to distinct `EmptyRecord = Record<>`. |
 | **STRUCT-AT-IDENTITY** | `T[I]` and `T::At<I>` are one semantic operation. |
 | **STRUCT-AT-BOUNDS** | A concrete out-of-range Tuple index is statically invalid. |
 | **STRUCT-MAP-SHAPE** | `Map<F>` preserves structural shape and maps every payload type. |
