@@ -67,13 +67,17 @@ next_action: >
   proof search was added. `trait_default_inferred_return_is_canonical_and_independent_of_caller_expectation`
   and the existing
   `branch_derived_tail_type_is_published_to_unannotated_callable_signature`
-  selector each passed 1/1. T3 is PARTIAL: explicit/bodyless controls,
-  inferred Self/generic/associated exact-call substitution, and Assumed
-  dispatch projection have focused 1/1 evidence. The CV-04 conformance-plan
-  discriminator fails because the canonical inferred String result is absent
-  from the published requirement view. INC-C3-22 is OPEN pending architect
-  ruling; do not edit conformance-plan lifecycle until it arrives. G2 is not
-  passed. G5 collection
+  selector each passed 1/1. T3/G2 is now IMPLEMENTED / FOCUSED_TESTED under
+  INC-C3-22. The focused lifecycle test verifies canonical inferred/explicit
+  projections, compatible and incompatible witnesses, stable-identity plan
+  replacement, exact signature/surface/plan dependencies, same-result
+  fingerprint stability, unaffected cross-module plan reuse, client
+  revalidation, cold parity, no conformance-to-inference feedback, and current
+  versus stale diagnostic publication; it passed 1/1. The
+  original CV-04 discriminator, canonical-result/caller-independence control,
+  symbolic Self/generic/associated substitution, return-mismatch control, and
+  diagnostic-repair control each passed 1/1. T4/CV-05–CV-07 is next for broader
+  signature-interface, metadata, and dependent-consumer acceptance. G5 collection
   aggregates remain
   unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored.
   P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. The only added corpus gate
@@ -1730,8 +1734,9 @@ record `CallableSignature` dependencies. No independently mutable
 `TraitSurfaceMember` result copy or dispatch-local proof search was added.
 `trait_default_inferred_return_is_canonical_and_independent_of_caller_expectation`
 and `branch_derived_tail_type_is_published_to_unannotated_callable_signature`
-each selected and passed 1/1. T3 is active; CV-04 is paused pending
-INC-C3-22. The ruling
+each selected and passed 1/1. T3/G2 is now IMPLEMENTED / FOCUSED_TESTED
+under INC-C3-22; its focused incremental matrix passed 1/1. T4/CV-05–CV-07
+is the next R1 scope. The ruling
 preserves explicit annotations, caller
 independence, symbolic generic/Self substitution, existing metadata/signature
 representation, and the no-general-recursive-fixpoint boundary. It requires
@@ -1743,17 +1748,27 @@ P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 ### INC-C3-22 — T3/CV-04 inferred trait-default conformance contract — 2026-09-29
 
-Status: OPEN, pending architect ruling. The canonical trait-default signature
-publishes a known `String` result, but the corresponding
-`ConformanceWitnessPlan.requirement_views` result is `None`; the focused
-`conformance_witness_uses_canonical_inferred_trait_default_contract` selector
-fails 1/1. Session order publishes conformance plans before trait-default body
-analysis and runs inferred-result refresh later, with no post-refresh plan
-publication in the inspected path. Changing that lifecycle may affect already-
-analyzed dispatch clients, so no further conformance-plan/lifecycle edits are
-authorized until the decision is recorded. T3 remains PARTIAL and G2 is not
-passed; P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. Priority 3 is
-unchanged. See [`INC-C3-22.md`](INC-C3-22.md).
+Status: RESOLVED — adopted architecture implemented and G2 focused-tested. The
+canonical `CallableSignatureTable` is the sole callable-result authority;
+`ConformanceWitnessPlan` is a derived, replaceable projection. After canonical
+result refresh, affected plans must be recomputed under their existing stable
+identities and authoritatively replaced. Consumers must depend on the plan and
+be invalidated/reanalyzed through existing dependency machinery before the
+final snapshot is accepted. Prefer final compatibility/dispatch consumers
+after the result-stabilization barrier; early consumers are allowed only when
+their products and diagnostics are retractable. This is ordinary derived
+product invalidation, not a second result owner or a general inference
+fixpoint. A genuine result/conformance dependency cycle remains governed by
+INC-C3-21's explicit-contract rule. The amended G2 matrix includes incompatible
+and compatible witnesses, explicit-result parity, stable replacement,
+already-analyzed-client and stale-dispatch retirement, exact incremental
+invalidation, same-result reuse, cold parity, and cycle-safety controls.
+`inferred_trait_result_replaces_conformance_plans_and_rechecks_clients`
+passes 1/1 and covers the focused matrix. The canonical inferred-result,
+symbolic substitution, return-mismatch, original CV-04, and diagnostic-repair
+controls each pass 1/1. T4/CV-05–CV-07, Priority 3, and P4/C3 certification
+remain separate and incomplete.
+See [`INC-C3-22.md`](INC-C3-22.md).
 
 Use entries:
 
@@ -2278,9 +2293,11 @@ next task:
     The active plan is LANG007.C3.P4.R1 under adopted INC-C3-21. T2/G1 is
     IMPLEMENTED / FOCUSED_TESTED: canonical signature publication and
     consumer projection pass the paired trait-default/ordinary parity test
-    and the existing ordinary publication control, each 1/1. Proceed with T3:
-    explicit, symbolic, and override/conformance controls. This is separate from T13 and does not
-    change T13's §15 stop, certify G5/G6, or authorize workspace/release gates.
+    and the existing ordinary publication control, each 1/1. T3/G2 is now
+    IMPLEMENTED / FOCUSED_TESTED under INC-C3-22; continue with T4/CV-05–CV-07
+    for broader signature-interface, metadata, and dependent-consumer acceptance.
+    This is separate from T13 and does not change T13's §15 stop, certify G5/G6,
+    or authorize workspace/release gates.
     G5 collection aggregates remain unpassed/uncertified, G6 is incomplete, the
     natural chain is blocked/ignored, and P4/C3 remains IN_PROGRESS / PARTIAL /
     UNVERIFIED. Priority 3 is unchanged.

@@ -163,3 +163,94 @@ override/conformance validation, and what existing-authority invalidation or
 reanalysis step is authorized to reconcile dispatch clients already analyzed
 against the pre-inference conformance plans—without creating a second result
 owner or an unauthorized fixed point?
+
+## 15. Architect ruling — adopted 2026-09-29
+
+**Decision:** a post-inference conformance-plan refresh is authorized and
+required when canonical callable-result publication changes a projected trait
+requirement. `CallableSignatureTable` remains the sole callable-result
+authority; `ConformanceWitnessPlan` is a derived, replaceable projection.
+Refresh the affected plan under its existing `ImplId`, update its semantic
+fingerprint, and replace it authoritatively. Do not add a second result store,
+infer in the plan, or let conformance validity feed back into result inference.
+
+Use the dependency chain `CallableSignature -> ConformanceWitnessPlan ->
+consumer`. Prefer compatibility/dispatch clients after the result-stabilization
+barrier. If early consumers remain, their products and diagnostics must be
+retractable through the existing dependency graph before the final snapshot is
+accepted. No manual cleanup of append-only diagnostics is authorized. A real
+signature/conformance dependency cycle remains governed by INC-C3-21's
+explicit-contract cycle rule; no general semantic fixpoint is authorized.
+
+**Amended G2 acceptance:** inferred `String` projection; reject an `Int`
+witness, accept a compatible `String` witness, and retain explicit-result and
+bodyless controls; prove authoritative replacement with stable plan identity;
+retire stale conformance/dispatch results for already-analyzed clients; record
+exact signature/plan/client dependencies; prove changed-result cold/incremental
+parity and unaffected-plan reuse; prove same-result edits do not churn the plan
+semantic fingerprint; and establish that refresh does not feed conformance
+results back into return inference. G2 is not passed until this focused matrix
+is green. R1 T6/T7, T13, the natural iterator chain, P4/G5, G6, and broad
+certification remain outside this amendment.
+
+**Status at ruling:** ADOPTED — implementation may resume. The exact CV-04
+discriminator was rerun on `main` revision `1d4ce4db` and still failed with a
+missing inferred result in `requirement_views`; implementation and matrix
+evidence were pending at that point.
+
+## 16. Implementation outcome and focused evidence — 2026-09-29
+
+**Status:** RESOLVED for the amended T3/G2 scope — IMPLEMENTED /
+FOCUSED_TESTED. The broader T4 gates, T13, Priority 3, and P4/C3 certification
+are not changed by this disposition.
+
+The source requirement projection now reads body-inferred results from the
+canonical `CallableSignatureTable` and materializes them through the existing
+conformance environment. Explicit and bodyless contracts continue to come
+from `TraitSurface`. Each published source plan depends on its trait surface
+and on canonical callable-signature products that exist for its members; a
+bodyless member does not invent a signature-table row. The plan fingerprint
+hashes range-independent semantic signature products rather than debug output
+that included source locations.
+
+After result stabilization, the session republishes the final plans under
+their existing `ImplId`s, compares against the preceding published snapshot,
+and revalidates clients in the dependency reverse-closure. Callable bodies
+record the exact plan fingerprint they consumed. Before carrying prior
+diagnostics forward, the session derives the affected plan/client diagnostic
+frontier from the same signature/surface dependency graph. Callable-body and
+conformance-plan diagnostics are then republished from final analyses and
+settled plans; there is no selective deletion from an append-only diagnostic
+list. No conformance result is fed back into callable-result inference.
+
+The focused acceptance test
+`inferred_trait_result_replaces_conformance_plans_and_rechecks_clients`
+passed 1/1. It verifies inferred `String` projection, compatible concrete
+`String` and default witnesses, rejection of an incompatible `Int` witness,
+explicit `Bool` and bodyless `String` controls, stable plan identity, same-result
+fingerprint stability, changed-result plan replacement, already-analyzed
+client reanalysis, exact surface/signature/plan dependencies, reuse of an
+unaffected plan in another module, republishing of the unchanged incomplete
+diagnostic, retirement of the stale incompatible-plan diagnostic, and
+cold/incremental parity. The canonical
+caller-independence control, symbolic Self/generic/associated result control,
+original CV-04 discriminator, incompatible body-return control, and semantic
+diagnostic-repair control each also passed 1/1. The workspace formatter check
+remains red on existing formatting diffs across unrelated files; no bulk
+formatting was applied.
+
+Focused commands used the pinned toolchain with `RUSTFLAGS=''`
+`RUSTC_WRAPPER=''`:
+
+```text
+cargo test -p phalcom-semantic --test semantic inferred_trait_result_replaces_conformance_plans_and_rechecks_clients -- --nocapture
+cargo test -p phalcom-semantic --test semantic conformance_witness_uses_canonical_inferred_trait_default_contract -- --nocapture
+cargo test -p phalcom-semantic --test semantic trait_default_inferred_return_is_canonical_and_independent_of_caller_expectation -- --nocapture
+cargo test -p phalcom-semantic --test semantic trait_default_inferred_self_generic_and_associated_results_specialize_at_calls -- --nocapture
+cargo test -p phalcom-semantic --test semantic detects_method_return_mismatch -- --nocapture
+cargo test -p phalcom-semantic --test semantic edited_module_repair_removes_its_diagnostic -- --nocapture
+```
+
+**Next scope:** T4/CV-05–CV-07 — broader callable interface fingerprints,
+metadata roundtrip, and dependent-consumer cold/incremental behavior. INC-C3-21
+still governs any genuine inferred-result/conformance cycle.

@@ -226,8 +226,15 @@ supported associated symbolic results, normal call-site substitution, and
 override/conformance consumption. Inspect durable products for forbidden
 inference-local/query-local identities.
 
-**G2:** CV-02, CV-03, and CV-04 pass in focused semantic tests. No runtime/ABI
-tests.
+**G2:** CV-02, CV-03, and the INC-C3-22 conformance lifecycle matrix pass in
+focused semantic tests. G2 includes canonical inferred/explicit requirement
+projection, compatible/incompatible witnesses, authoritative plan replacement,
+stable plan identity, stale client/dispatch retirement, focused cold/incremental
+parity, same-result plan reuse, and no result/conformance feedback. The full
+matrix is recorded in `INC-C3-22.md`; none of these obligations may be waived
+by passing the original CV-04 discriminator alone. The conformance-specific
+incremental cases belong to G2; CV-05 through CV-07 remain T4's broader
+signature, metadata, and dependent-consumer acceptance. No runtime/ABI tests.
 
 ### T4 — Dependencies, fingerprints, metadata, incremental behavior
 
@@ -240,6 +247,12 @@ cache; if existing form is insufficient, stop and consult.
 
 **G3:** CV-05 through CV-07 pass in T1-identified narrow selectors, with exact
 selected/passed counts recorded.
+
+**Ruling amendment (INC-C3-22, 2026-09-29):** T3/G2 additionally owns the
+conformance-plan lifecycle and focused conformance-client invalidation matrix
+described above. This does not move or remove T4's broader CV-05–CV-07
+signature-interface, cross-module metadata, and general dependent-consumer
+acceptance.
 
 ### T5 — Recursion and `Iterator.take` attribution
 

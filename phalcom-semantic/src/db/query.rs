@@ -1447,10 +1447,22 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             }
         }
         crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) => {
-            if inputs
-                .conformance_semantics
-                .is_some_and(|view| view.conformance_index.get(impl_id).is_some() || view.derived_conformance_rules.get_rule(impl_id).is_some())
-            {
+            let Some(view) = inputs.conformance_semantics else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            let Some(fingerprint) = view.fingerprint_for(impl_id) else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            if db.query_state(&key).is_some() {
+                if db.ready_product_fingerprint(&key) == Some(fingerprint) && db.validate_ready(&key) {
+                    QueryOutcome::Ready(())
+                } else {
+                    QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+                }
+            } else if view.derived_conformance_rules.get_rule(impl_id).is_some() {
+                // Guarded-rule views still use their existing non-query
+                // publication path. Source witness plans are DB-visible
+                // derived products and must have a current query row.
                 QueryOutcome::Ready(())
             } else {
                 QueryOutcome::Blocked(BlockReason::SuppressedDependency)
@@ -1571,10 +1583,12 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
         }
     };
 
-    // ConformanceDispatch is a semantic view edge rather than an owned DB
-    // query. Its currentness is established from the rebuilt conformance view
-    // above, so there is deliberately no query-state row to validate here.
+    // Guarded-rule ConformanceDispatch remains a borrowed semantic view; source
+    // witness-plan dispatch has a DB query-state row published by the session.
     if matches!(dependency, crate::checker::analysis::SemanticDependency::ConformanceDispatch(_)) {
+        if db.query_state(&key).is_some() {
+            return ensure_dependency_state_current(db, &key);
+        }
         return outcome;
     }
 
@@ -2803,10 +2817,13 @@ fn query_callable_body_with_requirement(
                     QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure.clone()),
                 }
                 let dependency = semantic_dependency_query_key(sem_dep);
-                if matches!(sem_dep, crate::checker::analysis::SemanticDependency::ConformanceDispatch(_)) {
+                if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = sem_dep {
                     if let Some(inputs) = formal_inputs {
                         if let Some(view) = inputs.conformance_semantics {
-                            recorder.record(dependency, view.fingerprint());
+                            let Some(fingerprint) = view.fingerprint_for(impl_id) else {
+                                return query_failure(db, key, format!("missing current conformance view for {dependency:?}"));
+                            };
+                            recorder.record(dependency, fingerprint);
                             continue;
                         }
                     }

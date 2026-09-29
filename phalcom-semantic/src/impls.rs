@@ -1283,6 +1283,21 @@ fn witness_fact_type(fact: &crate::declaration_type::DeclaredTypeFact) -> Result
     }
 }
 
+fn witness_signature_return_type(signature: &CallableSemanticSignature) -> Result<TypeId, WitnessCompatibility> {
+    if signature.declared_return.is_unknown()
+        && let Some(inferred) = &signature.inferred_return
+    {
+        return match inferred {
+            TypeKnowledge::Known(evidence) => Ok(evidence.ty()),
+            TypeKnowledge::Unknown(reason) => Err(WitnessCompatibility::Unknown(reason.clone())),
+            TypeKnowledge::Dynamic(reason) => Err(WitnessCompatibility::Dynamic(DynamicBoundaryObligation {
+                reason: format!("dynamic inferred callable result: {reason:?}"),
+            })),
+        };
+    }
+    witness_fact_type(&signature.declared_return)
+}
+
 fn witness_relation_result(outcome: RelationOutcome) -> Result<(), WitnessCompatibility> {
     match outcome {
         RelationOutcome::Proven { .. } => Ok(()),
@@ -1591,12 +1606,12 @@ pub fn check_witness_compatibility_with_visibility(
             return result;
         }
     }
-    let candidate_return = match witness_fact_type(&candidate.declared_return) {
+    let candidate_return = match witness_signature_return_type(candidate) {
         Ok(ty) => ty,
         Err(result) => return result,
     };
     let candidate_return = alpha.apply(store, candidate_return);
-    let required_return = match witness_fact_type(&required.signature.declared_return) {
+    let required_return = match witness_signature_return_type(&required.signature) {
         Ok(ty) => ty,
         Err(result) => return result,
     };
@@ -1658,7 +1673,7 @@ pub fn check_data_component_compatibility(
             reason: "data components can satisfy getter requirements only".into(),
         });
     }
-    let required_return = match witness_fact_type(&required.signature.declared_return) {
+    let required_return = match witness_signature_return_type(&required.signature) {
         Ok(ty) => ty,
         Err(result) => return result,
     };
@@ -1852,13 +1867,14 @@ pub fn build_conformance_witness_plan(
     trait_surfaces: &TraitSurfaceTable,
     all_associated_type_plans: &BTreeMap<ImplId, ConformanceAssociatedTypePlan>,
 ) -> ConformanceWitnessPlan {
-    let mut requirement_views = instantiate_conformance_requirements(
+    let mut requirement_views = instantiate_conformance_requirements_with_signatures(
         store,
         Some(declarations),
         trait_surface,
         &contribution.trait_ref,
         contribution.target_head,
         &HashMap::new(),
+        callable_signatures,
     );
     normalize_source_requirement_views(
         store,
@@ -2207,7 +2223,16 @@ pub fn conformance_witness_plan_fingerprint(plan: &ConformanceWitnessPlan) -> Pr
     plan.target_template.hash(&mut hasher);
     plan.trait_ref_template.hash(&mut hasher);
     format!("{:?}", plan.generic_signature).hash(&mut hasher);
-    format!("{:?}", plan.requirement_views).hash(&mut hasher);
+    plan.requirement_views.len().hash(&mut hasher);
+    for (requirement, view) in &plan.requirement_views {
+        requirement.hash(&mut hasher);
+        view.callable.hash(&mut hasher);
+        crate::db::fingerprint::callable_signature_product_fingerprint(&view.signature)
+            .raw()
+            .hash(&mut hasher);
+        view.visibility.hash(&mut hasher);
+        view.default_callable.hash(&mut hasher);
+    }
     format!("{:?}", plan.requirements).hash(&mut hasher);
     plan.associated_type_plan.fingerprint.hash(&mut hasher);
     plan.invalid_explicit_members.hash(&mut hasher);
@@ -2476,6 +2501,18 @@ pub fn resolve_conformance_evidence_with_surfaces(
         }
     }
     let mut requirement_views = trait_surface.instantiate(store, &environment);
+    for (requirement, view) in &mut requirement_views {
+        if !view.signature.declared_return.is_unknown() {
+            continue;
+        }
+        let Some(source_view) = plan.requirement_views.get(requirement) else {
+            continue;
+        };
+        if let Some(inferred_return) = &source_view.signature.inferred_return {
+            view.signature.inferred_return =
+                Some(inferred_return.map_type(|ty| crate::types::environment::TypeView::new(ty, environment.clone()).materialize(store)));
+        }
+    }
     for view in requirement_views.values_mut() {
         view.signature = match normalize_exact_requirement_signature(
             store,
@@ -2524,6 +2561,38 @@ pub(crate) fn instantiate_conformance_requirements(
 ) -> BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement> {
     let environment = conformance_environment(store, declarations, trait_surface, trait_ref, target, impl_bindings);
     trait_surface.instantiate(store, &environment)
+}
+
+/// Instantiates a source conformance requirement view from the trait surface,
+/// then projects any body-inferred result from its canonical callable signature.
+/// The signature table remains authoritative; this view is derived under the
+/// conformance's existing generic/Self environment.
+pub(crate) fn instantiate_conformance_requirements_with_signatures(
+    store: &mut TypeStore,
+    declarations: Option<&DeclarationTypeTable>,
+    trait_surface: &TraitSurface,
+    trait_ref: &TraitRef,
+    target: TypeId,
+    impl_bindings: &HashMap<TypeParameterId, TypeId>,
+    callable_signatures: &crate::signature::CallableSignatureTable,
+) -> BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement> {
+    let environment = conformance_environment(store, declarations, trait_surface, trait_ref, target, impl_bindings);
+    let mut views = trait_surface.instantiate(store, &environment);
+    for (requirement, view) in &mut views {
+        if !view.signature.declared_return.is_unknown() {
+            continue;
+        }
+        let Some(canonical) = callable_signatures.get(&view.callable) else {
+            continue;
+        };
+        let Some(inferred_return) = &canonical.inferred_return else {
+            continue;
+        };
+        view.signature.inferred_return =
+            Some(inferred_return.map_type(|ty| crate::types::environment::TypeView::new(ty, environment.clone()).materialize(store)));
+        debug_assert_eq!(view.requirement, *requirement);
+    }
+    views
 }
 
 /// Specializes a target-owned type (such as a data component declaration

@@ -87,6 +87,16 @@ pub struct ConformanceSemanticView<'a> {
 }
 
 impl ConformanceSemanticView<'_> {
+    /// Returns the dependency fingerprint for one exact conformance view.
+    /// Source plans own their semantic contract fingerprint; guarded derived
+    /// rules retain their existing independent fingerprint authority.
+    pub fn fingerprint_for(&self, impl_id: &ImplId) -> Option<ProductFingerprint> {
+        self.witness_plans
+            .get(impl_id)
+            .map(|plan| plan.fingerprint)
+            .or_else(|| self.derived_conformance_rules.get_rule(impl_id).map(|rule| rule.fingerprint))
+    }
+
     pub fn fingerprint(&self) -> ProductFingerprint {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.trait_dispatch.fingerprint().raw().hash(&mut hasher);

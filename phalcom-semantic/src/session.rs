@@ -2346,6 +2346,39 @@ impl SemanticWorkspaceSession {
         diagnostic_work_modules.extend(field_lifecycle_changed_modules.iter().cloned());
         diagnostic_work_modules.extend(modules_with_changed_module_diagnostics.iter().cloned());
         diagnostic_work_modules.extend(removed_modules.iter().cloned());
+        let mut prior_conformance_clients = BTreeSet::new();
+        // Seed diagnostic work through the same formal dependency graph used
+        // to refresh conformance plans and dispatch clients. This happens
+        // before prior diagnostics are retained, so stale plan/body diagnostics
+        // are retired by rebuilding their current products, not by deleting
+        // entries from an append-only diagnostic accumulator later.
+        if let Some(previous) = previous_snapshot.as_ref() {
+            let mut changed_contract_products = BTreeSet::new();
+            for (callable, _) in previous.callable_signatures.iter() {
+                if semantic_work_modules.contains(callable.module()) {
+                    changed_contract_products.insert(QueryKey::CallableSignature(callable.clone()));
+                }
+            }
+            for (declaration, _) in previous.trait_surfaces.iter() {
+                if semantic_work_modules.contains(&declaration.module) {
+                    changed_contract_products.insert(QueryKey::TraitSurface(declaration.clone()));
+                }
+            }
+            for dependent in self.db.index().reverse_closure(changed_contract_products) {
+                match dependent {
+                    QueryKey::ConformanceDispatch(impl_id) => {
+                        diagnostic_work_modules.insert(impl_id.module.clone());
+                        semantic_work_modules.insert(impl_id.module.clone());
+                    }
+                    QueryKey::CallableBody(callable) => {
+                        diagnostic_work_modules.insert(callable.module().clone());
+                        semantic_work_modules.insert(callable.module().clone());
+                        prior_conformance_clients.insert(callable);
+                    }
+                    _ => {}
+                }
+            }
+        }
         let structural_aggregates_reusable = previous_snapshot.as_ref().is_some_and(|previous| {
             hierarchy_work_modules.is_empty()
                 && removed_modules.is_empty()
@@ -4699,6 +4732,10 @@ impl SemanticWorkspaceSession {
             .as_ref()
             .map(|snapshot| (*snapshot.conformance_witness_plans).clone())
             .unwrap_or_default();
+        let previous_conformance_plan_fingerprints = conformance_witness_plans
+            .iter()
+            .map(|(impl_id, plan)| (impl_id.clone(), plan.fingerprint))
+            .collect::<BTreeMap<_, _>>();
         let mut conformance_witness_bodies = BTreeSet::new();
         let mut conformance_witness_visibilities: BTreeMap<crate::identity::CallableId, crate::surface::MemberVisibility> = BTreeMap::new();
         let mut conformance_invalid_witnesses: BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>> = BTreeMap::new();
@@ -5693,7 +5730,8 @@ impl SemanticWorkspaceSession {
         // this point. Publish witness/default plans before ordinary callable
         // bodies are checked so the canonical dispatch resolver can consume
         // exact P2 evidence during those bodies.
-        publish_conformance_witness_plans(
+        let _ = publish_conformance_witness_plans(
+            &mut self.db,
             Arc::make_mut(&mut self.store),
             &hierarchy,
             &dispatch,
@@ -5709,7 +5747,9 @@ impl SemanticWorkspaceSession {
             &data_semantics,
             &trait_surfaces,
             &mut diags_by_module,
-        );
+            false,
+            &diagnostic_work_modules,
+        )?;
         let trait_dispatch_index = crate::trait_dispatch::TraitDispatchIndex::build(&conformance_index, &trait_surfaces);
         let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
             trait_dispatch: &trait_dispatch_index,
@@ -5811,12 +5851,6 @@ impl SemanticWorkspaceSession {
                                 callable_dispositions.insert(callable.clone(), CallableRevisionDisposition::Recomputed);
                             } else {
                                 callable_dispositions.entry(callable.clone()).or_insert(CallableRevisionDisposition::Reused);
-                            }
-                            if !analysis.diagnostics.is_empty() {
-                                diags_by_module
-                                    .entry(module_id.clone())
-                                    .or_default()
-                                    .extend(analysis.diagnostics.iter().cloned());
                             }
                             callable_analyses.insert(callable, analysis);
                         }
@@ -5979,12 +6013,6 @@ impl SemanticWorkspaceSession {
                                             callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
                                         } else {
                                             callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                        }
-                                        if !analysis.diagnostics.is_empty() {
-                                            diags_by_module
-                                                .entry(module_id.clone())
-                                                .or_default()
-                                                .extend(analysis.diagnostics.iter().cloned());
                                         }
                                         if let Some(sig) = callable_signatures.get_mut(&callable_id) {
                                             if sig.return_validation != analysis.return_validation {
@@ -6155,12 +6183,6 @@ impl SemanticWorkspaceSession {
                                             callable_dispositions.insert(callable.clone(), CallableRevisionDisposition::Recomputed);
                                         } else {
                                             callable_dispositions.entry(callable.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                        }
-                                        if !analysis.diagnostics.is_empty() {
-                                            diags_by_module
-                                                .entry(module_id.clone())
-                                                .or_default()
-                                                .extend(analysis.diagnostics.iter().cloned());
                                         }
                                         if let Some(sig) = callable_signatures.get_mut(&callable)
                                             && sig.return_validation != analysis.return_validation
@@ -6352,12 +6374,6 @@ impl SemanticWorkspaceSession {
                                         } else {
                                             callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
                                         }
-                                        if !analysis.diagnostics.is_empty() {
-                                            diags_by_module
-                                                .entry(module_id.clone())
-                                                .or_default()
-                                                .extend(analysis.diagnostics.iter().cloned());
-                                        }
                                         if let Some(sig) = callable_signatures.get_mut(&callable_id) {
                                             if sig.return_validation != analysis.return_validation {
                                                 sig.return_validation = analysis.return_validation;
@@ -6464,7 +6480,6 @@ impl SemanticWorkspaceSession {
                     callable_signatures: &mut callable_signatures,
                     callable_analyses: &mut callable_analyses,
                     callable_dispositions: &mut callable_dispositions,
-                    diagnostics: &mut diags_by_module,
                     budget,
                     cancel,
                 },
@@ -6495,7 +6510,6 @@ impl SemanticWorkspaceSession {
             associated_surfaces: &associated_surfaces_table,
             topology: semantic_topology.as_ref(),
             callable_dispositions: &mut callable_dispositions,
-            diagnostics: &mut diags_by_module,
             semantic_work_modules: &semantic_work_modules,
             previous_callable_signatures: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_signatures.as_ref()),
             trait_default_callables: &trait_default_callables,
@@ -6503,6 +6517,132 @@ impl SemanticWorkspaceSession {
             budget,
             cancel,
         })?;
+
+        // The first witness plans are provisional for body analysis. Once
+        // canonical callable results stabilize, replace their derived
+        // requirement projections before publishing the final semantic view.
+        drop(conformance_semantics);
+        let _ = publish_conformance_witness_plans(
+            &mut self.db,
+            Arc::make_mut(&mut self.store),
+            &hierarchy,
+            &dispatch,
+            &declarations,
+            &conformance_index,
+            &callable_signatures,
+            &mut conformance_witness_plans,
+            &conformance_witness_bodies,
+            &conformance_witness_visibilities,
+            &conformance_invalid_witnesses,
+            &conformance_invalid_members,
+            &conformance_associated_type_plans,
+            &data_semantics,
+            &trait_surfaces,
+            &mut diags_by_module,
+            true,
+            &diagnostic_work_modules,
+        )?;
+        // Compare the settled plans to the prior published snapshot, not to
+        // the provisional plans used to analyze bodies earlier in this pass.
+        // Otherwise a plan that changed during the provisional publication
+        // could appear unchanged here and leave retained dispatch clients stale.
+        let changed_conformance_plans = previous_conformance_plan_fingerprints
+            .iter()
+            .filter_map(|(impl_id, previous_fingerprint)| {
+                conformance_witness_plans
+                    .get(impl_id)
+                    .is_none_or(|plan| plan.fingerprint != *previous_fingerprint)
+                    .then_some(impl_id.clone())
+            })
+            .chain(
+                conformance_witness_plans
+                    .keys()
+                    .filter(|impl_id| !previous_conformance_plan_fingerprints.contains_key(*impl_id))
+                    .cloned(),
+            )
+            .collect::<BTreeSet<_>>();
+        diagnostic_work_modules.extend(changed_conformance_plans.iter().map(|impl_id| impl_id.module.clone()));
+        let changed_plan_keys = changed_conformance_plans
+            .iter()
+            .cloned()
+            .map(QueryKey::ConformanceDispatch)
+            .collect::<BTreeSet<_>>();
+        let changed_plan_clients = self
+            .db
+            .index()
+            .reverse_closure(changed_plan_keys)
+            .into_iter()
+            .filter_map(|key| match key {
+                QueryKey::CallableBody(callable) if current_modules.contains(callable.module()) => Some(callable),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        let affected_plan_clients = prior_conformance_clients
+            .into_iter()
+            .chain(changed_plan_clients)
+            .filter(|callable| current_modules.contains(callable.module()))
+            .collect::<BTreeSet<_>>();
+        if !affected_plan_clients.is_empty() {
+            let reanalysis_signature_snapshot = callable_signatures.clone();
+            let reanalysis_conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
+                trait_dispatch: &trait_dispatch_index,
+                conformance_index: &conformance_index,
+                witness_plans: &conformance_witness_plans,
+                trait_surfaces: &trait_surfaces,
+                derived_conformance_rules: &derived_conformance_rules,
+                callable_signatures: Some(&reanalysis_signature_snapshot),
+            };
+            let formal_inputs = FormalQueryInputs {
+                sources: &retained_sources,
+                source_resolution_input,
+                linked_component_product,
+                linked: &input.linked,
+                topology: semantic_topology.as_ref(),
+                import_products: &input.import_products,
+                hierarchy: &hierarchy,
+                base_resolver: &resolver,
+                declarations: &declarations,
+                type_aliases: &type_aliases,
+                field_signatures: Some(&field_signatures),
+                field_lifecycle: Some(&field_lifecycle),
+                data_semantics: Some(&data_semantics),
+                enum_semantics: Some(&enum_semantics),
+                associated_families: Some(&associated_surfaces_table),
+                type_member_declarations: Some(&type_member_declarations_table),
+                conformance_semantics: Some(&reanalysis_conformance_semantics),
+            };
+            for callable in &affected_plan_clients {
+                let Some(unit) = retained_sources.get(callable.module()) else {
+                    continue;
+                };
+                semantic_work_modules.insert(callable.module().clone());
+                diagnostic_work_modules.insert(callable.module().clone());
+                revalidate_downstream_callable_body(
+                    &mut self.db,
+                    callable,
+                    unit,
+                    &formal_inputs,
+                    DownstreamCallableBodyState {
+                        store: Arc::make_mut(&mut self.store),
+                        hierarchy: &hierarchy,
+                        dispatch: &mut dispatch,
+                        callable_signatures: &mut callable_signatures,
+                        callable_analyses: &mut callable_analyses,
+                        callable_dispositions: &mut callable_dispositions,
+                        budget,
+                        cancel,
+                    },
+                )?;
+            }
+        }
+        let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
+            trait_dispatch: &trait_dispatch_index,
+            conformance_index: &conformance_index,
+            witness_plans: &conformance_witness_plans,
+            trait_surfaces: &trait_surfaces,
+            derived_conformance_rules: &derived_conformance_rules,
+            callable_signatures: Some(&callable_signatures),
+        };
 
         for (module_id, shard) in &self.semantic_structure_shards {
             if !semantic_work_modules.contains(module_id) {
@@ -6541,15 +6681,29 @@ impl SemanticWorkspaceSession {
                 }
             }
 
-            if !ctx.diagnostics.is_empty() {
-                diags_by_module.entry(module_id.clone()).or_default().extend(ctx.diagnostics.clone());
-            }
-
             let body_range = parsed_unit.program.preamble.range;
             let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
             let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
             let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
             callable_analyses.insert(callable_id, Arc::new(analysis));
+        }
+
+        // Body diagnostics are published from the final analyses, once per
+        // rebuilt module. Intermediate inferred-result and conformance-plan
+        // refreshes may replace those analyses, so accumulating diagnostics
+        // during each pass can retain stale or duplicated diagnostics.
+        for analysis in callable_analyses.values() {
+            let module = analysis.callable.module();
+            if !semantic_work_modules.contains(module)
+                || !current_modules.contains(module)
+                || analysis
+                    .callable
+                    .try_declaration_owner()
+                    .is_some_and(|owner| owner.name.as_ref() != "<main>" && !current_declarations.contains(owner))
+            {
+                continue;
+            }
+            diags_by_module.entry(module.clone()).or_default().extend(analysis.diagnostics.iter().cloned());
         }
 
         // 8. Freeze and Publish Immutable Snapshot
@@ -6569,6 +6723,7 @@ impl SemanticWorkspaceSession {
                     }
                 }
             }
+            semantic_diagnostics.retain(|diagnostic| diagnostic.code != DiagnosticCode::ImplConformanceIncomplete);
             if !semantic_diagnostics.is_empty() {
                 semantic_diagnostic_contributions.insert(module_id.clone(), Arc::from(semantic_diagnostics.into_boxed_slice()));
             }
@@ -9718,7 +9873,6 @@ struct DownstreamCallableBodyState<'a> {
     callable_signatures: &'a mut CallableSignatureTable,
     callable_analyses: &'a mut HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
     callable_dispositions: &'a mut BTreeMap<CallableId, CallableRevisionDisposition>,
-    diagnostics: &'a mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
     budget: QueryBudget,
     cancel: &'a CancellationToken,
 }
@@ -9737,7 +9891,6 @@ fn revalidate_downstream_callable_body(
         callable_signatures,
         callable_analyses,
         callable_dispositions,
-        diagnostics,
         budget,
         cancel,
     } = state;
@@ -9792,12 +9945,6 @@ fn revalidate_downstream_callable_body(
                     CallableRevisionDisposition::Reused
                 },
             );
-            if !analysis.diagnostics.is_empty() {
-                diagnostics
-                    .entry(callable.module().clone())
-                    .or_default()
-                    .extend(analysis.diagnostics.iter().cloned());
-            }
             if let Some(sig) = callable_signatures.get_mut(callable) {
                 if sig.return_validation != analysis.return_validation {
                     sig.return_validation = analysis.return_validation;
@@ -9856,7 +10003,6 @@ struct InferredCallableRefreshInputs<'a> {
     associated_surfaces: &'a AssociatedFamilyTable,
     topology: &'a phalcom_modules::topology::ModuleTopology,
     callable_dispositions: &'a mut BTreeMap<CallableId, CallableRevisionDisposition>,
-    diagnostics: &'a mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
     semantic_work_modules: &'a BTreeSet<ModuleId>,
     previous_callable_signatures: Option<&'a CallableSignatureTable>,
     trait_default_callables: &'a BTreeSet<CallableId>,
@@ -9905,7 +10051,6 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         associated_surfaces,
         topology,
         callable_dispositions,
-        diagnostics,
         semantic_work_modules,
         previous_callable_signatures,
         trait_default_callables,
@@ -10110,14 +10255,6 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                         },
                     );
                     analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
-                    if !analysis.diagnostics.is_empty() {
-                        let module_diagnostics = diagnostics.entry(module_id.clone()).or_default();
-                        for diagnostic in analysis.diagnostics.iter() {
-                            if !module_diagnostics.contains(diagnostic) {
-                                module_diagnostics.push(diagnostic.clone());
-                            }
-                        }
-                    }
                     let stable_previous = previous_callable_analyses
                         .and_then(|analyses| analyses.get(&callable))
                         .or_else(|| callable_analyses.get(&callable));
@@ -10149,6 +10286,7 @@ fn witness_specialization_terminal(error: crate::types::specialization::Receiver
 }
 
 fn publish_conformance_witness_plans(
+    db: &mut SemanticDb,
     store: &mut TypeStore,
     hierarchy: &dyn crate::types::relation::TypeHierarchy,
     dispatch: &SurfaceDispatchResolver,
@@ -10164,7 +10302,10 @@ fn publish_conformance_witness_plans(
     data_semantics: &DataSemanticTable,
     trait_surfaces: &TraitSurfaceTable,
     diags_by_module: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
-) {
+    emit_incomplete_diagnostics: bool,
+    diagnostic_work_modules: &BTreeSet<ModuleId>,
+) -> Result<BTreeSet<crate::identity::ImplId>, QueryOutcome<()>> {
+    let mut changed_plans = BTreeSet::new();
     for (impl_id, contribution) in conformance_index.iter() {
         if !contribution.is_lookup_eligible() {
             continue;
@@ -10172,13 +10313,14 @@ fn publish_conformance_witness_plans(
         let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) else {
             continue;
         };
-        let mut requirement_views = crate::impls::instantiate_conformance_requirements(
+        let mut requirement_views = crate::impls::instantiate_conformance_requirements_with_signatures(
             store,
             Some(declarations),
             surface,
             &contribution.trait_ref,
             contribution.target_head,
             &HashMap::new(),
+            callable_signatures,
         );
         if let Some(associated_type_plan) = conformance_associated_type_plans.get(impl_id) {
             crate::impls::normalize_source_requirement_views(
@@ -10375,7 +10517,62 @@ fn publish_conformance_witness_plans(
             trait_surfaces,
             conformance_associated_type_plans,
         );
-        if let crate::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness {
+        let plan_key = QueryKey::ConformanceDispatch(impl_id.clone());
+        let mut dependencies = Vec::new();
+        let trait_surface_key = QueryKey::TraitSurface(contribution.trait_ref.declaration.clone());
+        ready_or_error(crate::db::query::query_bootstrap_trait_surface(db, surface.clone()))?;
+        let Some(surface_fingerprint) = db.ready_product_fingerprint(&trait_surface_key) else {
+            return Err(QueryOutcome::Failed(format!(
+                "trait surface {:?} was not published before conformance plan {impl_id:?}",
+                contribution.trait_ref.declaration
+            )));
+        };
+        dependencies.push(crate::db::DependencyEdge {
+            dependent: plan_key.clone(),
+            dependency: trait_surface_key,
+            observed_fingerprint: surface_fingerprint,
+        });
+        let mut seen_signatures = BTreeSet::new();
+        for (_, member) in surface.iter() {
+            if !seen_signatures.insert(member.callable.clone()) {
+                continue;
+            }
+            let Some(signature) = callable_signatures.get(&member.callable) else {
+                // Bodyless declarations have no callable-body signature row;
+                // their declared contract is already covered by the exact
+                // TraitSurface dependency above.
+                continue;
+            };
+            ready_or_error(query_bootstrap_callable_signature(db, Arc::new(signature.clone())))?;
+            let signature_key = QueryKey::CallableSignature(member.callable.clone());
+            let Some(observed_fingerprint) = db.ready_product_fingerprint(&signature_key) else {
+                return Err(QueryOutcome::Failed(format!(
+                    "canonical callable signature {:?} was not published before conformance plan {impl_id:?}",
+                    member.callable
+                )));
+            };
+            dependencies.push(crate::db::DependencyEdge {
+                dependent: plan_key.clone(),
+                dependency: signature_key,
+                observed_fingerprint,
+            });
+        }
+        let mut plan_identity_hasher = DefaultHasher::new();
+        impl_id.hash(&mut plan_identity_hasher);
+        let input_fingerprint = crate::db::InputFingerprint::new(plan_identity_hasher.finish());
+        db.publish_ready(
+            plan_key,
+            db.revision(),
+            input_fingerprint,
+            plan.fingerprint,
+            crate::db::state::QueryValue::from_bytes([]),
+            dependencies,
+        )
+        .map_err(|error| QueryOutcome::Failed(format!("failed to publish conformance plan {impl_id:?}: {error:?}")))?;
+        if emit_incomplete_diagnostics
+            && diagnostic_work_modules.contains(&contribution.source.module)
+            && let crate::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness
+        {
             let mut diagnostic = SemanticDiagnostic::error_in(
                 contribution.source.module.clone(),
                 DiagnosticCode::ImplConformanceIncomplete,
@@ -10399,8 +10596,20 @@ fn publish_conformance_witness_plans(
             }
             diags_by_module.entry(contribution.source.module.clone()).or_default().push(diagnostic);
         }
-        conformance_witness_plans.insert(impl_id.clone(), Arc::new(plan));
+        let replacement = match conformance_witness_plans.get(impl_id) {
+            Some(previous) if previous.fingerprint == plan.fingerprint => previous.clone(),
+            Some(_) => {
+                changed_plans.insert(impl_id.clone());
+                Arc::new(plan)
+            }
+            None => {
+                changed_plans.insert(impl_id.clone());
+                Arc::new(plan)
+            }
+        };
+        conformance_witness_plans.insert(impl_id.clone(), replacement);
     }
+    Ok(changed_plans)
 }
 
 #[cfg(test)]
