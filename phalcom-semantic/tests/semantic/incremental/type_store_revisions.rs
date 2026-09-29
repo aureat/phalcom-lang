@@ -887,7 +887,7 @@ class Consumer {
     let final_source = r#"
 class C<*P> {}
 class Consumer {
-  @class use(_ v: C<Int>) {}
+  @class use(_ v: C<*(Int,)>) {}
 }
 "#;
 

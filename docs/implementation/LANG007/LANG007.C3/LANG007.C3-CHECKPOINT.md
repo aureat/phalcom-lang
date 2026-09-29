@@ -78,7 +78,14 @@ next_action: >
   semantic `source_visible_complete_pack_lane_projections_keep_canonical_member_declarations`
   and `record_fields_projection_preserves_exact_row_identity`. G4 has begun:
   `cargo test -p phalcom-type-meta` passed 16/16 schema tests, and semantic
-  `integration::metadata` passed 28/28; incremental and LSP gates remain.
+  `integration::metadata` passed 28/28. The exact incremental discriminator
+  `p3_mode_only_pack_binder_edit_invalidates_dependents_to_cold_parity` now
+  passes 1/1 after correcting only the final fixture argument from scalar
+  `C<*Int>` to one-item pack `C<*(Int,)>`; the initial `C<Int>` negative
+  `Single(TypePack)` control and cold/incremental assertions are unchanged.
+  The Priority 3 ledger now classifies this as a resolved fixture syntax
+  migration, not a production semantic regression. The full `incremental`
+  filter remains pending, as do the LSP gates.
   T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.
@@ -2359,8 +2366,10 @@ next action:
 residual evidence:
     Priority 3's 40-way categorical classification is already recorded in
     `LANG007.C3.P4-audit-remediation/04-semantic-regression-classification.md`
-    (35 current regressions, 4 true clean-predecessor baselines, 1 intentional
-    P4 migration). Remaining Priority 3 work is causal isolation, remediation
+    (34 current regressions, 4 true clean-predecessor baselines, 2 intentional
+    P4 migrations). One former row was reclassified after its corrected
+    explicit-pack fixture passed; the prior full pinned aggregate predates that
+    correction and the full incremental filter is pending. Remaining Priority 3 work is causal isolation, remediation
     or migration decisions, and final residual disposition; classification
     alone does not complete P4 T13, whose T1–T12 preconditions remain unmet. The
     last full pinned semantic run was on clean main `bb3d6cd2` (1711 selected,

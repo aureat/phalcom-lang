@@ -140,18 +140,20 @@ remediation, not P4 T13.
 | `semantic::foundations::semantic_correctness_regressions::causal_invalidity_does_not_suppress_analyzable_downstream_dispatch` | FAIL (full pinned run at bb3d6cd2) | c386 FAIL; earlier PASS E1:834 | CURRENT REGRESSION — already present at c386 | Audit Priority 3 classification; no narrower P4 task assigned pending causal isolation | Downstream analysis oracle fails; cause not yet isolated. | Trace invalid parent and independent child dispatch; no fix selected. | NOT RUN |
 | `semantic::golden::golden_07_unknown_authority` | FAIL (full pinned run at bb3d6cd2) | c386 FAIL; earlier PASS E1:865 | CURRENT REGRESSION — already present at c386 | Audit Priority 3 classification; no narrower P4 task assigned pending causal isolation | Golden expected-output mismatch; precise underlying product not yet isolated. | Trace the first differing semantic product; no fix selected. | NOT RUN |
 | `semantic::golden::golden_12_higher_order_mutation` | FAIL (full pinned run at bb3d6cd2) | c386 FAIL; earlier PASS E1:867 | CURRENT REGRESSION — already present at c386 | Audit Priority 3 classification; no narrower P4 task assigned pending causal isolation | Golden expected-output mismatch; precise underlying product not yet isolated. | Trace the first differing semantic product; no fix selected. | NOT RUN |
-| `semantic::incremental::type_store_revisions::p3_mode_only_pack_binder_edit_invalidates_dependents_to_cold_parity` | FAIL (full pinned run at bb3d6cd2) | c386 FAIL; C2 PASS E3 | CURRENT REGRESSION — already present at c386 | Audit Priority 3 classification; T12 incremental fingerprints/cold-incremental parity | Cold/incremental selector fails; exact divergence not yet isolated. | Compare final semantic products before changing recomputation expectations; no fix selected. | NOT RUN |
+| `semantic::incremental::type_store_revisions::p3_mode_only_pack_binder_edit_invalidates_dependents_to_cold_parity` | PASS (focused after fixture correction; aggregate pending) | c386 FAIL (historical result retained; no same-class claim after fixture correction); C2 PASS E3 used accepted syntax | INTENTIONAL P4 MIGRATION — test fixture syntax corrected | Audit Priority 3 classification; T12 incremental fingerprints/cold-incremental parity | The current final `C<*Int>` supplied a scalar `Type`, not a `TypePack`, so it failed before parity assertions. | Preserve initial `C<Int>` as the negative `Single(TypePack)` control; change only the final consumer to `C<*(Int,)>`, a one-item positional `TypePack`, leaving cold/incremental parity assertions intact. | PASS: exact focused selector passed 1/1 with corrected syntax; full `incremental` filter pending. |
 | `semantic::integration::editor::editor_visible_symbols_use_prelude_policy_and_preserve_local_shadowing` | PASS (full pinned run at bb3d6cd2) | c386 FAIL; earlier PASS E1:1081; audit E6 §23 | CURRENT REGRESSION — already present at c386, corrected | Audit Priority 3 classification; T12 editor/source-index projection | `visible_symbols_at` required a matching `snapshot.declarations` product for every prelude target. Canonical `Unit` is source-backed in `PreludeTypeMap` but has no such per-snapshot nominal product, so it was omitted; local `Int` shadowing was already correct. | Treat explicit `PreludeTypeMap` entries as the canonical visible target authority; preserve local/declaration name suppression and do not synthesize a target. Test asserts `Unit` resolves to its canonical source declaration. | PASS: focused selector and two prelude controls each selected/passed 1; also passed in full pinned run at bb3d6cd2. |
 | `semantic::integration::workspace::invalid_generic_kind_does_not_publish_ready_declaration_header` | PASS (full pinned run at bb3d6cd2) | c386 FAIL; earlier PASS E1:1166; audit E6 §23 | CURRENT REGRESSION — already present at c386, corrected | Audit Priority 3 classification; T12 workspace/declaration publication | Final generic class/data formation returned `Invalid`, but the predeclared shell remained in the declarations table. | Add only `Invalid` final generic signatures to `blocked_declarations`; preserve retryable/nonterminal outcomes. Regression checks invalid class/data absence, diagnostic retention, and valid class/data publication. | PASS: focused selector and two valid signature controls each selected/passed 1; also passed in full pinned run at bb3d6cd2. |
 
 ## Disposition
 
-The original 40-way classification contains 35 `CURRENT REGRESSION` cases with
+The current 40-way classification contains 34 `CURRENT REGRESSION` cases with
 older source-backed PASS evidence, 4 `TRUE CLEAN-PREDECESSOR BASELINE` cases,
-and 1 `INTENTIONAL P4 MIGRATION`. Those 35 regressions were already present at
-c386. The later full pinned run confirms 37 failures remain: 33 of the
-classified current regressions, all 4 true predecessor baselines, and no
-intentional migration; the explicit-alias migration and two additional
-regression corrections now pass. These results do not reclassify the original
-evidence. This audit Priority 3 record does not complete P4 T13, whose T1–T12
-preconditions remain unmet. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+and 2 `INTENTIONAL P4 MIGRATION` cases. The migrated mode-only binder row had
+been recorded as a current regression because its final fixture used a scalar
+where explicit one-item pack syntax is required; its historical c386 result is
+preserved in the row. The prior full pinned run (before this fixture correction)
+reported 37 failures, 3 passes, and 42 ignored; that aggregate has not yet been
+rerun with the corrected fixture. These results do not reclassify unrelated
+rows or their source-backed evidence. This audit Priority 3 record does not
+complete P4 T13, whose T1–T12 preconditions remain unmet. P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
