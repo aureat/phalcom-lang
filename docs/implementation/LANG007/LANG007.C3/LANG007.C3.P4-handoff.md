@@ -1,10 +1,10 @@
 Continue LANG007.C3.P4 from the checkpoint below. The active plan remains authoritative.
 
 ## Mission and scope
-- Deliver: finish T13 stabilization/certification and leave P4/C3 verification truthful.
-- In scope: review the incomplete G6 evidence and perform only further user/supervisor-authorized work.
-- Out of scope: unrelated repairs to generic Option call-entry, captured setter validation, global formatting drift, or user-authored notes.
-- Authority: `/Users/altunhasanli/dev/phalcom/phalcom/docs/implementation/LANG007/LANG007.C3/LANG007.C3.P4-intrinsic-structural-data-semantic-completion-plan.md` T13 / §16; checkpoint is the shared state.
+- Deliver now: execute adopted `LANG007.C3.P4.R1`, beginning with its read-only T1 census; afterward return to incomplete P4/T13 certification without overstating status.
+- In scope: R1 tasks and only their authorized focused selectors, after supervisor review of T1.
+- Out of scope now: broad G5/G6/workspace certification, unrelated repairs to generic Option call-entry or captured setter validation, global formatting drift, and user-authored notes.
+- Authority: `/Users/altunhasanli/dev/phalcom/phalcom/docs/implementation/LANG007/LANG007.C3/LANG007.C3.P4.R1-canonical-inferred-result-contracts.md`; the original P4 plan remains authoritative for later T13 certification; checkpoint is the shared state.
 
 ## Current state
 - Status: T1–T12 evidence and G1–G5 focused selector results/dispositions are recorded; the G5 collection aggregates remain unpassed/uncertified. G6 is incomplete and P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
@@ -26,7 +26,7 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 - The one authorized workspace-test retry was run after correcting three stale AST test/snapshot oracles. Its process session disappeared after `phalcom-core --lib` reported 157 run, 155 passed, 2 failed. There is no captured final Cargo exit summary or evidence about later workspace targets. Do not describe this as a workspace-wide test total.
 - The current INC-C3-20 amendment touches only its incident/checkpoint/plan/handoff records and the focused core test. The staged-and-unstaged user change `docs/specs/tuple-and-record-typing.md` is also preserved; do not edit or stage that file, `docs/.obsidian/workspace.json`, or `docs/__unstructured__/Untitled 1.md`.
 - The focused-matrix/checkpoint/handoff/walkthrough update was pushed to `main` at `5b629c8f5f04b275cafa7726bb3f4ce5a60e5173`; `main` matched `origin/main` at that point. The user spec edit remains `AM` and untouched.
-- The user authorized the next scope after the §15 stop. It is captured as the separate architecture decision request [INC-C3-21](INC-C3-21.md); this does not authorize T13 trait-default return inference or the prohibited G5/G6 reruns.
+- INC-C3-21 is adopted and its companion [LANG007.C3.P4.R1 plan](LANG007.C3.P4.R1-canonical-inferred-result-contracts.md) is the active next scope, separate from T13. Start with the read-only T1 census; production edits wait for supervisor review. The ruling does not authorize broad G5/G6/workspace certification.
 
 ## Evidence and decisions
 - `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check --workspace --all-targets` — PASS, with one existing dead-code warning.
@@ -46,9 +46,9 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 - `/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core/src/vm/send.rs::VM::validate_captured_method_shape` and `captured_setter_rejects_an_ordinary_positional_rhs_lane` — post-c386 discrepancy; no P4 path change found.
 
 ## Resume plan
-1. The §13 focused matrix is satisfied and supervisor-reviewed. INC-C3-20 remains Outcome B for T13: do not add trait-default return inference, and do not rerun G5/G6 under the existing ruling. The user authorized proceeding to the separate scope captured in INC-C3-21; obtain the architect decision and record an approved plan before implementation.
+1. The §13 focused matrix is satisfied and supervisor-reviewed. INC-C3-20 remains Outcome B for T13: do not fold trait-default return inference into T13. INC-C3-21 separately authorizes P4.R1; continue with T1 and wait for supervisor review before production edits. Broad G5/G6 remains outside this scope.
 2. Keep the natural iterator chain blocked and ignored; do not infer a receiver type in dispatch or edit library/fixture/VM behavior to make it pass.
-3. Preserve all user edits and keep P4/C3 `IN_PROGRESS / PARTIAL / UNVERIFIED`; G5 aggregates remain unpassed/uncertified and G6 incomplete. No T13/P4 completion claim is supported.
+3. Preserve all user edits and keep P4/C3 `IN_PROGRESS / PARTIAL / UNVERIFIED`; G5 aggregates remain unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored. Priority 3 is unchanged. No T13/P4 completion claim is supported.
 
 ## Do not re-explore
 - The T13.1 iterator census, G1–G5 focused selector results, T12.6 incremental matrix, and T12.7 editor matrix are already recorded in the checkpoint.

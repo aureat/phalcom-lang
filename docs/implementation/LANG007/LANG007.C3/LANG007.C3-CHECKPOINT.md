@@ -13,9 +13,9 @@ requires:
   - LANG007.C2
 prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
 prepared: 2026-09-22
-active_plan: LANG007.C3.P4
+active_plan: LANG007.C3.P4.R1
 latest_completed_plan: LANG007.C3.P3.R1
-next_plan: none accepted
+next_plan: none accepted beyond active plan
 ---
 
 # LANG007.C3 — Checkpoint Record
@@ -30,14 +30,15 @@ checkpoint: LANG007.C3
 status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
-active_plan: LANG007.C3.P4
+active_plan: LANG007.C3.P4.R1
 latest_completed_plan: LANG007.C3.P3.R1
-next_plan: none accepted
+next_plan: none accepted beyond active plan
 next_action: >
   T12.7 is IMPLEMENTED / FOCUSED_TESTED across commits `a66b8906`,
   `a9e584b7`, and `8727d5df`; its source-index, navigation, completion, and
   syntax-token selectors each passed 1/1. T12.8 normative spec convergence is
-  IMPLEMENTED / documentation-only; no Cargo tests were run. T13 is active.
+  IMPLEMENTED / documentation-only; no Cargo tests were run. T13's focused
+  matrix is supervisor-reviewed; its broader certification remains incomplete.
   INC-C3-20 ruling is adopted with Outcome B: unannotated trait-default return
   results are not a canonical contract consumable by trait dispatch; ordinary
   class callable inferred-return publication exists. `Iterator.take` is
@@ -53,15 +54,16 @@ next_action: >
   `.iter.take(10).toList`
   discriminator remains ignored as BLOCKED by INC-C3-20; it is not acceptance
   evidence. G5 collection aggregates remain unpassed/uncertified and G6 remains
-  incomplete. The §13 focused matrix is satisfied and supervisor-reviewed;
-  stop at the architect ruling §15 boundary. No further broad, corpus, or
-  workspace rerun, and no trait-default return inference, is authorized under
-  this ruling. Crossing that boundary requires new user or architect
-  authorization. The user has authorized proceeding to the next scope; this is
-  recorded as a separate semantic return-contract consultation in INC-C3-21,
-  not as permission to add inference to T13 or rerun G5/G6. No implementation
-  decision is assumed pending the architect response. T13/P4/C3 remains
-  IN_PROGRESS / PARTIAL / UNVERIFIED.
+  incomplete. The §13 focused matrix is satisfied and supervisor-reviewed.
+  T13 stopped at the architect ruling §15 boundary: INC-C3-20 still prohibits
+  adding trait-default inference to T13 and does not authorize broad G5/G6
+  certification. Separately, INC-C3-21 is now adopted and P4.R1 is active;
+  start with its bounded read-only T1 source census, then obtain supervisor
+  review before production edits. G5 collection aggregates remain
+  unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored.
+  P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. The only added corpus gate
+  is the direct `corpus::collections` selector after R1's chain gate passes.
+  Priority 3 remains unchanged.
   T13.1 census found and corrected the effective iterator-spec claim: generic
   Tuple iteration yields `Tuple<***Es>::Element`; only runtime-shaped
   `rawFromList`, `rawSlice`, and TupleZip APIs remain Dynamic. G1 AST/parser/
@@ -448,6 +450,7 @@ C3 is complete only when this statement is true:
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1-T10 accepted; generic-owner payload behavior fixed; all required C3 coverage has direct evidence or a clean-predecessor baseline disposition; see P3 walkthrough/handoff |
 | `LANG007.C3.P3.R1` | Corrective closure: explicit intrinsic semantic application and runtime/native owner projections | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | user-adopted projections implemented and focused gates passed; see P3.R1 handoff |
 | `LANG007.C3.P4` | Intrinsic structural data, structural kinds, product-shape expansion, and Tuple/Record semantic completion | IN_PROGRESS | PARTIAL | UNVERIFIED | active plan |
+| `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | IN_PROGRESS | PARTIAL | UNVERIFIED | adopted INC-C3-21; bounded source census first; does not certify T13/G5/G6 |
 
 P3.R1 was a bounded corrective closure required by the explicit ruling supplied
 after P3 closure. P4 completes the intrinsic structural-data model and structural literal convergence.
@@ -1678,7 +1681,8 @@ item. T13's actual-expression gate is amended to use
   G5 collection aggregates remain unpassed/uncertified and G6 incomplete. No
   further broad, corpus, or workspace rerun, and no trait-default return
   inference, is authorized under this ruling. Crossing this boundary requires
-  new user or architect authorization.
+  new user or architect authorization. The separately adopted INC-C3-21 / P4.R1
+  direction does not reopen this stop; Priority 3 remains unchanged.
 
 ### INC-C3-20 — unannotated trait-default return blocks actual guarded dispatch — 2026-09-29
 
@@ -1697,13 +1701,18 @@ P4/C3 verification remain unchanged.
 
 ### INC-C3-21 — canonical result contract for unannotated trait defaults — 2026-09-29
 
-Status: ARCHITECTURE DECISION REQUESTED. The user authorized the next scope
-after the T13 §15 boundary. Per the ruling's explicit deferral, the next safe
-step is a separate decision packet on whether unannotated trait-default bodies
-should publish canonical inferred result contracts or require explicit return
-signatures; it is not renewed authority to implement return inference in T13.
-See [`INC-C3-21.md`](INC-C3-21.md). No source changes or tests were made. G5
-remains unpassed/uncertified, G6 incomplete, and P4/C3 remains
+Status: ADOPTED. The architect authorized canonical inferred result contracts
+for body-bearing callables, including trait defaults, through the existing
+callable signature authority. This is scoped in companion plan
+`LANG007.C3.P4.R1`; T1 is a bounded read-only source census and production edits
+wait for supervisor review. The ruling preserves explicit annotations, caller
+independence, symbolic generic/Self substitution, existing metadata/signature
+representation, and the no-general-recursive-fixpoint boundary. It requires
+causal attribution of `Iterator.take`'s `RecursiveFixpoint` and focused natural
+chain verification after both stages are canonical. It does not amend T13 or
+certify G5/G6. See [`INC-C3-21.md`](INC-C3-21.md) and the
+[`P4.R1 plan`](LANG007.C3.P4.R1-canonical-inferred-result-contracts.md).
+No source changes or tests have yet been made under R1. P4/C3 remains
 IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 Use entries:
@@ -2220,12 +2229,19 @@ Current:
 
 ```text
 active plan:
-    LANG007.C3.P4
+    LANG007.C3.P4.R1
 
 latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
+    The active plan is LANG007.C3.P4.R1 under adopted INC-C3-21. Its immediate
+    next task is T1: a bounded read-only source census, followed by supervisor
+    review before production edits. This is separate from T13 and does not
+    change T13's §15 stop, certify G5/G6, or authorize workspace/release gates.
+    G5 collection aggregates remain unpassed/uncertified, G6 is incomplete, the
+    natural chain is blocked/ignored, and P4/C3 remains IN_PROGRESS / PARTIAL /
+    UNVERIFIED. Priority 3 is unchanged.
     T7.9–T7.11 and T8.1–T8.10 are IMPLEMENTED / FOCUSED_TESTED. T8.5 preserves
     Record/open-row and labeled-Tuple Record spreads, rejects Map-to-Record for
     both bindings and literals with the same semantic diagnostic, retains

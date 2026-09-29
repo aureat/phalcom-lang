@@ -455,8 +455,10 @@ architect ruling §15 boundary. G5 collection aggregates remain
 unpassed/uncertified, G6 remains incomplete, and the natural chain remains
 blocked/ignored. P4/C3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; this focused
 matrix does not mark T13 or P4 complete. No further broad, corpus, or workspace
-rerun, and no trait-default return inference, is authorized under this ruling.
-Crossing the boundary requires new user or architect authorization.
+rerun, and no trait-default return inference within T13, is authorized under
+INC-C3-20. The subsequent INC-C3-21 ruling separately authorizes companion
+plan P4.R1; it does not change T13's focused matrix or certify G5/G6. Priority
+3 is unchanged.
 
 ### Broad gates attempted
 

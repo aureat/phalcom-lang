@@ -1,15 +1,16 @@
-# IMPLEMENTATION INCIDENT
+# IMPLEMENTATION INCIDENT AND ADOPTED RULING
 
 ## 1. Identity
 
 - Incident: INC-C3-21 — canonical result contract for unannotated trait defaults
 - Program: LANG007
 - Checkpoint: LANG007.C3
-- Related plan: LANG007.C3.P4 T13; this is a separate follow-on design scope, not a T13 amendment yet
+- Related plan: LANG007.C3.P4 T13; accepted implementation scope is the separate companion plan LANG007.C3.P4.R1, not a T13 amendment
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Branch: `main`
-- Starting/current revision: `5b629c8f5f04b275cafa7726bb3f4ce5a60e5173`
-- Status: architecture decision requested; no production implementation authorized by this packet
+- Starting revision: `5b629c8f5f04b275cafa7726bb3f4ce5a60e5173`
+- Ruling received against current `main`: `9cc5e40de9895c19d4cccbd8382c6e723b426eb9`
+- Status: ADOPTED; bounded implementation authorized under `LANG007.C3.P4.R1`
 
 ## 2. Escalation trigger
 
@@ -22,11 +23,11 @@ The follow-on requires deciding whether semantic authority should publish body-i
 - Preserve the distinction between `Unknown(UnannotatedDeclaration)` and a proven canonical result; do not turn unknown into `Dynamic` or a permissive dispatch candidate.
 - The adopted INC-C3-20 ruling remains authoritative for T13: T13 does not add trait-default return inference, and G5/G6 remain unpassed/incomplete absent a separately authorized scope.
 
-## 4. Expected architecture / unresolved contract
+## 4. Architecture question at escalation time
 
 INC-C3-20 established Outcome B for T13: unannotated trait-default body returns are not currently published as a canonical return-signature contract consumable by trait dispatch. The known-receiver `receiver.toList` gate closes T13's focused dispatch matrix without changing that fact.
 
-The separate scope needs a language/semantic decision: are unannotated trait-default body returns intended to acquire a canonical inferred-result contract usable by downstream chained calls, or must such methods have explicit return signatures for that contract? No representation, inference algorithm, or consumer change is proposed here.
+At escalation time the unresolved choice was whether unannotated trait-default body returns should acquire a canonical inferred-result contract or require explicit result signatures. The architect has now resolved that question; the adopted contract is recorded in §15 and implemented only through the companion plan. This packet's earlier observations and alternatives remain historical evidence, not current unresolved decisions.
 
 ## 5. Observed behavior
 
@@ -99,10 +100,46 @@ These alternatives were not resolved by T13's known-receiver matrix.
 
 Choosing inference versus explicit contracts changes accepted semantic behavior and may add a canonical result product consumed across semantic analysis, incremental invalidation, metadata/snapshots, compiler lowering, and library declarations. Recursive trait-default bodies and generic/`Self` substitution make the ownership and convergence rules nonlocal. The T13 ruling explicitly defers this to a separate semantic design/remediation item.
 
-## 14. Decision requested
+## 14. Decision requested (historical)
 
-For the separate follow-on scope, should Phalcom publish canonical inferred result contracts for unannotated trait-default bodies, or should downstream static chaining require explicit return signatures?
+The original consultation requested a choice between canonical inferred result
+contracts and explicit result signatures, plus ownership and lifecycle rules.
+The architect response supersedes this request and is recorded in §15.
 
-If inference is intended, specify the owning semantic product/layer and the required rules for generic/`Self` substitution, recursive/fixpoint bodies such as `Iterator::take`, dependency recording and cold/incremental invalidation, and metadata/snapshot compatibility. If explicit signatures are intended, specify the contract for library declarations such as `Iterable::iter` and `Iterator::take` and whether their return annotations are required for this chaining behavior.
+## 15. Adopted architect ruling and bounded authorization
 
-Please also decide whether this should become a new numbered corrective plan under LANG007.C3 or a separate semantic-design work item. No implementation should resume until the decision and scope are recorded.
+The architect adopted canonical inferred result contracts for body-bearing
+callables with omitted result annotations, including trait defaults. Analyze
+the provider body in its canonical declaration generic/`Self` environment and
+publish one canonical symbolic result through the ordinary callable-signature
+authority. Explicit annotations remain authoritative; bodyless declarations
+remain unchanged. Caller expected types cannot set provider contracts, and
+callable result inference remains distinct from trait applicability,
+conformance proof, and dispatch selection.
+
+`Self`, generic parameters, and associated projections may remain symbolic and
+are specialized at call sites through existing substitution. Durable result
+products must exclude inference-local variables and query-local proof
+identities. Acyclic dependencies are allowed, but general recursive
+fixpoint/widening is not. Unseeded semantic cycles require a deterministic
+diagnostic; artificial staged-analysis cycles should be repaired at their
+dependency owner.
+
+Reuse the existing callable signature representation for metadata. No schema,
+runtime, compiler/VM/ABI, dispatch-local inference, override-rule,
+`TypeStore::union`, row-solver, or flow-join changes are authorized. Update the
+general callable/method/typechecking normative owner, not the iterator spec;
+stop if current normative authority materially conflicts before editing.
+
+The architect requires causal attribution of `Iterator.take`'s
+`RecursiveFixpoint`: `TakeIterator.new(self, n)` is not syntactically
+self-recursive. Do not require an annotation merely to hide an artificial
+dependency cycle. Restore `(0..).iter.take(10).toList` only after both relevant
+stages publish canonical contracts, then rerun only the directly blocked
+`corpus::collections` selector. No broad G5, G6, workspace, or release
+certification is included.
+
+Implementation identity, authorized under the ruling, is `LANG007.C3.P4.R1` in
+[`LANG007.C3.P4.R1-canonical-inferred-result-contracts.md`](LANG007.C3.P4.R1-canonical-inferred-result-contracts.md).
+T1 is read-only; production edits require supervisor review of its source map
+and causal hypothesis. P4/C3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
