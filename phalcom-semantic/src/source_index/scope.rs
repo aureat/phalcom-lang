@@ -85,6 +85,9 @@ pub enum SourceBindingKind {
     SetterParameter,
     IndexParameter,
     ClosureParameter,
+    /// A generic type-level binder. These sites participate in references and
+    /// rename, but are not inserted into the runtime lexical-value namespace.
+    TypeParameter,
     ForBinding,
     Destructure,
     Import,

@@ -218,6 +218,24 @@ impl OccurrenceIndex {
                     Some(SemanticTargetId::TypeMember(member)),
                 );
             }
+            let type_parameter_references = context
+                .type_parameter_reference_targets
+                .iter()
+                .filter(|((owner, _), _)| owner == &module)
+                .map(|((_, range), declaration_range)| (*range, *declaration_range))
+                .collect::<Vec<_>>();
+            for (range, declaration_range) in type_parameter_references {
+                let Some(binding) = visitor.scopes.binding_for_declaration(declaration_range) else {
+                    continue;
+                };
+                visitor.record_targeted(
+                    range,
+                    OccurrenceKind::Parameter,
+                    OccurrenceRole::Reference,
+                    None,
+                    Some(SemanticTargetId::Binding(binding.declaration_site.clone())),
+                );
+            }
         }
         result = Self::new(visitor.occurrences, visitor.targets);
         result

@@ -1,6 +1,6 @@
 //! AST-to-source-scope construction under compiler ownership.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::identity::{
     CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner,
@@ -51,6 +51,12 @@ pub struct SourceIndexContext {
     /// authored selector range. Owners are resolved through the linked type
     /// resolver; selector spelling alone is never treated as identity.
     pub type_member_projection_targets: BTreeMap<(ModuleId, SourceRange), crate::types::type_member::TypeMemberDeclarationId>,
+    /// Product-expansion generic parameter declaration tokens keyed by source
+    /// module and exact name range.
+    pub type_parameter_declarations: BTreeMap<(ModuleId, SourceRange), String>,
+    /// Type-level parameter references keyed by use range and pointing at the
+    /// exact declaration-name range in the same source module.
+    pub type_parameter_reference_targets: BTreeMap<(ModuleId, SourceRange), SourceRange>,
     /// Exact trait-owned associated declarations keyed by conformance binding
     /// LHS range. The semantic session supplies this identity map.
     pub associated_type_targets: BTreeMap<(ModuleId, SourceRange), AssociatedTypeRequirementId>,
@@ -58,6 +64,17 @@ pub struct SourceIndexContext {
     /// projection name range. The semantic session supplies this identity
     /// map from canonical trait formation products.
     pub associated_projection_targets: BTreeMap<(ModuleId, SourceRange), AssociatedTypeRequirementId>,
+}
+
+/// Source ranges for product-expansion parameter declarations and their bound
+/// type-level references. Declaration ranges are exact name tokens, not stable
+/// identities; the source index resolves them to snapshot-local binding sites.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TypeParameterSourceTargets {
+    /// Product-expansion binder name range to authored name.
+    pub declarations: BTreeMap<SourceRange, String>,
+    /// Reference name range to the declaration's name range.
+    pub references: BTreeMap<SourceRange, SourceRange>,
 }
 
 struct CallableVisit<'a> {
@@ -101,12 +118,25 @@ pub fn resolve_type_reference_targets(module: &ModuleId, program: &Program, reso
         resolver,
         targets: BTreeMap::new(),
         type_member_targets: BTreeMap::new(),
+        type_parameter_sources: TypeParameterSourceTargets::default(),
     };
-    let bound = BTreeSet::new();
-    for statement in &program.statements {
-        collector.statement(statement, &bound);
-    }
+    collector.statement_list(&program.statements, &BoundTypeParameters::default());
     collector.targets
+}
+
+/// Collects product-expansion generic declaration/reference ranges for the
+/// source index. The resulting declaration identities are assigned by the
+/// source-index builder within the current snapshot.
+pub fn resolve_type_parameter_source_targets(module: &ModuleId, program: &Program, resolver: &dyn TypeResolver) -> TypeParameterSourceTargets {
+    let mut collector = TypeReferenceTargetCollector {
+        module,
+        resolver,
+        targets: BTreeMap::new(),
+        type_member_targets: BTreeMap::new(),
+        type_parameter_sources: TypeParameterSourceTargets::default(),
+    };
+    collector.statement_list(&program.statements, &BoundTypeParameters::default());
+    collector.type_parameter_sources
 }
 
 /// Resolves authored type-member projection selectors to canonical owner and
@@ -121,27 +151,51 @@ pub fn resolve_type_member_projection_targets(
         resolver,
         targets: BTreeMap::new(),
         type_member_targets: BTreeMap::new(),
+        type_parameter_sources: TypeParameterSourceTargets::default(),
     };
-    let bound = BTreeSet::new();
-    for statement in &program.statements {
-        collector.statement(statement, &bound);
-    }
+    collector.statement_list(&program.statements, &BoundTypeParameters::default());
     collector.type_member_targets
 }
+
+type BoundTypeParameters = BTreeMap<String, Option<SourceRange>>;
 
 struct TypeReferenceTargetCollector<'a> {
     module: &'a ModuleId,
     resolver: &'a dyn TypeResolver,
     targets: BTreeMap<SourceRange, DeclarationId>,
     type_member_targets: BTreeMap<SourceRange, crate::types::type_member::TypeMemberDeclarationId>,
+    type_parameter_sources: TypeParameterSourceTargets,
 }
 
 impl TypeReferenceTargetCollector<'_> {
-    fn statement(&mut self, statement: &Statement, bound: &BTreeSet<String>) {
+    fn statement_list(&mut self, statements: &[Statement], bound: &BoundTypeParameters) {
+        for statement in statements {
+            self.statement(statement, bound);
+        }
+    }
+
+    fn generic_parameters(&mut self, bound: &BoundTypeParameters, parameters: &[phalcom_ast::ast::GenericParameterSyntax]) -> BoundTypeParameters {
+        let mut next = bound.clone();
+        for parameter in parameters {
+            let declaration = parameter.mode.map(|_| parameter.name_range);
+            if declaration.is_some() {
+                self.type_parameter_sources.declarations.insert(parameter.name_range, parameter.name.clone());
+            }
+            next.insert(parameter.name.clone(), declaration);
+        }
+        next
+    }
+
+    fn type_member_parameters(&self, bound: &BoundTypeParameters, parameters: &[phalcom_ast::ast::TypeMemberParameterSyntax]) -> BoundTypeParameters {
+        let mut next = bound.clone();
+        next.extend(parameters.iter().map(|parameter| (parameter.name.clone(), None)));
+        next
+    }
+
+    fn statement(&mut self, statement: &Statement, bound: &BoundTypeParameters) {
         match statement {
             Statement::Class(class) => {
-                let mut class_bound = bound.clone();
-                class_bound.extend(class.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                let class_bound = self.generic_parameters(bound, &class.generic_parameters);
                 if let Some(superclass) = &class.superclass {
                     self.annotation(superclass, &class_bound);
                 }
@@ -149,8 +203,7 @@ impl TypeReferenceTargetCollector<'_> {
                 for member in &class.members {
                     match member {
                         ClassMember::Method(method) => {
-                            let mut method_bound = class_bound.clone();
-                            method_bound.extend(method.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            let method_bound = self.generic_parameters(&class_bound, &method.generic_parameters);
                             for parameter in &method.params {
                                 if let Some(annotation) = &parameter.annotation {
                                     self.annotation(annotation, &method_bound);
@@ -180,8 +233,7 @@ impl TypeReferenceTargetCollector<'_> {
                             }
                         }
                         ClassMember::Index(index) => {
-                            let mut index_bound = class_bound.clone();
-                            index_bound.extend(index.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            let index_bound = self.generic_parameters(&class_bound, &index.generic_parameters);
                             for parameter in &index.params {
                                 if let Some(annotation) = &parameter.annotation {
                                     self.annotation(annotation, &index_bound);
@@ -198,8 +250,7 @@ impl TypeReferenceTargetCollector<'_> {
                             self.where_clause(index.where_clause.as_ref(), &index_bound);
                         }
                         ClassMember::TypeMember(type_member) => {
-                            let mut type_member_bound = class_bound.clone();
-                            type_member_bound.extend(type_member.parameters.iter().map(|parameter| parameter.name.clone()));
+                            let type_member_bound = self.type_member_parameters(&class_bound, &type_member.parameters);
                             for parameter in &type_member.parameters {
                                 match &parameter.domain {
                                     phalcom_ast::ast::TypeMemberParameterDomainSyntax::Kind(_) => {}
@@ -222,10 +273,10 @@ impl TypeReferenceTargetCollector<'_> {
             }
             Statement::Data(data_def) => {
                 if data_def.is_sum() {
-                    self.sum_data_definition(data_def, bound);
+                    let data_bound = self.generic_parameters(bound, &data_def.generic_parameters);
+                    self.sum_data_definition(data_def, &data_bound);
                 } else {
-                    let mut data_bound = bound.clone();
-                    data_bound.extend(data_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    let data_bound = self.generic_parameters(bound, &data_def.generic_parameters);
                     self.where_clause(data_def.where_clause.as_ref(), &data_bound);
                     if let Some(components) = data_def.components() {
                         for comp in components {
@@ -235,8 +286,7 @@ impl TypeReferenceTargetCollector<'_> {
                 }
             }
             Statement::Trait(trait_def) => {
-                let mut trait_bound = bound.clone();
-                trait_bound.extend(trait_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                let trait_bound = self.generic_parameters(bound, &trait_def.generic_parameters);
                 self.where_clause(trait_def.where_clause.as_ref(), &trait_bound);
                 for trait_member in &trait_def.members {
                     if let Some(member) = trait_member.behavior() {
@@ -248,8 +298,7 @@ impl TypeReferenceTargetCollector<'_> {
                 }
             }
             Statement::TypeAlias(alias) => {
-                let mut alias_bound = bound.clone();
-                alias_bound.extend(alias.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                let alias_bound = self.generic_parameters(bound, &alias.generic_parameters);
                 self.where_clause(alias.where_clause.as_ref(), &alias_bound);
                 self.annotation(&alias.body, &alias_bound);
             }
@@ -259,8 +308,7 @@ impl TypeReferenceTargetCollector<'_> {
                 }
             }
             Statement::Impl(impl_def) => {
-                let mut impl_bound = bound.clone();
-                impl_bound.extend(impl_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                let impl_bound = self.generic_parameters(bound, &impl_def.generic_parameters);
                 self.where_clause(impl_def.where_clause.as_ref(), &impl_bound);
                 if let phalcom_ast::ast::ImplKind::Conformance { trait_ref, .. } = &impl_def.kind {
                     self.annotation(trait_ref, &impl_bound);
@@ -271,8 +319,7 @@ impl TypeReferenceTargetCollector<'_> {
                 }
                 for impl_member in &impl_def.members {
                     if let phalcom_ast::ast::ImplMember::TypeMember(type_member) = impl_member {
-                        let mut type_member_bound = impl_bound.clone();
-                        type_member_bound.extend(type_member.parameters.iter().map(|parameter| parameter.name.clone()));
+                        let type_member_bound = self.type_member_parameters(&impl_bound, &type_member.parameters);
                         for parameter in &type_member.parameters {
                             if let phalcom_ast::ast::TypeMemberParameterDomainSyntax::ConstType(annotation) = &parameter.domain {
                                 self.annotation(annotation, &type_member_bound);
@@ -289,8 +336,7 @@ impl TypeReferenceTargetCollector<'_> {
                     };
                     match member {
                         phalcom_ast::ast::BehaviorMember::Method(method) => {
-                            let mut method_bound = impl_bound.clone();
-                            method_bound.extend(method.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            let method_bound = self.generic_parameters(&impl_bound, &method.generic_parameters);
                             for parameter in &method.params {
                                 if let Some(annotation) = &parameter.annotation {
                                     self.annotation(annotation, &method_bound);
@@ -302,16 +348,14 @@ impl TypeReferenceTargetCollector<'_> {
                             self.where_clause(method.where_clause.as_ref(), &method_bound);
                         }
                         phalcom_ast::ast::BehaviorMember::Getter(getter) => {
-                            let mut getter_bound = impl_bound.clone();
-                            getter_bound.extend(getter.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            let getter_bound = self.generic_parameters(&impl_bound, &getter.generic_parameters);
                             if let Some(annotation) = &getter.return_annotation {
                                 self.annotation(annotation, &getter_bound);
                             }
                             self.where_clause(getter.where_clause.as_ref(), &getter_bound);
                         }
                         phalcom_ast::ast::BehaviorMember::Setter(setter) => {
-                            let mut setter_bound = impl_bound.clone();
-                            setter_bound.extend(setter.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            let setter_bound = self.generic_parameters(&impl_bound, &setter.generic_parameters);
                             if let Some(annotation) = &setter.param.annotation {
                                 self.annotation(annotation, &setter_bound);
                             }
@@ -321,8 +365,7 @@ impl TypeReferenceTargetCollector<'_> {
                             self.where_clause(setter.where_clause.as_ref(), &setter_bound);
                         }
                         phalcom_ast::ast::BehaviorMember::Index(index) => {
-                            let mut index_bound = impl_bound.clone();
-                            index_bound.extend(index.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            let index_bound = self.generic_parameters(&impl_bound, &index.generic_parameters);
                             for parameter in &index.params {
                                 if let Some(annotation) = &parameter.annotation {
                                     self.annotation(annotation, &index_bound);
@@ -351,7 +394,7 @@ impl TypeReferenceTargetCollector<'_> {
         }
     }
 
-    fn where_clause(&mut self, clause: Option<&WhereClauseSyntax>, bound: &BTreeSet<String>) {
+    fn where_clause(&mut self, clause: Option<&WhereClauseSyntax>, bound: &BoundTypeParameters) {
         let Some(clause) = clause else { return };
         for constraint in &clause.constraints {
             match constraint {
@@ -378,12 +421,11 @@ impl TypeReferenceTargetCollector<'_> {
         }
     }
 
-    fn behavior_members(&mut self, members: &[phalcom_ast::ast::BehaviorMember], bound: &BTreeSet<String>) {
+    fn behavior_members(&mut self, members: &[phalcom_ast::ast::BehaviorMember], bound: &BoundTypeParameters) {
         for member in members {
             match member {
                 phalcom_ast::ast::BehaviorMember::Method(method) => {
-                    let mut member_bound = bound.clone();
-                    member_bound.extend(method.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    let member_bound = self.generic_parameters(bound, &method.generic_parameters);
                     for parameter in &method.params {
                         if let Some(annotation) = &parameter.annotation {
                             self.annotation(annotation, &member_bound);
@@ -395,16 +437,14 @@ impl TypeReferenceTargetCollector<'_> {
                     self.where_clause(method.where_clause.as_ref(), &member_bound);
                 }
                 phalcom_ast::ast::BehaviorMember::Getter(getter) => {
-                    let mut member_bound = bound.clone();
-                    member_bound.extend(getter.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    let member_bound = self.generic_parameters(bound, &getter.generic_parameters);
                     if let Some(annotation) = &getter.return_annotation {
                         self.annotation(annotation, &member_bound);
                     }
                     self.where_clause(getter.where_clause.as_ref(), &member_bound);
                 }
                 phalcom_ast::ast::BehaviorMember::Setter(setter) => {
-                    let mut member_bound = bound.clone();
-                    member_bound.extend(setter.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    let member_bound = self.generic_parameters(bound, &setter.generic_parameters);
                     if let Some(annotation) = &setter.param.annotation {
                         self.annotation(annotation, &member_bound);
                     }
@@ -414,8 +454,7 @@ impl TypeReferenceTargetCollector<'_> {
                     self.where_clause(setter.where_clause.as_ref(), &member_bound);
                 }
                 phalcom_ast::ast::BehaviorMember::Index(index) => {
-                    let mut member_bound = bound.clone();
-                    member_bound.extend(index.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    let member_bound = self.generic_parameters(bound, &index.generic_parameters);
                     for parameter in &index.params {
                         if let Some(annotation) = &parameter.annotation {
                             self.annotation(annotation, &member_bound);
@@ -435,14 +474,12 @@ impl TypeReferenceTargetCollector<'_> {
         }
     }
 
-    fn sum_data_definition(&mut self, data_def: &EnumDef, bound: &BTreeSet<String>) {
-        let mut enum_bound = bound.clone();
-        enum_bound.extend(data_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+    fn sum_data_definition(&mut self, data_def: &EnumDef, bound: &BoundTypeParameters) {
+        let enum_bound = self.generic_parameters(bound, &data_def.generic_parameters);
         self.where_clause(data_def.where_clause.as_ref(), &enum_bound);
 
         for variant in data_def.cases().unwrap_or_default() {
-            let mut variant_bound = enum_bound.clone();
-            variant_bound.extend(variant.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+            let variant_bound = self.generic_parameters(&enum_bound, &variant.generic_parameters);
             self.where_clause(variant.where_clause.as_ref(), &variant_bound);
             match &variant.payload {
                 phalcom_ast::ast::CasePayloadSyntax::Tuple { parameters, .. } => {
@@ -465,10 +502,15 @@ impl TypeReferenceTargetCollector<'_> {
         }
     }
 
-    fn annotation(&mut self, annotation: &TypeAnnotation, bound: &BTreeSet<String>) {
+    fn annotation(&mut self, annotation: &TypeAnnotation, bound: &BoundTypeParameters) {
         match &annotation.expr {
             TypeAnnotationExpr::Reference(symbol) => {
-                if symbol.members.is_empty() && bound.contains(&symbol.root) {
+                if symbol.members.is_empty()
+                    && let Some(parameter_range) = bound.get(&symbol.root)
+                {
+                    if let Some(parameter_range) = parameter_range {
+                        self.type_parameter_sources.references.insert(symbol.root_range, *parameter_range);
+                    }
                     return;
                 }
                 let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
@@ -515,7 +557,7 @@ impl TypeReferenceTargetCollector<'_> {
             }
             TypeAnnotationExpr::TypeLambda { parameters, body, .. } => {
                 let mut lambda_bound = bound.clone();
-                lambda_bound.extend(parameters.iter().map(|parameter| parameter.name.clone()));
+                lambda_bound.extend(parameters.iter().map(|parameter| (parameter.name.clone(), None)));
                 self.annotation(body, &lambda_bound);
             }
             TypeAnnotationExpr::ExactEnumCase {
@@ -569,7 +611,7 @@ impl TypeReferenceTargetCollector<'_> {
         }
     }
 
-    fn trait_annotation(&mut self, annotation: &TypeAnnotation, bound: &BTreeSet<String>) {
+    fn trait_annotation(&mut self, annotation: &TypeAnnotation, bound: &BoundTypeParameters) {
         match &annotation.expr {
             TypeAnnotationExpr::Reference(symbol) => {
                 let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
@@ -621,6 +663,21 @@ pub fn build_source_scope_index(module: ModuleId, program: &Program, context: &S
         next_site: BTreeMap::new(),
         current_owner: SourceOwner::Module(module.clone()),
     };
+
+    for ((_, range), name) in context.type_parameter_declarations.iter().filter(|((owner, _), _)| owner == &module) {
+        let site = builder.allocate_site(SourceOwner::Module(module.clone()), *range, SourceSiteKind::BindingDeclaration);
+        builder.index.register_target(site.clone(), SemanticTargetId::Binding(site.clone()));
+        builder.index.register_binding(SourceBindingInfo {
+            declaration_site: site,
+            scope: builder.index.root,
+            name: name.clone().into(),
+            kind: SourceBindingKind::TypeParameter,
+            declaration_range: *range,
+            has_explicit_annotation: true,
+            mutable: false,
+            redeclaration_of: None,
+        });
+    }
 
     for statement in &program.statements {
         if let Statement::Class(class) = statement {
@@ -1707,9 +1764,12 @@ impl SourceScopeBuilder<'_> {
                 }
                 phalcom_ast::ast::VariantPatternMode::Singleton | phalcom_ast::ast::VariantPatternMode::WholeFamily { .. } => {}
             },
-            Pattern::Record { entries, .. } => {
+            Pattern::Record { entries, rest, .. } => {
                 for entry in entries {
                     self.declare_pattern_with_annotation(scope, &entry.pattern, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
+                }
+                if let Some(rest) = rest {
+                    self.declare_pattern_with_annotation(scope, rest, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
             Pattern::Map { entries, .. } => {

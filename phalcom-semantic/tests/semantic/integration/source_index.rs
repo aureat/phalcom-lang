@@ -6,7 +6,7 @@ use phalcom_semantic::checker::flow::graph::FlowGraph;
 use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::explain::ExplanationArena;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, FieldId, SourceOwner, SourceSiteId, SourceSiteLocalId, SourceSiteRef};
-use phalcom_semantic::source_index::{resolve_type_member_projection_targets, resolve_type_reference_targets};
+use phalcom_semantic::source_index::{resolve_type_member_projection_targets, resolve_type_parameter_source_targets, resolve_type_reference_targets};
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::{
@@ -503,6 +503,66 @@ fn compiler_scope_index_covers_closure_and_destructure_bindings() {
         .collect::<Vec<_>>();
     assert_eq!(destructured.len(), 2);
     assert!(destructured.iter().all(|binding| binding.mutable));
+}
+
+#[test]
+fn product_expansion_parameters_and_record_remainders_have_source_targets() {
+    let source = concat!(
+        "type Envelope<**Fs: RecordFields> = Record<**Fs>\n",
+        "let { name, **rest } = source\n",
+        "rest\n",
+    );
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let mut resolver = SimpleTypeResolver::new();
+    resolver.insert("Record", DeclarationId::new(module.clone(), "Record".into()));
+
+    let targets = resolve_type_parameter_source_targets(&module, &parsed.program, &resolver);
+    let parameter_start = source.find("Fs:").expect("product parameter");
+    let parameter_range: SourceRange = (parameter_start..parameter_start + 2).into();
+    assert_eq!(targets.declarations.get(&parameter_range).map(String::as_str), Some("Fs"));
+    let parameter_use = source.rfind("Fs>").expect("product parameter use");
+    assert_eq!(targets.references.get(&(parameter_use..parameter_use + 2).into()), Some(&parameter_range));
+
+    let mut context = SourceIndexContext::default();
+    for (range, name) in &targets.declarations {
+        context.type_parameter_declarations.insert((module.clone(), *range), name.clone());
+    }
+    for (range, declaration_range) in &targets.references {
+        context.type_parameter_reference_targets.insert((module.clone(), *range), *declaration_range);
+    }
+    let mut scopes = build_source_scope_index(module, &parsed.program, &context);
+    let binder = scopes.binding_for_declaration(parameter_range).expect("indexed type binder");
+    assert_eq!(binder.kind, SourceBindingKind::TypeParameter);
+    let binder_site = binder.declaration_site.clone();
+    let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, Some(&context));
+    let reference = occurrences
+        .all()
+        .iter()
+        .find(|occurrence| occurrence.range == (parameter_use..parameter_use + 2).into())
+        .expect("indexed product-parameter reference");
+    assert_eq!(occurrences.target_for(&reference.site), Some(&SemanticTargetId::Binding(binder_site)));
+    assert!(scopes.visible_bindings_at(parameter_use).iter().all(|binding| binding.name.as_ref() != "Fs"));
+
+    let name_start = source.find("name,").expect("record field pattern");
+    let name = scopes
+        .binding_for_declaration((name_start..name_start + "name".len()).into())
+        .expect("record field binding");
+    assert_eq!(name.kind, SourceBindingKind::Destructure);
+    let rest_start = source.find("rest }").expect("record remainder pattern");
+    let rest = scopes
+        .binding_for_declaration((rest_start..rest_start + "rest".len()).into())
+        .expect("record remainder binding");
+    assert_eq!(rest.kind, SourceBindingKind::Destructure);
+    let rest_site = rest.declaration_site.clone();
+    let rest_use_start = source.rfind("rest").expect("record remainder use");
+    let use_occurrence = occurrences
+        .all()
+        .iter()
+        .find(|occurrence| occurrence.range == (rest_use_start..rest_use_start + "rest".len()).into())
+        .expect("record remainder use occurrence");
+    assert_eq!(occurrences.target_for(&use_occurrence.site), Some(&SemanticTargetId::Binding(rest_site)));
 }
 
 #[test]

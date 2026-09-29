@@ -493,4 +493,149 @@ async fn goto_definition_on_structural_type_members_uses_canonical_owner_source(
         );
         assert_eq!(location["range"]["start"]["line"].as_u64(), Some(expected_line), "{selector}: {location:#?}");
     }
+
+    let fields_line = 3;
+    let fields_character = source.lines().nth(fields_line).unwrap().rfind("Fields").unwrap();
+    request_id += 1;
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": main_uri },
+                "position": { "line": fields_line, "character": fields_character }
+            }
+        }),
+    )
+    .await;
+    let hover = read_response(&mut client_end, request_id).await;
+    let hover_text = hover["result"]["contents"]["value"].as_str().unwrap_or("");
+    assert!(
+        hover_text.contains("Fields") || hover_text.contains("Record"),
+        "structural member hover should expose canonical member information: {hover:#?}"
+    );
+
+    request_id += 1;
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": main_uri },
+                "position": { "line": fields_line, "character": fields_character },
+                "context": { "includeDeclaration": true }
+            }
+        }),
+    )
+    .await;
+    let references = read_response(&mut client_end, request_id).await;
+    let locations = references["result"].as_array().expect("reference location array");
+    assert!(
+        locations
+            .iter()
+            .any(|location| location["uri"].as_str().is_some_and(|uri| uri.contains("collections/record"))),
+        "canonical Record::Fields declaration should share the indexed target: {references:#?}"
+    );
+    assert!(
+        locations.iter().any(|location| location["uri"] == main_uri),
+        "the source projection occurrence should share the indexed target: {references:#?}"
+    );
+
+    request_id += 1;
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": main_uri },
+                "position": { "line": fields_line, "character": fields_character },
+                "newName": "FieldsRenamed"
+            }
+        }),
+    )
+    .await;
+    let rename = read_response(&mut client_end, request_id).await;
+    assert!(
+        rename["result"]["changes"][main_uri.as_str()]
+            .as_array()
+            .is_some_and(|edits| edits.iter().any(|edit| edit["newText"] == "FieldsRenamed")),
+        "rename should report the projection occurrence without applying edits: {rename:#?}"
+    );
+}
+
+#[tokio::test]
+async fn goto_definition_tracks_product_binders_and_record_remainders() {
+    let workspace = ScratchWorkspace::new("product_binder_and_record_rest_nav");
+    workspace.write("package.ph", "");
+    let source = concat!(
+        "from universe.collections.record import Record, RecordFields\n",
+        "type Envelope<**Fs: RecordFields> = Record<**Fs>\n",
+        "let { name, **rest } = source\n",
+        "rest\n",
+    );
+    let main_path = workspace.write("main.ph", source);
+
+    let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
+    let (server_read, server_write) = tokio::io::split(server_end);
+    let (service, socket) = LspService::new(Backend::new);
+    tokio::spawn(async move {
+        Server::new(server_read, server_write, socket).serve(service).await;
+    });
+
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "processId": null, "rootUri": workspace.uri(), "capabilities": {} }
+        }),
+    )
+    .await;
+    let _ = read_response(&mut client_end, 1).await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
+
+    let main_uri = Url::from_file_path(&main_path).unwrap().to_string();
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": { "uri": main_uri, "languageId": "phalcom", "version": 1, "text": source }
+            }
+        }),
+    )
+    .await;
+
+    let mut request_id = 1;
+    let binder_line = 1;
+    let binder_use = source.lines().nth(binder_line).unwrap().rfind("Fs").unwrap();
+    let binder_definition = wait_for_definition(&mut client_end, &mut request_id, &main_uri, binder_line, binder_use).await;
+    let binder_locations = binder_definition["result"].as_array().expect("binder definition locations");
+    assert_eq!(binder_locations.len(), 1, "product binder definition: {binder_definition:#?}");
+    assert_eq!(binder_locations[0]["uri"], main_uri);
+    assert_eq!(binder_locations[0]["range"]["start"]["line"], binder_line);
+    assert_eq!(
+        binder_locations[0]["range"]["start"]["character"],
+        source.lines().nth(binder_line).unwrap().find("Fs").unwrap()
+    );
+
+    let rest_line = 3;
+    let rest_use = source.lines().nth(rest_line).unwrap().find("rest").unwrap();
+    let rest_definition = wait_for_definition(&mut client_end, &mut request_id, &main_uri, rest_line, rest_use).await;
+    let rest_locations = rest_definition["result"].as_array().expect("rest definition locations");
+    assert_eq!(rest_locations.len(), 1, "Record remainder definition: {rest_definition:#?}");
+    assert_eq!(rest_locations[0]["uri"], main_uri);
+    assert_eq!(rest_locations[0]["range"]["start"]["line"], 2);
+    assert_eq!(
+        rest_locations[0]["range"]["start"]["character"],
+        source.lines().nth(2).unwrap().find("rest").unwrap()
+    );
 }

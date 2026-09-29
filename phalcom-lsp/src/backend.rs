@@ -1073,6 +1073,12 @@ impl Backend {
                         });
                     }
                 }
+                phalcom_semantic::SemanticTargetId::TypeMember(member) => {
+                    return Some(Hover {
+                        contents: markdown_contents(format!("type member: `{}::{}`", member.owner.name, member.selector.name())),
+                        range: Some(span),
+                    });
+                }
                 phalcom_semantic::SemanticTargetId::ModuleBinding(symbol) => {
                     let target = phalcom_semantic::SemanticTargetId::ModuleBinding(symbol);
                     let definitions = compiler.editor().definition_locations(&target);

@@ -58,6 +58,10 @@ async fn generic_kind_completion_uses_source_kind_names_not_runtime_values() {
         !runtime_value.iter().any(|label| label == "CompleteTypePack"),
         "kind-only name leaked into runtime completion: {runtime_value:#?}"
     );
+    assert!(
+        !runtime_value.iter().any(|label| label == "Fs" || label == "Es"),
+        "product binders leaked into runtime completion: {runtime_value:#?}"
+    );
 }
 
 #[tokio::test]

@@ -41,7 +41,7 @@ use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{
     SourceIndexContext, SourceSemanticIndex, build_source_scope_index,
-    resolve_type_member_projection_targets, resolve_type_reference_targets,
+    resolve_type_member_projection_targets, resolve_type_parameter_source_targets, resolve_type_reference_targets,
 };
 use crate::traits::{TraitHeader, TraitRef, TraitSurfaceTable, build_trait_surface};
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
@@ -8742,6 +8742,15 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         }
         for (range, member) in resolve_type_member_projection_targets(module, &source.program, type_resolver) {
             context.type_member_projection_targets.insert((module.clone(), range), member);
+        }
+        let type_parameters = resolve_type_parameter_source_targets(module, &source.program, type_resolver);
+        for (range, name) in type_parameters.declarations {
+            context.type_parameter_declarations.insert((module.clone(), range), name);
+        }
+        for (range, declaration_range) in type_parameters.references {
+            context
+                .type_parameter_reference_targets
+                .insert((module.clone(), range), declaration_range);
         }
     }
     let mut imported_target_modules = BTreeSet::new();
