@@ -40,36 +40,45 @@ next_action: >
   IMPLEMENTED / documentation-only; no Cargo tests were run. T13 is next.
   T13.1 census found and corrected the effective iterator-spec claim: generic
   Tuple iteration yields `Tuple<***Es>::Element`; only runtime-shaped
-  `rawFromList`, `rawSlice`, and TupleZip APIs remain Dynamic. G1
-  AST/parser/data/row selectors passed (28, 182, 124,
-  and 18 selected tests respectively). The semantic generics selector selected
-  59 (54 pass, 5 fail): four are inherited Priority 3 CURRENT REGRESSIONS in
-  `04-semantic-regression-classification.md`, while the Future case is the
-  recorded clean-predecessor baseline. G2 semantic declarations (85) and type
-  annotations (58) passed. The semantic `generics` selector selected 59
-  (54 pass, 5 fail): `generic_callable_return_inference_requires_exact_parameter_domain`
-  returned no inferred type instead of Int; `generic_calls_in_one_body_do_not_share_type_variables`
-  and `generic_identity_solves_parameter_from_argument_and_specializes_return`
+  `rawFromList`, `rawSlice`, and TupleZip APIs remain Dynamic. G1 AST/parser/
+  semantic data/row selectors passed: `data_syntax` 28, AST `parser` 182,
+  semantic `data` 124, and `record_row_polymorphism` 18. The semantic `generics`
+  selector selected 59 (54 pass, 5 fail). Four are inherited Priority 3
+  CURRENT REGRESSIONS recorded in
+  `04-semantic-regression-classification.md`: `generic_callable_return_inference_requires_exact_parameter_domain`
+  returned no inferred type instead of Int;
+  `generic_calls_in_one_body_do_not_share_type_variables` and
+  `generic_identity_solves_parameter_from_argument_and_specializes_return`
   published `Unknown(NoTypeEvidence)` instead of Int; and
   `generic_conflict_is_local_to_call_and_sibling_remains_established` published
-  a result for the conflicting call. The first four are inherited Priority 3
-  CURRENT REGRESSIONS recorded in
-  `04-semantic-regression-classification.md`; no P4 causal link is established.
+  a result for the conflicting call. No P4 causal link is established.
   `universe_future_preserves_payload_types_through_async_map_then_and_await`
-  failed with the ledger's clean-predecessor `IncompatibleOverride` for `new()`
-  against `Class`; retain it as BASELINE_BLOCKED. The first core `data` run selected 123 (102 pass,
-  19 ignored, 2 failed); both failures traced to post-c386 compiler handling
-  that required a generic signature for matching monomorphic conditional impls
-  with empty constraints and empty proof provenance. Both exact selectors now
-  pass 1/1: `specialized_data_impl_executes_only_for_the_applicable_receiver`
-  and `enum_case_methods_dispatch_through_nested_payloads`. At c386 both were
+  failed with the recorded clean-predecessor `IncompatibleOverride` for `new()`
+  against `Class`; retain it as BASELINE_BLOCKED. G2 semantic `declarations`
+  (85) and `type_annotations` (58) passed. The first core `data` run selected
+  123 (102 pass, 19 ignored, 2 failed); both failures traced to post-c386
+  compiler handling that required a generic signature for matching monomorphic
+  conditional impls with empty constraints and empty proof provenance. Both
+  exact selectors pass 1/1:
+  `specialized_data_impl_executes_only_for_the_applicable_receiver` and
+  `enum_case_methods_dispatch_through_nested_payloads`. At c386 both were
   blocked earlier by the predecessor's Tuple::Element Iterable conformance
   error, so that comparison does not classify the current failures as a
-  same-stage baseline. The compiler now preserves the selected/source ImplId
-  and domain checks, accepts only the empty-constraint/no-signature case, and
-  still requires a signature for nonempty constraints. The full core `data`
-  gate remains pending a complete post-fix rerun; an attempt interrupted after
-  7/123 tests completed.
+  same-stage baseline. Commit `184a3608` preserves selected/source ImplId and
+  domain checks, accepts only the empty-constraint/no-signature case, and still
+  requires a signature for nonempty constraints. The complete post-fix core
+  `data` gate passed: 123 selected, 104 passed, 19 ignored. Core `native` passed
+  32/32. G3 focused selectors passed 1/1 each: core
+  `static_labeled_sources_spread_into_record_and_collections`,
+  `record_pattern_remainder_binds_exact_unmatched_record_fields`,
+  `map_literal_expansion_preserves_values_and_rejects_duplicate_keys`,
+  `empty_tuple_and_record_keep_distinct_runtime_classes_and_equality`,
+  `tuple_iterator_preserves_specialized_element_type_through_both_protocols`,
+  and `runtime_shaped_tuple_slice_and_zip_stay_behind_dynamic_boundary`;
+  semantic `source_visible_complete_pack_lane_projections_keep_canonical_member_declarations`
+  and `record_fields_projection_preserves_exact_row_identity`. G4 has begun:
+  `cargo test -p phalcom-type-meta` passed 16/16 schema tests, and semantic
+  `integration::metadata` passed 28/28; incremental and LSP gates remain.
   T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.
