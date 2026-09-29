@@ -4,6 +4,10 @@ use crate::error::{ModuleLoadError, ModuleResolutionError};
 use crate::identity::{ModuleId, ModulePath, SourceId, universe_module_uri};
 use crate::interface::UnlinkedModuleInterface;
 use crate::source::ModuleKind;
+#[cfg(feature = "test-support")]
+use std::collections::BTreeMap;
+#[cfg(feature = "test-support")]
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug)]
 pub struct UniverseNodeSpec {
@@ -622,12 +626,39 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
 ];
 
 /// Toolchain-owned source/interface authority for the Universe package.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct UniverseSourceProvider;
+#[derive(Clone, Debug, Default)]
+pub struct UniverseSourceProvider {
+    #[cfg(feature = "test-support")]
+    test_source_overrides: Arc<BTreeMap<ModuleId, Arc<str>>>,
+}
 
 impl UniverseSourceProvider {
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a test-only provider that overrides source text for one canonical
+    /// Universe module while preserving its existing module/source identity.
+    ///
+    /// This is a fixture seam, not a production source customization API.
+    #[cfg(feature = "test-support")]
+    pub fn with_test_source_override(module: ModuleId, text: Arc<str>) -> Result<Self, ModuleLoadError> {
+        let provider = Self {
+            test_source_overrides: Arc::new(BTreeMap::from([(module.clone(), text)])),
+        };
+        provider.validate_id(&module)?;
+        Ok(provider)
+    }
+
+    pub(crate) fn has_test_source_overrides(&self) -> bool {
+        #[cfg(feature = "test-support")]
+        {
+            !self.test_source_overrides.is_empty()
+        }
+        #[cfg(not(feature = "test-support"))]
+        {
+            false
+        }
     }
 
     /// Canonical virtual identity used by diagnostics/LSP for builtin documents.
@@ -656,6 +687,11 @@ impl UniverseSourceProvider {
         let _node = self
             .node_spec(&id.path)
             .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Universe module {id} is not part of the Universe graph")))?;
+
+        #[cfg(feature = "test-support")]
+        if let Some(text) = self.test_source_overrides.get(id) {
+            return Ok(text.clone());
+        }
 
         let components = id.path.components();
         let content = match components {

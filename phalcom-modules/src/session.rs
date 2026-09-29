@@ -761,6 +761,7 @@ fn compute_connected_components(
 #[derive(Debug)]
 pub struct WorkspaceModuleSession {
     universe: ProjectUniverse,
+    universe_source: crate::UniverseSourceProvider,
     provider: OverlaySourceProvider<FilesystemSourceProvider>,
     project_roots: BTreeMap<ProjectSourceIdentity, crate::identity::ResolvedProjectId>,
     /// Maps protocol/display source tokens to compiler-owned canonical IDs.
@@ -797,10 +798,22 @@ impl Default for WorkspaceModuleSession {
 
 impl WorkspaceModuleSession {
     pub fn new() -> Self {
+        Self::build_with_universe_source_provider(crate::UniverseSourceProvider::new())
+    }
+
+    /// Creates a module session with an explicit canonical Universe source provider.
+    /// Normal production construction continues to use [`Self::new`]; source
+    /// overrides can only be constructed with the modules test-support feature.
+    pub fn with_universe_source_provider(universe_source: crate::UniverseSourceProvider) -> Self {
+        Self::build_with_universe_source_provider(universe_source)
+    }
+
+    fn build_with_universe_source_provider(universe_source: crate::UniverseSourceProvider) -> Self {
         let universe = ProjectUniverse::new();
         let topology = Arc::new(ModuleTopology::from_parts(ResolverGeneration(0), &universe, &BTreeMap::new(), &BTreeMap::new()));
         Self {
             universe,
+            universe_source,
             provider: OverlaySourceProvider::new(FilesystemSourceProvider::new()),
             project_roots: BTreeMap::new(),
             source_identity_aliases: BTreeMap::new(),
@@ -2060,7 +2073,7 @@ impl WorkspaceModuleSession {
             .map(|(id, state)| (id.clone(), state.parsed.clone()))
             .collect::<BTreeMap<_, _>>();
 
-        let mut resolver = ModuleResolver::new(universe, provider);
+        let mut resolver = ModuleResolver::with_universe_source_provider(universe, provider, self.universe_source.clone());
         let mut queue = VecDeque::from_iter(sources_by_module.iter_states().map(|(id, _)| id.clone()));
         let mut new_discovered_sources = Vec::new();
         let mut visited_modules = BTreeSet::new();

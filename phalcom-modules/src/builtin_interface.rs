@@ -82,6 +82,13 @@ pub struct BuiltinInterfaceBuilder;
 impl BuiltinInterfaceBuilder {
     /// Loads or retrieves the cached parsed unit for a builtin module identity.
     pub fn load_parsed(provider: &UniverseSourceProvider, id: &ModuleId) -> Result<Arc<ParsedModuleUnit>, ModuleLoadError> {
+        // Test providers derive all artifacts from their overridden canonical
+        // source text. The process-wide cache is keyed only by ModuleId, so it
+        // cannot represent an alternate test source coherently.
+        if provider.has_test_source_overrides() {
+            return Self::load_parsed_uncached(provider, id);
+        }
+
         let mut guard = parsed_cache().lock().unwrap();
         if let Some(cached) = guard.get(id) {
             return cached.clone();
@@ -121,6 +128,11 @@ impl BuiltinInterfaceBuilder {
 
     /// Builds or retrieves the cached unlinked interface for a builtin module identity.
     pub fn build(provider: &UniverseSourceProvider, id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
+        if provider.has_test_source_overrides() {
+            let parsed = Self::load_parsed(provider, id)?;
+            return Self::build_from_parsed(provider, &parsed);
+        }
+
         let mut guard = interface_cache().lock().unwrap();
         if let Some(cached) = guard.get(id) {
             return cached.clone();

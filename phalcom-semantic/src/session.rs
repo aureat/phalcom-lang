@@ -65,11 +65,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-fn canonical_universe_linked_program() -> Arc<LinkedProgram> {
-    let provider = phalcom_modules::UniverseSourceProvider::new();
+fn canonical_universe_linked_program(provider: &phalcom_modules::UniverseSourceProvider) -> Arc<LinkedProgram> {
     let universe = Arc::new(phalcom_modules::project::ProjectUniverse::new());
     let filesystem = phalcom_modules::FilesystemSourceProvider::new();
-    let mut module_resolver = phalcom_modules::ModuleResolver::new(&universe, &filesystem);
+    let mut module_resolver = phalcom_modules::ModuleResolver::with_universe_source_provider(&universe, &filesystem, provider.clone());
     let mut interfaces = BTreeMap::new();
 
     for node in provider.nodes() {
@@ -561,6 +560,7 @@ fn contribution_delta(
 pub struct SemanticWorkspaceSession {
     workspace: WorkspaceId,
     module_session: WorkspaceModuleSession,
+    universe_source_provider: phalcom_modules::UniverseSourceProvider,
     db: SemanticDb,
     store: Arc<TypeStore>,
     base_declarations: DeclarationTypeTable,
@@ -651,6 +651,13 @@ impl SemanticWorkspaceSession {
 
     /// Creates a new workspace session for a specific workspace ID.
     pub fn with_workspace(workspace: WorkspaceId) -> Self {
+        Self::with_universe_source_provider(workspace, phalcom_modules::UniverseSourceProvider::new())
+    }
+
+    /// Builds a semantic session with an explicit canonical Universe source provider.
+    /// Source overrides themselves are only constructible through the modules
+    /// crate's test-support feature; normal production construction uses `new`.
+    pub fn with_universe_source_provider(workspace: WorkspaceId, provider: phalcom_modules::UniverseSourceProvider) -> Self {
         let db = SemanticDb::with_workspace(workspace);
         let mut store = TypeStore::new();
 
@@ -690,7 +697,7 @@ impl SemanticWorkspaceSession {
         let mut base_dispatch = SurfaceDispatchResolver::new();
         let mut known_declarations: HashSet<DeclarationId> = base_declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(base_declarations.intrinsic_static_domain_declarations().cloned());
-        let canonical_linked = canonical_universe_linked_program();
+        let canonical_linked = canonical_universe_linked_program(&provider);
         let resolver = LinkedTypeResolver::new(canonical_linked.clone(), known_declarations, ModuleId::universe_root());
         let native_report = register_native_surfaces(&mut store, &base_declarations, &resolver, &ModuleId::universe_root(), &mut base_dispatch)
             .expect("canonical native surface must import during semantic bootstrap");
@@ -714,7 +721,6 @@ impl SemanticWorkspaceSession {
         let mut base_enum_requirements = EnumRequirementTable::new();
         let mut base_enum_requirement_products = Vec::new();
 
-        let provider = phalcom_modules::UniverseSourceProvider::new();
         let mut canonical_alias_sources = BTreeMap::new();
 
         // Canonical source enums and data are not native-meta classes. Add their
@@ -1288,7 +1294,8 @@ impl SemanticWorkspaceSession {
         let store = Arc::new(store);
         Self {
             workspace,
-            module_session: WorkspaceModuleSession::new(),
+            module_session: WorkspaceModuleSession::with_universe_source_provider(provider.clone()),
+            universe_source_provider: provider,
             db,
             store,
             base_declarations,
@@ -2025,6 +2032,14 @@ impl SemanticWorkspaceSession {
             for declaration in &generic_header_work {
                 roots.insert(QueryKey::DeclarationShell(declaration.clone()));
             }
+            // Alias source fingerprints share the declaration-signature graph,
+            // but alias changes also publish declaration-shell products that
+            // callable signatures depend on. Feed those changed alias roots
+            // through the existing query dependency graph so consumers are
+            // invalidated after the new transparent form is published.
+            for declaration in &signature_alias_work {
+                roots.insert(QueryKey::DeclarationShell(declaration.clone()));
+            }
             for declaration in &contribution_delta.declarations {
                 roots.insert(QueryKey::LinkedName(declaration.module.clone(), declaration.name.to_string()));
                 roots.insert(QueryKey::PublicExport(declaration.module.clone(), declaration.name.to_string()));
@@ -2388,10 +2403,9 @@ impl SemanticWorkspaceSession {
         // that module's source-backed alias declarations again. Keep these
         // contributions in the same alias worklist as workspace aliases.
         if !removed_modules.is_empty() {
-            let provider = phalcom_modules::UniverseSourceProvider::new();
             for module in &removed_modules {
                 alias_sources.retain(|declaration, _| &declaration.module != module);
-                let Ok(source) = provider.load_parsed(module) else {
+                let Ok(source) = self.universe_source_provider.load_parsed(module) else {
                     continue;
                 };
                 for statement in &source.program.statements {
@@ -6589,6 +6603,7 @@ impl SemanticWorkspaceSession {
         }
         let (mut source_index, presentation_sources) = build_source_semantic_index(SourceSemanticIndexInputs {
             sources: &input.sources,
+            universe_source_provider: &self.universe_source_provider,
             callable_analyses: &callable_analyses,
             import_products: &input.import_products,
             require_canonical_import_products: input.require_canonical_import_products,
@@ -8579,6 +8594,7 @@ fn semantic_target_for_linked_symbol(symbol: &SymbolId, nominal_declarations: &H
 
 struct SourceSemanticIndexInputs<'a> {
     sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    universe_source_provider: &'a phalcom_modules::UniverseSourceProvider,
     callable_analyses: &'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     require_canonical_import_products: bool,
@@ -8597,6 +8613,7 @@ struct SourceSemanticIndexInputs<'a> {
 fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
     let SourceSemanticIndexInputs {
         sources,
+        universe_source_provider,
         callable_analyses,
         import_products,
         require_canonical_import_products,
@@ -8618,7 +8635,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     // rebuild set; cloning/scanning the complete source map here would defeat
     // the persistent source-index contract.
     let mut presentation_sources = BTreeMap::new();
-    let provider = phalcom_modules::UniverseSourceProvider::new();
+    let provider = universe_source_provider;
     let presentation_modules = provider
         .nodes()
         .iter()

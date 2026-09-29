@@ -115,28 +115,24 @@ next_action: >
   nominal declarations. Semantic selector
   `unit_and_empty_record_alias_metadata_round_trip_as_structural_zero_forms`
   passed 1/1 through RuntimePublic export, validation, JSON decode, and exact
-  alias-identity checks. T12.6 is active. Four non-alias edit families had
-  focused passes before the current session-bootstrap change and must be
-  rerun against its final diff. The Unit/EmptyRecord consumer row currently
-  is unverified because the fixture's `provider -> Universe::collections.record`
-  import is rejected as `NonExportedImport`: canonical `record.ph` declares
-  `EmptyRecord` but does not export it. This is a fixture/export prerequisite,
-  not evidence that generic dependency closure drops a resolved edge. The
-  focused `t12_6_unit_empty_record_alias_consumer_edit_matches_cold_analysis`
-  selector ran 1 test and failed because cold `Zero` was absent; the snapshot
-  had no semantic diagnostics. The warm alias-presence assertion passed, but
-  its value was not compared; the cold alias-presence assertion failed, so the
-  alias differential did not complete. A link trace attributes the blocked
-  provider interface to the missing export.
-  Existing workspace overlay API cannot replace a canonical Universe source
-  (`ImportRootCollision` on the reserved `universe` root), and
-  `UniverseSourceProvider` exposes no injectable test source. The Unit runtime-
-  catalog ruling remains unchanged; no alias registry, resolver fallback,
-  linker change, or canonical export change was made. T12.6 remains active
-  pending an architect ruling on whether `EmptyRecord` is intended to be a
-  canonical public import, requiring an export change, or should be verified
-  through a test-only canonical-source injection seam. Do not resume this row
-  before that direction is recorded.
+  alias-identity checks. T12.6 is IMPLEMENTED / FOCUSED_TESTED. Its five
+  cold/incremental differential tests pass against the final diff, including
+  the Unit/EmptyRecord consumer row. The 2026-09-29 architect ruling keeps
+  production `EmptyRecord` non-exported and forbids linker/dependency changes.
+  A test-support-only source-text override at `UniverseSourceProvider` adds
+  `export EmptyRecord` only to the controlled canonical-source fixture while
+  preserving module, source, and location identities; parsed/interface
+  products derive from that same text through the ordinary pipeline. The
+  process-wide `ModuleId`-keyed builtin caches are bypassed for override
+  providers so they cannot return products from production source text. The
+  alias differential verifies the changed declaration-shell fingerprint,
+  existing forward/reverse dependency edges, signature recomputation, and
+  incremental/cold signature parity. Changed alias shells seed the existing
+  dependency invalidation graph; no P4-specific invalidation registry was
+  added. The initial failure was a fixture public-surface boundary, not a
+  dependency-graph defect. No production export, linker, or dependency-closure
+  change was made; no plan amendment is required. T12.7 is next. P4 remains
+  IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
   T6.6's supplemental family-classifier discriminators pass focused testing;
   its canonical `corpus::errors` selector remains BASELINE_BLOCKED at the
   clean-predecessor fixture error, not a PASS. Keep TypeStore::union, loop
@@ -707,6 +703,8 @@ the semantic application behavior from the runtime/native owner explicitly.
 | P1 ADT/static incremental parity | semantic `incremental::adts`, `incremental::fingerprints`, `incremental::type_store_revisions` | PASS | 13 active + 3 gated, 33, and 20 tests passed; runtime ADT and TypeOnly case-edit cold parity are green |
 | P1 runtime representation | phalcom-core `core language::algebraic_data` | PASS | 44 passed, 19 explicitly ignored/gated; native_adt_runtime is not a live Cargo test target |
 | P1 library unit-test binary | cargo test -p phalcom-semantic static_data | BASELINE_BLOCKED | pre-existing DeclarationTypeInfo test initializer omits generic_binder_header; outside the focused integration/G5 matrix |
+| P4 T12.6 incremental fingerprints | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic incremental::t12_6 -- --nocapture` | PASS | 5 selected, 5 passed after final formatting; covers pack kind/mode, product expansion, intrinsic member result kinds, Record literal edits, and Unit/EmptyRecord alias consumer parity |
+| P4 T12.6 module session integration | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --test workspace_session` | PASS | 26 passed; default provider construction remains covered without the test-support feature |
 
 Do not copy predecessor PASS status into C3 verification.
 
@@ -2040,12 +2038,15 @@ next task:
     semantics unchanged. T6.4 is now IMPLEMENTED / FOCUSED_TESTED after T9/T10:
     bare Unit type references use the exact prelude source alias rather than a
     name fallback, while structural `()` remains canonical Unit. T12.6 is
-    active but not complete: canonical Unit source-alias seeding in the
-    existing alias worklist now lets the initial Unit consumer publish. The
-    Unit-to-EmptyRecord row is UNVERIFIED: its import is rejected because the
-    canonical `EmptyRecord` alias is not exported, and the current test APIs
-    cannot provide an in-memory canonical Universe source override. No linker,
-    dependency-closure, or canonical-export change has been authorized.
+    IMPLEMENTED / FOCUSED_TESTED: all five final cold/incremental differential
+    selectors pass, including Unit -> EmptyRecord consumer recomputation via
+    the ruling-approved test-only canonical-source override. Canonical source
+    and module identities remain unchanged; no production export, linker, or
+    dependency-closure change was made. Changed aliases seed existing
+    declaration-shell dependency roots, with no P4-specific invalidation
+    registry. The 26-test `phalcom-modules --test workspace_session` suite also
+    passes. T12.7 (LSP/editor) is next. P4 remains IN_PROGRESS / PARTIAL /
+    UNVERIFIED; broad certification is open.
     P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED; broad certification is open.
 
 next action:
@@ -2172,10 +2173,16 @@ next action:
     before these cases. Direct CLI checks confirmed the diagnostics for the
     three edited fixtures; the aggregate failure is encountered, not
     baseline-certified. T12.1 and T12.2 are IMPLEMENTED / FOCUSED_TESTED;
-    T12.3–T12.5 are IMPLEMENTED / FOCUSED_TESTED. T12.4's
+    T12.3–T12.6 are IMPLEMENTED / FOCUSED_TESTED. T12.4's
     RuntimePublic `Record::Fields` source-identity export/validation selector
     and schema-v8 omitted-source compatibility selector each passed 1/1.
     T12.5's Unit/EmptyRecord alias metadata round-trip selector passed 1/1.
+    T12.6's final `incremental::t12_6` filter passed 5/5 after formatting, and
+    `phalcom-modules --test workspace_session` passed 26/26. The ruling-approved
+    test-only source override preserves production `EmptyRecord` visibility
+    while exercising ordinary import, dependency, fingerprint, and
+    cold/incremental analysis. Continue with T12.7 LSP/editor acceptance; do
+    not begin T12.8 until T12.7 is complete.
     INC-C3-18's source rewrite is
     superseded. The adopted INC-C3-19 producer correction and its focused
     acceptance evidence are recorded below. The exact predecessor exposure

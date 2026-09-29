@@ -3,11 +3,11 @@
 use super::support::single_module_input;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
-use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
-use phalcom_semantic::db::QueryKey;
-use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
-use phalcom_semantic::snapshot::SemanticSnapshot;
+use phalcom_modules::{SourceId, SourceLocation, SourceRevision, UniverseSourceProvider, WorkspaceSourceBatchMutation};
 use phalcom_semantic::SemanticWorkspaceSession;
+use phalcom_semantic::db::{QueryKey, fingerprint::callable_signature_product_fingerprint};
+use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, WorkspaceId};
+use phalcom_semantic::snapshot::SemanticSnapshot;
 use std::sync::Arc;
 
 fn module(name: &str) -> ModuleId {
@@ -30,13 +30,25 @@ fn alias_summary(snapshot: &SemanticSnapshot, declaration: &DeclarationId) -> (S
             "published alias {declaration:?}; aliases={:?}; diagnostics={:?}; sources={:?}; resolved_imports={:?}",
             snapshot.type_aliases.iter().map(|(id, _)| id).collect::<Vec<_>>(),
             diagnostic_summary(snapshot),
-            snapshot.sources.iter().map(|(module, source)| (module, source.program.statements.iter().filter_map(|statement| {
-                if let phalcom_ast::ast::Statement::TypeAlias(alias) = statement {
-                    Some((alias.name.as_str(), format!("{:?}", alias.body.expr)))
-                } else {
-                    None
-                }
-            }).collect::<Vec<_>>())).collect::<Vec<_>>(),
+            snapshot
+                .sources
+                .iter()
+                .map(|(module, source)| (
+                    module,
+                    source
+                        .program
+                        .statements
+                        .iter()
+                        .filter_map(|statement| {
+                            if let phalcom_ast::ast::Statement::TypeAlias(alias) = statement {
+                                Some((alias.name.as_str(), format!("{:?}", alias.body.expr)))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                ))
+                .collect::<Vec<_>>(),
             snapshot.module_products.resolved_imports
         )
     });
@@ -46,11 +58,7 @@ fn alias_summary(snapshot: &SemanticSnapshot, declaration: &DeclarationId) -> (S
             signature.parameter_modes, signature.parameter_kinds, signature.parameter_kind_shapes
         )
     });
-    (
-        alias.kind_shape.to_string(),
-        snapshot.store.format_type(alias.form),
-        signature,
-    )
+    (alias.kind_shape.to_string(), snapshot.store.format_type(alias.form), signature)
 }
 
 #[test]
@@ -109,11 +117,9 @@ fn data_shape_summary(snapshot: &SemanticSnapshot, owner: &DeclarationId) -> Vec
                     .map(|ty| snapshot.store.format_type(ty))
                     .unwrap_or_else(|| "<noncanonical>".into()),
             ),
-            phalcom_semantic::data_semantics::DataProductContribution::Expansion(expansion) => (
-                "expansion".into(),
-                format!("{:?}", expansion.mode),
-                format!("{:?}", expansion.operand),
-            ),
+            phalcom_semantic::data_semantics::DataProductContribution::Expansion(expansion) => {
+                ("expansion".into(), format!("{:?}", expansion.mode), format!("{:?}", expansion.operand))
+            }
         })
         .collect()
 }
@@ -265,8 +271,14 @@ class Probe {
         callable_body_summary(&updated.snapshot, source_b, &callable),
         callable_body_summary(&cold.snapshot, source_b, &callable)
     );
-    assert!(!Arc::ptr_eq(&first_analysis, updated.snapshot.callable_analyses.get(&callable).expect("updated body")));
-    assert_ne!(first_fp, incremental.db().ready_product_fingerprint(&body_key).expect("updated body fingerprint"));
+    assert!(!Arc::ptr_eq(
+        &first_analysis,
+        updated.snapshot.callable_analyses.get(&callable).expect("updated body")
+    ));
+    assert_ne!(
+        first_fp,
+        incremental.db().ready_product_fingerprint(&body_key).expect("updated body fingerprint")
+    );
     assert!(incremental.db().revision_recomputed_keys().any(|key| key == &body_key));
 }
 
@@ -304,7 +316,22 @@ export Consumer
         let parsed = phalcom_ast::parse(source, 0);
         assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     }
-    let mut incremental = SemanticWorkspaceSession::new();
+
+    // The production record module intentionally does not export EmptyRecord.
+    // This test-only source override keeps the canonical module/source identity
+    // while making that existing declaration importable in the controlled edit.
+    let record_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("collections").expect("valid component"),
+        ModuleComponent::from_identifier("record").expect("valid component"),
+    ]));
+    let base_provider = UniverseSourceProvider::new();
+    let canonical_record_source = base_provider.source_text(&record_module).expect("canonical Record source");
+    let test_record_source: Arc<str> = Arc::from(format!("{canonical_record_source}\nexport EmptyRecord\n"));
+    let test_universe_source = UniverseSourceProvider::with_test_source_override(record_module.clone(), test_record_source.clone())
+        .expect("test override keeps a valid canonical Universe module identity");
+    let new_session = || SemanticWorkspaceSession::with_universe_source_provider(WorkspaceId::from_raw(1), test_universe_source.clone());
+
+    let mut incremental = new_session();
     let first = incremental
         .apply_module_mutations([
             WorkspaceSourceBatchMutation::SetOverlay {
@@ -370,6 +397,32 @@ export Consumer
     let first_alias = first.snapshot.type_aliases.form(&alias).expect("initial source alias Zero");
     assert_eq!(first_alias, first.snapshot.store.unit(), "Unit alias resolves to canonical zero-product Tuple");
     let first_signature = first.snapshot.callable_signatures.get(&callable).expect("initial Consumer signature");
+    let first_parameter = first_signature
+        .parameters
+        .first()
+        .and_then(|parameter| parameter.declared_type.canonical_type())
+        .expect("initial Consumer parameter type");
+    assert_eq!(
+        first_parameter,
+        first.snapshot.store.unit(),
+        "Consumer parameter uses canonical Unit zero-product type"
+    );
+    let signature_key = QueryKey::CallableSignature(callable.clone());
+    let alias_shell_key = QueryKey::DeclarationShell(alias.clone());
+    let first_alias_shell_fingerprint = incremental
+        .db()
+        .ready_product_fingerprint(&alias_shell_key)
+        .expect("initial Zero declaration-shell fingerprint");
+    let first_alias_shell_revision = incremental
+        .db()
+        .query_state(&alias_shell_key)
+        .and_then(|state| state.revision())
+        .expect("initial Zero declaration-shell query revision");
+    let first_signature_revision = incremental
+        .db()
+        .query_state(&signature_key)
+        .and_then(|state| state.revision())
+        .expect("initial Consumer signature query revision");
     let first_return = first_signature.declared_return.canonical_type().expect("initial return type");
     let updated = incremental
         .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
@@ -379,7 +432,7 @@ export Consumer
             recovered_program: None,
         }])
         .expect("updated canonical-Universe consumer publication");
-    let mut cold_session = SemanticWorkspaceSession::new();
+    let mut cold_session = new_session();
     let cold = cold_session
         .apply_module_mutations([
             WorkspaceSourceBatchMutation::SetOverlay {
@@ -418,20 +471,108 @@ export Consumer
     let cold_signature = cold.snapshot.callable_signatures.get(&callable).expect("cold consumer signature");
     let updated_return = updated_signature.declared_return.canonical_type().expect("updated return type");
     let cold_return = cold_signature.declared_return.canonical_type().expect("cold return type");
+    let updated_signature_revision = incremental.db().query_state(&signature_key).and_then(|state| state.revision());
+    let signature_was_recomputed = incremental.db().revision_recomputed_keys().any(|key| key == &signature_key);
+    let signature_dependencies = incremental
+        .db()
+        .index()
+        .dependencies_of(&signature_key)
+        .map(|dependencies| dependencies.iter().map(|edge| edge.dependency.clone()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let updated_alias_shell_fingerprint = incremental.db().ready_product_fingerprint(&alias_shell_key);
+    let updated_alias_shell_revision = incremental.db().query_state(&alias_shell_key).and_then(|state| state.revision());
+    let alias_shell_dependents = incremental
+        .db()
+        .index()
+        .dependents_of(&alias_shell_key)
+        .map(|dependents| dependents.iter().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
     let mut updated_store = (*updated.snapshot.store).clone();
     let canonical_empty_record = updated_store.record(Box::new([]));
+    let canonical_empty_record_decl = DeclarationId::new(record_module.clone(), "EmptyRecord".into());
     assert_eq!(
         updated.snapshot.type_aliases.form(&alias),
         Some(canonical_empty_record),
         "EmptyRecord alias resolves to canonical zero-field Record"
     );
+    assert_eq!(
+        updated.snapshot.type_aliases.form(&canonical_empty_record_decl),
+        Some(canonical_empty_record),
+        "the imported declaration keeps the canonical EmptyRecord identity"
+    );
+    let updated_record_source = updated
+        .snapshot
+        .sources
+        .get(&record_module)
+        .expect("canonical overridden Record source is linked");
+    assert_eq!(
+        updated_record_source.source.as_ref().map(|source| source.source_id.clone()),
+        Some(base_provider.source_id(&record_module).expect("canonical Record source identity")),
+        "test source override does not change source identity"
+    );
+    assert!(updated_record_source.program.statements.iter().any(|statement| matches!(
+        statement,
+        phalcom_ast::ast::Statement::TypeAlias(alias) if alias.name.as_str() == "EmptyRecord"
+    )));
     let mut cold_store = (*cold.snapshot.store).clone();
     let cold_empty_record = cold_store.record(Box::new([]));
+    let updated_parameter = updated_signature
+        .parameters
+        .first()
+        .and_then(|parameter| parameter.declared_type.canonical_type())
+        .expect("updated Consumer parameter type");
+    let cold_parameter = cold_signature
+        .parameters
+        .first()
+        .and_then(|parameter| parameter.declared_type.canonical_type())
+        .expect("cold Consumer parameter type");
+    assert_eq!(updated_parameter, canonical_empty_record, "updated Consumer parameter is the empty Record");
+    assert_eq!(updated_return, canonical_empty_record, "updated Consumer return is the empty Record");
+    assert_eq!(cold_parameter, cold_empty_record, "cold Consumer parameter is the empty Record");
+    assert_eq!(cold_return, cold_empty_record, "cold Consumer return is the empty Record");
     assert_eq!(
-        cold.snapshot.store.format_type(cold.snapshot.type_aliases.form(&alias).expect("cold Zero alias")),
+        cold.snapshot
+            .store
+            .format_type(cold.snapshot.type_aliases.form(&alias).expect("cold Zero alias")),
         cold_store.format_type(cold_empty_record),
         "cold alias also resolves to canonical zero-field Record"
     );
-    assert_eq!(updated.snapshot.store.format_type(updated_return), cold.snapshot.store.format_type(cold_return));
-    assert_ne!(first.snapshot.store.format_type(first_return), updated.snapshot.store.format_type(updated_return));
+    assert_eq!(
+        updated.snapshot.store.format_type(updated_return),
+        cold.snapshot.store.format_type(cold_return),
+        "updated Consumer return must match cold B"
+    );
+    let updated_signature_revision = updated_signature_revision.expect("updated Consumer signature query revision");
+    let updated_alias_shell_fingerprint = updated_alias_shell_fingerprint.expect("updated Zero declaration-shell fingerprint");
+    let updated_alias_shell_revision = updated_alias_shell_revision.expect("updated Zero declaration-shell query revision");
+    assert_ne!(
+        first_alias_shell_fingerprint, updated_alias_shell_fingerprint,
+        "Zero source form must update its canonical shell"
+    );
+    assert!(
+        updated_alias_shell_revision > first_alias_shell_revision,
+        "Zero alias shell must be republished"
+    );
+    assert!(
+        signature_dependencies.contains(&alias_shell_key),
+        "Consumer signature must depend on Zero's source declaration shell"
+    );
+    assert!(
+        alias_shell_dependents.contains(&signature_key),
+        "reverse dependency must retain Consumer as a Zero-shell consumer"
+    );
+    assert_eq!(
+        callable_signature_product_fingerprint(updated_signature),
+        callable_signature_product_fingerprint(cold_signature),
+        "updated Consumer signature product must match a cold analysis"
+    );
+    assert!(
+        updated_signature_revision > first_signature_revision,
+        "Consumer signature must be recomputed for Unit -> EmptyRecord"
+    );
+    assert!(signature_was_recomputed);
+    assert_ne!(
+        first.snapshot.store.format_type(first_return),
+        updated.snapshot.store.format_type(updated_return)
+    );
 }

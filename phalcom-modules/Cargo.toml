@@ -3,6 +3,9 @@ name = "phalcom-modules"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+test-support = []
+
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
