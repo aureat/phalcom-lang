@@ -2505,7 +2505,19 @@ impl<'a> CheckingContext<'a> {
         }
 
         if assumed_candidates.len() == 1 {
-            let (conformance_key, member, surface) = assumed_candidates.remove(0);
+            let (conformance_key, mut member, surface) = assumed_candidates.remove(0);
+            if member.default_present {
+                if let Some(canonical_signature) = self
+                    .conformance_semantics
+                    .and_then(|view| view.callable_signatures)
+                    .and_then(|table| table.get(&member.callable))
+                    .filter(|signature| signature.inferred_return.is_some())
+                    .cloned()
+                {
+                    member.signature = canonical_signature;
+                    self.record_semantic_dependency(SemanticDependency::CallableSignature(member.callable.clone()));
+                }
+            }
             let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature);
             let mut type_env = crate::types::environment::TypeEnvironment::default();
             if let Some(generics) = &surface.generic_signature {

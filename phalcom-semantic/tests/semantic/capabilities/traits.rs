@@ -5,10 +5,10 @@ use phalcom_semantic::checker::body::{BodyAnalysisContext, CallableBodyRequest};
 use phalcom_semantic::checker::{CallableAnalysisStatus, analyze_callable_body};
 use phalcom_semantic::core_surface::CoreDeclarationIds;
 use phalcom_semantic::db::{CancellationToken, QueryBudget};
-use phalcom_semantic::identity::{CallableOwnerId, DispatchSide, ImplId, ImplLocalId};
+use phalcom_semantic::identity::{CallableId, CallableOwnerId, DispatchSide, ImplId, ImplLocalId};
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::parameter::TypeParameterOwner;
-use phalcom_semantic::{TraitRef, TraitRefFormationError, TraitRequirementId};
+use phalcom_semantic::{TraitRef, TraitRefFormationError, TraitRequirementId, TypeData};
 
 #[test]
 fn generic_trait_publishes_declaration_owned_header_without_nominal_type_entry() {
@@ -1871,6 +1871,7 @@ fn trait_defaults_preserve_abstract_self_and_use_canonical_argument_checking() {
   use_generic() -> Int { self.generic(1) }
   bad_argument() -> Int { self.accepts("wrong") }
 }
+
 "#,
         )
         .analyze();
@@ -1929,6 +1930,199 @@ fn trait_defaults_preserve_abstract_self_and_use_canonical_argument_checking() {
         "argument mismatch must use the canonical call diagnostic: {:?}",
         bad_analysis.diagnostics
     );
+}
+
+#[test]
+fn trait_default_inferred_self_generic_and_associated_results_specialize_at_calls() {
+    let source = r#"trait Contract {
+  type Item
+  self_value() { self }
+  generic_value<T>(_ value: T) { value }
+  item_value(_ value: Self::Item) { value }
+}
+
+class Box {}
+impl Contract for Box { type Item = String }
+
+class Caller {
+  use_self(_ value: Box) { value.self_value() }
+  use_generic(_ value: Box) { value.generic_value(1) }
+  use_item(_ value: Box, _ item: String) { value.item_value(item) }
+}
+"#;
+    let fixture = WorkspaceFixture::new().module("main", source).analyze();
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "unexpected diagnostics: {:?}",
+        fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
+    );
+
+    let trait_declaration = fixture.decl("main", "Contract");
+    let contract = fixture.analysis.snapshot.trait_surfaces.get(&trait_declaration).expect("Contract surface");
+    let member = |name: &str, slots: &[SelectorSlot]| {
+        contract
+            .get_by_selector(&Selector::method(name, slots.to_vec().into_boxed_slice()).expect("member selector"), DispatchSide::Instance)
+            .expect("trait member")
+    };
+    let self_member = member("self_value", &[]);
+    let generic_member = member("generic_value", &[SelectorSlot::Positional]);
+    let item_member = member("item_value", &[SelectorSlot::Positional]);
+
+    let self_signature = fixture.analysis.snapshot.callable_signatures.get(&self_member.callable).expect("Self signature");
+    let self_result = self_signature.inferred_return.as_ref().and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty).expect("Self result");
+    assert!(matches!(fixture.analysis.snapshot.store.get(self_result), TypeData::SelfType(term) if term.owner == trait_declaration));
+
+    let generic_signature = fixture.analysis.snapshot.callable_signatures.get(&generic_member.callable).expect("generic signature");
+    let generic_result = generic_signature
+        .inferred_return
+        .as_ref()
+        .and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty)
+        .expect("generic result");
+    let TypeData::Parameter(generic_result_parameter) = fixture.analysis.snapshot.store.get(generic_result) else {
+        panic!("expected declaration-owned method type parameter, got {:?}", fixture.analysis.snapshot.store.get(generic_result));
+    };
+    assert!(generic_signature.generics.as_ref().is_some_and(|generics| generics.parameters.contains(&generic_result_parameter)));
+
+    let item_signature = fixture.analysis.snapshot.callable_signatures.get(&item_member.callable).expect("associated signature");
+    let item_result = item_signature
+        .inferred_return
+        .as_ref()
+        .and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty)
+        .expect("associated result");
+    assert!(matches!(fixture.analysis.snapshot.store.get(item_result), TypeData::AssociatedProjection(_)));
+
+    let box_type = fixture.analysis.snapshot.declarations.form(&fixture.decl("main", "Box")).expect("Box type");
+    let string_type = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().string)
+        .expect("String type");
+    let int_type = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().int)
+        .expect("Int type");
+    for (method, expected, needle) in [
+        ("use_self", box_type, "value.self_value()"),
+        ("use_generic", int_type, "value.generic_value(1)"),
+        ("use_item", string_type, "value.item_value(item)"),
+    ] {
+        let slots = if method == "use_item" {
+            vec![SelectorSlot::Positional, SelectorSlot::Positional]
+        } else {
+            vec![SelectorSlot::Positional]
+        };
+        let callable = CallableId::new(
+            CallableOwnerId::Declaration(fixture.decl("main", "Caller")),
+            Selector::method(method, slots.into_boxed_slice()).expect("caller selector"),
+            DispatchSide::Instance,
+        );
+        let analysis = fixture.analysis.snapshot.callable_analyses.get(&callable).unwrap_or_else(|| {
+            panic!("missing caller analysis {callable:?}; available={:?}", fixture.analysis.snapshot.callable_analyses.keys())
+        });
+        let call = analysis
+            .expressions
+            .values()
+            .find(|expression| source.get(expression.range.start..expression.range.end) == Some(needle))
+            .unwrap_or_else(|| panic!("missing {needle} expression in {method}"));
+        assert_eq!(call.knowledge.ty(), Some(expected), "{method} result");
+        assert!(matches!(
+            call.trait_dispatch.as_ref(),
+            Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(_))
+        ));
+    }
+}
+
+#[test]
+fn assumed_trait_default_dispatch_consumes_canonical_inferred_result() {
+    let source = r#"trait Label {
+  label() { "label" }
+}
+
+class Caller {
+  @class
+  render<T>(_ value: T) where T |= Label { value.label() }
+}
+"#;
+    let fixture = WorkspaceFixture::new().module("main", source).analyze();
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "unexpected diagnostics: {:?}",
+        fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
+    );
+
+    let string_type = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().string)
+        .expect("String type");
+    let callable = CallableId::new(
+        CallableOwnerId::Declaration(fixture.decl("main", "Caller")),
+        Selector::method("render", [SelectorSlot::Positional]).expect("render selector"),
+        DispatchSide::Class,
+    );
+    let analysis = fixture.analysis.snapshot.callable_analyses.get(&callable).expect("render analysis");
+    let call = analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("value.label()"))
+        .expect("label call expression");
+    assert_eq!(call.knowledge.ty(), Some(string_type));
+    let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(selection)) = &call.trait_dispatch else {
+        panic!("expected assumed dispatch, got {:?}", call.trait_dispatch);
+    };
+    assert!(selection.signature.inferred_return.as_ref().is_some_and(|result| result.ty() == Some(string_type)));
+}
+
+#[test]
+fn conformance_witness_uses_canonical_inferred_trait_default_contract() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Contract {
+  value() { "text" }
+}
+
+class Box {
+  value() -> Int { 1 }
+}
+
+impl Contract for Box {}
+"#,
+        )
+        .analyze();
+    let contract = fixture.decl("main", "Contract");
+    let requirement = fixture
+        .analysis
+        .snapshot
+        .trait_surfaces
+        .get(&contract)
+        .expect("Contract surface")
+        .get_by_selector(&Selector::method("value", []).expect("value selector"), DispatchSide::Instance)
+        .expect("value requirement")
+        .requirement
+        .clone();
+    let signature = fixture.analysis.snapshot.callable_signatures.get(&requirement.source_callable()).expect("canonical default signature");
+    let string_type = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().string)
+        .expect("String type");
+    assert!(signature.inferred_return.as_ref().is_some_and(|result| result.ty() == Some(string_type)));
+
+    let plan = fixture
+        .analysis
+        .snapshot
+        .conformance_witness_plans
+        .values()
+        .find(|plan| plan.source_module == fixture.decl("main", "Box").module)
+        .expect("Box conformance plan");
+    let requirement_view = plan.requirement_views.get(&requirement).expect("instantiated requirement");
+    assert_eq!(requirement_view.signature.published_return_knowledge().ty(), Some(string_type));
 }
 
 #[test]

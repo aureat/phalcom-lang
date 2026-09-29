@@ -9,7 +9,7 @@
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Branch: `main`
 - Starting revision: `e3d2f55c677b5cc6ed43c35eafb05d6e40a58e3b`
-- Current revision: `e3d2f55c677b5cc6ed43c35eafb05d6e40a58e3b` (T3 changes are uncommitted)
+- Evidence revision: `e3d2f55c677b5cc6ed43c35eafb05d6e40a58e3b` (T3 changes were uncommitted when the discriminator ran)
 
 ## 2. Escalation trigger
 
@@ -95,7 +95,7 @@ Relevant locations:
 
 ## 8. Scoped implementation diff
 
-Uncommitted T3 work is limited to:
+At incident capture, the uncommitted T3 worktree diff was limited to:
 
 - `phalcom-semantic/src/checker/context.rs`: Assumed trait-default dispatch
   transiently reads the canonical callable signature after refresh and records
@@ -104,8 +104,10 @@ Uncommitted T3 work is limited to:
   Self/generic/associated call-site test, Assumed-dispatch test, and this
   conformance-plan discriminator.
 
-No conformance lifecycle change has been made. The unrelated user-owned staged
-and modified `docs/specs/tuple-and-record-typing.md` remains untouched.
+No conformance lifecycle change has been made. The user-owned
+`docs/specs/tuple-and-record-typing.md` content was not edited by this task.
+The incident and checkpoint record were subsequently committed in
+`e5cf4f20`.
 
 ## 9. Evidence
 
