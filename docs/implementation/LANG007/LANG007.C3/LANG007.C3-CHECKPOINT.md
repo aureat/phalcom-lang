@@ -78,14 +78,22 @@ next_action: >
   semantic `source_visible_complete_pack_lane_projections_keep_canonical_member_declarations`
   and `record_fields_projection_preserves_exact_row_identity`. G4 has begun:
   `cargo test -p phalcom-type-meta` passed 16/16 schema tests, and semantic
-  `integration::metadata` passed 28/28. The exact incremental discriminator
+  `integration::metadata` passed 28/28. The corrected exact incremental
+  discriminator
   `p3_mode_only_pack_binder_edit_invalidates_dependents_to_cold_parity` now
   passes 1/1 after correcting only the final fixture argument from scalar
   `C<*Int>` to one-item pack `C<*(Int,)>`; the initial `C<Int>` negative
   `Single(TypePack)` control and cold/incremental assertions are unchanged.
   The Priority 3 ledger now classifies this as a resolved fixture syntax
-  migration, not a production semantic regression. The full `incremental`
-  filter remains pending, as do the LSP gates.
+  migration, not a production semantic regression. The full semantic
+  `incremental` filter passed: 249 selected, 245 passed, 0 failed, 4 ignored.
+  The T12.7 LSP focused gates passed 1/1 each:
+  `module_navigation::goto_definition_on_structural_type_members_uses_canonical_owner_source`,
+  `module_navigation::goto_definition_tracks_product_binders_and_record_remainders`,
+  `semantic_completion::generic_kind_completion_uses_source_kind_names_not_runtime_values`,
+  `semantic_completion::collection_literal_value_positions_use_runtime_completion_namespace`,
+  and `semantic_tokens_current_syntax::record_map_and_set_literals_follow_their_distinct_source_syntax`.
+  G4 focused acceptance is complete; G5 source/bootstrap/corpus gates remain.
   T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.
