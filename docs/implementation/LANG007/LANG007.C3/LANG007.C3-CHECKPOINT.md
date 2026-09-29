@@ -57,7 +57,11 @@ next_action: >
   stop at the architect ruling §15 boundary. No further broad, corpus, or
   workspace rerun, and no trait-default return inference, is authorized under
   this ruling. Crossing that boundary requires new user or architect
-  authorization. T13/P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+  authorization. The user has authorized proceeding to the next scope; this is
+  recorded as a separate semantic return-contract consultation in INC-C3-21,
+  not as permission to add inference to T13 or rerun G5/G6. No implementation
+  decision is assumed pending the architect response. T13/P4/C3 remains
+  IN_PROGRESS / PARTIAL / UNVERIFIED.
   T13.1 census found and corrected the effective iterator-spec claim: generic
   Tuple iteration yields `Tuple<***Es>::Element`; only runtime-shaped
   `rawFromList`, `rawSlice`, and TupleZip APIs remain Dynamic. G1 AST/parser/
@@ -1690,6 +1694,17 @@ fixture or aggregate collection test was run for the ruling amendment. The
 adopted disposition forbids return-signature inference in T13 and replaces the
 acceptance expression with a known-receiver source gate. Priority 3 and overall
 P4/C3 verification remain unchanged.
+
+### INC-C3-21 — canonical result contract for unannotated trait defaults — 2026-09-29
+
+Status: ARCHITECTURE DECISION REQUESTED. The user authorized the next scope
+after the T13 §15 boundary. Per the ruling's explicit deferral, the next safe
+step is a separate decision packet on whether unannotated trait-default bodies
+should publish canonical inferred result contracts or require explicit return
+signatures; it is not renewed authority to implement return inference in T13.
+See [`INC-C3-21.md`](INC-C3-21.md). No source changes or tests were made. G5
+remains unpassed/uncertified, G6 incomplete, and P4/C3 remains
+IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 Use entries:
 

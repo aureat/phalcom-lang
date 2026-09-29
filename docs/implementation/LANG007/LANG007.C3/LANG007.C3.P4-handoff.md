@@ -25,7 +25,8 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
   unchanged.
 - The one authorized workspace-test retry was run after correcting three stale AST test/snapshot oracles. Its process session disappeared after `phalcom-core --lib` reported 157 run, 155 passed, 2 failed. There is no captured final Cargo exit summary or evidence about later workspace targets. Do not describe this as a workspace-wide test total.
 - The current INC-C3-20 amendment touches only its incident/checkpoint/plan/handoff records and the focused core test. The staged-and-unstaged user change `docs/specs/tuple-and-record-typing.md` is also preserved; do not edit or stage that file, `docs/.obsidian/workspace.json`, or `docs/__unstructured__/Untitled 1.md`.
-- No push was performed in this continuation.
+- The focused-matrix/checkpoint/handoff/walkthrough update was pushed to `main` at `5b629c8f5f04b275cafa7726bb3f4ce5a60e5173`; `main` matched `origin/main` at that point. The user spec edit remains `AM` and untouched.
+- The user authorized the next scope after the §15 stop. It is captured as the separate architecture decision request [INC-C3-21](INC-C3-21.md); this does not authorize T13 trait-default return inference or the prohibited G5/G6 reruns.
 
 ## Evidence and decisions
 - `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check --workspace --all-targets` — PASS, with one existing dead-code warning.
@@ -45,7 +46,7 @@ Continue LANG007.C3.P4 from the checkpoint below. The active plan remains author
 - `/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core/src/vm/send.rs::VM::validate_captured_method_shape` and `captured_setter_rejects_an_ordinary_positional_rhs_lane` — post-c386 discrepancy; no P4 path change found.
 
 ## Resume plan
-1. The §13 focused matrix is satisfied and supervisor-reviewed; stop at the architect ruling §15 boundary. INC-C3-20 is resolved as Outcome B for unannotated trait-default returns; do not add trait-default return inference. G5 collection aggregates remain unpassed/uncertified and G6 remains incomplete. No further broad, corpus, or workspace rerun is authorized under this ruling. Crossing the boundary requires new user or architect authorization.
+1. The §13 focused matrix is satisfied and supervisor-reviewed. INC-C3-20 remains Outcome B for T13: do not add trait-default return inference, and do not rerun G5/G6 under the existing ruling. The user authorized proceeding to the separate scope captured in INC-C3-21; obtain the architect decision and record an approved plan before implementation.
 2. Keep the natural iterator chain blocked and ignored; do not infer a receiver type in dispatch or edit library/fixture/VM behavior to make it pass.
 3. Preserve all user edits and keep P4/C3 `IN_PROGRESS / PARTIAL / UNVERIFIED`; G5 aggregates remain unpassed/uncertified and G6 incomplete. No T13/P4 completion claim is supported.
 
