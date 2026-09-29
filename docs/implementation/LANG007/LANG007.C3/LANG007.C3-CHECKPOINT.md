@@ -93,7 +93,21 @@ next_action: >
   `semantic_completion::generic_kind_completion_uses_source_kind_names_not_runtime_values`,
   `semantic_completion::collection_literal_value_positions_use_runtime_completion_namespace`,
   and `semantic_tokens_current_syntax::record_map_and_set_literals_follow_their_distinct_source_syntax`.
-  G4 focused acceptance is complete; G5 source/bootstrap/corpus gates remain.
+  G4 focused acceptance is complete. G5 migrated-source selectors
+  `corpus::system` and `corpus::indexing` passed 1/1 each; source census
+  `reflection_census::canonical_source_census_matches_descriptors_and_relations`
+  and Universe bootstrap measurement
+  `modules_universe::boot_01_bootstrap_measurement_separates_catalog_closure_and_execution`
+  passed 1/1 each. The required collection aggregates are not green: exact
+  `corpus::collections` fails first at unchanged
+  `boundedness_take_bounds_unbounded.ph` because `TakeIterator` lacks
+  `toList`; exact `corpus::collections_literals_negative` fails first at
+  unchanged `map_key_eq_mutates_same_map_during_overwrite_rejected.ph` with
+  `type.generic.underconstrained`, before its expected mutation diagnostic.
+  Both are D / outside P4 causality based on their unchanged pre-migration
+  fixtures, but remain encountered, not baseline-certified. Focused G5
+  migration/source evidence is recorded; do not claim a green aggregate
+  collection gate.
   T12.1 confirmed the existing metadata tag
   `RecordRow` remains stable while `RecordFields` is the source spelling. The
   schema-v9 addition remains the scoped heterogeneous row node, not a rename.
