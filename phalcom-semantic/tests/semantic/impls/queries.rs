@@ -560,6 +560,127 @@ fn ordinary_body_dispatch_consumes_trait_evidence_after_inherent_miss() {
 }
 
 #[test]
+fn trait_default_inferred_return_is_canonical_and_independent_of_caller_expectation() {
+    let module = test_module();
+    let source = r#"
+trait Tagged {
+    tag() { "default" }
+}
+class User {}
+impl Tagged for User {}
+class Ordinary {
+    tag() { "default" }
+}
+class Caller {
+    loose(_ user: User) { user.tag() }
+    broad(_ user: User) -> Object { user.tag() }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let string_type = output
+        .snapshot
+        .declarations
+        .form(&phalcom_semantic::core_surface::CoreDeclarationIds::default().string)
+        .expect("canonical String type");
+    let object_type = output
+        .snapshot
+        .declarations
+        .form(&phalcom_semantic::core_surface::CoreDeclarationIds::default().object)
+        .expect("canonical Object type");
+    let tagged = DeclarationId::new(module.clone(), "Tagged".into());
+    let default_callable = CallableId::new(
+        CallableOwnerId::Declaration(tagged),
+        Selector::method("tag", Vec::new()).expect("tag selector"),
+        DispatchSide::Instance,
+    );
+    let default_signature = output
+        .snapshot
+        .callable_signatures
+        .get(&default_callable)
+        .expect("trait default has canonical callable signature");
+    assert_eq!(default_signature.declared_return.to_knowledge().ty(), None);
+    assert_eq!(
+        default_signature.inferred_return.as_ref().and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty),
+        Some(string_type),
+        "the default's inferred body result is published by its canonical callable signature"
+    );
+    let ordinary_callable = CallableId::new(
+        CallableOwnerId::Declaration(DeclarationId::new(module.clone(), "Ordinary".into())),
+        Selector::method("tag", Vec::new()).expect("ordinary tag selector"),
+        DispatchSide::Instance,
+    );
+    let ordinary_signature = output
+        .snapshot
+        .callable_signatures
+        .get(&ordinary_callable)
+        .expect("ordinary inferred callable has canonical signature");
+    assert_eq!(
+        ordinary_signature.inferred_return.as_ref().and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty),
+        Some(string_type),
+        "ordinary body inference and trait-default body inference publish the same canonical result"
+    );
+
+    let caller = DeclarationId::new(module, "Caller".into());
+    let loose_callable = CallableId::new(
+        CallableOwnerId::Declaration(caller.clone()),
+        Selector::method("loose", vec![phalcom_common::selector::SelectorSlot::Positional]).expect("loose selector"),
+        DispatchSide::Instance,
+    );
+    let loose_analysis = output
+        .snapshot
+        .callable_analyses
+        .get(&loose_callable)
+        .expect("Caller.loose analysis");
+    assert!(
+        loose_analysis.dependencies.contains(&default_callable),
+        "caller body must depend on the selected default callable: {:?}",
+        loose_analysis.dependencies
+    );
+    let call = loose_analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("user.tag()"))
+        .expect("user.tag() expression");
+    assert_eq!(
+        call.knowledge.ty(),
+        Some(string_type),
+        "dependent body recheck consumes the inferred default result; call={call:#?}; signature={default_signature:#?}; dependencies={:?}",
+        loose_analysis.semantic_dependencies
+    );
+    let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) = call.trait_dispatch.as_ref() else {
+        panic!("expected selected trait-default dispatch, got {call:#?}");
+    };
+    assert!(matches!(
+        selection.selection,
+        phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
+    ));
+    assert_eq!(selection.signature.published_return_knowledge().ty(), Some(string_type));
+    assert!(loose_analysis.semantic_dependencies.iter().any(|dependency| {
+        dependency == &phalcom_semantic::checker::analysis::SemanticDependency::CallableSignature(default_callable.clone())
+    }));
+
+    let broad_callable = CallableId::new(
+        CallableOwnerId::Declaration(caller),
+        Selector::method("broad", vec![phalcom_common::selector::SelectorSlot::Positional]).expect("broad selector"),
+        DispatchSide::Instance,
+    );
+    let broad_signature = output
+        .snapshot
+        .callable_signatures
+        .get(&broad_callable)
+        .expect("Caller.broad signature");
+    assert_eq!(broad_signature.declared_return.to_knowledge().ty(), Some(object_type));
+    assert_eq!(
+        default_signature.inferred_return.as_ref().and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty),
+        Some(string_type),
+        "the caller's broad expected return must not seed or widen the provider default result"
+    );
+}
+
+#[test]
 fn ordinary_body_dispatch_reports_ambiguous_trait_evidence_at_expression_boundary() {
     let module = test_module();
     let source = "trait First { tag -> String { \"first\" } }\ntrait Second { tag -> String { \"second\" } }\nclass User {}\nimpl First for User {}\nimpl Second for User {}\nclass Caller { read(_ user: User) -> String { user.tag } }\n";

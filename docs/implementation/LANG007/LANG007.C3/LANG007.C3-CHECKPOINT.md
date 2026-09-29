@@ -58,14 +58,17 @@ next_action: >
   T13 stopped at the architect ruling §15 boundary: INC-C3-20 still prohibits
   adding trait-default inference to T13 and does not authorize broad G5/G6
   certification. Separately, INC-C3-21 is now adopted and P4.R1 is active.
-  T1's bounded read-only census is complete and supervisor-reviewed, with no
-  code or tests changed. Ordinary class signatures enter
-  `CallableSignatureTable` before body analysis; trait-default body analyses
-  exist but are skipped by result refresh because `get_for_body` has no table
-  entry. Their signatures live in `TraitSurfaceMember`, which refresh does not
-  update; trait-call projection currently returns the declared result. T2 may
-  proceed only through the canonical signature authority, with the surface
-  remaining a projection and no parallel result state. G5 collection
+  T1's bounded read-only census is complete and supervisor-reviewed. T2/G1 is
+  IMPLEMENTED / FOCUSED_TESTED: body-bearing trait defaults now publish and
+  refresh through the canonical `CallableSignatureTable`; trait-default call
+  consumers transiently project its result through already-selected Exact or
+  Derived evidence and record the canonical signature dependency. The
+  `TraitSurface` remains a contract projection; no parallel result state or
+  proof search was added. `trait_default_inferred_return_is_canonical_and_independent_of_caller_expectation`
+  and the existing
+  `branch_derived_tail_type_is_published_to_unannotated_callable_signature`
+  selector each passed 1/1. T3 is next for explicit, symbolic, and
+  override/conformance controls. G5 collection
   aggregates remain
   unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored.
   P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. The only added corpus gate
@@ -1713,13 +1716,16 @@ for body-bearing callables, including trait defaults, through the existing
 callable signature authority. This is scoped in companion plan
 `LANG007.C3.P4.R1`. T1 completed read-only: ordinary signatures enter
 `CallableSignatureTable` before body analysis, while trait-default signatures
-remain in `TraitSurfaceMember`; their bodies exist in `callable_analyses` but
-are skipped by `refresh_inferred_callable_results` when `get_for_body` finds
-no table entry. Trait calls project the surface member signature, whose
-`project_semantic_signature` currently uses the declared result. Supervisor
-review confirmed this as the observed publication gap; no code or tests
-changed. T2 may proceed only through the canonical signature authority, with
-no parallel inferred-result state. The ruling
+were initially omitted from that authority. T2/G1 is now IMPLEMENTED /
+FOCUSED_TESTED through the existing canonical signature table. Trait defaults
+are seeded from their source surface contract, then the normal result refresh
+publishes body summaries into that table; evidenced trait-default consumers
+transiently specialize the table result using the already-selected proof and
+record `CallableSignature` dependencies. No independently mutable
+`TraitSurfaceMember` result copy or dispatch-local proof search was added.
+`trait_default_inferred_return_is_canonical_and_independent_of_caller_expectation`
+and `branch_derived_tail_type_is_published_to_unannotated_callable_signature`
+each selected and passed 1/1. T3 is next. The ruling
 preserves explicit annotations, caller
 independence, symbolic generic/Self substitution, existing metadata/signature
 representation, and the no-general-recursive-fixpoint boundary. It requires
@@ -1727,8 +1733,7 @@ causal attribution of `Iterator.take`'s `RecursiveFixpoint` and focused natural
 chain verification after both stages are canonical. It does not amend T13 or
 certify G5/G6. See [`INC-C3-21.md`](INC-C3-21.md) and the
 [`P4.R1 plan`](LANG007.C3.P4.R1-canonical-inferred-result-contracts.md).
-No production source changes or tests have yet been made under R1. P4/C3 remains
-IN_PROGRESS / PARTIAL / UNVERIFIED.
+P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 Use entries:
 
@@ -2250,9 +2255,11 @@ latest completed plan:
     LANG007.C3.P3.R1
 
 next task:
-    The active plan is LANG007.C3.P4.R1 under adopted INC-C3-21. Its immediate
-    next task is T2: shared canonical result publication and parity controls,
-    scoped by the supervisor-reviewed T1 source census. This is separate from T13 and does not
+    The active plan is LANG007.C3.P4.R1 under adopted INC-C3-21. T2/G1 is
+    IMPLEMENTED / FOCUSED_TESTED: canonical signature publication and
+    consumer projection pass the paired trait-default/ordinary parity test
+    and the existing ordinary publication control, each 1/1. Proceed with T3:
+    explicit, symbolic, and override/conformance controls. This is separate from T13 and does not
     change T13's §15 stop, certify G5/G6, or authorize workspace/release gates.
     G5 collection aggregates remain unpassed/uncertified, G6 is incomplete, the
     natural chain is blocked/ignored, and P4/C3 remains IN_PROGRESS / PARTIAL /

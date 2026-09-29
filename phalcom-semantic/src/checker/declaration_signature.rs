@@ -895,7 +895,7 @@ pub(crate) fn project_semantic_signature(signature: &CallableSemanticSignature) 
         CallableSemanticKind::Ordinary
     };
 
-    let mut projected = CallableSignature::new(signature.selector.clone(), parameters, signature.declared_return.to_knowledge()).with_kind(kind);
+    let mut projected = CallableSignature::new(signature.selector.clone(), parameters, signature.published_return_knowledge()).with_kind(kind);
     if let Some(generics) = &signature.generics {
         projected = projected.with_generics(generics.clone());
     }

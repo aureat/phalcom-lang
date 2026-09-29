@@ -4352,6 +4352,42 @@ impl SemanticWorkspaceSession {
             field_signatures.remove_module(module);
         }
 
+        // Body-bearing trait defaults use the same canonical signature table
+        // as ordinary declaration-owned callables. Their initial contract is
+        // the already-published trait surface signature; the existing body
+        // refresh below may then publish a normal-return summary into that
+        // same table. TraitSurface remains a contract projection, not a
+        // second owner of inferred return knowledge.
+        let mut trait_default_callables = BTreeSet::new();
+        for (_, surface) in trait_surfaces.iter() {
+            for (_, member) in surface.iter() {
+                if !member.default_present {
+                    continue;
+                }
+                trait_default_callables.insert(member.callable.clone());
+                let signature = if let Some(signature) = callable_signatures.get(&member.callable).cloned() {
+                    signature
+                } else {
+                    let mut signature = member.signature.clone();
+                    if let Some(previous) = previous_callable_formal_states.get(&member.callable) {
+                        if previous.parameters == signature.parameters && previous.declared_return == signature.declared_return {
+                            signature.return_validation = previous.return_validation;
+                            signature.inferred_return = previous.inferred_return.clone();
+                        }
+                    }
+                    callable_signatures.insert(signature.clone());
+                    signature
+                };
+                match query_bootstrap_callable_signature(&mut self.db, Arc::new(signature)) {
+                    QueryOutcome::Ready(_) => {}
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
+            }
+        }
+
         for base_prod in &self.base_data_products {
             let _ = query_data_declaration(&mut self.db, base_prod.clone());
         }
@@ -5681,6 +5717,7 @@ impl SemanticWorkspaceSession {
             witness_plans: &conformance_witness_plans,
             trait_surfaces: &trait_surfaces,
             derived_conformance_rules: &derived_conformance_rules,
+            callable_signatures: None,
         };
 
         // Trait defaults are checked once against the complete abstract
@@ -6461,6 +6498,8 @@ impl SemanticWorkspaceSession {
             diagnostics: &mut diags_by_module,
             semantic_work_modules: &semantic_work_modules,
             previous_callable_signatures: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_signatures.as_ref()),
+            trait_default_callables: &trait_default_callables,
+            conformance_semantics: &conformance_semantics,
             budget,
             cancel,
         })?;
@@ -9820,6 +9859,8 @@ struct InferredCallableRefreshInputs<'a> {
     diagnostics: &'a mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
     semantic_work_modules: &'a BTreeSet<ModuleId>,
     previous_callable_signatures: Option<&'a CallableSignatureTable>,
+    trait_default_callables: &'a BTreeSet<CallableId>,
+    conformance_semantics: &'a crate::trait_dispatch::ConformanceSemanticView<'a>,
     budget: QueryBudget,
     cancel: &'a CancellationToken,
 }
@@ -9867,6 +9908,8 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         diagnostics,
         semantic_work_modules,
         previous_callable_signatures,
+        trait_default_callables,
+        conformance_semantics,
         budget,
         cancel,
     } = inputs;
@@ -9927,6 +9970,16 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
             }
 
             let new_public = signature_mut.published_return_knowledge();
+            if trait_default_callables.contains(&signature_id) {
+                let updated_signature = Arc::new(signature_mut.clone());
+                match query_bootstrap_callable_signature(db, updated_signature) {
+                    QueryOutcome::Ready(_) => {}
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
+            }
             let _ = dispatch.update_callable_return_type(&signature_id, new_public.clone());
 
             if !same_published_return_contract(&old_public, &new_public)
@@ -9941,6 +9994,14 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         }
 
         let mut recomputed_in_this_iteration = HashSet::new();
+        let refreshed_conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
+            trait_dispatch: conformance_semantics.trait_dispatch,
+            conformance_index: conformance_semantics.conformance_index,
+            witness_plans: conformance_semantics.witness_plans,
+            trait_surfaces: conformance_semantics.trait_surfaces,
+            derived_conformance_rules: conformance_semantics.derived_conformance_rules,
+            callable_signatures: Some(callable_signatures),
+        };
 
         // Recheck only bodies that consume a newly published return contract.
         // This deliberately bypasses the source-surface query cache: that
@@ -10026,7 +10087,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             declarations,
                             dispatch,
                             trait_surface: None,
-                            conformance_semantics: None,
+                            conformance_semantics: Some(&refreshed_conformance_semantics),
                             module: module_id.clone(),
                             caller_package: Some(topology.owning_package(module_id)),
                             access_topology: Some(topology),

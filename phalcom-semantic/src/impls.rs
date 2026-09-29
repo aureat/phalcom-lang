@@ -931,6 +931,26 @@ fn normalize_source_signature_in_store(
         normalize_fact(store, &mut parameter.declared_type);
     }
     normalize_fact(store, &mut signature.declared_return);
+    if let Some(inferred_return) = &mut signature.inferred_return {
+        *inferred_return = inferred_return.map_type(|ty| {
+            let mut budget = QueryBudget::default();
+            let cancel = CancellationToken::new();
+            let mut normalization_context = crate::types::ProjectionNormalizationContext::new(
+                crate::types::ProjectionNormalizationMode::SourceConformance {
+                    trait_ref,
+                    target: target_head,
+                    plan: &*plan,
+                },
+                &mut budget,
+                &cancel,
+            );
+            match crate::types::normalize_type(store, ty, &mut normalization_context) {
+                crate::types::ProjectionNormalizationResult::Normalized(normalized)
+                | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => normalized,
+                _ => ty,
+            }
+        });
+    }
     signature
 }
 
@@ -991,7 +1011,128 @@ fn normalize_exact_requirement_signature(
         normalize_fact(&mut parameter.declared_type)?;
     }
     normalize_fact(&mut signature.declared_return)?;
+    if let Some(inferred_return) = &mut signature.inferred_return {
+        let mut failure = None;
+        *inferred_return = inferred_return.map_type(|ty| {
+            let mut budget = QueryBudget::default();
+            let cancel = CancellationToken::new();
+            let mut context = crate::types::ProjectionNormalizationContext::new(
+                crate::types::ProjectionNormalizationMode::Exact {
+                    conformance_index: index,
+                    witness_plans: plans,
+                    trait_surfaces,
+                    derived_rules: None,
+                    declarations,
+                    hierarchy,
+                },
+                &mut budget,
+                &cancel,
+            )
+            .with_current_exact_evidence(target, trait_ref, associated_types);
+            match crate::types::normalize_type(store, ty, &mut context) {
+                crate::types::ProjectionNormalizationResult::Normalized(normalized)
+                | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => normalized,
+                other => {
+                    failure = Some(other);
+                    ty
+                }
+            }
+        });
+        if let Some(failure) = failure {
+            return Err(failure);
+        }
+    }
     Ok(signature)
+}
+
+/// Projects the current canonical callable result for one selected trait
+/// default through the already-produced conformance proof. This is a
+/// transient consumer view: it does not alter the trait surface, proof, or
+/// callable-signature owner, and it never asks the conformance resolver to run
+/// again.
+pub(crate) fn project_inferred_trait_default_signature(
+    store: &mut TypeStore,
+    selection: &crate::trait_dispatch::TraitDispatchSelection,
+    canonical_signature: &CallableSemanticSignature,
+    trait_surfaces: &TraitSurfaceTable,
+    conformance_index: &ConformanceIndex,
+    witness_plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    declarations: &DeclarationTypeTable,
+    hierarchy: &dyn TypeHierarchy,
+) -> Option<CallableSemanticSignature> {
+    if canonical_signature.inferred_return.is_none() {
+        return None;
+    }
+    let crate::trait_dispatch::TraitDispatchSelection {
+        requirement, evidence, ..
+    } = selection;
+    let surface = trait_surfaces.get(&requirement.owner)?;
+    let source_member = surface.get(requirement)?;
+    if !source_member.default_present || source_member.callable != canonical_signature.callable {
+        return None;
+    }
+    let mut member = source_member.clone();
+    member.signature = canonical_signature.clone();
+
+    match evidence {
+        crate::generic_evidence::GenericConformanceEvidence::Exact(exact) => {
+            let signature = member.instantiate(store, &exact.impl_environment).signature;
+            normalize_exact_requirement_signature(
+                store,
+                &exact.exact_trait_ref,
+                exact.exact_target,
+                &exact.associated_types,
+                conformance_index,
+                witness_plans,
+                trait_surfaces,
+                declarations,
+                hierarchy,
+                signature,
+            )
+            .ok()
+        }
+        crate::generic_evidence::GenericConformanceEvidence::Derived(derived) => match &derived.origin {
+            crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
+                let signature = member.instantiate(store, &exact_source.impl_environment).signature;
+                normalize_exact_requirement_signature(
+                    store,
+                    &exact_source.exact_trait_ref,
+                    exact_source.exact_target,
+                    &exact_source.associated_types,
+                    conformance_index,
+                    witness_plans,
+                    trait_surfaces,
+                    declarations,
+                    hierarchy,
+                    signature,
+                )
+                .ok()
+            }
+            crate::generic_evidence::DerivedConformanceOrigin::GuardedRule {
+                rule,
+                exact_subject,
+                exact_trait_ref,
+            } => {
+                let environment = conformance_environment(
+                    store,
+                    Some(declarations),
+                    surface,
+                    exact_trait_ref,
+                    *exact_subject,
+                    derived.impl_bindings.bindings(),
+                );
+                let signature = member.instantiate(store, &environment).signature;
+                Some(normalize_source_signature_in_store(
+                    store,
+                    exact_trait_ref,
+                    *exact_subject,
+                    &rule.associated_type_plan,
+                    signature,
+                ))
+            }
+        },
+        crate::generic_evidence::GenericConformanceEvidence::Assumed(_) => None,
+    }
 }
 
 fn projection_result_to_conformance_resolution(result: crate::types::ProjectionNormalizationResult, impl_id: ImplId) -> ConformanceResolution {

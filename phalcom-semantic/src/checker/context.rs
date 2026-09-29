@@ -2571,6 +2571,36 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
+    fn apply_inferred_trait_default_signature(
+        &mut self,
+        selection: &mut crate::trait_dispatch::TraitDispatchSelection,
+        callable: &CallableId,
+    ) {
+        if !matches!(&selection.selection, crate::impls::RequirementSelectionTemplate::TraitDefault { .. }) {
+            return;
+        }
+        let Some(view) = self.conformance_semantics else {
+            return;
+        };
+        let Some(canonical_signature) = view.callable_signatures.and_then(|table| table.get(callable)) else {
+            return;
+        };
+        let Some(projected) = crate::impls::project_inferred_trait_default_signature(
+            self.store,
+            selection,
+            canonical_signature,
+            view.trait_surfaces,
+            view.conformance_index,
+            view.witness_plans,
+            self.declarations,
+            self.hierarchy.inner(),
+        ) else {
+            return;
+        };
+        selection.signature = projected;
+        self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
+    }
+
     fn resolve_evidenced_trait_target(&mut self, receiver: TypeId, selector: &Selector, side: DispatchSide) -> Option<ResolvedDispatchResult> {
         let view = self.conformance_semantics?;
         let resolution = crate::trait_dispatch::resolve_trait_evidenced_candidates(
@@ -2588,8 +2618,9 @@ impl<'a> CheckingContext<'a> {
             side,
         );
         match resolution {
-            crate::trait_dispatch::TraitDispatchResolution::Found(selection) => {
+            crate::trait_dispatch::TraitDispatchResolution::Found(mut selection) => {
                 let callable = selection.callable.clone().unwrap_or_else(|| selection.requirement.source_callable());
+                self.apply_inferred_trait_default_signature(&mut selection, &callable);
                 let signature = crate::checker::declaration_signature::project_semantic_signature(&selection.signature);
                 self.dependencies.insert(callable.clone());
                 self.record_semantic_dependency(SemanticDependency::ConformanceDispatch(selection.source_impl.clone()));
@@ -2882,8 +2913,9 @@ impl<'a> CheckingContext<'a> {
                         side,
                     );
                     match trait_resolution {
-                        crate::trait_dispatch::TraitDispatchResolution::Found(selection) => {
+                        crate::trait_dispatch::TraitDispatchResolution::Found(mut selection) => {
                             let callable = selection.callable.clone().unwrap_or_else(|| selection.requirement.source_callable());
+                            self.apply_inferred_trait_default_signature(&mut selection, &callable);
                             let signature = crate::checker::declaration_signature::project_semantic_signature(&selection.signature);
                             self.dependencies.insert(callable.clone());
                             self.record_semantic_dependency(SemanticDependency::ConformanceDispatch(selection.source_impl.clone()));

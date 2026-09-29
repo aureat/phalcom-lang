@@ -219,6 +219,9 @@ impl TraitSurfaceMember {
             .collect::<Vec<_>>();
         signature.parameters = parameters.into_boxed_slice();
         signature.declared_return = instantiate_declared_type_fact(store, environment, &signature.declared_return);
+        if let Some(inferred_return) = &mut signature.inferred_return {
+            *inferred_return = inferred_return.map_type(|ty| TypeView::new(ty, environment.clone()).materialize(store));
+        }
         InstantiatedTraitRequirement {
             requirement: self.requirement.clone(),
             callable: self.callable.clone(),

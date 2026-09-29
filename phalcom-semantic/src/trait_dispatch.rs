@@ -79,6 +79,11 @@ pub struct ConformanceSemanticView<'a> {
     pub witness_plans: &'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
     pub trait_surfaces: &'a TraitSurfaceTable,
     pub derived_conformance_rules: &'a crate::derived_conformance::DerivedConformanceRuleIndex,
+    /// Optional view of current declaration-owned callable results. It is
+    /// supplied only after the session's callable-result refresh so dispatch
+    /// can project inferred trait-default returns without storing a second
+    /// copy in trait/conformance products.
+    pub callable_signatures: Option<&'a crate::signature::CallableSignatureTable>,
 }
 
 impl ConformanceSemanticView<'_> {
