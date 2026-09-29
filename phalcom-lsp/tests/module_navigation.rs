@@ -513,7 +513,7 @@ async fn goto_definition_on_structural_type_members_uses_canonical_owner_source(
     let hover = read_response(&mut client_end, request_id).await;
     let hover_text = hover["result"]["contents"]["value"].as_str().unwrap_or("");
     assert!(
-        hover_text.contains("Fields") || hover_text.contains("Record"),
+        hover_text.contains("Record::Fields"),
         "structural member hover should expose canonical member information: {hover:#?}"
     );
 
@@ -625,6 +625,48 @@ async fn goto_definition_tracks_product_binders_and_record_remainders() {
     assert_eq!(
         binder_locations[0]["range"]["start"]["character"],
         source.lines().nth(binder_line).unwrap().find("Fs").unwrap()
+    );
+
+    request_id += 1;
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": main_uri },
+                "position": { "line": binder_line, "character": binder_use },
+                "context": { "includeDeclaration": true }
+            }
+        }),
+    )
+    .await;
+    let binder_references = read_response(&mut client_end, request_id).await;
+    let binder_reference_locations = binder_references["result"].as_array().expect("binder references");
+    assert_eq!(binder_reference_locations.len(), 2, "product binder references: {binder_references:#?}");
+    assert!(binder_reference_locations.iter().all(|location| location["uri"] == main_uri));
+
+    request_id += 1;
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": main_uri },
+                "position": { "line": binder_line, "character": binder_use },
+                "newName": "Fields"
+            }
+        }),
+    )
+    .await;
+    let binder_rename = read_response(&mut client_end, request_id).await;
+    assert_eq!(
+        binder_rename["result"]["changes"][main_uri.as_str()].as_array().map(Vec::len),
+        Some(2),
+        "type-level binder rename should cover declaration and use without applying edits: {binder_rename:#?}"
     );
 
     let rest_line = 3;

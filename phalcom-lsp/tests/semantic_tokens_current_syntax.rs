@@ -31,6 +31,39 @@ async fn current_syntax_uses_readable_semantic_token_expectations() {
 }
 
 #[tokio::test]
+async fn record_map_and_set_literals_follow_their_distinct_source_syntax() {
+    let source = concat!(
+        "let Map = 5\n",
+        "let mapAlias = Map\n",
+        "let recordValue = { recordField: 1 }\n",
+        "let mapValue = Map { mapField: 2 }\n",
+        "let setValue = #{3, 4}\n",
+        "let wrappedMap = identity(Map { nestedMapField: 6 })\n",
+    );
+    let uri = "file:///test_record_map_set_syntax.ph";
+
+    let mut lsp = TestLsp::start().await;
+    let init = lsp.initialize(None).await;
+    lsp.open(uri, source).await;
+    let response = lsp.semantic_tokens_full(uri).await;
+    let decoded = decode(source, &init, &response);
+
+    assert_pair(&decoded, "Map", "class");
+    assert_pair(&decoded, "Map", "variable");
+    assert_eq!(decoded.iter().filter(|(text, kind)| text == "Map" && kind == "class").count(), 2);
+    assert_eq!(decoded.iter().filter(|(text, kind)| text == "Map" && kind == "variable").count(), 2);
+    assert_pair(&decoded, "#{", "selector");
+    assert_pair(&decoded, "recordField", "property");
+    assert_pair(&decoded, "mapField", "selector");
+    assert_pair(&decoded, "mapAlias", "variable");
+    assert_pair(&decoded, "nestedMapField", "selector");
+    assert_pair(&decoded, "3", "number");
+    assert_pair(&decoded, "4", "number");
+
+    lsp.finish().await;
+}
+
+#[tokio::test]
 async fn membership_operators_semantic_tokens() {
     let src = "let a = 1 in [1, 2]\nlet b = 3 not in [1, 2]\nlet c = 1 is in (Number, String)\nlet d = 1 is! in (Number, String)\nlet e = 1 is not in (String, Bool)\nlet f = 1 is! not in (String, Bool)\n";
     let uri = "file:///test_membership.ph";

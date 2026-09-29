@@ -65,6 +65,20 @@ async fn generic_kind_completion_uses_source_kind_names_not_runtime_values() {
 }
 
 #[tokio::test]
+async fn collection_literal_value_positions_use_runtime_completion_namespace() {
+    for marker in ["record_value", "map_value", "set_value"] {
+        let labels = complete_fixture("semantic/collection_syntax_completion.ph", marker).await;
+        assert!(labels.iter().any(|label| label == "runtimeValue"), "{marker}: {labels:#?}");
+        assert!(
+            !labels
+                .iter()
+                .any(|label| label == "RecordFields" || label == "CompleteTypePack" || label == "RecordRow"),
+            "type-domain completion leaked into {marker}: {labels:#?}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn inherited_members_are_visible() {
     let labels = complete_fixture("semantic/inheritance.ph", "completion").await;
 

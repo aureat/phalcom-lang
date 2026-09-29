@@ -8,8 +8,8 @@
 //! grammar it will eventually demote (DEC-VSP-C, not yet flipped): exact
 //! string/comment boundaries and no false-positive keyword matches inside
 //! string literals, because it is driven by the real lexer rather than
-//! regexes. A second, AST-assisted pass (below) closes the definition-vs-
-//! reference gap for declaration names specifically.
+//! regexes. A second, AST-assisted pass (below) refines names whose role is
+//! established by syntax, including declaration names and collection heads.
 //!
 //! Comments (including Phaldoc `///`/`//!`) are invisible to this token
 //! source — `Lexer::skip_trivia` discards them before they ever reach the
@@ -18,32 +18,23 @@
 //!
 //! ## AST-assisted refinement
 //!
-//! On top of the flat lexer pass, [`tokens_for_request`] runs a second,
-//! best-effort
+//! On top of the flat lexer pass, [`tokens_for_request`] runs a best-effort
 //! pass: it parses the same text (via [`phalcom_ast::parser::parse`], which
 //! recovers from syntax errors rather than aborting) and walks the resulting
-//! [`phalcom_ast::ast::Program`] to find every
-//! `class`/method/getter/setter/constructor **declaration name**'s own span
-//! ([`ClassDef::name_range`](phalcom_ast::ast::ClassDef::name_range) and its
-//! siblings on [`MethodDef`](phalcom_ast::ast::MethodDef)/
-//! [`GetterDef`](phalcom_ast::ast::GetterDef)/
-//! [`SetterDef`](phalcom_ast::ast::SetterDef)). Constructor declarations are
-//! [`MethodDef`](phalcom_ast::ast::MethodDef) nodes marked during attribute
-//! expansion. Any flat-pass token
-//! whose byte range exactly matches one of these declaration spans is
-//! upgraded from the generic [`SemanticTokenKind::Variable`] to
-//! [`SemanticTokenKind::Class`] or [`SemanticTokenKind::Method`].
+//! [`phalcom_ast::ast::Program`]. It refines class/method/getter/setter/
+//! constructor declaration names from parser-owned spans, explicit Map
+//! literal heads and bare keys, bare Record labels, and the combined `#{`
+//! Set opener. Constructor declarations are [`MethodDef`](phalcom_ast::ast::MethodDef)
+//! nodes marked during attribute expansion. Expression traversal follows
+//! nested children, so collection syntax receives the same roles at a
+//! statement root or inside a call, operator, or control-flow expression.
 //!
-//! This targeted upgrade — keying off the AST's own name-only span rather
-//! than re-scanning the whole declaration's source text for the first
-//! identifier matching the declared name — is deliberate: a name can appear
-//! earlier in a declaration incidentally (e.g. inside a default-value
-//! expression), so a text-search heuristic cannot reliably tell a
-//! declaration's own name token from an unrelated occurrence. Keying off the
-//! parser-recorded span is exact by construction. If parsing produces no
-//! usable [`Program`] at all (e.g. the document is empty), the flat pass's
-//! plain-`variable` coloring is left untouched — this refinement only ever
-//! upgrades, never downgrades or removes, a flat-pass token.
+//! This targeted refinement keys off AST-owned source ranges instead of
+//! searching token text. A name may occur incidentally elsewhere in a
+//! declaration, and a spelling such as `Map` may have different roles in a
+//! Map head and an ordinary variable reference. If parsing produces no usable
+//! [`Program`] (e.g. the document is empty), the flat pass's coloring remains
+//! untouched; refinements apply only to exact AST-owned spans.
 
 use phalcom_ast::ast::{BehaviorMember, ClassMember, Expr, Statement};
 use phalcom_ast::lexer::Lexer;
@@ -97,19 +88,16 @@ enum SemanticTokenKind {
     String,
     /// A [`Token::Number`] literal.
     Number,
-    /// A selector/symbol prefix (`Token::Hash`) or quoted symbol, emitted as
-    /// a selector token. The parser owns selector-spec components following
-    /// the hash and gives them their own source ranges.
+    /// A selector/symbol prefix (`Token::Hash`), quoted symbol, Map bare key,
+    /// or Set opener (`#{`). The parser owns selector-spec components
+    /// following a hash and gives them their own source ranges.
     Selector,
     /// A binary/unary/compound-assignment operator (`+`, `==`, `+=`, `??`,
     /// …). Structural punctuation (parens, braces, brackets, comma, dot,
     /// colon, arrows) is deliberately left uncolored — see the module's
     /// recorded judgment call.
     Operator,
-    /// A `class` declaration's own name (the AST-assisted refinement pass's
-    /// upgrade of the flat pass's [`Variable`](Self::Variable) at
-    /// [`ClassDef::name_range`](phalcom_ast::ast::ClassDef::name_range) —
-    /// see the module doc's "AST-assisted refinement" section).
+    /// A `class` declaration's own name or an explicit Map literal head.
     Class,
     /// A method/getter/setter/constructor declaration's own name (the
     /// AST-assisted refinement pass's upgrade of the flat pass's
@@ -250,12 +238,16 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Caret
         | Token::Tilde => Some(Operator),
 
+        // `#{` is a single lexer token. Keep the complete AST-visible Set
+        // opener highlighted as a selector-like collection marker rather
+        // than pretending the lexer emitted a standalone `#` span.
+        Token::SetLBrace => Some(Selector),
+
         // Structural punctuation, left uncolored (judgment call — see
         // `docs/forge/DEFERRED.md`).
         Token::LParen
         | Token::RParen
         | Token::LBrace
-        | Token::SetLBrace
         | Token::RBrace
         | Token::LBracket
         | Token::RBracket
@@ -576,11 +568,11 @@ fn apply_compiler_occurrence_overrides(source: &phalcom_semantic::source_index::
 /// AST-assisted refinement pass described in the module doc.
 ///
 /// Parses `text` via [`phalcom_ast::parser::parse`] (which recovers from
-/// syntax errors rather than aborting) purely to collect declaration-name
-/// spans; the flat lexer pass in `raw` is left as-is for every span this
-/// walk does not find. `raw` must already be in the ascending source order
-/// [`collect_tokens`] produces; synthetic index-bracket tokens are appended
-/// and the final sequence is resorted by source range.
+/// syntax errors rather than aborting) to collect declaration-name and
+/// collection-syntax spans; the flat lexer pass in `raw` is left as-is for
+/// every span this walk does not find. `raw` must already be in the ascending
+/// source order [`collect_tokens`] produces; synthetic index-bracket tokens
+/// are appended and the final sequence is resorted by source range.
 fn apply_decl_name_overrides_program(program: &phalcom_ast::ast::Program, raw: &mut Vec<RawToken>) {
     let mut decls = Vec::new();
     collect_decl_names(&program.statements, &mut decls);
@@ -624,14 +616,12 @@ struct DeclNameOverride {
     is_index: bool,
 }
 
-/// Recursively collects every `class`/method/getter/setter/constructor
-/// declaration's own name span (and [`SemanticTokenKind`] override) reachable
-/// from `statements`, appending to `out`.
+/// Recursively collects declaration-name and collection-syntax token
+/// overrides reachable from `statements`, appending them to `out`.
 ///
-/// Descends into class bodies, `for` loop bodies, and block-expression
-/// bodies — the only [`Statement`]/[`Expr`] shapes that can themselves carry
-/// a nested declaration. Every other statement/expression shape is a leaf for
-/// this walk's purposes and is skipped.
+/// Expression traversal follows child expressions so collection literals
+/// receive the same syntax roles whether they appear at statement roots or
+/// nested under calls, operators, and control-flow expressions.
 fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>) {
     for statement in statements {
         match statement {
@@ -679,13 +669,19 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>)
                 }
             }
             Statement::For(for_stmt) => collect_decl_names(&for_stmt.body, out),
+            Statement::Let(binding) => {
+                if let Some(value) = &binding.value {
+                    collect_decl_names_in_expr(value, out);
+                }
+            }
+            Statement::Return(return_stmt) => {
+                if let Some(value) = &return_stmt.value {
+                    collect_decl_names_in_expr(value, out);
+                }
+            }
+            Statement::Throw { expr, .. } => collect_decl_names_in_expr(expr, out),
             Statement::Expr { expr, .. } => collect_decl_names_in_expr(expr, out),
-            Statement::Let(_)
-            | Statement::Return(_)
-            | Statement::Break { .. }
-            | Statement::Continue { .. }
-            | Statement::Throw { .. }
-            | Statement::Export(_) => {}
+            Statement::Break { .. } | Statement::Continue { .. } | Statement::Export(_) => {}
         }
     }
 }
@@ -793,12 +789,213 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
     }
 }
 
-/// Descends into an [`Expr::Block`]'s body — the only expression shape that
-/// can itself carry a nested statement list (and therefore a nested
-/// declaration) — for [`collect_decl_names`]'s `Statement::Expr` arm. Every
-/// other [`Expr`] variant carries no nested statement list and is skipped.
+/// Adds syntax-role refinements from collection AST nodes and descends into
+/// nested collection values or block bodies. This deliberately uses parser
+/// ranges rather than token-text searches: a `MapLiteral` owns its explicit
+/// head, a Record owns its field labels, and a Set owns the combined `#{`
+/// opener.
 fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<DeclNameOverride>) {
-    if let Expr::Block(block_expr) = expr {
-        collect_decl_names(&block_expr.body, out);
+    match expr {
+        Expr::Block(block_expr) => collect_decl_names(&block_expr.body, out),
+        Expr::Assignment(assignment) => {
+            collect_decl_names_in_expr(&assignment.name, out);
+            collect_decl_names_in_expr(&assignment.value, out);
+        }
+        Expr::Range(range) => {
+            if let Some(lower) = &range.lower {
+                collect_decl_names_in_expr(lower, out);
+            }
+            if let Some(upper) = &range.upper {
+                collect_decl_names_in_expr(upper, out);
+            }
+        }
+        Expr::Unary(unary) => collect_decl_names_in_expr(&unary.expr, out),
+        Expr::Binary(binary) => {
+            collect_decl_names_in_expr(&binary.left, out);
+            collect_decl_names_in_expr(&binary.right, out);
+        }
+        Expr::ComparisonChain(chain) => {
+            for operand in &chain.operands {
+                collect_decl_names_in_expr(operand, out);
+            }
+        }
+        Expr::IfLet(if_let) => {
+            collect_decl_names_in_expr(&if_let.value, out);
+            collect_decl_names(&if_let.then_body.body, out);
+            if let Some(else_body) = &if_let.else_body {
+                collect_decl_names(&else_body.body, out);
+            }
+        }
+        Expr::WhileLet(while_let) => {
+            collect_decl_names_in_expr(&while_let.value, out);
+            collect_decl_names(&while_let.body, out);
+        }
+        Expr::If(if_expr) => {
+            collect_decl_names_in_expr(&if_expr.condition, out);
+            collect_decl_names(&if_expr.then_body.body, out);
+            if let Some(else_body) = &if_expr.else_body {
+                match else_body {
+                    phalcom_ast::ast::IfElseBody::Block(block) => collect_decl_names(&block.body, out),
+                    phalcom_ast::ast::IfElseBody::ElseIf(expr) => collect_decl_names_in_expr(expr, out),
+                }
+            }
+        }
+        Expr::UnqualifiedCall(call) => collect_pack_item_overrides(&call.args, out),
+        Expr::MethodCall(call) => {
+            collect_decl_names_in_expr(&call.object, out);
+            collect_pack_item_overrides(&call.args, out);
+        }
+        Expr::GetProperty(property) => collect_decl_names_in_expr(&property.object, out),
+        Expr::SetProperty(property) => {
+            collect_decl_names_in_expr(&property.object, out);
+            collect_decl_names_in_expr(&property.value, out);
+        }
+        Expr::Index(index) => {
+            collect_decl_names_in_expr(&index.object, out);
+            collect_pack_item_overrides(&index.args, out);
+        }
+        Expr::SetIndex(index) => {
+            collect_decl_names_in_expr(&index.object, out);
+            collect_pack_item_overrides(&index.args, out);
+            collect_decl_names_in_expr(&index.value, out);
+        }
+        Expr::AssociatedLookup(lookup) => collect_decl_names_in_expr(&lookup.receiver, out),
+        Expr::AssociatedInvoke(invoke) => {
+            collect_decl_names_in_expr(&invoke.receiver, out);
+            collect_pack_item_overrides(&invoke.args, out);
+        }
+        Expr::CallableReference(reference) => match &reference.target {
+            phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. }
+            | phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, .. }
+            | phalcom_ast::ast::CallableReferenceTarget::PrimaryDataConstructor { receiver, .. } => collect_decl_names_in_expr(receiver, out),
+        },
+        Expr::RecordConstruction(construction) => {
+            for entry in &construction.entries {
+                collect_decl_names_in_expr(&entry.value, out);
+            }
+        }
+        Expr::MapLiteral(map) => {
+            out.push(DeclNameOverride {
+                range: map.head.root_range,
+                kind: SemanticTokenKind::Class,
+                is_index: false,
+            });
+            for entry in &map.entries {
+                match entry {
+                    phalcom_ast::ast::MapLiteralEntry::Association { key, value, .. } => {
+                        match key {
+                            phalcom_ast::ast::MapLiteralKey::BareSymbol { range, .. } => out.push(DeclNameOverride {
+                                range: *range,
+                                kind: SemanticTokenKind::Selector,
+                                is_index: false,
+                            }),
+                            phalcom_ast::ast::MapLiteralKey::Computed { expr, .. } => collect_decl_names_in_expr(expr, out),
+                        }
+                        collect_decl_names_in_expr(value, out);
+                    }
+                    phalcom_ast::ast::MapLiteralEntry::Expansion { expr, .. } => collect_decl_names_in_expr(expr, out),
+                }
+            }
+        }
+        Expr::RecordLiteral(record) => {
+            for entry in &record.entries {
+                match entry {
+                    phalcom_ast::ast::RecordLiteralEntry::Field(field) => {
+                        if let phalcom_ast::ast::ProductLabel::Static {
+                            symbol: phalcom_ast::ast::SymbolLiteralKind::Name(name),
+                            syntax: phalcom_ast::ast::ProductLabelSyntax::Bare,
+                            range,
+                        } = &field.label
+                        {
+                            out.push(DeclNameOverride {
+                                range: (range.start..range.start + name.len()).into(),
+                                kind: SemanticTokenKind::Property,
+                                is_index: false,
+                            });
+                        } else if let phalcom_ast::ast::ProductLabel::Computed { expr, .. } = &field.label {
+                            collect_decl_names_in_expr(expr, out);
+                        }
+                        collect_decl_names_in_expr(&field.value, out);
+                    }
+                    phalcom_ast::ast::RecordLiteralEntry::Expansion { expr, .. } => collect_decl_names_in_expr(expr, out),
+                }
+            }
+        }
+        Expr::SetLiteral(set) => {
+            out.push(DeclNameOverride {
+                range: (set.range.start..set.range.start + 2).into(),
+                kind: SemanticTokenKind::Selector,
+                is_index: false,
+            });
+            for entry in &set.entries {
+                match entry {
+                    phalcom_ast::ast::SetLiteralEntry::Element { expr, .. } | phalcom_ast::ast::SetLiteralEntry::Expansion { expr, .. } => {
+                        collect_decl_names_in_expr(expr, out)
+                    }
+                }
+            }
+        }
+        Expr::TupleLiteral(tuple) => {
+            for entry in &tuple.entries {
+                match entry {
+                    phalcom_ast::ast::TupleLiteralEntry::Positional { expr, .. } | phalcom_ast::ast::TupleLiteralEntry::Expand { expr, .. } => {
+                        collect_decl_names_in_expr(expr, out)
+                    }
+                    phalcom_ast::ast::TupleLiteralEntry::Labeled { label, value, .. } => {
+                        if let phalcom_ast::ast::ProductLabel::Computed { expr, .. } = label {
+                            collect_decl_names_in_expr(expr, out);
+                        }
+                        collect_decl_names_in_expr(value, out);
+                    }
+                }
+            }
+        }
+        Expr::ListLiteral(list) => {
+            for element in &list.elements {
+                match element {
+                    phalcom_ast::ast::ListLiteralElement::Element { expr, .. } | phalcom_ast::ast::ListLiteralElement::Expansion { expr, .. } => {
+                        collect_decl_names_in_expr(expr, out)
+                    }
+                }
+            }
+        }
+        Expr::Membership(membership) => {
+            collect_decl_names_in_expr(&membership.left, out);
+            collect_decl_names_in_expr(&membership.right, out);
+        }
+        Expr::IsMembership(membership) => {
+            collect_decl_names_in_expr(&membership.left, out);
+            collect_decl_names_in_expr(&membership.candidates, out);
+        }
+        Expr::Match(match_expr) => {
+            collect_decl_names_in_expr(&match_expr.value, out);
+            for arm in &match_expr.arms {
+                match &arm.branch {
+                    phalcom_ast::ast::MatchArmBody::Expression(expr) => collect_decl_names_in_expr(expr, out),
+                    phalcom_ast::ast::MatchArmBody::Block(block) => collect_decl_names(&block.body, out),
+                }
+            }
+        }
+        Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::String { .. }
+        | Expr::Boolean { .. }
+        | Expr::Var { .. }
+        | Expr::Field { .. }
+        | Expr::SelfVar { .. }
+        | Expr::SuperVar { .. }
+        | Expr::Ellipsis { .. }
+        | Expr::Symbol(_)
+        | Expr::TypeForm(_) => {}
+    }
+}
+
+fn collect_pack_item_overrides(items: &[phalcom_ast::ast::PackItem], out: &mut Vec<DeclNameOverride>) {
+    for item in items {
+        match item {
+            phalcom_ast::ast::PackItem::Positional { expr, .. }
+            | phalcom_ast::ast::PackItem::Labeled { value: expr, .. }
+            | phalcom_ast::ast::PackItem::Expand { expr, .. } => collect_decl_names_in_expr(expr, out),
+        }
     }
 }
