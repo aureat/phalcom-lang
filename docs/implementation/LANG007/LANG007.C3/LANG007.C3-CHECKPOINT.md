@@ -88,15 +88,20 @@ next_action: >
   `rawFromList`, `rawSlice`, and TupleZip APIs remain Dynamic. G1 AST/parser/
   semantic data/row selectors passed: `data_syntax` 28, AST `parser` 182,
   semantic `data` 124, and `record_row_polymorphism` 18. The semantic `generics`
-  selector selected 59 (54 pass, 5 fail). Four are inherited Priority 3
-  CURRENT REGRESSIONS recorded in
-  `04-semantic-regression-classification.md`: `generic_callable_return_inference_requires_exact_parameter_domain`
-  returned no inferred type instead of Int;
-  `generic_calls_in_one_body_do_not_share_type_variables` and
-  `generic_identity_solves_parameter_from_argument_and_specializes_return`
-  published `Unknown(NoTypeEvidence)` instead of Int; and
-  `generic_conflict_is_local_to_call_and_sibling_remains_established` published
-  a result for the conflicting call. No P4 causal link is established.
+  selector previously selected 59 (54 pass, 5 fail); that aggregate predates
+  the current fixture corrections and has not been rerun. The four generic
+  cases are now classified as fixture interference with the established
+  mutable-binding opaque-call policy, not production generic inference
+  regressions. Their exact selectors each pass 1/1 after changing result
+  bindings to `const`: `generic_callable_return_inference_requires_exact_parameter_domain`,
+  `generic_calls_in_one_body_do_not_share_type_variables`,
+  `generic_identity_solves_parameter_from_argument_and_specializes_return`,
+  and `generic_conflict_is_local_to_call_and_sibling_remains_established`.
+  Direct call-expression inference remains asserted; immutable bindings keep
+  the tests from observing current-value invalidation/restoration after later
+  opaque calls. The detailed historical evidence and classification are in
+  `04-semantic-regression-classification.md`. No generic inference or flow
+  production behavior changed.
   `universe_future_preserves_payload_types_through_async_map_then_and_await`
   failed with the recorded clean-predecessor `IncompatibleOverride` for `new()`
   against `Class`; retain it as BASELINE_BLOCKED. G2 semantic `declarations`

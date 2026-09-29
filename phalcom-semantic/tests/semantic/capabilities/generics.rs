@@ -16,8 +16,8 @@ class Probe {
 
   @class
   run() {
-    let x = Probe.identity(42)
-    let y = Probe.identity("hello")
+    const x = Probe.identity(42)
+    const y = Probe.identity("hello")
   }
 }
 "#,
@@ -257,9 +257,9 @@ class Probe {
 
   @class
   run() {
-    let number = Probe.identity(1)
-    let text = Probe.identity("text")
-    let copied = Probe.identity(number)
+    const number = Probe.identity(1)
+    const text = Probe.identity("text")
+    const copied = Probe.identity(number)
   }
 }
 "#,
@@ -311,8 +311,8 @@ class Probe {
 
   @class
   run() {
-    let bad: Int = Probe.identity("wrong")
-    let good = Probe.identity(7)
+    const bad: Int = Probe.identity("wrong")
+    const good = Probe.identity(7)
   }
 }
 "#,
@@ -574,8 +574,8 @@ class CallableProbe {
 
   @class
   run() {
-    let a = CallableProbe.spawnZero(|| { 42 })
-    let b = CallableProbe.spawnUnary(|x| { "res:" + x.toString }, 10)
+    const a = CallableProbe.spawnZero(|| { 42 })
+    const b = CallableProbe.spawnUnary(|x| { "res:" + x.toString }, 10)
   }
 }
 "#,
