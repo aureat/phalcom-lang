@@ -51,5 +51,6 @@ Tuple<***TypePack(***: Int)>
   == (***: Int)
 
 Tuple<***TypePack(Int, ...)>
-	== Tuple<***: Int>
+	== Tuple<Int, ...>
+	== (Int, ...)
 ```
