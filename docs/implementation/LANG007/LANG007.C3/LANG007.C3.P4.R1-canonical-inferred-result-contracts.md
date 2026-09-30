@@ -150,7 +150,7 @@ Expand this map only when a traced dependency proves another owner is involved.
 | CV-06 | Cross-module metadata roundtrip reuses existing signature representation. |
 | CV-07 | Cold/incremental agreement for changed and same-result bodies and a dependent consumer. |
 | CV-08 | Direct/mutual cycle controls establish explicit-seed policy and deterministic diagnostic using only direct normal-return root-call `CallableId` edges. |
-| CV-09 | `Iterator.take` `RecursiveFixpoint` causally attributed; natural chain reaches typed receivers and canonical Derived evidence. |
+| CV-09 | `Iterator.take` `RecursiveFixpoint` causally attributed; the natural Range chain has canonical known results and ordinary member selections; a separate eligible Iterator receiver proves GuardedRule Derived `Iterable::toList` evidence. |
 
 ## 6. Tasks and gates
 
@@ -312,12 +312,58 @@ CONSULT.
 
 ### T6 — Restore the natural chain
 
-Only after T2–T5 produce canonical contracts for both relevant stages, restore
-the blocked `(0..).iter.take(10).toList` discriminator. Verify typed receiver
-products and existing canonical Derived evidence; do not special-case library
-names or fabricate dispatch evidence.
+**Adopted amendment — INC-C3-26:** split the natural-chain result-publication
+proof from the GuardedRule Derived-dispatch proof. Preserve inherent-before-
+default precedence and do not change the Range library surface.
 
-**G5:** exact restored-chain selector passes. No corpus/workspace run.
+#### T6-A — Canonical Range callable results and natural chain
+
+First add direct semantic selectors for the ordinary body-bearing
+`RangeIterator::take` and `RangeIterator::toList` methods, independently of the
+whole chain.
+
+- For `RangeIterator::take`, inspect the selected `TakeIterator.new(self, n)`
+  call, its generic specialization, expression knowledge/status, normal-return
+  product, and canonical `CallableSignatureTable` result. An untyped `n` alone
+  must not block an otherwise determined result under CV-09's general rule.
+- For `RangeIterator::toList`, inspect the `result` terminal binding, its
+  normal-return product, and canonical callable result. Under current source,
+  the expected result is the canonical equivalent of `List<Dynamic>`; do not
+  infer a narrower element type or add an annotation to hide an inference gap.
+- Repair a demonstrated gap only through the existing canonical body-result,
+  generic-call, and publication machinery. Do not add a `RangeIterator`,
+  `take`, or `toList` special case.
+
+Then restore and trace the exact natural source:
+
+```phalcom
+(0..).iter.take(10).toList
+```
+
+Assert `(0..).iter` is Known `RangeIterator` with its Exact `Range` →
+`Iterable::iter` evidence; `.take(10)` selects the compatible inherent
+`RangeIterator::take` and has a canonical Known result; all intermediate
+receivers are Known; and the terminal `.toList` selection is whatever ordinary
+inherent-before-default resolution dictates for the actual post-`take`
+receiver. In particular, determine the type of that receiver before deciding
+whether the terminal call is inherent or eligible for `Iterable::toList`'s
+GuardedRule Derived evidence. Compare final chain results with cold analysis.
+
+#### T6-B — Independent GuardedRule Derived dispatch proof
+
+Keep one focused proof that a Known Iterator receiver without a compatible
+inherent `toList` selects the canonical `Iterable::toList` default through
+Derived `GuardedRule` evidence. Reuse the existing known-`ListIterator`
+discriminator if it already establishes exact selection identity, nested
+Exact Iterator evidence, dependency edges, and lowering behavior; add only
+missing coverage and do not duplicate established evidence.
+
+**G5:** the direct `RangeIterator::take` result probe passes; the direct
+`RangeIterator::toList` result probe passes or is shown irrelevant to the
+corrected natural receiver path; the exact natural-chain selector proves
+Known intermediate/result products and ordinary dispatch selection; the
+independent Derived-evidence control remains verified. No library surface
+change, fabricated evidence, or corpus/workspace run.
 
 ### T7 — Normative rule and bounded closure
 

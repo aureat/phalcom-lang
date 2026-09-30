@@ -154,7 +154,7 @@ let result = next.isSome and iterated == 2
 }
 
 #[test]
-#[ignore = "BLOCKED by INC-C3-20: Iterable.iter's published call result remains Unknown(UnannotatedDeclaration), so the natural chain never reaches guarded toList applicability"]
+#[ignore = "BLOCKED: canonical Universe diagnostics fail the precondition; the Known post-take receiver's Iterator conformance is incomplete (iterator_laws impl 20), so terminal Derived toList evidence is unavailable. See INC-C3-27 and the C3 checkpoint."]
 fn unbounded_take_to_list_keeps_guarded_iterable_dispatch_evidence() {
     let source = r#"
 class Caller {

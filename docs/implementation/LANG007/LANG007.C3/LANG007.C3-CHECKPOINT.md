@@ -101,9 +101,36 @@ next_action: >
   the prior gate stops before fixture execution at 20
   `ImplConformanceIncomplete` plus 3 `type.generic.underconstrained` Universe
   bootstrap diagnostics (INC-C3-23 §6/§9); this is not a CV-08 lifecycle
-  failure. No corpus aggregate was run. T5/G4 is focused-tested; T6 is not
-  started. G5 collection aggregates remain unpassed/uncertified, G6 incomplete,
-  and the natural chain blocked/ignored. P4/C3 remains IN_PROGRESS / PARTIAL /
+  failure. No corpus aggregate was run. T5/G4 is focused-tested. Under the
+  adopted INC-C3-26 Option 1 ruling, T6/G5 resumes with separate proofs:
+  canonical results for the natural Range chain and a separate eligible
+  receiver's GuardedRule Derived `Iterable::toList` proof. Commit `c138c4c3`
+  adds the missing `TakeIterator` import and a shared non-generic-call
+  correction that skips assignability only for an untyped
+  `Unknown(NoTypeEvidence)` formal; the direct `RangeIterator::take`
+  body/signature and natural `.iter`/`.take` selectors pass 1/1 with Exact
+  `Range -> Iterable::iter`, an
+  inherent `RangeIterator::take`, and Known `TakeIterator<RangeIterator>`.
+  The direct `RangeIterator::toList` probe attributes its Unknown result to
+  `List<Dynamic>.new()` resolving as `Dynamic(ExplicitEscape)` before a Known
+  applied List type exists; its binding, append, normal return, and inferred
+  signature therefore remain Unknown/absent. A temporary nested-generic
+  discriminator confirms Dynamic propagation for a dependent `Box<T>` result
+  (1/1); both diagnostic probes were removed. Whether `List<Dynamic>` should
+  retain a Known outer type is not decided by the current type-form contract;
+  INC-C3-27 requests an architect ruling before any production change. The
+  corrected natural chain's post-`take` receiver is
+  `TakeIterator<RangeIterator>`; final `.toList` has no selected callable or
+  trait-dispatch site because its `Iterator` conformance is incomplete at the
+  already-recorded `iterator_laws` impl 20. The two current T6-B selectors each
+  select 1 test and stop at the global semantic-error precondition on recorded
+  Universe `ImplConformanceIncomplete` diagnostics; their focused evidence and
+  lowering assertions are not reached. This is a blocker, not a pass, and no
+  conformance or precondition was changed. No aggregate or workspace gate was
+  run. The immediate next action is the INC-C3-27 architect disposition; make
+  no production change on the nested-Dynamic question before that ruling. P4
+  G5 collection aggregates remain unpassed/
+  uncertified and G6 incomplete. P4/C3 remains IN_PROGRESS / PARTIAL /
   UNVERIFIED. The only added corpus gate is the direct `corpus::collections`
   selector after R1's chain gate passes. Priority 3 remains unchanged.
   T13.1 census found and corrected the effective iterator-spec claim: generic
@@ -503,7 +530,7 @@ C3 is complete only when this statement is true:
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1-T10 accepted; generic-owner payload behavior fixed; all required C3 coverage has direct evidence or a clean-predecessor baseline disposition; see P3 walkthrough/handoff |
 | `LANG007.C3.P3.R1` | Corrective closure: explicit intrinsic semantic application and runtime/native owner projections | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | user-adopted projections implemented and focused gates passed; see P3.R1 handoff |
 | `LANG007.C3.P4` | Intrinsic structural data, structural kinds, product-shape expansion, and Tuple/Record semantic completion | IN_PROGRESS | PARTIAL | UNVERIFIED | active plan |
-| `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | IN_PROGRESS | PARTIAL | UNVERIFIED | T1–T5/G4 focused work recorded; T6 remains unopened; does not certify T13/G5/G6 |
+| `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | IN_PROGRESS | PARTIAL | UNVERIFIED | T1–T5/G4 focused work recorded; T6-A `.take` is focused-tested, while `List<Dynamic>`/`RangeIterator::toList` awaits INC-C3-27; natural terminal dispatch and T6-B are blocked before their acceptance assertions; does not certify T13 or P4 G5/G6 |
 
 P3.R1 was a bounded corrective closure required by the explicit ruling supplied
 after P3 closure. P4 completes the intrinsic structural-data model and structural literal convergence.
@@ -1894,10 +1921,87 @@ invalid-`n` runtime behavior remains BASELINE_BLOCKED / unverified: the prior
 20 `ImplConformanceIncomplete` and 3 `type.generic.underconstrained` Universe
 bootstrap diagnostics (INC-C3-23 §6/§9). No corpus aggregate/workspace suite
 was run. This blocker does not invalidate the focused lifecycle acceptance.
-T6 remains unopened, G5/G6 are not certified, and P4/C3 remains
+At T5 closeout T6 was unopened; its first natural-chain attribution exposed
+the oracle conflict resolved by adopted INC-C3-26. T6 has resumed under the
+amended split-proof acceptance. R1 G5 and P4 G5/G6 are not certified, and P4/C3 remains
 IN_PROGRESS / PARTIAL / UNVERIFIED; Priority 3 is unchanged.
 
 See [`INC-C3-25.md`](INC-C3-25.md).
+
+INC-C3-26
+Plan/task: LANG007.C3.P4.R1 / T6-G5 — natural Range iterator chain.
+Trigger: the required Derived-evidence oracle conflicts with accepted
+  inherent-before-trait-default dispatch precedence.
+Observed: `(0..).iter` is Known/Assumed with Exact Range→Iterable::iter
+  evidence, but `.take(10)` selects inherent RangeIterator::take and is
+  Unknown/Blocked; `.toList` selects the inherent RangeIterator declaration,
+  is Unknown/Ready, and has no trait-dispatch site. The source defines both
+  inherent methods; the accepted rule makes them precede the default.
+Decision: ADOPTED — preserve inherent-before-default precedence, keep the
+  Range API unchanged, split T6 into natural-chain result products plus an
+  independent eligible-receiver GuardedRule Derived proof, and treat the
+  concrete RangeIterator result gaps as in-scope R1 investigations. Determine
+  final `.toList` dispatch only after the post-`take` receiver is Known.
+Architecture impact: unchanged dispatch and callable-signature authority; no
+  fabricated evidence, library special case, explicit annotation workaround,
+  or `Dynamic` fallback.
+Plan amendment: T6/CV-09/G5 amended in
+  `LANG007.C3.P4.R1-canonical-inferred-result-contracts.md`.
+Verification required: direct `RangeIterator::take` body/canonical result;
+  direct `RangeIterator::toList` body/canonical result or proof it is irrelevant
+  to the corrected chain; natural chain cold result parity and ordinary final
+  dispatch; existing eligible `ListIterator` Derived evidence plus lowering.
+Current evidence: the direct `take` probe found that `range.ph` omitted its
+existing exported `TakeIterator` import. Adding that import makes the
+constructor call specialized and publishes matching Known
+`TakeIterator<RangeIterator>` normal-return and canonical signature results.
+  The focused direct probe and natural `.iter`/`.take` selector each pass 1/1;
+  `.take(10)` is Ready and Known `TakeIterator<RangeIterator>` after the shared
+  CV-09-aligned untyped-formal correction. The direct `RangeIterator::toList`
+  probe shows that `List<Dynamic>.new()` resolves to
+  `Dynamic(ExplicitEscape)`, so the local binding, terminal, normal return,
+  and canonical inferred result remain Unknown/absent. A temporary dependent
+  `Box<T>` generic-result control confirms the same Dynamic propagation and was
+  removed after a 1/1 pass. The meaning of a nested Dynamic type argument is
+  unresolved; see pending INC-C3-27. After `.take`, the receiver is
+  `TakeIterator<RangeIterator>` and terminal `.toList` has no callable/evidence
+  because `iterator_laws` impl 20 is incomplete. Both the known-ListIterator
+  Derived selector and the existing Exact/Derived lowering selector currently
+  stop before their assertions at the recorded global Universe diagnostics;
+  neither run is current T6-B acceptance evidence. No conformance, dispatch,
+  or precondition changes were made.
+Status: ADOPTED; T6 implementation resumed; G5 remains incomplete.
+
+See [`INC-C3-26.md`](INC-C3-26.md).
+
+INC-C3-27
+Plan/task: LANG007.C3.P4.R1 / T6-A-G5 — explicit Dynamic in nested generic type forms.
+Trigger: current `List<Dynamic>` type-form resolution erases the outer applied
+  type into a Dynamic escape, conflicting with the R1 probe's expected
+  canonical `List<Dynamic>` result; representation/semantic authority is
+  unclear.
+Observed: `RangeIterator::toList` body result is Dynamic at
+  `List<Dynamic>.new()`, then binding/normal-return Unknown and no inferred
+  signature. A temporary nested-generic dependent-result fixture also returned
+  Dynamic 1/1. Natural `.iter`/`.take` is Known, but the post-take
+  `TakeIterator<RangeIterator>` terminal selection is blocked by existing
+  incomplete `iterator_laws` impl 20. T6-B selectors stop before their
+  assertions on recorded Universe diagnostics.
+Decision: PENDING architect ruling; no production change authorized.
+Architecture impact: unresolved whether Dynamic as a generic type argument
+  preserves a Known outer applied type or makes the whole type form a Dynamic
+  boundary. Do not invent a Dynamic TypeId, weaken the boundary, or special-case
+  RangeIterator.
+Plan amendment: none pending the ruling; preserve the T6-A/T6-B split adopted
+  in INC-C3-26.
+Verification required: architect resolution of nested Dynamic type-form
+  semantics and R1 `toList` acceptance; after that, resume only the authorized
+  shared repair or record the result as outside this publication defect. Keep
+  the existing conformance blocker separate.
+Status: PENDING; R1/G5 remains incomplete and P4/C3 remains
+  IN_PROGRESS / PARTIAL / UNVERIFIED.
+
+See [`INC-C3-27.md`](INC-C3-27.md).
 
 Use entries:
 
@@ -2444,13 +2548,24 @@ next task:
     unverified because the prior gate stops before fixture execution with 20
     `ImplConformanceIncomplete` and 3 `type.generic.underconstrained` Universe
     bootstrap diagnostics; it does not block T5/G4 lifecycle acceptance. T5/G4
-    is FOCUSED_TESTED and T6 is not started. This is
-    separate from T13 and does not
+    is FOCUSED_TESTED. T6/G5 resumes under adopted INC-C3-26. The direct
+    `RangeIterator::take` and natural `.iter`/`.take` selectors pass 1/1 with
+    Known `TakeIterator<RangeIterator>` results after commit `c138c4c3`.
+    `RangeIterator::toList` instead reaches `List<Dynamic>.new()` as an explicit
+    Dynamic escape; the result binding, normal return, and canonical inferred
+    result are Unknown/absent. The unresolved nested-Dynamic type-form contract
+    is recorded in INC-C3-27; do not modify production pending that ruling.
+    The corrected post-take receiver is `TakeIterator<RangeIterator>`, whose
+    terminal `.toList` has no selected callable because existing
+    `iterator_laws` Iterator impl 20 is incomplete. Current T6-B Derived and
+    lowering selectors stop before their assertions on recorded Universe
+    diagnostics, so they are not acceptance evidence. This is separate from
+    T13 and does not
     change T13's §15 stop, certify G5/G6,
     or authorize workspace/release gates.
     G5 collection aggregates remain unpassed/uncertified, G6 is incomplete, the
-    natural chain is blocked/ignored, and P4/C3 remains IN_PROGRESS / PARTIAL /
-    UNVERIFIED. Priority 3 is unchanged.
+    natural-chain verification is active under the amended T6 contract, and
+    P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. Priority 3 is unchanged.
     T7.9–T7.11 and T8.1–T8.10 are IMPLEMENTED / FOCUSED_TESTED. T8.5 preserves
     Record/open-row and labeled-Tuple Record spreads, rejects Map-to-Record for
     both bindings and literals with the same semantic diagnostic, retains
