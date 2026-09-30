@@ -121,6 +121,38 @@ class Probe {
     assert!(loop_call.knowledge.is_unknown() || loop_call.knowledge.is_dynamic());
 }
 
+#[test]
+fn explicit_recursive_publication_uses_declared_result() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  loop() -> Int {
+    Probe.loop()
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let callable_id = f.callable_id("Probe", "loop", DispatchSide::Class);
+    let signature = f
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&callable_id)
+        .expect("explicit recursive callable signature");
+    assert_eq!(signature.declared_return.canonical_type(), Some(int_ty));
+    assert_eq!(signature.published_return_knowledge().ty(), Some(int_ty));
+
+    let call = f.expression(f.callable("Probe", "loop", DispatchSide::Class), "Probe.loop()");
+    assert_eq!(
+        call.knowledge.ty(),
+        Some(int_ty),
+        "recursive call uses the declared result: {call:#?}"
+    );
+    f.assert_no_error_diagnostics();
+}
+
 /// COMPOSED: closure construction publishes a value without executing nested return control flow.
 #[test]
 fn closure_capture_and_non_local_return_keep_outer_summary_separate() {

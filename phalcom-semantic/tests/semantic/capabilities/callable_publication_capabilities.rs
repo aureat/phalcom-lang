@@ -129,3 +129,43 @@ class Probe {
         "recursive call must remain epistemically incomplete: {f_call:#?}"
     );
 }
+
+#[test]
+fn explicit_mutual_recursive_publication_uses_declared_results() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  f() -> Int { g() }
+
+  @class
+  g() -> Int { f() }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let f_id = f.callable_id("Probe", "f", DispatchSide::Class);
+    let g_id = f.callable_id("Probe", "g", DispatchSide::Class);
+    for callable_id in [&f_id, &g_id] {
+        let signature = f
+            .analysis
+            .snapshot
+            .callable_signatures
+            .get(callable_id)
+            .expect("explicit mutual-recursion signature");
+        assert_eq!(signature.declared_return.canonical_type(), Some(int_ty));
+        assert_eq!(signature.published_return_knowledge().ty(), Some(int_ty));
+    }
+
+    let f_body = f.callable("Probe", "f", DispatchSide::Class);
+    let g_body = f.callable("Probe", "g", DispatchSide::Class);
+    for (caller, source) in [(f_body, "g()"), (g_body, "f()")] {
+        let call = f.expression(caller, source);
+        assert_eq!(
+            call.knowledge.ty(),
+            Some(int_ty),
+            "mutual recursive call `{source}`: {call:#?}"
+        );
+    }
+    f.assert_no_error_diagnostics();
+}
