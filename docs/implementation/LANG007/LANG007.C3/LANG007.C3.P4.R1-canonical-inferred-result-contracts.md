@@ -257,7 +257,7 @@ acceptance.
 ### T5 — Recursion and `Iterator.take` attribution
 
 Test direct/mutual omitted-result cycles without seeds and with sufficient
-explicit contracts. Unseeded semantic cycles must use a deterministic existing
+explicit contracts. Unseeded semantic cycles must use a deterministic
 diagnostic; seeded cycles use declared canonical results. Trace
 `Iterator.take` from Universe body through result dependency construction and
 scheduling, distinguishing semantic recursion from staged-analysis cycle. If
@@ -265,9 +265,25 @@ artificial, correct the dependency owner and preserve acyclic/no-fixpoint
 policy. Do not force an annotation, alter flow/loop logic, or change
 `TypeStore::union`.
 
+**Ruling amendment (INC-C3-23, 2026-09-30):** If no existing diagnostic
+precisely represents an unseeded callable-result cycle, add one owned by
+callable-result inference/publication validation. Emit one deterministic
+diagnostic per unresolved result SCC while leaving results unknown. SCC
+detection is classification-only: no recursive result fixpoint, caller seed,
+or per-call-site errors. For a selected untyped formal, analyze without an
+expected type, preserve the argument's own status, and do not manufacture a
+`RecursiveFixpoint`; keep genuine blockers and unresolved required generics
+fail-closed. Preserve `Iterator.take` runtime validation and do not annotate
+its source declarations. INC-C3-24 records the unresolved live-data question:
+how to derive sound result-specific SCC edges without using aggregate body
+dependencies.
+
 **G4:** CV-08 and `Iterator.take` causal attribution recorded with minimal
-selector and before/after cause. No corpus aggregate. New recursion/fixpoint
-architecture is STOP AND CONSULT.
+selector and before/after cause. Verify untyped-formal generic application and
+genuine-blocker controls, canonical `Iterator.take` Known/Ready body and normal
+publication, and unchanged invalid-argument runtime behavior (or record the
+precise pre-fixture baseline blocker). No corpus aggregate. New
+recursion/fixpoint architecture is STOP AND CONSULT.
 
 ### T6 — Restore the natural chain
 

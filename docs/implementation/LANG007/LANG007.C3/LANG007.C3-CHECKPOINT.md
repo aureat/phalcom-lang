@@ -1816,17 +1816,34 @@ See [`INC-C3-22.md`](INC-C3-22.md).
 
 ### INC-C3-23 — T5 cycle diagnostics and `Iterator.take` generic-argument block — 2026-09-30
 
-Status: OPEN — architect ruling required. The direct and mutual unseeded
-callable cycles publish `Unknown(UnannotatedDeclaration)` with `Ready` status
-and no diagnostics, despite the plan's deterministic-diagnostic requirement.
-Explicitly seeded direct and mutual cycles publish canonical `Int` results and
-their focused tests pass. A separate canonical-Universe probe shows
-`Iterator.take`'s `TakeIterator.new(self, n)` specializes its known result, but
-generic call analysis blocks because the constructor's `n` parameter is
-untyped; this produces an unknown normal-return summary. No semantic cycle,
-production fix, source annotation, or inference-policy change has been
-established. See [`INC-C3-23.md`](INC-C3-23.md) for evidence and the two
-decisions requested. T5/G4 remains partial and T6 is not started.
+Status: ARCHITECT RULING ADOPTED; implementation remains partial. Unseeded
+callable result SCCs must receive one deterministic diagnostic while results
+remain unknown and no fixpoint is added. Explicitly seeded direct and mutual
+cycles publish canonical `Int` results and their focused tests pass. The
+CV-09 ruling removes the artificial blocker from generic applications with
+untyped formals, preserving genuine argument blockers and existing fail-closed
+publication. Commit `f10f3d49` is IMPLEMENTED / FOCUSED_TESTED: both new
+generic-call semantic selectors and the canonical-Universe
+`Iterator.take` publication selector passed 1/1. The latter verifies
+`TakeIterator.new(self, n)` is Known/Ready and matches the inferred signature.
+The invalid-`n` runtime selector is blocked before fixture execution by the
+known Universe iterator-selector conflict (20 `ImplConformanceIncomplete`, 3
+`type.generic.underconstrained`); runtime behavior remains unverified. CV-08
+result-edge ownership is under INC-C3-24; T5/G4 remains partial and T6 is not
+started. See
+[`INC-C3-23.md`](INC-C3-23.md) and [`INC-C3-24.md`](INC-C3-24.md).
+
+### INC-C3-24 — T5 result-dependency edge ownership — 2026-09-30
+
+The architect's INC-C3-23 ruling authorizes deterministic diagnostics for
+unseeded recursive result SCCs. Live products do not currently link each
+normal-return value to a selected callable: `CallableAnalysis.dependencies` is
+an aggregate body dependency set, while `NormalReturnFact` has no
+`ExpressionId`. Using the aggregate call graph could diagnose recursion that
+does not contribute to the result. CV-08 source edits are paused pending a
+narrow decision on whether to extend per-return provenance and what expression
+forms the authorized result-dependency edge covers. CV-09 proceeds independently.
+See [`INC-C3-24.md`](INC-C3-24.md).
 
 Use entries:
 
@@ -2357,9 +2374,16 @@ next task:
     `semantic::incremental::callable_dependencies::inferred_return_refresh_preserves_stable_products_and_counts_final_disposition_once`,
     `semantic::incremental::product_stability::inferred_cross_module_result_updates_dependents_and_matches_cold_analysis`,
     and `semantic::integration::metadata::cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metadata`.
-    T5/CV-08 explicit-seed tests pass, but unseeded diagnostic behavior and
-    `Iterator.take` generic-argument blocking are under INC-C3-23. T5/G4 is
-    partial and T6 is not started. This is separate from T13 and does not
+    T5/CV-08 explicit-seed tests pass. The INC-C3-23 ruling is adopted. CV-09
+    is IMPLEMENTED / FOCUSED_TESTED at `f10f3d49`: the untyped-formal Known/Ready
+    and genuine-blocker controls, plus canonical Iterator.take publication,
+    passed 1/1 each. Invalid-n runtime behavior is unverified because the
+    existing gate stops before fixture execution with 20
+    `ImplConformanceIncomplete` and 3 `type.generic.underconstrained`
+    diagnostics. CV-08 diagnostics are
+    paused under INC-C3-24 because current body dependencies are not
+    result-specific. T5/G4 remains partial and T6 is not started. This is
+    separate from T13 and does not
     change T13's §15 stop, certify G5/G6,
     or authorize workspace/release gates.
     G5 collection aggregates remain unpassed/uncertified, G6 is incomplete, the

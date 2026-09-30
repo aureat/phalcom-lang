@@ -9,7 +9,15 @@
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Branch: `main`
 - Starting revision: `33b66a7b72772724ad7fdfb225db1031a1306936`
-- Current revision: `b40c8e773bd1793fb1dbf4fca5871fef079c3f1e`
+- Current implementation revision: `f10f3d4909492cac5c93411709572b7674e364a8`
+
+## Disposition
+
+Status: **RULING ADOPTED; IMPLEMENTATION IN PROGRESS**. The architect answered
+both original questions. CV-09 implementation proceeds at generic-call
+application. CV-08's required diagnostic is authorized, but sound edge
+ownership is pending the focused follow-up in [`INC-C3-24.md`](INC-C3-24.md).
+No general result fixpoint or publication relaxation is authorized.
 
 ## 2. Escalation trigger
 
@@ -209,7 +217,7 @@ status handling have materially different consequences, especially because
 can be made as a local mechanical fix without changing accepted behavior or
 weakening an evidence boundary.
 
-## 14. Decision requested
+## 14. Original decision request (answered)
 
 1. For CV-08, is the intended rule that an unseeded direct/mutual callable
    cycle emits a deterministic diagnostic, or is the current stable
@@ -224,6 +232,84 @@ weakening an evidence boundary.
    policy that preserves argument-checking and runtime semantics without
    introducing a recursive fixpoint.
 
-Until these decisions are recorded, T5/G4 remains partial, no production
-changes are authorized on this seam, and T6/natural-chain acceptance remains
-not started.
+The following architect ruling answers both questions and supersedes this
+pending-decision state. T5/G4 remains partial until implementation and focused
+acceptance are complete; T6/natural-chain acceptance remains not started.
+
+## 15. Architect ruling — adopted 2026-09-30
+
+The ruling authorizes one deterministic diagnostic per unresolved unseeded
+result-dependency SCC, owned by callable-result inference/publication
+validation. Results remain unknown; no type is fabricated and no new recursive
+fixpoint is added. Explicit declared result contracts remain authoritative
+seeds.
+
+For CV-09, an untyped selected formal supplies no constraint and does not by
+itself block the generic application. Analyze the argument without an expected
+type, preserve its own knowledge/status, propagate genuine blockers, and leave
+the result unresolved if an essential generic variable remains unsolved.
+Correct the call-application status owner rather than weakening the
+fail-closed `NormalReturnFact::publication_knowledge` policy. Do not annotate
+`Iterator.take` or `TakeIterator.new`; preserve runtime argument validation.
+
+Acceptance controls remain: direct and mutual unseeded cycles diagnose
+deterministically while retaining unknown results; explicit-seed cycles stay
+canonical and diagnostic-free; no recursive result fixpoint is introduced; an
+independently determined generic result with an untyped formal is Known/Ready;
+a genuine argument blocker still propagates; canonical `Iterator.take` becomes
+Known/Ready and publishes its specialized result normally; invalid `take(n)`
+runtime behavior and fail-closed publication remain unchanged. No corpus
+aggregate is required.
+
+The ruling excludes corpus aggregates, source annotation of `Iterator.take` or
+`TakeIterator.new`, flow/loop changes, `TypeStore::union` changes, and
+publication-policy weakening. CV-08 implementation details are tracked
+separately under INC-C3-24 because the live body products do not identify
+result-relevant call edges.
+
+## 16. CV-09 implementation evidence — 2026-09-30
+
+Commit `f10f3d4909492cac5c93411709572b7674e364a8`
+(`fix(semantic): preserve arguments for untyped generic formals`) removes the
+artificial `RecursiveFixpoint` at the missing-formal branch in generic-call
+application. It leaves the argument unconstrained by that formal and uses the
+existing capture helper to preserve actual argument status. It changes no
+runtime code or Universe source signatures.
+
+Focused selectors, each selected/passed 1/1:
+
+```sh
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic semantic::capabilities::generics::generic_result_stays_ready_when_an_untyped_formal_adds_no_constraint -- --exact --nocapture
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic semantic::capabilities::generics::generic_call_preserves_a_genuine_blocker_in_an_untyped_formal_argument -- --exact --nocapture
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core language::iteration::iterator_take_publishes_known_constructor_result_with_untyped_count_formal -- --exact --nocapture
+```
+
+The canonical `Iterator.take` body selector proves `TakeIterator.new(self, n)`
+is Known/Ready with a specialized `TakeIterator<I>` result, and the ordinary
+inferred signature publishes the same result. The existing invalid-count
+runtime gate is blocked before fixture execution:
+
+```sh
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::iterator_negative -- --exact --nocapture
+```
+
+It selects one corpus test but stops at
+`iterator/negative/iterator_skip_non_integer_raises.ph` before runtime, with 20
+`error[impl.conformance.incomplete]` and 3
+`error[type.generic.underconstrained]` diagnostics. Direct invocations also
+fail before fixture execution with the same bootstrap diagnostic classes:
+
+```sh
+set -o pipefail; RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' ./target/debug/phalcom phalcom-core/tests/fixtures/language/iterator/negative/iterator_skip_non_integer_raises.ph 2>&1 | rg '^error\[' | sort | uniq -c
+set -o pipefail; RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' ./target/debug/phalcom phalcom-core/tests/fixtures/language/iterator/negative/iterator_take_negative_raises.ph 2>&1 | rg '^error\[' | sort | uniq -c
+```
+
+Both report 20 `error[impl.conformance.incomplete]` and 3
+`error[type.generic.underconstrained]` diagnostics, then exit before runtime.
+Consequently, invalid-`n` runtime behavior is **not verified** in this run; no
+test passed by skipping that gate. Revisit when the existing bootstrap
+selector conflict permits fixture execution.
+
+Scoped `git diff --check` is clean. The formatter reports pre-existing drift in
+the legacy test files; only the new test blocks were formatted. No corpus
+aggregate, workspace, or release gate was run.
