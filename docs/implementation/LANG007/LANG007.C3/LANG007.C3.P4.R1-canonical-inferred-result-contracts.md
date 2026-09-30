@@ -274,9 +274,11 @@ or per-call-site errors. For a selected untyped formal, analyze without an
 expected type, preserve the argument's own status, and do not manufacture a
 `RecursiveFixpoint`; keep genuine blockers and unresolved required generics
 fail-closed. Preserve `Iterator.take` runtime validation and do not annotate
-its source declarations. INC-C3-24 records the unresolved live-data question:
-how to derive sound result-specific SCC edges without using aggregate body
-dependencies.
+its source declarations. INC-C3-24 records the unresolved scope decision:
+limit CV-08 classification to direct returned-call cycles, or establish a
+broader result-provenance product propagated through nested expressions and
+flow/binding values and included in callable fingerprints. Aggregate body
+dependencies and AST/range joins alone are not sound general result edges.
 
 **G4:** CV-08 and `Iterator.take` causal attribution recorded with minimal
 selector and before/after cause. Verify untyped-formal generic application and

@@ -55,6 +55,15 @@ not connect a returned value to its root expression. Therefore the live
 products do not directly provide the result-relevant edges required by the
 ruling.
 
+A bounded read-only census found that source AST plus expression ranges can
+identify a direct explicit-return or tail-expression root in simple cases, but
+cannot establish general result contribution. Expression products do not
+retain parent/child or value-provenance links. Syntax-recursively collecting
+calls can pull in side effects, predicates, or other non-result calls; an
+aggregate dependency graph also cannot trace a returned local to the call that
+produced it. Nested operators, branches, and flow/binding values therefore
+cannot be handled soundly by a range join alone.
+
 ## 6. Minimal reproduction
 
 Existing semantic control shape:
@@ -97,10 +106,13 @@ Key locations:
 - `phalcom-semantic/src/checker/context.rs`: callable dependency insertion and
   resolution products (including the `resolved_callables` expression map).
 - `phalcom-semantic/src/checker/body.rs` and
-  `phalcom-semantic/src/checker/statement.rs`: normal-return fact construction.
+  `phalcom-semantic/src/checker/statement.rs`: tail/explicit return fact
+  construction (`body.rs:336–378`, `statement.rs:162–241`).
 - `phalcom-semantic/src/checker/analysis.rs`: `NormalReturnFact` and
-  `CallableAnalysis` data shapes.
-- `phalcom-semantic/src/session.rs`: `refresh_inferred_callable_results`.
+  `CallableAnalysis` data shapes (`analysis.rs:42–65, 333–340, 429–454`).
+- `phalcom-semantic/src/session.rs`: `refresh_inferred_callable_results`
+  consumes exit summaries (`session.rs:10112–10115`) and aggregate dependencies
+  for rechecks (`session.rs:10217–10223`).
 
 ## 8. Scoped implementation diff
 
@@ -112,26 +124,34 @@ callable dependencies, result publication, or recursion handling.
 
 - Existing body dependency tracking aggregates callable resolution throughout
   body analysis rather than storing a normal-return-specific edge.
-- `NormalReturnFact` has no `ExpressionId` or selected result dependency.
-- `ExpressionAnalysis` can identify a selected callable for an expression, but
-  this is not currently linked from each normal return.
+- Explicit returns and tail expressions have a typed `ExpressionId` at their
+  analysis sites, but drop it when creating `NormalReturnFact`.
+- `ExpressionAnalysis` retains ID, range, selected callable, and knowledge but
+  has no parent-child or value-provenance links.
+- `CallableAnalysis.dependencies` also includes body-level lookups unrelated
+  to the normal result; it is used for recheck scheduling, not as result proof.
+- AST/range matching is only a heuristic beyond direct returned-call roots:
+  nested expression and local/branch flow dependence is not represented.
 - The adopted INC-C3-23 ruling prohibits a general result fixpoint and requires
   diagnostics to correspond to unresolved result cycles.
 
 ## 10. Implementer's causal hypothesis
 
-A diagnostic based on the current aggregate dependency set can report a cycle
-that does not affect the inferred result. A sound implementation needs an
-explicit, result-relevant edge source or a narrowly defined classification
-rule tied to each value-producing return.
+A diagnostic based on aggregate dependencies or recursive AST call collection
+can report a cycle that does not affect the inferred result. A sound general
+implementation needs result provenance propagated with values through
+expression composition and flow/binding analysis, then retained per normal
+exit and included in relevant product fingerprints.
 
 ## 11. Alternative hypotheses
 
-- For the required direct/mutual controls, a root returned-call identity may be
-  sufficient if the architect approves that bounded rule.
-- More general recursive result dependencies through operators, branches, or
-  nested value-producing expressions may require richer provenance than the
-  current body product carries.
+- A root returned-call identity can classify the exact direct/mutual examples,
+  but does not cover calls whose values contribute through nested expressions
+  or locals.
+- If CV-08 is intentionally bounded to direct returned-call cycles, that
+  limitation must be explicit and accepted as the diagnostic contract.
+- If CV-08 requires general result-dependency SCCs, richer propagated
+  provenance is required and materially expands the body-product contract.
 - Aggregate body dependencies may be useful for scheduling/invalidation but
   are not, by themselves, proof of result dependence.
 
@@ -140,26 +160,37 @@ rule tied to each value-producing return.
 - No CV-08 production attempt was made after the architect ruling.
 - The aggregate dependency graph was rejected before implementation because it
   admits false result-cycle edges.
+- A read-only source census checked AST, ranges, per-expression call products,
+  normal exits, and publication inputs. Direct returned-call roots can be
+  recognized, but nested value flow cannot be soundly recovered from current
+  products. No edits, builds, or tests were made for CV-08.
 
 ## 13. Why local authority is insufficient
 
-Choosing the representation and scope of a result-dependency edge changes the
-semantic body-product contract used by publication validation. The plan and
-adopted ruling require sound SCC classification but do not specify whether to
-extend `NormalReturnFact`, derive edges from source/analysis products, or limit
-the accepted rule to directly returned calls. This crosses the repository's
-mandatory consultation boundary for semantic authority and cross-layer
-contracts.
+The minimal sound general design appears to require stable callable result
+dependencies propagated through expression composition and flow/binding
+values, recorded per normal exit, and incorporated into callable-product
+fingerprints. That changes semantic body-product and incremental-invalidation
+contracts. The adopted ruling requires sound SCC classification but does not
+authorize that broader provenance architecture or define whether CV-08 may be
+limited to direct returned-call cycles. This crosses the mandatory
+consultation boundary for semantic authority, product representation, and
+incremental invalidation.
 
 ## 14. Decision requested
 
-For CV-08, may T5 extend the callable-body product with per-normal-return
-result-expression provenance (using the existing `ExpressionId`/resolved-call
-products) and build a classification-only SCC graph from result-relevant
-returns? If so, is a direct returned-call edge the authorized scope for the
-required direct/mutual controls, or must the implementation preserve
-dependencies through nested value-producing expressions before emitting any
-cycle diagnostic?
+For CV-08, which scope is authorized?
+
+1. Limit T5 to classification of direct returned-call cycles and explicitly
+   defer nested/local result-dependency cycles; or
+2. Expand the semantic body product to carry stable result dependencies per
+   normal exit, propagated through nested value-producing expressions and
+   flow/binding values and included in product fingerprints, then build the
+   classification-only SCC graph from that evidence.
+
+If option 2 is required, specify the ownership and propagation contract for
+branch joins, operators, and returned locals. The existing AST/range and
+aggregate dependency products are insufficient proof.
 
 Until this is resolved, CV-08 production changes remain paused. CV-09 may
 continue independently. T5/G4 and P4 remain incomplete.

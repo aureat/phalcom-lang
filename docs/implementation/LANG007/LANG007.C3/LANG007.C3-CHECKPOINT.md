@@ -1839,10 +1839,14 @@ The architect's INC-C3-23 ruling authorizes deterministic diagnostics for
 unseeded recursive result SCCs. Live products do not currently link each
 normal-return value to a selected callable: `CallableAnalysis.dependencies` is
 an aggregate body dependency set, while `NormalReturnFact` has no
-`ExpressionId`. Using the aggregate call graph could diagnose recursion that
-does not contribute to the result. CV-08 source edits are paused pending a
-narrow decision on whether to extend per-return provenance and what expression
-forms the authorized result-dependency edge covers. CV-09 proceeds independently.
+result provenance. AST/range joins identify direct returned-call roots only;
+they cannot soundly trace nested expressions or locals through branches and
+flow. Using aggregate calls or recursively collected syntax calls could
+diagnose recursion that does not contribute to the result. CV-08 source edits
+are paused pending a ruling on whether T5 is limited to direct returned-call
+cycles or expands the body product with stable result dependencies propagated
+through expression/flow/binding values and included in product fingerprints.
+CV-09 proceeds independently.
 See [`INC-C3-24.md`](INC-C3-24.md).
 
 Use entries:
