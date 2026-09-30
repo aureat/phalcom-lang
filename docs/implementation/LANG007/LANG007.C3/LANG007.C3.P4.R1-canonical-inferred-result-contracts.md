@@ -316,6 +316,14 @@ CONSULT.
 proof from the GuardedRule Derived-dispatch proof. Preserve inherent-before-
 default precedence and do not change the Range library surface.
 
+**Current implementation hold — INC-C3-27:** the direct `RangeIterator::toList`
+probe attributes its missing Known result to the unresolved semantics of
+`List<Dynamic>` type-form resolution, not to a demonstrated publication gap.
+Do not change type-form representation, Dynamic propagation, or the library
+body until the architect rules on INC-C3-27. The post-`take` terminal and the
+independent T6-B controls also remain blocked by the recorded incomplete
+Universe Iterator conformances; G5 is not passed.
+
 #### T6-A — Canonical Range callable results and natural chain
 
 First add direct semantic selectors for the ordinary body-bearing

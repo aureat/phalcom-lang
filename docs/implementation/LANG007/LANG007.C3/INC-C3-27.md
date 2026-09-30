@@ -85,10 +85,13 @@ selector:
 RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core language::iteration::range_iterator_to_list_publication_probe -- --exact --nocapture
 ```
 
-The temporary nested-generic discriminator also selected 1 and passed. A
-fixture with a generic callable whose result depends on `T`, instantiated
-with `T` from a Dynamic actual, produced `Dynamic(ExplicitEscape)` for the
-dependent `Box<T>` result.
+The temporary nested-generic discriminator
+`semantic::foundations::generic_inference_proof_integrity::nested_dynamic_generic_result_classification_probe`
+selected 1 and passed. Its temporary fixture had a generic callable whose
+result depends on `T`, instantiated with `T` from a Dynamic actual, and
+produced `Dynamic(ExplicitEscape)` for the dependent `Box<T>` result. The
+probe was removed after evidence collection; its exact Cargo invocation was
+not retained.
 Both temporary probes were removed after evidence collection; no production
 edit was made for them.
 
@@ -113,9 +116,10 @@ RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p 
 RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core language::traits::ordinary_trait_lowering_preserves_exact_and_derived_dispatch_evidence -- --exact
 ```
 
-Each selected exactly one test and failed before the focused assertion. This is
-not acceptance evidence for T6-B and is not a reason to bypass the precondition
-or modify conformance.
+Each selected exactly one test and failed before the focused assertion on the
+recorded 23 Universe bootstrap diagnostics (20 `ImplConformanceIncomplete`,
+3 `type.generic.underconstrained`). This is not acceptance evidence for T6-B
+and is not a reason to bypass the precondition or modify conformance.
 
 ## 7. Relevant code and semantic path
 

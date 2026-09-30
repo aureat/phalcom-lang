@@ -129,7 +129,7 @@ formal, and direct/natural-stage selectors. Current post-ruling evidence is in
 - At the initial escalation revision, no T6 source or test diff remained.
   This is historical state and is superseded by the post-ruling record in §16.
 
-## 10. Implementer's causal hypothesis
+## 10. Pre-ruling causal hypothesis
 
 The old test's recorded blocker (“`Iterable.iter` remains Unknown”) is stale:
 the live `.iter` product is now Known/Assumed. The next stage does not use the
@@ -139,7 +139,7 @@ Likewise, ordinary dispatch sees the concrete `RangeIterator::toList`
 declaration, so the test's expected trait-default evidence cannot arise for
 this call under the accepted precedence rule.
 
-## 11. Alternative hypotheses
+## 11. Pre-ruling alternatives
 
 - T6's intended acceptance may be two separate proofs: canonical result types
   for the natural Range chain, and Derived `Iterable::toList` evidence on a
@@ -155,7 +155,7 @@ this call under the accepted precedence rule.
   remaining canonical body-result inference gap in R1, separate from the
   incorrect Derived-evidence expectation.
 
-## 12. Attempts already made
+## 12. Pre-ruling attempts already made
 
 - Ran the exact ignored selector with the original assertion: it stopped at
   global Universe diagnostics before inspecting the natural-chain product.
@@ -165,7 +165,7 @@ this call under the accepted precedence rule.
   restored and the temporary edit removed.
 - No production, library, or dispatch correction was attempted.
 
-## 13. Why local authority is insufficient
+## 13. Why local authority was insufficient for the initial consultation
 
 The active plan requires Derived trait-default evidence for a call whose
 receiver has a compatible inherent method, but the accepted normative rule
@@ -176,7 +176,7 @@ observable/API consequences. The remaining Unknown result products also need
 to be separated from this oracle conflict before deciding whether R1's
 canonical inference implementation needs another bounded correction.
 
-## 14. Decision requested
+## 14. Initial decision requested (resolved by §15)
 
 How should T6/G5 reconcile the exact natural Range chain with the accepted
 inherent-before-default rule?
