@@ -804,6 +804,16 @@ class Top { @class value() { Middle.value() } }
     let first = session.update(single_module_input(module.clone(), source_v1, 1));
     let middle_v1 = first.snapshot.callable_analyses.get(&middle).cloned().expect("Middle v1");
     let top_v1 = first.snapshot.callable_analyses.get(&top).cloned().expect("Top v1");
+    let int_type = first
+        .snapshot
+        .declarations
+        .form(&phalcom_semantic::core_surface::CoreDeclarationIds::default().int)
+        .expect("canonical Int type");
+    let initial_signature_fingerprints = [&leaf, &middle, &top].map(|callable| {
+        phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(
+            first.snapshot.callable_signatures.get(callable).expect("initial callable signature"),
+        )
+    });
 
     let source_v2 = r#"
 class Leaf { @class value() { 2 } }
@@ -816,6 +826,18 @@ class Top { @class value() { Middle.value() } }
     assert!(second.snapshot.callable_analyses.contains_key(&leaf));
     assert!(Arc::ptr_eq(&middle_v1, middle_v2), "stable refreshed Middle product must retain Arc identity");
     assert!(Arc::ptr_eq(&top_v1, top_v2), "stable refreshed Top product must retain Arc identity");
-    assert_eq!(second.stats.callables_recomputed, 3, "Leaf, Middle, and Top are each finally recomputed once");
-    assert_eq!(second.stats.callables_reused, 0, "a refreshed callable must not also be counted reused");
+    assert_eq!(second.stats.callable_bodies_recomputed, 1, "only the edited Leaf body is recomputed");
+    assert_eq!(
+        second.stats.callable_bodies_reused, 2,
+        "same-result Middle and Top bodies are revalidated and reused"
+    );
+    for (index, callable) in [&leaf, &middle, &top].into_iter().enumerate() {
+        let signature = second.snapshot.callable_signatures.get(callable).expect("updated callable signature");
+        assert_eq!(signature.inferred_return.as_ref().and_then(|result| result.ty()), Some(int_type));
+        assert_eq!(
+            phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(signature),
+            initial_signature_fingerprints[index],
+            "same-result body edits must preserve the canonical signature product fingerprint"
+        );
+    }
 }

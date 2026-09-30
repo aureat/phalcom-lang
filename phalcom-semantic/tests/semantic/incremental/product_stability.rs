@@ -587,6 +587,139 @@ fn diagnostic_aggregate_matches_cold_after_repair_and_unrelated_edit() {
 }
 
 #[test]
+fn inferred_cross_module_result_updates_dependents_and_matches_cold_analysis() {
+    let (provider_module, middle_module, consumer_module) = layered_modules();
+    let provider_source = |body: &str, explicit: bool| {
+        let result = if explicit { " -> Int" } else { "" };
+        format!("class Api {{ @class value(){result} {{ {body} }} }}\nexport Api\n")
+    };
+    let middle_source = "import stable_a.Api\nclass Middle { @class value() { Api.value() } }\nexport Middle\n";
+    let consumer_source = "import stable_b.Middle\nclass Top { @class read() { Middle.value() } }\n";
+    let input_for = |provider: &str, generation| layered_input(provider, middle_source, consumer_source, generation);
+    let api_callable = CallableId::new(
+        DeclarationId::new(provider_module.clone(), "Api".into()),
+        Selector::method("value", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let middle_callable = CallableId::new(
+        DeclarationId::new(middle_module.clone(), "Middle".into()),
+        Selector::method("value", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let consumer_callable = CallableId::new(
+        DeclarationId::new(consumer_module.clone(), "Top".into()),
+        Selector::method("read", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let call_knowledge = |snapshot: &phalcom_semantic::SemanticSnapshot, source: &str| {
+        let analysis = snapshot.callable_analyses.get(&consumer_callable).expect("Top.read analysis");
+        analysis
+            .expressions
+            .values()
+            .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Middle.value()"))
+            .expect("Middle.value() call")
+            .knowledge
+            .clone()
+    };
+    let signature_fingerprint = |snapshot: &phalcom_semantic::SemanticSnapshot| {
+        phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(snapshot.callable_signatures.get(&api_callable).expect("Api.value signature"))
+    };
+
+    let v1_provider = provider_source("\"one\"", false);
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(input_for(&v1_provider, 1));
+    assert!(!first.snapshot.has_errors(), "v1 diagnostics: {:?}", first.snapshot.diagnostics);
+    let first_api_fingerprint = signature_fingerprint(&first.snapshot);
+    let first_consumer = first.snapshot.callable_analyses.get(&consumer_callable).expect("v1 Top.read").clone();
+    assert_eq!(
+        first
+            .snapshot
+            .store
+            .format_type(call_knowledge(&first.snapshot, consumer_source).ty().expect("v1 call type")),
+        "String"
+    );
+    assert!(first.snapshot.callable_analyses[&middle_callable].semantic_dependencies.contains(
+        &phalcom_semantic::checker::analysis::SemanticDependency::CallableSignature(api_callable.clone())
+    ));
+
+    // Same-result provider edit: the source body changes, but the canonical
+    // result interface and downstream consumer stay stable and match cold.
+    let v2_provider = provider_source("\"two\"", false);
+    let second = session.update(input_for(&v2_provider, 2));
+    assert!(!second.snapshot.has_errors(), "v2 diagnostics: {:?}", second.snapshot.diagnostics);
+    assert_eq!(signature_fingerprint(&second.snapshot), first_api_fingerprint);
+    assert!(Arc::ptr_eq(
+        &first_consumer,
+        second.snapshot.callable_analyses.get(&consumer_callable).expect("v2 Top.read")
+    ));
+    let mut cold_v2_session = SemanticWorkspaceSession::new();
+    let cold_v2 = cold_v2_session.update(input_for(&v2_provider, 1));
+    assert_eq!(second.snapshot.diagnostics, cold_v2.snapshot.diagnostics);
+    assert_eq!(
+        call_knowledge(&second.snapshot, consumer_source)
+            .ty()
+            .map(|ty| second.snapshot.store.format_type(ty)),
+        call_knowledge(&cold_v2.snapshot, consumer_source)
+            .ty()
+            .map(|ty| cold_v2.snapshot.store.format_type(ty))
+    );
+    assert_eq!(
+        call_knowledge(&second.snapshot, consumer_source).status(),
+        call_knowledge(&cold_v2.snapshot, consumer_source).status()
+    );
+
+    // Changed-result provider edit invalidates the cross-module chain and
+    // agrees with a cold build of the same final source.
+    let v3_provider = provider_source("7", false);
+    let third = session.update(input_for(&v3_provider, 3));
+    assert!(!third.snapshot.has_errors(), "v3 diagnostics: {:?}", third.snapshot.diagnostics);
+    assert_ne!(signature_fingerprint(&third.snapshot), first_api_fingerprint);
+    let third_consumer = third.snapshot.callable_analyses.get(&consumer_callable).expect("v3 Top.read");
+    assert!(
+        !Arc::ptr_eq(&first_consumer, third_consumer),
+        "changed inferred result must invalidate the dependent consumer"
+    );
+    assert_eq!(
+        third
+            .snapshot
+            .store
+            .format_type(call_knowledge(&third.snapshot, consumer_source).ty().expect("v3 call type")),
+        "Int"
+    );
+    let mut cold_v3_session = SemanticWorkspaceSession::new();
+    let cold_v3 = cold_v3_session.update(input_for(&v3_provider, 1));
+    assert_eq!(third.snapshot.diagnostics, cold_v3.snapshot.diagnostics);
+    assert_eq!(
+        call_knowledge(&third.snapshot, consumer_source)
+            .ty()
+            .map(|ty| third.snapshot.store.format_type(ty)),
+        call_knowledge(&cold_v3.snapshot, consumer_source)
+            .ty()
+            .map(|ty| cold_v3.snapshot.store.format_type(ty))
+    );
+    assert_eq!(
+        call_knowledge(&third.snapshot, consumer_source).status(),
+        call_knowledge(&cold_v3.snapshot, consumer_source).status()
+    );
+
+    // An explicit result contract remains the interface authority: changing
+    // only its body keeps the published signature fingerprint stable.
+    let v4_provider = provider_source("7", true);
+    let fourth = session.update(input_for(&v4_provider, 4));
+    let v4_fingerprint = signature_fingerprint(&fourth.snapshot);
+    let v5_provider = provider_source("8", true);
+    let fifth = session.update(input_for(&v5_provider, 5));
+    assert_eq!(signature_fingerprint(&fifth.snapshot), v4_fingerprint);
+    assert_eq!(
+        fifth
+            .snapshot
+            .store
+            .format_type(call_knowledge(&fifth.snapshot, consumer_source).ty().expect("v5 call type")),
+        "Int"
+    );
+}
+
+#[test]
 fn callable_body_product_owns_tail_return_diagnostics() {
     use phalcom_semantic::diagnostic::DiagnosticCode;
 

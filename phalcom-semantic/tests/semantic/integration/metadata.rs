@@ -558,6 +558,153 @@ fn metadata_round_trip_preserves_callable_generic_owner_and_constraints() {
 }
 
 #[test]
+fn cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metadata() {
+    use phalcom_modules::interface::{InterfaceBuilder, LinkedExport, LinkedExportTarget, LinkedModuleInterface};
+    use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, SymbolId};
+    use phalcom_modules::source::ModuleKind;
+    use phalcom_semantic::session::SemanticWorkspaceSession;
+    use phalcom_semantic::source::ParsedModuleUnit;
+    use phalcom_semantic::workspace::SemanticWorkspaceInput;
+    use phalcom_type_meta::declaration::{PublishedTypeAuthority, PublishedTypeSlot};
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::identity::StableDispatchSide;
+    use std::collections::BTreeMap;
+
+    let api_module = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("metadata_api").unwrap()]));
+    let client_module = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("metadata_client").unwrap()]));
+    let api_source = "class Api { @class value() { \"result\" } }\nexport Api\n";
+    let client_source = "import metadata_api.Api\nclass Client { @class value() { Api.value() } }\nexport Client\n";
+    let parse_unit = |module: &ModuleId, source: &str| {
+        let parsed = phalcom_ast::parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        Arc::new(ParsedModuleUnit::new(
+            module.clone(),
+            ModuleKind::Module,
+            None,
+            Arc::from(source),
+            Arc::new(parsed.program),
+        ))
+    };
+    let api_unit = parse_unit(&api_module, api_source);
+    let client_unit = parse_unit(&client_module, client_source);
+    let export_api = LinkedExport {
+        public_name: "Api".into(),
+        target: LinkedExportTarget::Binding(SymbolId {
+            module: api_module.clone(),
+            name: "Api".into(),
+        }),
+        range: SourceRange::default(),
+    };
+    let api_program = api_unit.program.clone();
+    let client_program = client_unit.program.clone();
+    let api_globals = InterfaceBuilder::build(api_module.clone(), ModuleKind::Module, &api_program)
+        .unwrap()
+        .declarations
+        .keys()
+        .enumerate()
+        .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32)))
+        .collect();
+    let client_globals = InterfaceBuilder::build(client_module.clone(), ModuleKind::Module, &client_program)
+        .unwrap()
+        .declarations
+        .keys()
+        .enumerate()
+        .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32)))
+        .collect();
+    let linked_modules = BTreeMap::from([
+        (
+            api_module.clone(),
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: api_module.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::from([("Api".into(), export_api)]),
+                    metadata: phalcom_modules::metadata::ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: api_globals,
+                    ..ModuleBindingLayout::default()
+                },
+                linked_reads: Vec::new(),
+                runtime_dependencies: Vec::new(),
+            },
+        ),
+        (
+            client_module.clone(),
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: client_module.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::new(),
+                    metadata: phalcom_modules::metadata::ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: client_globals,
+                    imports: BTreeMap::from([("Api".into(), ImportBindingId(0))]),
+                    ..ModuleBindingLayout::default()
+                },
+                linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
+                    module: api_module.clone(),
+                    name: "Api".into(),
+                })],
+                runtime_dependencies: vec![api_module.clone()],
+            },
+        ),
+    ]);
+    let input = SemanticWorkspaceInput::new(
+        Arc::new(LinkedProgram {
+            universe: Arc::new(ProjectUniverse::new()),
+            modules: linked_modules,
+            graphs: phalcom_modules::graph::ModuleGraphs::default(),
+            entry: client_module.clone(),
+            initialization_order: vec![api_module.clone(), client_module.clone()],
+        }),
+        BTreeMap::from([(api_module, api_unit), (client_module, client_unit)]),
+        1,
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let analysis = session.update(input);
+    assert!(
+        !analysis.snapshot.has_errors(),
+        "cross-module semantic diagnostics: {:?}",
+        analysis.snapshot.diagnostics
+    );
+
+    let bundle = MetadataExporter::new(
+        &analysis.snapshot.store,
+        Some(&analysis.snapshot.declarations),
+        Some(&analysis.snapshot.callable_signatures),
+        Some(&analysis.snapshot.field_signatures),
+        MetadataProfile::RuntimePublic,
+    )
+    .build_bundle(&[])
+    .expect("cross-module inferred callable metadata export");
+    let record = bundle
+        .callables
+        .iter()
+        .find(|record| {
+            record.callable.owner.path.last().is_some_and(|name| name.as_ref() == "Api")
+                && record.callable.selector.as_ref() == "value()"
+                && record.callable.side == StableDispatchSide::Class
+        })
+        .expect("Api.value metadata record");
+    let (form_id, authority) = match &record.return_type {
+        PublishedTypeSlot::Known { form, authority } => (*form, *authority),
+        other => panic!("expected published inferred result, got {other:?}"),
+    };
+    assert_eq!(authority, PublishedTypeAuthority::CompilerInferred);
+    assert!(matches!(
+        bundle.types[form_id.0 as usize].form,
+        TypeNode::Nominal { ref declaration }
+            if declaration.path.last().is_some_and(|name| name.as_ref() == "String")
+    ));
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("cross-module inferred callable metadata validates");
+    let json = encode_metadata_json(&bundle).expect("encode inferred callable metadata");
+    let decoded = decode_metadata_json(&json, &ValidationLimits::default()).expect("decode inferred callable metadata");
+    assert_eq!(decoded, bundle, "CompilerInferred result survives metadata round-trip");
+}
+
+#[test]
 fn open_record_metadata_is_tail_sensitive_and_enables_row_feature() {
     let mut store = TypeStore::new();
     let int = store.nominal(dummy_decl("Int"));

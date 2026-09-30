@@ -76,8 +76,15 @@ next_action: >
   versus stale diagnostic publication; it passed 1/1. The
   original CV-04 discriminator, canonical-result/caller-independence control,
   symbolic Self/generic/associated substitution, return-mismatch control, and
-  diagnostic-repair control each passed 1/1. T4/CV-05–CV-07 is next for broader
-  signature-interface, metadata, and dependent-consumer acceptance. G5 collection
+  diagnostic-repair control each passed 1/1. T4/CV-05–CV-07 is now
+  IMPLEMENTED / FOCUSED_TESTED: same-result inferred and explicit-result body
+  edits preserve interface fingerprints; changed inferred results update the
+  canonical fingerprint and dependent consumer; cross-module metadata retains
+  CompilerInferred authority through encode/decode/validation; cold and
+  incremental products agree. The ordinary disposition selector observed one
+  body recomputed and two same-result bodies reused, correcting a stale counter
+  expectation without changing production stats. Exact selectors and 1/1
+  results are recorded under INC-C3-21 below. T5 is next. G5 collection
   aggregates remain
   unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored.
   P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. The only added corpus gate
@@ -374,8 +381,9 @@ next_action: >
   completion-audit follow-up separately corrected iterator adapter source
   contracts and `Iterable.toMap`; its semantic fixture passes, but canonical
   Universe/core verification is blocked before the test body by bootstrap
-  conformance diagnostics of unclear provenance. Do not promote P4/C3 or treat
-  the source/runtime changes as end-to-end verified.
+  conformance diagnostics confirmed at parent `01e4db77`; mark that runtime
+  gate BASELINE_BLOCKED, not pass. Do not promote P4/C3 or treat the
+  source/runtime changes as end-to-end verified.
 blocker: INC-C3-20 natural iterator-chain integration remains blocked under Outcome B; no T13 return-inference expansion is authorized.
 ```
 
@@ -1742,14 +1750,28 @@ publishes body summaries into that table; evidenced trait-default consumers
 transiently specialize the table result using the already-selected proof and
 record `CallableSignature` dependencies. No independently mutable
 `TraitSurfaceMember` result copy or dispatch-local proof search was added.
-`trait_default_inferred_return_is_canonical_and_independent_of_caller_expectation`
+  `trait_default_inferred_return_is_canonical_and_independent_of_caller_expectation`
 and `branch_derived_tail_type_is_published_to_unannotated_callable_signature`
 each selected and passed 1/1. T3/G2 is now IMPLEMENTED / FOCUSED_TESTED
-under INC-C3-22; its focused incremental matrix passed 1/1. T4/CV-05–CV-07
-is the next R1 scope. The ruling
-preserves explicit annotations, caller
-independence, symbolic generic/Self substitution, existing metadata/signature
-representation, and the no-general-recursive-fixpoint boundary. It requires
+under INC-C3-22; its focused incremental matrix passed 1/1. The ruling
+preserves explicit annotations, caller independence, symbolic generic/Self
+substitution, existing metadata/signature representation, and the
+no-general-recursive-fixpoint boundary. T4/CV-05–CV-07 is now IMPLEMENTED /
+FOCUSED_TESTED. With the pinned toolchain and cleared local Rust flags, each
+exact command selected and passed 1/1:
+
+```text
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic semantic::incremental::callable_dependencies::inferred_return_refresh_preserves_stable_products_and_counts_final_disposition_once -- --exact
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic semantic::incremental::product_stability::inferred_cross_module_result_updates_dependents_and_matches_cold_analysis -- --exact
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic semantic::integration::metadata::cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metadata -- --exact
+```
+
+These cover same-result inferred fingerprints/body reuse, changed-result
+invalidation and cold parity, explicit-result body-only stability, and a
+two-module Universe workspace metadata round-trip carrying
+`PublishedTypeAuthority::CompilerInferred`. The former ordinary counter
+expectation was stale: the observed disposition is one body recomputed and two
+reused; semantic results and stable signature products remain Int. T5 is next. It requires
 causal attribution of `Iterator.take`'s `RecursiveFixpoint` and focused natural
 chain verification after both stages are canonical. It does not amend T13 or
 certify G5/G6. See [`INC-C3-21.md`](INC-C3-21.md) and the
@@ -2304,8 +2326,12 @@ next task:
     IMPLEMENTED / FOCUSED_TESTED: canonical signature publication and
     consumer projection pass the paired trait-default/ordinary parity test
     and the existing ordinary publication control, each 1/1. T3/G2 is now
-    IMPLEMENTED / FOCUSED_TESTED under INC-C3-22; continue with T4/CV-05–CV-07
-    for broader signature-interface, metadata, and dependent-consumer acceptance.
+    IMPLEMENTED / FOCUSED_TESTED under INC-C3-22. T4/CV-05–CV-07 is now
+    IMPLEMENTED / FOCUSED_TESTED by three exact semantic selectors, each 1/1:
+    `semantic::incremental::callable_dependencies::inferred_return_refresh_preserves_stable_products_and_counts_final_disposition_once`,
+    `semantic::incremental::product_stability::inferred_cross_module_result_updates_dependents_and_matches_cold_analysis`,
+    and `semantic::integration::metadata::cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metadata`.
+    T5 is next.
     This is separate from T13 and does not change T13's §15 stop, certify G5/G6,
     or authorize workspace/release gates.
     G5 collection aggregates remain unpassed/uncertified, G6 is incomplete, the
@@ -3562,12 +3588,17 @@ declarations.
 
 The direct core selector
 `iterable_to_map_preserves_all_distinct_entries` selected 1 test but failed
-before inline source-body execution during Universe bootstrap with
-`ImplConformanceIncomplete` diagnostics involving the Iterator `iterator`
-inherent-selector relationship across iterator implementations and collection
-owners. Provenance is unclear, so this is recorded as blocked, not as a
-verified baseline or a pass. Consequently neither the canonical adapter source
-contracts nor the four-entry `toMap` runtime behavior have end-to-end evidence
-from this slice. No Universe conformance rule, `TypeStore::union` behavior, or
-fallback typing was changed. C3/P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED;
-the audit's structural-subtyping/spec conflict and broader gates remain open.
+before inline source-body execution during Universe bootstrap. The same exact
+selector, with the identical regression test added in a detached snapshot of
+parent `01e4db77`, also selected 1 and failed at `compile_entry_selection`
+before VM setup/body execution. Both runs reported the same 20
+`ImplConformanceIncomplete` diagnostics for the `Iterator` `iterator`
+requirement's inherent-selector conflict: 14 in `collections.iterator_laws`,
+1 in List, 4 in Map, and 1 in Set. The failure class, phase, owners,
+requirement, and counts match; only `iterator_laws` source offsets and numeric
+TypeIds differ. This core gate is BASELINE_BLOCKED for end-to-end verification,
+not a pass. Consequently neither the canonical adapter source contracts nor
+the four-entry `toMap` runtime behavior have end-to-end evidence from this
+slice. No Universe conformance rule, `TypeStore::union` behavior, or fallback
+typing was changed. C3/P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED; the
+audit's structural-subtyping/spec conflict and broader gates remain open.
