@@ -28,7 +28,7 @@ How to describe the static type of a tuple?
 Tuple<Int, ...>
 Tuple<Int, String, *Ps>
 
-data ValuePack<***Es>(***elements: ***Es)
+data ValuePack<***Es: Type>(***elements: ***Es)
 
 data TypePack<***Es>(***Es)
 
