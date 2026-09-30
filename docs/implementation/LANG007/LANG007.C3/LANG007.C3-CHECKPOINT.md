@@ -84,20 +84,28 @@ next_action: >
   incremental products agree. The ordinary disposition selector observed one
   body recomputed and two same-result bodies reused, correcting a stale counter
   expectation without changing production stats. Exact selectors and 1/1
-  results are recorded under INC-C3-21 below. T5/CV-08 now has a scoped
-  direct-result SCC implementation, with focused cold-cycle, false-positive,
-  and declared-seed controls passing. The incremental known-results-to-cycle
-  discriminator fails: recomputed body facts contain the new direct edges but
-  retain `Known(Int)` from prior inferred signatures, so no CV-08 diagnostic
-  is published. This conflicts with cold-analysis parity and requires an
-  authority decision before result retraction/reanalysis; see open INC-C3-25.
-  CV-09's `Iterator.take` probe found a blocked generic constructor application
-  at an untyped argument, not a demonstrated callable/query cycle. T5/G4 remains
-  partial; T6 is not started. G5 collection aggregates remain
-  unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored.
-  P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. The only added corpus gate
-  is the direct `corpus::collections` selector after R1's chain gate passes.
-  Priority 3 remains unchanged.
+  results are recorded under INC-C3-21 below. T5/CV-08 is IMPLEMENTED /
+  FOCUSED_TESTED under adopted INC-C3-24/25: direct-result SCC classification
+  uses only canonical normal-return root-call identities; a bounded one-shot
+  barrier retracts inferred-only results of unseeded SCCs, invalidates only
+  their `CallableBody` roots, and reanalyzes each affected member once while
+  withholding its result from the generic refresh loop. Recomputed SCC roots
+  feed existing changed-callable propagation to dependent consumers; this is
+  not a result fixpoint or new authority. The A→B→C test verifies cycle and
+  observer Known(Int) → Unknown → Known(Int), one deterministic diagnostic
+  only in B, cold parity for B/C, and reuse/stability of unrelated `h() { 3 }`.
+  Direct/mutual unseeded, explicit-seed, non-result false-positive, CV-09
+  Known/Ready and genuine-blocker, and canonical `Iterator.take`
+  body/publication selectors pass 1/1; exact commands are in INC-C3-25 §15.
+  Invalid-`n` runtime behavior remains BASELINE_BLOCKED / unverified because
+  the prior gate stops before fixture execution at 20
+  `ImplConformanceIncomplete` plus 3 `type.generic.underconstrained` Universe
+  bootstrap diagnostics (INC-C3-23 §6/§9); this is not a CV-08 lifecycle
+  failure. No corpus aggregate was run. T5/G4 is focused-tested; T6 is not
+  started. G5 collection aggregates remain unpassed/uncertified, G6 incomplete,
+  and the natural chain blocked/ignored. P4/C3 remains IN_PROGRESS / PARTIAL /
+  UNVERIFIED. The only added corpus gate is the direct `corpus::collections`
+  selector after R1's chain gate passes. Priority 3 remains unchanged.
   T13.1 census found and corrected the effective iterator-spec claim: generic
   Tuple iteration yields `Tuple<***Es>::Element`; only runtime-shaped
   `rawFromList`, `rawSlice`, and TupleZip APIs remain Dynamic. G1 AST/parser/
@@ -495,7 +503,7 @@ C3 is complete only when this statement is true:
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1-T10 accepted; generic-owner payload behavior fixed; all required C3 coverage has direct evidence or a clean-predecessor baseline disposition; see P3 walkthrough/handoff |
 | `LANG007.C3.P3.R1` | Corrective closure: explicit intrinsic semantic application and runtime/native owner projections | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | user-adopted projections implemented and focused gates passed; see P3.R1 handoff |
 | `LANG007.C3.P4` | Intrinsic structural data, structural kinds, product-shape expansion, and Tuple/Record semantic completion | IN_PROGRESS | PARTIAL | UNVERIFIED | active plan |
-| `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | IN_PROGRESS | PARTIAL | UNVERIFIED | T1–T4 focused work recorded; T5/G4 is partial pending INC-C3-23; does not certify T13/G5/G6 |
+| `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | IN_PROGRESS | PARTIAL | UNVERIFIED | T1–T5/G4 focused work recorded; T6 remains unopened; does not certify T13/G5/G6 |
 
 P3.R1 was a bounded corrective closure required by the explicit ruling supplied
 after P3 closure. P4 completes the intrinsic structural-data model and structural literal convergence.
@@ -1857,22 +1865,37 @@ fingerprints that edge, and classifies unresolved omitted-result SCCs after
 ordinary publication without a result fixpoint. Explicit declared results are
 seeds. No local/nested/branch provenance is inferred from syntax or ranges.
 This does not decide incremental stale-inferred-result retraction; that
-separate question remains open under [`INC-C3-25.md`](INC-C3-25.md).
+separate question was subsequently resolved by adopted INC-C3-25; see the
+current status immediately below.
 
 ### INC-C3-25 — T5 incremental direct-result cycle retraction — 2026-09-30
 
-The CV-08 direct normal-result edge implementation passes its cold-cycle,
-false-positive, and declared-mutual-seed focused controls. The incremental
-known-results-to-cycle test fails: after the edit, both recomputed direct
-normal-return facts point to the opposite callable, yet both omitted-result
-signatures retain inferred `Known(Int)` from the prior revision and no cycle
-diagnostic is published. Cold analysis of the same direct cycle is Unknown and
-diagnosed. No production correction has been attempted. INC-C3-24 authorizes
-classification-only SCC diagnostics after ordinary publication but does not
-decide whether inferred-only results may be retracted and reanalyzed once.
-Await an architect ruling on that bounded policy or an alternative that
-preserves add/remove cold parity without a result fixpoint. T5/G4 and P4/C3
-remain partial/unverified; T6 is not started, and Priority 3 is unchanged.
+**Disposition: adopted and implemented; T5/G4 focused-tested.** The
+incremental A→B→C discriminator now agrees with cold analysis. The one-shot
+barrier examines current direct-result SCCs despite retained inferred values,
+preserves explicit declared-result seeds, clears only inferred-only SCC
+results, invalidates only member `CallableBody` roots, and runs one withheld
+member reanalysis. Members cannot re-enter the generic inferred-result refresh
+loop in that pass. Their recomputed dispositions seed existing
+changed-callable propagation so an external observer is revalidated. The
+source-owned DB signature product can remain Unknown while the session's
+canonical table carries a prior inferred result; therefore body-root
+invalidation is the bounded lifecycle signal, not mutation of signature
+publication or a fabricated source-signature fingerprint change.
+
+The focused test proves A→B→C Known(Int)→Unknown→Known(Int) for SCC members
+and the dependent observer, one deterministic diagnostic in B and none in C,
+cold parity at B/C, and stable/reused unrelated `h() { 3 }`. The semantic
+direct, mutual, explicit-seed, and non-result cycle controls; both CV-09 generic
+argument controls; canonical `Iterator.take` Known/Ready publication; and
+`cargo check -p phalcom-semantic` passed their exact focused selectors. The
+invalid-`n` runtime behavior remains BASELINE_BLOCKED / unverified: the prior
+`corpus::iterator_negative` and direct fixture attempts stop before runtime at
+20 `ImplConformanceIncomplete` and 3 `type.generic.underconstrained` Universe
+bootstrap diagnostics (INC-C3-23 §6/§9). No corpus aggregate/workspace suite
+was run. This blocker does not invalidate the focused lifecycle acceptance.
+T6 remains unopened, G5/G6 are not certified, and P4/C3 remains
+IN_PROGRESS / PARTIAL / UNVERIFIED; Priority 3 is unchanged.
 
 See [`INC-C3-25.md`](INC-C3-25.md).
 
@@ -2405,21 +2428,23 @@ next task:
     `semantic::incremental::callable_dependencies::inferred_return_refresh_preserves_stable_products_and_counts_final_disposition_once`,
     `semantic::incremental::product_stability::inferred_cross_module_result_updates_dependents_and_matches_cold_analysis`,
     and `semantic::integration::metadata::cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metadata`.
-    T5/CV-08 cold direct/mutual cycle, non-result false-positive, and declared
-    mutual-seed controls pass 1/1; the incremental add/remove cold-parity test
-    selects 1 and fails because stage B retains inferred `Known(Int)` results
-    despite the new direct-call edges, leaving CV-08 absent. No result
-    invalidation or reanalysis correction is authorized until INC-C3-25 is
-    resolved. The INC-C3-23 ruling is adopted. CV-09
+    T5/CV-08 is IMPLEMENTED / FOCUSED_TESTED under the adopted INC-C3-24/25
+    rulings. The incremental A→B→C cold-parity test passes 1/1: SCC members
+    and an external observer transition Known(Int) → Unknown → Known(Int),
+    canonical signature-product fingerprints change on both edges of the
+    transition, exactly one deterministic diagnostic appears in B and retires
+    in C, and unrelated `h() { 3 }` stays stable/reusable. The bounded
+    one-shot barrier invalidates only SCC-member body-query roots, reanalyzes
+    those members once with results withheld, and uses existing changed-callable
+    propagation for dependent consumers; no result fixpoint or new authority.
+    The INC-C3-23 ruling is adopted. CV-09
     is IMPLEMENTED / FOCUSED_TESTED at `f10f3d49`: the untyped-formal Known/Ready
     and genuine-blocker controls, plus canonical Iterator.take publication,
-    passed 1/1 each. Invalid-n runtime behavior is unverified because the
-    existing gate stops before fixture execution with 20
-    `ImplConformanceIncomplete` and 3 `type.generic.underconstrained`
-    diagnostics. CV-08 direct-edge capture/fingerprinting and post-refresh SCC
-    classification are implemented in the current uncommitted diff, but
-    incremental result retraction/reanalysis is pending INC-C3-25. T5/G4
-    remains partial and T6 is not started. This is
+    passed 1/1 each. Invalid-`n` runtime behavior remains BASELINE_BLOCKED /
+    unverified because the prior gate stops before fixture execution with 20
+    `ImplConformanceIncomplete` and 3 `type.generic.underconstrained` Universe
+    bootstrap diagnostics; it does not block T5/G4 lifecycle acceptance. T5/G4
+    is FOCUSED_TESTED and T6 is not started. This is
     separate from T13 and does not
     change T13's §15 stop, certify G5/G6,
     or authorize workspace/release gates.

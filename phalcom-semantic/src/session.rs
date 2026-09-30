@@ -6486,7 +6486,105 @@ impl SemanticWorkspaceSession {
             )?;
         }
 
-        // 7. Refine Callable Return Interfaces and Reach Fixed Point
+        // 7. Retract stale inferred results for current unseeded direct cycles
+        // before allowing the ordinary inferred-result refresh to consume
+        // them. The returned SCC set is withheld from that generic loop.
+        let (withheld_cycle_callables, cycle_reanalysis_roots) = retract_stale_unseeded_callable_result_cycles(
+            &mut self.db,
+            &callable_analyses,
+            &mut callable_signatures,
+            &mut dispatch,
+        )?;
+        if !cycle_reanalysis_roots.is_empty() {
+            let signature_roots = cycle_reanalysis_roots
+                .iter()
+                .cloned()
+                .map(QueryKey::CallableSignature)
+                .collect::<BTreeSet<_>>();
+            let downstream_bodies = self
+                .db
+                .index()
+                .reverse_closure(signature_roots)
+                .into_iter()
+                .filter_map(|key| match key {
+                    QueryKey::CallableBody(callable)
+                        if retained_sources.contains_key(callable.module()) && callable_analyses.contains_key(&callable) =>
+                    {
+                        Some(callable)
+                    }
+                    _ => None,
+                })
+                .collect::<BTreeSet<_>>();
+            semantic_work_modules.extend(downstream_bodies.iter().map(|callable| callable.module().clone()));
+            diagnostic_work_modules.extend(downstream_bodies.iter().map(|callable| callable.module().clone()));
+            semantic_work_modules.extend(cycle_reanalysis_roots.iter().map(|callable| callable.module().clone()));
+            diagnostic_work_modules.extend(cycle_reanalysis_roots.iter().map(|callable| callable.module().clone()));
+
+            // The root bodies were already queried earlier in this session
+            // revision, while their old inferred signatures were still
+            // available. Invalidate only those body roots so their one
+            // authorized reanalysis consumes the retracted dispatch result.
+            // Incoming consumers remain cached and are refreshed by the
+            // ordinary inferred-result propagation below.
+            self.db.invalidate_roots(
+                cycle_reanalysis_roots
+                    .iter()
+                    .cloned()
+                    .map(QueryKey::CallableBody),
+            );
+
+            let reanalysis_signature_snapshot = callable_signatures.clone();
+            let reanalysis_conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
+                trait_dispatch: &trait_dispatch_index,
+                conformance_index: &conformance_index,
+                witness_plans: &conformance_witness_plans,
+                trait_surfaces: &trait_surfaces,
+                derived_conformance_rules: &derived_conformance_rules,
+                callable_signatures: Some(&reanalysis_signature_snapshot),
+            };
+            let reanalysis_formal_inputs = FormalQueryInputs {
+                sources: &retained_sources,
+                source_resolution_input,
+                linked_component_product,
+                linked: &input.linked,
+                topology: semantic_topology.as_ref(),
+                import_products: &input.import_products,
+                hierarchy: &hierarchy,
+                base_resolver: &resolver,
+                declarations: &declarations,
+                type_aliases: &type_aliases,
+                field_signatures: Some(&field_signatures),
+                field_lifecycle: Some(&field_lifecycle),
+                data_semantics: Some(&data_semantics),
+                enum_semantics: Some(&enum_semantics),
+                associated_families: Some(&associated_surfaces_table),
+                type_member_declarations: Some(&type_member_declarations_table),
+                conformance_semantics: Some(&reanalysis_conformance_semantics),
+            };
+            for callable in &cycle_reanalysis_roots {
+                let Some(unit) = retained_sources.get(callable.module()) else {
+                    continue;
+                };
+                revalidate_downstream_callable_body(
+                    &mut self.db,
+                    callable,
+                    unit,
+                    &reanalysis_formal_inputs,
+                    DownstreamCallableBodyState {
+                        store: Arc::make_mut(&mut self.store),
+                        hierarchy: &hierarchy,
+                        dispatch: &mut dispatch,
+                        callable_signatures: &mut callable_signatures,
+                        callable_analyses: &mut callable_analyses,
+                        callable_dispositions: &mut callable_dispositions,
+                        budget,
+                        cancel,
+                    },
+                )?;
+            }
+        }
+
+        // 8. Refine Callable Return Interfaces and Reach Fixed Point
         //
         // This is a specialized session-level loop: body inference and
         // interface publication iterate until return contracts stabilize.
@@ -6514,6 +6612,7 @@ impl SemanticWorkspaceSession {
             previous_callable_signatures: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_signatures.as_ref()),
             trait_default_callables: &trait_default_callables,
             conformance_semantics: &conformance_semantics,
+            withheld_result_callables: &withheld_cycle_callables,
             budget,
             cancel,
         })?;
@@ -10009,6 +10108,7 @@ struct InferredCallableRefreshInputs<'a> {
     previous_callable_signatures: Option<&'a CallableSignatureTable>,
     trait_default_callables: &'a BTreeSet<CallableId>,
     conformance_semantics: &'a crate::trait_dispatch::ConformanceSemanticView<'a>,
+    withheld_result_callables: &'a BTreeSet<CallableId>,
     budget: QueryBudget,
     cancel: &'a CancellationToken,
 }
@@ -10023,6 +10123,89 @@ fn publishable_inferred_return(
     }
 }
 
+/// Finds current direct-result SCCs that are not grounded by a declared result
+/// and retracts any prior inferred-only signature products they contain.
+///
+/// The returned first set must be withheld from the generic result refresh for
+/// this session pass. The second set contains roots that require one body
+/// reanalysis after their stale signature products are retracted.
+fn retract_stale_unseeded_callable_result_cycles(
+    db: &mut SemanticDb,
+    callable_analyses: &HashMap<CallableId, Arc<crate::checker::analysis::CallableAnalysis>>,
+    callable_signatures: &mut crate::signature::CallableSignatureTable,
+    dispatch: &mut SurfaceDispatchResolver,
+) -> Result<(BTreeSet<CallableId>, BTreeSet<CallableId>), QueryOutcome<()>> {
+    let components = callable_result_components(callable_analyses, callable_signatures);
+    let unseeded = components
+        .into_iter()
+        .filter(|component| {
+            component.iter().all(|callable| {
+                callable_signatures
+                    .get_for_body(callable)
+                    .is_some_and(|signature| signature.declared_return.is_unknown())
+            })
+        })
+        .collect::<Vec<_>>();
+    let withheld = unseeded.iter().flatten().cloned().collect::<BTreeSet<_>>();
+    let reanalysis_roots = unseeded
+        .into_iter()
+        .filter(|component| {
+            component.iter().any(|callable| {
+                callable_signatures
+                    .get_for_body(callable)
+                    .is_some_and(|signature| signature.inferred_return.is_some())
+            })
+        })
+        .flatten()
+        .collect::<BTreeSet<_>>();
+
+    for callable in &reanalysis_roots {
+        let Some(signature) = callable_signatures.get_mut(callable) else {
+            continue;
+        };
+        // These are omitted-result signatures by construction. Explicit
+        // declaration-owned results never enter this retraction path.
+        signature.inferred_return = None;
+        let signature = Arc::new(signature.clone());
+        match crate::db::query::query_bootstrap_callable_signature(db, signature.clone()) {
+            QueryOutcome::Ready(_) => {}
+            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+        }
+        let _ = dispatch.update_callable_return_type(&callable, signature.published_return_knowledge());
+    }
+
+    Ok((withheld, reanalysis_roots))
+}
+
+fn callable_result_components(
+    callable_analyses: &HashMap<CallableId, Arc<crate::checker::analysis::CallableAnalysis>>,
+    callable_signatures: &crate::signature::CallableSignatureTable,
+) -> Vec<BTreeSet<CallableId>> {
+    let nodes = callable_analyses
+        .keys()
+        .filter(|callable| callable_signatures.get_for_body(callable).is_some())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let graph = nodes
+        .iter()
+        .map(|callable| {
+            let dependencies = callable_analyses
+                .get(callable)
+                .into_iter()
+                .flat_map(|analysis| &analysis.exits.normal_returns)
+                .filter_map(|fact| fact.direct_result_dependency.as_ref())
+                .filter(|dependency| nodes.contains(*dependency))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            (callable.clone(), dependencies)
+        })
+        .collect::<BTreeMap<_, _>>();
+    callable_result_cycle_components(&graph)
+}
+
 fn refresh_unresolved_callable_result_cycle_diagnostics(
     callable_analyses: &HashMap<CallableId, Arc<crate::checker::analysis::CallableAnalysis>>,
     callable_signatures: &crate::signature::CallableSignatureTable,
@@ -10032,50 +10215,33 @@ fn refresh_unresolved_callable_result_cycle_diagnostics(
         diagnostics.retain(|diagnostic| diagnostic.code != DiagnosticCode::CallableResultCycle);
     }
 
-    let unresolved = callable_analyses
-        .iter()
-        .filter_map(|(callable, analysis)| {
-            let signature = callable_signatures.get_for_body(callable)?;
-            (signature.declared_return.is_unknown() && signature.published_return_knowledge().is_unknown())
-                .then_some((callable.clone(), (callable.module().clone(), analysis.body_range)))
-        })
-        .collect::<BTreeMap<_, _>>();
-    if unresolved.is_empty() {
-        return;
-    }
-
-    let graph = unresolved
-        .keys()
-        .map(|callable| {
-            let dependencies = callable_analyses
-                .get(callable)
-                .into_iter()
-                .flat_map(|analysis| &analysis.exits.normal_returns)
-                .filter_map(|fact| fact.direct_result_dependency.as_ref())
-                .filter(|dependency| unresolved.contains_key(*dependency))
-                .cloned()
-                .collect::<BTreeSet<_>>();
-            (callable.clone(), dependencies)
-        })
-        .collect::<BTreeMap<_, _>>();
-
-    for component in callable_result_cycle_components(&graph) {
+    for component in callable_result_components(callable_analyses, callable_signatures) {
+        let component_is_unseeded = component.iter().all(|callable| {
+            callable_signatures
+                .get_for_body(callable)
+                .is_some_and(|signature| signature.declared_return.is_unknown() && signature.published_return_knowledge().is_unknown())
+        });
+        if !component_is_unseeded {
+            continue;
+        }
         let mut members = component.iter().collect::<Vec<_>>();
         members.sort_by_key(|callable| {
-            let (module, range) = &unresolved[*callable];
-            (module, range.start, range.end, *callable)
+            let analysis = &callable_analyses[*callable];
+            (callable.module(), analysis.body_range.start, analysis.body_range.end, *callable)
         });
         let Some(anchor) = members.first().copied() else { continue };
-        let (anchor_module, anchor_range) = &unresolved[anchor];
+        let anchor_module = anchor.module();
+        let anchor_range = callable_analyses[anchor].body_range;
         let mut diagnostic = SemanticDiagnostic::error_in(
             anchor_module.clone(),
             DiagnosticCode::CallableResultCycle,
             "omitted-result callable participates in a direct result cycle without an explicit result seed",
-            *anchor_range,
+            anchor_range,
         );
         for member in members.iter().skip(1) {
-            let (module, range) = &unresolved[*member];
-            diagnostic = diagnostic.with_label_in(module.clone(), *range, "participates in the unresolved result cycle");
+            let module = member.module();
+            let range = callable_analyses[*member].body_range;
+            diagnostic = diagnostic.with_label_in(module.clone(), range, "participates in the unresolved result cycle");
         }
         diagnostic = diagnostic.with_note("declare a result type on one callable to provide an authoritative result seed");
         diagnostics_by_module.entry(anchor_module.clone()).or_default().push(diagnostic);
@@ -10181,6 +10347,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         previous_callable_signatures,
         trait_default_callables,
         conformance_semantics,
+        withheld_result_callables,
         budget,
         cancel,
     } = inputs;
@@ -10208,6 +10375,12 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         };
 
         for (callable, analysis) in callable_analyses.iter() {
+            if withheld_result_callables.contains(callable) {
+                // Unseeded direct-result SCC members were reanalyzed once
+                // after inferred-only signatures were retracted. Their
+                // results must not re-enter the generic publication loop.
+                continue;
+            }
             let Some(signature) = callable_signatures.get_for_body(callable) else {
                 continue;
             };
@@ -10340,6 +10513,9 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                         continue;
                     };
                     let callable = crate::identity::CallableId::new(decl_id.clone(), selector, side);
+                    if withheld_result_callables.contains(&callable) {
+                        continue;
+                    }
                     let affected = callable_analyses
                         .get(&callable)
                         .is_some_and(|analysis| analysis.dependencies.iter().any(|dependency| changed_callables.contains(dependency)));

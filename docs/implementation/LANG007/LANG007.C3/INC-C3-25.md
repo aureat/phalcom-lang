@@ -9,7 +9,7 @@
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Branch: `main`
 - Starting revision: `1823ac4f9084ccf34d77b01cc463ca5181ce3fe2`
-- Current revision: `1823ac4f9084ccf34d77b01cc463ca5181ce3` (with the scoped, uncommitted CV-08 implementation/test diff)
+- Current revision: `cb68cb35` (with the scoped CV-08/CV-25 implementation and test diff)
 
 ## 2. Escalation trigger
 
@@ -194,3 +194,61 @@ those results? If so, specify the bounded affected-consumer rule and how this
 remains distinct from a recursive result fixpoint. If not, identify the
 alternative contract that satisfies incremental add/remove cold parity while
 keeping declared results authoritative and preserving the no-fixpoint policy.
+
+## 15. Adopted ruling and focused implementation evidence
+
+**Disposition: INC-C3-25 ruling adopted; one-shot implementation focused-tested.**
+The authorized lifecycle is bounded to the existing session snapshot: find
+current direct-result SCCs from `NormalReturnFact` edges even when prior
+inferred values remain in the canonical session table; omit any SCC containing
+an explicit declared-result seed; clear only inferred-only results of an
+unseeded SCC; invalidate only its `CallableBody` query roots; and reanalyze
+those members once with their inferred results withheld. The SCC members stay
+out of both publication and body-recheck legs of the generic inferred-result
+loop. Their `Recomputed` dispositions seed the existing changed-callable
+propagation, which revises affected downstream consumers. This is not a
+recursive result fixpoint, persistent suppression marker, or global
+reanalysis.
+
+The source-owned `CallableSignature` DB product may remain at its declared
+`Unknown` form while the prior inferred `Known(Int)` exists only in the
+session's canonical `CallableSignatureTable` and dispatch view. Therefore the
+barrier does not mutate the signature publisher or pretend that this
+inferred-only change is a source-signature dependency fingerprint change. It
+invalidates only the SCC members' body query roots so the one authorized body
+pass observes the retracted session result; the ordinary result-refresh loop
+then revalidates external consumers using their existing callable dependencies.
+
+The incremental discriminator now includes an external `observeLeft()`
+consumer and unrelated `h() { 3 }`: A publishes Int for the cycle candidates
+and observer; A→B forms the unseeded direct SCC, retracts both SCC results and
+the observer to Unknown, publishes exactly one deterministic diagnostic, and
+keeps `h`'s body Arc and signature fingerprint stable/reusable; B→C removes one
+edge, retires the diagnostic, and restores Int for both SCC candidates and the
+observer. The canonical callable-signature product fingerprints for both SCC
+members change on A→B and again on B→C, while `h`'s fingerprint remains stable.
+Both B and C match cold analysis.
+
+Focused commands selected/passed 1/1 each under
+`RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER=''`:
+
+- `cargo test -p phalcom-semantic --test semantic direct_result_cycle_diagnostics_track_incremental_edges_and_match_cold_analysis -- --nocapture`
+- `cargo test -p phalcom-semantic --test semantic direct_unseeded_result_cycle_is_reported_deterministically_without_fabricating_a_type -- --nocapture`
+- `cargo test -p phalcom-semantic --test semantic recursive_inference_fails_honestly_without_inventing_unit_or_nominal_type -- --nocapture`
+- `cargo test -p phalcom-semantic --test semantic non_result_recursive_calls_do_not_form_callable_result_cycles -- --nocapture`
+- `cargo test -p phalcom-semantic --test semantic explicit_recursive_publication_uses_declared_result -- --nocapture`
+- `cargo test -p phalcom-semantic --test semantic explicit_mutual_recursive_publication_uses_declared_results -- --nocapture`
+- `cargo test -p phalcom-semantic --test semantic generic_result_stays_ready_when_an_untyped_formal_adds_no_constraint -- --nocapture`
+- `cargo test -p phalcom-semantic --test semantic generic_call_preserves_a_genuine_blocker_in_an_untyped_formal_argument -- --nocapture`
+- `cargo test -p phalcom-core --test core iterator_take_publishes_known_constructor_result_with_untyped_count_formal -- --nocapture`
+- `cargo check -p phalcom-semantic`
+
+The invalid-`n` runtime behavior remains BASELINE_BLOCKED / unverified: the prior
+`corpus::iterator_negative` selector and direct fixture invocations stop before
+fixture execution at the recorded Universe bootstrap errors (20
+`impl.conformance.incomplete`, 3 `type.generic.underconstrained`); see
+INC-C3-23 §6 and §9. No corpus aggregate, workspace suite, or broad gate was
+run in this continuation. CV-08's incremental cold-parity criterion and T5/G4
+are FOCUSED_TESTED; this precise pre-fixture blocker does not block the
+lifecycle acceptance. T6 is not started; R1 and P4/C3 remain
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.

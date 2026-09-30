@@ -858,22 +858,30 @@ fn direct_result_cycle_diagnostics_track_incremental_edges_and_match_cold_analys
     };
     let left = callable("left");
     let right = callable("right");
+    let observer = callable("observeLeft");
+    let unrelated = callable("h");
     let source_without_edges = r#"
 class Probe {
   @class left() { Probe.right(); 1 }
   @class right() { Probe.left(); 2 }
+  @class observeLeft() { Probe.left() }
+  @class h() { 3 }
 }
 "#;
     let source_with_cycle = r#"
 class Probe {
   @class left() { Probe.right() }
   @class right() { Probe.left() }
+  @class observeLeft() { Probe.left() }
+  @class h() { 3 }
 }
 "#;
     let source_after_cycle = r#"
 class Probe {
   @class left() { Probe.right() }
   @class right() { 2 }
+  @class observeLeft() { Probe.left() }
+  @class h() { 3 }
 }
 "#;
     let cycle_diagnostics = |snapshot: &phalcom_semantic::SemanticSnapshot| {
@@ -888,12 +896,49 @@ class Probe {
     let first = session.update(single_module_input(module.clone(), source_without_edges, 1));
     assert!(cycle_diagnostics(&first.snapshot).is_empty());
     assert_eq!(
+        first.snapshot.store.format_type(
+            first.snapshot.callable_signatures.get(&observer).unwrap().published_return_knowledge().ty().unwrap()
+        ),
+        "Int"
+    );
+    let unrelated_body_before = first.snapshot.callable_analyses[&unrelated].clone();
+    let unrelated_signature_before = phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(
+        first.snapshot.callable_signatures.get(&unrelated).expect("unrelated signature"),
+    );
+    assert_eq!(
         first.snapshot.callable_analyses[&left].exits.normal_returns[0].direct_result_dependency.as_ref(),
         None,
         "a side-effect call before an independent tail value is not a result edge"
     );
+    let stage_a_scc_fingerprints = [&left, &right].map(|callable_id| {
+        phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(
+            first.snapshot.callable_signatures.get(callable_id).expect("stage-A SCC signature"),
+        )
+    });
 
     let second = session.update(single_module_input(module.clone(), source_with_cycle, 2));
+    assert!(Arc::ptr_eq(
+        &unrelated_body_before,
+        &second.snapshot.callable_analyses[&unrelated]
+    ),
+        "unrelated provider body must remain reusable across SCC retraction"
+    );
+    assert_eq!(
+        phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(
+            second.snapshot.callable_signatures.get(&unrelated).expect("unrelated signature")
+        ),
+        unrelated_signature_before,
+        "unrelated provider signature must remain stable across SCC retraction"
+    );
+    assert!(
+        second.stats.callable_bodies_reused >= 1,
+        "the unrelated provider should be counted as reusable"
+    );
+    let observer_stage_b = second.snapshot.callable_signatures.get(&observer).unwrap().published_return_knowledge();
+    assert!(
+        observer_stage_b.is_unknown(),
+        "the retained reverse-dependency consumer must be revalidated against retracted SCC results; got {observer_stage_b:?}"
+    );
     assert_eq!(
         second.snapshot.callable_analyses[&left].exits.normal_returns[0].direct_result_dependency.as_ref(),
         Some(&right),
@@ -921,6 +966,18 @@ class Probe {
         "right published result should be unresolved after the edit: {:#?}",
         second.snapshot.callable_signatures.get(&right)
     );
+    let stage_b_scc_fingerprints = [&left, &right].map(|callable_id| {
+        phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(
+            second.snapshot.callable_signatures.get(callable_id).expect("stage-B SCC signature"),
+        )
+    });
+    for index in 0..stage_a_scc_fingerprints.len() {
+        assert_ne!(
+            stage_b_scc_fingerprints[index],
+            stage_a_scc_fingerprints[index],
+            "the canonical signature product must change when an SCC result becomes Unknown"
+        );
+    }
     let second_diags = cycle_diagnostics(&second.snapshot);
     assert_eq!(second_diags.len(), 1, "adding the two root-call edges should publish one SCC diagnostic");
     assert!(second.snapshot.callable_signatures.get(&left).unwrap().published_return_knowledge().is_unknown());
@@ -938,21 +995,40 @@ class Probe {
     let mut cold_cycle = SemanticWorkspaceSession::new();
     let cold_second = cold_cycle.update(single_module_input(module.clone(), source_with_cycle, 1));
     assert_eq!(second_diags, cycle_diagnostics(&cold_second.snapshot));
-    for callable_id in [&left, &right] {
+    for callable_id in [&left, &right, &observer] {
         assert!(cold_second.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge().is_unknown());
+        assert_eq!(
+            second.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge().is_unknown(),
+            cold_second.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge().is_unknown(),
+            "incremental and cold stage-B result knowledge must agree"
+        );
     }
 
     let third = session.update(single_module_input(module.clone(), source_after_cycle, 3));
     assert!(cycle_diagnostics(&third.snapshot).is_empty(), "removing one root-call edge should retract the SCC diagnostic");
     let left_result = third.snapshot.callable_signatures.get(&left).unwrap().published_return_knowledge();
     let right_result = third.snapshot.callable_signatures.get(&right).unwrap().published_return_knowledge();
+    let observer_result = third.snapshot.callable_signatures.get(&observer).unwrap().published_return_knowledge();
     assert_eq!(third.snapshot.store.format_type(left_result.ty().expect("left inferred result")), "Int");
     assert_eq!(third.snapshot.store.format_type(right_result.ty().expect("right inferred result")), "Int");
+    assert_eq!(third.snapshot.store.format_type(observer_result.ty().expect("observer inferred result")), "Int");
+    let stage_c_scc_fingerprints = [&left, &right].map(|callable_id| {
+        phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(
+            third.snapshot.callable_signatures.get(callable_id).expect("stage-C SCC signature"),
+        )
+    });
+    for index in 0..stage_b_scc_fingerprints.len() {
+        assert_ne!(
+            stage_c_scc_fingerprints[index],
+            stage_b_scc_fingerprints[index],
+            "the canonical signature product must change when an SCC result is restored"
+        );
+    }
 
     let mut cold_after_cycle = SemanticWorkspaceSession::new();
     let cold_third = cold_after_cycle.update(single_module_input(module, source_after_cycle, 1));
     assert_eq!(cycle_diagnostics(&third.snapshot), cycle_diagnostics(&cold_third.snapshot));
-    for callable_id in [&left, &right] {
+    for callable_id in [&left, &right, &observer] {
         let incremental = third.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge();
         let cold = cold_third.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge();
         assert_eq!(

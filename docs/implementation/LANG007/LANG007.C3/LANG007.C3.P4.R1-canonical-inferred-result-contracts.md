@@ -285,17 +285,30 @@ stabilizes, classify unresolved omitted-result SCCs and emit deterministic
 diagnostics; this is classification-only and introduces no result fixpoint.
 Explicit declared result contracts remain authoritative seeds. Aggregate body
 dependencies and AST/range joins are not result proof. The separate incremental
-stale-inferred-result retraction/reanalysis question remains open under
-[`INC-C3-25.md`](INC-C3-25.md); do not expand this ruling to answer it.
-See [`INC-C3-24.md`](INC-C3-24.md) for the disposition and
-[`INC-C3-25.md`](INC-C3-25.md) for the unresolved incremental question.
+stale-inferred-result lifecycle is governed by the adopted INC-C3-25 ruling:
+classify SCCs from current direct-result edges, retract only inferred-only
+results of unseeded SCCs, invalidate only their `CallableBody` roots, and
+reanalyze each affected SCC member once with its result withheld. Keep those
+members out of the generic refresh loop; their recomputed dispositions seed the
+existing changed-callable propagation to downstream consumers. This is a
+bounded one-shot barrier, not a result fixpoint, persistent suppression, or
+global reanalysis. A source-owned DB signature product may remain Unknown while
+the session's canonical signature table carries a prior inferred result; the
+barrier operates on the SCC body-query roots rather than changing that
+publisher. See [`INC-C3-24.md`](INC-C3-24.md) for direct-edge ownership and
+[`INC-C3-25.md`](INC-C3-25.md) for the lifecycle ruling and evidence.
 
-**G4:** CV-08 and `Iterator.take` causal attribution recorded with minimal
-selector and before/after cause. Verify untyped-formal generic application and
-genuine-blocker controls, canonical `Iterator.take` Known/Ready body and normal
-publication, and unchanged invalid-argument runtime behavior (or record the
-precise pre-fixture baseline blocker). No corpus aggregate. New
-recursion/fixpoint architecture is STOP AND CONSULT.
+**G4 — IMPLEMENTED / FOCUSED_TESTED:** CV-08 and `Iterator.take` causal
+attribution is recorded with minimal selectors and before/after cause. The
+untyped-formal generic application and genuine-blocker controls, canonical
+`Iterator.take` Known/Ready body and normal publication, direct/mutual cycle
+classification and seed controls, and incremental A→B→C cold parity all pass
+the focused selectors listed in INC-C3-25. The invalid-argument runtime
+behavior remains BASELINE_BLOCKED / unverified: the existing gate stops before
+fixture execution at the recorded Universe bootstrap diagnostics (INC-C3-23
+§6/§9). No corpus aggregate was run; this precise pre-fixture blocker is not a
+CV-08 lifecycle failure. New recursion/fixpoint architecture remains STOP AND
+CONSULT.
 
 ### T6 — Restore the natural chain
 
