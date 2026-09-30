@@ -1020,6 +1020,15 @@ fn apply_non_generic_callable(
             ctx.record_call_status(typed.status.clone());
         }
         if let Some(parameter) = parameter {
+            // An omitted formal is analyzed without an expectation, just as
+            // in generic application. Its absence is not an unknown contract
+            // that should block a Ready argument; preserve the formal as
+            // unknown and do not manufacture a relation from the argument.
+            // Other unknown reasons represent unresolved contracts and retain
+            // the normal assignability check below.
+            if matches!(&parameter.ty, TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)) {
+                continue;
+            }
             let relation = ctx.apply_assignability(
                 &typed.knowledge,
                 &parameter.ty,

@@ -3,6 +3,135 @@ use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCom
 use std::sync::Arc;
 
 #[test]
+fn range_iterator_take_infers_and_publishes_specialized_constructor_result() {
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from("let marker = 1")))
+        .expect("canonical Universe source should analyze");
+    let (take_callable, take_analysis) = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .find(|(callable, _)| {
+            callable.try_declaration_owner().is_some_and(|owner| owner.name == "RangeIterator".into())
+                && callable.selector.encode() == "take(_)"
+        })
+        .expect("canonical RangeIterator.take body analysis");
+    let constructor_call = take_analysis
+        .expressions
+        .values()
+        .find(|expression| {
+            expression.callable.as_ref().is_some_and(|callable| {
+                callable.try_declaration_owner().is_some_and(|owner| {
+                    owner.module.path.to_string() == "collections.iterator_laws" && owner.name == "TakeIterator".into()
+                }) && callable.selector.encode() == "new(_,_)"
+            })
+        })
+        .expect("RangeIterator.take must resolve TakeIterator.new through its source import");
+    assert_eq!(constructor_call.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready);
+    let constructor_callable = constructor_call.callable.as_ref().expect("resolved constructor identity");
+    let specialization = constructor_call.call_specialization.as_ref().expect("generic constructor specialization");
+    assert_eq!(&specialization.callable, constructor_callable);
+    assert_eq!(specialization.bindings.len(), 1);
+    let (_, iterator_type) = specialization.bindings[0];
+    assert_eq!(analyzed.semantic.store.format_type(iterator_type), "RangeIterator");
+
+    let constructor_result = constructor_call.knowledge.ty().expect("known specialized constructor result");
+    assert_eq!(analyzed.semantic.store.format_type(constructor_result), "TakeIterator<RangeIterator>");
+    let [normal_return] = &take_analysis.exits.normal_returns[..] else {
+        panic!("expected exactly one normal return: {:#?}", take_analysis.exits.normal_returns);
+    };
+    assert_eq!(normal_return.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready);
+    assert_eq!(normal_return.knowledge.ty(), Some(constructor_result));
+    assert_eq!(normal_return.direct_result_dependency.as_ref(), Some(constructor_callable));
+    let signature = analyzed
+        .semantic
+        .callable_signatures
+        .get_for_body(take_callable)
+        .expect("canonical RangeIterator.take signature");
+    assert_eq!(
+        signature.inferred_return.as_ref().and_then(phalcom_semantic::TypeKnowledge::ty),
+        Some(constructor_result)
+    );
+}
+
+#[test]
+fn natural_range_iter_and_take_stages_are_known() {
+    let source = r#"
+class Caller {
+  inspect -> Int {
+    System.print((0..).iter.take(10).toList.size)
+    0
+  }
+}
+"#;
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source)))
+        .expect("canonical Universe source should analyze");
+    assert!(
+        analyzed.semantic.diagnostics.get(&analyzed.entry).is_none_or(|diagnostics| diagnostics.is_empty()),
+        "the inline entry itself should remain diagnostic-free"
+    );
+    let (iter_call, iter_selection) = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+        .flat_map(|(_, analysis)| analysis.expressions.values())
+        .find_map(|expression| {
+            (source.get(expression.range.start..expression.range.end) == Some("(0..).iter"))
+                .then_some(expression)
+                .and_then(|expression| {
+                    match expression.trait_dispatch.as_ref()? {
+                        phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) => {
+                            Some((expression, selection))
+                        }
+                        _ => None,
+                    }
+                })
+        })
+        .expect("the range iterator call has an evidenced Iterable::iter selection");
+    assert_eq!(iter_call.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready);
+    let iter_result = iter_call.knowledge.ty().expect("Iterable::iter has a known result");
+    assert_eq!(analyzed.semantic.store.format_type(iter_result), "RangeIterator");
+    assert_eq!(iter_selection.requirement.owner.name, "Iterable".into());
+    assert_eq!(iter_selection.requirement.selector.encode(), "iter");
+    assert!(matches!(
+        iter_selection.evidence,
+        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_)
+    ));
+    let take_call = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+        .flat_map(|(_, analysis)| analysis.expressions.values())
+        .find(|expression| {
+            expression.callable.as_ref().is_some_and(|callable| {
+                callable.try_declaration_owner().is_some_and(|owner| {
+                    owner.module.path.to_string() == "collections.range" && owner.name == "RangeIterator".into()
+                }) && callable.selector.encode() == "take(_)"
+            })
+        })
+        .expect("natural range chain selects the inherent RangeIterator.take method");
+    assert_eq!(take_call.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready);
+    assert!(take_call.trait_dispatch.is_none(), "RangeIterator.take is an ordinary inherent selection");
+    assert!(take_call.call_specialization.is_none(), "RangeIterator.take has no method-generic specialization");
+    let take_result = take_call.knowledge.ty().expect("RangeIterator.take has a known result");
+    assert_eq!(analyzed.semantic.store.format_type(take_result), "TakeIterator<RangeIterator>");
+    let take_callable = take_call.callable.as_ref().expect("canonical inherent callable identity");
+    let take_signature = analyzed
+        .semantic
+        .callable_signatures
+        .get_for_body(take_callable)
+        .expect("canonical RangeIterator.take signature");
+    assert_eq!(take_signature.inferred_return.as_ref().and_then(phalcom_semantic::TypeKnowledge::ty), Some(take_result));
+    assert!(matches!(
+        take_signature.parameter_declared_type_at(0).map(|fact| &fact.state),
+        Some(phalcom_semantic::declaration_type::DeclaredTypeState::Unknown(
+            phalcom_semantic::types::evidence::UnknownReason::NoTypeEvidence
+        ))
+    ));
+}
+
+#[test]
 fn tuple_iterator_preserves_specialized_element_type_through_both_protocols() {
     let source = r#"
 let tuple: Tuple<***(Int, String)> = (1, "value")
