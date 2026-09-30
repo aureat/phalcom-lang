@@ -9,16 +9,24 @@ trait Iterator {
   map(_ f) { MappedIterator.new(self, f) }
   filter(_ pred) { FilterIterator.new(self, pred) }
   filterMap(_ f) { FilterMapIterator.new(self, f) }
-  flatMap(_ f) { FlatMapIterator.new(self, f) }
-  flatten { FlattenIterator.new(self) }
-  chain(_ other) { ChainIterator.new(self, other) }
+  flatMap<S>(_ f: (Self::Item) -> S) -> FlatMapIterator<Self, S>
+    where S |= Iterable
+  { FlatMapIterator.new(self, f) }
+  flatten -> FlattenIterator<Self>
+    where Self::Item |= Iterable
+  { FlattenIterator.new(self) }
+  chain<J>(_ other: J) -> ChainIterator<Self, J>
+    where J |= Iterator, <J as Iterator>::Item == Self::Item
+  { ChainIterator.new(self, other) }
   skip(_ n) { SkipIterator.new(self, n) }
   skipWhile(_ pred) { SkipWhileIterator.new(self, pred) }
   take(_ n) { TakeIterator.new(self, n) }
   takeWhile(_ pred) { TakeWhileIterator.new(self, pred) }
   mapWhile(_ f) { MapWhileIterator.new(self, f) }
   inspect(_ f) { InspectIterator.new(self, f) }
-  zip(_ other) { StrictZipIterator.new(self, other) }
+  zip<J>(_ other: J) -> StrictZipIterator<Self, J>
+    where J |= Iterator
+  { StrictZipIterator.new(self, other) }
 }
 
 trait Iterable
@@ -33,7 +41,7 @@ trait Iterable
 
   iter { self.iterator }
 
-  indexed { IndexedIterator.new(self.iterator) }
+  indexed -> IndexedIterator<Self::Iterator> { IndexedIterator.new(self.iterator) }
 
   each(_ f) {
     let it = self.iterator
@@ -284,7 +292,6 @@ trait Iterable
         return Result::Error(DuplicateKeyError.new(key))
       }
       result.insert(entry.value, for: key)
-      step = it.next
     }
     return Result::Ok(result)
   }
@@ -439,7 +446,9 @@ class FlatMapIterator<I, S> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ mapper) {
+  new(_ upstream: I, _ mapper: (<I as Iterator>::Item) -> S)
+    where I |= Iterator, S |= Iterable
+  {
     _upstream = upstream
     _mapper = mapper
     _currentInner = None
@@ -470,8 +479,10 @@ class FlatMapIterator<I, S> {
   iterator { self }
 }
 
-impl<I, S> Iterator for FlatMapIterator<I, S> {
-  type Item = Dynamic
+impl<I, S> Iterator for FlatMapIterator<I, S>
+  where I |= Iterator, S |= Iterable
+{
+  type Item = <S as Iterable>::Item
 }
 
 class FlattenIterator<I> {
@@ -480,7 +491,9 @@ class FlattenIterator<I> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I) {
+  new(_ upstream: I)
+    where I |= Iterator, <I as Iterator>::Item |= Iterable
+  {
     _upstream = upstream
     _currentInner = None
     _done = false
@@ -509,8 +522,10 @@ class FlattenIterator<I> {
   iterator { self }
 }
 
-impl<I> Iterator for FlattenIterator<I> {
-  type Item = Dynamic
+impl<I> Iterator for FlattenIterator<I>
+  where I |= Iterator, <I as Iterator>::Item |= Iterable
+{
+  type Item = < <I as Iterator>::Item as Iterable>::Item
 }
 
 class ChainIterator<I, J> {
@@ -519,7 +534,9 @@ class ChainIterator<I, J> {
   _phase: Int
 
   @constructor
-  new(_ first: I, _ second: J) {
+  new(_ first: I, _ second: J)
+    where I |= Iterator, J |= Iterator, <J as Iterator>::Item == <I as Iterator>::Item
+  {
     _first = first
     _second = second
     _phase = 0
@@ -544,7 +561,9 @@ class ChainIterator<I, J> {
   iterator { self }
 }
 
-impl<I, J> Iterator for ChainIterator<I, J> {
+impl<I, J> Iterator for ChainIterator<I, J>
+  where I |= Iterator, J |= Iterator, <J as Iterator>::Item == <I as Iterator>::Item
+{
   type Item = <I as Iterator>::Item
 }
 
@@ -773,7 +792,9 @@ class StrictZipIterator<I, J> {
   _done: Bool
 
   @constructor
-  new(_ left: I, _ right: J) {
+  new(_ left: I, _ right: J)
+    where I |= Iterator, J |= Iterator
+  {
     _left = left
     _right = right
     _done = false
@@ -799,8 +820,10 @@ class StrictZipIterator<I, J> {
   iterator { self }
 }
 
-impl<I, J> Iterator for StrictZipIterator<I, J> {
-  type Item = Dynamic
+impl<I, J> Iterator for StrictZipIterator<I, J>
+  where I |= Iterator, J |= Iterator
+{
+  type Item = (<I as Iterator>::Item, <J as Iterator>::Item)
 }
 
 class IndexedIterator<I> {
@@ -809,7 +832,9 @@ class IndexedIterator<I> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I) {
+  new(_ upstream: I)
+    where I |= Iterator
+  {
     _upstream = upstream
     _ordinal = 0
     _done = false
@@ -831,8 +856,10 @@ class IndexedIterator<I> {
   iterator { self }
 }
 
-impl<I> Iterator for IndexedIterator<I> {
-  type Item = Dynamic
+impl<I> Iterator for IndexedIterator<I>
+  where I |= Iterator
+{
+  type Item = (Int, <I as Iterator>::Item)
 }
 
 export Iterator, Iterable, MappedIterator, FilterIterator, FilterMapIterator, FlatMapIterator, FlattenIterator, ChainIterator, SkipIterator, SkipWhileIterator, TakeIterator, TakeWhileIterator, MapWhileIterator, InspectIterator, StrictZipIterator, IndexedIterator

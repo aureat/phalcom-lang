@@ -376,6 +376,26 @@ let result = total
 }
 
 #[test]
+fn iterable_to_map_preserves_all_distinct_entries() {
+    let source = r#"
+const entries = [
+  Entry.new("a", 11),
+  Entry.new("b", 22),
+  Entry.new("c", 33),
+  Entry.new("d", 44)
+]
+const map = entries.toMap.unwrap
+let result = map.size == 4 and map["a"] == 11 and map["b"] == 22 and map["c"] == 33 and map["d"] == 44
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("toMap source compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("toMap preserves each entry");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}
+
+#[test]
 fn applied_set_and_map_constructors_execute_as_ordinary_class_object_sends() {
     let source = r#"
 let values = Set<Int>.new()

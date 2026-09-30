@@ -370,7 +370,12 @@ next_action: >
   T13's amended known-receiver gate passes its positive and negative source-level
   selectors. T13/P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED; Priority 3
   is unchanged. No runtime fixture, `corpus::collections`, workspace test, or
-  broad certification gate was run for this amendment.
+  broad certification gate was run for this amendment. The 2026-09-30
+  completion-audit follow-up separately corrected iterator adapter source
+  contracts and `Iterable.toMap`; its semantic fixture passes, but canonical
+  Universe/core verification is blocked before the test body by bootstrap
+  conformance diagnostics of unclear provenance. Do not promote P4/C3 or treat
+  the source/runtime changes as end-to-end verified.
 blocker: INC-C3-20 natural iterator-chain integration remains blocked under Outcome B; no T13 return-inference expansion is authorized.
 ```
 
@@ -3526,3 +3531,43 @@ prerequisites. The interim
 [P4 walkthrough](LANG007.C3.P4-walkthrough.md) records the current snapshot
 and remaining work. It is not the T13 final walkthrough or a P4 completion
 claim.
+
+## 25. Completion-audit follow-up — iterator contracts and `toMap` — 2026-09-30
+
+The four generic inference cases named by the 2026-09-29 completion audit were
+reclassified as fixture interference with the established mutable-binding
+opaque-call policy, not production generic-inference regressions. Their result
+bindings are now immutable so the tests isolate call-expression inference;
+the four exact selectors each passed 1/1 and the scoped test-only change was
+committed as `01e4db77`. Direct call-expression and sibling-call assertions
+remain in place.
+
+The Iterator adapter declarations in `iterator_laws.ph` now state precise
+associated Item products for FlatMap, Flatten, Zip, and Indexed, with the
+required iterator/iterable/equality bounds on their implementations,
+constructors, and public default methods. `ChainIterator` now requires both
+operands to be Iterators and their Item types to be equal. The extra `it.next`
+read in `Iterable.toMap` was removed, and a four-distinct-entry core regression
+was added. These source/runtime corrections are implemented but not accepted
+as canonical-Universe behavior yet.
+
+The semantic selector
+`capabilities::iteration::iterator_adapter_fixture_preserves_item_projections_and_chain_equality`
+passed 1/1. It uses an isolated semantic Fixture and asserts symbolic canonical
+associated-projection shapes for FlatMap/Flatten/Zip/Indexed, plus rejection of
+a heterogeneous chain at the `left.chain(right)` call. The observed rejection
+code is `GenericInferenceUnderconstrained`; it proves call-site rejection in
+this fixture, not ideal diagnostic specificity and not the canonical Universe
+declarations.
+
+The direct core selector
+`iterable_to_map_preserves_all_distinct_entries` selected 1 test but failed
+before inline source-body execution during Universe bootstrap with
+`ImplConformanceIncomplete` diagnostics involving the Iterator `iterator`
+inherent-selector relationship across iterator implementations and collection
+owners. Provenance is unclear, so this is recorded as blocked, not as a
+verified baseline or a pass. Consequently neither the canonical adapter source
+contracts nor the four-entry `toMap` runtime behavior have end-to-end evidence
+from this slice. No Universe conformance rule, `TypeStore::union` behavior, or
+fallback typing was changed. C3/P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED;
+the audit's structural-subtyping/spec conflict and broader gates remain open.
