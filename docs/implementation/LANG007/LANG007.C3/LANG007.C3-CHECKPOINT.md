@@ -84,8 +84,14 @@ next_action: >
   incremental products agree. The ordinary disposition selector observed one
   body recomputed and two same-result bodies reused, correcting a stale counter
   expectation without changing production stats. Exact selectors and 1/1
-  results are recorded under INC-C3-21 below. T5 is next. G5 collection
-  aggregates remain
+  results are recorded under INC-C3-21 below. T5/CV-08 now has focused
+  explicit-seed direct/mutual cycle controls, each passing 1/1. The existing
+  unseeded direct/mutual cases remain Unknown with Ready status and no
+  diagnostics, so the plan's deterministic-diagnostic requirement is
+  unresolved. CV-09's `Iterator.take` probe found a blocked generic constructor
+  application at an untyped argument, not a demonstrated callable/query cycle.
+  No production policy change is authorized pending INC-C3-23. T5/G4 remains
+  partial; T6 is not started. G5 collection aggregates remain
   unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored.
   P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. The only added corpus gate
   is the direct `corpus::collections` selector after R1's chain gate passes.
@@ -487,7 +493,7 @@ C3 is complete only when this statement is true:
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1-T10 accepted; generic-owner payload behavior fixed; all required C3 coverage has direct evidence or a clean-predecessor baseline disposition; see P3 walkthrough/handoff |
 | `LANG007.C3.P3.R1` | Corrective closure: explicit intrinsic semantic application and runtime/native owner projections | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | user-adopted projections implemented and focused gates passed; see P3.R1 handoff |
 | `LANG007.C3.P4` | Intrinsic structural data, structural kinds, product-shape expansion, and Tuple/Record semantic completion | IN_PROGRESS | PARTIAL | UNVERIFIED | active plan |
-| `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | IN_PROGRESS | PARTIAL | UNVERIFIED | adopted INC-C3-21; bounded source census first; does not certify T13/G5/G6 |
+| `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | IN_PROGRESS | PARTIAL | UNVERIFIED | T1–T4 focused work recorded; T5/G4 is partial pending INC-C3-23; does not certify T13/G5/G6 |
 
 P3.R1 was a bounded corrective closure required by the explicit ruling supplied
 after P3 closure. P4 completes the intrinsic structural-data model and structural literal convergence.
@@ -1771,10 +1777,16 @@ invalidation and cold parity, explicit-result body-only stability, and a
 two-module Universe workspace metadata round-trip carrying
 `PublishedTypeAuthority::CompilerInferred`. The former ordinary counter
 expectation was stale: the observed disposition is one body recomputed and two
-reused; semantic results and stable signature products remain Int. T5 is next. It requires
-causal attribution of `Iterator.take`'s `RecursiveFixpoint` and focused natural
-chain verification after both stages are canonical. It does not amend T13 or
-certify G5/G6. See [`INC-C3-21.md`](INC-C3-21.md) and the
+reused; semantic results and stable signature products remain Int. T5/CV-08's
+explicit-result direct and mutual recursion controls pass 1/1 each; existing
+unseeded controls remain epistemically Unknown but publish no diagnostic. The
+CV-09 probe shows `Iterator.take`'s generic constructor result is known and
+specialized, while the call status is blocked because constructor parameter
+`n` has no declared type. This is not evidence of a semantic/query cycle. The
+two policy questions are captured in [`INC-C3-23.md`](INC-C3-23.md); no
+production change is authorized before its ruling. T5/G4 remains partial, T6
+is not started, and this does not amend T13 or certify G5/G6. See
+[`INC-C3-21.md`](INC-C3-21.md) and the
 [`P4.R1 plan`](LANG007.C3.P4.R1-canonical-inferred-result-contracts.md).
 P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
@@ -1801,6 +1813,20 @@ symbolic substitution, return-mismatch, original CV-04, and diagnostic-repair
 controls each pass 1/1. T4/CV-05–CV-07, Priority 3, and P4/C3 certification
 remain separate and incomplete.
 See [`INC-C3-22.md`](INC-C3-22.md).
+
+### INC-C3-23 — T5 cycle diagnostics and `Iterator.take` generic-argument block — 2026-09-30
+
+Status: OPEN — architect ruling required. The direct and mutual unseeded
+callable cycles publish `Unknown(UnannotatedDeclaration)` with `Ready` status
+and no diagnostics, despite the plan's deterministic-diagnostic requirement.
+Explicitly seeded direct and mutual cycles publish canonical `Int` results and
+their focused tests pass. A separate canonical-Universe probe shows
+`Iterator.take`'s `TakeIterator.new(self, n)` specializes its known result, but
+generic call analysis blocks because the constructor's `n` parameter is
+untyped; this produces an unknown normal-return summary. No semantic cycle,
+production fix, source annotation, or inference-policy change has been
+established. See [`INC-C3-23.md`](INC-C3-23.md) for evidence and the two
+decisions requested. T5/G4 remains partial and T6 is not started.
 
 Use entries:
 
@@ -2331,8 +2357,10 @@ next task:
     `semantic::incremental::callable_dependencies::inferred_return_refresh_preserves_stable_products_and_counts_final_disposition_once`,
     `semantic::incremental::product_stability::inferred_cross_module_result_updates_dependents_and_matches_cold_analysis`,
     and `semantic::integration::metadata::cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metadata`.
-    T5 is next.
-    This is separate from T13 and does not change T13's §15 stop, certify G5/G6,
+    T5/CV-08 explicit-seed tests pass, but unseeded diagnostic behavior and
+    `Iterator.take` generic-argument blocking are under INC-C3-23. T5/G4 is
+    partial and T6 is not started. This is separate from T13 and does not
+    change T13's §15 stop, certify G5/G6,
     or authorize workspace/release gates.
     G5 collection aggregates remain unpassed/uncertified, G6 is incomplete, the
     natural chain is blocked/ignored, and P4/C3 remains IN_PROGRESS / PARTIAL /
