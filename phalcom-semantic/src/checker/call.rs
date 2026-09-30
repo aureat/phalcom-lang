@@ -1586,7 +1586,9 @@ fn apply_generic_callable_in_context(
         let Some(parameter_ty) = parameter.ty.ty() else {
             let typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
             record_generic_argument_capture(ctx, &typed);
-            ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+            // An untyped formal contributes no static constraint. The argument
+            // is still analyzed without an expectation, and its own status is
+            // preserved by `record_generic_argument_capture` above.
             continue;
         };
         let parameter_term = row_session.as_ref().map_or_else(

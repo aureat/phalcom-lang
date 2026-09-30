@@ -20,6 +20,7 @@ class Probe {
     const y = Probe.identity("hello")
   }
 }
+
 "#,
     );
     let int_ty = f.ty("Int");
@@ -35,6 +36,75 @@ class Probe {
     );
     f.assert_binding_established(run, "x", int_ty);
     f.assert_binding_established(run, "y", string_ty);
+}
+
+/// An untyped formal contributes no constraint but does not block a result
+/// already specialized from an independent typed argument.
+#[test]
+fn generic_result_stays_ready_when_an_untyped_formal_adds_no_constraint() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  make<T>(_ value: T, _ runtimeChecked) -> T { value }
+
+  @class
+  run(_ untyped) {
+    const result = Probe.make(42, untyped)
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let untyped = f.expression(run, "untyped");
+    assert!(untyped.knowledge.ty().is_none());
+    assert!(matches!(untyped.status, AnalysisStatus::Ready));
+
+    let call = f.expression(run, "Probe.make(42, untyped)");
+    assert_eq!(call.knowledge.ty(), Some(f.ty("Int")), "typed argument specializes T: {call:#?}");
+    assert!(
+        matches!(call.status, AnalysisStatus::Ready),
+        "untyped formal alone must not block application: {call:#?}"
+    );
+    f.assert_no_error_diagnostics();
+}
+
+/// A genuinely blocked argument still blocks the containing generic call,
+/// even when another argument fully determines its result parameter.
+#[test]
+fn generic_call_preserves_a_genuine_blocker_in_an_untyped_formal_argument() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  make<T>(_ value: T, _ runtimeChecked) -> T { value }
+
+  @class
+  underconstrained<F: Type -> Type, A>() -> F<A> { 0 }
+
+  @class
+  run() {
+    const result = Probe.make(42, Probe.underconstrained())
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let blocked_argument = f.expression(run, "Probe.underconstrained()");
+    assert!(
+        matches!(blocked_argument.status, AnalysisStatus::Blocked(_)),
+        "control must be genuinely blocked: {blocked_argument:#?}"
+    );
+    let outer_call = f.expression(run, "Probe.make(42, Probe.underconstrained())");
+    assert_eq!(
+        outer_call.knowledge.ty(),
+        Some(f.ty("Int")),
+        "the first argument still specializes T: {outer_call:#?}"
+    );
+    assert!(
+        matches!(outer_call.status, AnalysisStatus::Blocked(_)),
+        "argument blocker must propagate: {outer_call:#?}"
+    );
 }
 
 /// LAW: independent generic variables retain independent argument evidence.

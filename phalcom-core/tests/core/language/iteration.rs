@@ -221,6 +221,60 @@ class Caller {
 }
 
 #[test]
+fn iterator_take_publishes_known_constructor_result_with_untyped_count_formal() {
+    let analyzed =
+        ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from("let marker = 1")))
+            .expect("canonical Universe source should analyze");
+
+    let (take_callable, take_analysis) = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .find(|(callable, _)| callable.try_declaration_owner().is_some_and(|owner| owner.name == "Iterator".into()) && callable.selector.encode() == "take(_)")
+        .expect("canonical Iterator.take body analysis");
+    let constructor_call = take_analysis
+        .expressions
+        .values()
+        .find(|expression| {
+            expression.callable.as_ref().is_some_and(|callable| {
+                callable.try_declaration_owner().is_some_and(|owner| owner.name == "TakeIterator".into()) && callable.selector.encode() == "new(_,_)"
+            })
+        })
+        .expect("TakeIterator.new call in canonical Iterator.take body");
+    assert!(
+        matches!(constructor_call.knowledge, phalcom_semantic::TypeKnowledge::Known(_)),
+        "known upstream should specialize TakeIterator: {constructor_call:#?}"
+    );
+    assert_eq!(
+        constructor_call.status,
+        phalcom_semantic::checker::analysis::AnalysisStatus::Ready,
+        "untyped count formal must not manufacture a blocker: {constructor_call:#?}"
+    );
+    let constructor_result = constructor_call.knowledge.ty().expect("known constructor result");
+    let phalcom_semantic::types::TypeData::Applied { origin, .. } = analyzed.semantic.store.get(constructor_result) else {
+        panic!(
+            "expected specialized TakeIterator application, got {:?}",
+            analyzed.semantic.store.get(constructor_result)
+        );
+    };
+    let phalcom_semantic::types::TypeData::Nominal { declaration } = analyzed.semantic.store.get(*origin) else {
+        panic!("expected nominal TakeIterator origin, got {:?}", analyzed.semantic.store.get(*origin));
+    };
+    assert_eq!(declaration.name, "TakeIterator".into());
+
+    let signature = analyzed
+        .semantic
+        .callable_signatures
+        .get_for_body(take_callable)
+        .expect("canonical Iterator.take signature");
+    assert_eq!(
+        signature.inferred_return.as_ref().and_then(phalcom_semantic::TypeKnowledge::ty),
+        Some(constructor_result),
+        "normal return publication should reuse the specialized constructor result: {signature:#?}"
+    );
+}
+
+#[test]
 fn tuple_and_record_raw_observers_keep_exact_types_and_public_options() {
     let source = r#"
 let tuple: Tuple<***(Int, String)> = (7, "tail")
