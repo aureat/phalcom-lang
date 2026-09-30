@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "__unstructured__/Packs.md",
+                "file": "__unstructured__/Static Context and Constants.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Packs"
+              "title": "Static Context and Constants"
             }
           }
         ]
@@ -187,11 +187,12 @@
   },
   "active": "ce0715c6b8d22269",
   "lastOpenFiles": [
+    "implementation/LANG007/LANG007.C3/INC-C3-27.md",
     "implementation/LANG007/LANG007.C3/INC-C3-25.md",
     "implementation/LANG007/LANG007.C3/INC-C3-24.md",
     "implementation/LANG007/LANG007.C3/INC-C3-23.md",
     "__unstructured__/Untitled 1.md",
-    "__unstructured__/Packs.md",
+    "__unstructured__/Static Context and Constants.md",
     "implementation/LANG007/LANG007.C3/LANG007.C3.P4-walkthrough.md",
     "__unstructured__/Untitled.md",
     "implementation/LANG007/LANG007.C3/LANG007.C3.P3.R1-walkthrough.md",
@@ -215,7 +216,6 @@
     "implementation/STDL002-standard-library-buildout/C2",
     "implementation/STDL002-standard-library-buildout/untitled folder",
     "implementation/STDL002-standard-library-buildout/STDL002.C2.P1-plan-00-shared-header.md",
-    "implementation/LANG006/LANG006.C1/LANG006.C1.P1-BODY.md",
     "implementation/LANG006/LANG006.C1",
     "implementation/LANG006/untitled folder",
     "implementation/LANG006",
