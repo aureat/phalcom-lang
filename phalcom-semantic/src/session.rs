@@ -6518,6 +6518,8 @@ impl SemanticWorkspaceSession {
             cancel,
         })?;
 
+        refresh_unresolved_callable_result_cycle_diagnostics(&callable_analyses, &callable_signatures, &mut diags_by_module);
+
         // The first witness plans are provisional for body analysis. Once
         // canonical callable results stabilize, replace their derived
         // requirement projections before publishing the final semantic view.
@@ -10019,6 +10021,130 @@ fn publishable_inferred_return(
         crate::checker::analysis::CallableAnalysisStatus::Complete if summary.is_known() || summary.is_dynamic() => Some(summary),
         _ => None,
     }
+}
+
+fn refresh_unresolved_callable_result_cycle_diagnostics(
+    callable_analyses: &HashMap<CallableId, Arc<crate::checker::analysis::CallableAnalysis>>,
+    callable_signatures: &crate::signature::CallableSignatureTable,
+    diagnostics_by_module: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
+) {
+    for diagnostics in diagnostics_by_module.values_mut() {
+        diagnostics.retain(|diagnostic| diagnostic.code != DiagnosticCode::CallableResultCycle);
+    }
+
+    let unresolved = callable_analyses
+        .iter()
+        .filter_map(|(callable, analysis)| {
+            let signature = callable_signatures.get_for_body(callable)?;
+            (signature.declared_return.is_unknown() && signature.published_return_knowledge().is_unknown())
+                .then_some((callable.clone(), (callable.module().clone(), analysis.body_range)))
+        })
+        .collect::<BTreeMap<_, _>>();
+    if unresolved.is_empty() {
+        return;
+    }
+
+    let graph = unresolved
+        .keys()
+        .map(|callable| {
+            let dependencies = callable_analyses
+                .get(callable)
+                .into_iter()
+                .flat_map(|analysis| &analysis.exits.normal_returns)
+                .filter_map(|fact| fact.direct_result_dependency.as_ref())
+                .filter(|dependency| unresolved.contains_key(*dependency))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            (callable.clone(), dependencies)
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for component in callable_result_cycle_components(&graph) {
+        let mut members = component.iter().collect::<Vec<_>>();
+        members.sort_by_key(|callable| {
+            let (module, range) = &unresolved[*callable];
+            (module, range.start, range.end, *callable)
+        });
+        let Some(anchor) = members.first().copied() else { continue };
+        let (anchor_module, anchor_range) = &unresolved[anchor];
+        let mut diagnostic = SemanticDiagnostic::error_in(
+            anchor_module.clone(),
+            DiagnosticCode::CallableResultCycle,
+            "omitted-result callable participates in a direct result cycle without an explicit result seed",
+            *anchor_range,
+        );
+        for member in members.iter().skip(1) {
+            let (module, range) = &unresolved[*member];
+            diagnostic = diagnostic.with_label_in(module.clone(), *range, "participates in the unresolved result cycle");
+        }
+        diagnostic = diagnostic.with_note("declare a result type on one callable to provide an authoritative result seed");
+        diagnostics_by_module.entry(anchor_module.clone()).or_default().push(diagnostic);
+    }
+}
+
+fn callable_result_cycle_components(graph: &BTreeMap<CallableId, BTreeSet<CallableId>>) -> Vec<BTreeSet<CallableId>> {
+    struct Tarjan<'a> {
+        graph: &'a BTreeMap<CallableId, BTreeSet<CallableId>>,
+        next: usize,
+        indices: HashMap<CallableId, usize>,
+        lowlinks: HashMap<CallableId, usize>,
+        stack: Vec<CallableId>,
+        on_stack: BTreeSet<CallableId>,
+        components: Vec<BTreeSet<CallableId>>,
+    }
+
+    fn visit(node: CallableId, state: &mut Tarjan<'_>) {
+        let index = state.next;
+        state.next += 1;
+        state.indices.insert(node.clone(), index);
+        state.lowlinks.insert(node.clone(), index);
+        state.stack.push(node.clone());
+        state.on_stack.insert(node.clone());
+
+        if let Some(dependencies) = state.graph.get(&node) {
+            for dependency in dependencies {
+                if !state.indices.contains_key(dependency) {
+                    visit(dependency.clone(), state);
+                    let lowlink = state.lowlinks[&node].min(state.lowlinks[dependency]);
+                    state.lowlinks.insert(node.clone(), lowlink);
+                } else if state.on_stack.contains(dependency) {
+                    let lowlink = state.lowlinks[&node].min(state.indices[dependency]);
+                    state.lowlinks.insert(node.clone(), lowlink);
+                }
+            }
+        }
+
+        if state.lowlinks[&node] == state.indices[&node] {
+            let mut component = BTreeSet::new();
+            while let Some(member) = state.stack.pop() {
+                state.on_stack.remove(&member);
+                component.insert(member.clone());
+                if member == node {
+                    break;
+                }
+            }
+            if component.len() > 1 || state.graph.get(&node).is_some_and(|dependencies| dependencies.contains(&node)) {
+                state.components.push(component);
+            }
+        }
+    }
+
+    let mut state = Tarjan {
+        graph,
+        next: 0,
+        indices: HashMap::new(),
+        lowlinks: HashMap::new(),
+        stack: Vec::new(),
+        on_stack: BTreeSet::new(),
+        components: Vec::new(),
+    };
+    for node in graph.keys() {
+        if !state.indices.contains_key(node) {
+            visit(node.clone(), &mut state);
+        }
+    }
+    state.components.sort_by(|left, right| left.first().cmp(&right.first()));
+    state.components
 }
 
 fn same_published_return_contract(left: &crate::types::evidence::TypeKnowledge, right: &crate::types::evidence::TypeKnowledge) -> bool {

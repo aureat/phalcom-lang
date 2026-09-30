@@ -233,6 +233,9 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             }
             ctx.record_call_dependency(val_typed.causal_invalidity, Some(return_explanation));
             let fact = crate::checker::analysis::NormalReturnFact {
+                direct_result_dependency: ret.value.as_ref().and_then(|expr| {
+                    crate::checker::analysis::direct_result_dependency(expr, val_typed.callable.as_ref())
+                }),
                 knowledge: val_typed.knowledge,
                 flow: ctx.current_flow_summary(),
                 status: val_typed.status,

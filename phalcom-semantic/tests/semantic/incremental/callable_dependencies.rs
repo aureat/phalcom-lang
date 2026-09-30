@@ -9,6 +9,7 @@ use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::advisory::ValueShape;
 use phalcom_semantic::db::QueryKey;
+use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
@@ -838,6 +839,125 @@ class Top { @class value() { Middle.value() } }
             phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(signature),
             initial_signature_fingerprints[index],
             "same-result body edits must preserve the canonical signature product fingerprint"
+        );
+    }
+}
+
+#[test]
+fn direct_result_cycle_diagnostics_track_incremental_edges_and_match_cold_analysis() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(208),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("cycle").unwrap()]),
+    );
+    let callable = |name: &str| {
+        CallableId::new(
+            DeclarationId::new(module.clone(), "Probe".into()),
+            Selector::method(name, []).unwrap(),
+            DispatchSide::Class,
+        )
+    };
+    let left = callable("left");
+    let right = callable("right");
+    let source_without_edges = r#"
+class Probe {
+  @class left() { Probe.right(); 1 }
+  @class right() { Probe.left(); 2 }
+}
+"#;
+    let source_with_cycle = r#"
+class Probe {
+  @class left() { Probe.right() }
+  @class right() { Probe.left() }
+}
+"#;
+    let source_after_cycle = r#"
+class Probe {
+  @class left() { Probe.right() }
+  @class right() { 2 }
+}
+"#;
+    let cycle_diagnostics = |snapshot: &phalcom_semantic::SemanticSnapshot| {
+        snapshot
+            .all_diagnostics()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::CallableResultCycle)
+            .map(|diagnostic| (diagnostic.primary.module.clone(), diagnostic.primary_range, diagnostic.message.clone()))
+            .collect::<Vec<_>>()
+    };
+
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(single_module_input(module.clone(), source_without_edges, 1));
+    assert!(cycle_diagnostics(&first.snapshot).is_empty());
+    assert_eq!(
+        first.snapshot.callable_analyses[&left].exits.normal_returns[0].direct_result_dependency.as_ref(),
+        None,
+        "a side-effect call before an independent tail value is not a result edge"
+    );
+
+    let second = session.update(single_module_input(module.clone(), source_with_cycle, 2));
+    assert_eq!(
+        second.snapshot.callable_analyses[&left].exits.normal_returns[0].direct_result_dependency.as_ref(),
+        Some(&right),
+        "incremental left result edge was not retained: {:#?}",
+        second.snapshot.callable_analyses[&left].exits.normal_returns
+    );
+    assert_eq!(
+        second.snapshot.callable_analyses[&right].exits.normal_returns[0].direct_result_dependency.as_ref(),
+        Some(&left),
+        "incremental right result edge was not retained: {:#?}",
+        second.snapshot.callable_analyses[&right].exits.normal_returns
+    );
+    assert!(
+        second.snapshot.callable_signatures.get(&left).expect("left signature").declared_return.is_unknown(),
+        "left result should be omitted: {:#?}",
+        second.snapshot.callable_signatures.get(&left)
+    );
+    assert!(
+        second.snapshot.callable_signatures.get(&left).expect("left signature").published_return_knowledge().is_unknown(),
+        "left published result should be unresolved after the edit: {:#?}",
+        second.snapshot.callable_signatures.get(&left)
+    );
+    assert!(
+        second.snapshot.callable_signatures.get(&right).expect("right signature").published_return_knowledge().is_unknown(),
+        "right published result should be unresolved after the edit: {:#?}",
+        second.snapshot.callable_signatures.get(&right)
+    );
+    let second_diags = cycle_diagnostics(&second.snapshot);
+    assert_eq!(second_diags.len(), 1, "adding the two root-call edges should publish one SCC diagnostic");
+    assert!(second.snapshot.callable_signatures.get(&left).unwrap().published_return_knowledge().is_unknown());
+    assert!(second.snapshot.callable_signatures.get(&right).unwrap().published_return_knowledge().is_unknown());
+    let with_edge = second.snapshot.callable_analyses[&left].as_ref();
+    let edge_fingerprint = phalcom_semantic::db::fingerprint::callable_body_product_fingerprint(with_edge);
+    let mut without_edge = with_edge.clone();
+    without_edge.exits.normal_returns[0].direct_result_dependency = None;
+    assert_ne!(
+        edge_fingerprint,
+        phalcom_semantic::db::fingerprint::callable_body_product_fingerprint(&without_edge),
+        "the direct result identity must participate in the body product fingerprint"
+    );
+
+    let mut cold_cycle = SemanticWorkspaceSession::new();
+    let cold_second = cold_cycle.update(single_module_input(module.clone(), source_with_cycle, 1));
+    assert_eq!(second_diags, cycle_diagnostics(&cold_second.snapshot));
+    for callable_id in [&left, &right] {
+        assert!(cold_second.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge().is_unknown());
+    }
+
+    let third = session.update(single_module_input(module.clone(), source_after_cycle, 3));
+    assert!(cycle_diagnostics(&third.snapshot).is_empty(), "removing one root-call edge should retract the SCC diagnostic");
+    let left_result = third.snapshot.callable_signatures.get(&left).unwrap().published_return_knowledge();
+    let right_result = third.snapshot.callable_signatures.get(&right).unwrap().published_return_knowledge();
+    assert_eq!(third.snapshot.store.format_type(left_result.ty().expect("left inferred result")), "Int");
+    assert_eq!(third.snapshot.store.format_type(right_result.ty().expect("right inferred result")), "Int");
+
+    let mut cold_after_cycle = SemanticWorkspaceSession::new();
+    let cold_third = cold_after_cycle.update(single_module_input(module, source_after_cycle, 1));
+    assert_eq!(cycle_diagnostics(&third.snapshot), cycle_diagnostics(&cold_third.snapshot));
+    for callable_id in [&left, &right] {
+        let incremental = third.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge();
+        let cold = cold_third.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge();
+        assert_eq!(
+            third.snapshot.store.format_type(incremental.ty().expect("incremental result")),
+            cold_third.snapshot.store.format_type(cold.ty().expect("cold result"))
         );
     }
 }

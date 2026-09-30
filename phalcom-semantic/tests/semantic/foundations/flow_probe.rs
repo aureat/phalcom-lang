@@ -52,6 +52,7 @@ fn flow_probe_isolates_diagnostics_explanations_and_exits() {
             flow: summary,
             status: phalcom_semantic::checker::analysis::AnalysisStatus::Ready,
             causal_invalidity: phalcom_semantic::checker::causal::CausalInvalidity::Clean,
+            direct_result_dependency: None,
         });
 
         // Mutate flow in probe

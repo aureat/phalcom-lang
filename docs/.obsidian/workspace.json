@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "__unstructured__/Untitled 1.md",
+                "file": "__unstructured__/Packs.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Untitled 1"
+              "title": "Packs"
             }
           }
         ]
@@ -187,9 +187,13 @@
   },
   "active": "ce0715c6b8d22269",
   "lastOpenFiles": [
+    "implementation/LANG007/LANG007.C3/INC-C3-25.md",
+    "implementation/LANG007/LANG007.C3/INC-C3-24.md",
+    "implementation/LANG007/LANG007.C3/INC-C3-23.md",
+    "__unstructured__/Untitled 1.md",
+    "__unstructured__/Packs.md",
     "implementation/LANG007/LANG007.C3/LANG007.C3.P4-walkthrough.md",
     "__unstructured__/Untitled.md",
-    "__unstructured__/Untitled 1.md",
     "implementation/LANG007/LANG007.C3/LANG007.C3.P3.R1-walkthrough.md",
     "implementation/LANG007/LANG007.C3/LANG007.C3.P4-pre-renumbering-progress-notes.md",
     "implementation/LANG007/LANG007.C3/LANG007.C3.P4-pre-renumbering-continuation-notes.md",
@@ -212,15 +216,11 @@
     "implementation/STDL002-standard-library-buildout/untitled folder",
     "implementation/STDL002-standard-library-buildout/STDL002.C2.P1-plan-00-shared-header.md",
     "implementation/LANG006/LANG006.C1/LANG006.C1.P1-BODY.md",
-    "implementation/LANG006/LANG006.C1/LANG006.C1.P1-HEADER.md",
-    "implementation/LANG006/LANG006.C1/LANG006.C1-CHECKPOINT.md",
     "implementation/LANG006/LANG006.C1",
     "implementation/LANG006/untitled folder",
-    "implementation/LANG006/LANG006.C1-CHECKPOINT.md",
     "implementation/LANG006",
     "LANG006",
     "untitled folder",
-    "implementation/time.md",
     "decisions/retired",
     "decisions/proposed"
   ]

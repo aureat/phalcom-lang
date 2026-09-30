@@ -149,7 +149,7 @@ Expand this map only when a traced dependency proves another owner is involved.
 | CV-05 | Result changes invalidate dependents; same-result and explicit-result body edits keep interface fingerprint stable. |
 | CV-06 | Cross-module metadata roundtrip reuses existing signature representation. |
 | CV-07 | Cold/incremental agreement for changed and same-result bodies and a dependent consumer. |
-| CV-08 | Direct/mutual cycle controls establish explicit-seed policy and deterministic diagnostic. |
+| CV-08 | Direct/mutual cycle controls establish explicit-seed policy and deterministic diagnostic using only direct normal-return root-call `CallableId` edges. |
 | CV-09 | `Iterator.take` `RecursiveFixpoint` causally attributed; natural chain reaches typed receivers and canonical Derived evidence. |
 
 ## 6. Tasks and gates
@@ -274,11 +274,21 @@ or per-call-site errors. For a selected untyped formal, analyze without an
 expected type, preserve the argument's own status, and do not manufacture a
 `RecursiveFixpoint`; keep genuine blockers and unresolved required generics
 fail-closed. Preserve `Iterator.take` runtime validation and do not annotate
-its source declarations. INC-C3-24 records the unresolved scope decision:
-limit CV-08 classification to direct returned-call cycles, or establish a
-broader result-provenance product propagated through nested expressions and
-flow/binding values and included in callable fingerprints. Aggregate body
-dependencies and AST/range joins alone are not sound general result edges.
+its source declarations. **Ruling amendment (INC-C3-24, 2026-09-30, Option 1
+adopted):** the only CV-08 result edge is the canonical selected `CallableId`
+when a normal-return root expression is itself a call, for a tail call or
+explicit `return call`. Do not derive edges through syntax walks or source-range
+joins, and do not infer provenance for locals, nested calls, operators,
+branches, or flow/binding values. Include the direct-result identity in the
+callable body product fingerprint. After ordinary inferred-result publication
+stabilizes, classify unresolved omitted-result SCCs and emit deterministic
+diagnostics; this is classification-only and introduces no result fixpoint.
+Explicit declared result contracts remain authoritative seeds. Aggregate body
+dependencies and AST/range joins are not result proof. The separate incremental
+stale-inferred-result retraction/reanalysis question remains open under
+[`INC-C3-25.md`](INC-C3-25.md); do not expand this ruling to answer it.
+See [`INC-C3-24.md`](INC-C3-24.md) for the disposition and
+[`INC-C3-25.md`](INC-C3-25.md) for the unresolved incremental question.
 
 **G4:** CV-08 and `Iterator.take` causal attribution recorded with minimal
 selector and before/after cause. Verify untyped-formal generic application and

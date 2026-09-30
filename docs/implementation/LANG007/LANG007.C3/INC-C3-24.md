@@ -192,5 +192,20 @@ If option 2 is required, specify the ownership and propagation contract for
 branch joins, operators, and returned locals. The existing AST/range and
 aggregate dependency products are insufficient proof.
 
-Until this is resolved, CV-08 production changes remain paused. CV-09 may
-continue independently. T5/G4 and P4 remain incomplete.
+### Adopted disposition — Option 1
+
+Option 1 is adopted for CV-08 edge authority. The supported edge is only the
+canonical selected `CallableId` of a normal-return root expression that is
+itself a call (tail call or explicit `return call`). Do not infer edges by
+syntax walking or source-range joins, and do not attach edges for locals,
+nested calls, branches, operators, or other value provenance. Include this
+direct-result identity in the callable body product fingerprint. After
+ordinary inferred-result publication stabilizes, classify unresolved omitted-
+result SCCs and emit deterministic diagnostics; do not add a result fixpoint.
+Explicit declared result contracts remain authoritative seeds.
+
+This settles the edge-source/representation question raised here; it does not
+settle incremental retraction of inferred-only signatures when a previously
+acyclic body edit creates a direct-result cycle. That separate issue is tracked
+in [`INC-C3-25.md`](INC-C3-25.md). T5/G4 and P4 remain incomplete while that
+incremental parity question is open.

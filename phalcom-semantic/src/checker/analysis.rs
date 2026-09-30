@@ -337,6 +337,19 @@ pub struct NormalReturnFact {
     pub flow: FlowStateSummary,
     pub status: AnalysisStatus,
     pub causal_invalidity: CausalInvalidity,
+    /// Canonical callable whose result is this exit's root call, when the
+    /// normal-exit expression itself is a resolved call. This intentionally
+    /// excludes calls nested under other result-producing expressions.
+    pub direct_result_dependency: Option<crate::identity::CallableId>,
+}
+
+pub(crate) fn direct_result_dependency(
+    expression: &phalcom_ast::ast::Expr,
+    callable: Option<&crate::identity::CallableId>,
+) -> Option<crate::identity::CallableId> {
+    matches!(expression, phalcom_ast::ast::Expr::UnqualifiedCall(_) | phalcom_ast::ast::Expr::MethodCall(_))
+        .then(|| callable.cloned())
+        .flatten()
 }
 
 impl NormalReturnFact {
@@ -474,6 +487,7 @@ mod tests {
             flow: FlowStateSummary::default(),
             status: AnalysisStatus::Invalid(DiagnosticCauseId(1)),
             causal_invalidity: CausalInvalidity::One(DiagnosticCauseId(1)),
+            direct_result_dependency: None,
         };
         assert_eq!(fact.publication_knowledge(), TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause));
     }
@@ -485,6 +499,7 @@ mod tests {
             flow: FlowStateSummary::default(),
             status: AnalysisStatus::Ready,
             causal_invalidity: CausalInvalidity::Clean,
+            direct_result_dependency: None,
         };
         assert_eq!(fact.publication_knowledge(), TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow));
     }

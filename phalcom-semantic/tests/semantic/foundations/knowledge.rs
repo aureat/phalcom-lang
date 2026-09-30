@@ -66,6 +66,7 @@ fn normal_return_summary_preserves_assumed_exit_evidence() {
         flow: Default::default(),
         status: phalcom_semantic::checker::analysis::AnalysisStatus::Ready,
         causal_invalidity: phalcom_semantic::checker::causal::CausalInvalidity::Clean,
+        direct_result_dependency: None,
     };
     let summary = phalcom_semantic::checker::analysis::normal_return_summary(&mut store, &[exit]);
 

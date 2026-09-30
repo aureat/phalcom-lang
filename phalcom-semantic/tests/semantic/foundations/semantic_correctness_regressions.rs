@@ -171,6 +171,7 @@ fn normal_return_summary_preserves_dynamic_reason() {
         flow: Default::default(),
         status: phalcom_semantic::checker::analysis::AnalysisStatus::Ready,
         causal_invalidity: phalcom_semantic::checker::causal::CausalInvalidity::Clean,
+        direct_result_dependency: None,
     };
 
     let summary = normal_return_summary(&mut store, std::slice::from_ref(&exit));
@@ -191,6 +192,7 @@ fn normal_return_summary_preserves_existing_unknown_reason() {
         flow: Default::default(),
         status: phalcom_semantic::checker::analysis::AnalysisStatus::Ready,
         causal_invalidity: phalcom_semantic::checker::causal::CausalInvalidity::Clean,
+        direct_result_dependency: None,
     };
 
     let summary = normal_return_summary(&mut store, std::slice::from_ref(&exit));

@@ -1083,6 +1083,7 @@ fn hash_normal_return_fact(fact: &NormalReturnFact, hasher: &mut impl Hasher) {
     hash_flow_summary(&fact.flow, hasher);
     hash_analysis_status(&fact.status, &[], hasher);
     hash_causal_invalidity_shape(&fact.causal_invalidity, hasher);
+    fact.direct_result_dependency.hash(hasher);
 }
 
 fn hash_exit_facts(exits: &BodyExitFacts, hasher: &mut impl Hasher) {

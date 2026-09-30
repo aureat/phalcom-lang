@@ -128,6 +128,91 @@ class Probe {
         f_call.knowledge.is_unknown() || f_call.knowledge.is_dynamic(),
         "recursive call must remain epistemically incomplete: {f_call:#?}"
     );
+    let cycle_diagnostics = f.diagnostics(DiagnosticCode::CallableResultCycle);
+    assert_eq!(cycle_diagnostics.len(), 1, "one diagnostic should represent the mutual result SCC: {cycle_diagnostics:#?}");
+    assert_eq!(cycle_diagnostics[0].primary_range, f_analysis.body_range, "the diagnostic anchor should be the earliest source member");
+    assert_eq!(cycle_diagnostics[0].labels.len(), 1, "the other SCC member should be related to the source-first anchor");
+    assert_eq!(f_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(), Some(&f.callable_id("Probe", "g", DispatchSide::Class)));
+    assert_eq!(g_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(), Some(&f.callable_id("Probe", "f", DispatchSide::Class)));
+}
+
+#[test]
+fn direct_unseeded_result_cycle_is_reported_deterministically_without_fabricating_a_type() {
+    const SOURCE: &str = r#"
+class Probe {
+  @class
+  loop() { Probe.loop() }
+}
+"#;
+    let first = Fixture::new(SOURCE);
+    let loop_analysis = first.callable("Probe", "loop", DispatchSide::Class);
+    assert_eq!(
+        loop_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(),
+        Some(&first.callable_id("Probe", "loop", DispatchSide::Class))
+    );
+    assert!(first
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&first.callable_id("Probe", "loop", DispatchSide::Class))
+        .expect("loop signature")
+        .published_return_knowledge()
+        .is_unknown());
+    let first_diagnostics = first.diagnostics(DiagnosticCode::CallableResultCycle);
+    assert_eq!(first_diagnostics.len(), 1);
+    assert_eq!(first_diagnostics[0].primary_range, loop_analysis.body_range);
+
+    let second = Fixture::new(SOURCE);
+    let second_diagnostics = second.diagnostics(DiagnosticCode::CallableResultCycle);
+    assert_eq!(second_diagnostics.len(), 1);
+    assert_eq!(second_diagnostics[0].code, first_diagnostics[0].code);
+    assert_eq!(second_diagnostics[0].message, first_diagnostics[0].message);
+    assert_eq!(second_diagnostics[0].primary_range, first_diagnostics[0].primary_range);
+    assert_eq!(second_diagnostics[0].labels, first_diagnostics[0].labels);
+}
+
+#[test]
+fn non_result_recursive_calls_do_not_form_callable_result_cycles() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  selfCall() { Probe.selfCall(); 1 }
+
+  @class
+  left() { Probe.right(); 1 }
+
+  @class
+  right() { Probe.left(); 2 }
+
+  @class
+  localCall() {
+    let value = Probe.localCall()
+    value
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    for name in ["selfCall", "left", "right"] {
+        let signature = f
+            .analysis
+            .snapshot
+            .callable_signatures
+            .get(&f.callable_id("Probe", name, DispatchSide::Class))
+            .expect("callable signature");
+        assert_eq!(signature.published_return_knowledge().ty(), Some(int_ty), "{name} should publish its independent literal result");
+    }
+    let local_signature = f
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&f.callable_id("Probe", "localCall", DispatchSide::Class))
+        .expect("local call signature");
+    assert!(local_signature.published_return_knowledge().is_unknown(), "a returned local must not be mistaken for a direct result edge");
+    let local_analysis = f.callable("Probe", "localCall", DispatchSide::Class);
+    assert_eq!(local_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(), None);
+    assert!(f.diagnostics(DiagnosticCode::CallableResultCycle).is_empty());
 }
 
 #[test]
@@ -167,5 +252,6 @@ class Probe {
             "mutual recursive call `{source}`: {call:#?}"
         );
     }
+    assert!(f.diagnostics(DiagnosticCode::CallableResultCycle).is_empty(), "declared results are authoritative seeds");
     f.assert_no_error_diagnostics();
 }

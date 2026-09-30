@@ -4,6 +4,7 @@ mod publication;
 mod trusted_returns;
 
 use crate::semantic::support::{Fixture, binding, known};
+use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 
 /// P02: closure bodies publish a precise result when their literal tail is known.
@@ -150,6 +151,7 @@ class Probe {
         Some(int_ty),
         "recursive call uses the declared result: {call:#?}"
     );
+    assert!(f.diagnostics(DiagnosticCode::CallableResultCycle).is_empty(), "an explicit self-result seed must suppress cycle diagnostics");
     f.assert_no_error_diagnostics();
 }
 

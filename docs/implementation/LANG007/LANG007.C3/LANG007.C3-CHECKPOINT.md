@@ -84,13 +84,15 @@ next_action: >
   incremental products agree. The ordinary disposition selector observed one
   body recomputed and two same-result bodies reused, correcting a stale counter
   expectation without changing production stats. Exact selectors and 1/1
-  results are recorded under INC-C3-21 below. T5/CV-08 now has focused
-  explicit-seed direct/mutual cycle controls, each passing 1/1. The existing
-  unseeded direct/mutual cases remain Unknown with Ready status and no
-  diagnostics, so the plan's deterministic-diagnostic requirement is
-  unresolved. CV-09's `Iterator.take` probe found a blocked generic constructor
-  application at an untyped argument, not a demonstrated callable/query cycle.
-  No production policy change is authorized pending INC-C3-23. T5/G4 remains
+  results are recorded under INC-C3-21 below. T5/CV-08 now has a scoped
+  direct-result SCC implementation, with focused cold-cycle, false-positive,
+  and declared-seed controls passing. The incremental known-results-to-cycle
+  discriminator fails: recomputed body facts contain the new direct edges but
+  retain `Known(Int)` from prior inferred signatures, so no CV-08 diagnostic
+  is published. This conflicts with cold-analysis parity and requires an
+  authority decision before result retraction/reanalysis; see open INC-C3-25.
+  CV-09's `Iterator.take` probe found a blocked generic constructor application
+  at an untyped argument, not a demonstrated callable/query cycle. T5/G4 remains
   partial; T6 is not started. G5 collection aggregates remain
   unpassed/uncertified, G6 incomplete, and the natural chain blocked/ignored.
   P4/C3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. The only added corpus gate
@@ -1849,6 +1851,31 @@ through expression/flow/binding values and included in product fingerprints.
 CV-09 proceeds independently.
 See [`INC-C3-24.md`](INC-C3-24.md).
 
+**Disposition:** Option 1 is adopted. CV-08 uses only the canonical selected
+`CallableId` on a direct normal-return root call (tail or explicit return),
+fingerprints that edge, and classifies unresolved omitted-result SCCs after
+ordinary publication without a result fixpoint. Explicit declared results are
+seeds. No local/nested/branch provenance is inferred from syntax or ranges.
+This does not decide incremental stale-inferred-result retraction; that
+separate question remains open under [`INC-C3-25.md`](INC-C3-25.md).
+
+### INC-C3-25 — T5 incremental direct-result cycle retraction — 2026-09-30
+
+The CV-08 direct normal-result edge implementation passes its cold-cycle,
+false-positive, and declared-mutual-seed focused controls. The incremental
+known-results-to-cycle test fails: after the edit, both recomputed direct
+normal-return facts point to the opposite callable, yet both omitted-result
+signatures retain inferred `Known(Int)` from the prior revision and no cycle
+diagnostic is published. Cold analysis of the same direct cycle is Unknown and
+diagnosed. No production correction has been attempted. INC-C3-24 authorizes
+classification-only SCC diagnostics after ordinary publication but does not
+decide whether inferred-only results may be retracted and reanalyzed once.
+Await an architect ruling on that bounded policy or an alternative that
+preserves add/remove cold parity without a result fixpoint. T5/G4 and P4/C3
+remain partial/unverified; T6 is not started, and Priority 3 is unchanged.
+
+See [`INC-C3-25.md`](INC-C3-25.md).
+
 Use entries:
 
 ```text
@@ -2378,15 +2405,21 @@ next task:
     `semantic::incremental::callable_dependencies::inferred_return_refresh_preserves_stable_products_and_counts_final_disposition_once`,
     `semantic::incremental::product_stability::inferred_cross_module_result_updates_dependents_and_matches_cold_analysis`,
     and `semantic::integration::metadata::cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metadata`.
-    T5/CV-08 explicit-seed tests pass. The INC-C3-23 ruling is adopted. CV-09
+    T5/CV-08 cold direct/mutual cycle, non-result false-positive, and declared
+    mutual-seed controls pass 1/1; the incremental add/remove cold-parity test
+    selects 1 and fails because stage B retains inferred `Known(Int)` results
+    despite the new direct-call edges, leaving CV-08 absent. No result
+    invalidation or reanalysis correction is authorized until INC-C3-25 is
+    resolved. The INC-C3-23 ruling is adopted. CV-09
     is IMPLEMENTED / FOCUSED_TESTED at `f10f3d49`: the untyped-formal Known/Ready
     and genuine-blocker controls, plus canonical Iterator.take publication,
     passed 1/1 each. Invalid-n runtime behavior is unverified because the
     existing gate stops before fixture execution with 20
     `ImplConformanceIncomplete` and 3 `type.generic.underconstrained`
-    diagnostics. CV-08 diagnostics are
-    paused under INC-C3-24 because current body dependencies are not
-    result-specific. T5/G4 remains partial and T6 is not started. This is
+    diagnostics. CV-08 direct-edge capture/fingerprinting and post-refresh SCC
+    classification are implemented in the current uncommitted diff, but
+    incremental result retraction/reanalysis is pending INC-C3-25. T5/G4
+    remains partial and T6 is not started. This is
     separate from T13 and does not
     change T13's §15 stop, certify G5/G6,
     or authorize workspace/release gates.

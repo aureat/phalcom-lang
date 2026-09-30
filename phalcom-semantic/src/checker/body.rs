@@ -370,6 +370,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
                 }
                 if ctx.flow.is_reachable() && typed.knowledge.ty() != Some(ctx.store.never()) {
                     let fact = NormalReturnFact {
+                        direct_result_dependency: crate::checker::analysis::direct_result_dependency(expr, typed.callable.as_ref()),
                         knowledge: typed.knowledge,
                         flow: ctx.current_flow_summary(),
                         status: typed.status,
@@ -423,6 +424,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
                     flow: ctx.current_flow_summary(),
                     status: exit_status,
                     causal_invalidity: exit_causal,
+                    direct_result_dependency: None,
                 };
                 ctx.record_return_exit(fact);
             }
@@ -453,6 +455,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
             flow: ctx.current_flow_summary(),
             status: exit_status,
             causal_invalidity: exit_causal,
+            direct_result_dependency: None,
         };
         ctx.record_return_exit(fact);
     }
