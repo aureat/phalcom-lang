@@ -380,8 +380,7 @@ impl NativeSourceIndex {
                     self.index_class(module, class_def, identity)?;
                 }
                 Statement::Data(data_def)
-                    if data_def.phase == phalcom_ast::ast::AlgebraicPhase::Runtime
-                        && data_def.implementation == ImplementationKind::Intrinsic =>
+                    if data_def.phase == phalcom_ast::ast::AlgebraicPhase::Runtime && data_def.implementation == ImplementationKind::Intrinsic =>
                 {
                     let identity = source_universe_identity(module, &data_def.name);
                     self.index_intrinsic_runtime_data(module, data_def, identity)?;
@@ -411,7 +410,10 @@ impl NativeSourceIndex {
         source_identity: SourceUniverseIdentity,
     ) -> Result<(), String> {
         let Some(key @ (UniverseKey::Tuple | UniverseKey::Record)) = source_identity.canonical_key() else {
-            return Err(format!("intrinsic runtime data {} is not a canonical Tuple/Record source declaration", data_def.name));
+            return Err(format!(
+                "intrinsic runtime data {} is not a canonical Tuple/Record source declaration",
+                data_def.name
+            ));
         };
         let superclass = UNIVERSE_CLASS_RELATIONS
             .iter()
@@ -452,12 +454,7 @@ impl NativeSourceIndex {
         Ok(())
     }
 
-    fn index_impl(
-        &mut self,
-        module: &ModuleId,
-        impl_def: &phalcom_ast::ast::ImplDef,
-        source_identity: SourceUniverseIdentity,
-    ) -> Result<(), String> {
+    fn index_impl(&mut self, module: &ModuleId, impl_def: &phalcom_ast::ast::ImplDef, source_identity: SourceUniverseIdentity) -> Result<(), String> {
         let Some(target_ref) = impl_def.target.origin_symbol_ref() else {
             return Ok(());
         };
@@ -481,12 +478,7 @@ impl NativeSourceIndex {
         Ok(())
     }
 
-    fn index_enum(
-        &mut self,
-        module: &ModuleId,
-        enum_def: &phalcom_ast::ast::EnumDef,
-        source_identity: SourceUniverseIdentity,
-    ) -> Result<(), String> {
+    fn index_enum(&mut self, module: &ModuleId, enum_def: &phalcom_ast::ast::EnumDef, source_identity: SourceUniverseIdentity) -> Result<(), String> {
         let has_native_modifier = enum_def.implementation == ImplementationKind::Native;
         let universe_key = source_identity.canonical_key();
         if has_native_modifier && source_identity.is_known_name() && universe_key.is_none() {
@@ -609,12 +601,7 @@ impl NativeSourceIndex {
         Ok(())
     }
 
-    fn index_class(
-        &mut self,
-        module: &ModuleId,
-        class_def: &ClassDef,
-        source_identity: SourceUniverseIdentity,
-    ) -> Result<(), String> {
+    fn index_class(&mut self, module: &ModuleId, class_def: &ClassDef, source_identity: SourceUniverseIdentity) -> Result<(), String> {
         let has_native_modifier = class_def.implementation == ImplementationKind::Native;
         let universe_key = source_identity.canonical_key();
         if has_native_modifier && source_identity.is_known_name() && universe_key.is_none() {
@@ -886,9 +873,7 @@ mod tests {
 
     #[test]
     fn intrinsic_runtime_facade_anchors_existing_native_class_and_impl_members() {
-        let program = parse_program(
-            "intrinsic data Tuple<***Es>\nimpl Tuple<***Es> {\n  internal native rawSize -> Int\n}\n",
-        );
+        let program = parse_program("intrinsic data Tuple<***Es>\nimpl Tuple<***Es> {\n  internal native rawSize -> Int\n}\n");
         let module = ModuleId::universe(ModulePath::from_components(
             ["collections", "tuple"]
                 .into_iter()
@@ -905,7 +890,13 @@ mod tests {
             selector: "rawSize".to_owned(),
         };
         assert!(index.members.contains_key(&key), "impl member retains its native source anchor");
-        assert!(!index.census.classes.iter().any(|row| row.universe_key == Some(UniverseKey::Tuple) && !row.native));
+        assert!(
+            !index
+                .census
+                .classes
+                .iter()
+                .any(|row| row.universe_key == Some(UniverseKey::Tuple) && !row.native)
+        );
     }
 
     #[test]

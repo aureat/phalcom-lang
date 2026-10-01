@@ -108,7 +108,6 @@ pub fn export_kind(store: &TypeStore, kind: KindId) -> CompiledKindRef {
     }
 }
 
-
 /// Converts an interned [`TypeId`] into a stable [`CompiledTypeRef`].
 pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeRef, SemanticExportError> {
     match store.get(form) {
@@ -187,6 +186,7 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
         | TypeData::CallableFromPacks { .. }
         | TypeData::TypeMemberProjection(_)
         | TypeData::ConstInt(_)
-        | TypeData::StaticData(_) | TypeData::StaticDomainForm { .. } => Err(SemanticExportError::NonExportableTypeForm { form }),
+        | TypeData::StaticData(_)
+        | TypeData::StaticDomainForm { .. } => Err(SemanticExportError::NonExportableTypeForm { form }),
     }
 }

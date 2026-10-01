@@ -20,9 +20,8 @@
 use phalcom_ast::{
     ast::{
         AssociatedMemberSyntax, ClassMember, ExpansionMode, Expr, GenericArgumentSyntax, GenericConstraintSyntax, ImplementationKind, KindSyntax, MemberBody,
-        MetadataLiteral,
-        RecordLiteralEntry, ReturnStatement, SetLiteralEntry, Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeCallableItem, TypeMemberArgumentSyntax,
-        TypeMemberParameterDomainSyntax, TypeMemberResultSyntax, TypeMemberSelectorSyntax, TypeTupleItem, VarianceSyntax,
+        MetadataLiteral, RecordLiteralEntry, ReturnStatement, SetLiteralEntry, Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeCallableItem,
+        TypeMemberArgumentSyntax, TypeMemberParameterDomainSyntax, TypeMemberResultSyntax, TypeMemberSelectorSyntax, TypeTupleItem, VarianceSyntax,
     },
     error::SyntaxErrorKind,
     parse as parse_with_recovery, parse_source,
@@ -610,10 +609,7 @@ let Map { #name: value } = mapping
     };
     assert!(matches!(&explicit_map_binding.pattern, Pattern::Map { .. }));
 
-    for invalid in [
-        "let { name, **rest, age } = person",
-        "let { name, **rest, **other } = person",
-    ] {
+    for invalid in ["let { name, **rest, age } = person", "let { name, **rest, **other } = person"] {
         assert!(parse_source(invalid, 0).is_err(), "invalid remainder form should be rejected: {invalid}");
     }
 }
@@ -1407,7 +1403,10 @@ fn parse_structural_record_types() {
             assert!(!fields[0].optional);
             assert_eq!(fields[1].name, "age");
             assert!(fields[1].optional);
-            assert!(matches!(tail.as_ref().unwrap(), phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_))));
+            assert!(matches!(
+                tail.as_ref().unwrap(),
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_))
+            ));
         }
         other => panic!("expected Record, got {other:?}"),
     }
@@ -1417,7 +1416,10 @@ fn parse_structural_record_types() {
     match &alias3.body.expr {
         TypeAnnotationExpr::Record { fields, tail, .. } => {
             assert_eq!(fields.len(), 1);
-            assert!(matches!(tail.as_ref().unwrap(), phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { .. })));
+            assert!(matches!(
+                tail.as_ref().unwrap(),
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { .. })
+            ));
         }
         other => panic!("expected Record, got {other:?}"),
     }
@@ -2297,5 +2299,11 @@ fn record_literal_parser_regressions() {
     // 7. Statement-level record literal expression statement
     let p = parse_source("{\n    x: 1\n}\n", 0).expect("statement-level record literal should parse");
     assert_eq!(p.statements.len(), 1);
-    assert!(matches!(&p.statements[0], Statement::Expr { expr: Expr::RecordLiteral(_), .. }));
+    assert!(matches!(
+        &p.statements[0],
+        Statement::Expr {
+            expr: Expr::RecordLiteral(_),
+            ..
+        }
+    ));
 }

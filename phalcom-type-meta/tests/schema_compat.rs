@@ -14,9 +14,8 @@ use phalcom_type_meta::scoped_type::{
     ScopedTypeNodeId,
 };
 use phalcom_type_meta::type_node::{
-    OpenRecordTypeRef, RecordFieldRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef,
-    StructuralMemberPresenceRef, TypeMemberProjectionRef, TypeMemberSelectorRef, TypeNode,
-    TypeNodeEntry, TypeNodeId,
+    OpenRecordTypeRef, RecordFieldRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef, TypeMemberProjectionRef,
+    TypeMemberSelectorRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
 use phalcom_type_meta::validate::{MetadataValidationError, ValidationLimits, validate_metadata_bundle};
 
@@ -321,10 +320,7 @@ fn schema_v8_nominal_domain_bundle(version: u32) -> (SemanticMetadataBundle, Sta
     (bundle, declaration)
 }
 
-fn schema_v8_domain_record(
-    declaration: &StableDeclarationRef,
-    cases: Box<[StaticDomainCaseRecord]>,
-) -> StaticDomainDeclarationRecord {
+fn schema_v8_domain_record(declaration: &StableDeclarationRef, cases: Box<[StaticDomainCaseRecord]>) -> StaticDomainDeclarationRecord {
     StaticDomainDeclarationRecord {
         declaration: StableStaticDomainDeclarationRef::Nominal(declaration.clone()),
         owner_parameters: Box::new([]),
@@ -371,18 +367,13 @@ fn schema_v8_requires_a_catalog_for_nominal_and_associated_static_domain_kinds()
     let (nominal, declaration) = schema_v8_nominal_domain_bundle(8);
     assert_eq!(
         validate_metadata_bundle(&nominal, &limits).unwrap_err(),
-        MetadataValidationError::MissingStaticDomainCatalogEntry(
-            StableStaticDomainDeclarationRef::Nominal(declaration)
-        )
+        MetadataValidationError::MissingStaticDomainCatalogEntry(StableStaticDomainDeclarationRef::Nominal(declaration))
     );
 
     let mut associated = sample_bundle(8, false);
     associated.header.features.static_domains = true;
     let owner = schema_v8_static_declaration("Container");
-    let associated_declaration = phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
-        owner,
-        name: "State".into(),
-    };
+    let associated_declaration = phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef { owner, name: "State".into() };
     associated.kinds = Box::new([KindNodeEntry {
         node: KindNode::StaticDomain(StaticDomainRef::Associated {
             declaration: associated_declaration.clone(),
@@ -392,9 +383,7 @@ fn schema_v8_requires_a_catalog_for_nominal_and_associated_static_domain_kinds()
     }]);
     assert_eq!(
         validate_metadata_bundle(&associated, &limits).unwrap_err(),
-        MetadataValidationError::MissingStaticDomainCatalogEntry(
-            StableStaticDomainDeclarationRef::Associated(associated_declaration)
-        )
+        MetadataValidationError::MissingStaticDomainCatalogEntry(StableStaticDomainDeclarationRef::Associated(associated_declaration))
     );
 }
 
@@ -454,9 +443,7 @@ fn schema_v8_rejects_duplicate_declarations_and_duplicate_or_unsorted_cases() {
     bundle.static_domains = Box::new([record.clone(), record]);
     assert_eq!(
         validate_metadata_bundle(&bundle, &limits).unwrap_err(),
-        MetadataValidationError::DuplicateStaticDomainCatalogEntry(
-            StableStaticDomainDeclarationRef::Nominal(declaration.clone())
-        )
+        MetadataValidationError::DuplicateStaticDomainCatalogEntry(StableStaticDomainDeclarationRef::Nominal(declaration.clone()))
     );
 
     let (mut duplicate_cases, declaration) = schema_v8_nominal_domain_bundle(8);
@@ -516,10 +503,7 @@ fn schema_v8_validates_owner_parameter_modes_and_owner_environment_kinds() {
     ));
 
     let owner = schema_v8_static_declaration("Container");
-    let associated_declaration = phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
-        owner,
-        name: "State".into(),
-    };
+    let associated_declaration = phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef { owner, name: "State".into() };
     let mut wrong_environment = sample_bundle(8, false);
     wrong_environment.header.features.static_domains = true;
     wrong_environment.kinds = Box::new([
@@ -565,10 +549,7 @@ fn schema_v8_validates_static_data_case_membership_arity_and_payload_kind() {
     assert!(validate_metadata_bundle(&valid_shape, &limits).is_ok());
 
     let mut missing_case = valid_shape.clone();
-    missing_case.static_domains = Box::new([schema_v8_domain_record(
-        &declaration,
-        Box::new([]),
-    )]);
+    missing_case.static_domains = Box::new([schema_v8_domain_record(&declaration, Box::new([]))]);
     assert!(matches!(
         validate_metadata_bundle(&missing_case, &limits),
         Err(MetadataValidationError::MissingStaticDomainCase { case, .. }) if case.as_ref() == "Value"
@@ -630,10 +611,7 @@ fn schema_v7_keeps_pre_catalog_static_domain_compatibility_floor() {
     let (v7, declaration) = schema_v8_nominal_domain_bundle(7);
     assert!(validate_metadata_bundle(&v7, &limits).is_ok());
     assert!(v7.static_domains.is_empty());
-    assert_eq!(
-        v7.kinds[1].node,
-        KindNode::StaticDomain(StaticDomainRef::Nominal { declaration })
-    );
+    assert_eq!(v7.kinds[1].node, KindNode::StaticDomain(StaticDomainRef::Nominal { declaration }));
 }
 
 #[test]
@@ -1171,14 +1149,10 @@ fn p3_schema_v4_rejects_malformed_lambda_modes() {
 
 #[test]
 fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
-    use phalcom_type_meta::type_node::{
-        AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef,
-        OpenTupleTypeRef, TupleElementRef,
-    };
     use phalcom_type_meta::scoped_type::{
-        ScopedAnonymousRecordRemainderRef, ScopedAnonymousRecordTypeRef,
-        ScopedAnonymousTupleRemainderRef, ScopedOpenTupleTypeRef, ScopedTupleElementRef,
+        ScopedAnonymousRecordRemainderRef, ScopedAnonymousRecordTypeRef, ScopedAnonymousTupleRemainderRef, ScopedOpenTupleTypeRef, ScopedTupleElementRef,
     };
+    use phalcom_type_meta::type_node::{AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef, OpenTupleTypeRef, TupleElementRef};
 
     let limits = ValidationLimits::default();
     let mut bundle = sample_bundle(10, true);
@@ -1297,4 +1271,3 @@ fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
     v9_bundle.header.schema_version = 9;
     assert!(validate_metadata_bundle(&v9_bundle, &limits).is_err());
 }
-

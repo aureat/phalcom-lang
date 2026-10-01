@@ -227,7 +227,11 @@ fn type_test_refinements_require_supported_proper_targets_and_respect_exactness(
             );
         }
     }
-    assert_eq!(ctx.flow.get_current_type(binding).cloned(), before, "unsupported target must not publish flow knowledge");
+    assert_eq!(
+        ctx.flow.get_current_type(binding).cloned(),
+        before,
+        "unsupported target must not publish flow knowledge"
+    );
 
     let applied_list_knowledge = TypeKnowledge::established(applied_list, EvidenceOrigin::Syntax);
     ctx.flow.assign(binding, applied_list_knowledge.clone());

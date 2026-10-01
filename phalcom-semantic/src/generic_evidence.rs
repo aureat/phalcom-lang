@@ -969,8 +969,6 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
                             }
                         }
 
-
-
                         if let Some(failing) = failure_proof {
                             failure_proofs.push(failing);
                         } else {

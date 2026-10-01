@@ -1381,10 +1381,7 @@ pub struct RecordRowTail {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnonymousRemainderSyntax {
     Unconstrained(SourceRange),
-    Typed {
-        constraint: Box<TypeAnnotation>,
-        range: SourceRange,
-    },
+    Typed { constraint: Box<TypeAnnotation>, range: SourceRange },
 }
 
 impl AnonymousRemainderSyntax {

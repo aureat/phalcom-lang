@@ -167,7 +167,10 @@ fn trait_dispatch_query_returns_exact_proven_requirement_selection() {
         selection.selection,
         phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { .. }
     ));
-    assert!(matches!(selection.evidence, phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_)));
+    assert!(matches!(
+        selection.evidence,
+        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_)
+    ));
 }
 
 #[test]
@@ -182,11 +185,9 @@ fn trait_dispatch_query_selects_an_exact_trait_default() {
         .declarations
         .form(&DeclarationId::new(module, "User".into()))
         .expect("User type");
-    let resolution = output.snapshot.resolve_trait_evidenced_candidates(
-        user,
-        &Selector::getter("tag").expect("tag selector"),
-        DispatchSide::Instance,
-    );
+    let resolution = output
+        .snapshot
+        .resolve_trait_evidenced_candidates(user, &Selector::getter("tag").expect("tag selector"), DispatchSide::Instance);
     let phalcom_semantic::TraitDispatchResolution::Found(selection) = resolution else {
         panic!("expected exact trait default selection, got {resolution:?}");
     };
@@ -312,7 +313,10 @@ class Caller<I> where I |= Iterator {
         .find(|expression| source.get(expression.range.start..expression.range.end) == Some("value.tag"))
         .expect("value.tag expression");
     let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) = expression.trait_dispatch.as_ref() else {
-        panic!("expected evidence-backed trait dispatch; expression={expression:#?}; diagnostics={:#?}", output.snapshot.diagnostics);
+        panic!(
+            "expected evidence-backed trait dispatch; expression={expression:#?}; diagnostics={:#?}",
+            output.snapshot.diagnostics
+        );
     };
     assert_eq!(selection.requirement.owner.name, "Iterable".into());
     let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) = &selection.evidence else {
@@ -347,11 +351,9 @@ impl Independent for User {}
         .declarations
         .form(&DeclarationId::new(module, "User".into()))
         .expect("User type");
-    let resolution = output.snapshot.resolve_trait_evidenced_candidates(
-        user,
-        &Selector::getter("tag").expect("tag selector"),
-        DispatchSide::Instance,
-    );
+    let resolution = output
+        .snapshot
+        .resolve_trait_evidenced_candidates(user, &Selector::getter("tag").expect("tag selector"), DispatchSide::Instance);
     assert!(
         matches!(resolution, phalcom_semantic::TraitDispatchResolution::CoherenceConflict(ref impls) if impls.len() == 2),
         "the canonical Iterable coherence conflict must not be hidden by Independent::tag: {resolution:?}"
@@ -603,7 +605,10 @@ class Caller {
         .expect("trait default has canonical callable signature");
     assert_eq!(default_signature.declared_return.to_knowledge().ty(), None);
     assert_eq!(
-        default_signature.inferred_return.as_ref().and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty),
+        default_signature
+            .inferred_return
+            .as_ref()
+            .and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty),
         Some(string_type),
         "the default's inferred body result is published by its canonical callable signature"
     );
@@ -618,7 +623,10 @@ class Caller {
         .get(&ordinary_callable)
         .expect("ordinary inferred callable has canonical signature");
     assert_eq!(
-        ordinary_signature.inferred_return.as_ref().and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty),
+        ordinary_signature
+            .inferred_return
+            .as_ref()
+            .and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty),
         Some(string_type),
         "ordinary body inference and trait-default body inference publish the same canonical result"
     );
@@ -629,11 +637,7 @@ class Caller {
         Selector::method("loose", vec![phalcom_common::selector::SelectorSlot::Positional]).expect("loose selector"),
         DispatchSide::Instance,
     );
-    let loose_analysis = output
-        .snapshot
-        .callable_analyses
-        .get(&loose_callable)
-        .expect("Caller.loose analysis");
+    let loose_analysis = output.snapshot.callable_analyses.get(&loose_callable).expect("Caller.loose analysis");
     assert!(
         loose_analysis.dependencies.contains(&default_callable),
         "caller body must depend on the selected default callable: {:?}",
@@ -658,23 +662,25 @@ class Caller {
         phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
     ));
     assert_eq!(selection.signature.published_return_knowledge().ty(), Some(string_type));
-    assert!(loose_analysis.semantic_dependencies.iter().any(|dependency| {
-        dependency == &phalcom_semantic::checker::analysis::SemanticDependency::CallableSignature(default_callable.clone())
-    }));
+    assert!(
+        loose_analysis
+            .semantic_dependencies
+            .iter()
+            .any(|dependency| { dependency == &phalcom_semantic::checker::analysis::SemanticDependency::CallableSignature(default_callable.clone()) })
+    );
 
     let broad_callable = CallableId::new(
         CallableOwnerId::Declaration(caller),
         Selector::method("broad", vec![phalcom_common::selector::SelectorSlot::Positional]).expect("broad selector"),
         DispatchSide::Instance,
     );
-    let broad_signature = output
-        .snapshot
-        .callable_signatures
-        .get(&broad_callable)
-        .expect("Caller.broad signature");
+    let broad_signature = output.snapshot.callable_signatures.get(&broad_callable).expect("Caller.broad signature");
     assert_eq!(broad_signature.declared_return.to_knowledge().ty(), Some(object_type));
     assert_eq!(
-        default_signature.inferred_return.as_ref().and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty),
+        default_signature
+            .inferred_return
+            .as_ref()
+            .and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty),
         Some(string_type),
         "the caller's broad expected return must not seed or widen the provider default result"
     );

@@ -67,7 +67,10 @@ impl PreludeTypeMap {
             ModuleComponent::from_identifier("errors").expect("canonical Universe component"),
             ModuleComponent::from_identifier("argument").expect("canonical Universe component"),
         ]));
-        entries.insert("DuplicateKeyError".into(), DeclarationId::new(duplicate_key_error_module, "DuplicateKeyError".into()));
+        entries.insert(
+            "DuplicateKeyError".into(),
+            DeclarationId::new(duplicate_key_error_module, "DuplicateKeyError".into()),
+        );
 
         Self { entries }
     }

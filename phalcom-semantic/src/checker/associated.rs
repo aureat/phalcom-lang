@@ -11,8 +11,8 @@ use crate::types::denotation::SemanticDenotation;
 use crate::types::environment::TypeView;
 use crate::types::family::FamilyOperationShape;
 use crate::types::id::{KindId, TypeId};
-use crate::types::relation::is_subtype;
 use crate::types::parameter::TypeParameterOwner;
+use crate::types::relation::is_subtype;
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorPattern, SelectorSlot};
@@ -648,8 +648,11 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
                 let row = store.record_row(row_id);
                 row.fields.iter().any(|field| contains_any_type_parameter(store, field.ty))
                     || match row.tail {
-                        crate::types::row::RecordRowTail::Closed | crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
-                        crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => contains_any_type_parameter(store, ty),
+                        crate::types::row::RecordRowTail::Closed
+                        | crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+                        crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => {
+                            contains_any_type_parameter(store, ty)
+                        }
                         crate::types::row::RecordRowTail::Parameter(_) => true,
                         crate::types::row::RecordRowTail::Projection(projection) => contains_any_type_parameter(store, projection),
                     }
@@ -681,7 +684,9 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
             ScopedTypeData::RecordRow(row) => {
                 row.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
                     || match row.tail {
-                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } | ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+                        ScopedRecordRowTail::Closed
+                        | ScopedRecordRowTail::Bound { .. }
+                        | ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
                         ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => contains_any_type_parameter(store, ty),
                         ScopedRecordRowTail::FreeParameter(_) => true,
                         ScopedRecordRowTail::Projection(projection) => contains_any_type_parameter(store, projection),
@@ -723,7 +728,10 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
         TypeData::Parameter(_) => true,
         TypeData::Applied { origin, arguments } => {
             contains_any_type_parameter(store, *origin)
-                || arguments.iter().copied().any(|argument| static_argument_contains_any_type_parameter(store, argument))
+                || arguments
+                    .iter()
+                    .copied()
+                    .any(|argument| static_argument_contains_any_type_parameter(store, argument))
         }
         TypeData::Union(members) => members.iter().any(|&m| contains_any_type_parameter(store, m)),
         TypeData::Tuple(elems) => elems.elements.iter().any(|e| contains_any_type_parameter(store, e.ty)),
@@ -868,9 +876,9 @@ pub fn check_reification_underconstrained(
         }
     }
 
-    let exact_case_owner_matches_expected = expected.ty().is_some_and(|expected_ty| {
-        matches!(ctx.store.get(resolved_type), TypeData::ExactCase { enum_type, .. } if *enum_type == expected_ty)
-    });
+    let exact_case_owner_matches_expected = expected
+        .ty()
+        .is_some_and(|expected_ty| matches!(ctx.store.get(resolved_type), TypeData::ExactCase { enum_type, .. } if *enum_type == expected_ty));
     if !exact_case_owner_matches_expected && contains_any_type_parameter(ctx.store, resolved_type) {
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
@@ -913,9 +921,7 @@ fn contextualize_exact_case_owner(ctx: &mut CheckingContext<'_>, value_type: Typ
     }
 
     let owner = ctx.store.variant_identity(variant).owner.clone();
-    let owner_parameters = ctx
-        .store
-        .type_parameters_for_owner(&TypeParameterOwner::Declaration(owner));
+    let owner_parameters = ctx.store.type_parameters_for_owner(&TypeParameterOwner::Declaration(owner));
     if owner_parameters.len() != actual_arguments.len() {
         return None;
     }
@@ -933,8 +939,7 @@ fn contextualize_exact_case_owner(ctx: &mut CheckingContext<'_>, value_type: Typ
                 row_substitution.insert(parameter, row_variable);
             }
             (KindId::RECORD_ROW, _) => return None,
-            (_, crate::types::store::StaticArgument::Term(argument))
-                if matches!(ctx.store.get(*argument), TypeData::Parameter(actual_parameter) if *actual_parameter == parameter) =>
+            (_, crate::types::store::StaticArgument::Term(argument)) if matches!(ctx.store.get(*argument), TypeData::Parameter(actual_parameter) if *actual_parameter == parameter) =>
             {
                 let variable = inference.fresh_variable_in_frame(frame, kind);
                 type_substitution.insert(parameter, InferenceTerm::Var(variable));
@@ -952,7 +957,10 @@ fn contextualize_exact_case_owner(ctx: &mut CheckingContext<'_>, value_type: Typ
         ConstraintOrigin::Explicit,
         None,
     );
-    if !matches!(inference.solve_with_control(ctx.store, &ctx.hierarchy, &ctx.control), InferenceOutcome::Solved(_)) {
+    if !matches!(
+        inference.solve_with_control(ctx.store, &ctx.hierarchy, &ctx.control),
+        InferenceOutcome::Solved(_)
+    ) {
         return None;
     }
 

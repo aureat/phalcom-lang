@@ -676,9 +676,7 @@ fn tuple_structural_impls_use_canonical_owner_and_equivalent_spellings() {
     assert_eq!(repeated_target.declaration(), &tuple_decl);
     assert!(matches!(repeated_target.applicability, InherentImplApplicability::Conditional(_)));
 
-    for (impl_index, source) in [
-        (2, "impl Tuple<***(Int, String)> {}\n"),
-    ] {
+    for (impl_index, source) in [(2, "impl Tuple<***(Int, String)> {}\n")] {
         let parsed = phalcom_ast::parse(source, 0);
         assert!(parsed.errors.is_empty(), "parse errors for {source:?}: {:?}", parsed.errors);
         let phalcom_ast::ast::Statement::Impl(impl_stmt) = &parsed.program.statements[0] else {
@@ -809,8 +807,7 @@ fn row_parameter_covering_impl_materializes_through_record_row_identity() {
 
     let row_product = DeclarationId::new(module.clone(), "RowProduct".into());
     let declaration_parameter = store.intern_type_parameter(
-        TypeParameterData::new(TypeParameterOwner::Declaration(row_product.clone()), 0, "Fs", KindId::RECORD_ROW)
-            .with_mode(GenericParameterMode::LabeledPack),
+        TypeParameterData::new(TypeParameterOwner::Declaration(row_product.clone()), 0, "Fs", KindId::RECORD_ROW).with_mode(GenericParameterMode::LabeledPack),
     );
     let signature = GenericSignature::new(
         TypeParameterOwner::Declaration(row_product.clone()),
@@ -840,7 +837,10 @@ fn row_parameter_covering_impl_materializes_through_record_row_identity() {
     assert_eq!(substitution.impl_to_decl.get(&implementation_parameter), Some(&declaration_parameter));
 
     let instantiation = substitution.to_instantiation(ctx.store).expect("domain-aware row instantiation");
-    assert!(instantiation.type_binding(implementation_parameter).is_none(), "RecordFields must not become a TypeId binding");
+    assert!(
+        instantiation.type_binding(implementation_parameter).is_none(),
+        "RecordFields must not become a TypeId binding"
+    );
     let row = instantiation.row_binding(implementation_parameter).expect("RecordFields row binding");
     let TypeData::Applied { arguments, .. } = ctx.store.get(resolved.target_type) else {
         panic!("RowProduct target should retain its static application")
@@ -853,7 +853,10 @@ fn row_parameter_covering_impl_materializes_through_record_row_identity() {
         phalcom_semantic::types::row::RecordRowTail::Parameter(implementation_parameter)
     );
     assert!(ctx.store.record_row(row).fields.is_empty());
-    assert_eq!(ctx.store.record_row(row).tail, phalcom_semantic::types::row::RecordRowTail::Parameter(declaration_parameter));
+    assert_eq!(
+        ctx.store.record_row(row).tail,
+        phalcom_semantic::types::row::RecordRowTail::Parameter(declaration_parameter)
+    );
 }
 
 #[test]
@@ -985,15 +988,12 @@ fn product_parameter_covering_impl_materializes_through_complete_type_pack() {
         TypeParameterData::new(TypeParameterOwner::Declaration(product.clone()), 0, "Es", KindId::COMPLETE_TYPE_PACK)
             .with_mode(GenericParameterMode::CompletePack),
     );
-    let signature = GenericSignature::new(
-        TypeParameterOwner::Declaration(product.clone()),
-        vec![declaration_parameter].into_boxed_slice(),
-    )
-    .with_parameter_metadata(
-        vec![KindId::COMPLETE_TYPE_PACK].into_boxed_slice(),
-        vec![phalcom_semantic::types::variance::Variance::Invariant].into_boxed_slice(),
-    )
-    .with_parameter_modes(vec![GenericParameterMode::CompletePack].into_boxed_slice());
+    let signature = GenericSignature::new(TypeParameterOwner::Declaration(product.clone()), vec![declaration_parameter].into_boxed_slice())
+        .with_parameter_metadata(
+            vec![KindId::COMPLETE_TYPE_PACK].into_boxed_slice(),
+            vec![phalcom_semantic::types::variance::Variance::Invariant].into_boxed_slice(),
+        )
+        .with_parameter_modes(vec![GenericParameterMode::CompletePack].into_boxed_slice());
     register_nominal(&mut store, &mut declarations, product.clone(), Some(signature));
     resolver.insert("Product", product.clone());
 

@@ -33,11 +33,7 @@ pub struct RecordRowField<T = TypeId> {
 
 impl<T> RecordRowField<T> {
     pub fn new(name: Box<str>, ty: T, presence: StructuralMemberPresence) -> Self {
-        Self {
-            name,
-            ty,
-            presence,
-        }
+        Self { name, ty, presence }
     }
 
     pub fn required(name: Box<str>, ty: T) -> Self {

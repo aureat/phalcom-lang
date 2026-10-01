@@ -1,11 +1,10 @@
 //! Type parameter substitution for generic declarations and applied member views.
 
+use super::application::TypeApplicationError;
 use super::id::{KindId, TypeId, TypeParameterId};
 use super::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
-use super::application::TypeApplicationError;
 use super::store::{
-    AnonymousTupleRemainder, CallableParameterType, CallableType, PackFormationError, StaticDataFormationError, TupleTypeElement, TypeData,
-    TypeStore,
+    AnonymousTupleRemainder, CallableParameterType, CallableType, PackFormationError, StaticDataFormationError, TupleTypeElement, TypeData, TypeStore,
 };
 use super::type_lambda::TypeLambdaArena;
 use crate::declarations::DeclarationTypeTable;
@@ -66,12 +65,7 @@ impl TypeSubstitution {
         store.with_active_lambda_arena(|store, arena| self.try_apply_with_arena(store, arena, ty))
     }
 
-    pub(crate) fn try_apply_with_arena(
-        &self,
-        store: &mut TypeStore,
-        arena: &mut TypeLambdaArena,
-        ty: TypeId,
-    ) -> Result<TypeId, TypeSubstitutionError> {
+    pub(crate) fn try_apply_with_arena(&self, store: &mut TypeStore, arena: &mut TypeLambdaArena, ty: TypeId) -> Result<TypeId, TypeSubstitutionError> {
         if self.is_empty() {
             return Ok(ty);
         }
@@ -83,11 +77,17 @@ impl TypeSubstitution {
                 Ok(store.complete_type_pack(positionals, labeled)?)
             }
             TypeData::TypePackConcat(segments) => {
-                let segments = segments.iter().map(|&segment| self.try_apply_with_arena(store, arena, segment)).collect::<Result<Vec<_>, _>>()?;
+                let segments = segments
+                    .iter()
+                    .map(|&segment| self.try_apply_with_arena(store, arena, segment))
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(store.type_pack_concat(&segments)?)
             }
             TypeData::LabeledTypePackConcat(segments) => {
-                let segments = segments.iter().map(|&segment| self.try_apply_with_arena(store, arena, segment)).collect::<Result<Vec<_>, _>>()?;
+                let segments = segments
+                    .iter()
+                    .map(|&segment| self.try_apply_with_arena(store, arena, segment))
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(store.labeled_type_pack_concat(&segments)?)
             }
             TypeData::StaticData(term) => {
@@ -126,8 +126,12 @@ impl TypeSubstitution {
                 let subst_args = arguments
                     .iter()
                     .map(|argument| match argument {
-                        super::store::StaticArgument::Term(argument) => Ok(super::store::StaticArgument::Term(self.try_apply_with_arena(store, arena, *argument)?)),
-                        super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(self.apply_record_row_with_arena(store, arena, *row))),
+                        super::store::StaticArgument::Term(argument) => {
+                            Ok(super::store::StaticArgument::Term(self.try_apply_with_arena(store, arena, *argument)?))
+                        }
+                        super::store::StaticArgument::RecordRow(row) => {
+                            Ok(super::store::StaticArgument::RecordRow(self.apply_record_row_with_arena(store, arena, *row)))
+                        }
                         super::store::StaticArgument::DynamicType => Ok(super::store::StaticArgument::DynamicType),
                     })
                     .collect::<Result<Vec<_>, TypeSubstitutionError>>()?;
@@ -260,7 +264,9 @@ impl TypeSubstitution {
                     .iter()
                     .map(|argument| match argument {
                         super::store::StaticArgument::Term(argument) => super::store::StaticArgument::Term(self.apply_with_arena(store, arena, *argument)),
-                        super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(self.apply_record_row_with_arena(store, arena, *row)),
+                        super::store::StaticArgument::RecordRow(row) => {
+                            super::store::StaticArgument::RecordRow(self.apply_record_row_with_arena(store, arena, *row))
+                        }
                         super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                     })
                     .collect::<Vec<_>>();
@@ -347,7 +353,9 @@ impl TypeSubstitution {
             TypeData::TypeMemberProjection(projection) => {
                 let kind = store.kind_of(ty);
                 let subject = match &projection.subject {
-                    super::type_member::ProjectionSubject::Type(sub_ty) => super::type_member::ProjectionSubject::Type(self.apply_with_arena(store, arena, *sub_ty)),
+                    super::type_member::ProjectionSubject::Type(sub_ty) => {
+                        super::type_member::ProjectionSubject::Type(self.apply_with_arena(store, arena, *sub_ty))
+                    }
                     super::type_member::ProjectionSubject::RecordRow(row_id) => {
                         let subst_row = self.apply_record_row_with_arena(store, arena, *row_id);
                         super::type_member::ProjectionSubject::RecordRow(subst_row)
@@ -357,7 +365,9 @@ impl TypeSubstitution {
                     .arguments
                     .iter()
                     .map(|arg| match arg {
-                        super::type_member::TypeMemberArgument::Type(arg_ty) => super::type_member::TypeMemberArgument::Type(self.apply_with_arena(store, arena, *arg_ty)),
+                        super::type_member::TypeMemberArgument::Type(arg_ty) => {
+                            super::type_member::TypeMemberArgument::Type(self.apply_with_arena(store, arena, *arg_ty))
+                        }
                         super::type_member::TypeMemberArgument::Const(c) => super::type_member::TypeMemberArgument::Const(c.clone()),
                         super::type_member::TypeMemberArgument::RecordRow(row_id) => {
                             let subst_row = self.apply_record_row_with_arena(store, arena, *row_id);
@@ -429,9 +439,7 @@ impl TypeSubstitution {
                     .arguments
                     .iter()
                     .map(|argument| match argument {
-                        super::store::StaticArgument::Term(argument) => {
-                            super::store::StaticArgument::Term(self.apply_with_arena(store, arena, *argument))
-                        }
+                        super::store::StaticArgument::Term(argument) => super::store::StaticArgument::Term(self.apply_with_arena(store, arena, *argument)),
                         super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
                         super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                     })
@@ -710,6 +718,12 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
             store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
         }
         TypeData::ConstInt(_) => ty,
-        TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::StaticDomainForm { .. } | TypeData::ClassObject { .. } => ty,
+        TypeData::Parameter(_)
+        | TypeData::Lambda(_)
+        | TypeData::Never
+        | TypeData::Unit
+        | TypeData::Nominal { .. }
+        | TypeData::StaticDomainForm { .. }
+        | TypeData::ClassObject { .. } => ty,
     }
 }

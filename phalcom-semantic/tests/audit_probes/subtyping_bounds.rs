@@ -235,8 +235,16 @@ fn canonicalization_binder_rows_and_application_controls() {
     let p = s.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(decl("A")), 0, "T", KindId::TYPE));
     let q = s.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(decl("B")), 0, "T", KindId::TYPE));
     assert_ne!(p, q);
-    let x = RecordTypeField { name: "x".into(), ty: i, presence: StructuralMemberPresence::Required };
-    let y = RecordTypeField { name: "y".into(), ty: st, presence: StructuralMemberPresence::Required };
+    let x = RecordTypeField {
+        name: "x".into(),
+        ty: i,
+        presence: StructuralMemberPresence::Required,
+    };
+    let y = RecordTypeField {
+        name: "y".into(),
+        ty: st,
+        presence: StructuralMemberPresence::Required,
+    };
     let xy = s.record(Box::new([x.clone(), y.clone()]));
     assert_eq!(s.record(Box::new([y, x])), xy);
 }
@@ -297,9 +305,20 @@ fn extended_type_relation_controls() {
     let lt = s.apply_type_form(list, &[t]).unwrap();
     let li = s.apply_type_form(list, &[i]).unwrap();
     let ln = s.apply_type_form(list, &[n]).unwrap();
-    let x = RecordTypeField { name: "x".into(), ty: i, presence: StructuralMemberPresence::Required };
+    let x = RecordTypeField {
+        name: "x".into(),
+        ty: i,
+        presence: StructuralMemberPresence::Required,
+    };
     let r1 = s.record(Box::new([x.clone()]));
-    let r2 = s.record(Box::new([x, RecordTypeField { name: "y".into(), ty: st, presence: StructuralMemberPresence::Required }]));
+    let r2 = s.record(Box::new([
+        x,
+        RecordTypeField {
+            name: "y".into(),
+            ty: st,
+            presence: StructuralMemberPresence::Required,
+        },
+    ]));
     let c1 = s.callable(CallableType {
         parameters: Box::new([CallableParameterType::new(n)]),
         return_type: i,

@@ -21,10 +21,7 @@ fn p4_registry_separates_declaration_class_from_exact_descriptors() {
     let owner = DeclarationId::new(vm.heap.module(root_mod).id.clone(), "ShapeGeneric".into());
     let behavior_class = vm.universe.classes.object_class;
 
-    assert_eq!(
-        vm.data_registry.register_behavior_class(owner.clone(), behavior_class),
-        behavior_class
-    );
+    assert_eq!(vm.data_registry.register_behavior_class(owner.clone(), behavior_class), behavior_class);
     assert_eq!(vm.data_registry.behavior_class_for_declaration(&owner), Some(behavior_class));
     assert_eq!(vm.data_registry.descriptor_by_declaration(&owner), None);
 
@@ -54,27 +51,15 @@ fn p4_registry_separates_declaration_class_from_exact_descriptors() {
     let exact_one = RuntimeTypeRef::Overlay(RuntimeOverlayTypeId(1));
     let exact_two = RuntimeTypeRef::Overlay(RuntimeOverlayTypeId(2));
 
-    let one = vm.data_registry.register_with_component_slots(
-        owner.clone(),
-        behavior_class,
-        Some(exact_one),
-        layout_one,
-        Some(vec![0].into_boxed_slice()),
-    );
-    let two = vm.data_registry.register_with_component_slots(
-        owner.clone(),
-        behavior_class,
-        Some(exact_two),
-        layout_two,
-        Some(vec![0, 1].into_boxed_slice()),
-    );
-    let one_again = vm.data_registry.register_with_component_slots(
-        owner.clone(),
-        behavior_class,
-        Some(exact_one),
-        layout_two,
-        Some(vec![0].into_boxed_slice()),
-    );
+    let one = vm
+        .data_registry
+        .register_with_component_slots(owner.clone(), behavior_class, Some(exact_one), layout_one, Some(vec![0].into_boxed_slice()));
+    let two = vm
+        .data_registry
+        .register_with_component_slots(owner.clone(), behavior_class, Some(exact_two), layout_two, Some(vec![0, 1].into_boxed_slice()));
+    let one_again =
+        vm.data_registry
+            .register_with_component_slots(owner.clone(), behavior_class, Some(exact_one), layout_two, Some(vec![0].into_boxed_slice()));
 
     assert_eq!(one, one_again, "the same owner and exact type reuse their descriptor");
     assert_ne!(one, two, "different exact types receive distinct descriptors");
@@ -84,10 +69,7 @@ fn p4_registry_separates_declaration_class_from_exact_descriptors() {
     assert_eq!(two_descriptor.behavior_class, behavior_class);
     assert_eq!(one_descriptor.exact_type, Some(exact_one));
     assert_eq!(two_descriptor.exact_type, Some(exact_two));
-    assert_eq!(
-        one_descriptor.layout, layout_one,
-        "re-registration must not replace the exact layout"
-    );
+    assert_eq!(one_descriptor.layout, layout_one, "re-registration must not replace the exact layout");
     assert_eq!(two_descriptor.layout, layout_two);
     assert_eq!(one_descriptor.component_slots.as_deref(), Some(&[0][..]));
     assert_eq!(two_descriptor.component_slots.as_deref(), Some(&[0, 1][..]));

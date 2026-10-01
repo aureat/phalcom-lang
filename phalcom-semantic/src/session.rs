@@ -40,8 +40,8 @@ use crate::signature::{CallableSemanticSignature, CallableSignatureTable, FieldS
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{
-    SourceIndexContext, SourceSemanticIndex, build_source_scope_index,
-    resolve_type_member_projection_targets, resolve_type_parameter_source_targets, resolve_type_reference_targets,
+    SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_member_projection_targets, resolve_type_parameter_source_targets,
+    resolve_type_reference_targets,
 };
 use crate::traits::{TraitHeader, TraitRef, TraitSurfaceTable, build_trait_surface};
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
@@ -768,12 +768,10 @@ impl SemanticWorkspaceSession {
                             Some(phalcom_ast::ast::ExpansionMode::Labeled) => crate::types::parameter::GenericParameterMode::LabeledPack,
                             Some(phalcom_ast::ast::ExpansionMode::Complete) => crate::types::parameter::GenericParameterMode::CompletePack,
                         };
-                        let parameter_id = store.intern_type_parameter(TypeParameterData::new(
-                            TypeParameterOwner::Declaration(decl_id.clone()),
-                            index as u32,
-                            parameter.name.clone(),
-                            kind,
-                        ).with_mode(mode));
+                        let parameter_id = store.intern_type_parameter(
+                            TypeParameterData::new(TypeParameterOwner::Declaration(decl_id.clone()), index as u32, parameter.name.clone(), kind)
+                                .with_mode(mode),
+                        );
                         parameter_ids.push(parameter_id);
                         parameter_kinds.push(kind);
                         parameter_modes.push(mode);
@@ -794,15 +792,13 @@ impl SemanticWorkspaceSession {
                     } else {
                         let kind = store.arrow_kind(parameter_kinds.clone().into_boxed_slice(), result_kind);
                         let form = store.nominal_form(decl_id.clone(), kind);
-                        let signature = crate::types::parameter::GenericSignature::new(
-                            TypeParameterOwner::Declaration(decl_id.clone()),
-                            parameter_ids.into_boxed_slice(),
-                        )
-                        .with_parameter_metadata(
-                            parameter_kinds.clone().into_boxed_slice(),
-                            vec![crate::types::variance::Variance::Invariant; parameter_kinds.len()].into_boxed_slice(),
-                        )
-                        .with_parameter_modes(parameter_modes.into_boxed_slice());
+                        let signature =
+                            crate::types::parameter::GenericSignature::new(TypeParameterOwner::Declaration(decl_id.clone()), parameter_ids.into_boxed_slice())
+                                .with_parameter_metadata(
+                                    parameter_kinds.clone().into_boxed_slice(),
+                                    vec![crate::types::variance::Variance::Invariant; parameter_kinds.len()].into_boxed_slice(),
+                                )
+                                .with_parameter_modes(parameter_modes.into_boxed_slice());
                         (form, kind, Some(signature))
                     };
 
@@ -1190,7 +1186,9 @@ impl SemanticWorkspaceSession {
                     phalcom_ast::ast::Statement::Class(class_def) => {
                         let owner = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
                         for member in &class_def.members {
-                            let phalcom_ast::ast::ClassMember::TypeMember(definition) = member else { continue };
+                            let phalcom_ast::ast::ClassMember::TypeMember(definition) = member else {
+                                continue;
+                            };
                             let (product, _diags) = crate::checker::type_member_declaration::build_type_member_declaration(
                                 &mut store,
                                 &owner,
@@ -1202,7 +1200,9 @@ impl SemanticWorkspaceSession {
                             if let Some(product) = product {
                                 let selector = crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector);
                                 let base = match &selector {
-                                    crate::types::type_member::TypeMemberSelector::Named(name) => phalcom_common::selector::SelectorBase::Named(name.to_string()),
+                                    crate::types::type_member::TypeMemberSelector::Named(name) => {
+                                        phalcom_common::selector::SelectorBase::Named(name.to_string())
+                                    }
                                     crate::types::type_member::TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
                                 };
                                 let kind = if base_declarations
@@ -1214,13 +1214,16 @@ impl SemanticWorkspaceSession {
                                 } else {
                                     crate::associated::AssociatedFamilyKind::TypeMember
                                 };
-                                base_type_member_shells.entry(owner.clone()).or_default().push(crate::associated::AssociatedMemberShell {
-                                    base,
-                                    kind,
-                                    member: crate::associated::AssociatedMemberId::TypeMember(product.id.clone()),
-                                    module: module_id.clone(),
-                                    source_range: definition.range,
-                                });
+                                base_type_member_shells
+                                    .entry(owner.clone())
+                                    .or_default()
+                                    .push(crate::associated::AssociatedMemberShell {
+                                        base,
+                                        kind,
+                                        member: crate::associated::AssociatedMemberId::TypeMember(product.id.clone()),
+                                        module: module_id.clone(),
+                                        source_range: definition.range,
+                                    });
                                 let arc_prod = Arc::new(product);
                                 base_type_member_declarations.insert(arc_prod.id.clone(), arc_prod.clone());
                                 base_type_member_products.push(arc_prod);
@@ -1232,7 +1235,9 @@ impl SemanticWorkspaceSession {
                             continue;
                         };
                         for member in &impl_def.members {
-                            let phalcom_ast::ast::ImplMember::TypeMember(definition) = member else { continue };
+                            let phalcom_ast::ast::ImplMember::TypeMember(definition) = member else {
+                                continue;
+                            };
                             let (product, _diags) = crate::checker::type_member_declaration::build_type_member_declaration(
                                 &mut store,
                                 &owner,
@@ -1244,7 +1249,9 @@ impl SemanticWorkspaceSession {
                             if let Some(product) = product {
                                 let selector = crate::types::type_member::TypeMemberSelector::from_syntax(&definition.selector);
                                 let base = match &selector {
-                                    crate::types::type_member::TypeMemberSelector::Named(name) => phalcom_common::selector::SelectorBase::Named(name.to_string()),
+                                    crate::types::type_member::TypeMemberSelector::Named(name) => {
+                                        phalcom_common::selector::SelectorBase::Named(name.to_string())
+                                    }
                                     crate::types::type_member::TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
                                 };
                                 let kind = if base_declarations
@@ -1256,13 +1263,16 @@ impl SemanticWorkspaceSession {
                                 } else {
                                     crate::associated::AssociatedFamilyKind::TypeMember
                                 };
-                                base_type_member_shells.entry(owner.clone()).or_default().push(crate::associated::AssociatedMemberShell {
-                                    base,
-                                    kind,
-                                    member: crate::associated::AssociatedMemberId::TypeMember(product.id.clone()),
-                                    module: module_id.clone(),
-                                    source_range: definition.range,
-                                });
+                                base_type_member_shells
+                                    .entry(owner.clone())
+                                    .or_default()
+                                    .push(crate::associated::AssociatedMemberShell {
+                                        base,
+                                        kind,
+                                        member: crate::associated::AssociatedMemberId::TypeMember(product.id.clone()),
+                                        module: module_id.clone(),
+                                        source_range: definition.range,
+                                    });
                                 let arc_prod = Arc::new(product);
                                 base_type_member_declarations.insert(arc_prod.id.clone(), arc_prod.clone());
                                 base_type_member_products.push(arc_prod);
@@ -1280,14 +1290,8 @@ impl SemanticWorkspaceSession {
                 .get(&owner)
                 .cloned()
                 .unwrap_or_else(|| Arc::new(crate::associated::AssociatedSurface::new(owner.clone())));
-            let (surface, _diags) = crate::associated::extend_associated_surface_with_shells(
-                &owner,
-                base_surface,
-                &shells,
-                &HashSet::new(),
-                &HashSet::new(),
-                &owner.module,
-            );
+            let (surface, _diags) =
+                crate::associated::extend_associated_surface_with_shells(&owner, base_surface, &shells, &HashSet::new(), &HashSet::new(), &owner.module);
             base_associated_surfaces.insert(owner.clone(), surface.clone());
             base_associated_surface_products.push(surface);
         }
@@ -2737,9 +2741,10 @@ impl SemanticWorkspaceSession {
         let mut associated_surfaces_table = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
-        let mut type_member_declarations_table = previous_snapshot
-            .as_ref()
-            .map_or_else(|| self.base_type_member_declarations.clone(), |snapshot| (*snapshot.type_member_declarations).clone());
+        let mut type_member_declarations_table = previous_snapshot.as_ref().map_or_else(
+            || self.base_type_member_declarations.clone(),
+            |snapshot| (*snapshot.type_member_declarations).clone(),
+        );
         for module in structural_recomputed_modules.iter().chain(removed_modules.iter()) {
             associated_surfaces_table.remove_module(module);
         }
@@ -6489,27 +6494,17 @@ impl SemanticWorkspaceSession {
         // 7. Retract stale inferred results for current unseeded direct cycles
         // before allowing the ordinary inferred-result refresh to consume
         // them. The returned SCC set is withheld from that generic loop.
-        let (withheld_cycle_callables, cycle_reanalysis_roots) = retract_stale_unseeded_callable_result_cycles(
-            &mut self.db,
-            &callable_analyses,
-            &mut callable_signatures,
-            &mut dispatch,
-        )?;
+        let (withheld_cycle_callables, cycle_reanalysis_roots) =
+            retract_stale_unseeded_callable_result_cycles(&mut self.db, &callable_analyses, &mut callable_signatures, &mut dispatch)?;
         if !cycle_reanalysis_roots.is_empty() {
-            let signature_roots = cycle_reanalysis_roots
-                .iter()
-                .cloned()
-                .map(QueryKey::CallableSignature)
-                .collect::<BTreeSet<_>>();
+            let signature_roots = cycle_reanalysis_roots.iter().cloned().map(QueryKey::CallableSignature).collect::<BTreeSet<_>>();
             let downstream_bodies = self
                 .db
                 .index()
                 .reverse_closure(signature_roots)
                 .into_iter()
                 .filter_map(|key| match key {
-                    QueryKey::CallableBody(callable)
-                        if retained_sources.contains_key(callable.module()) && callable_analyses.contains_key(&callable) =>
-                    {
+                    QueryKey::CallableBody(callable) if retained_sources.contains_key(callable.module()) && callable_analyses.contains_key(&callable) => {
                         Some(callable)
                     }
                     _ => None,
@@ -6526,12 +6521,7 @@ impl SemanticWorkspaceSession {
             // authorized reanalysis consumes the retracted dispatch result.
             // Incoming consumers remain cached and are refreshed by the
             // ordinary inferred-result propagation below.
-            self.db.invalidate_roots(
-                cycle_reanalysis_roots
-                    .iter()
-                    .cloned()
-                    .map(QueryKey::CallableBody),
-            );
+            self.db.invalidate_roots(cycle_reanalysis_roots.iter().cloned().map(QueryKey::CallableBody));
 
             let reanalysis_signature_snapshot = callable_signatures.clone();
             let reanalysis_conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
@@ -9091,9 +9081,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
             context.type_parameter_declarations.insert((module.clone(), range), name);
         }
         for (range, declaration_range) in type_parameters.references {
-            context
-                .type_parameter_reference_targets
-                .insert((module.clone(), range), declaration_range);
+            context.type_parameter_reference_targets.insert((module.clone(), range), declaration_range);
         }
     }
     let mut imported_target_modules = BTreeSet::new();

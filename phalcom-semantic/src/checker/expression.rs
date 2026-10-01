@@ -1,8 +1,9 @@
 //! Expression type synthesis, bidirectional checking, and inference engine (Spec 04.5 / Wave 3).
 
 use super::call::{
-    CallPremise, CallTargetAuthority, CallableApplicationTarget, DataConstructorShapeAdapter, StaticCallShape, UnionCallArm, UnresolvedApplicationReason, analyze_non_callable_invocation,
-    analyze_unresolved_application, application_arguments, apply_resolved_callable, apply_union_resolved_call, callable_value_target, static_call_shape,
+    CallPremise, CallTargetAuthority, CallableApplicationTarget, DataConstructorShapeAdapter, StaticCallShape, UnionCallArm, UnresolvedApplicationReason,
+    analyze_non_callable_invocation, analyze_unresolved_application, application_arguments, apply_resolved_callable, apply_union_resolved_call,
+    callable_value_target, static_call_shape,
 };
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
@@ -888,7 +889,11 @@ fn synthesize_if_expr(ctx: &mut CheckingContext<'_>, if_expr: &phalcom_ast::ast:
     let split = analyze_condition_split(ctx, &if_expr.condition);
 
     let no_branch_result_expectation = ExpectedType::None;
-    let branch_expected = if if_expr.else_body.is_some() { expected } else { &no_branch_result_expectation };
+    let branch_expected = if if_expr.else_body.is_some() {
+        expected
+    } else {
+        &no_branch_result_expectation
+    };
     let then_result = if split.when_true.is_reachable() {
         ctx.flow = split.when_true;
         analyze_executable_region(ctx, &if_expr.then_body.body, if_expr.then_body.range, branch_expected)
@@ -1224,14 +1229,7 @@ fn type_form_descriptor_type(ctx: &mut CheckingContext<'_>, form: TypeId) -> Opt
 fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &lookup.receiver, &ExpectedType::None);
     if let Some(SemanticDenotation::StaticDomain(domain)) = receiver.denotation.as_ref() {
-        let Some(result) = resolve_static_domain_case(
-            ctx,
-            *domain,
-            &lookup.member,
-            TypeId::DUMMY,
-            None,
-            lookup.range,
-        ) else {
+        let Some(result) = resolve_static_domain_case(ctx, *domain, &lookup.member, TypeId::DUMMY, None, lookup.range) else {
             return TypedExpression::unknown(UnknownReason::UncheckedExpression);
         };
         return result;
@@ -1249,14 +1247,7 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
             ));
             return TypedExpression::unknown(UnknownReason::UncheckedExpression);
         };
-        let result = resolve_static_domain_case(
-            ctx,
-            domain,
-            &lookup.member,
-            owner.owner_form,
-            None,
-            lookup.range,
-        );
+        let result = resolve_static_domain_case(ctx, domain, &lookup.member, owner.owner_form, None, lookup.range);
         if result.is_some() {
             // Resolution and value legality are separate: publish the canonical
             // case identity before rejecting its use as a runtime expression.
@@ -1287,12 +1278,7 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                 let Some(AssociatedMemberId::StaticDomain(id)) = family.members.first() else {
                     return TypedExpression::unknown(UnknownReason::UncheckedExpression);
                 };
-                let arguments = owner
-                    .supplied_arguments
-                    .iter()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice();
+                let arguments = owner.supplied_arguments.iter().copied().collect::<Vec<_>>().into_boxed_slice();
                 let domain = ctx.store.associated_static_domain(id.clone(), arguments);
                 if let Some(expression) = ctx.current_expression_id() {
                     ctx.record_associated_resolution(
@@ -1401,10 +1387,9 @@ fn resolve_static_domain_case(
         return None;
     };
     let (identity, lookup_owner) = match &domain_data {
-        crate::types::store::StaticDomainData::Nominal { declaration } => (
-            crate::identity::StaticDomainDeclarationId::Nominal(declaration.clone()),
-            declaration.clone(),
-        ),
+        crate::types::store::StaticDomainData::Nominal { declaration } => {
+            (crate::identity::StaticDomainDeclarationId::Nominal(declaration.clone()), declaration.clone())
+        }
         crate::types::store::StaticDomainData::Associated { declaration, .. } => (
             crate::identity::StaticDomainDeclarationId::Associated(declaration.clone()),
             declaration.owner.clone(),
@@ -2461,7 +2446,11 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
             .iter()
             .cloned()
             .zip(types.iter().copied())
-            .map(|(label, ty)| TupleTypeElement { label, ty, presence: crate::types::row::StructuralMemberPresence::Required })
+            .map(|(label, ty)| TupleTypeElement {
+                label,
+                ty,
+                presence: crate::types::row::StructuralMemberPresence::Required,
+            })
             .collect::<Vec<_>>();
         Ok(ctx.store.tuple(elements.into_boxed_slice()))
     });
@@ -2775,7 +2764,11 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                 .iter()
                 .cloned()
                 .zip(types.iter().copied())
-                .map(|(name, ty)| RecordTypeField { name, ty, presence: crate::types::row::StructuralMemberPresence::Required })
+                .map(|(name, ty)| RecordTypeField {
+                    name,
+                    ty,
+                    presence: crate::types::row::StructuralMemberPresence::Required,
+                })
                 .collect::<Vec<_>>();
             match ctx.store.record_row_type_checked(fields, open_tail.unwrap_or(RecordRowTail::Closed)) {
                 Ok(ty) => Ok(ty),
@@ -4137,8 +4130,7 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
                 && shape.state == crate::data_semantics::DataProductShapeState::Concrete
                 && let Some((logical_index, component)) = shape.components.iter().enumerate().find(|(_, component)| {
                     component.component.is_none()
-                        && (component.local_name.as_deref() == Some(get.property.as_str())
-                            || component.label.as_deref() == Some(get.property.as_str()))
+                        && (component.local_name.as_deref() == Some(get.property.as_str()) || component.label.as_deref() == Some(get.property.as_str()))
                         && component.ty.is_some()
                 })
                 && let Some(value_type) = component.ty
@@ -4657,7 +4649,11 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
     }
 }
 
-fn apply_ambient_equalities(store: &mut crate::types::store::TypeStore, ambient_constraints: &[crate::types::parameter::GenericConstraint], ty: TypeId) -> TypeId {
+fn apply_ambient_equalities(
+    store: &mut crate::types::store::TypeStore,
+    ambient_constraints: &[crate::types::parameter::GenericConstraint],
+    ty: TypeId,
+) -> TypeId {
     let mut subst = crate::types::substitution::TypeSubstitution::new();
     for c in ambient_constraints {
         if let crate::types::parameter::GenericConstraint::Equivalent { left, right } = c {
@@ -4670,11 +4666,7 @@ fn apply_ambient_equalities(store: &mut crate::types::store::TypeStore, ambient_
             }
         }
     }
-    if !subst.is_empty() {
-        subst.apply(store, ty)
-    } else {
-        ty
-    }
+    if !subst.is_empty() { subst.apply(store, ty) } else { ty }
 }
 
 pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom_ast::ast::MatchExpr, expected: &ExpectedType) -> TypedExpression {
@@ -4770,7 +4762,9 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
                 phalcom_ast::ast::MatchArmBody::Expression(expr) => analyze_expression(ctx, expr, branch_expected),
                 phalcom_ast::ast::MatchArmBody::Block(block) => {
                     let region = super::control::analyze_executable_region(ctx, &block.body, block.range, branch_expected);
-                    region.value.unwrap_or_else(|| TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range))
+                    region
+                        .value
+                        .unwrap_or_else(|| TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range))
                 }
             };
             ctx.active_local_constraints = prior_local_constraints;

@@ -46,10 +46,7 @@ fn test_row_subtraction_solves() {
     let empty_row = store.record_row_checked(Vec::new(), RecordRowTail::Closed).unwrap();
 
     let single_row = store
-        .record_row_checked(
-            vec![RecordRowField::required("name".into(), str_ty)],
-            RecordRowTail::Closed,
-        )
+        .record_row_checked(vec![RecordRowField::required("name".into(), str_ty)], RecordRowTail::Closed)
         .unwrap();
 
     let mut solver = RecordRowSolver::new();
@@ -77,10 +74,7 @@ fn test_lacks_constraint_blocks_duplicate_extension() {
     let str_ty = store.nominal(test_decl("String"));
 
     let row = store
-        .record_row_checked(
-            vec![RecordRowField::required("name".into(), str_ty)],
-            RecordRowTail::Closed,
-        )
+        .record_row_checked(vec![RecordRowField::required("name".into(), str_ty)], RecordRowTail::Closed)
         .unwrap();
 
     let mut solver = RecordRowSolver::new();
@@ -159,10 +153,12 @@ fn test_record_subtyping_exact_closed_and_explicit_open() {
     assert!(!is_subtype(&mut store, &hier, sup_closed, sub), "Narrow cannot subtype wide");
 
     // sup_open: { a: Int, ... }
-    let sup_open_row = store.record_row_checked(
-        vec![RecordRowField::required("a".into(), int_ty)],
-        RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
-    ).unwrap();
+    let sup_open_row = store
+        .record_row_checked(
+            vec![RecordRowField::required("a".into(), int_ty)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
+        )
+        .unwrap();
     let sup_open = store.intern_with_kind(TypeData::Record(sup_open_row), KindId::TYPE);
 
     // CV-02: Explicit open structural positive: {a: Int, b: String} <: {a: Int, ...}
@@ -173,24 +169,41 @@ fn test_record_subtyping_exact_closed_and_explicit_open() {
         RecordRowField::required("a".into(), int_ty),
         RecordRowField::optional("b".into(), str_ty),
     ]));
-    assert!(is_subtype(&mut store, &hier, sup_closed, sup_opt), "Absent optional field in closed source is accepted");
+    assert!(
+        is_subtype(&mut store, &hier, sup_closed, sup_opt),
+        "Absent optional field in closed source is accepted"
+    );
 
     // CV-04: Optional presence: { a: Int, b: String } <: { a: Int, b?: String }
-    assert!(is_subtype(&mut store, &hier, sub, sup_opt), "Present optional field with matching type is accepted");
+    assert!(
+        is_subtype(&mut store, &hier, sub, sup_opt),
+        "Present optional field with matching type is accepted"
+    );
     let sub_bad_opt = store.record(Box::new([
         RecordRowField::required("a".into(), int_ty),
         RecordRowField::required("b".into(), int_ty),
     ]));
-    assert!(!is_subtype(&mut store, &hier, sub_bad_opt, sup_opt), "Present optional field with mismatching type is refuted");
+    assert!(
+        !is_subtype(&mut store, &hier, sub_bad_opt, sup_opt),
+        "Present optional field with mismatching type is refuted"
+    );
 
     // CV-06: Typed remainder: { a: Int, b: String } <: { a: Int, **: String }
-    let sup_typed_rem_row = store.record_row_checked(
-        vec![RecordRowField::required("a".into(), int_ty)],
-        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(str_ty)),
-    ).unwrap();
+    let sup_typed_rem_row = store
+        .record_row_checked(
+            vec![RecordRowField::required("a".into(), int_ty)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(str_ty)),
+        )
+        .unwrap();
     let sup_typed_rem = store.intern_with_kind(TypeData::Record(sup_typed_rem_row), KindId::TYPE);
-    assert!(is_subtype(&mut store, &hier, sub, sup_typed_rem), "Typed remainder accepts matching extra field");
-    assert!(!is_subtype(&mut store, &hier, sub_bad_opt, sup_typed_rem), "Typed remainder refutes non-matching extra field");
+    assert!(
+        is_subtype(&mut store, &hier, sub, sup_typed_rem),
+        "Typed remainder accepts matching extra field"
+    );
+    assert!(
+        !is_subtype(&mut store, &hier, sub_bad_opt, sup_typed_rem),
+        "Typed remainder refutes non-matching extra field"
+    );
 }
 
 #[test]
@@ -199,10 +212,7 @@ fn checked_row_rejects_non_row_tail_parameter() {
     let owner = TypeParameterOwner::Declaration(test_decl("Owner"));
     let parameter = store.intern_type_parameter(TypeParameterData::new(owner, 0, "T", KindId::TYPE));
     let int_ty = store.nominal(test_decl("Int"));
-    let result = store.record_row_type_checked(
-        vec![RecordRowField::required("value".into(), int_ty)],
-        RecordRowTail::Parameter(parameter),
-    );
+    let result = store.record_row_type_checked(vec![RecordRowField::required("value".into(), int_ty)], RecordRowTail::Parameter(parameter));
     assert!(matches!(
         result,
         Err(RecordRowFormationError::TailParameterWrongKind { actual: KindId::TYPE, .. })
@@ -250,10 +260,7 @@ fn lacks_constraint_survives_variable_alias() {
     let mut store = TypeStore::new();
     let string_ty = store.nominal(test_decl("String"));
     let row = store
-        .record_row_checked(
-            vec![RecordRowField::required("name".into(), string_ty)],
-            RecordRowTail::Closed,
-        )
+        .record_row_checked(vec![RecordRowField::required("name".into(), string_ty)], RecordRowTail::Closed)
         .unwrap();
     let mut solver = RecordRowSolver::new();
     let first = solver.fresh_var();

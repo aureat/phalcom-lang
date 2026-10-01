@@ -4,6 +4,7 @@ use crate::checker::context::{CheckerControl, CheckingContext};
 use crate::checker::declaration_signature::{
     CallableSyntaxRef, DelegationError, delegated_accessor_signatures, delegated_member_visibility, semantic_signature_for_syntax_with_resolver,
 };
+use crate::core_surface::universe_declaration;
 use crate::db::ProductFingerprint;
 use crate::declaration_type::DeclaredTypeState;
 use crate::declarations::DeclarationTypeTable;
@@ -19,15 +20,14 @@ use crate::types::annotation::{
 use crate::types::environment::TypeEnvironment;
 use crate::types::evidence::{TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, RecordRowId, TypeId, TypeParameterId};
+use crate::types::instantiation::{GenericInstantiation, RowMaterializationMode, TypeMaterializationError, materialize_type};
 use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationOutcome};
 use crate::types::parameter::{GenericParameterMode, GenericSignature, TypeParameterOwner, TypeTerm};
 use crate::types::row::RecordRowTail;
 use crate::types::store::{StaticArgument, TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
-use crate::types::instantiation::{GenericInstantiation, RowMaterializationMode, TypeMaterializationError, materialize_type};
-use crate::core_surface::universe_declaration;
-use phalcom_native_meta::UniverseKey;
 use phalcom_ast::ast::{BehaviorMember, ImplDef, ImplMember, TypeAnnotationExpr};
+use phalcom_native_meta::UniverseKey;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
@@ -948,8 +948,9 @@ fn normalize_source_signature_in_store(
                 &cancel,
             );
             match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                crate::types::ProjectionNormalizationResult::Normalized(normalized)
-                | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => normalized,
+                crate::types::ProjectionNormalizationResult::Normalized(normalized) | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => {
+                    normalized
+                }
                 _ => ty,
             }
         });
@@ -1033,8 +1034,9 @@ fn normalize_exact_requirement_signature(
             )
             .with_current_exact_evidence(target, trait_ref, associated_types);
             match crate::types::normalize_type(store, ty, &mut context) {
-                crate::types::ProjectionNormalizationResult::Normalized(normalized)
-                | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => normalized,
+                crate::types::ProjectionNormalizationResult::Normalized(normalized) | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => {
+                    normalized
+                }
                 other => {
                     failure = Some(other);
                     ty
@@ -1066,9 +1068,7 @@ pub(crate) fn project_inferred_trait_default_signature(
     if canonical_signature.inferred_return.is_none() {
         return None;
     }
-    let crate::trait_dispatch::TraitDispatchSelection {
-        requirement, evidence, ..
-    } = selection;
+    let crate::trait_dispatch::TraitDispatchSelection { requirement, evidence, .. } = selection;
     let surface = trait_surfaces.get(&requirement.owner)?;
     let source_member = surface.get(requirement)?;
     if !source_member.default_present || source_member.callable != canonical_signature.callable {
@@ -1642,11 +1642,7 @@ fn normalize_witness_type(
     budget: &mut QueryBudget,
     cancel: &CancellationToken,
 ) -> Result<TypeId, WitnessCompatibility> {
-    let mut context = crate::types::ProjectionNormalizationContext::new(
-        crate::types::ProjectionNormalizationMode::AbstractTrait { trait_ref },
-        budget,
-        cancel,
-    );
+    let mut context = crate::types::ProjectionNormalizationContext::new(crate::types::ProjectionNormalizationMode::AbstractTrait { trait_ref }, budget, cancel);
     match crate::types::normalize_type(store, ty, &mut context) {
         crate::types::ProjectionNormalizationResult::Normalized(ty) => Ok(ty),
         crate::types::ProjectionNormalizationResult::Symbolic(ty) => Ok(ty),
@@ -1983,7 +1979,9 @@ pub fn build_conformance_witness_plan(
             );
             retain_stronger_terminal_state(&mut terminal_state, pending.clone());
         } else if let Some((component, specialized_type)) = data_candidates.get(requirement)
-            && inherent_candidates.get(requirement).map_or(true, |c| &c.owner != contribution.target.declaration())
+            && inherent_candidates
+                .get(requirement)
+                .map_or(true, |c| &c.owner != contribution.target.declaration())
         {
             requirements.insert(
                 requirement.clone(),
@@ -2139,8 +2137,9 @@ pub fn build_conformance_witness_plan(
                         }
                         let norm_left = match left {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t)
-                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => NormalizedTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t) | crate::types::ProjectionNormalizationResult::Symbolic(t) => {
+                                    NormalizedTerm::Canonical(t)
+                                }
                                 crate::types::ProjectionNormalizationResult::Dynamic(_) => NormalizedTerm::Dynamic,
                                 other => {
                                     if std::env::var_os("PHALCOM_CONTRACT_TRACE").is_some() {
@@ -2153,8 +2152,9 @@ pub fn build_conformance_witness_plan(
                         };
                         let norm_right = match right {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut norm_ctx) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t)
-                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => NormalizedTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t) | crate::types::ProjectionNormalizationResult::Symbolic(t) => {
+                                    NormalizedTerm::Canonical(t)
+                                }
                                 crate::types::ProjectionNormalizationResult::Dynamic(_) => NormalizedTerm::Dynamic,
                                 other => other.type_id().map(NormalizedTerm::Canonical).unwrap_or_else(|| NormalizedTerm::Other(right)),
                             },
@@ -2187,7 +2187,11 @@ pub fn build_conformance_witness_plan(
         }
     }
     if std::env::var_os("PHALCOM_CONTRACT_TRACE").is_some() && !failures.is_empty() {
-        eprintln!("impl {:?} target {} failures: {failures:?}", contribution.impl_id, store.format_type(contribution.target_head));
+        eprintln!(
+            "impl {:?} target {} failures: {failures:?}",
+            contribution.impl_id,
+            store.format_type(contribution.target_head)
+        );
     }
     let completeness = if !failures.is_empty() || invalid_explicit_members {
         ConformanceCompleteness::Incomplete {
@@ -2431,8 +2435,7 @@ pub fn resolve_conformance_evidence_with_surfaces(
         )
         .with_current_exact_evidence(target, trait_ref, &associated_types);
         let value = match crate::types::normalize_type(store, value, &mut normalization_context) {
-            crate::types::ProjectionNormalizationResult::Normalized(value)
-            | crate::types::ProjectionNormalizationResult::Symbolic(value) => value,
+            crate::types::ProjectionNormalizationResult::Normalized(value) | crate::types::ProjectionNormalizationResult::Symbolic(value) => value,
             other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
         };
         associated_types.get_mut(requirement).expect("associated binding remains staged").value = AssociatedTypeBindingValue::Type(value);
@@ -2464,8 +2467,9 @@ pub fn resolve_conformance_evidence_with_surfaces(
                     } => {
                         let norm_subject = match subject {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t)
-                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => TypeTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t) | crate::types::ProjectionNormalizationResult::Symbolic(t) => {
+                                    TypeTerm::Canonical(t)
+                                }
                                 other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
                             },
                             other => other,
@@ -2480,16 +2484,18 @@ pub fn resolve_conformance_evidence_with_surfaces(
                     GenericConstraint::Equivalent { left, right } => {
                         let norm_left = match left {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t)
-                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => TypeTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t) | crate::types::ProjectionNormalizationResult::Symbolic(t) => {
+                                    TypeTerm::Canonical(t)
+                                }
                                 other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
                             },
                             other => other,
                         };
                         let norm_right = match right {
                             TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t)
-                                | crate::types::ProjectionNormalizationResult::Symbolic(t) => TypeTerm::Canonical(t),
+                                crate::types::ProjectionNormalizationResult::Normalized(t) | crate::types::ProjectionNormalizationResult::Symbolic(t) => {
+                                    TypeTerm::Canonical(t)
+                                }
                                 other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
                             },
                             other => other,
@@ -2849,9 +2855,11 @@ fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, 
         }
         TypeData::Applied { origin, arguments } => {
             occurs_in_conformance_binding(store, parameter, *origin, bindings)
-                || arguments
-                    .iter()
-                    .any(|argument| argument.as_type_id().is_some_and(|argument| occurs_in_conformance_binding(store, parameter, argument, bindings)))
+                || arguments.iter().any(|argument| {
+                    argument
+                        .as_type_id()
+                        .is_some_and(|argument| occurs_in_conformance_binding(store, parameter, argument, bindings))
+                })
         }
         TypeData::ExactCase { enum_type, .. } => occurs_in_conformance_binding(store, parameter, *enum_type, bindings),
         TypeData::Union(members) => members.iter().any(|&member| occurs_in_conformance_binding(store, parameter, member, bindings)),
@@ -2910,9 +2918,7 @@ fn bind_conformance_parameter(store: &mut TypeStore, parameter: TypeParameterId,
 
 #[derive(Clone, Copy, Debug)]
 enum ConformanceMatchMode<'a> {
-    Directional {
-        impl_id: &'a ImplId,
-    },
+    Directional { impl_id: &'a ImplId },
     Overlap,
 }
 
@@ -2977,11 +2983,14 @@ fn match_conformance_head_with_mode(
         ) => {
             left_args.len() == right_args.len()
                 && match_conformance_head_with_mode(store, left_origin, right_origin, mode, bindings)
-                && left_args.iter().zip(right_args.iter()).all(|(&left, &right)| match (left.as_type_id(), right.as_type_id()) {
-                    (Some(left), Some(right)) => match_conformance_head_with_mode(store, left, right, mode, bindings),
-                    (None, None) => left == right,
-                    _ => false,
-                })
+                && left_args
+                    .iter()
+                    .zip(right_args.iter())
+                    .all(|(&left, &right)| match (left.as_type_id(), right.as_type_id()) {
+                        (Some(left), Some(right)) => match_conformance_head_with_mode(store, left, right, mode, bindings),
+                        (None, None) => left == right,
+                        _ => false,
+                    })
         }
         (
             TypeData::ExactCase {
@@ -3031,7 +3040,8 @@ fn match_conformance_head_with_mode(
             ) {
                 return match_conformance_head_with_mode(store, s1, s2, mode, bindings);
             }
-            match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings) && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings)
+            match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings)
+                && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings)
         }
         (
             TypeData::TupleFromPacks {
@@ -3107,9 +3117,16 @@ fn match_conformance_head_with_mode(
             if let Some(subject) = store.canonical_complete_pack_subject(right_pos, right_lab) {
                 return match_conformance_head_with_mode(store, left, subject, mode, bindings);
             }
-            match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings) && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings)
+            match_conformance_head_with_mode(store, left_pos, right_pos, mode, bindings)
+                && match_conformance_head_with_mode(store, left_lab, right_lab, mode, bindings)
         }
-        (TypeData::CompleteTypePack { positionals: left_pos, labeled: left_lab }, _) => {
+        (
+            TypeData::CompleteTypePack {
+                positionals: left_pos,
+                labeled: left_lab,
+            },
+            _,
+        ) => {
             if let Some(subject) = store.canonical_complete_pack_subject(left_pos, left_lab) {
                 return match_conformance_head_with_mode(store, subject, right, mode, bindings);
             }
@@ -3119,7 +3136,13 @@ fn match_conformance_head_with_mode(
             }
             false
         }
-        (_, TypeData::CompleteTypePack { positionals: right_pos, labeled: right_lab }) => {
+        (
+            _,
+            TypeData::CompleteTypePack {
+                positionals: right_pos,
+                labeled: right_lab,
+            },
+        ) => {
             if let Some(subject) = store.canonical_complete_pack_subject(right_pos, right_lab) {
                 return match_conformance_head_with_mode(store, left, subject, mode, bindings);
             }
@@ -3618,7 +3641,9 @@ fn type_id_mentions_param(store: &TypeStore, ty: TypeId, param: TypeParameterId)
         TypeData::Parameter(p) => *p == param,
         TypeData::Applied { origin, arguments } => {
             type_id_mentions_param(store, *origin, param)
-                || arguments.iter().any(|a| a.as_type_id().is_some_and(|a| type_id_mentions_param(store, a, param)))
+                || arguments
+                    .iter()
+                    .any(|a| a.as_type_id().is_some_and(|a| type_id_mentions_param(store, a, param)))
         }
         TypeData::AssociatedProjection(proj) => {
             type_id_mentions_param(store, proj.subject, param) || proj.trait_ref.arguments.iter().any(|&a| type_id_mentions_param(store, a, param))
@@ -4130,7 +4155,11 @@ pub fn collect_impl_params_in_type(store: &TypeStore, ty: TypeId, impl_id: &Impl
                 collect_impl_params_in_type(store, segment, impl_id, out);
             }
         }
-        TypeData::CallableFromPacks { positionals, labeled, return_type } => {
+        TypeData::CallableFromPacks {
+            positionals,
+            labeled,
+            return_type,
+        } => {
             collect_impl_params_in_type(store, *positionals, impl_id, out);
             collect_impl_params_in_type(store, *labeled, impl_id, out);
             collect_impl_params_in_type(store, *return_type, impl_id, out);
@@ -4267,13 +4296,18 @@ fn contains_unresolved_applicability_type(store: &TypeStore, ty: TypeId) -> bool
         TypeData::Parameter(_) | TypeData::SelfType(_) | TypeData::Lambda(_) => true,
         TypeData::Applied { origin, arguments } => {
             contains_unresolved_applicability_type(store, *origin)
-                || arguments
-                    .iter()
-                    .any(|argument| argument.as_type_id().is_some_and(|argument| contains_unresolved_applicability_type(store, argument)))
+                || arguments.iter().any(|argument| {
+                    argument
+                        .as_type_id()
+                        .is_some_and(|argument| contains_unresolved_applicability_type(store, argument))
+                })
         }
         TypeData::ExactCase { enum_type, .. } => contains_unresolved_applicability_type(store, *enum_type),
         TypeData::Union(members) => members.iter().any(|&member| contains_unresolved_applicability_type(store, member)),
-        TypeData::Tuple(elements) => elements.elements.iter().any(|element| contains_unresolved_applicability_type(store, element.ty)),
+        TypeData::Tuple(elements) => elements
+            .elements
+            .iter()
+            .any(|element| contains_unresolved_applicability_type(store, element.ty)),
         TypeData::Record(row) => store
             .record_row(*row)
             .fields
@@ -4551,7 +4585,11 @@ pub fn check_impl_domain_applicability_with_proofs(
             TypeTerm::SelfType(self_ty) => TypeTerm::SelfType(self_ty.clone()),
             TypeTerm::Infer(_) => return ImplApplicabilityResult::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AnnotationUnresolved)),
         };
-        let arguments = trait_ref.arguments.iter().map(|&argument| substitution.apply(store, argument)).collect::<Vec<_>>();
+        let arguments = trait_ref
+            .arguments
+            .iter()
+            .map(|&argument| substitution.apply(store, argument))
+            .collect::<Vec<_>>();
         let instantiated_trait_ref = TraitRef::new(trait_ref.declaration.clone(), arguments.into_boxed_slice());
         let proof = crate::generic_evidence::query_generic_conformance_proof(
             &subject,
@@ -4606,9 +4644,7 @@ fn target_reference_decl(resolver: &dyn TypeResolver, module: &ModuleId, expr: &
             let members: Vec<String> = ref_expr.members.iter().map(|m| m.name.clone()).collect();
             resolver.resolve_type_name(module, &ref_expr.root, &members)
         }
-        TypeAnnotationExpr::Application { origin, .. } => {
-            target_reference_decl(resolver, module, &origin.expr)
-        }
+        TypeAnnotationExpr::Application { origin, .. } => target_reference_decl(resolver, module, &origin.expr),
         _ => None,
     }
 }
@@ -4663,9 +4699,11 @@ pub fn resolve_inherent_impl_target(
     // only type-member declarations here and use a kind-correct structural term
     // as the inert target head consumed by the existing contribution product.
     if let TypeAnnotationExpr::Reference(reference) = &impl_def.target.expr
-        && let Some(owner) = ctx
-            .resolver
-            .resolve_type_name(&ctx.current_module, &reference.root, &reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>())
+        && let Some(owner) = ctx.resolver.resolve_type_name(
+            &ctx.current_module,
+            &reference.root,
+            &reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>(),
+        )
         && let Some(kind) = ctx.declarations.intrinsic_static_domain_kind(&owner)
     {
         if owner.module != impl_id.module {
@@ -4696,7 +4734,9 @@ pub fn resolve_inherent_impl_target(
             KindId::COMPLETE_TYPE_PACK => {
                 let positionals = ctx.store.type_pack(Box::new([])).ok();
                 let labeled = ctx.store.labeled_type_pack(Box::new([])).ok();
-                positionals.zip(labeled).and_then(|(positionals, labeled)| ctx.store.complete_type_pack(positionals, labeled).ok())
+                positionals
+                    .zip(labeled)
+                    .and_then(|(positionals, labeled)| ctx.store.complete_type_pack(positionals, labeled).ok())
             }
             KindId::RECORD_ROW => {
                 let row = ctx.store.record_row_checked(Vec::new(), RecordRowTail::Closed).ok();
@@ -4708,7 +4748,10 @@ pub fn resolve_inherent_impl_target(
                             subject: crate::types::type_member::ProjectionSubject::Type(empty_record),
                             selector,
                             arguments: Box::new([]),
-                            source_declaration: Some(crate::types::type_member::TypeMemberDeclarationId::new(owner, crate::types::type_member::TypeMemberSelector::named("Fields"))),
+                            source_declaration: Some(crate::types::type_member::TypeMemberDeclarationId::new(
+                                owner,
+                                crate::types::type_member::TypeMemberSelector::named("Fields"),
+                            )),
                         },
                         KindId::RECORD_ROW,
                     )
@@ -4933,8 +4976,8 @@ pub fn resolve_inherent_impl_target(
             for (i, arg_ty) in enum_args.iter().enumerate() {
                 if let Some(arg_ty) = arg_ty.as_type_id() {
                     if let TypeData::Parameter(p_id) = ctx.store.get(arg_ty) {
-                    impl_to_decl.insert(*p_id, decl_params[i]);
-                    decl_to_impl.insert(decl_params[i], *p_id);
+                        impl_to_decl.insert(*p_id, decl_params[i]);
+                        decl_to_impl.insert(decl_params[i], *p_id);
                     }
                 }
             }
@@ -5040,8 +5083,7 @@ pub fn resolve_inherent_impl_target(
                         expected_positionals == Some(positionals) && expected_labeled == Some(labeled)
                     }
                     (StructuralBehaviorFamily::Record, TypeData::Record(row))
-                        if declaration_parameter_data.kind == KindId::RECORD_ROW
-                            && declaration_parameter_data.mode == GenericParameterMode::LabeledPack =>
+                        if declaration_parameter_data.kind == KindId::RECORD_ROW && declaration_parameter_data.mode == GenericParameterMode::LabeledPack =>
                     {
                         let row = ctx.store.record_row(row);
                         row.fields.is_empty() && row.tail == RecordRowTail::Parameter(impl_parameter)
@@ -5257,9 +5299,7 @@ pub fn resolve_inherent_impl_target(
                     {
                         let declaration_parameter = ctx.store.type_parameter(decl_param);
                         let implementation_parameter = ctx.store.type_parameter(impl_parameter);
-                        if declaration_parameter.kind == implementation_parameter.kind
-                            && declaration_parameter.mode == implementation_parameter.mode
-                        {
+                        if declaration_parameter.kind == implementation_parameter.kind && declaration_parameter.mode == implementation_parameter.mode {
                             impl_to_decl.insert(impl_parameter, decl_param);
                             decl_to_impl.insert(decl_param, impl_parameter);
                             continue;
@@ -5347,7 +5387,10 @@ pub fn apply_covering_to_signature(store: &mut TypeStore, subst: &TypeSubstituti
                 }
                 crate::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
                     let new_s = map_term(subject);
-                    crate::types::parameter::GenericConstraint::Conforms { subject: new_s, trait_ref: trait_ref.clone() }
+                    crate::types::parameter::GenericConstraint::Conforms {
+                        subject: new_s,
+                        trait_ref: trait_ref.clone(),
+                    }
                 }
             };
             new_constraints.push(new_c);

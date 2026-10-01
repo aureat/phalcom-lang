@@ -10,8 +10,8 @@ use crate::types::row_solver::{
     RecordRowFailure, RecordRowSolution, RecordRowSolveResult, RecordRowSolver, RecordRowTerm, RecordRowTermTail, RecordRowVarId, RecordRowZonkError,
 };
 use crate::types::store::{TypeData, TypeStore};
-use std::collections::HashSet;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use super::inference::InferenceTerm;
@@ -448,12 +448,10 @@ fn materialize_query_row_term(
             next.tail
         }
     };
-    store
-        .record_row_checked(fields, tail)
-        .map_err(|error| CombinedInferenceFailure::RowZonk {
-            parameter,
-            error: RecordRowZonkError::Formation(error),
-        })
+    store.record_row_checked(fields, tail).map_err(|error| CombinedInferenceFailure::RowZonk {
+        parameter,
+        error: RecordRowZonkError::Formation(error),
+    })
 }
 
 pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
@@ -478,11 +476,12 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
                 InferenceProjectionSubject::Type(term) => term_has_row_variables(term),
                 InferenceProjectionSubject::RecordRow(row) => record_has_row_variables(row),
             };
-            subject_has_rows || arguments.iter().any(|argument| match argument {
-                InferenceTypeMemberArgument::Type(term) => term_has_row_variables(term),
-                InferenceTypeMemberArgument::Const(_) => false,
-                InferenceTypeMemberArgument::RecordRow(row) => record_has_row_variables(row),
-            })
+            subject_has_rows
+                || arguments.iter().any(|argument| match argument {
+                    InferenceTypeMemberArgument::Type(term) => term_has_row_variables(term),
+                    InferenceTypeMemberArgument::Const(_) => false,
+                    InferenceTypeMemberArgument::RecordRow(row) => record_has_row_variables(row),
+                })
         }
         InferenceTerm::TypePack(elements) => elements.iter().any(term_has_row_variables),
         InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| term_has_row_variables(&elem.term)),
@@ -693,13 +692,10 @@ impl GenericApplicationSession {
             .zip(self.query_frame)
             .map(|(session, frame)| session.borrow().row_parameter_terms_for_frame(frame))
             .unwrap_or_default();
-        terms.extend(self.parameter_bindings
-            .iter()
-            .filter_map(|(&parameter, binding)| match binding {
-                GenericInferenceBinding::RecordRow(variable) => Some((parameter, *variable)),
-                GenericInferenceBinding::Type(_) | GenericInferenceBinding::FixedType(_) | GenericInferenceBinding::UntrackedType => None,
-            })
-        );
+        terms.extend(self.parameter_bindings.iter().filter_map(|(&parameter, binding)| match binding {
+            GenericInferenceBinding::RecordRow(variable) => Some((parameter, *variable)),
+            GenericInferenceBinding::Type(_) | GenericInferenceBinding::FixedType(_) | GenericInferenceBinding::UntrackedType => None,
+        }));
         terms
     }
 
@@ -746,9 +742,9 @@ impl GenericApplicationSession {
         for required in formal.fields.iter() {
             let Some(actual_field) = actual_row.find_field(&required.name) else {
                 return if actual_row.tail == RecordRowTail::Closed {
-                    Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(RecordRowFailure::MissingField {
-                        field: required.name.clone(),
-                    })))
+                    Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(
+                        RecordRowFailure::MissingField { field: required.name.clone() },
+                    )))
                 } else {
                     Err(CombinedInferenceFailure::Blocked(BlockReason::RecursiveFixpoint))
                 };
@@ -772,26 +768,32 @@ impl GenericApplicationSession {
             InferenceRecordTail::Closed => {}
             InferenceRecordTail::Parameter(parameter) => {
                 if !extra.is_empty() || actual_tail != RecordRowTermTail::Parameter(parameter) {
-                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(RecordRowFailure::RigidTailMismatch {
-                        expected: RecordRowTermTail::Parameter(parameter),
-                        actual: actual_tail,
-                    })));
+                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(
+                        RecordRowFailure::RigidTailMismatch {
+                            expected: RecordRowTermTail::Parameter(parameter),
+                            actual: actual_tail,
+                        },
+                    )));
                 }
             }
             InferenceRecordTail::Projection(proj) => {
                 if !extra.is_empty() || actual_tail != RecordRowTermTail::Projection(proj) {
-                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(RecordRowFailure::RigidTailMismatch {
-                        expected: RecordRowTermTail::Projection(proj),
-                        actual: actual_tail,
-                    })));
+                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(
+                        RecordRowFailure::RigidTailMismatch {
+                            expected: RecordRowTermTail::Projection(proj),
+                            actual: actual_tail,
+                        },
+                    )));
                 }
             }
             InferenceRecordTail::Anonymous(rem) => {
                 if !extra.is_empty() || actual_tail != RecordRowTermTail::Anonymous(rem) {
-                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(RecordRowFailure::RigidTailMismatch {
-                        expected: RecordRowTermTail::Anonymous(rem),
-                        actual: actual_tail,
-                    })));
+                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(
+                        RecordRowFailure::RigidTailMismatch {
+                            expected: RecordRowTermTail::Anonymous(rem),
+                            actual: actual_tail,
+                        },
+                    )));
                 }
             }
             InferenceRecordTail::Var(variable) => {

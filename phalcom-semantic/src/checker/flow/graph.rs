@@ -258,12 +258,7 @@ impl CfgBuilder {
                 Statement::Expr { expr, range } => {
                     incoming = self.build_expression_flow(expr, *range, idx, incoming);
                 }
-                Statement::Class(_)
-                | Statement::Data(_)
-                | Statement::Trait(_)
-                | Statement::Impl(_)
-                | Statement::TypeAlias(_)
-                | Statement::Export(_) => {
+                Statement::Class(_) | Statement::Data(_) | Statement::Trait(_) | Statement::Impl(_) | Statement::TypeAlias(_) | Statement::Export(_) => {
                     let node = self.graph.add_node(FlowNodeKind::Statement(idx), stmt_range(stmt));
                     for prev in incoming {
                         self.graph.add_edge_with_kind(prev, node, FlowEdgeKind::Normal, None);
@@ -315,9 +310,7 @@ impl CfgBuilder {
                 let then_tails = self.build_statements(&if_expr.then_body.body, vec![cond_node]);
                 let else_tails = match &if_expr.else_body {
                     Some(phalcom_ast::ast::IfElseBody::Block(block)) => self.build_statements(&block.body, vec![cond_node]),
-                    Some(phalcom_ast::ast::IfElseBody::ElseIf(expr)) => {
-                        self.build_expression_flow(expr, expr.range(), stmt_idx, vec![cond_node])
-                    }
+                    Some(phalcom_ast::ast::IfElseBody::ElseIf(expr)) => self.build_expression_flow(expr, expr.range(), stmt_idx, vec![cond_node]),
                     None => vec![cond_node],
                 };
                 let mut all_tails = then_tails;

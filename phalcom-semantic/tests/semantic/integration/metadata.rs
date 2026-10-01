@@ -1352,9 +1352,7 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
     use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail, StructuralMemberPresence};
     use phalcom_semantic::types::store::{AnonymousTupleRemainder, TupleTypeElement};
     use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
-    use phalcom_type_meta::type_node::{
-        AnonymousRecordRemainderRef, AnonymousTupleRemainderRef, StructuralMemberPresenceRef, TypeNode,
-    };
+    use phalcom_type_meta::type_node::{AnonymousRecordRemainderRef, AnonymousTupleRemainderRef, StructuralMemberPresenceRef, TypeNode};
 
     let mut store = TypeStore::new();
     let int_ty = store.nominal(dummy_decl("Int"));
@@ -1512,4 +1510,3 @@ fn structural_member_presence_and_remainder_affect_fingerprints() {
         b2.types[id_anon.0 as usize].structural_fingerprint
     );
 }
-

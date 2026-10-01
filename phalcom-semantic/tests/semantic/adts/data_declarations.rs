@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
+use crate::semantic::support::Fixture;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::data_semantics::DataShape;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
-use crate::semantic::support::Fixture;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -101,11 +101,7 @@ data Envelope<**Fs: RecordFields> {
         materialize_data_product_shape(store, &info, specialized)
     };
 
-    let concrete = materialize_row(
-        &mut store,
-        vec![RecordRowField::required("extra".into(), field_type)],
-    )
-    .expect("non-conflicting row materializes");
+    let concrete = materialize_row(&mut store, vec![RecordRowField::required("extra".into(), field_type)]).expect("non-conflicting row materializes");
     assert_eq!(concrete.state, DataProductShapeState::Concrete);
     assert_eq!(concrete.components.len(), 2);
     assert_eq!(concrete.components[0].label.as_deref(), Some("id"));
@@ -161,10 +157,7 @@ data Envelope<**Fs: RecordFields> {
         KindId::RECORD_ROW,
     ));
     let open_row = store
-        .record_row_checked(
-            vec![RecordRowField::required("name".into(), fixed_type)],
-            RecordRowTail::Parameter(open_tail),
-        )
+        .record_row_checked(vec![RecordRowField::required("name".into(), fixed_type)], RecordRowTail::Parameter(open_tail))
         .expect("open RecordFields row");
     let specialized = store
         .apply_static_form(info.root_form, &[StaticArgument::RecordRow(open_row)])
@@ -219,7 +212,6 @@ class Probe {
         ref other => panic!("expected exact expansion field, got {other:?}"),
     };
     assert_eq!(slot, 0, "the one-field exact row has logical slot zero");
-
 }
 
 #[test]
@@ -608,7 +600,10 @@ class Runner {
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
     let diagnostics = analysis.snapshot.diagnostics_for(&module);
-    assert!(diagnostics.as_ref().is_none_or(|diagnostics| diagnostics.is_empty()), "diagnostics: {diagnostics:#?}");
+    assert!(
+        diagnostics.as_ref().is_none_or(|diagnostics| diagnostics.is_empty()),
+        "diagnostics: {diagnostics:#?}"
+    );
 }
 
 #[test]
@@ -857,10 +852,7 @@ class Probe {
     let expression = fixture.expression(exercise, "Prefixed(7, \"tail\", true)");
     let result = expression.knowledge.ty().expect("inferred nominal constructor result");
     let declaration = fixture.decl("Prefixed");
-    assert_eq!(
-        fixture.analysis.snapshot.store.nominal_origin_declaration(result),
-        Some(&declaration)
-    );
+    assert_eq!(fixture.analysis.snapshot.store.nominal_origin_declaration(result), Some(&declaration));
     let TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(result) else {
         panic!("constructor result must preserve nominal Applied identity: {expression:#?}");
     };
@@ -873,24 +865,15 @@ class Probe {
     let TypeData::TypePack(pack_lanes) = fixture.analysis.snapshot.store.get(*positionals) else {
         panic!("expected positional TypePack lane");
     };
-    assert_eq!(
-        pack_lanes.as_ref(),
-        &[fixture.ty("String"), fixture.ty("Bool")]
-    );
+    assert_eq!(pack_lanes.as_ref(), &[fixture.ty("String"), fixture.ty("Bool")]);
     assert!(matches!(
         fixture.analysis.snapshot.store.get(*labeled),
         TypeData::LabeledTypePack(elements) if elements.is_empty()
     ));
 
-    let info = fixture
-        .analysis
-        .snapshot
-        .data_semantics
-        .data_info(&declaration)
-        .expect("Prefixed data product");
+    let info = fixture.analysis.snapshot.data_semantics.data_info(&declaration).expect("Prefixed data product");
     let mut store = fixture.analysis.snapshot.store.as_ref().clone();
-    let shape =
-        materialize_data_product_shape(&mut store, info, result).expect("materialize inferred product shape");
+    let shape = materialize_data_product_shape(&mut store, info, result).expect("materialize inferred product shape");
     assert_eq!(shape.state, DataProductShapeState::Concrete);
     let ordered_types = shape.components.iter().map(|component| component.ty).collect::<Vec<_>>();
     assert_eq!(
@@ -1145,11 +1128,7 @@ fn user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple() {
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
     let declaration = DeclarationId::new(module.clone(), "MyTuple".into());
-    let info = analysis
-        .snapshot
-        .data_semantics
-        .data_info(&declaration)
-        .expect("MyTuple semantic product");
+    let info = analysis.snapshot.data_semantics.data_info(&declaration).expect("MyTuple semantic product");
     let mut store = analysis.snapshot.store.as_ref().clone();
     let int = store.nominal_type(DeclarationId::new(module.clone(), "Int".into()));
     let string = store.nominal_type(DeclarationId::new(module, "String".into()));
@@ -1182,18 +1161,11 @@ fn user_record_row_data_type_keeps_nominal_identity_distinct_from_record() {
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
     let declaration = DeclarationId::new(module.clone(), "MyRecord".into());
-    let info = analysis
-        .snapshot
-        .data_semantics
-        .data_info(&declaration)
-        .expect("MyRecord semantic product");
+    let info = analysis.snapshot.data_semantics.data_info(&declaration).expect("MyRecord semantic product");
     let mut store = analysis.snapshot.store.as_ref().clone();
     let int = store.nominal_type(DeclarationId::new(module.clone(), "Int".into()));
     let string = store.nominal_type(DeclarationId::new(module, "String".into()));
-    let fields = vec![
-        RecordRowField::required("age".into(), int),
-        RecordRowField::required("name".into(), string),
-    ];
+    let fields = vec![RecordRowField::required("age".into(), int), RecordRowField::required("name".into(), string)];
     let row = store
         .record_row_checked(fields.clone(), RecordRowTail::Closed)
         .expect("heterogeneous RecordRow");

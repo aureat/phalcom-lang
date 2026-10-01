@@ -250,11 +250,7 @@ fn generated_empty_tuple_return_resolves_to_canonical_unit_type() {
         resolved, expected,
         "native structural empty-Tuple metadata must resolve to the canonical zero-product Unit type"
     );
-    assert_eq!(
-        resolved,
-        store.unit(),
-        "the zero-product tuple is the canonical semantic unit type"
-    );
+    assert_eq!(resolved, store.unit(), "the zero-product tuple is the canonical semantic unit type");
 }
 
 #[test]

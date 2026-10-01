@@ -4,14 +4,8 @@ use crate::generic::{GenericParameterModeRef, VarianceRef};
 use crate::header::{MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION, supports_type_metadata_schema};
 use crate::identity::StableStaticDomainDeclarationRef;
 use crate::kind::{KindNode, KindNodeId, StaticDomainRef};
-use crate::scoped_type::{
-    ScopedAnonymousRecordRemainderRef, ScopedAnonymousTupleRemainderRef,
-    ScopedRecordRowTailRef, ScopedRecordTailRef, ScopedTypeNode,
-};
-use crate::type_node::{
-    AnonymousRecordRemainderRef, AnonymousTupleRemainderRef, StaticArgumentRef,
-    StructuralMemberPresenceRef, TypeNode,
-};
+use crate::scoped_type::{ScopedAnonymousRecordRemainderRef, ScopedAnonymousTupleRemainderRef, ScopedRecordRowTailRef, ScopedRecordTailRef, ScopedTypeNode};
+use crate::type_node::{AnonymousRecordRemainderRef, AnonymousTupleRemainderRef, StaticArgumentRef, StructuralMemberPresenceRef, TypeNode};
 use std::collections::HashSet;
 use thiserror::Error;
 
@@ -89,16 +83,24 @@ pub enum MetadataValidationError {
     #[error("duplicate static-domain declaration catalog entry: {0:?}")]
     DuplicateStaticDomainCatalogEntry(StableStaticDomainDeclarationRef),
     #[error("static-domain case is missing from its declaration catalog: {declaration:?}::{case}")]
-    MissingStaticDomainCase { declaration: StableStaticDomainDeclarationRef, case: Box<str> },
+    MissingStaticDomainCase {
+        declaration: StableStaticDomainDeclarationRef,
+        case: Box<str>,
+    },
     #[error("duplicate static-domain case in catalog: {declaration:?}::{case}")]
-    DuplicateStaticDomainCase { declaration: StableStaticDomainDeclarationRef, case: Box<str> },
+    DuplicateStaticDomainCase {
+        declaration: StableStaticDomainDeclarationRef,
+        case: Box<str>,
+    },
     #[error("associated static-domain owner environment arity mismatch for {declaration:?}: expected {expected}, found {actual}")]
     StaticDomainOwnerArityMismatch {
         declaration: StableStaticDomainDeclarationRef,
         expected: usize,
         actual: usize,
     },
-    #[error("associated static-domain owner argument kind mismatch for {declaration:?} at index {index}: expected kind {expected_kind}, found kind {actual_kind}")]
+    #[error(
+        "associated static-domain owner argument kind mismatch for {declaration:?} at index {index}: expected kind {expected_kind}, found kind {actual_kind}"
+    )]
     StaticDomainOwnerKindMismatch {
         declaration: StableStaticDomainDeclarationRef,
         index: usize,
@@ -123,7 +125,12 @@ pub enum MetadataValidationError {
     #[error("type application arity mismatch at node {node}: supplied {actual}, accepted at most {maximum}")]
     TypeApplicationArityMismatch { node: u32, maximum: usize, actual: usize },
     #[error("type application argument kind mismatch at node {node}, index {index}: expected kind {expected_kind}, found kind {actual_kind}")]
-    TypeApplicationArgumentKindMismatch { node: u32, index: usize, expected_kind: u32, actual_kind: u32 },
+    TypeApplicationArgumentKindMismatch {
+        node: u32,
+        index: usize,
+        expected_kind: u32,
+        actual_kind: u32,
+    },
     #[error("type application result kind mismatch at node {node}")]
     TypeApplicationResultKindMismatch { node: u32 },
     #[error("malformed metadata: {0}")]
@@ -138,10 +145,7 @@ fn static_domain_declaration(domain: &StaticDomainRef) -> Option<StableStaticDom
     }
 }
 
-fn argument_kind_id(
-    argument: &StaticArgumentRef,
-    bundle: &SemanticMetadataBundle,
-) -> Result<Option<KindNodeId>, MetadataValidationError> {
+fn argument_kind_id(argument: &StaticArgumentRef, bundle: &SemanticMetadataBundle) -> Result<Option<KindNodeId>, MetadataValidationError> {
     match argument {
         StaticArgumentRef::Term(term) => {
             let Some(entry) = bundle.types.get(term.0 as usize) else {
@@ -393,14 +397,14 @@ fn validate_static_argument_row(
     }
     if let Some(tail) = &row.tail {
         let owner_key = format!("{:?}", tail.owner);
-        let parameter = param_map.get(&(owner_key.clone(), tail.index)).ok_or(MetadataValidationError::RecordTailParameterMissing {
-            owner: owner_key,
-            index: tail.index,
-        })?;
+        let parameter = param_map
+            .get(&(owner_key.clone(), tail.index))
+            .ok_or(MetadataValidationError::RecordTailParameterMissing {
+                owner: owner_key,
+                index: tail.index,
+            })?;
         if !matches!(bundle.kinds[parameter.kind.0 as usize].node, KindNode::RecordRow) {
-            return Err(MetadataValidationError::RecordTailKindMismatch {
-                actual_kind: parameter.kind.0,
-            });
+            return Err(MetadataValidationError::RecordTailKindMismatch { actual_kind: parameter.kind.0 });
         }
     }
     if let Some(remainder) = &row.remainder {
@@ -611,7 +615,10 @@ fn validate_schema_v4_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(
 
 fn validate_pre_v5_static_domain_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
     if bundle.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(_)))
-        || bundle.types.iter().any(|entry| matches!(entry.form, TypeNode::ConstInt(_) | TypeNode::StaticData(_)))
+        || bundle
+            .types
+            .iter()
+            .any(|entry| matches!(entry.form, TypeNode::ConstInt(_) | TypeNode::StaticData(_)))
     {
         return Err(MetadataValidationError::Malformed(
             "schema before v5 cannot contain static-domain or type-data nodes".to_string(),
@@ -622,7 +629,10 @@ fn validate_pre_v5_static_domain_floor(bundle: &SemanticMetadataBundle) -> Resul
 
 fn validate_schema_v5_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
     let has_static_nodes = bundle.kinds.iter().any(|entry| matches!(entry.node, KindNode::StaticDomain(_)))
-        || bundle.types.iter().any(|entry| matches!(entry.form, TypeNode::ConstInt(_) | TypeNode::StaticData(_)));
+        || bundle
+            .types
+            .iter()
+            .any(|entry| matches!(entry.form, TypeNode::ConstInt(_) | TypeNode::StaticData(_)));
     if has_static_nodes && !bundle.header.features.static_domains {
         return Err(MetadataValidationError::Malformed(
             "schema v5 static-domain nodes require the static_domains feature".to_string(),
@@ -747,12 +757,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
     // Validate kinds graph (strictly topologically sorted)
     for (i, entry) in bundle.kinds.iter().enumerate() {
         match &entry.node {
-            KindNode::Type
-            | KindNode::RecordRow
-            | KindNode::TypePack
-            | KindNode::LabeledTypePack
-            | KindNode::CompleteTypePack
-            | KindNode::StaticDomain(_) => {}
+            KindNode::Type | KindNode::RecordRow | KindNode::TypePack | KindNode::LabeledTypePack | KindNode::CompleteTypePack | KindNode::StaticDomain(_) => {}
             KindNode::Arrow { parameters, result } => {
                 for &p in parameters.iter() {
                     if p.0 as usize >= i {
@@ -865,14 +870,12 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             .get(&declaration)
                             .copied()
                             .ok_or_else(|| MetadataValidationError::MissingStaticDomainCatalogEntry(declaration.clone()))?;
-                        let case = record
-                            .cases
-                            .iter()
-                            .find(|case| case.name == static_data.constructor.case_name)
-                            .ok_or_else(|| MetadataValidationError::MissingStaticDomainCase {
+                        let case = record.cases.iter().find(|case| case.name == static_data.constructor.case_name).ok_or_else(|| {
+                            MetadataValidationError::MissingStaticDomainCase {
                                 declaration: declaration.clone(),
                                 case: static_data.constructor.case_name.clone(),
-                            })?;
+                            }
+                        })?;
                         if case.parameter_kinds.len() != static_data.arguments.len() {
                             return Err(MetadataValidationError::StaticDomainCaseArityMismatch {
                                 declaration: declaration.clone(),
@@ -881,12 +884,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                                 actual: static_data.arguments.len(),
                             });
                         }
-                        for (index, (argument, &expected_kind)) in static_data
-                            .arguments
-                            .iter()
-                            .zip(case.parameter_kinds.iter())
-                            .enumerate()
-                        {
+                        for (index, (argument, &expected_kind)) in static_data.arguments.iter().zip(case.parameter_kinds.iter()).enumerate() {
                             let actual_kind = argument_matches_kind(argument, expected_kind, bundle)?;
                             if actual_kind != Some(expected_kind) {
                                 return Err(MetadataValidationError::StaticDomainCaseKindMismatch {
@@ -915,13 +913,19 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     match argument {
                         StaticArgumentRef::Term(term) => {
                             if term.0 as usize >= i {
-                                return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: term.0 });
+                                return Err(MetadataValidationError::TopologicalOrderViolation {
+                                    index: i as u32,
+                                    target: term.0,
+                                });
                             }
                         }
                         StaticArgumentRef::RecordRow(row) => {
                             for field in row.fields.iter() {
                                 if field.ty.0 as usize >= i {
-                                    return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: field.ty.0 });
+                                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                                        index: i as u32,
+                                        target: field.ty.0,
+                                    });
                                 }
                             }
                         }
@@ -942,12 +946,18 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     }
                     match arg {
                         StaticArgumentRef::Term(arg) if arg.0 as usize >= i => {
-                            return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: arg.0 });
+                            return Err(MetadataValidationError::TopologicalOrderViolation {
+                                index: i as u32,
+                                target: arg.0,
+                            });
                         }
                         StaticArgumentRef::RecordRow(row) => {
                             for field in row.fields.iter() {
                                 if field.ty.0 as usize >= i {
-                                    return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: field.ty.0 });
+                                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                                        index: i as u32,
+                                        target: field.ty.0,
+                                    });
                                 }
                             }
                         }
@@ -1239,10 +1249,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
                 if let AnonymousTupleRemainderRef::Typed(ty) = open_tuple.positional_remainder {
                     if ty.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation {
-                            index: i as u32,
-                            target: ty.0,
-                        });
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
                     }
                     if !matches!(bundle.kinds[bundle.types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
                         return Err(MetadataValidationError::Malformed("tuple positional remainder must have kind Type".to_string()));
@@ -1250,10 +1257,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
                 if let AnonymousTupleRemainderRef::Typed(ty) = open_tuple.labeled_remainder {
                     if ty.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation {
-                            index: i as u32,
-                            target: ty.0,
-                        });
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
                     }
                     if !matches!(bundle.kinds[bundle.types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
                         return Err(MetadataValidationError::Malformed("tuple labeled remainder must have kind Type".to_string()));
@@ -1289,10 +1293,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
                 if let AnonymousRecordRemainderRef::Typed(ty) = anon_rec.remainder {
                     if ty.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation {
-                            index: i as u32,
-                            target: ty.0,
-                        });
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
                     }
                     if !matches!(bundle.kinds[bundle.types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
                         return Err(MetadataValidationError::Malformed("record remainder must have kind Type".to_string()));
@@ -1455,10 +1456,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     ScopedRecordTailRef::Anonymous(remainder) => {
                         if let ScopedAnonymousRecordRemainderRef::Typed(ty) = remainder {
                             if ty.0 as usize >= i {
-                                return Err(MetadataValidationError::TopologicalOrderViolation {
-                                    index: i as u32,
-                                    target: ty.0,
-                                });
+                                return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
                             }
                             if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
                                 return Err(MetadataValidationError::Malformed("scoped record remainder must have kind Type".to_string()));
@@ -1469,7 +1467,9 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             }
             ScopedTypeNode::RecordRow(row) => {
                 if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::RecordRow) {
-                    return Err(MetadataValidationError::Malformed(format!("scoped RecordRow node {i} must have kind RecordRow")));
+                    return Err(MetadataValidationError::Malformed(format!(
+                        "scoped RecordRow node {i} must have kind RecordRow"
+                    )));
                 }
                 let mut previous_name: Option<&str> = None;
                 for field in row.fields.iter() {
@@ -1526,12 +1526,13 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     }
                     ScopedRecordRowTailRef::FreeParameter(parameter) => {
                         let owner_key = format!("{:?}", parameter.owner);
-                        let record_parameter = param_map
-                            .get(&(owner_key.clone(), parameter.index))
-                            .ok_or(MetadataValidationError::RecordTailParameterMissing {
-                                owner: owner_key,
-                                index: parameter.index,
-                            })?;
+                        let record_parameter =
+                            param_map
+                                .get(&(owner_key.clone(), parameter.index))
+                                .ok_or(MetadataValidationError::RecordTailParameterMissing {
+                                    owner: owner_key,
+                                    index: parameter.index,
+                                })?;
                         if !matches!(bundle.kinds[record_parameter.kind.0 as usize].node, KindNode::RecordRow) {
                             return Err(MetadataValidationError::RecordTailKindMismatch {
                                 actual_kind: record_parameter.kind.0,
@@ -1554,13 +1555,12 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     ScopedRecordRowTailRef::Anonymous(remainder) => {
                         if let ScopedAnonymousRecordRemainderRef::Typed(ty) = remainder {
                             if ty.0 as usize >= i {
-                                return Err(MetadataValidationError::TopologicalOrderViolation {
-                                    index: i as u32,
-                                    target: ty.0,
-                                });
+                                return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
                             }
                             if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
-                                return Err(MetadataValidationError::Malformed("scoped record row remainder must have kind Type".to_string()));
+                                return Err(MetadataValidationError::Malformed(
+                                    "scoped record row remainder must have kind Type".to_string(),
+                                ));
                             }
                         }
                     }
@@ -1809,30 +1809,30 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
                 if let ScopedAnonymousTupleRemainderRef::Typed(ty) = open_tuple.positional_remainder {
                     if ty.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation {
-                            index: i as u32,
-                            target: ty.0,
-                        });
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
                     }
                     if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
-                        return Err(MetadataValidationError::Malformed("scoped tuple positional remainder must have kind Type".to_string()));
+                        return Err(MetadataValidationError::Malformed(
+                            "scoped tuple positional remainder must have kind Type".to_string(),
+                        ));
                     }
                 }
                 if let ScopedAnonymousTupleRemainderRef::Typed(ty) = open_tuple.labeled_remainder {
                     if ty.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation {
-                            index: i as u32,
-                            target: ty.0,
-                        });
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
                     }
                     if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
-                        return Err(MetadataValidationError::Malformed("scoped tuple labeled remainder must have kind Type".to_string()));
+                        return Err(MetadataValidationError::Malformed(
+                            "scoped tuple labeled remainder must have kind Type".to_string(),
+                        ));
                     }
                 }
             }
             ScopedTypeNode::AnonymousRecord(anon_rec) => {
                 if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
-                    return Err(MetadataValidationError::Malformed("scoped AnonymousRecord node must have kind Type".to_string()));
+                    return Err(MetadataValidationError::Malformed(
+                        "scoped AnonymousRecord node must have kind Type".to_string(),
+                    ));
                 }
                 let mut prev_name: Option<&str> = None;
                 for f in anon_rec.fields.iter() {
@@ -1859,10 +1859,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
                 if let ScopedAnonymousRecordRemainderRef::Typed(ty) = anon_rec.remainder {
                     if ty.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation {
-                            index: i as u32,
-                            target: ty.0,
-                        });
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
                     }
                     if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
                         return Err(MetadataValidationError::Malformed("scoped record remainder must have kind Type".to_string()));

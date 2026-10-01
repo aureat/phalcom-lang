@@ -301,10 +301,7 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         let product = self.inner.resolve_associated_type_member(owner, selector);
         if let Some(product) = &product {
             record_query_dependency(&self.dependencies, SemanticDependency::AssociatedSurface(owner.clone()));
-            record_query_dependency(
-                &self.dependencies,
-                SemanticDependency::TypeMemberDeclaration(product.id.clone()),
-            );
+            record_query_dependency(&self.dependencies, SemanticDependency::TypeMemberDeclaration(product.id.clone()));
         }
         product
     }
@@ -328,11 +325,7 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         product
     }
 
-    fn resolve_associated_static_domain(
-        &self,
-        owner: &DeclarationId,
-        name: &str,
-    ) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+    fn resolve_associated_static_domain(&self, owner: &DeclarationId, name: &str) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
         let selected = self.inner.resolve_associated_static_domain(owner, name);
         record_query_dependency(&self.dependencies, SemanticDependency::AssociatedSurface(owner.clone()));
         selected
@@ -2206,9 +2199,7 @@ impl<'a> CheckingContext<'a> {
             ));
             match &binding.source {
                 crate::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
-                    self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(
-                        evidence.source_impl.clone(),
-                    ));
+                    self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(evidence.source_impl.clone()));
                 }
                 crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance } => {
                     self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
@@ -2235,18 +2226,14 @@ impl<'a> CheckingContext<'a> {
             }
             crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, exact_trait_ref, .. } => {
                 self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(rule.impl_id.clone()));
-                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
-                    exact_trait_ref.declaration.clone(),
-                ));
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(exact_trait_ref.declaration.clone()));
             }
         }
         for nested in evidence.nested.iter() {
             if let crate::generic_evidence::NestedGenericEvidence::Conformance(nested) = nested {
                 match nested {
                     crate::generic_evidence::GenericConformanceEvidence::Exact(evidence) => {
-                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(
-                            evidence.source_impl.clone(),
-                        ));
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(evidence.source_impl.clone()));
                         self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
                             evidence.exact_trait_ref.declaration.clone(),
                         ));
@@ -2583,11 +2570,7 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
-    fn apply_inferred_trait_default_signature(
-        &mut self,
-        selection: &mut crate::trait_dispatch::TraitDispatchSelection,
-        callable: &CallableId,
-    ) {
+    fn apply_inferred_trait_default_signature(&mut self, selection: &mut crate::trait_dispatch::TraitDispatchSelection, callable: &CallableId) {
         if !matches!(&selection.selection, crate::impls::RequirementSelectionTemplate::TraitDefault { .. }) {
             return;
         }
@@ -2671,8 +2654,8 @@ impl<'a> CheckingContext<'a> {
                 let ambiguous = candidates
                     .into_iter()
                     .map(|candidate| {
-                        let callable = crate::trait_dispatch::selected_callable(&candidate.selection)
-                            .unwrap_or_else(|| candidate.requirement.source_callable());
+                        let callable =
+                            crate::trait_dispatch::selected_callable(&candidate.selection).unwrap_or_else(|| candidate.requirement.source_callable());
                         let visibility = view
                             .trait_surfaces
                             .get(&candidate.requirement.owner)
@@ -2696,30 +2679,30 @@ impl<'a> CheckingContext<'a> {
                 Some(ResolvedDispatchResult::Ambiguous(ambiguous))
             }
             crate::trait_dispatch::TraitDispatchResolution::Missing => None,
-            crate::trait_dispatch::TraitDispatchResolution::Incomplete(impl_id) => {
-                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Incomplete(impl_id)))
-            }
-            crate::trait_dispatch::TraitDispatchResolution::CoherenceConflict(impl_ids) => {
-                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(impl_ids)))
-            }
-            crate::trait_dispatch::TraitDispatchResolution::Unknown(reason) => {
-                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason)))
-            }
-            crate::trait_dispatch::TraitDispatchResolution::Blocked(reason) => {
-                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Blocked(reason)))
-            }
-            crate::trait_dispatch::TraitDispatchResolution::Dynamic(obligation) => {
-                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Dynamic(obligation)))
-            }
+            crate::trait_dispatch::TraitDispatchResolution::Incomplete(impl_id) => Some(ResolvedDispatchResult::TraitTerminal(
+                crate::trait_dispatch::TraitDispatchTerminal::Incomplete(impl_id),
+            )),
+            crate::trait_dispatch::TraitDispatchResolution::CoherenceConflict(impl_ids) => Some(ResolvedDispatchResult::TraitTerminal(
+                crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(impl_ids),
+            )),
+            crate::trait_dispatch::TraitDispatchResolution::Unknown(reason) => Some(ResolvedDispatchResult::TraitTerminal(
+                crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason),
+            )),
+            crate::trait_dispatch::TraitDispatchResolution::Blocked(reason) => Some(ResolvedDispatchResult::TraitTerminal(
+                crate::trait_dispatch::TraitDispatchTerminal::Blocked(reason),
+            )),
+            crate::trait_dispatch::TraitDispatchResolution::Dynamic(obligation) => Some(ResolvedDispatchResult::TraitTerminal(
+                crate::trait_dispatch::TraitDispatchTerminal::Dynamic(obligation),
+            )),
             crate::trait_dispatch::TraitDispatchResolution::Cancelled => {
                 Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Cancelled))
             }
-            crate::trait_dispatch::TraitDispatchResolution::BudgetExceeded(report) => {
-                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(report)))
-            }
-            crate::trait_dispatch::TraitDispatchResolution::InternalFailure(message) => {
-                Some(ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(message)))
-            }
+            crate::trait_dispatch::TraitDispatchResolution::BudgetExceeded(report) => Some(ResolvedDispatchResult::TraitTerminal(
+                crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(report),
+            )),
+            crate::trait_dispatch::TraitDispatchResolution::InternalFailure(message) => Some(ResolvedDispatchResult::TraitTerminal(
+                crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(message),
+            )),
         }
     }
 
@@ -2858,46 +2841,46 @@ impl<'a> CheckingContext<'a> {
                                         side,
                                     };
                                     if let Some(capability) = self.conditional_selected_call_capability(selection.clone(), &member.domain, spec) {
-                                    let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature_template);
-                                    let unspecialized_return = signature.return_type.clone();
-                                    let mut environment = receiver_spec.environment;
-                                    for (&p, &t) in &capability.applicability.bindings {
-                                        environment.bind_param(p, t);
-                                    }
-                                    let env = environment.clone();
-                                    let specialize_type = |ctx: &mut Self, ty| {
-                                        let self_specialized = ctx.specialize_self_type(specialization_receiver, ty);
-                                        crate::types::environment::TypeView::new(self_specialized, env.clone()).materialize(ctx.store)
-                                    };
-                                    for parameter in &mut signature.parameters {
-                                        parameter.ty = parameter.ty.map_type(|ty| specialize_type(self, ty));
-                                    }
-                                    signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
-                                    self.dependencies.insert(member.callable.clone());
-                                    self.record_consumed_callable_signature(&member.callable, &signature);
-                                    if let Some(expression) = self.current_expression_id() {
-                                        self.resolved_callables.insert(expression, member.callable.clone());
-                                        self.resolved_conditional_dispatches.insert(expression, selection.clone());
-                                        self.resolved_conditional_capabilities.insert(expression, capability.clone());
-                                    }
-                                    return ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(ResolvedDispatch {
-                                        callable: member.callable.clone(),
-                                        signature,
-                                        visibility: member.visibility,
-                                        access_denied: false,
-                                        specialization: Some(crate::dispatch::DispatchSignatureSpecialization {
-                                            receiver: specialization_receiver,
-                                            declaring_owner: owner.clone(),
-                                            environment,
-                                            path: receiver_spec.path,
-                                            unspecialized_return,
-                                        }),
-                                        conditional: Some(selection),
-                                        conditional_capability: Some(capability),
-                                        trait_dispatch: None,
-                                        abstract_contract: false,
-                                        visited_owners,
-                                    })));
+                                        let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature_template);
+                                        let unspecialized_return = signature.return_type.clone();
+                                        let mut environment = receiver_spec.environment;
+                                        for (&p, &t) in &capability.applicability.bindings {
+                                            environment.bind_param(p, t);
+                                        }
+                                        let env = environment.clone();
+                                        let specialize_type = |ctx: &mut Self, ty| {
+                                            let self_specialized = ctx.specialize_self_type(specialization_receiver, ty);
+                                            crate::types::environment::TypeView::new(self_specialized, env.clone()).materialize(ctx.store)
+                                        };
+                                        for parameter in &mut signature.parameters {
+                                            parameter.ty = parameter.ty.map_type(|ty| specialize_type(self, ty));
+                                        }
+                                        signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
+                                        self.dependencies.insert(member.callable.clone());
+                                        self.record_consumed_callable_signature(&member.callable, &signature);
+                                        if let Some(expression) = self.current_expression_id() {
+                                            self.resolved_callables.insert(expression, member.callable.clone());
+                                            self.resolved_conditional_dispatches.insert(expression, selection.clone());
+                                            self.resolved_conditional_capabilities.insert(expression, capability.clone());
+                                        }
+                                        return ResolvedDispatchResult::Found(Box::new(self.authorize_dispatch(ResolvedDispatch {
+                                            callable: member.callable.clone(),
+                                            signature,
+                                            visibility: member.visibility,
+                                            access_denied: false,
+                                            specialization: Some(crate::dispatch::DispatchSignatureSpecialization {
+                                                receiver: specialization_receiver,
+                                                declaring_owner: owner.clone(),
+                                                environment,
+                                                path: receiver_spec.path,
+                                                unspecialized_return,
+                                            }),
+                                            conditional: Some(selection),
+                                            conditional_capability: Some(capability),
+                                            trait_dispatch: None,
+                                            abstract_contract: false,
+                                            visited_owners,
+                                        })));
                                     }
                                 }
                             }

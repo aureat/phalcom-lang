@@ -97,7 +97,9 @@ fn materialize_type_inner(
                     super::store::StaticArgument::DynamicType => Ok(super::store::StaticArgument::DynamicType),
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
-            store.apply_static_form(origin, &arguments).map_err(|_| TypeMaterializationError::TypeApplication)
+            store
+                .apply_static_form(origin, &arguments)
+                .map_err(|_| TypeMaterializationError::TypeApplication)
         }
         TypeData::ExactCase { variant, enum_type } => {
             let enum_type = materialize_type_inner(store, enum_type, instantiation, row_mode, visiting_rows)?;
@@ -295,7 +297,13 @@ fn materialize_type_inner(
                 .map_err(|_| TypeMaterializationError::TypeApplication)
         }
         TypeData::ConstInt(_) => Ok(ty),
-        TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::StaticDomainForm { .. } | TypeData::ClassObject { .. } => Ok(ty),
+        TypeData::Lambda(_)
+        | TypeData::SelfType(_)
+        | TypeData::Never
+        | TypeData::Unit
+        | TypeData::Nominal { .. }
+        | TypeData::StaticDomainForm { .. }
+        | TypeData::ClassObject { .. } => Ok(ty),
     }
 }
 

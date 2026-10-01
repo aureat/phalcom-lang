@@ -187,7 +187,9 @@ pub(crate) fn decompose_domain(
             _ => elements.elements.iter().map(|elem| CoverageSubject::canonical(elem.ty)).collect(),
         };
         return DomainDecomposition::Closed(Box::new([ConstructorCase {
-            head: ConstructorHead::Tuple { arity: elements.elements.len() },
+            head: ConstructorHead::Tuple {
+                arity: elements.elements.len(),
+            },
             fields: fields.into_boxed_slice(),
             proof: BranchProofEnvironment::default(),
             exact_case: None,

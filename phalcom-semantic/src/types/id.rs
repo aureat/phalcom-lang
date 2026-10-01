@@ -261,4 +261,3 @@ impl AlgebraicStaticConstructorId {
         Self(index as u32)
     }
 }
-

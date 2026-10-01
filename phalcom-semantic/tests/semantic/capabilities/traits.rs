@@ -1961,29 +1961,59 @@ class Caller {
     let contract = fixture.analysis.snapshot.trait_surfaces.get(&trait_declaration).expect("Contract surface");
     let member = |name: &str, slots: &[SelectorSlot]| {
         contract
-            .get_by_selector(&Selector::method(name, slots.to_vec().into_boxed_slice()).expect("member selector"), DispatchSide::Instance)
+            .get_by_selector(
+                &Selector::method(name, slots.to_vec().into_boxed_slice()).expect("member selector"),
+                DispatchSide::Instance,
+            )
             .expect("trait member")
     };
     let self_member = member("self_value", &[]);
     let generic_member = member("generic_value", &[SelectorSlot::Positional]);
     let item_member = member("item_value", &[SelectorSlot::Positional]);
 
-    let self_signature = fixture.analysis.snapshot.callable_signatures.get(&self_member.callable).expect("Self signature");
-    let self_result = self_signature.inferred_return.as_ref().and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty).expect("Self result");
+    let self_signature = fixture
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&self_member.callable)
+        .expect("Self signature");
+    let self_result = self_signature
+        .inferred_return
+        .as_ref()
+        .and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty)
+        .expect("Self result");
     assert!(matches!(fixture.analysis.snapshot.store.get(self_result), TypeData::SelfType(term) if term.owner == trait_declaration));
 
-    let generic_signature = fixture.analysis.snapshot.callable_signatures.get(&generic_member.callable).expect("generic signature");
+    let generic_signature = fixture
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&generic_member.callable)
+        .expect("generic signature");
     let generic_result = generic_signature
         .inferred_return
         .as_ref()
         .and_then(phalcom_semantic::types::evidence::TypeKnowledge::ty)
         .expect("generic result");
     let TypeData::Parameter(generic_result_parameter) = fixture.analysis.snapshot.store.get(generic_result) else {
-        panic!("expected declaration-owned method type parameter, got {:?}", fixture.analysis.snapshot.store.get(generic_result));
+        panic!(
+            "expected declaration-owned method type parameter, got {:?}",
+            fixture.analysis.snapshot.store.get(generic_result)
+        );
     };
-    assert!(generic_signature.generics.as_ref().is_some_and(|generics| generics.parameters.contains(&generic_result_parameter)));
+    assert!(
+        generic_signature
+            .generics
+            .as_ref()
+            .is_some_and(|generics| generics.parameters.contains(&generic_result_parameter))
+    );
 
-    let item_signature = fixture.analysis.snapshot.callable_signatures.get(&item_member.callable).expect("associated signature");
+    let item_signature = fixture
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&item_member.callable)
+        .expect("associated signature");
     let item_result = item_signature
         .inferred_return
         .as_ref()
@@ -2020,7 +2050,10 @@ class Caller {
             DispatchSide::Instance,
         );
         let analysis = fixture.analysis.snapshot.callable_analyses.get(&callable).unwrap_or_else(|| {
-            panic!("missing caller analysis {callable:?}; available={:?}", fixture.analysis.snapshot.callable_analyses.keys())
+            panic!(
+                "missing caller analysis {callable:?}; available={:?}",
+                fixture.analysis.snapshot.callable_analyses.keys()
+            )
         });
         let call = analysis
             .expressions
@@ -2074,7 +2107,13 @@ class Caller {
     let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(selection)) = &call.trait_dispatch else {
         panic!("expected assumed dispatch, got {:?}", call.trait_dispatch);
     };
-    assert!(selection.signature.inferred_return.as_ref().is_some_and(|result| result.ty() == Some(string_type)));
+    assert!(
+        selection
+            .signature
+            .inferred_return
+            .as_ref()
+            .is_some_and(|result| result.ty() == Some(string_type))
+    );
 }
 
 #[test]
@@ -2105,7 +2144,12 @@ impl Contract for Box {}
         .expect("value requirement")
         .requirement
         .clone();
-    let signature = fixture.analysis.snapshot.callable_signatures.get(&requirement.source_callable()).expect("canonical default signature");
+    let signature = fixture
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&requirement.source_callable())
+        .expect("canonical default signature");
     let string_type = fixture
         .analysis
         .snapshot

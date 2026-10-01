@@ -579,9 +579,7 @@ fn trait_dispatch_terminal_rank(resolution: &TraitDispatchResolution) -> u8 {
         TraitDispatchResolution::Blocked(_) => 60,
         TraitDispatchResolution::Dynamic(_) => 50,
         TraitDispatchResolution::Unknown(_) => 40,
-        TraitDispatchResolution::Found(_)
-        | TraitDispatchResolution::Ambiguous(_)
-        | TraitDispatchResolution::Missing => 0,
+        TraitDispatchResolution::Found(_) | TraitDispatchResolution::Ambiguous(_) | TraitDispatchResolution::Missing => 0,
     }
 }
 

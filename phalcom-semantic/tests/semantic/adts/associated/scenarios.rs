@@ -201,12 +201,8 @@ fn ergonomic_primary_constructor_references_resolve_the_same_capabilities() {
     case.assert_no_diagnostics();
 
     for (canonical_source, ergonomic_source, expected_owner) in [
-        ("&Tagged<Int>::Construct(_)" , "&Tagged<Int>(_)" , "Tagged"),
-        (
-            "&Person<Int>::Construct(name: _, payload: _)",
-            "&Person<Int>(name: _, payload: _)",
-            "Person",
-        ),
+        ("&Tagged<Int>::Construct(_)", "&Tagged<Int>(_)", "Tagged"),
+        ("&Person<Int>::Construct(name: _, payload: _)", "&Person<Int>(name: _, payload: _)", "Person"),
     ] {
         let canonical = resolution(&case, canonical_source);
         let ergonomic = resolution(&case, ergonomic_source);

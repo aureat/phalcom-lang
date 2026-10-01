@@ -195,9 +195,7 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                         }
                         super::store::StaticArgument::Term(materialize_view(store, *arg, env))
                     }
-                    super::store::StaticArgument::RecordRow(row) => {
-                        super::store::StaticArgument::RecordRow(*row)
-                    }
+                    super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
                     super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                 })
                 .collect::<Vec<_>>();

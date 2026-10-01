@@ -434,7 +434,6 @@ let res = Runner.run(c)
     assert_eq!(named(&vm, module, "res").expect("res").to_string(&vm), "forwarded_owner");
 }
 
-
 #[test]
 fn p4_specialized_rest_dispatch_preserves_conformance_environment() {
     let source = r#"

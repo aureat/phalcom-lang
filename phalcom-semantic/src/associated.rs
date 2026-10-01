@@ -72,14 +72,7 @@ pub fn build_associated_surface_with_declarations(
         module: domain.id.owner.module.clone(),
         source_range: domain.source_range,
     }));
-    let (surface, declaration_diagnostics) = extend_associated_surface_with_shells(
-        owner,
-        base,
-        &shells,
-        behavior_bases,
-        inherited_class_bases,
-        module_id,
-    );
+    let (surface, declaration_diagnostics) = extend_associated_surface_with_shells(owner, base, &shells, behavior_bases, inherited_class_bases, module_id);
     let mut diagnostics = base_diagnostics.to_vec();
     diagnostics.extend(declaration_diagnostics.iter().cloned());
     (surface, Arc::from(diagnostics.into_boxed_slice()))
@@ -190,8 +183,7 @@ pub fn build_associated_surface_with_type_members(
             source_range: member.source_range,
         })
         .collect::<Vec<_>>();
-    let (surface, member_diagnostics) =
-        extend_associated_surface_with_shells(owner, base, &shells, behavior_bases, inherited_class_bases, module_id);
+    let (surface, member_diagnostics) = extend_associated_surface_with_shells(owner, base, &shells, behavior_bases, inherited_class_bases, module_id);
     let mut diagnostics = base_diagnostics.to_vec();
     diagnostics.extend(member_diagnostics.iter().cloned());
     (surface, Arc::from(diagnostics.into_boxed_slice()))

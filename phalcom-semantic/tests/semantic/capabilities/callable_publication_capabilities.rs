@@ -129,11 +129,28 @@ class Probe {
         "recursive call must remain epistemically incomplete: {f_call:#?}"
     );
     let cycle_diagnostics = f.diagnostics(DiagnosticCode::CallableResultCycle);
-    assert_eq!(cycle_diagnostics.len(), 1, "one diagnostic should represent the mutual result SCC: {cycle_diagnostics:#?}");
-    assert_eq!(cycle_diagnostics[0].primary_range, f_analysis.body_range, "the diagnostic anchor should be the earliest source member");
-    assert_eq!(cycle_diagnostics[0].labels.len(), 1, "the other SCC member should be related to the source-first anchor");
-    assert_eq!(f_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(), Some(&f.callable_id("Probe", "g", DispatchSide::Class)));
-    assert_eq!(g_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(), Some(&f.callable_id("Probe", "f", DispatchSide::Class)));
+    assert_eq!(
+        cycle_diagnostics.len(),
+        1,
+        "one diagnostic should represent the mutual result SCC: {cycle_diagnostics:#?}"
+    );
+    assert_eq!(
+        cycle_diagnostics[0].primary_range, f_analysis.body_range,
+        "the diagnostic anchor should be the earliest source member"
+    );
+    assert_eq!(
+        cycle_diagnostics[0].labels.len(),
+        1,
+        "the other SCC member should be related to the source-first anchor"
+    );
+    assert_eq!(
+        f_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(),
+        Some(&f.callable_id("Probe", "g", DispatchSide::Class))
+    );
+    assert_eq!(
+        g_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(),
+        Some(&f.callable_id("Probe", "f", DispatchSide::Class))
+    );
 }
 
 #[test]
@@ -150,14 +167,16 @@ class Probe {
         loop_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(),
         Some(&first.callable_id("Probe", "loop", DispatchSide::Class))
     );
-    assert!(first
-        .analysis
-        .snapshot
-        .callable_signatures
-        .get(&first.callable_id("Probe", "loop", DispatchSide::Class))
-        .expect("loop signature")
-        .published_return_knowledge()
-        .is_unknown());
+    assert!(
+        first
+            .analysis
+            .snapshot
+            .callable_signatures
+            .get(&first.callable_id("Probe", "loop", DispatchSide::Class))
+            .expect("loop signature")
+            .published_return_knowledge()
+            .is_unknown()
+    );
     let first_diagnostics = first.diagnostics(DiagnosticCode::CallableResultCycle);
     assert_eq!(first_diagnostics.len(), 1);
     assert_eq!(first_diagnostics[0].primary_range, loop_analysis.body_range);
@@ -201,7 +220,11 @@ class Probe {
             .callable_signatures
             .get(&f.callable_id("Probe", name, DispatchSide::Class))
             .expect("callable signature");
-        assert_eq!(signature.published_return_knowledge().ty(), Some(int_ty), "{name} should publish its independent literal result");
+        assert_eq!(
+            signature.published_return_knowledge().ty(),
+            Some(int_ty),
+            "{name} should publish its independent literal result"
+        );
     }
     let local_signature = f
         .analysis
@@ -209,7 +232,10 @@ class Probe {
         .callable_signatures
         .get(&f.callable_id("Probe", "localCall", DispatchSide::Class))
         .expect("local call signature");
-    assert!(local_signature.published_return_knowledge().is_unknown(), "a returned local must not be mistaken for a direct result edge");
+    assert!(
+        local_signature.published_return_knowledge().is_unknown(),
+        "a returned local must not be mistaken for a direct result edge"
+    );
     let local_analysis = f.callable("Probe", "localCall", DispatchSide::Class);
     assert_eq!(local_analysis.exits.normal_returns[0].direct_result_dependency.as_ref(), None);
     assert!(f.diagnostics(DiagnosticCode::CallableResultCycle).is_empty());
@@ -246,12 +272,11 @@ class Probe {
     let g_body = f.callable("Probe", "g", DispatchSide::Class);
     for (caller, source) in [(f_body, "g()"), (g_body, "f()")] {
         let call = f.expression(caller, source);
-        assert_eq!(
-            call.knowledge.ty(),
-            Some(int_ty),
-            "mutual recursive call `{source}`: {call:#?}"
-        );
+        assert_eq!(call.knowledge.ty(), Some(int_ty), "mutual recursive call `{source}`: {call:#?}");
     }
-    assert!(f.diagnostics(DiagnosticCode::CallableResultCycle).is_empty(), "declared results are authoritative seeds");
+    assert!(
+        f.diagnostics(DiagnosticCode::CallableResultCycle).is_empty(),
+        "declared results are authoritative seeds"
+    );
     f.assert_no_error_diagnostics();
 }

@@ -2135,47 +2135,45 @@ impl<'source> Parser<'source> {
                                 });
                             }
                         }
-                        TypeCallableItem::Remainder(r) => {
-                            match r.mode {
-                                RemainderLaneMode::Positional => {
-                                    if seen_labeled {
-                                        return Err(SyntaxError {
-                                            kind: SyntaxErrorKind::Message("positional remainder must precede labeled lane".to_string()),
-                                            range: r.range.start..r.range.end,
-                                        });
-                                    }
-                                    if seen_pos_rem || seen_complete_rem {
-                                        return Err(SyntaxError {
-                                            kind: SyntaxErrorKind::Message("duplicate positional remainder in tuple type".to_string()),
-                                            range: r.range.start..r.range.end,
-                                        });
-                                    }
-                                    seen_pos_rem = true;
+                        TypeCallableItem::Remainder(r) => match r.mode {
+                            RemainderLaneMode::Positional => {
+                                if seen_labeled {
+                                    return Err(SyntaxError {
+                                        kind: SyntaxErrorKind::Message("positional remainder must precede labeled lane".to_string()),
+                                        range: r.range.start..r.range.end,
+                                    });
                                 }
-                                RemainderLaneMode::Labeled => {
-                                    if seen_lab_rem || seen_complete_rem {
-                                        return Err(SyntaxError {
-                                            kind: SyntaxErrorKind::Message("duplicate labeled remainder in tuple type".to_string()),
-                                            range: r.range.start..r.range.end,
-                                        });
-                                    }
-                                    seen_lab_rem = true;
-                                    seen_labeled = true;
+                                if seen_pos_rem || seen_complete_rem {
+                                    return Err(SyntaxError {
+                                        kind: SyntaxErrorKind::Message("duplicate positional remainder in tuple type".to_string()),
+                                        range: r.range.start..r.range.end,
+                                    });
                                 }
-                                RemainderLaneMode::Complete => {
-                                    if seen_pos_rem || seen_lab_rem || seen_complete_rem {
-                                        return Err(SyntaxError {
-                                            kind: SyntaxErrorKind::Message("duplicate remainder in tuple type".to_string()),
-                                            range: r.range.start..r.range.end,
-                                        });
-                                    }
-                                    seen_complete_rem = true;
-                                    seen_pos_rem = true;
-                                    seen_lab_rem = true;
-                                    seen_labeled = true;
-                                }
+                                seen_pos_rem = true;
                             }
-                        }
+                            RemainderLaneMode::Labeled => {
+                                if seen_lab_rem || seen_complete_rem {
+                                    return Err(SyntaxError {
+                                        kind: SyntaxErrorKind::Message("duplicate labeled remainder in tuple type".to_string()),
+                                        range: r.range.start..r.range.end,
+                                    });
+                                }
+                                seen_lab_rem = true;
+                                seen_labeled = true;
+                            }
+                            RemainderLaneMode::Complete => {
+                                if seen_pos_rem || seen_lab_rem || seen_complete_rem {
+                                    return Err(SyntaxError {
+                                        kind: SyntaxErrorKind::Message("duplicate remainder in tuple type".to_string()),
+                                        range: r.range.start..r.range.end,
+                                    });
+                                }
+                                seen_complete_rem = true;
+                                seen_pos_rem = true;
+                                seen_lab_rem = true;
+                                seen_labeled = true;
+                            }
+                        },
                     }
                 }
 
@@ -2621,7 +2619,12 @@ impl<'source> Parser<'source> {
             self.skip_newlines();
             let ty = self.parse_type_form()?;
             let field_range = (field_start..self.prev_end).into();
-            fields.push(RecordTypeField { name, ty, optional, range: field_range });
+            fields.push(RecordTypeField {
+                name,
+                ty,
+                optional,
+                range: field_range,
+            });
 
             self.skip_newlines();
             if self.eat(&Token::Comma) {

@@ -86,10 +86,7 @@ fn record_argument_decomposition_solves_remainder_without_publishing_row_variabl
     session.constrain_signature_type_lacks(formal, &store).unwrap();
     let actual = store
         .record_row_type_checked(
-            vec![
-                RecordTypeField::required("item".into(), int),
-                RecordTypeField::required("name".into(), string),
-            ],
+            vec![RecordTypeField::required("item".into(), int), RecordTypeField::required("name".into(), string)],
             RecordRowTail::Closed,
         )
         .unwrap();
@@ -114,10 +111,7 @@ fn record_argument_decomposition_solves_remainder_without_publishing_row_variabl
     };
     let remainder = solution.zonk_variable_to_canonical(variable, &mut store).unwrap();
     let data = store.record_row(remainder);
-    assert_eq!(
-        data.fields.as_ref(),
-        &[RecordRowField::required("name".into(), string)]
-    );
+    assert_eq!(data.fields.as_ref(), &[RecordRowField::required("name".into(), string)]);
     assert_eq!(data.tail, RecordRowTail::Closed);
     assert!(!store.contains_parameter_type(row_parameter));
     assert!(!matches!(store.get(formal), TypeData::Parameter(_)));
@@ -133,10 +127,7 @@ fn return_record_prefix_contributes_signature_lacks_to_row_inference() {
     let mut session = GenericApplicationSession::new(&signature, &store);
     let string = store.nominal(declaration("String"));
     let formal = store
-        .record_row_type_checked(
-            vec![RecordTypeField::required("name".into(), string)],
-            RecordRowTail::Parameter(row_parameter),
-        )
+        .record_row_type_checked(vec![RecordTypeField::required("name".into(), string)], RecordRowTail::Parameter(row_parameter))
         .unwrap();
     let returned = store
         .record_row_type_checked(

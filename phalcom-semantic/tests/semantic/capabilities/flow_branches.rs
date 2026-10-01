@@ -34,7 +34,11 @@ class Probe {
 
     let input = f.binding(run, "input");
     let declared = input.declared_type().expect("List<Int> input contract");
-    assert_eq!(input.current.ty(), Some(declared), "branch and loop joins must retain the applied List<Int> fact");
+    assert_eq!(
+        input.current.ty(),
+        Some(declared),
+        "branch and loop joins must retain the applied List<Int> fact"
+    );
     f.assert_no_error_diagnostics();
 }
 

@@ -3789,32 +3789,25 @@ mod tests {
         let declaring_name = vm.get_or_intern("ConditionalBase");
         let signature = Signature::new(selector, SignatureKind::Getter, 0);
         let body = vm.compile_closure(module, "42\n").expect("override body");
-        let fallback = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
-            signature.clone(),
-            MethodKind::Closure(body),
-        ))));
+        let fallback = vm
+            .heap
+            .alloc(Object::Method(Box::new(MethodObject::new_single(signature.clone(), MethodKind::Closure(body)))));
         let override_method = vm
             .heap
             .alloc(Object::Method(Box::new(MethodObject::new_single(signature, MethodKind::Closure(body)))));
         vm.heap.class_mut(subclass).add_method(selector, override_method);
         let receiver = Value::obj(vm.heap.alloc(Object::Instance(InstanceObject::new(subclass, 0))));
-        vm.classes.insert(
-            crate::vm::ClassKey {
-                module,
-                name: declaring_name,
-            },
-            base,
-        );
+        vm.classes.insert(crate::vm::ClassKey { module, name: declaring_name }, base);
 
         let mut chunk = Chunk::new();
         let selector_index = chunk.add_constant(Value::symbol(selector_sym), Default::default()).unwrap();
         let module_index = chunk.add_constant(Value::obj(module), Default::default()).unwrap();
-        let declaring_name_index = chunk
-            .add_constant(Value::symbol(declaring_name), Default::default())
-            .unwrap();
+        let declaring_name_index = chunk.add_constant(Value::symbol(declaring_name), Default::default()).unwrap();
         let fallback_index = chunk.add_constant(Value::obj(fallback), Default::default()).unwrap();
-        chunk.executable_semantics.call_environment_recipes.push(std::sync::Arc::new(
-            crate::typing::RuntimeCallEnvironmentRecipe {
+        chunk
+            .executable_semantics
+            .call_environment_recipes
+            .push(std::sync::Arc::new(crate::typing::RuntimeCallEnvironmentRecipe {
                 callable: phalcom_type_meta::identity::StableCallableRef {
                     owner: phalcom_type_meta::identity::StableDeclarationRef {
                         module: phalcom_type_meta::identity::StableModuleRef {
@@ -3830,8 +3823,7 @@ mod tests {
                 },
                 bindings: Box::new([]),
                 conformance_slots: Box::new([crate::typing::RuntimeConformanceSlotRecipe::Forwarded(0)]),
-            },
-        ));
+            }));
         let callable = Callable {
             chunk,
             max_slots: 1,
@@ -3844,18 +3836,8 @@ mod tests {
         };
 
         vm.stack.push(receiver);
-        vm.invoke_conditional_at(
-            &callable,
-            0,
-            0,
-            selector_index,
-            module_index,
-            declaring_name_index,
-            false,
-            fallback_index,
-            0,
-        )
-        .expect("direct conditional override should activate");
+        vm.invoke_conditional_at(&callable, 0, 0, selector_index, module_index, declaring_name_index, false, fallback_index, 0)
+            .expect("direct conditional override should activate");
 
         assert_eq!(vm.frames.len(), 1, "override body should be entered");
         assert_eq!(

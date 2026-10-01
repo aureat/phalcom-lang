@@ -15,9 +15,7 @@ use phalcom_semantic::types::parameter::{GenericConstraint, GenericParameterMode
 use phalcom_semantic::types::row::RecordRowTail;
 use phalcom_semantic::types::store::{CallableType, StaticArgument, TypeData, TypeStore};
 use phalcom_semantic::types::substitution::TypeSubstitution;
-use phalcom_semantic::types::type_lambda::{
-    ScopedOpenRecord, ScopedRecordField, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData, TypeLambdaArena,
-};
+use phalcom_semantic::types::type_lambda::{ScopedOpenRecord, ScopedRecordField, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData, TypeLambdaArena};
 
 const RANGE: SourceRange = SourceRange { start: 0, end: 1 };
 
@@ -625,14 +623,12 @@ fn scoped_complete_pack_expansion_projects_a_tuple_with_bound_elements() {
     let tuple_application = TypeAnnotation {
         expr: TypeAnnotationExpr::Application {
             origin: Box::new(reference("Tuple")),
-            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(
-                phalcom_ast::ast::TypePackExpansionSyntax {
-                    mode: phalcom_ast::ast::ExpansionMode::Complete,
-                    operator_range: RANGE,
-                    operand: tuple_operand,
-                    range: RANGE,
-                },
-            )],
+            arguments: vec![phalcom_ast::ast::GenericArgumentSyntax::Expansion(phalcom_ast::ast::TypePackExpansionSyntax {
+                mode: phalcom_ast::ast::ExpansionMode::Complete,
+                operator_range: RANGE,
+                operand: tuple_operand,
+                range: RANGE,
+            })],
             range: RANGE,
         },
         range: RANGE,
@@ -658,8 +654,7 @@ fn scoped_complete_pack_expansion_projects_a_tuple_with_bound_elements() {
     };
     assert!(elements.elements.iter().any(|element| element.label.is_none() && element.ty == int_ty));
     assert!(elements.elements.iter().any(|element| {
-        element.label.as_deref() == Some("enabled")
-            && element.ty == env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap()
+        element.label.as_deref() == Some("enabled") && element.ty == env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap()
     }));
 }
 
@@ -1095,7 +1090,9 @@ fn free_capture_specialization_threads_nested_lambda_applications() {
         },
         KindId::TYPE,
     );
-    let captured_type = env.store.tuple(Box::new([phalcom_semantic::types::store::TupleTypeElement::unlabeled(nested_application)]));
+    let captured_type = env
+        .store
+        .tuple(Box::new([phalcom_semantic::types::store::TupleTypeElement::unlabeled(nested_application)]));
 
     let arena = env.store.arena_mut();
     let captured = arena.intern_scoped(ScopedTypeData::Free(captured_parameter));
@@ -1522,13 +1519,26 @@ fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
 
     let direct = application(reference("V"), vec![reference("Int"), reference("String")]);
     let (_, diagnostics) = resolve(&mut env, &direct);
-    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported), "{diagnostics:?}");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported),
+        "{diagnostics:?}"
+    );
 
     let tuple = TypeAnnotation {
         expr: TypeAnnotationExpr::Tuple {
             elements: vec![
-                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement { label: None, ty: reference("Int"), optional: false, range: RANGE }),
-                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement { label: None, ty: reference("String"), optional: false, range: RANGE }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
+                    label: None,
+                    ty: reference("Int"),
+                    optional: false,
+                    range: RANGE,
+                }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
+                    label: None,
+                    ty: reference("String"),
+                    optional: false,
+                    range: RANGE,
+                }),
             ],
             range: RANGE,
         },
@@ -1560,31 +1570,22 @@ fn fixed_generic_prefix_accepts_explicit_complete_pack_expansion_only() {
     let mut env = setup();
     let declaration = DeclarationId::new(env.module.clone(), "Product".into());
     let fixed = env.store.intern_type_parameter(
-        TypeParameterData::new(TypeParameterOwner::Declaration(declaration.clone()), 0, "T", KindId::TYPE)
-            .with_mode(GenericParameterMode::Single),
+        TypeParameterData::new(TypeParameterOwner::Declaration(declaration.clone()), 0, "T", KindId::TYPE).with_mode(GenericParameterMode::Single),
     );
     let entries = env.store.intern_type_parameter(
-        TypeParameterData::new(
-            TypeParameterOwner::Declaration(declaration.clone()),
-            1,
-            "Es",
-            KindId::COMPLETE_TYPE_PACK,
-        )
-        .with_mode(GenericParameterMode::CompletePack),
+        TypeParameterData::new(TypeParameterOwner::Declaration(declaration.clone()), 1, "Es", KindId::COMPLETE_TYPE_PACK)
+            .with_mode(GenericParameterMode::CompletePack),
     );
-    let signature = GenericSignature::new(
-        TypeParameterOwner::Declaration(declaration.clone()),
-        vec![fixed, entries].into_boxed_slice(),
-    )
-    .with_parameter_metadata(
-        vec![KindId::TYPE, KindId::COMPLETE_TYPE_PACK].into_boxed_slice(),
-        vec![
-            phalcom_semantic::types::variance::Variance::Invariant,
-            phalcom_semantic::types::variance::Variance::Invariant,
-        ]
-        .into_boxed_slice(),
-    )
-    .with_parameter_modes(vec![GenericParameterMode::Single, GenericParameterMode::CompletePack].into_boxed_slice());
+    let signature = GenericSignature::new(TypeParameterOwner::Declaration(declaration.clone()), vec![fixed, entries].into_boxed_slice())
+        .with_parameter_metadata(
+            vec![KindId::TYPE, KindId::COMPLETE_TYPE_PACK].into_boxed_slice(),
+            vec![
+                phalcom_semantic::types::variance::Variance::Invariant,
+                phalcom_semantic::types::variance::Variance::Invariant,
+            ]
+            .into_boxed_slice(),
+        )
+        .with_parameter_modes(vec![GenericParameterMode::Single, GenericParameterMode::CompletePack].into_boxed_slice());
     let kind = env
         .store
         .arrow_kind(vec![KindId::TYPE, KindId::COMPLETE_TYPE_PACK].into_boxed_slice(), KindId::TYPE);
@@ -1596,9 +1597,7 @@ fn fixed_generic_prefix_accepts_explicit_complete_pack_expansion_only() {
         class_object_type,
         kind,
         binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
-        generic_binder_header: Some(phalcom_semantic::types::parameter::GenericBinderHeader::from_signature(
-            &env.store, &signature,
-        )),
+        generic_binder_header: Some(phalcom_semantic::types::parameter::GenericBinderHeader::from_signature(&env.store, &signature)),
         generic_signature: Some(signature),
         supertype_template: None,
     });
@@ -1662,7 +1661,10 @@ fn fixed_generic_prefix_accepts_explicit_complete_pack_expansion_only() {
         range: RANGE,
     };
     let (_, diagnostics) = resolve(&mut env, &direct);
-    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported), "{diagnostics:?}");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported),
+        "{diagnostics:?}"
+    );
 }
 
 #[test]
@@ -1812,14 +1814,9 @@ fn scoped_zero_tuple_and_record_applications_select_their_declared_domains() {
         range: RANGE,
     };
     diagnostics.clear();
-    let TypeFormResolution::Ready(record_lambda) = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &scoped_record,
-        &mut diagnostics,
-    ) else {
+    let TypeFormResolution::Ready(record_lambda) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &scoped_record, &mut diagnostics)
+    else {
         panic!("scoped zero Record should lower: {diagnostics:?}");
     };
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
@@ -1925,14 +1922,9 @@ fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() 
         range: RANGE,
     };
     let mut diagnostics = Vec::new();
-    let TypeFormResolution::Ready(explicit_shape) = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &explicit_shape,
-        &mut diagnostics,
-    ) else {
+    let TypeFormResolution::Ready(explicit_shape) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &explicit_shape, &mut diagnostics)
+    else {
         panic!("Record<**{{ name: String }}> should resolve: {diagnostics:?}");
     };
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
@@ -1983,14 +1975,9 @@ fn record_fields_applications_require_expansion_and_preserve_row_arguments() {
         range: RANGE,
     };
     let mut diagnostics = Vec::new();
-    let TypeFormResolution::Ready(applied) = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &bound_expansion,
-        &mut diagnostics,
-    ) else {
+    let TypeFormResolution::Ready(applied) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &bound_expansion, &mut diagnostics)
+    else {
         panic!("bound RecordFields expansion should resolve: {diagnostics:?}");
     };
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
@@ -2539,13 +2526,22 @@ fn cv10_list_dynamic_formation_preserves_outer_applied_type_and_differs_from_any
         range: RANGE,
     };
     let list_dynamic_expr = application(reference("List"), vec![dynamic_annotation.clone()]);
-    let res = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &list_dynamic_expr, &mut diagnostics);
+    let res = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &list_dynamic_expr,
+        &mut diagnostics,
+    );
     let TypeFormResolution::Ready(list_dynamic_ty) = res else {
         panic!("List<Dynamic> should resolve as ready applied type: {diagnostics:?}");
     };
 
     let list_obj_expr = application(reference("List"), vec![reference("Object")]);
-    let TypeFormResolution::Ready(list_obj_ty) = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &list_obj_expr, &mut diagnostics) else {
+    let TypeFormResolution::Ready(list_obj_ty) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &list_obj_expr, &mut diagnostics)
+    else {
         panic!("List<Object> should resolve: {diagnostics:?}");
     };
 
@@ -2593,7 +2589,14 @@ fn cv11_dynamic_argument_rejected_for_non_type_kind_parameter() {
         range: RANGE,
     };
     let invalid_application = application(reference("RowFamily"), vec![dynamic_annotation]);
-    let res = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &invalid_application, &mut diagnostics);
+    let res = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &invalid_application,
+        &mut diagnostics,
+    );
     assert!(matches!(res, TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch)));
 }
 
@@ -2611,7 +2614,10 @@ fn cv12_to_cv14_knowledge_bearing_use_site_materialization() {
     // CV-12: Bare T [T := Dynamic] -> TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape)
     let bare_view = phalcom_semantic::types::environment::TypeView::new(param_ty, environment.clone());
     let bare_knowledge = bare_view.materialize_knowledge(&mut env.store);
-    assert!(matches!(bare_knowledge, TypeKnowledge::Dynamic(phalcom_semantic::types::evidence::DynamicReason::ExplicitEscape)));
+    assert!(matches!(
+        bare_knowledge,
+        TypeKnowledge::Dynamic(phalcom_semantic::types::evidence::DynamicReason::ExplicitEscape)
+    ));
 
     // CV-13: Nested List<T> [T := Dynamic] -> TypeKnowledge::assumed(List<Dynamic>)
     let list_decl = DeclarationId::new(env.module.clone(), "List".into());

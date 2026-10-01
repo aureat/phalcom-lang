@@ -47,18 +47,20 @@ pub fn build_type_member_declaration(
             continue;
         }
         let domain = match &parameter.domain {
-            TypeMemberParameterDomainSyntax::Kind(syntax) => match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax, &mut diagnostics) {
-                KindResolution::Ready(kind) => Some(kind),
-                other => {
-                    diagnostics.push(SemanticDiagnostic::error_in(
-                        module.clone(),
-                        DiagnosticCode::AnnotationUnresolved,
-                        format!("could not resolve type-member parameter domain: {other:?}"),
-                        parameter.domain.range(),
-                    ));
-                    None
+            TypeMemberParameterDomainSyntax::Kind(syntax) => {
+                match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax, &mut diagnostics) {
+                    KindResolution::Ready(kind) => Some(kind),
+                    other => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            module.clone(),
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("could not resolve type-member parameter domain: {other:?}"),
+                            parameter.domain.range(),
+                        ));
+                        None
+                    }
                 }
-            },
+            }
             TypeMemberParameterDomainSyntax::ConstType(annotation) => {
                 match resolve_type_form(store, declarations, resolver, &site, annotation, &mut diagnostics) {
                     TypeFormResolution::Ready(form) => Some(static_domain_kind_of_form(store, form)),
@@ -77,18 +79,20 @@ pub fn build_type_member_declaration(
     }
 
     let result_domain = match &definition.result {
-        TypeMemberResultSyntax::Kind(syntax) => match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax, &mut diagnostics) {
-            KindResolution::Ready(kind) => Some(kind),
-            other => {
-                diagnostics.push(SemanticDiagnostic::error_in(
-                    module.clone(),
-                    DiagnosticCode::AnnotationUnresolved,
-                    format!("could not resolve type-member result domain: {other:?}"),
-                    definition.result.range(),
-                ));
-                None
+        TypeMemberResultSyntax::Kind(syntax) => {
+            match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax, &mut diagnostics) {
+                KindResolution::Ready(kind) => Some(kind),
+                other => {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!("could not resolve type-member result domain: {other:?}"),
+                        definition.result.range(),
+                    ));
+                    None
+                }
             }
-        },
+        }
         TypeMemberResultSyntax::Type(annotation) => match resolve_type_form(store, declarations, resolver, &site, annotation, &mut diagnostics) {
             TypeFormResolution::Ready(form) => Some(static_domain_kind_of_form(store, form)),
             _ => None,

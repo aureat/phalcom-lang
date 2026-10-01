@@ -103,9 +103,7 @@ pub fn static_arguments(context: &TypingContextData, registry: &RuntimeTypingReg
                             tail: row.tail.clone(),
                         }))
                     }
-                    phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => {
-                        Some(RuntimeStaticArgument::DynamicType)
-                    }
+                    phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => Some(RuntimeStaticArgument::DynamicType),
                 })
                 .collect()
         }
@@ -227,14 +225,14 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                             "{{{}{}}}",
                             row.fields
                                 .iter()
-                                .map(|field| format!(
-                                    "{}: {}",
-                                    field.name,
-                                    display_inner(context, registry, heap, field.ty, depth + 1)
-                                ))
+                                .map(|field| format!("{}: {}", field.name, display_inner(context, registry, heap, field.ty, depth + 1)))
                                 .collect::<Vec<_>>()
                                 .join(", "),
-                            row.tail.as_ref().map_or(String::new(), |tail| format!("{}**R{}", if row.fields.is_empty() { "" } else { ", " }, tail.index))
+                            row.tail.as_ref().map_or(String::new(), |tail| format!(
+                                "{}**R{}",
+                                if row.fields.is_empty() { "" } else { ", " },
+                                tail.index
+                            ))
                         ),
                         RuntimeStaticArgument::DynamicType => "Dynamic".to_string(),
                     })
@@ -291,31 +289,30 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                     let origin = RuntimeTypeRef::Base { pool, node: *origin };
                     let args = arguments
                         .iter()
-                        .map(|arg| {
-                            match arg {
-                                phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) => {
-                                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *arg }, depth + 1)
-                                }
-                                phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
-                                    let fields = row
-                                        .fields
-                                        .iter()
-                                        .map(|field| {
-                                            format!(
-                                                "{}: {}",
-                                                field.name,
-                                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
-                                            )
-                                        })
-                                        .collect::<Vec<_>>()
-                                        .join(", ");
-                                    let tail = row.tail.as_ref().map_or(String::new(), |tail| {
-                                        format!("{}**R{}", if fields.is_empty() { "" } else { ", " }, tail.index)
-                                    });
-                                    format!("{{{fields}{tail}}}")
-                                }
-                                phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => "Dynamic".to_string(),
+                        .map(|arg| match arg {
+                            phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) => {
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *arg }, depth + 1)
                             }
+                            phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
+                                let fields = row
+                                    .fields
+                                    .iter()
+                                    .map(|field| {
+                                        format!(
+                                            "{}: {}",
+                                            field.name,
+                                            display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                let tail = row
+                                    .tail
+                                    .as_ref()
+                                    .map_or(String::new(), |tail| format!("{}**R{}", if fields.is_empty() { "" } else { ", " }, tail.index));
+                                format!("{{{fields}{tail}}}")
+                            }
+                            phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => "Dynamic".to_string(),
                         })
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -344,7 +341,13 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                                 s.push_str(label);
                                 s.push_str(": ");
                             }
-                            s.push_str(&display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: element.ty }, depth + 1));
+                            s.push_str(&display_inner(
+                                context,
+                                registry,
+                                heap,
+                                RuntimeTypeRef::Base { pool, node: element.ty },
+                                depth + 1,
+                            ));
                             if matches!(element.presence, phalcom_type_meta::type_node::StructuralMemberPresenceRef::Optional) {
                                 s.push('?');
                             }
@@ -357,7 +360,10 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                             parts.push("...".to_string());
                         }
                         phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Typed(ty) => {
-                            parts.push(format!("...{}", display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)));
+                            parts.push(format!(
+                                "...{}",
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)
+                            ));
                         }
                     }
                     match &open_tuple.labeled_remainder {
@@ -366,7 +372,10 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                             parts.push("**...".to_string());
                         }
                         phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Typed(ty) => {
-                            parts.push(format!("**...{}", display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)));
+                            parts.push(format!(
+                                "**...{}",
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)
+                            ));
                         }
                     }
                     format!("({})", parts.join(", "))
@@ -388,7 +397,11 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         .fields
                         .iter()
                         .map(|field| {
-                            let opt = if matches!(field.presence, phalcom_type_meta::type_node::StructuralMemberPresenceRef::Optional) { "?" } else { "" };
+                            let opt = if matches!(field.presence, phalcom_type_meta::type_node::StructuralMemberPresenceRef::Optional) {
+                                "?"
+                            } else {
+                                ""
+                            };
                             format!(
                                 "{}{}: {}",
                                 field.name,
@@ -402,7 +415,10 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                             parts.push("**...".to_string());
                         }
                         phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed(ty) => {
-                            parts.push(format!("**...{}", display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)));
+                            parts.push(format!(
+                                "**...{}",
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)
+                            ));
                         }
                     }
                     format!("{{{}}}", parts.join(", "))

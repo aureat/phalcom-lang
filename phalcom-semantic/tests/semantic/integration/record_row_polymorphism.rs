@@ -550,7 +550,11 @@ class Probe {
     let closed_row = fixture.analysis.snapshot.store.record_row(*closed_row_id);
     assert_eq!(closed_row.tail, RecordRowTail::Closed);
     assert_eq!(
-        closed_row.fields.iter().map(|field| (field.name.as_ref(), fixture.analysis.snapshot.store.format_type(field.ty))).collect::<Vec<_>>(),
+        closed_row
+            .fields
+            .iter()
+            .map(|field| (field.name.as_ref(), fixture.analysis.snapshot.store.format_type(field.ty)))
+            .collect::<Vec<_>>(),
         vec![("age", "Int".into()), ("city", "String".into())]
     );
 
@@ -567,7 +571,11 @@ class Probe {
     let rest_row = fixture.analysis.snapshot.store.record_row(*rest_row_id);
     assert_eq!(rest_row.tail, source_row.tail, "the residual keeps the source's canonical open tail");
     assert_eq!(
-        rest_row.fields.iter().map(|field| (field.name.as_ref(), fixture.analysis.snapshot.store.format_type(field.ty))).collect::<Vec<_>>(),
+        rest_row
+            .fields
+            .iter()
+            .map(|field| (field.name.as_ref(), fixture.analysis.snapshot.store.format_type(field.ty)))
+            .collect::<Vec<_>>(),
         vec![("age", "Int".into())]
     );
     fixture.assert_no_error_diagnostics();

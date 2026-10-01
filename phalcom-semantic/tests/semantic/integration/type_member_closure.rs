@@ -45,18 +45,20 @@ fn decl(name: &str) -> DeclarationId {
         "List" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::List),
         "Map" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Map),
         "Option" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option),
-        "TypePack" | "LabeledTypePack" | "CompleteTypePack" => {
-            DeclarationId::new(ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+        "TypePack" | "LabeledTypePack" | "CompleteTypePack" => DeclarationId::new(
+            ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
                 phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
                 phalcom_modules::identity::ModuleComponent::from_identifier("tuple").unwrap(),
-            ])), name.into())
-        }
-        "RecordFields" => {
-            DeclarationId::new(ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+            ])),
+            name.into(),
+        ),
+        "RecordFields" => DeclarationId::new(
+            ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
                 phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
                 phalcom_modules::identity::ModuleComponent::from_identifier("record").unwrap(),
-            ])), name.into())
-        }
+            ])),
+            name.into(),
+        ),
         other => DeclarationId::new(ModuleId::universe_root(), other.into()),
     }
 }
@@ -189,9 +191,7 @@ fn install_intrinsic_source_members(store: &mut TypeStore, resolver: &mut Simple
     use phalcom_common::selector::SelectorBase;
     use phalcom_semantic::associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedMemberId, AssociatedSurface};
     use phalcom_semantic::db::product::TypeMemberDeclarationProduct;
-    use phalcom_semantic::types::type_member::{
-        TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSignature,
-    };
+    use phalcom_semantic::types::type_member::{TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSignature};
 
     fn add(
         resolver: &mut SimpleTypeResolver,
@@ -284,9 +284,24 @@ fn install_intrinsic_source_members(store: &mut TypeStore, resolver: &mut Simple
     for (owner_name, selector_name, operation, result_kind) in [
         ("TypePack", "Map", IntrinsicTypeOperation::TypePackMap, KindId::TYPE_PACK),
         ("LabeledTypePack", "Map", IntrinsicTypeOperation::LabeledTypePackMap, KindId::LABELED_TYPE_PACK),
-        ("CompleteTypePack", "Positionals", IntrinsicTypeOperation::CompleteTypePackPositionals, KindId::TYPE_PACK),
-        ("CompleteTypePack", "Labeled", IntrinsicTypeOperation::CompleteTypePackLabeled, KindId::LABELED_TYPE_PACK),
-        ("CompleteTypePack", "Map", IntrinsicTypeOperation::CompleteTypePackMap, KindId::COMPLETE_TYPE_PACK),
+        (
+            "CompleteTypePack",
+            "Positionals",
+            IntrinsicTypeOperation::CompleteTypePackPositionals,
+            KindId::TYPE_PACK,
+        ),
+        (
+            "CompleteTypePack",
+            "Labeled",
+            IntrinsicTypeOperation::CompleteTypePackLabeled,
+            KindId::LABELED_TYPE_PACK,
+        ),
+        (
+            "CompleteTypePack",
+            "Map",
+            IntrinsicTypeOperation::CompleteTypePackMap,
+            KindId::COMPLETE_TYPE_PACK,
+        ),
         ("RecordFields", "Map", IntrinsicTypeOperation::RecordRowMap, KindId::RECORD_ROW),
     ] {
         add(
@@ -855,10 +870,7 @@ fn record_value_unions_closed_fields_and_preserves_open_row_projection() {
     ));
     let open_record = env
         .store
-        .record_row_type_checked(
-            vec![RecordRowField::required("known".into(), int_ty)],
-            RecordRowTail::Parameter(row_parameter),
-        )
+        .record_row_type_checked(vec![RecordRowField::required("known".into(), int_ty)], RecordRowTail::Parameter(row_parameter))
         .expect("open Record row with a canonical row-variable tail");
     let open_value = env.store.type_member_projection(
         TypeLevelProjection {

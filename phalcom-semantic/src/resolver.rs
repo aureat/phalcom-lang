@@ -129,17 +129,19 @@ impl LinkedTypeResolver {
 }
 
 impl TypeResolver for LinkedTypeResolver {
-    fn resolve_associated_static_domain(
-        &self,
-        owner: &DeclarationId,
-        name: &str,
-    ) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+    fn resolve_associated_static_domain(&self, owner: &DeclarationId, name: &str) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
         let products = self.associated_type_members.read().ok()?;
-        let family = products.surfaces.get(owner)?.families.get(&phalcom_common::selector::SelectorBase::Named(name.to_string()))?;
+        let family = products
+            .surfaces
+            .get(owner)?
+            .families
+            .get(&phalcom_common::selector::SelectorBase::Named(name.to_string()))?;
         if family.kind != crate::associated::AssociatedFamilyKind::StaticDomain {
             return None;
         }
-        let crate::associated::AssociatedMemberId::StaticDomain(id) = family.members.first()? else { return None };
+        let crate::associated::AssociatedMemberId::StaticDomain(id) = family.members.first()? else {
+            return None;
+        };
         Some(id.clone())
     }
 
@@ -164,7 +166,9 @@ impl TypeResolver for LinkedTypeResolver {
         };
         let products = self.associated_type_members.read().ok()?;
         let family = products.surfaces.get(owner)?.families.get(&base)?;
-        let crate::associated::AssociatedMemberId::TypeMember(id) = family.members.first()? else { return None };
+        let crate::associated::AssociatedMemberId::TypeMember(id) = family.members.first()? else {
+            return None;
+        };
         products.declarations.get(id).cloned()
     }
 

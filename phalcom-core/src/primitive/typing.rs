@@ -1087,9 +1087,7 @@ fn descriptor_arguments(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
                     crate::typing::overlay::RuntimeStaticArgument::RecordRow(_) => {
                         Err(RuntimeError::Message("type arguments contain a RecordRow value".into()))
                     }
-                    crate::typing::overlay::RuntimeStaticArgument::DynamicType => {
-                        Err(RuntimeError::Message("type arguments contain a Dynamic value".into()))
-                    }
+                    crate::typing::overlay::RuntimeStaticArgument::DynamicType => Err(RuntimeError::Message("type arguments contain a Dynamic value".into())),
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {

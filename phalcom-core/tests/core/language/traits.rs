@@ -90,13 +90,8 @@ class Caller {
   }
 }
 "#;
-    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source)))
-        .expect("canonical Universe source should analyze");
-    assert!(
-        !analyzed.semantic.has_errors(),
-        "semantic diagnostics: {:#?}",
-        analyzed.semantic.diagnostics
-    );
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical Universe source should analyze");
+    assert!(!analyzed.semantic.has_errors(), "semantic diagnostics: {:#?}", analyzed.semantic.diagnostics);
 
     let find_selection = |occurrence: &str| {
         analyzed
@@ -110,9 +105,7 @@ class Caller {
                     return None;
                 }
                 match expression.trait_dispatch.as_ref()? {
-                    phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) => {
-                        Some((expression.range, selection))
-                    }
+                    phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) => Some((expression.range, selection)),
                     _ => None,
                 }
             })
@@ -125,9 +118,7 @@ class Caller {
         phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(_)
     ));
     let (derived_range, derived_selection) = find_selection("receiver.toList");
-    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived_evidence) =
-        &derived_selection.evidence
-    else {
+    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived_evidence) = &derived_selection.evidence else {
         panic!("expected guarded Derived semantic evidence, got {:#?}", derived_selection.evidence);
     };
     assert!(matches!(
@@ -137,16 +128,12 @@ class Caller {
 
     let compiled = ProgramCompiler::compile_analyzed(&analyzed).expect("selected trait dispatches lower");
     let lowering = &compiled.modules[&analyzed.entry].lowering;
-    for (range, expected_selection) in [
-        (exact_range, exact_selection),
-        (derived_range, derived_selection),
-    ] {
+    for (range, expected_selection) in [(exact_range, exact_selection), (derived_range, derived_selection)] {
         let spec = lowering
             .trait_invocations
             .iter()
             .find_map(|(site, spec)| {
-                (site.range == range && site.kind == phalcom_core::modules::semantic_lowering::LoweringSiteKind::TraitInvoke)
-                    .then_some(spec)
+                (site.range == range && site.kind == phalcom_core::modules::semantic_lowering::LoweringSiteKind::TraitInvoke).then_some(spec)
             })
             .unwrap_or_else(|| panic!("missing TraitInvocationSpec at {range:?}"));
         assert_eq!(

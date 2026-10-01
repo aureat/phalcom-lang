@@ -74,7 +74,8 @@ fn shape_from_type_for_receiver(store: &TypeStore, ty: TypeId, receiver: &ValueS
         | TypeData::CallableFromPacks { .. }
         | TypeData::TypeMemberProjection(_)
         | TypeData::ConstInt(_)
-        | TypeData::StaticData(_) | TypeData::StaticDomainForm { .. } => ValueShape::Unknown,
+        | TypeData::StaticData(_)
+        | TypeData::StaticDomainForm { .. } => ValueShape::Unknown,
     }
 }
 
@@ -134,6 +135,7 @@ fn shape_from_type(store: &TypeStore, ty: TypeId, depth: usize) -> ValueShape {
         | TypeData::CallableFromPacks { .. }
         | TypeData::TypeMemberProjection(_)
         | TypeData::ConstInt(_)
-        | TypeData::StaticData(_) | TypeData::StaticDomainForm { .. } => ValueShape::Unknown,
+        | TypeData::StaticData(_)
+        | TypeData::StaticDomainForm { .. } => ValueShape::Unknown,
     }
 }

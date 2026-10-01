@@ -150,9 +150,7 @@ fn instantiate_type_ref(
                             crate::typing::overlay::RuntimeStaticArgument::RecordRow(row) => {
                                 crate::typing::overlay::RuntimeStaticArgument::RecordRow(instantiate_record_row(row, env, context, registry, depth + 1)?)
                             }
-                            crate::typing::overlay::RuntimeStaticArgument::DynamicType => {
-                                crate::typing::overlay::RuntimeStaticArgument::DynamicType
-                            }
+                            crate::typing::overlay::RuntimeStaticArgument::DynamicType => crate::typing::overlay::RuntimeStaticArgument::DynamicType,
                         });
                     }
                     Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Applied {
@@ -245,9 +243,10 @@ fn instantiate_type_ref(
                 | phalcom_type_meta::type_node::TypeNode::Never
                 | phalcom_type_meta::type_node::TypeNode::Unit => Some(ty),
                 phalcom_type_meta::type_node::TypeNode::Applied { origin, arguments } => {
-                    if arguments.iter().any(
-                        |argument| matches!(argument, phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) if row.tail.is_some()),
-                    ) {
+                    if arguments
+                        .iter()
+                        .any(|argument| matches!(argument, phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) if row.tail.is_some()))
+                    {
                         // Runtime type environments bind proper type terms only.
                         // An open row cannot be made exact by erasing or closing its tail.
                         return None;
@@ -256,39 +255,23 @@ fn instantiate_type_ref(
                     let mut new_args = Vec::with_capacity(arguments.len());
                     for arg in arguments.iter() {
                         new_args.push(match arg {
-                            phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) => {
-                                crate::typing::overlay::RuntimeStaticArgument::Term(instantiate_type_ref(
-                                    RuntimeTypeRef::Base { pool, node: *arg },
-                                    env,
-                                    context,
-                                    registry,
-                                    depth + 1,
-                                )?)
-                            }
+                            phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) => crate::typing::overlay::RuntimeStaticArgument::Term(
+                                instantiate_type_ref(RuntimeTypeRef::Base { pool, node: *arg }, env, context, registry, depth + 1)?,
+                            ),
                             phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
                                 let mut fields = Vec::with_capacity(row.fields.len());
                                 for field in row.fields.iter() {
                                     fields.push(crate::typing::overlay::RuntimeRecordField {
                                         name: field.name.clone(),
-                                        ty: instantiate_type_ref(
-                                            RuntimeTypeRef::Base { pool, node: field.ty },
-                                            env,
-                                            context,
-                                            registry,
-                                            depth + 1,
-                                        )?,
+                                        ty: instantiate_type_ref(RuntimeTypeRef::Base { pool, node: field.ty }, env, context, registry, depth + 1)?,
                                     });
                                 }
-                                crate::typing::overlay::RuntimeStaticArgument::RecordRow(
-                                    crate::typing::overlay::RuntimeRecordRow {
-                                        fields: fields.into_boxed_slice(),
-                                        tail: row.tail.clone(),
-                                    },
-                                )
+                                crate::typing::overlay::RuntimeStaticArgument::RecordRow(crate::typing::overlay::RuntimeRecordRow {
+                                    fields: fields.into_boxed_slice(),
+                                    tail: row.tail.clone(),
+                                })
                             }
-                            phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => {
-                                crate::typing::overlay::RuntimeStaticArgument::DynamicType
-                            }
+                            phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => crate::typing::overlay::RuntimeStaticArgument::DynamicType,
                         });
                     }
                     Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Applied {

@@ -465,20 +465,18 @@ fn check_subtype_impl(
                         }
                     }
                     super::store::AnonymousTupleRemainder::Unconstrained => {}
-                    super::store::AnonymousTupleRemainder::Typed(sup_elem) => {
-                        match sub_tuple.positional_remainder {
-                            super::store::AnonymousTupleRemainder::None => {}
-                            super::store::AnonymousTupleRemainder::Typed(sub_elem) => {
-                                let out = check_subtype_impl(store, hierarchy, sub_elem, sup_elem, budget, cancellation, visited, depth + 1);
-                                if !out.is_proven() {
-                                    return out;
-                                }
-                            }
-                            super::store::AnonymousTupleRemainder::Unconstrained => {
-                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                    super::store::AnonymousTupleRemainder::Typed(sup_elem) => match sub_tuple.positional_remainder {
+                        super::store::AnonymousTupleRemainder::None => {}
+                        super::store::AnonymousTupleRemainder::Typed(sub_elem) => {
+                            let out = check_subtype_impl(store, hierarchy, sub_elem, sup_elem, budget, cancellation, visited, depth + 1);
+                            if !out.is_proven() {
+                                return out;
                             }
                         }
-                    }
+                        super::store::AnonymousTupleRemainder::Unconstrained => {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                        }
+                    },
                 }
 
                 // 2. Labeled lane
@@ -530,20 +528,18 @@ fn check_subtype_impl(
                         }
                     }
                     super::store::AnonymousTupleRemainder::Unconstrained => {}
-                    super::store::AnonymousTupleRemainder::Typed(sup_elem) => {
-                        match sub_tuple.labeled_remainder {
-                            super::store::AnonymousTupleRemainder::None => {}
-                            super::store::AnonymousTupleRemainder::Typed(sub_elem) => {
-                                let out = check_subtype_impl(store, hierarchy, sub_elem, sup_elem, budget, cancellation, visited, depth + 1);
-                                if !out.is_proven() {
-                                    return out;
-                                }
-                            }
-                            super::store::AnonymousTupleRemainder::Unconstrained => {
-                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                    super::store::AnonymousTupleRemainder::Typed(sup_elem) => match sub_tuple.labeled_remainder {
+                        super::store::AnonymousTupleRemainder::None => {}
+                        super::store::AnonymousTupleRemainder::Typed(sub_elem) => {
+                            let out = check_subtype_impl(store, hierarchy, sub_elem, sup_elem, budget, cancellation, visited, depth + 1);
+                            if !out.is_proven() {
+                                return out;
                             }
                         }
-                    }
+                        super::store::AnonymousTupleRemainder::Unconstrained => {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                        }
+                    },
                 }
 
                 RelationOutcome::proven(())
@@ -889,24 +885,18 @@ pub fn check_record_row_subtype(
             }),
         },
         RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => match sub_row.tail {
-            RecordRowTail::Closed | RecordRowTail::Anonymous(_) | RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => {
-                RelationOutcome::proven(())
-            }
+            RecordRowTail::Closed | RecordRowTail::Anonymous(_) | RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => RelationOutcome::proven(()),
         },
         RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(sup_elem)) => match sub_row.tail {
             RecordRowTail::Closed => RelationOutcome::proven(()),
             RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(sub_elem)) => {
                 check_subtype_impl(store, hierarchy, sub_elem, sup_elem, budget, cancellation, visited, depth + 1)
             }
-            RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => {
-                RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                    actual: sub_ty,
-                    expected: sup_ty,
-                })
-            }
-            RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => {
-                RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
-            }
+            RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                actual: sub_ty,
+                expected: sup_ty,
+            }),
+            RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
         },
         RecordRowTail::Parameter(required_tail) => match sub_row.tail {
             RecordRowTail::Parameter(actual_tail) if actual_tail == required_tail => RelationOutcome::proven(()),
@@ -1136,10 +1126,7 @@ mod tests {
         hierarchy.insert(test_decl("Int"), test_decl("Number"));
         let expected = store.union(&[number, string]);
         let actual = store.tuple(Box::new([TupleTypeElement::unlabeled(int), TupleTypeElement::unlabeled(int)]));
-        let required = store.tuple(Box::new([
-            TupleTypeElement::unlabeled(expected),
-            TupleTypeElement::unlabeled(expected),
-        ]));
+        let required = store.tuple(Box::new([TupleTypeElement::unlabeled(expected), TupleTypeElement::unlabeled(expected)]));
 
         let mut budget = QueryBudget::default();
         let token = CancellationToken::new();
@@ -1157,10 +1144,7 @@ mod tests {
         // Open positional only: (Int, *: ..., name: String)
         let open_pos_target = store.intern_with_kind(
             TypeData::Tuple(super::super::store::TupleType {
-                elements: Box::new([
-                    TupleTypeElement::unlabeled(int),
-                    TupleTypeElement::labeled("name".into(), string),
-                ]),
+                elements: Box::new([TupleTypeElement::unlabeled(int), TupleTypeElement::labeled("name".into(), string)]),
                 positional_remainder: super::super::store::AnonymousTupleRemainder::Unconstrained,
                 labeled_remainder: super::super::store::AnonymousTupleRemainder::None,
             }),
@@ -1180,7 +1164,10 @@ mod tests {
             }),
             KindId::TYPE,
         );
-        assert!(is_subtype(&mut store, &hier, src_extra_pos, open_pos_target), "Extra positional accepted by open positional lane");
+        assert!(
+            is_subtype(&mut store, &hier, src_extra_pos, open_pos_target),
+            "Extra positional accepted by open positional lane"
+        );
 
         // Source has extra labeled: (Int, name: String, age: Int) -> Rejected because labeled lane is closed!
         let src_extra_lab = store.intern_with_kind(
@@ -1195,22 +1182,28 @@ mod tests {
             }),
             KindId::TYPE,
         );
-        assert!(!is_subtype(&mut store, &hier, src_extra_lab, open_pos_target), "Extra labeled rejected when labeled lane is closed");
+        assert!(
+            !is_subtype(&mut store, &hier, src_extra_lab, open_pos_target),
+            "Extra labeled rejected when labeled lane is closed"
+        );
 
         // Open labeled only: (Int, name: String, **: ...)
         let open_lab_target = store.intern_with_kind(
             TypeData::Tuple(super::super::store::TupleType {
-                elements: Box::new([
-                    TupleTypeElement::unlabeled(int),
-                    TupleTypeElement::labeled("name".into(), string),
-                ]),
+                elements: Box::new([TupleTypeElement::unlabeled(int), TupleTypeElement::labeled("name".into(), string)]),
                 positional_remainder: super::super::store::AnonymousTupleRemainder::None,
                 labeled_remainder: super::super::store::AnonymousTupleRemainder::Unconstrained,
             }),
             KindId::TYPE,
         );
-        assert!(is_subtype(&mut store, &hier, src_extra_lab, open_lab_target), "Extra labeled accepted by open labeled lane");
-        assert!(!is_subtype(&mut store, &hier, src_extra_pos, open_lab_target), "Extra positional rejected when positional lane is closed");
+        assert!(
+            is_subtype(&mut store, &hier, src_extra_lab, open_lab_target),
+            "Extra labeled accepted by open labeled lane"
+        );
+        assert!(
+            !is_subtype(&mut store, &hier, src_extra_pos, open_lab_target),
+            "Extra positional rejected when positional lane is closed"
+        );
     }
 
     #[test]

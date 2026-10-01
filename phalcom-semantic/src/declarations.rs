@@ -159,11 +159,7 @@ impl NominalDeclarationHeader {
         self.into_type_info_with_binding(supertype_template, DeclarationTypeBinding::ordinary())
     }
 
-    pub fn into_type_info_with_binding(
-        self,
-        supertype_template: Option<GenericSupertypeTemplate>,
-        binding: DeclarationTypeBinding,
-    ) -> DeclarationTypeInfo {
+    pub fn into_type_info_with_binding(self, supertype_template: Option<GenericSupertypeTemplate>, binding: DeclarationTypeBinding) -> DeclarationTypeInfo {
         DeclarationTypeInfo {
             declaration: self.declaration,
             form: self.form,

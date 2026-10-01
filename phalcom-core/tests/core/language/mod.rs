@@ -55,10 +55,6 @@ mod golden;
 mod inherent_impl;
 #[path = "iteration.rs"]
 mod iteration;
-#[path = "record_spread.rs"]
-mod record_spread;
-#[path = "record_patterns.rs"]
-mod record_patterns;
 #[path = "maps.rs"]
 mod maps;
 #[path = "numeric_diagnostics.rs"]
@@ -67,5 +63,9 @@ mod numeric_diagnostics;
 mod numeric_values;
 #[path = "option.rs"]
 mod option;
+#[path = "record_patterns.rs"]
+mod record_patterns;
+#[path = "record_spread.rs"]
+mod record_spread;
 #[path = "traits.rs"]
 mod traits;

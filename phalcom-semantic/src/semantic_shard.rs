@@ -55,11 +55,7 @@ impl ModuleSemanticStructureShard {
             let (name, kind) = match statement {
                 Statement::Class(class_def) => (&class_def.name, DeclarationKind::Class),
                 Statement::Data(data_def) => {
-                    let kind = if data_def.is_sum() {
-                        DeclarationKind::Adt
-                    } else {
-                        DeclarationKind::Data
-                    };
+                    let kind = if data_def.is_sum() { DeclarationKind::Adt } else { DeclarationKind::Data };
                     (&data_def.name, kind)
                 }
                 Statement::Trait(trait_def) => (&trait_def.name, DeclarationKind::Trait),

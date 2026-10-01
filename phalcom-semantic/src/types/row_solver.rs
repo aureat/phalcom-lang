@@ -70,7 +70,6 @@ impl RecordRowTerm<TypeId> {
             },
         }
     }
-
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -359,7 +358,13 @@ impl<V: Clone + Eq> RecordRowSolver<V> {
         if only_left.is_empty() && only_right.is_empty() {
             self.unify_tails(left.tail, right.tail, budget, cancellation, payload_occurs)?;
         } else if only_left.is_empty() {
-            self.bind_tail(left.tail, RecordRowTerm::extension(only_right, right.tail), budget, cancellation, payload_occurs)?;
+            self.bind_tail(
+                left.tail,
+                RecordRowTerm::extension(only_right, right.tail),
+                budget,
+                cancellation,
+                payload_occurs,
+            )?;
         } else if only_right.is_empty() {
             self.bind_tail(right.tail, RecordRowTerm::extension(only_left, left.tail), budget, cancellation, payload_occurs)?;
         } else {
@@ -408,7 +413,6 @@ impl<V: Clone + Eq> RecordRowSolver<V> {
             }
         }
     }
-
 }
 
 impl RecordRowSolver<TypeId> {
@@ -583,5 +587,4 @@ impl<V: Clone + Eq> RecordRowSolver<V> {
         }
         Ok(())
     }
-
 }

@@ -65,13 +65,14 @@ pub enum StaticCaseSelectionError {
 }
 
 /// Selects through declaration membership rather than store interning history.
-pub fn select_static_case<'a>(
-    catalog: &'a StaticDomainCaseCatalogProduct,
-    selector: &Selector,
-) -> Result<&'a StaticCaseHeader, StaticCaseSelectionError> {
+pub fn select_static_case<'a>(catalog: &'a StaticDomainCaseCatalogProduct, selector: &Selector) -> Result<&'a StaticCaseHeader, StaticCaseSelectionError> {
     let mut matches = catalog.cases.iter().filter(|case| &case.id.selector == selector);
     if let Some(case) = matches.next() {
-        return if matches.next().is_some() { Err(StaticCaseSelectionError::Ambiguous) } else { Ok(case) };
+        return if matches.next().is_some() {
+            Err(StaticCaseSelectionError::Ambiguous)
+        } else {
+            Ok(case)
+        };
     }
     if catalog.cases.iter().any(|case| case.id.selector.base == selector.base) {
         Err(StaticCaseSelectionError::WrongShape)
@@ -141,9 +142,7 @@ pub fn catalog_from_declaration(domain: StaticDomainDeclarationId, def: &Algebra
                 let selector = phalcom_ast::selector::selector_from_variant(case);
                 let shape = match &case.payload {
                     CasePayloadSyntax::Singleton => StaticCaseShape::Singleton,
-                    CasePayloadSyntax::Tuple { .. } | CasePayloadSyntax::Record { .. } => {
-                        StaticCaseShape::Constructor { slots: selector.slots.clone() }
-                    }
+                    CasePayloadSyntax::Tuple { .. } | CasePayloadSyntax::Record { .. } => StaticCaseShape::Constructor { slots: selector.slots.clone() },
                 };
                 StaticCaseHeader {
                     id: StaticCaseId::with_selector(domain.clone(), selector),
@@ -153,19 +152,30 @@ pub fn catalog_from_declaration(domain: StaticDomainDeclarationId, def: &Algebra
             })
             .collect(),
         AlgebraicShapeSyntax::Product(product) => {
-            let slots = product.components().iter().map(|component| match &component.external_label {
-                Some(label) => SelectorSlot::Label(label.clone()),
-                None => SelectorSlot::Positional,
-            }).collect::<Vec<_>>();
+            let slots = product
+                .components()
+                .iter()
+                .map(|component| match &component.external_label {
+                    Some(label) => SelectorSlot::Label(label.clone()),
+                    None => SelectorSlot::Positional,
+                })
+                .collect::<Vec<_>>();
             let selector = Selector::method(&def.name, slots).unwrap_or_else(|_| Selector {
                 base: phalcom_common::selector::SelectorBase::Named(def.name.clone()),
                 kind: phalcom_common::selector::SelectorKind::Method,
                 slots: Box::new([]),
             });
             let shape = StaticCaseShape::Constructor { slots: selector.slots.clone() };
-            vec![StaticCaseHeader { id: StaticCaseId::with_selector(domain.clone(), selector), shape, source_range: def.name_range }]
+            vec![StaticCaseHeader {
+                id: StaticCaseId::with_selector(domain.clone(), selector),
+                shape,
+                source_range: def.name_range,
+            }]
         }
         AlgebraicShapeSyntax::IntrinsicFacade(_) => Vec::new(),
     };
-    StaticDomainCaseCatalogProduct { domain, cases: cases.into_boxed_slice() }
+    StaticDomainCaseCatalogProduct {
+        domain,
+        cases: cases.into_boxed_slice(),
+    }
 }

@@ -143,7 +143,10 @@ items.map { value }
     };
     assert!(matches!(parameterized_binding.value.as_ref(), Some(Expr::Block(_))));
 
-    let Statement::Expr { expr: Expr::MethodCall(call), .. } = &program.statements[4] else {
+    let Statement::Expr {
+        expr: Expr::MethodCall(call), ..
+    } = &program.statements[4]
+    else {
         panic!("expected ordinary call with trailing Closure");
     };
     assert!(matches!(call.args[0], PackItem::Positional { expr: Expr::Block(_), .. }));

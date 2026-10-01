@@ -4,15 +4,14 @@ use std::sync::Arc;
 
 #[test]
 fn range_iterator_take_infers_and_publishes_specialized_constructor_result() {
-    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from("let marker = 1")))
-        .expect("canonical Universe source should analyze");
+    let analyzed =
+        ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from("let marker = 1"))).expect("canonical Universe source should analyze");
     let (take_callable, take_analysis) = analyzed
         .semantic
         .callable_analyses
         .iter()
         .find(|(callable, _)| {
-            callable.try_declaration_owner().is_some_and(|owner| owner.name == "RangeIterator".into())
-                && callable.selector.encode() == "take(_)"
+            callable.try_declaration_owner().is_some_and(|owner| owner.name == "RangeIterator".into()) && callable.selector.encode() == "take(_)"
         })
         .expect("canonical RangeIterator.take body analysis");
     let constructor_call = take_analysis
@@ -20,9 +19,10 @@ fn range_iterator_take_infers_and_publishes_specialized_constructor_result() {
         .values()
         .find(|expression| {
             expression.callable.as_ref().is_some_and(|callable| {
-                callable.try_declaration_owner().is_some_and(|owner| {
-                    owner.module.path.to_string() == "collections.iterator_laws" && owner.name == "TakeIterator".into()
-                }) && callable.selector.encode() == "new(_,_)"
+                callable
+                    .try_declaration_owner()
+                    .is_some_and(|owner| owner.module.path.to_string() == "collections.iterator_laws" && owner.name == "TakeIterator".into())
+                    && callable.selector.encode() == "new(_,_)"
             })
         })
         .expect("RangeIterator.take must resolve TakeIterator.new through its source import");
@@ -63,10 +63,13 @@ class Caller {
   }
 }
 "#;
-    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source)))
-        .expect("canonical Universe source should analyze");
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical Universe source should analyze");
     assert!(
-        analyzed.semantic.diagnostics.get(&analyzed.entry).is_none_or(|diagnostics| diagnostics.is_empty()),
+        analyzed
+            .semantic
+            .diagnostics
+            .get(&analyzed.entry)
+            .is_none_or(|diagnostics| diagnostics.is_empty()),
         "the inline entry itself should remain diagnostic-free"
     );
     let (iter_call, iter_selection) = analyzed
@@ -78,13 +81,9 @@ class Caller {
         .find_map(|expression| {
             (source.get(expression.range.start..expression.range.end) == Some("(0..).iter"))
                 .then_some(expression)
-                .and_then(|expression| {
-                    match expression.trait_dispatch.as_ref()? {
-                        phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) => {
-                            Some((expression, selection))
-                        }
-                        _ => None,
-                    }
+                .and_then(|expression| match expression.trait_dispatch.as_ref()? {
+                    phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) => Some((expression, selection)),
+                    _ => None,
                 })
         })
         .expect("the range iterator call has an evidenced Iterable::iter selection");
@@ -105,15 +104,19 @@ class Caller {
         .flat_map(|(_, analysis)| analysis.expressions.values())
         .find(|expression| {
             expression.callable.as_ref().is_some_and(|callable| {
-                callable.try_declaration_owner().is_some_and(|owner| {
-                    owner.module.path.to_string() == "collections.range" && owner.name == "RangeIterator".into()
-                }) && callable.selector.encode() == "take(_)"
+                callable
+                    .try_declaration_owner()
+                    .is_some_and(|owner| owner.module.path.to_string() == "collections.range" && owner.name == "RangeIterator".into())
+                    && callable.selector.encode() == "take(_)"
             })
         })
         .expect("natural range chain selects the inherent RangeIterator.take method");
     assert_eq!(take_call.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready);
     assert!(take_call.trait_dispatch.is_none(), "RangeIterator.take is an ordinary inherent selection");
-    assert!(take_call.call_specialization.is_none(), "RangeIterator.take has no method-generic specialization");
+    assert!(
+        take_call.call_specialization.is_none(),
+        "RangeIterator.take has no method-generic specialization"
+    );
     let take_result = take_call.knowledge.ty().expect("RangeIterator.take has a known result");
     assert_eq!(analyzed.semantic.store.format_type(take_result), "TakeIterator<RangeIterator>");
     let take_callable = take_call.callable.as_ref().expect("canonical inherent callable identity");
@@ -122,7 +125,10 @@ class Caller {
         .callable_signatures
         .get_for_body(take_callable)
         .expect("canonical RangeIterator.take signature");
-    assert_eq!(take_signature.inferred_return.as_ref().and_then(phalcom_semantic::TypeKnowledge::ty), Some(take_result));
+    assert_eq!(
+        take_signature.inferred_return.as_ref().and_then(phalcom_semantic::TypeKnowledge::ty),
+        Some(take_result)
+    );
     assert!(matches!(
         take_signature.parameter_declared_type_at(0).map(|fact| &fact.state),
         Some(phalcom_semantic::declaration_type::DeclaredTypeState::Unknown(
@@ -163,13 +169,8 @@ class Caller {
   }
 }
 "#;
-    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source)))
-        .expect("canonical Universe source should analyze");
-    assert!(
-        !analyzed.semantic.has_errors(),
-        "semantic diagnostics: {:#?}",
-        analyzed.semantic.diagnostics
-    );
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical Universe source should analyze");
+    assert!(!analyzed.semantic.has_errors(), "semantic diagnostics: {:#?}", analyzed.semantic.diagnostics);
     let (_callable, _callable_analysis, _text, selection) = analyzed
         .semantic
         .callable_analyses
@@ -192,13 +193,8 @@ class Caller {
         })
         .expect("the actual take(10).toList expression must publish evidenced trait dispatch");
     assert_eq!(selection.requirement.owner.name, "Iterable".into());
-    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) =
-        &selection.evidence
-    else {
-        panic!(
-            "expected guarded Derived evidence for Iterable::toList, got {:#?}",
-            selection.evidence
-        );
+    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) = &selection.evidence else {
+        panic!("expected guarded Derived evidence for Iterable::toList, got {:#?}", selection.evidence);
     };
     assert!(matches!(
         &derived.origin,
@@ -346,8 +342,7 @@ class Caller {
 #[test]
 fn iterator_take_publishes_known_constructor_result_with_untyped_count_formal() {
     let analyzed =
-        ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from("let marker = 1")))
-            .expect("canonical Universe source should analyze");
+        ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from("let marker = 1"))).expect("canonical Universe source should analyze");
 
     let (take_callable, take_analysis) = analyzed
         .semantic
@@ -458,7 +453,7 @@ let result = slicePreservesRuntimeShape and firstPair and secondPair and exhaust
 
 #[test]
 fn list_for_uses_fresh_stateful_canonical_iterator() {
-let list_for_uses_fresh_stateful_canonical_iterator_source = r#"
+    let list_for_uses_fresh_stateful_canonical_iterator_source = r#"
 const values = [1, 2, 3]
 const first = values.iterator
 let firstOne = first.next
@@ -474,7 +469,8 @@ for value in values {
 }
 let result = sum == 6 and firstOne.isSome and firstTwo.isSome and firstThree.isSome and firstDone.isNone and firstDoneAgain.isNone and freshOne.isSome
 "#;
-    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(list_for_uses_fresh_stateful_canonical_iterator_source))).expect("canonical List iteration compiles");
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(list_for_uses_fresh_stateful_canonical_iterator_source)))
+        .expect("canonical List iteration compiles");
     let mut vm = vm_support::universe_vm();
     vm.run_compiled(&program).expect("canonical List iteration executes");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
@@ -607,7 +603,7 @@ let result = value.is(Box)
 
 #[test]
 fn canonical_set_iterator_is_fresh_sticky_and_ordered() {
-let source = r#"
+    let source = r#"
 const values = Set<Int>.new()
 values.add(3).add(1).add(2)
 const it = values.iterator

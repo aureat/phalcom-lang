@@ -28,18 +28,20 @@ fn decl(name: &str) -> DeclarationId {
         "List" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::List),
         "Map" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Map),
         "Option" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option),
-        "TypePack" | "LabeledTypePack" | "CompleteTypePack" => {
-            DeclarationId::new(ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+        "TypePack" | "LabeledTypePack" | "CompleteTypePack" => DeclarationId::new(
+            ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
                 phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
                 phalcom_modules::identity::ModuleComponent::from_identifier("tuple").unwrap(),
-            ])), name.into())
-        }
-        "RecordFields" => {
-            DeclarationId::new(ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+            ])),
+            name.into(),
+        ),
+        "RecordFields" => DeclarationId::new(
+            ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
                 phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
                 phalcom_modules::identity::ModuleComponent::from_identifier("record").unwrap(),
-            ])), name.into())
-        }
+            ])),
+            name.into(),
+        ),
         other => DeclarationId::new(ModuleId::universe_root(), other.into()),
     }
 }
@@ -227,8 +229,8 @@ fn source_type_member_projection_uses_surface_identity_and_checks_argument_domai
 #[test]
 fn intrinsic_type_member_source_products_match_the_evaluator_catalog() {
     use phalcom_common::modifier::ImplementationKind;
-    use phalcom_semantic::types::type_member::{IntrinsicTypeOperation, lookup_intrinsic_type_operation};
     use phalcom_semantic::types::TypeResolver;
+    use phalcom_semantic::types::type_member::{IntrinsicTypeOperation, lookup_intrinsic_type_operation};
 
     let mut env = setup();
     for operation in IntrinsicTypeOperation::ALL {
@@ -258,7 +260,12 @@ fn intrinsic_type_member_source_products_match_the_evaluator_catalog() {
             })
             .collect::<Vec<_>>();
         let phalcom_semantic::types::type_member::TypeMemberDomain::Kind(actual_result) = &selected.signature.result_domain;
-        assert_eq!(actual_parameters.as_slice(), expected_parameters.as_ref(), "{} parameter domains", operation.name());
+        assert_eq!(
+            actual_parameters.as_slice(),
+            expected_parameters.as_ref(),
+            "{} parameter domains",
+            operation.name()
+        );
         assert_eq!(*actual_result, expected_result, "{} result domain", operation.name());
     }
 
@@ -275,7 +282,6 @@ fn intrinsic_type_member_source_products_match_the_evaluator_catalog() {
         assert_eq!(product.signature.intrinsic, Some(operation));
     }
 }
-
 
 #[test]
 fn source_visible_complete_pack_lane_projections_keep_canonical_member_declarations() {
@@ -373,7 +379,10 @@ fn source_visible_complete_pack_lane_projections_keep_canonical_member_declarati
 
     assert_eq!(env.store.kind_of(positionals_ty), KindId::TYPE_PACK);
     assert_eq!(env.store.kind_of(labeled_ty), KindId::LABELED_TYPE_PACK);
-    assert_eq!(env.store.complete_type_pack(positionals_ty, labeled_ty).expect("published intrinsic lanes"), subject);
+    assert_eq!(
+        env.store.complete_type_pack(positionals_ty, labeled_ty).expect("published intrinsic lanes"),
+        subject
+    );
 }
 
 fn setup() -> TestEnv {
@@ -502,9 +511,24 @@ fn install_intrinsic_source_members(store: &mut TypeStore, resolver: &mut Simple
     for (owner_name, selector_name, operation, result_kind) in [
         ("TypePack", "Map", IntrinsicTypeOperation::TypePackMap, KindId::TYPE_PACK),
         ("LabeledTypePack", "Map", IntrinsicTypeOperation::LabeledTypePackMap, KindId::LABELED_TYPE_PACK),
-        ("CompleteTypePack", "Positionals", IntrinsicTypeOperation::CompleteTypePackPositionals, KindId::TYPE_PACK),
-        ("CompleteTypePack", "Labeled", IntrinsicTypeOperation::CompleteTypePackLabeled, KindId::LABELED_TYPE_PACK),
-        ("CompleteTypePack", "Map", IntrinsicTypeOperation::CompleteTypePackMap, KindId::COMPLETE_TYPE_PACK),
+        (
+            "CompleteTypePack",
+            "Positionals",
+            IntrinsicTypeOperation::CompleteTypePackPositionals,
+            KindId::TYPE_PACK,
+        ),
+        (
+            "CompleteTypePack",
+            "Labeled",
+            IntrinsicTypeOperation::CompleteTypePackLabeled,
+            KindId::LABELED_TYPE_PACK,
+        ),
+        (
+            "CompleteTypePack",
+            "Map",
+            IntrinsicTypeOperation::CompleteTypePackMap,
+            KindId::COMPLETE_TYPE_PACK,
+        ),
         ("RecordFields", "Map", IntrinsicTypeOperation::RecordRowMap, KindId::RECORD_ROW),
     ] {
         add(
@@ -670,9 +694,10 @@ fn test_tuple_and_record_map_projection() {
 
     let list_int = env.store.apply_type_form(list_id, &[int_id]).unwrap();
     let list_str = env.store.apply_type_form(list_id, &[str_id]).unwrap();
-    let expected_tup = env
-        .store
-        .tuple(Box::new([TupleTypeElement::unlabeled(list_int), TupleTypeElement::labeled("name".into(), list_str)]));
+    let expected_tup = env.store.tuple(Box::new([
+        TupleTypeElement::unlabeled(list_int),
+        TupleTypeElement::labeled("name".into(), list_str),
+    ]));
     assert_eq!(res_tup.ty(), Some(expected_tup));
     assert!(diags.is_empty());
 
@@ -718,9 +743,7 @@ fn record_fields_projection_preserves_exact_row_identity() {
     let fields = proj_ann(ref_ann("KnownRecord"), "Fields", vec![]);
     env.resolver.insert_type_form_binding("KnownRecord", source_record);
     diagnostics.clear();
-    let TypeFormResolution::Ready(fields) =
-        resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &fields, &mut diagnostics)
-    else {
+    let TypeFormResolution::Ready(fields) = resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &fields, &mut diagnostics) else {
         panic!("Record::Fields should remain a source-selected row projection: {diagnostics:?}");
     };
     let TypeData::TypeMemberProjection(fields_projection) = env.store.get(fields) else {
@@ -765,11 +788,11 @@ fn record_fields_projection_preserves_exact_row_identity() {
 
     let family = decl("RecordFamily");
     let family_owner = TypeParameterOwner::Declaration(family.clone());
-    let family_parameter = env.store.intern_type_parameter(
-        TypeParameterData::new(family_owner.clone(), 0, "Fs", KindId::RECORD_ROW).with_mode(GenericParameterMode::LabeledPack),
-    );
-    let family_signature = GenericSignature::new(family_owner, Box::new([family_parameter]))
-        .with_parameter_modes(Box::new([GenericParameterMode::LabeledPack]));
+    let family_parameter = env
+        .store
+        .intern_type_parameter(TypeParameterData::new(family_owner.clone(), 0, "Fs", KindId::RECORD_ROW).with_mode(GenericParameterMode::LabeledPack));
+    let family_signature =
+        GenericSignature::new(family_owner, Box::new([family_parameter])).with_parameter_modes(Box::new([GenericParameterMode::LabeledPack]));
     let family_kind = env.store.arrow_kind(vec![KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
     let family_form = env.store.nominal_form(family.clone(), family_kind);
     env.declarations.insert(DeclarationTypeInfo {
@@ -811,18 +834,16 @@ fn record_fields_projection_preserves_exact_row_identity() {
     assert!(matches!(arguments.as_ref(), [StaticArgument::RecordRow(row)] if *row == source_row));
 
     let family = env.declarations.form(&decl("Record")).expect("canonical Record family form");
-    let applied_subject = env.store.apply_static_form(family, &[StaticArgument::RecordRow(source_row)]).expect("Record row application");
+    let applied_subject = env
+        .store
+        .apply_static_form(family, &[StaticArgument::RecordRow(source_row)])
+        .expect("Record row application");
     env.resolver.insert_type_form_binding("AppliedRecord", applied_subject);
     let applied_fields = proj_ann(ref_ann("AppliedRecord"), "Fields", vec![]);
     diagnostics.clear();
-    let TypeFormResolution::Ready(_applied_fields_type) = resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &applied_fields,
-        &mut diagnostics,
-    ) else {
+    let TypeFormResolution::Ready(_applied_fields_type) =
+        resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &applied_fields, &mut diagnostics)
+    else {
         panic!("applied Record::Fields should retain its row argument: {diagnostics:?}");
     };
     let TypeFormResolution::Ready(reapplied) = resolve_type_form(
@@ -840,15 +861,9 @@ fn record_fields_projection_preserves_exact_row_identity() {
     let owner = TypeParameterOwner::Declaration(decl("RecordFieldsMap"));
     let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner, 0, "Fs", KindId::RECORD_ROW));
     env.resolver.insert_record_row_binding("Fs", parameter);
-    let mapped = proj_ann(
-        ref_ann("Fs"),
-        "Map",
-        vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("List"))],
-    );
+    let mapped = proj_ann(ref_ann("Fs"), "Map", vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("List"))]);
     diagnostics.clear();
-    let TypeFormResolution::Ready(mapped) =
-        resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &mapped, &mut diagnostics)
-    else {
+    let TypeFormResolution::Ready(mapped) = resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &mapped, &mut diagnostics) else {
         panic!("RecordFields::Map should accept a RecordFields binder: {diagnostics:?}");
     };
     assert_eq!(env.store.kind_of(mapped), KindId::RECORD_ROW);

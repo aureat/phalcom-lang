@@ -897,7 +897,14 @@ class Probe {
     assert!(cycle_diagnostics(&first.snapshot).is_empty());
     assert_eq!(
         first.snapshot.store.format_type(
-            first.snapshot.callable_signatures.get(&observer).unwrap().published_return_knowledge().ty().unwrap()
+            first
+                .snapshot
+                .callable_signatures
+                .get(&observer)
+                .unwrap()
+                .published_return_knowledge()
+                .ty()
+                .unwrap()
         ),
         "Int"
     );
@@ -906,7 +913,9 @@ class Probe {
         first.snapshot.callable_signatures.get(&unrelated).expect("unrelated signature"),
     );
     assert_eq!(
-        first.snapshot.callable_analyses[&left].exits.normal_returns[0].direct_result_dependency.as_ref(),
+        first.snapshot.callable_analyses[&left].exits.normal_returns[0]
+            .direct_result_dependency
+            .as_ref(),
         None,
         "a side-effect call before an independent tail value is not a result edge"
     );
@@ -917,10 +926,8 @@ class Probe {
     });
 
     let second = session.update(single_module_input(module.clone(), source_with_cycle, 2));
-    assert!(Arc::ptr_eq(
-        &unrelated_body_before,
-        &second.snapshot.callable_analyses[&unrelated]
-    ),
+    assert!(
+        Arc::ptr_eq(&unrelated_body_before, &second.snapshot.callable_analyses[&unrelated]),
         "unrelated provider body must remain reusable across SCC retraction"
     );
     assert_eq!(
@@ -930,39 +937,58 @@ class Probe {
         unrelated_signature_before,
         "unrelated provider signature must remain stable across SCC retraction"
     );
-    assert!(
-        second.stats.callable_bodies_reused >= 1,
-        "the unrelated provider should be counted as reusable"
-    );
+    assert!(second.stats.callable_bodies_reused >= 1, "the unrelated provider should be counted as reusable");
     let observer_stage_b = second.snapshot.callable_signatures.get(&observer).unwrap().published_return_knowledge();
     assert!(
         observer_stage_b.is_unknown(),
         "the retained reverse-dependency consumer must be revalidated against retracted SCC results; got {observer_stage_b:?}"
     );
     assert_eq!(
-        second.snapshot.callable_analyses[&left].exits.normal_returns[0].direct_result_dependency.as_ref(),
+        second.snapshot.callable_analyses[&left].exits.normal_returns[0]
+            .direct_result_dependency
+            .as_ref(),
         Some(&right),
         "incremental left result edge was not retained: {:#?}",
         second.snapshot.callable_analyses[&left].exits.normal_returns
     );
     assert_eq!(
-        second.snapshot.callable_analyses[&right].exits.normal_returns[0].direct_result_dependency.as_ref(),
+        second.snapshot.callable_analyses[&right].exits.normal_returns[0]
+            .direct_result_dependency
+            .as_ref(),
         Some(&left),
         "incremental right result edge was not retained: {:#?}",
         second.snapshot.callable_analyses[&right].exits.normal_returns
     );
     assert!(
-        second.snapshot.callable_signatures.get(&left).expect("left signature").declared_return.is_unknown(),
+        second
+            .snapshot
+            .callable_signatures
+            .get(&left)
+            .expect("left signature")
+            .declared_return
+            .is_unknown(),
         "left result should be omitted: {:#?}",
         second.snapshot.callable_signatures.get(&left)
     );
     assert!(
-        second.snapshot.callable_signatures.get(&left).expect("left signature").published_return_knowledge().is_unknown(),
+        second
+            .snapshot
+            .callable_signatures
+            .get(&left)
+            .expect("left signature")
+            .published_return_knowledge()
+            .is_unknown(),
         "left published result should be unresolved after the edit: {:#?}",
         second.snapshot.callable_signatures.get(&left)
     );
     assert!(
-        second.snapshot.callable_signatures.get(&right).expect("right signature").published_return_knowledge().is_unknown(),
+        second
+            .snapshot
+            .callable_signatures
+            .get(&right)
+            .expect("right signature")
+            .published_return_knowledge()
+            .is_unknown(),
         "right published result should be unresolved after the edit: {:#?}",
         second.snapshot.callable_signatures.get(&right)
     );
@@ -973,15 +999,30 @@ class Probe {
     });
     for index in 0..stage_a_scc_fingerprints.len() {
         assert_ne!(
-            stage_b_scc_fingerprints[index],
-            stage_a_scc_fingerprints[index],
+            stage_b_scc_fingerprints[index], stage_a_scc_fingerprints[index],
             "the canonical signature product must change when an SCC result becomes Unknown"
         );
     }
     let second_diags = cycle_diagnostics(&second.snapshot);
     assert_eq!(second_diags.len(), 1, "adding the two root-call edges should publish one SCC diagnostic");
-    assert!(second.snapshot.callable_signatures.get(&left).unwrap().published_return_knowledge().is_unknown());
-    assert!(second.snapshot.callable_signatures.get(&right).unwrap().published_return_knowledge().is_unknown());
+    assert!(
+        second
+            .snapshot
+            .callable_signatures
+            .get(&left)
+            .unwrap()
+            .published_return_knowledge()
+            .is_unknown()
+    );
+    assert!(
+        second
+            .snapshot
+            .callable_signatures
+            .get(&right)
+            .unwrap()
+            .published_return_knowledge()
+            .is_unknown()
+    );
     let with_edge = second.snapshot.callable_analyses[&left].as_ref();
     let edge_fingerprint = phalcom_semantic::db::fingerprint::callable_body_product_fingerprint(with_edge);
     let mut without_edge = with_edge.clone();
@@ -996,16 +1037,39 @@ class Probe {
     let cold_second = cold_cycle.update(single_module_input(module.clone(), source_with_cycle, 1));
     assert_eq!(second_diags, cycle_diagnostics(&cold_second.snapshot));
     for callable_id in [&left, &right, &observer] {
-        assert!(cold_second.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge().is_unknown());
+        assert!(
+            cold_second
+                .snapshot
+                .callable_signatures
+                .get(callable_id)
+                .unwrap()
+                .published_return_knowledge()
+                .is_unknown()
+        );
         assert_eq!(
-            second.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge().is_unknown(),
-            cold_second.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge().is_unknown(),
+            second
+                .snapshot
+                .callable_signatures
+                .get(callable_id)
+                .unwrap()
+                .published_return_knowledge()
+                .is_unknown(),
+            cold_second
+                .snapshot
+                .callable_signatures
+                .get(callable_id)
+                .unwrap()
+                .published_return_knowledge()
+                .is_unknown(),
             "incremental and cold stage-B result knowledge must agree"
         );
     }
 
     let third = session.update(single_module_input(module.clone(), source_after_cycle, 3));
-    assert!(cycle_diagnostics(&third.snapshot).is_empty(), "removing one root-call edge should retract the SCC diagnostic");
+    assert!(
+        cycle_diagnostics(&third.snapshot).is_empty(),
+        "removing one root-call edge should retract the SCC diagnostic"
+    );
     let left_result = third.snapshot.callable_signatures.get(&left).unwrap().published_return_knowledge();
     let right_result = third.snapshot.callable_signatures.get(&right).unwrap().published_return_knowledge();
     let observer_result = third.snapshot.callable_signatures.get(&observer).unwrap().published_return_knowledge();
@@ -1019,8 +1083,7 @@ class Probe {
     });
     for index in 0..stage_b_scc_fingerprints.len() {
         assert_ne!(
-            stage_c_scc_fingerprints[index],
-            stage_b_scc_fingerprints[index],
+            stage_c_scc_fingerprints[index], stage_b_scc_fingerprints[index],
             "the canonical signature product must change when an SCC result is restored"
         );
     }

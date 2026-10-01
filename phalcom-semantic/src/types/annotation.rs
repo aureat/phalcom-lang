@@ -182,11 +182,7 @@ pub trait TypeResolver {
     }
 
     /// Selects an associated static domain only through the owner's namespace surface.
-    fn resolve_associated_static_domain(
-        &self,
-        _owner: &DeclarationId,
-        _name: &str,
-    ) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+    fn resolve_associated_static_domain(&self, _owner: &DeclarationId, _name: &str) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
         None
     }
 }
@@ -245,11 +241,7 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
         self.parent.resolve_static_case_signature(case)
     }
 
-    fn resolve_associated_static_domain(
-        &self,
-        owner: &DeclarationId,
-        name: &str,
-    ) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+    fn resolve_associated_static_domain(&self, owner: &DeclarationId, name: &str) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
         self.parent.resolve_associated_static_domain(owner, name)
     }
 }
@@ -319,7 +311,9 @@ impl TypeResolver for SimpleTypeResolver {
             TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
         };
         let family = self.associated_surfaces.get(owner)?.families.get(&base)?;
-        let crate::associated::AssociatedMemberId::TypeMember(id) = family.members.first()? else { return None };
+        let crate::associated::AssociatedMemberId::TypeMember(id) = family.members.first()? else {
+            return None;
+        };
         self.type_member_declarations.get(id).cloned()
     }
 }
@@ -517,10 +511,12 @@ pub(crate) fn resolve_contextual_kind_syntax(
             }
         }
         KindSyntax::Grouped { inner, .. } => resolve_contextual_kind_syntax(store, declarations, resolver, site, inner, diagnostics),
-        KindSyntax::Arrow { parameter, result, .. } => resolve_contextual_kind_syntax(store, declarations, resolver, site, parameter, diagnostics).and_then(|parameter| {
-            resolve_contextual_kind_syntax(store, declarations, resolver, site, result, diagnostics)
-                .map_ready(|result| store.arrow_kind(Box::new([parameter]), result))
-        }),
+        KindSyntax::Arrow { parameter, result, .. } => {
+            resolve_contextual_kind_syntax(store, declarations, resolver, site, parameter, diagnostics).and_then(|parameter| {
+                resolve_contextual_kind_syntax(store, declarations, resolver, site, result, diagnostics)
+                    .map_ready(|result| store.arrow_kind(Box::new([parameter]), result))
+            })
+        }
         _ => resolve_kind_syntax(store, kind),
     }
 }
@@ -556,9 +552,7 @@ fn resolve_static_case_form(
     // The parser deliberately keeps `A::B` ambiguous. Probe the semantic
     // kind without leaking diagnostics into a non-static projection path.
     let mut probe_diagnostics = Vec::new();
-    let TypeFormResolution::Ready(owner_form) = resolve_type_form(
-        store, declarations, resolver, site, enum_target, &mut probe_diagnostics,
-    ) else {
+    let TypeFormResolution::Ready(owner_form) = resolve_type_form(store, declarations, resolver, site, enum_target, &mut probe_diagnostics) else {
         return None;
     };
     let KindData::StaticDomain(domain) = store.get_kind(store.kind_of(owner_form)) else {
@@ -566,12 +560,8 @@ fn resolve_static_case_form(
     };
     let domain = *domain;
     let identity = match store.static_domain(domain)? {
-        crate::types::store::StaticDomainData::Nominal { declaration } => {
-            crate::identity::StaticDomainDeclarationId::Nominal(declaration.clone())
-        }
-        crate::types::store::StaticDomainData::Associated { declaration, .. } => {
-            crate::identity::StaticDomainDeclarationId::Associated(declaration.clone())
-        }
+        crate::types::store::StaticDomainData::Nominal { declaration } => crate::identity::StaticDomainDeclarationId::Nominal(declaration.clone()),
+        crate::types::store::StaticDomainData::Associated { declaration, .. } => crate::identity::StaticDomainDeclarationId::Associated(declaration.clone()),
         crate::types::store::StaticDomainData::ConstInt => return None,
     };
     let Some(catalog) = resolver.resolve_static_case_catalog(&identity) else {
@@ -597,7 +587,12 @@ fn resolve_static_case_form(
                     format!("static case `{variant_name}` is declared more than once")
                 }
             };
-            diagnostics.push(SemanticDiagnostic::error_in(site.module.clone(), DiagnosticCode::AnnotationUnresolved, message, range));
+            diagnostics.push(SemanticDiagnostic::error_in(
+                site.module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                message,
+                range,
+            ));
             return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
         }
     };
@@ -666,8 +661,10 @@ fn resolve_static_case_form(
     };
     let Some(term) = term else {
         diagnostics.push(SemanticDiagnostic::error_in(
-            site.module.clone(), DiagnosticCode::AnnotationUnresolved,
-            format!("could not materialize static case `{variant_name}`"), range,
+            site.module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            format!("could not materialize static case `{variant_name}`"),
+            range,
         ));
         return Some(TypeFormResolution::Invalid(TypeFormationInvalid::Syntax));
     };
@@ -683,9 +680,7 @@ fn resolve_associated_static_domain_form(
     name: &str,
 ) -> Option<TypeFormResolution> {
     let mut probe_diagnostics = Vec::new();
-    let TypeFormResolution::Ready(owner_form) = resolve_type_form(
-        store, declarations, resolver, site, owner_annotation, &mut probe_diagnostics,
-    ) else {
+    let TypeFormResolution::Ready(owner_form) = resolve_type_form(store, declarations, resolver, site, owner_annotation, &mut probe_diagnostics) else {
         return None;
     };
     let (owner, arguments) = store.applied_nominal_static_parts(owner_form)?;
@@ -884,9 +879,7 @@ fn scoped_pack_projection(
             let projected = match lane {
                 ScopedPackProjectionLane::Positionals => positionals,
                 ScopedPackProjectionLane::Labeled => labeled,
-                ScopedPackProjectionLane::Complete => {
-                    store.arena_mut().intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled })
-                }
+                ScopedPackProjectionLane::Complete => store.arena_mut().intern_scoped(ScopedTypeData::CompleteTypePack { positionals, labeled }),
             };
             return TypeFormationOutcome::Ready(projected);
         }
@@ -1026,7 +1019,10 @@ fn lower_scoped_type_form(
                 let runtime_form = declarations
                     .intrinsic_runtime_owner(&declaration)
                     .and_then(|_| declarations.runtime_form(store, &declaration));
-                if let Some(form) = runtime_form.or_else(|| declarations.form(&declaration)).or_else(|| resolver.resolve_alias_form(&declaration)) {
+                if let Some(form) = runtime_form
+                    .or_else(|| declarations.form(&declaration))
+                    .or_else(|| resolver.resolve_alias_form(&declaration))
+                {
                     TypeFormationOutcome::Ready(intern_scoped_free(store, form))
                 } else {
                     TypeFormationOutcome::Missing(TypeFormationMissing::DeclarationProduct(declaration))
@@ -1142,7 +1138,7 @@ fn lower_scoped_type_form(
                     )));
                 }
 
-                    let row = if arguments.len() == fixed_count {
+                let row = if arguments.len() == fixed_count {
                     store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow {
                         fields: Box::new([]),
                         tail: ScopedRecordRowTail::Closed,
@@ -1184,10 +1180,9 @@ fn lower_scoped_type_form(
                                 ScopedRecordTail::Bound { depth, index } => ScopedRecordRowTail::Bound { depth, index },
                                 ScopedRecordTail::Anonymous(remainder) => ScopedRecordRowTail::Anonymous(remainder),
                             };
-                            store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow {
-                                fields: record.fields,
-                                tail,
-                            }))
+                            store
+                                .arena_mut()
+                                .intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow { fields: record.fields, tail }))
                         }
                         ScopedTypeData::RecordRow(_) => row,
                         ScopedTypeData::Free(ty) => match store.get(ty).clone() {
@@ -1753,16 +1748,22 @@ fn lower_scoped_type_form(
             range,
         } => {
             if let Some(result) = resolve_static_case_form(
-                store, declarations, resolver, site, enum_target, variant_name,
-                generic_arguments, payload_shape.as_ref(), *range, diagnostics,
+                store,
+                declarations,
+                resolver,
+                site,
+                enum_target,
+                variant_name,
+                generic_arguments,
+                payload_shape.as_ref(),
+                *range,
+                diagnostics,
             ) {
                 let ty = scoped_ready_or_propagate!(result);
                 return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Free(ty)));
             }
             if generic_arguments.is_empty() && payload_shape.is_none() {
-                if let Some(result) = resolve_associated_static_domain_form(
-                    store, declarations, resolver, site, enum_target, variant_name,
-                ) {
+                if let Some(result) = resolve_associated_static_domain_form(store, declarations, resolver, site, enum_target, variant_name) {
                     let ty = scoped_ready_or_propagate!(result);
                     return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Free(ty)));
                 }
@@ -1947,11 +1948,7 @@ fn generic_application_contract(store: &TypeStore, declarations: &DeclarationTyp
     }
 }
 
-fn intrinsic_type_application_for_form(
-    store: &TypeStore,
-    declarations: &DeclarationTypeTable,
-    origin: TypeId,
-) -> Option<IntrinsicTypeApplication> {
+fn intrinsic_type_application_for_form(store: &TypeStore, declarations: &DeclarationTypeTable, origin: TypeId) -> Option<IntrinsicTypeApplication> {
     let declaration = store.nominal_origin_declaration(origin)?;
     match declarations.semantic_form(declaration)? {
         DeclarationSemanticForm::Ordinary => None,
@@ -1962,13 +1959,8 @@ fn intrinsic_type_application_for_form(
 fn record_fields_row_from_form(store: &mut TypeStore, form: TypeId) -> Option<super::id::RecordRowId> {
     match store.get(form).clone() {
         TypeData::Record(row) => Some(row),
-        TypeData::TypeMemberProjection(_) if store.kind_of(form) == KindId::RECORD_ROW => {
-            crate::types::projection::selected_record_fields_row(store, form).or_else(|| {
-                store
-                    .record_row_checked(Vec::new(), RecordRowTail::Projection(form))
-                    .ok()
-            })
-        }
+        TypeData::TypeMemberProjection(_) if store.kind_of(form) == KindId::RECORD_ROW => crate::types::projection::selected_record_fields_row(store, form)
+            .or_else(|| store.record_row_checked(Vec::new(), RecordRowTail::Projection(form)).ok()),
         _ => None,
     }
 }
@@ -2128,8 +2120,8 @@ fn resolve_associated_type_projection(
     // Both declaration-owned and trait-associated members use `Subject::Name`.
     // Select from the applicable candidates before forming either projection.
     let selector = TypeMemberSelector::Named(name.to_string().into());
-    let inherent_owner = source_type_member_owner(store, declarations, subject_ty)
-        .filter(|owner| resolver.resolve_associated_type_member(owner, &selector).is_some());
+    let inherent_owner =
+        source_type_member_owner(store, declarations, subject_ty).filter(|owner| resolver.resolve_associated_type_member(owner, &selector).is_some());
     let contextual_self = matches!(subject.expr, TypeAnnotationExpr::SelfType { .. });
     let mut matching_traits = Vec::new();
     if contextual_self {
@@ -2152,9 +2144,9 @@ fn resolve_associated_type_projection(
                     .and_then(|context| context.associated_types.get(name).cloned())
                     .or_else(|| resolver.resolve_associated_type_requirement(&conformance_key.trait_ref.declaration, name));
                 if let Some(requirement) = requirement
-                    && !matching_traits.iter().any(|(trait_ref, candidate)| {
-                        *candidate == requirement && *trait_ref == conformance_key.trait_ref
-                    })
+                    && !matching_traits
+                        .iter()
+                        .any(|(trait_ref, candidate)| *candidate == requirement && *trait_ref == conformance_key.trait_ref)
                 {
                     matching_traits.push((conformance_key.trait_ref.clone(), requirement));
                 }
@@ -2196,11 +2188,7 @@ fn resolve_associated_type_projection(
     TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()))
 }
 
-fn source_type_member_owner(
-    store: &TypeStore,
-    declarations: &DeclarationTypeTable,
-    subject: TypeId,
-) -> Option<DeclarationId> {
+fn source_type_member_owner(store: &TypeStore, declarations: &DeclarationTypeTable, subject: TypeId) -> Option<DeclarationId> {
     let intrinsic_owner = match store.get(subject) {
         TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => Some(IntrinsicTypeOwner::Tuple),
         TypeData::Record(_) => Some(IntrinsicTypeOwner::Record),
@@ -2569,14 +2557,7 @@ pub fn resolve_type_form(
                                 Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
                             }
                         } else {
-                            let operand = type_form_ready_or_return!(resolve_type_form(
-                                store,
-                                declarations,
-                                resolver,
-                                site,
-                                &expansion.operand,
-                                diagnostics,
-                            ));
+                            let operand = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, &expansion.operand, diagnostics,));
                             match record_fields_row_from_form(store, operand) {
                                 Some(row) => row,
                                 None => {
@@ -2901,11 +2882,7 @@ pub fn resolve_type_form(
                                     ));
                                     return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                                 }
-                                tuple_elements.push(super::store::TupleTypeElement {
-                                    label: None,
-                                    ty,
-                                    presence,
-                                });
+                                tuple_elements.push(super::store::TupleTypeElement { label: None, ty, presence });
                             }
                         }
                         phalcom_ast::ast::TypeTupleItem::Remainder(rem) => {
@@ -3401,15 +3378,21 @@ pub fn resolve_type_form(
             range,
         } => {
             if let Some(result) = resolve_static_case_form(
-                store, declarations, resolver, site, enum_target, variant_name,
-                generic_arguments, payload_shape.as_ref(), *range, diagnostics,
+                store,
+                declarations,
+                resolver,
+                site,
+                enum_target,
+                variant_name,
+                generic_arguments,
+                payload_shape.as_ref(),
+                *range,
+                diagnostics,
             ) {
                 return result;
             }
             if generic_arguments.is_empty() && payload_shape.is_none() {
-                if let Some(result) = resolve_associated_static_domain_form(
-                    store, declarations, resolver, site, enum_target, variant_name,
-                ) {
+                if let Some(result) = resolve_associated_static_domain_form(store, declarations, resolver, site, enum_target, variant_name) {
                     return result;
                 }
             }
@@ -3466,12 +3449,10 @@ fn resolve_type_member_projection(
 ) -> TypeFormResolution {
     let current_module = &site.module;
     let row_parameter = match &subject.expr {
-        TypeAnnotationExpr::Reference(reference) if reference.members.is_empty() => {
-            match resolver.resolve_type_level_binding(reference.leaf_name()) {
-                Some(TypeLevelBinding::RecordRow(parameter)) => Some(parameter),
-                _ => None,
-            }
-        }
+        TypeAnnotationExpr::Reference(reference) if reference.members.is_empty() => match resolver.resolve_type_level_binding(reference.leaf_name()) {
+            Some(TypeLevelBinding::RecordRow(parameter)) => Some(parameter),
+            _ => None,
+        },
         _ => None,
     };
     let (subject_ty, projection_subject, intrinsic_owner) = if let Some(parameter) = row_parameter {

@@ -107,7 +107,9 @@ pub fn resolve_native_type_form(
             let origin_form = match origin {
                 TypeExprSpec::Universe(key) => {
                     let decl = universe_resolver(*key);
-                    declarations.runtime_form(store, &decl).ok_or(NativeTypeResolutionError::MissingDeclaration(decl))?
+                    declarations
+                        .runtime_form(store, &decl)
+                        .ok_or(NativeTypeResolutionError::MissingDeclaration(decl))?
                 }
                 _ => resolve_native_type_form(store, declarations, parameters, universe_resolver, origin)?,
             };

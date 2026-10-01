@@ -189,15 +189,12 @@ class Probe {
         .values()
         .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Option::None"))
         .expect("contextual Option::None expression");
-    let resolution = contextual_analysis
-        .associated_resolutions
-        .get(&contextual_expr.id)
-        .unwrap_or_else(|| {
-            panic!(
-                "generic expected result must publish the canonical singleton resolution; fact={:?}; diagnostics={:#?}",
-                contextual_expr.knowledge, analysis.snapshot.diagnostics
-            )
-        });
+    let resolution = contextual_analysis.associated_resolutions.get(&contextual_expr.id).unwrap_or_else(|| {
+        panic!(
+            "generic expected result must publish the canonical singleton resolution; fact={:?}; diagnostics={:#?}",
+            contextual_expr.knowledge, analysis.snapshot.diagnostics
+        )
+    });
     let AssociatedResolutionKind::ExactValue { value_type, .. } = resolution.kind else {
         panic!("expected exact singleton resolution, got {:?}", resolution.kind);
     };
@@ -205,13 +202,19 @@ class Probe {
         panic!("expected exact enum case, got {}", analysis.snapshot.store.format_type(value_type));
     };
     let TypeData::Applied { arguments, .. } = analysis.snapshot.store.get(*enum_type) else {
-        panic!("expected specialized applied enum owner, got {}", analysis.snapshot.store.format_type(*enum_type));
+        panic!(
+            "expected specialized applied enum owner, got {}",
+            analysis.snapshot.store.format_type(*enum_type)
+        );
     };
     let Some(specialized_result) = arguments.first().and_then(|argument| argument.as_type_id()) else {
         panic!("expected the contextual enum argument to be a proper type: {arguments:?}");
     };
     let TypeData::Applied { .. } = analysis.snapshot.store.get(specialized_result) else {
-        panic!("expected Result<U, E> to remain the exact owner argument, got {}", analysis.snapshot.store.format_type(specialized_result));
+        panic!(
+            "expected Result<U, E> to remain the exact owner argument, got {}",
+            analysis.snapshot.store.format_type(specialized_result)
+        );
     };
 
     let conditional = CallableId::new(
@@ -309,8 +312,7 @@ class Probe {
         analysis.snapshot.diagnostics
     );
     assert_eq!(
-        underconstrained[0].primary_range,
-        no_context_expr.range,
+        underconstrained[0].primary_range, no_context_expr.range,
         "the no-context case must remain underconstrained: {:#?}",
         analysis.snapshot.diagnostics
     );

@@ -130,11 +130,26 @@ impl CallableSignature {
         let positional_rest = self.parameters.iter().any(|p| matches!(p.rest, RestMode::Positional | RestMode::Complete));
         let labeled_rest = self.parameters.iter().any(|p| matches!(p.rest, RestMode::Labeled | RestMode::Complete));
 
-        let fixed_positional_count = self.parameters.iter().filter(|p| p.rest == RestMode::None && p.external_label.is_none()).count();
-        let fixed_labels = self.parameters.iter().filter_map(|p| if p.rest == RestMode::None { p.external_label.as_deref() } else { None }).collect::<Vec<_>>();
+        let fixed_positional_count = self
+            .parameters
+            .iter()
+            .filter(|p| p.rest == RestMode::None && p.external_label.is_none())
+            .count();
+        let fixed_labels = self
+            .parameters
+            .iter()
+            .filter_map(|p| if p.rest == RestMode::None { p.external_label.as_deref() } else { None })
+            .collect::<Vec<_>>();
 
         let positional_count = selector.slots.iter().filter(|s| matches!(s, SelectorSlot::Positional)).count();
-        let labels: Vec<&str> = selector.slots.iter().filter_map(|s| match s { SelectorSlot::Label(l) => Some(l.as_str()), _ => None }).collect();
+        let labels: Vec<&str> = selector
+            .slots
+            .iter()
+            .filter_map(|s| match s {
+                SelectorSlot::Label(l) => Some(l.as_str()),
+                _ => None,
+            })
+            .collect();
 
         if positional_rest {
             if positional_count < fixed_positional_count {

@@ -651,8 +651,7 @@ fn type_contains_self(store: &TypeStore, ty: TypeId) -> bool {
                 })
         }
         crate::types::store::TypeData::Applied { origin, arguments } => {
-            type_contains_self(store, *origin)
-                || arguments.iter().any(|arg| arg.as_type_id().is_some_and(|arg| type_contains_self(store, arg)))
+            type_contains_self(store, *origin) || arguments.iter().any(|arg| arg.as_type_id().is_some_and(|arg| type_contains_self(store, arg)))
         }
         crate::types::store::TypeData::ExactCase { enum_type, .. } => type_contains_self(store, *enum_type),
         crate::types::store::TypeData::Union(types) => types.iter().any(|&t| type_contains_self(store, t)),

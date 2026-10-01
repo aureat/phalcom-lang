@@ -8,8 +8,8 @@ use crate::types::row::RecordRowTail;
 use crate::types::store::{StaticArgument, TypeData, TypeStore};
 use phalcom_common::modifier::Visibility;
 use std::collections::HashMap;
-use thiserror::Error;
 use std::sync::Arc;
+use thiserror::Error;
 
 /// Structural shape of a data declaration: Tuple vs Record.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -366,8 +366,16 @@ fn materialize_tuple_expansion(
         phalcom_ast::ast::ExpansionMode::Positional => (Some(operand), None),
         phalcom_ast::ast::ExpansionMode::Labeled => (None, Some(operand)),
         phalcom_ast::ast::ExpansionMode::Complete => (
-            Some(store.project_positionals(operand).map_err(|_| DataProductShapeMaterializationError::GenericArgumentDomain)?),
-            Some(store.project_labeled(operand).map_err(|_| DataProductShapeMaterializationError::GenericArgumentDomain)?),
+            Some(
+                store
+                    .project_positionals(operand)
+                    .map_err(|_| DataProductShapeMaterializationError::GenericArgumentDomain)?,
+            ),
+            Some(
+                store
+                    .project_labeled(operand)
+                    .map_err(|_| DataProductShapeMaterializationError::GenericArgumentDomain)?,
+            ),
         ),
     };
     if let Some(positionals) = positionals {

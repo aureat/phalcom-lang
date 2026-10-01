@@ -951,18 +951,13 @@ pub(crate) fn hash_generic_conformance_evidence(evidence: &crate::generic_eviden
     }
 }
 
-pub(crate) fn generic_conformance_evidence_fingerprint(
-    evidence: &crate::generic_evidence::GenericConformanceEvidence,
-) -> ProductFingerprint {
+pub(crate) fn generic_conformance_evidence_fingerprint(evidence: &crate::generic_evidence::GenericConformanceEvidence) -> ProductFingerprint {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     hash_generic_conformance_evidence(evidence, &mut hasher);
     ProductFingerprint::new(hasher.finish())
 }
 
-fn hash_conditional_selected_call_capability(
-    capability: Option<&crate::dispatch::ConditionalSelectedCallCapability>,
-    hasher: &mut impl Hasher,
-) {
+fn hash_conditional_selected_call_capability(capability: Option<&crate::dispatch::ConditionalSelectedCallCapability>, hasher: &mut impl Hasher) {
     let Some(capability) = capability else {
         0u8.hash(hasher);
         return;
@@ -1742,15 +1737,16 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     let expansion_field_count = analysis
         .associated_resolutions
         .values()
-        .filter(|resolution| matches!(&resolution.kind, crate::checker::associated::AssociatedResolutionKind::DataExpansionField { .. }))
+        .filter(|resolution| {
+            matches!(
+                &resolution.kind,
+                crate::checker::associated::AssociatedResolutionKind::DataExpansionField { .. }
+            )
+        })
         .count();
     expansion_field_count.hash(&mut hasher);
     for (expression_id, resolution) in analysis.associated_resolutions.iter() {
-        if let crate::checker::associated::AssociatedResolutionKind::DataExpansionField {
-            logical_index,
-            value_type,
-        } = &resolution.kind
-        {
+        if let crate::checker::associated::AssociatedResolutionKind::DataExpansionField { logical_index, value_type } = &resolution.kind {
             expression_id.hash(&mut hasher);
             resolution.owner_form.hash(&mut hasher);
             resolution.lookup_owner.hash(&mut hasher);

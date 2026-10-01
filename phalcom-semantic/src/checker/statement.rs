@@ -233,9 +233,10 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             }
             ctx.record_call_dependency(val_typed.causal_invalidity, Some(return_explanation));
             let fact = crate::checker::analysis::NormalReturnFact {
-                direct_result_dependency: ret.value.as_ref().and_then(|expr| {
-                    crate::checker::analysis::direct_result_dependency(expr, val_typed.callable.as_ref())
-                }),
+                direct_result_dependency: ret
+                    .value
+                    .as_ref()
+                    .and_then(|expr| crate::checker::analysis::direct_result_dependency(expr, val_typed.callable.as_ref())),
                 knowledge: val_typed.knowledge,
                 flow: ctx.current_flow_summary(),
                 status: val_typed.status,
@@ -265,9 +266,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             super::declaration::check_class(ctx, class_def);
             StatementControl::FallsThrough
         }
-        Statement::Data(_data_def) => {
-            StatementControl::FallsThrough
-        }
+        Statement::Data(_data_def) => StatementControl::FallsThrough,
         Statement::For(for_stmt) => {
             let mut lane_facts = Vec::new();
             for lane in &for_stmt.lanes {
@@ -284,12 +283,8 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                         }
                         (result.knowledge, result.causal_invalidity)
                     }
-                    TypeKnowledge::Unknown(reason) => {
-                        (TypeKnowledge::Unknown(reason.clone()), crate::checker::causal::CausalInvalidity::Clean)
-                    }
-                    TypeKnowledge::Dynamic(reason) => {
-                        (TypeKnowledge::Dynamic(reason.clone()), crate::checker::causal::CausalInvalidity::Clean)
-                    }
+                    TypeKnowledge::Unknown(reason) => (TypeKnowledge::Unknown(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
+                    TypeKnowledge::Dynamic(reason) => (TypeKnowledge::Dynamic(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
                 };
 
                 let mut parents = iter_typed
@@ -539,7 +534,9 @@ fn bind_declaration_pattern(
                         .collect();
                     match ctx.store.record_row_checked(remainder_fields, row.tail) {
                         Ok(row_id) => {
-                            let rest_ty = ctx.store.intern_with_kind(crate::types::store::TypeData::Record(row_id), crate::types::id::KindId::TYPE);
+                            let rest_ty = ctx
+                                .store
+                                .intern_with_kind(crate::types::store::TypeData::Record(row_id), crate::types::id::KindId::TYPE);
                             fact.knowledge.derive_known_type(rest_ty, EvidenceOrigin::PatternDecomposition)
                         }
                         Err(_) => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),

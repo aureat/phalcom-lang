@@ -146,12 +146,11 @@ class Probe {
     assert_eq!(signature.published_return_knowledge().ty(), Some(int_ty));
 
     let call = f.expression(f.callable("Probe", "loop", DispatchSide::Class), "Probe.loop()");
-    assert_eq!(
-        call.knowledge.ty(),
-        Some(int_ty),
-        "recursive call uses the declared result: {call:#?}"
+    assert_eq!(call.knowledge.ty(), Some(int_ty), "recursive call uses the declared result: {call:#?}");
+    assert!(
+        f.diagnostics(DiagnosticCode::CallableResultCycle).is_empty(),
+        "an explicit self-result seed must suppress cycle diagnostics"
     );
-    assert!(f.diagnostics(DiagnosticCode::CallableResultCycle).is_empty(), "an explicit self-result seed must suppress cycle diagnostics");
     f.assert_no_error_diagnostics();
 }
 

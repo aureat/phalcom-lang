@@ -664,7 +664,13 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                 store.static_data(term.domain, term.constructor, arguments).unwrap_or(ty)
             }
             TypeData::ConstInt(_) => ty,
-            TypeData::Never | TypeData::Unit | TypeData::ClassObject { .. } | TypeData::Nominal { .. } | TypeData::StaticDomainForm { .. } | TypeData::Lambda(_) | TypeData::SelfType(_) => ty,
+            TypeData::Never
+            | TypeData::Unit
+            | TypeData::ClassObject { .. }
+            | TypeData::Nominal { .. }
+            | TypeData::StaticDomainForm { .. }
+            | TypeData::Lambda(_)
+            | TypeData::SelfType(_) => ty,
         };
         states.insert(ty, VisitState::Resolved(normalized));
         normalized
@@ -776,7 +782,8 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
         | TypeData::Nominal { .. }
         | TypeData::Family(_)
         | TypeData::Lambda(_)
-        | TypeData::SelfType(_) | TypeData::StaticDomainForm { .. } => {}
+        | TypeData::SelfType(_)
+        | TypeData::StaticDomainForm { .. } => {}
     }
 }
 
@@ -806,11 +813,14 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
         ) => {
             left_arguments.len() == right_arguments.len()
                 && unify_equality(store, substitution, left_origin, right_origin)
-                && left_arguments.iter().zip(right_arguments.iter()).all(|(&left, &right)| match (left.as_type_id(), right.as_type_id()) {
-                    (Some(left), Some(right)) => unify_equality(store, substitution, left, right),
-                    (None, None) => left == right,
-                    _ => false,
-                })
+                && left_arguments
+                    .iter()
+                    .zip(right_arguments.iter())
+                    .all(|(&left, &right)| match (left.as_type_id(), right.as_type_id()) {
+                        (Some(left), Some(right)) => unify_equality(store, substitution, left, right),
+                        (None, None) => left == right,
+                        _ => false,
+                    })
         }
         (
             TypeData::ExactCase {

@@ -528,14 +528,8 @@ fn match_impl_domain_head_matches_tuple_and_unit_against_tuple_from_packs() {
 
     let int_decl = phalcom_modules::DeclarationId::new(mod_id.clone(), "Int".into());
     let str_decl = phalcom_modules::DeclarationId::new(mod_id, "String".into());
-    let int_ty = store.intern_with_kind(
-        TypeData::Nominal { declaration: int_decl },
-        phalcom_semantic::KindId::TYPE,
-    );
-    let str_ty = store.intern_with_kind(
-        TypeData::Nominal { declaration: str_decl },
-        phalcom_semantic::KindId::TYPE,
-    );
+    let int_ty = store.intern_with_kind(TypeData::Nominal { declaration: int_decl }, phalcom_semantic::KindId::TYPE);
+    let str_ty = store.intern_with_kind(TypeData::Nominal { declaration: str_decl }, phalcom_semantic::KindId::TYPE);
     let concrete_tuple = store.tuple(Box::new([
         phalcom_semantic::types::store::TupleTypeElement::unlabeled(int_ty),
         phalcom_semantic::types::store::TupleTypeElement::unlabeled(str_ty),
@@ -543,14 +537,26 @@ fn match_impl_domain_head_matches_tuple_and_unit_against_tuple_from_packs() {
     let unit_ty = store.unit();
 
     let mut bindings_tuple = std::collections::HashMap::new();
-    assert!(phalcom_semantic::impls::match_impl_domain_head(&mut store, tuple_head, concrete_tuple, &impl_id, &mut bindings_tuple));
+    assert!(phalcom_semantic::impls::match_impl_domain_head(
+        &mut store,
+        tuple_head,
+        concrete_tuple,
+        &impl_id,
+        &mut bindings_tuple
+    ));
     assert_eq!(bindings_tuple.len(), 1);
     let bound_complete = bindings_tuple.get(&es).copied().unwrap();
     let expected_complete = store.project_complete(concrete_tuple).unwrap();
     assert_eq!(bound_complete, expected_complete);
 
     let mut bindings_unit = std::collections::HashMap::new();
-    assert!(phalcom_semantic::impls::match_impl_domain_head(&mut store, tuple_head, unit_ty, &impl_id, &mut bindings_unit));
+    assert!(phalcom_semantic::impls::match_impl_domain_head(
+        &mut store,
+        tuple_head,
+        unit_ty,
+        &impl_id,
+        &mut bindings_unit
+    ));
     assert_eq!(bindings_unit.len(), 1);
     let bound_unit_complete = bindings_unit.get(&es).copied().unwrap();
     let expected_unit_complete = store.project_complete(unit_ty).unwrap();
@@ -593,14 +599,12 @@ class TestBox<T> {
     let mut store = (*fixture.analysis.snapshot.store).clone();
     let mod_id = phalcom_modules::ModuleId::universe_root();
     let decl_t = phalcom_modules::DeclarationId::new(mod_id, "T".into());
-    let t_param = store.intern_type_parameter(
-        phalcom_semantic::types::parameter::TypeParameterData::new(
-            phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(decl_t),
-            0,
-            "T",
-            phalcom_semantic::KindId::TYPE,
-        ),
-    );
+    let t_param = store.intern_type_parameter(phalcom_semantic::types::parameter::TypeParameterData::new(
+        phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(decl_t),
+        0,
+        "T",
+        phalcom_semantic::KindId::TYPE,
+    ));
     let t_ty = store.parameter_form(t_param);
     let list_iter_decl = fixture.decl("ListIterator");
     let list_iter_kind = fixture.analysis.snapshot.declarations.get(&list_iter_decl).unwrap().kind;
@@ -633,4 +637,3 @@ class TestBox<T> {
     let norm_res = normalize_type(&mut store, proj_ty, &mut context);
     assert_eq!(norm_res, ProjectionNormalizationResult::Normalized(t_ty));
 }
-

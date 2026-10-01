@@ -124,8 +124,11 @@ impl ExpectedType {
                 let left = arguments[0].term().cloned();
                 let right = arguments[1].term().cloned();
                 return (
-                    left.map(|term| ExpectedType::inference_from(*context, term, ExpectationOrigin::ProductComponent)).unwrap_or(ExpectedType::None),
-                    right.map(|term| ExpectedType::inference_from(*context, term, ExpectationOrigin::ProductComponent)).unwrap_or(ExpectedType::None),
+                    left.map(|term| ExpectedType::inference_from(*context, term, ExpectationOrigin::ProductComponent))
+                        .unwrap_or(ExpectedType::None),
+                    right
+                        .map(|term| ExpectedType::inference_from(*context, term, ExpectationOrigin::ProductComponent))
+                        .unwrap_or(ExpectedType::None),
                 );
             }
         }
@@ -200,10 +203,9 @@ fn canonical_collection_arguments<'a>(
         return None;
     }
     match store.get(ty) {
-        crate::types::store::TypeData::Applied { arguments, .. } if arguments.len() == arity => arguments
-            .iter()
-            .map(|argument| argument.as_type_id())
-            .collect(),
+        crate::types::store::TypeData::Applied { arguments, .. } if arguments.len() == arity => {
+            arguments.iter().map(|argument| argument.as_type_id()).collect()
+        }
         _ => None,
     }
 }

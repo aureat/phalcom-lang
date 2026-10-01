@@ -2,7 +2,9 @@
 
 use super::application::TypeApplicationError;
 use super::family::{FamilyMemberType, FamilyMemberTypeKind, FamilyType, FamilyTypeError, FamilyTypeId};
-use super::id::{AlgebraicStaticConstructorId, KindId, ProperTypeId, RecordRowId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
+use super::id::{
+    AlgebraicStaticConstructorId, KindId, ProperTypeId, RecordRowId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId,
+};
 use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 pub use super::row::{AnonymousRecordRemainder, RecordRowData, RecordRowField, RecordRowTail, StructuralMemberPresence};
@@ -55,19 +57,35 @@ pub struct TupleTypeElement {
 
 impl TupleTypeElement {
     pub fn unlabeled(ty: TypeId) -> Self {
-        Self { label: None, ty, presence: StructuralMemberPresence::Required }
+        Self {
+            label: None,
+            ty,
+            presence: StructuralMemberPresence::Required,
+        }
     }
 
     pub fn labeled(label: Box<str>, ty: TypeId) -> Self {
-        Self { label: Some(label), ty, presence: StructuralMemberPresence::Required }
+        Self {
+            label: Some(label),
+            ty,
+            presence: StructuralMemberPresence::Required,
+        }
     }
 
     pub fn optional_unlabeled(ty: TypeId) -> Self {
-        Self { label: None, ty, presence: StructuralMemberPresence::Optional }
+        Self {
+            label: None,
+            ty,
+            presence: StructuralMemberPresence::Optional,
+        }
     }
 
     pub fn optional_labeled(label: Box<str>, ty: TypeId) -> Self {
-        Self { label: Some(label), ty, presence: StructuralMemberPresence::Optional }
+        Self {
+            label: Some(label),
+            ty,
+            presence: StructuralMemberPresence::Optional,
+        }
     }
 }
 
@@ -88,8 +106,7 @@ impl TupleType {
     }
 
     pub fn is_closed(&self) -> bool {
-        self.positional_remainder == AnonymousTupleRemainder::None
-            && self.labeled_remainder == AnonymousTupleRemainder::None
+        self.positional_remainder == AnonymousTupleRemainder::None && self.labeled_remainder == AnonymousTupleRemainder::None
     }
 }
 
@@ -598,7 +615,6 @@ impl TypeStore {
         }
     }
 
-
     pub fn arrow_kind(&mut self, parameters: Box<[KindId]>, result: KindId) -> KindId {
         if parameters.is_empty() {
             return result;
@@ -627,12 +643,9 @@ impl TypeStore {
 
         let callee_data = self.get_kind(callee).clone();
         match callee_data {
-            KindData::Type
-            | KindData::RecordRow
-            | KindData::TypePack
-            | KindData::LabeledTypePack
-            | KindData::CompleteTypePack
-            | KindData::StaticDomain(_) => Err(KindApplicationError::NotApplicable { kind: callee }),
+            KindData::Type | KindData::RecordRow | KindData::TypePack | KindData::LabeledTypePack | KindData::CompleteTypePack | KindData::StaticDomain(_) => {
+                Err(KindApplicationError::NotApplicable { kind: callee })
+            }
             KindData::Arrow { parameters, result } => {
                 if arguments.len() > parameters.len() {
                     return Err(KindApplicationError::TooManyArguments {
@@ -748,15 +761,8 @@ impl TypeStore {
     }
 
     /// Interns one canonical specialization of an associated static domain.
-    pub fn associated_static_domain(
-        &mut self,
-        declaration: AssociatedStaticDomainDeclarationId,
-        owner_arguments: Box<[StaticArgument]>,
-    ) -> StaticDomainId {
-        self.intern_static_domain(StaticDomainData::Associated {
-            declaration,
-            owner_arguments,
-        })
+    pub fn associated_static_domain(&mut self, declaration: AssociatedStaticDomainDeclarationId, owner_arguments: Box<[StaticArgument]>) -> StaticDomainId {
+        self.intern_static_domain(StaticDomainData::Associated { declaration, owner_arguments })
     }
 
     /// Interns the type-level form denoting one concrete associated static domain.
@@ -799,9 +805,7 @@ impl TypeStore {
         self.static_constructors
             .iter()
             .enumerate()
-            .filter_map(|(index, constructor)| {
-                (constructor.domain == domain).then(|| AlgebraicStaticConstructorId::from_index(index))
-            })
+            .filter_map(|(index, constructor)| (constructor.domain == domain).then(|| AlgebraicStaticConstructorId::from_index(index)))
             .collect()
     }
 
@@ -1028,10 +1032,7 @@ impl TypeStore {
         positional_remainder: AnonymousTupleRemainder,
         labeled_remainder: AnonymousTupleRemainder,
     ) -> TypeId {
-        if elements.is_empty()
-            && positional_remainder == AnonymousTupleRemainder::None
-            && labeled_remainder == AnonymousTupleRemainder::None
-        {
+        if elements.is_empty() && positional_remainder == AnonymousTupleRemainder::None && labeled_remainder == AnonymousTupleRemainder::None {
             return self.unit();
         }
         let mut seen_labels = std::collections::HashSet::new();
@@ -1901,7 +1902,9 @@ impl TypeStore {
             TypeData::Parameter(p) => *p == target,
             TypeData::Applied { origin, arguments } => {
                 self.contains_type_parameter(*origin, target)
-                    || arguments.iter().any(|argument| argument.as_type_id().is_some_and(|a| self.contains_type_parameter(a, target)))
+                    || arguments
+                        .iter()
+                        .any(|argument| argument.as_type_id().is_some_and(|a| self.contains_type_parameter(a, target)))
             }
             TypeData::Union(members) => members.iter().any(|&m| self.contains_type_parameter(m, target)),
             TypeData::Tuple(tuple) => {
@@ -2068,30 +2071,45 @@ mod tests {
         let labeled_selector = TypeMemberSelector::named("Labeled");
         let positionals_member = TypeMemberDeclarationId::new(complete_pack_owner.clone(), positionals_selector.clone());
         let labeled_member = TypeMemberDeclarationId::new(complete_pack_owner, labeled_selector.clone());
-        let source_projection = |store: &mut TypeStore,
-                                 subject: TypeId,
-                                 selector: TypeMemberSelector,
-                                 source_declaration: Option<TypeMemberDeclarationId>,
-                                 kind: KindId| {
-            store.type_member_projection(
-                TypeLevelProjection {
-                    subject: ProjectionSubject::Type(subject),
-                    selector,
-                    arguments: Box::new([]),
-                    source_declaration,
-                },
-                kind,
-            )
-        };
-        let source_pos = source_projection(&mut store, first, positionals_selector.clone(), Some(positionals_member.clone()), KindId::TYPE_PACK);
-        let source_lab = source_projection(&mut store, first, labeled_selector.clone(), Some(labeled_member.clone()), KindId::LABELED_TYPE_PACK);
+        let source_projection =
+            |store: &mut TypeStore, subject: TypeId, selector: TypeMemberSelector, source_declaration: Option<TypeMemberDeclarationId>, kind: KindId| {
+                store.type_member_projection(
+                    TypeLevelProjection {
+                        subject: ProjectionSubject::Type(subject),
+                        selector,
+                        arguments: Box::new([]),
+                        source_declaration,
+                    },
+                    kind,
+                )
+            };
+        let source_pos = source_projection(
+            &mut store,
+            first,
+            positionals_selector.clone(),
+            Some(positionals_member.clone()),
+            KindId::TYPE_PACK,
+        );
+        let source_lab = source_projection(
+            &mut store,
+            first,
+            labeled_selector.clone(),
+            Some(labeled_member.clone()),
+            KindId::LABELED_TYPE_PACK,
+        );
 
         // Internal projections preserve the established round trip.
         assert_eq!(store.complete_type_pack(first_pos, first_lab).expect("internal lanes"), first);
         // Published source members obey the same law while retaining their identity.
         assert_eq!(store.complete_type_pack(source_pos, source_lab).expect("source-backed lanes"), first);
-        assert_eq!(store.complete_type_pack(first_pos, source_lab).expect("internal positional + source labeled"), first);
-        assert_eq!(store.complete_type_pack(source_pos, first_lab).expect("source positional + internal labeled"), first);
+        assert_eq!(
+            store.complete_type_pack(first_pos, source_lab).expect("internal positional + source labeled"),
+            first
+        );
+        assert_eq!(
+            store.complete_type_pack(source_pos, first_lab).expect("source positional + internal labeled"),
+            first
+        );
         assert_ne!(source_pos, first_pos, "source declaration remains part of projection identity");
         assert_ne!(source_lab, first_lab, "source declaration remains part of projection identity");
         let TypeData::TypeMemberProjection(source_pos_data) = store.get(source_pos) else {
@@ -2255,18 +2273,9 @@ mod tests {
         let int = store.nominal_type(test_decl("Int"));
         let string = store.nominal_type(test_decl("String"));
 
-        let int_domain = store.associated_static_domain(
-            declaration.clone(),
-            vec![StaticArgument::Term(int)].into_boxed_slice(),
-        );
-        let same_int_domain = store.associated_static_domain(
-            declaration.clone(),
-            vec![StaticArgument::Term(int)].into_boxed_slice(),
-        );
-        let string_domain = store.associated_static_domain(
-            declaration.clone(),
-            vec![StaticArgument::Term(string)].into_boxed_slice(),
-        );
+        let int_domain = store.associated_static_domain(declaration.clone(), vec![StaticArgument::Term(int)].into_boxed_slice());
+        let same_int_domain = store.associated_static_domain(declaration.clone(), vec![StaticArgument::Term(int)].into_boxed_slice());
+        let string_domain = store.associated_static_domain(declaration.clone(), vec![StaticArgument::Term(string)].into_boxed_slice());
 
         assert_eq!(int_domain, same_int_domain);
         assert_ne!(int_domain, string_domain);

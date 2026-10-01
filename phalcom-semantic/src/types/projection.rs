@@ -6,8 +6,7 @@ use super::id::{RecordRowId, TypeId};
 use super::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget};
 use super::row::RecordRowField;
 use super::store::{
-    AnonymousTupleRemainder, AssociatedTypeProjection, CallableParameterType, CallableType, StaticArgument, TupleType, TupleTypeElement,
-    TypeData, TypeStore,
+    AnonymousTupleRemainder, AssociatedTypeProjection, CallableParameterType, CallableType, StaticArgument, TupleType, TupleTypeElement, TypeData, TypeStore,
 };
 use crate::declarations::DeclarationTypeTable;
 use crate::generic_evidence::{GenericConformanceKey, GenericEvidenceEnvironment};
@@ -16,8 +15,7 @@ use crate::impls::{AssociatedTypeBindingValue, ConformanceAssociatedTypePlan, Co
 use crate::traits::{TraitRef, TraitSurfaceTable};
 use crate::types::parameter::TypeTerm;
 use crate::types::type_member::{
-    IntrinsicTypeOperation, IntrinsicTypeOwner, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector,
-    lookup_intrinsic_type_operation,
+    IntrinsicTypeOperation, IntrinsicTypeOwner, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
 };
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -893,7 +891,10 @@ fn normalize_intrinsic_projection(
                     for l in lab.iter() {
                         elems.push(TupleTypeElement::labeled(l.label.clone(), l.element));
                     }
-                    (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(TupleType::closed(elems.into_boxed_slice()))))
+                    (
+                        Some(IntrinsicTypeOwner::Tuple),
+                        Some(TypeData::Tuple(TupleType::closed(elems.into_boxed_slice()))),
+                    )
                 }
                 _ => (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::TupleFromPacks { positionals, labeled })),
             },
@@ -901,12 +902,11 @@ fn normalize_intrinsic_projection(
             TypeData::Record(row_id) => (Some(IntrinsicTypeOwner::Record), Some(TypeData::Record(row_id))),
             TypeData::TypePack(elems) => (Some(IntrinsicTypeOwner::TypePack), Some(TypeData::TypePack(elems))),
             TypeData::LabeledTypePack(elems) => (Some(IntrinsicTypeOwner::LabeledTypePack), Some(TypeData::LabeledTypePack(elems))),
-            TypeData::CompleteTypePack { positionals, labeled } => {
-                (Some(IntrinsicTypeOwner::CompleteTypePack), Some(TypeData::CompleteTypePack { positionals, labeled }))
-            }
-            TypeData::TypeMemberProjection(_) if store.kind_of(*ty) == crate::types::id::KindId::RECORD_ROW => {
-                (Some(IntrinsicTypeOwner::RecordRow), None)
-            }
+            TypeData::CompleteTypePack { positionals, labeled } => (
+                Some(IntrinsicTypeOwner::CompleteTypePack),
+                Some(TypeData::CompleteTypePack { positionals, labeled }),
+            ),
+            TypeData::TypeMemberProjection(_) if store.kind_of(*ty) == crate::types::id::KindId::RECORD_ROW => (Some(IntrinsicTypeOwner::RecordRow), None),
             TypeData::Nominal { declaration } if declaration == crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple) => {
                 (Some(IntrinsicTypeOwner::Tuple), None)
             }
@@ -954,7 +954,7 @@ fn normalize_intrinsic_projection(
                 let union_ty = store.union(&elem_types);
                 Some(ProjectionNormalizationResult::Normalized(union_ty))
             }
-        },
+        }
         IntrinsicTypeOperation::TupleAt => {
             let idx = match arguments.first()? {
                 TypeMemberArgument::Type(argument) => match store.get(*argument) {
@@ -1071,22 +1071,14 @@ fn normalize_intrinsic_projection(
             }
         }
         IntrinsicTypeOperation::RecordRowMap => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
-        IntrinsicTypeOperation::CompleteTypePackPositionals => {
-            match subject_data? {
-                TypeData::CompleteTypePack { positionals, .. } => {
-                    Some(ProjectionNormalizationResult::Normalized(positionals))
-                }
-                _ => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
-            }
-        }
-        IntrinsicTypeOperation::CompleteTypePackLabeled => {
-            match subject_data? {
-                TypeData::CompleteTypePack { labeled, .. } => {
-                    Some(ProjectionNormalizationResult::Normalized(labeled))
-                }
-                _ => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
-            }
-        }
+        IntrinsicTypeOperation::CompleteTypePackPositionals => match subject_data? {
+            TypeData::CompleteTypePack { positionals, .. } => Some(ProjectionNormalizationResult::Normalized(positionals)),
+            _ => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+        },
+        IntrinsicTypeOperation::CompleteTypePackLabeled => match subject_data? {
+            TypeData::CompleteTypePack { labeled, .. } => Some(ProjectionNormalizationResult::Normalized(labeled)),
+            _ => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
+        },
         IntrinsicTypeOperation::CompleteTypePackMap => {
             let transform_fn = match arguments.first()? {
                 TypeMemberArgument::Type(ty) => *ty,

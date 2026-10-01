@@ -2,8 +2,8 @@
 //! into a stable, deduplicated, versioned `SemanticMetadataBundle`.
 
 use super::stable_identity::*;
-use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::data_semantics::DataSemanticTable;
+use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::EnumSemanticTable;
 use crate::identity::AssociatedStaticDomainDeclarationId;
@@ -21,8 +21,8 @@ use crate::types::variance::Variance;
 use phalcom_type_meta::bundle::{RuntimeTypeFormKey, RuntimeTypeFormRoot, SemanticMetadataBundle};
 use phalcom_type_meta::declaration::{
     AlgebraicDeclarationRecord, AlgebraicPhaseRef, AlgebraicShapeRef, CallableParameterRecord, CallableSemanticRecord, DeclarationTypeFlags,
-    DeclarationTypeRecord, DynamicReasonRef, FieldMutabilityRef, FieldSemanticRecord, MetadataUnavailableReason, PublishedTypeAuthority,
-    PublishedTypeSlot, RestModeRef, UnknownReasonRef,
+    DeclarationTypeRecord, DynamicReasonRef, FieldMutabilityRef, FieldSemanticRecord, MetadataUnavailableReason, PublishedTypeAuthority, PublishedTypeSlot,
+    RestModeRef, UnknownReasonRef,
 };
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::generic::{
@@ -37,16 +37,14 @@ use phalcom_type_meta::identity::SourceSpanRef;
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef, StableStaticDomainDeclarationRef};
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId, StaticDomainRef};
 use phalcom_type_meta::scoped_type::{
-    ScopedAnonymousRecordRemainderRef, ScopedAnonymousTupleRemainderRef,
-    ScopedCallableParamRef, ScopedCallableTypeRef, ScopedOpenRecordTypeRef,
-    ScopedRecordFieldRef, ScopedRecordRowTailRef, ScopedRecordRowTypeRef, ScopedRecordTailRef,
-    ScopedTupleElementRef, ScopedTypeNode, ScopedTypeNodeEntry, ScopedTypeNodeId, TypeLambdaRef,
+    ScopedAnonymousRecordRemainderRef, ScopedAnonymousTupleRemainderRef, ScopedCallableParamRef, ScopedCallableTypeRef, ScopedOpenRecordTypeRef,
+    ScopedRecordFieldRef, ScopedRecordRowTailRef, ScopedRecordRowTypeRef, ScopedRecordTailRef, ScopedTupleElementRef, ScopedTypeNode, ScopedTypeNodeEntry,
+    ScopedTypeNodeId, TypeLambdaRef,
 };
 use phalcom_type_meta::type_node::{
-    AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef,
-    CallableParamRef, CallableTypeRef, OpenRecordTypeRef, OpenTupleTypeRef, RecordFieldRef,
-    RecordRowRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef,
-    StructuralMemberPresenceRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
+    AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef, CallableParamRef, CallableTypeRef, OpenRecordTypeRef, OpenTupleTypeRef,
+    RecordFieldRef, RecordRowRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef,
+    TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -329,14 +327,9 @@ impl<'a> MetadataExporter<'a> {
         }
     }
 
-    fn export_static_domain_catalog(
-        &mut self,
-    ) -> Result<Box<[phalcom_type_meta::declaration::StaticDomainDeclarationRecord]>, MetadataExportError> {
+    fn export_static_domain_catalog(&mut self) -> Result<Box<[phalcom_type_meta::declaration::StaticDomainDeclarationRecord]>, MetadataExportError> {
         type CaseMap = BTreeMap<Box<str>, Box<[phalcom_type_meta::kind::KindNodeId]>>;
-        type DomainMap = BTreeMap<
-            StableStaticDomainDeclarationRef,
-            (Vec<phalcom_type_meta::declaration::StaticDomainParameterRecord>, CaseMap),
-        >;
+        type DomainMap = BTreeMap<StableStaticDomainDeclarationRef, (Vec<phalcom_type_meta::declaration::StaticDomainParameterRecord>, CaseMap)>;
 
         let mut sources = Vec::new();
         if let Some(data) = self.algebraic_data {
@@ -479,7 +472,9 @@ impl<'a> MetadataExporter<'a> {
                 }
             }
 
-            let entry = catalog.entry(declaration.clone()).or_insert_with(|| (owner_parameters.clone(), BTreeMap::new()));
+            let entry = catalog
+                .entry(declaration.clone())
+                .or_insert_with(|| (owner_parameters.clone(), BTreeMap::new()));
             if entry.0 != owner_parameters {
                 return Err(MetadataExportError::InvalidStaticDomainCatalog {
                     domain: domain_id,
@@ -534,8 +529,8 @@ impl<'a> MetadataExporter<'a> {
 
         Ok(catalog
             .into_iter()
-            .map(|(declaration, (owner_parameters, cases))| {
-                phalcom_type_meta::declaration::StaticDomainDeclarationRecord {
+            .map(
+                |(declaration, (owner_parameters, cases))| phalcom_type_meta::declaration::StaticDomainDeclarationRecord {
                     declaration,
                     owner_parameters: owner_parameters.into_boxed_slice(),
                     cases: cases
@@ -543,17 +538,13 @@ impl<'a> MetadataExporter<'a> {
                         .map(|(name, parameter_kinds)| phalcom_type_meta::declaration::StaticDomainCaseRecord { name, parameter_kinds })
                         .collect::<Vec<_>>()
                         .into_boxed_slice(),
-                }
-            })
+                },
+            )
             .collect::<Vec<_>>()
             .into_boxed_slice())
     }
 
-    fn export_static_argument(
-        &mut self,
-        argument: StaticArgument,
-        failure_context: TypeId,
-    ) -> Result<StaticArgumentRef, MetadataExportError> {
+    fn export_static_argument(&mut self, argument: StaticArgument, failure_context: TypeId) -> Result<StaticArgumentRef, MetadataExportError> {
         match argument {
             StaticArgument::Term(term) => Ok(StaticArgumentRef::Term(self.export_type_form(term)?)),
             StaticArgument::RecordRow(row_id) => {
@@ -575,9 +566,7 @@ impl<'a> MetadataExporter<'a> {
                     crate::types::row::RecordRowTail::Parameter(parameter) => (Some(self.export_type_parameter(parameter)?), None),
                     crate::types::row::RecordRowTail::Anonymous(rem) => {
                         let rem_ref = match rem {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained => {
-                                AnonymousRecordRemainderRef::Unconstrained
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained => AnonymousRecordRemainderRef::Unconstrained,
                             crate::types::row::AnonymousRecordRemainder::Typed(ty) => {
                                 let id = self.export_type_form(ty)?;
                                 AnonymousRecordRemainderRef::Typed(id)
@@ -585,9 +574,7 @@ impl<'a> MetadataExporter<'a> {
                         };
                         (None, Some(rem_ref))
                     }
-                    crate::types::row::RecordRowTail::Projection(_) => {
-                        return Err(MetadataExportError::NonExportableForm(failure_context))
-                    }
+                    crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableForm(failure_context)),
                 };
                 Ok(StaticArgumentRef::RecordRow(RecordRowRef {
                     fields: fields.into_boxed_slice(),
@@ -648,7 +635,10 @@ impl<'a> MetadataExporter<'a> {
                 builder.write_u8(2);
                 write_stable_declaration_fingerprint(builder, declaration);
             }
-            StaticDomainRef::Associated { declaration, owner_environment } => {
+            StaticDomainRef::Associated {
+                declaration,
+                owner_environment,
+            } => {
                 builder.write_u8(3);
                 write_stable_declaration_fingerprint(builder, &declaration.owner);
                 builder.write_str(&declaration.name);
@@ -673,10 +663,7 @@ impl<'a> MetadataExporter<'a> {
             KindData::LabeledTypePack => KindNode::LabeledTypePack,
             KindData::CompleteTypePack => KindNode::CompleteTypePack,
             KindData::Arrow { ref parameters, result } => {
-                let p_nodes = parameters
-                    .iter()
-                    .map(|&p| self.export_kind(p))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let p_nodes = parameters.iter().map(|&p| self.export_kind(p)).collect::<Result<Vec<_>, _>>()?;
                 let r_node = self.export_kind(result)?;
                 KindNode::Arrow {
                     parameters: p_nodes.into_boxed_slice(),
@@ -724,7 +711,11 @@ impl<'a> MetadataExporter<'a> {
         if parameters.is_empty() {
             return result;
         }
-        if let KindNode::Arrow { parameters: nested, result: nested_result } = self.kinds[result.0 as usize].node.clone() {
+        if let KindNode::Arrow {
+            parameters: nested,
+            result: nested_result,
+        } = self.kinds[result.0 as usize].node.clone()
+        {
             parameters.extend(nested.iter().copied());
             result = nested_result;
         }
@@ -930,9 +921,7 @@ impl<'a> MetadataExporter<'a> {
                     }
                     crate::types::type_lambda::ScopedRecordTail::Anonymous(remainder) => {
                         let rem = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained => {
-                                ScopedAnonymousRecordRemainderRef::Unconstrained
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained => ScopedAnonymousRecordRemainderRef::Unconstrained,
                             crate::types::row::AnonymousRecordRemainder::Typed(ty) => {
                                 let node_id = self.export_type_form(ty)?;
                                 ScopedAnonymousRecordRemainderRef::Typed(self.export_scoped_free_type_node(node_id))
@@ -964,12 +953,8 @@ impl<'a> MetadataExporter<'a> {
                     })
                     .collect::<Result<Vec<_>, MetadataExportError>>()?;
                 let tail = match row.tail {
-                    crate::types::type_lambda::ScopedRecordRowTail::Closed => {
-                        ScopedRecordRowTailRef::Closed
-                    }
-                    crate::types::type_lambda::ScopedRecordRowTail::Bound { depth, index } => {
-                        ScopedRecordRowTailRef::Bound { depth, index }
-                    }
+                    crate::types::type_lambda::ScopedRecordRowTail::Closed => ScopedRecordRowTailRef::Closed,
+                    crate::types::type_lambda::ScopedRecordRowTail::Bound { depth, index } => ScopedRecordRowTailRef::Bound { depth, index },
                     crate::types::type_lambda::ScopedRecordRowTail::FreeParameter(parameter) => {
                         ScopedRecordRowTailRef::FreeParameter(self.export_type_parameter(parameter)?)
                     }
@@ -978,9 +963,7 @@ impl<'a> MetadataExporter<'a> {
                     }
                     crate::types::type_lambda::ScopedRecordRowTail::Anonymous(remainder) => {
                         let rem = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained => {
-                                ScopedAnonymousRecordRemainderRef::Unconstrained
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained => ScopedAnonymousRecordRemainderRef::Unconstrained,
                             crate::types::row::AnonymousRecordRemainder::Typed(ty) => {
                                 let node_id = self.export_type_form(ty)?;
                                 ScopedAnonymousRecordRemainderRef::Typed(self.export_scoped_free_type_node(node_id))
@@ -1072,11 +1055,7 @@ impl<'a> MetadataExporter<'a> {
             },
             ScopedTypeData::Lambda(lam_id) => {
                 let lam_data = self.store.arena().get_lambda(lam_id).clone();
-                let p_kinds = lam_data
-                    .parameter_kinds
-                    .iter()
-                    .map(|&pk| self.export_kind(pk))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let p_kinds = lam_data.parameter_kinds.iter().map(|&pk| self.export_kind(pk)).collect::<Result<Vec<_>, _>>()?;
                 let p_modes: Vec<GenericParameterModeRef> = lam_data
                     .parameter_modes
                     .iter()
@@ -1507,21 +1486,15 @@ impl<'a> MetadataExporter<'a> {
                     }),
                     crate::types::row::RecordRowTail::Anonymous(remainder) => {
                         let rem_ref = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained => {
-                                AnonymousRecordRemainderRef::Unconstrained
-                            }
-                            crate::types::row::AnonymousRecordRemainder::Typed(t) => {
-                                AnonymousRecordRemainderRef::Typed(self.export_type_form(t)?)
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained => AnonymousRecordRemainderRef::Unconstrained,
+                            crate::types::row::AnonymousRecordRemainder::Typed(t) => AnonymousRecordRemainderRef::Typed(self.export_type_form(t)?),
                         };
                         TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
                             fields: field_refs.into_boxed_slice(),
                             remainder: rem_ref,
                         })
                     }
-                    crate::types::row::RecordRowTail::Projection(_) => {
-                        return Err(MetadataExportError::NonExportableForm(ty))
-                    }
+                    crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableForm(ty)),
                 }
             }
             TypeData::Callable(ref call) => {
@@ -1576,11 +1549,7 @@ impl<'a> MetadataExporter<'a> {
             }
             TypeData::Lambda(lam_id) => {
                 let lam_data = self.store.arena().get_lambda(lam_id).clone();
-                let p_kinds = lam_data
-                    .parameter_kinds
-                    .iter()
-                    .map(|&pk| self.export_kind(pk))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let p_kinds = lam_data.parameter_kinds.iter().map(|&pk| self.export_kind(pk)).collect::<Result<Vec<_>, _>>()?;
                 let p_modes: Vec<GenericParameterModeRef> = lam_data
                     .parameter_modes
                     .iter()
@@ -1704,8 +1673,7 @@ impl<'a> MetadataExporter<'a> {
                     arguments: arguments.into_boxed_slice(),
                 })
             }
-            TypeData::ClassObject { .. }
-            | TypeData::Family(_) | TypeData::StaticDomainForm { .. } => return Err(MetadataExportError::NonExportableForm(ty)),
+            TypeData::ClassObject { .. } | TypeData::Family(_) | TypeData::StaticDomainForm { .. } => return Err(MetadataExportError::NonExportableForm(ty)),
         };
 
         if let Some(&id) = self.type_map.get(&form) {

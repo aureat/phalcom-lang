@@ -26,10 +26,7 @@ fn materialization_substitutes_row_tail_into_canonical_record() {
     let int = store.nominal(owner("Int"));
     let string = store.nominal(owner("String"));
     let remainder = store
-        .record_row_checked(
-            vec![RecordRowField::required("name".into(), string)],
-            RecordRowTail::Closed,
-        )
+        .record_row_checked(vec![RecordRowField::required("name".into(), string)], RecordRowTail::Closed)
         .unwrap();
     let open = store
         .record_row_type_checked(vec![RecordTypeField::required("value".into(), int)], RecordRowTail::Parameter(row_parameter))
@@ -71,10 +68,7 @@ fn materialization_rejects_duplicate_and_recursive_row_substitution() {
         .record_row_type_checked(vec![RecordTypeField::required("value".into(), int)], RecordRowTail::Parameter(row_parameter))
         .unwrap();
     let duplicate_remainder = store
-        .record_row_checked(
-            vec![RecordRowField::required("value".into(), string)],
-            RecordRowTail::Closed,
-        )
+        .record_row_checked(vec![RecordRowField::required("value".into(), string)], RecordRowTail::Closed)
         .unwrap();
     let mut duplicate = GenericInstantiation::default();
     duplicate.bind_row(row_parameter, duplicate_remainder);

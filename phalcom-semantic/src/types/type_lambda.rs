@@ -622,7 +622,9 @@ impl TypeLambdaArena {
                         })
                     })
                     .collect::<Result<_, BetaReductionError>>()?;
-                Ok(store.record_row_type_checked(can_fields, RecordRowTail::Closed).map_err(BetaReductionError::RecordRowFormation)?)
+                Ok(store
+                    .record_row_type_checked(can_fields, RecordRowTail::Closed)
+                    .map_err(BetaReductionError::RecordRowFormation)?)
             }
             ScopedTypeData::OpenRecord(record) => {
                 let can_fields = record
@@ -862,11 +864,12 @@ impl TypeLambdaArena {
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
                 let tail = match row.tail {
-                    ScopedRecordRowTail::Bound { depth: bound_depth, index }
-                        if bound_depth == depth && index >= args.len() as u32 => ScopedRecordRowTail::Bound {
+                    ScopedRecordRowTail::Bound { depth: bound_depth, index } if bound_depth == depth && index >= args.len() as u32 => {
+                        ScopedRecordRowTail::Bound {
                             depth: bound_depth,
                             index: index - args.len() as u32,
-                        },
+                        }
+                    }
                     // A consumed row binder cannot be supplied through this
                     // type-only beta-reduction API. Source RecordFields
                     // TypeLambda binders remain rejected by annotation lowering.

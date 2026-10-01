@@ -125,9 +125,7 @@ pub fn selector_from_variant(variant: &VariantDecl) -> Selector {
             slots: Box::new([]),
         }),
         CasePayloadSyntax::Tuple {
-            parameters,
-            explicit_empty,
-            ..
+            parameters, explicit_empty, ..
         } => {
             if parameters.is_empty() && *explicit_empty {
                 Selector::method(&variant.name, Vec::new()).unwrap_or_else(|_| Selector {

@@ -44,7 +44,11 @@ fn canonical_universe_intrinsic_type_members_match_evaluator_catalog() {
         let (member_id, product) = matching
             .next()
             .unwrap_or_else(|| panic!("canonical Universe source is missing {}", operation.name()));
-        assert!(matching.next().is_none(), "canonical Universe source declares {} more than once", operation.name());
+        assert!(
+            matching.next().is_none(),
+            "canonical Universe source declares {} more than once",
+            operation.name()
+        );
 
         let owner = snapshot
             .declarations

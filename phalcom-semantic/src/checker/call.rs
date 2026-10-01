@@ -5,11 +5,11 @@ use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
 use super::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
 use super::row_inference::{CombinedInferenceFailure, GenericApplicationSession, term_has_row_variables};
-use crate::data_semantics::{DataConstructorParameterContribution, DataConstructorTemplate, DataShape};
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::incident::{InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 use crate::checker::typed_expr::TypedExpression;
+use crate::data_semantics::{DataConstructorParameterContribution, DataConstructorTemplate, DataShape};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, DispatchSignatureSpecialization};
 use crate::identity::{CallableId, ExplanationId};
@@ -150,9 +150,10 @@ impl DataConstructorShapeAdapter {
         let mut roles = vec![None; arguments.len()];
         let mut fixed_by_label = std::collections::HashMap::<String, usize>::new();
         for (parameter_index, parameter) in fixed.iter().enumerate() {
-            let label = parameter.external_label.as_deref().or_else(|| {
-                (self.shape == DataShape::Record).then_some(parameter.local_name.as_ref())
-            });
+            let label = parameter
+                .external_label
+                .as_deref()
+                .or_else(|| (self.shape == DataShape::Record).then_some(parameter.local_name.as_ref()));
             if let Some(label) = label {
                 fixed_by_label.insert(label.to_string(), parameter_index);
             }
@@ -183,7 +184,10 @@ impl DataConstructorShapeAdapter {
                                 parameter: expansion_parameter,
                                 label: label.into(),
                             })
-                        } else if matches!(expansion.mode, phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete) {
+                        } else if matches!(
+                            expansion.mode,
+                            phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete
+                        ) {
                             Some(DataConstructorArgumentRole::LabeledPack {
                                 parameter: expansion_parameter,
                                 label: label.into(),
@@ -242,9 +246,7 @@ impl DataConstructorShapeAdapter {
                 expansion.mode,
                 phalcom_ast::ast::ExpansionMode::Positional | phalcom_ast::ast::ExpansionMode::Complete
             );
-            let unbound = |indices: &[usize], bound: &[bool]| {
-                indices.iter().copied().filter(|index| !bound[*index]).collect::<Vec<_>>()
-            };
+            let unbound = |indices: &[usize], bound: &[bool]| indices.iter().copied().filter(|index| !bound[*index]).collect::<Vec<_>>();
             let prefix = unbound(&positional_prefix, &bound_fixed);
             let suffix = unbound(&positional_suffix, &bound_fixed);
 
@@ -272,7 +274,11 @@ impl DataConstructorShapeAdapter {
                     }
                 }
             } else {
-                let fixed_order = positional_prefix.into_iter().chain(positional_suffix).filter(|index| !bound_fixed[*index]).collect::<Vec<_>>();
+                let fixed_order = positional_prefix
+                    .into_iter()
+                    .chain(positional_suffix)
+                    .filter(|index| !bound_fixed[*index])
+                    .collect::<Vec<_>>();
                 let mut available = fixed_order.into_iter();
                 for &argument_index in &positional_arguments {
                     if let Some(parameter_index) = available.next() {
@@ -294,7 +300,8 @@ impl DataConstructorShapeAdapter {
         // Duplicate labels in expanded lanes are invalid pack/row shapes.
         let mut expanded_labels = std::collections::HashSet::<(TypeParameterId, Box<str>)>::new();
         for (argument_index, role) in roles.iter().enumerate() {
-            let Some(DataConstructorArgumentRole::LabeledPack { parameter, label } | DataConstructorArgumentRole::RecordField { parameter, label }) = role else {
+            let Some(DataConstructorArgumentRole::LabeledPack { parameter, label } | DataConstructorArgumentRole::RecordField { parameter, label }) = role
+            else {
                 continue;
             };
             if !expanded_labels.insert((*parameter, label.clone())) {
@@ -329,13 +336,9 @@ impl DataConstructorShapeAdapter {
             })
             .collect::<Vec<_>>();
         let expansion = self.expansion()?;
-        let mut positional_components = shape
-            .components
-            .iter()
-            .enumerate()
-            .filter_map(|(index, component)| {
-                (component.component.is_none() && component.label.is_none() && component.expansion_source == expansion.source).then_some(index as u32)
-            });
+        let mut positional_components = shape.components.iter().enumerate().filter_map(|(index, component)| {
+            (component.component.is_none() && component.label.is_none() && component.expansion_source == expansion.source).then_some(index as u32)
+        });
         let mut mapping = Vec::with_capacity(arguments.len());
         let mut seen = std::collections::HashSet::new();
         for role in roles {
@@ -346,14 +349,11 @@ impl DataConstructorShapeAdapter {
                     shape.components.iter().position(|candidate| candidate.component.as_ref() == Some(component))? as u32
                 }
                 DataConstructorArgumentRole::PositionalPack { .. } => positional_components.next()?,
-                DataConstructorArgumentRole::LabeledPack { label, .. } | DataConstructorArgumentRole::RecordField { label, .. } => shape
-                    .components
-                    .iter()
-                    .position(|candidate| {
-                        candidate.component.is_none()
-                            && candidate.label.as_deref() == Some(label.as_ref())
-                            && candidate.expansion_source == expansion.source
-                    })? as u32,
+                DataConstructorArgumentRole::LabeledPack { label, .. } | DataConstructorArgumentRole::RecordField { label, .. } => {
+                    shape.components.iter().position(|candidate| {
+                        candidate.component.is_none() && candidate.label.as_deref() == Some(label.as_ref()) && candidate.expansion_source == expansion.source
+                    })? as u32
+                }
             };
             if !seen.insert(component_index) {
                 return None;
@@ -364,11 +364,7 @@ impl DataConstructorShapeAdapter {
     }
 }
 
-fn data_expansion_parameter(
-    expansion: &crate::data_semantics::DataProductExpansionSemantic,
-    shape: DataShape,
-    store: &TypeStore,
-) -> Option<TypeParameterId> {
+fn data_expansion_parameter(expansion: &crate::data_semantics::DataProductExpansionSemantic, shape: DataShape, store: &TypeStore) -> Option<TypeParameterId> {
     let operand = expansion.operand.canonical_type()?;
     match (shape, store.get(operand)) {
         (DataShape::Tuple, TypeData::Parameter(parameter)) => Some(*parameter),
@@ -1148,7 +1144,10 @@ pub(crate) fn structural_list_index_set_target(ctx: &mut CheckingContext<'_>, re
         selector,
         vec![
             CallableParameter::new("index", TypeKnowledge::established(int_ty, EvidenceOrigin::DeclarationSemantics)),
-            CallableParameter::new("value", TypeKnowledge::established(element_ty.as_type_id()?, EvidenceOrigin::DeclarationSemantics)),
+            CallableParameter::new(
+                "value",
+                TypeKnowledge::established(element_ty.as_type_id()?, EvidenceOrigin::DeclarationSemantics),
+            ),
         ],
         TypeKnowledge::established(element_ty.as_type_id()?, EvidenceOrigin::DeclarationSemantics),
     );
@@ -1343,16 +1342,8 @@ fn apply_generic_callable_in_context(
     for &(parameter, ty) in fixed_generics {
         var_map.insert(parameter, InferenceTerm::Canonical(ty));
     }
-    let mut row_session = has_row_generics.then(|| {
-        GenericApplicationSession::new_for_query_context(
-            &domain_signatures,
-            ctx.store,
-            session_handle.clone(),
-            frame,
-            &var_map,
-            fixed_generics,
-        )
-    });
+    let mut row_session = has_row_generics
+        .then(|| GenericApplicationSession::new_for_query_context(&domain_signatures, ctx.store, session_handle.clone(), frame, &var_map, fixed_generics));
     if let Some(rows) = row_session.as_mut() {
         for parameter in signature.parameters.iter() {
             if let Some(ty) = parameter.ty.ty() {
@@ -1510,8 +1501,7 @@ fn apply_generic_callable_in_context(
                 let argument_typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
                 record_generic_argument_capture(ctx, &argument_typed);
                 let (expansion_parameter, record_field) = match &role {
-                    DataConstructorArgumentRole::PositionalPack { parameter }
-                    | DataConstructorArgumentRole::LabeledPack { parameter, .. } => {
+                    DataConstructorArgumentRole::PositionalPack { parameter } | DataConstructorArgumentRole::LabeledPack { parameter, .. } => {
                         (Some(*parameter), false)
                     }
                     DataConstructorArgumentRole::RecordField { parameter, .. } => (Some(*parameter), true),
@@ -1546,12 +1536,9 @@ fn apply_generic_callable_in_context(
                     Some(row_session.as_ref().map_or_else(
                         || session_handle.borrow().type_id_to_inference(ty, &std::collections::HashMap::new(), ctx.store),
                         |rows| {
-                            session_handle.borrow().type_id_to_inference_with_rows(
-                                ty,
-                                &std::collections::HashMap::new(),
-                                &rows.row_terms(),
-                                ctx.store,
-                            )
+                            session_handle
+                                .borrow()
+                                .type_id_to_inference_with_rows(ty, &std::collections::HashMap::new(), &rows.row_terms(), ctx.store)
                         },
                     ))
                 });
@@ -1566,11 +1553,15 @@ fn apply_generic_callable_in_context(
                         }
                         DataConstructorArgumentRole::LabeledPack { parameter, label } => {
                             expansion_terms.parameter = Some(parameter);
-                            expansion_terms.labeled.push(crate::checker::inference::InferenceLabeledTypePackElement { label, term });
+                            expansion_terms
+                                .labeled
+                                .push(crate::checker::inference::InferenceLabeledTypePackElement { label, term });
                         }
                         DataConstructorArgumentRole::RecordField { parameter, label } => {
                             expansion_terms.parameter = Some(parameter);
-                            expansion_terms.fields.push(crate::checker::row_inference::InferenceRecordField { name: label, term });
+                            expansion_terms
+                                .fields
+                                .push(crate::checker::row_inference::InferenceRecordField { name: label, term });
                         }
                         DataConstructorArgumentRole::Fixed { .. } => unreachable!(),
                     }
@@ -1763,7 +1754,8 @@ fn apply_generic_callable_in_context(
         let parameter_data = ctx.store.type_parameter(parameter);
         let mode_matches = match expansion.mode {
             phalcom_ast::ast::ExpansionMode::Positional => {
-                parameter_data.mode == crate::types::parameter::GenericParameterMode::PositionalPack && parameter_data.kind == crate::types::id::KindId::TYPE_PACK
+                parameter_data.mode == crate::types::parameter::GenericParameterMode::PositionalPack
+                    && parameter_data.kind == crate::types::id::KindId::TYPE_PACK
             }
             phalcom_ast::ast::ExpansionMode::Labeled if adapter.shape == DataShape::Record => {
                 parameter_data.mode == crate::types::parameter::GenericParameterMode::LabeledPack && parameter_data.kind == crate::types::id::KindId::RECORD_ROW
@@ -1807,11 +1799,9 @@ fn apply_generic_callable_in_context(
                         );
                     }
                 }
-                if let Err(failure) = rows.constrain_record_row_expansion(
-                    parameter,
-                    std::mem::take(&mut expansion_terms.fields),
-                    adapter.fixed_record_field_names(),
-                ) {
+                if let Err(failure) =
+                    rows.constrain_record_row_expansion(parameter, std::mem::take(&mut expansion_terms.fields), adapter.fixed_record_field_names())
+                {
                     record_row_constraint_failure(ctx, failure, call_range);
                 }
             } else {
@@ -1834,11 +1824,7 @@ fn apply_generic_callable_in_context(
             };
             if let Some(variable) = var_map.get(&parameter).cloned() {
                 let mut session = session_handle.borrow_mut();
-                for premise in expansion_terms
-                    .premises
-                    .iter()
-                    .filter(|premise| premise.parameter == parameter)
-                {
+                for premise in expansion_terms.premises.iter().filter(|premise| premise.parameter == parameter) {
                     session.record_required_premise(
                         &variable,
                         ConstraintOrigin::DataExpansionArgument {
@@ -1864,11 +1850,7 @@ fn apply_generic_callable_in_context(
                         );
                     }
                 }
-                session.add_constraint(
-                    InferenceRelation::Equivalent(variable, pack_term),
-                    ConstraintOrigin::Explicit,
-                    None,
-                );
+                session.add_constraint(InferenceRelation::Equivalent(variable, pack_term), ConstraintOrigin::Explicit, None);
             } else {
                 ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
             }
@@ -1881,17 +1863,17 @@ fn apply_generic_callable_in_context(
         .unwrap_or(crate::checker::inference::InferenceOutcome::Blocked(
             crate::types::outcome::BlockReason::RecursiveFixpoint,
         ));
-    let mut row_outcome = row_session.as_mut().map(|rows| {
-        ctx.control.relation(|budget, cancellation| rows.solve_rows_for_query(budget, cancellation))
-    });
+    let mut row_outcome = row_session
+        .as_mut()
+        .map(|rows| ctx.control.relation(|budget, cancellation| rows.solve_rows_for_query(budget, cancellation)));
     let previously_unsolved_rows = match row_outcome.as_ref() {
         Some(crate::types::row_solver::RecordRowSolveResult::Underconstrained(value)) => value.variables.to_vec(),
         _ => Vec::new(),
     };
     let mut row_pending_ancestor = match (row_session.as_ref(), row_outcome.as_ref()) {
-        (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution))) => {
-            return_term.as_ref().is_some_and(|term| rows.has_pending_ancestor_row_dependency(solution, term))
-        }
+        (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution))) => return_term
+            .as_ref()
+            .is_some_and(|term| rows.has_pending_ancestor_row_dependency(solution, term)),
         _ => false,
     };
     let argument_underconstrained = match &argument_outcome {
@@ -1958,7 +1940,9 @@ fn apply_generic_callable_in_context(
                         (row_session.as_ref(), row_outcome.as_ref())
                     {
                         if term_has_row_variables(return_term) {
-                            if let Ok(instantiation) = rows.build_instantiation_from_active_terms_in_query(&session_handle.borrow(), &var_map, row_solution, ctx.store) {
+                            if let Ok(instantiation) =
+                                rows.build_instantiation_from_active_terms_in_query(&session_handle.borrow(), &var_map, row_solution, ctx.store)
+                            {
                                 if let Some(ret_ty) = signature.return_type.ty() {
                                     crate::types::materialize_type(ctx.store, ret_ty, &instantiation, crate::types::RowMaterializationMode::RequireSolvedTail)
                                         .ok()
@@ -2020,9 +2004,9 @@ fn apply_generic_callable_in_context(
             }
         }
         row_pending_ancestor = match (row_session.as_ref(), row_outcome.as_ref()) {
-            (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution))) => {
-                return_term.as_ref().is_some_and(|term| rows.has_pending_ancestor_row_dependency(solution, term))
-            }
+            (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(solution))) => return_term
+                .as_ref()
+                .is_some_and(|term| rows.has_pending_ancestor_row_dependency(solution, term)),
             _ => false,
         };
         result
@@ -2198,12 +2182,7 @@ fn apply_generic_callable_in_context(
                     (code, generic_conflict_message(conflict))
                 }
             };
-            let mut diagnostic = SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                code,
-                message,
-                range,
-            );
+            let mut diagnostic = SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range);
             if let Some(owner) = ctx.current_callable.clone() {
                 diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(owner, explanation));
             }
@@ -2281,9 +2260,11 @@ fn apply_generic_callable_in_context(
 fn expected_type_contains_callable_payload(store: &TypeStore, ty: TypeId) -> bool {
     match store.get(ty) {
         TypeData::Callable(_) => true,
-        TypeData::Applied { arguments, .. } => arguments
-            .iter()
-            .any(|argument| argument.as_type_id().is_some_and(|argument| expected_type_contains_callable_payload(store, argument))),
+        TypeData::Applied { arguments, .. } => arguments.iter().any(|argument| {
+            argument
+                .as_type_id()
+                .is_some_and(|argument| expected_type_contains_callable_payload(store, argument))
+        }),
         TypeData::ExactCase { enum_type, .. } => expected_type_contains_callable_payload(store, *enum_type),
         _ => false,
     }
@@ -2849,7 +2830,9 @@ impl<'a> ParameterUseWalker<'a> {
             ScopedTypeData::RecordRow(row) => {
                 row.fields.iter().any(|field| self.visit_scoped_type(field.ty))
                     || match row.tail {
-                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } | ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+                        ScopedRecordRowTail::Closed
+                        | ScopedRecordRowTail::Bound { .. }
+                        | ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
                         ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => self.visit_type(ty),
                         ScopedRecordRowTail::FreeParameter(parameter) => self.parameters.contains(&parameter),
                         ScopedRecordRowTail::Projection(projection) => self.visit_type(projection),
@@ -3950,9 +3933,7 @@ pub(crate) fn apply_union_resolved_call(
                     crate::trait_dispatch::TraitDispatchTerminal::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
                     crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_)
                     | crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(_)
-                    | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => {
-                        TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
-                    }
+                    | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
                 };
                 let arm_status = match terminal {
                     crate::trait_dispatch::TraitDispatchTerminal::Blocked(reason) => Some(AnalysisStatus::Blocked(reason.clone())),
@@ -4070,9 +4051,7 @@ pub(crate) fn analyze_unresolved_application(
             crate::trait_dispatch::TraitDispatchTerminal::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
             crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_)
             | crate::trait_dispatch::TraitDispatchTerminal::CoherenceConflict(_)
-            | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => {
-                TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
-            }
+            | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
         },
     };
     let terminal_status = match &reason {
@@ -4429,11 +4408,11 @@ mod parameter_use_tests {
     use crate::declarations::DeclarationTypeTable;
     use crate::dispatch::{CallableParameter, CallableSignature};
     use crate::identity::{AssociatedStaticDomainDeclarationId, CallableId, DeclarationId, DispatchSide, ModuleId};
+    use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
     use crate::types::id::{KindId, TypeParameterId};
     use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
     use crate::types::row::RecordRowTail;
     use crate::types::store::{StaticArgument, TypeData, TypeStore};
-    use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
 
     fn owner(name: &str) -> DeclarationId {
         DeclarationId::new(ModuleId::universe_root(), name.into())
@@ -4470,11 +4449,16 @@ mod parameter_use_tests {
         let owner = owner("RowCarrier");
         let parameter_owner = TypeParameterOwner::Declaration(owner.clone());
         let parameter = store.intern_type_parameter(TypeParameterData::new(parameter_owner.clone(), 0, "R", KindId::RECORD_ROW));
-        let row_type = store.record_row_type_checked(Vec::new(), RecordRowTail::Parameter(parameter)).expect("open row type");
+        let row_type = store
+            .record_row_type_checked(Vec::new(), RecordRowTail::Parameter(parameter))
+            .expect("open row type");
         let selector = phalcom_common::selector::Selector::getter("value").expect("getter selector");
         let signature = CallableSignature::new(
             selector.clone(),
-            vec![CallableParameter::new("value", TypeKnowledge::established(row_type, EvidenceOrigin::CallableSignature))],
+            vec![CallableParameter::new(
+                "value",
+                TypeKnowledge::established(row_type, EvidenceOrigin::CallableSignature),
+            )],
             TypeKnowledge::established(row_type, EvidenceOrigin::CallableSignature),
         );
         let target = CallableApplicationTarget::exact(CallableId::new(owner.clone(), selector, DispatchSide::Instance), signature)
