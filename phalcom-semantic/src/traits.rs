@@ -193,7 +193,7 @@ pub struct InstantiatedTraitRequirement {
     pub default_callable: Option<CallableId>,
 }
 
-fn instantiate_declared_type_fact(store: &mut TypeStore, environment: &TypeEnvironment, fact: &DeclaredTypeFact) -> DeclaredTypeFact {
+pub(crate) fn instantiate_declared_type_fact(store: &mut TypeStore, environment: &TypeEnvironment, fact: &DeclaredTypeFact) -> DeclaredTypeFact {
     let Some(ty) = fact.canonical_type() else {
         return fact.clone();
     };

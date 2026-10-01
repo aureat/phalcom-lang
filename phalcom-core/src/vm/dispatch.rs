@@ -1266,14 +1266,7 @@ impl VM {
         let Some(callable) = callable else {
             return Err(RuntimeError::Internal("data component trait target requires projection lowering".into()).into());
         };
-        if let Some(&method) = self.detached_method_objects.get(callable) {
-            return Ok(method);
-        }
-        let selector = self.interner.intern(&callable.selector.encode());
-        receiver
-            .lookup_method(self, selector)
-            .ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")))
-            .map_err(Into::into)
+        self.resolve_conformance_method(callable, &callable.selector, receiver)
     }
 
     fn materialize_trait_environment(
@@ -1282,15 +1275,31 @@ impl VM {
         spec: &crate::modules::semantic_lowering::TraitInvocationSpec,
     ) -> PhResult<(crate::typing::RuntimeConformanceEnvironmentId, ObjRef)> {
         let type_environment = self.materialize_type_bindings(&spec.type_bindings)?;
-        let mut slots = vec![None; spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0)];
-        for (requirement, slot) in spec.requirement_slots.iter() {
-            if let Some(target) = spec.selection.requirement_targets.get(requirement) {
-                let method = self.trait_method_for_selection(receiver, target, &requirement.selector)?;
+        let max_req_slot = spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0);
+        let max_ant_slot = spec.antecedent_slots.iter().map(|(slot, _, _)| *slot as usize + 1).max().unwrap_or(0);
+        let mut slots = vec![None; max_req_slot.max(max_ant_slot)];
+
+        for (slot, target, selector) in spec.antecedent_slots.iter() {
+            let method = self.trait_method_for_selection(receiver, target, selector)?;
+            if (*slot as usize) < slots.len() {
                 slots[*slot as usize] = Some(crate::typing::RuntimeConformanceSlot {
                     method,
                     type_environment,
                     conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
                 });
+            }
+        }
+
+        for (requirement, slot) in spec.requirement_slots.iter() {
+            if let Some(target) = spec.selection.requirement_targets.get(requirement) {
+                let method = self.trait_method_for_selection(receiver, target, &requirement.selector)?;
+                if (*slot as usize) < slots.len() {
+                    slots[*slot as usize] = Some(crate::typing::RuntimeConformanceSlot {
+                        method,
+                        type_environment,
+                        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+                    });
+                }
             }
         }
         let environment = self

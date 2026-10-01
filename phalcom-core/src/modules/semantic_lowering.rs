@@ -434,6 +434,7 @@ pub struct TraitInvocationSpec {
     pub selection: phalcom_semantic::trait_dispatch::TraitDispatchSelection,
     pub requirement_slot: u16,
     pub requirement_slots: Box<[(phalcom_semantic::traits::TraitRequirementId, u16)]>,
+    pub antecedent_slots: Box<[(u16, phalcom_semantic::impls::RequirementSelectionTemplate, phalcom_common::selector::Selector)]>,
     /// Runtime bindings owned by the exact selected conformance/witness.
     /// These are projected from semantic evidence; the VM never reconstructs
     /// them from the receiver or from the selected method's class.
@@ -1278,8 +1279,8 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         }
 
         for lane in analysis.for_iteration_lanes.values() {
-            let iterator = project_for_iteration_requirement(&lane.iterator, &generic_evidence, &requirement_slots)?;
-            let next = project_for_iteration_requirement(&lane.next, &generic_evidence, &requirement_slots)?;
+            let iterator = project_for_iteration_requirement(&lane.iterator, &generic_evidence, &requirement_slots, snapshot)?;
+            let next = project_for_iteration_requirement(&lane.next, &generic_evidence, &requirement_slots, snapshot)?;
             if for_iteration_lanes
                 .insert(
                     lane.source_range,
@@ -1301,8 +1302,8 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
             }
         }
         for expansion in analysis.positional_expansions.values() {
-            let iterator = project_for_iteration_requirement(&expansion.iterator, &generic_evidence, &requirement_slots)?;
-            let next = project_for_iteration_requirement(&expansion.next, &generic_evidence, &requirement_slots)?;
+            let iterator = project_for_iteration_requirement(&expansion.iterator, &generic_evidence, &requirement_slots, snapshot)?;
+            let next = project_for_iteration_requirement(&expansion.next, &generic_evidence, &requirement_slots, snapshot)?;
             if positional_expansions
                 .insert(
                     expansion.source_range,
@@ -1342,24 +1343,42 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
 
             match expression.trait_dispatch.as_ref() {
                 Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) => {
-                    let Some(&requirement_slot) = requirement_slots.get(&selection.requirement) else {
+                    let Some(&raw_slot) = requirement_slots.get(&selection.requirement) else {
                         return Err(ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()));
                     };
+                    let callee_generic_evidence_len = snapshot
+                        .trait_headers
+                        .get(&selection.requirement.owner)
+                        .and_then(|h| h.generic_signature.as_ref())
+                        .and_then(|sig| {
+                            phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                                &sig.constraints,
+                                sig.owner.clone(),
+                                &snapshot.trait_surfaces,
+                            )
+                            .ok()
+                        })
+                        .map_or(0, |env| env.len() as u16);
+                    let requirement_slot = callee_generic_evidence_len + raw_slot;
+                    let req_slots = requirement_slots.iter().map(|(requirement, slot)| (requirement.clone(), callee_generic_evidence_len + *slot)).collect();
+                    let antecedent_slots = project_antecedent_slots(&selection.evidence, snapshot)?;
                     let site = LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::TraitInvoke);
                     trait_invocations.insert(
                         site,
                         TraitInvocationSpec {
                             selection: selection.clone(),
                             requirement_slot,
-                            requirement_slots: requirement_slots.iter().map(|(requirement, slot)| (requirement.clone(), *slot)).collect(),
+                            requirement_slots: req_slots,
+                            antecedent_slots,
                             type_bindings: Box::new([]),
                         },
                     );
                 }
                 Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::AbstractRequirement { requirement }) => {
-                    let Some(&requirement_slot) = requirement_slots.get(requirement) else {
+                    let Some(&raw_slot) = requirement_slots.get(requirement) else {
                         return Err(ProjectionError::MissingTraitRequirementSlot(requirement.clone()));
                     };
+                    let requirement_slot = (generic_evidence.len() as u16) + raw_slot;
                     let site = LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::TraitRequirementInvoke);
                     trait_requirement_invocations.insert(
                         site,
@@ -1498,13 +1517,15 @@ fn project_for_iteration_requirement(
     requirement: &phalcom_semantic::checker::ForIterationRequirementResolution,
     generic_evidence: &phalcom_semantic::generic_evidence::GenericEvidenceEnvironment,
     requirement_slots: &BTreeMap<phalcom_semantic::traits::TraitRequirementId, u16>,
+    snapshot: &SemanticSnapshot,
 ) -> Result<ForIterationRequirementSpec, ProjectionError> {
     match requirement {
         phalcom_semantic::checker::ForIterationRequirementResolution::AbstractRequirement { requirement, .. } => {
-            let requirement_slot = requirement_slots
+            let raw_slot = requirement_slots
                 .get(requirement)
                 .copied()
                 .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+            let requirement_slot = (generic_evidence.len() as u16) + raw_slot;
             Ok(ForIterationRequirementSpec::Requirement(TraitRequirementInvocationSpec {
                 requirement: requirement.clone(),
                 requirement_slot,
@@ -1544,14 +1565,31 @@ fn project_for_iteration_requirement(
                     selection,
                     requirement_targets: exact.requirements.clone(),
                 };
-                let requirement_slot = requirement_slots
+                let raw_slot = requirement_slots
                     .get(requirement)
                     .copied()
                     .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                let callee_generic_evidence_len = snapshot
+                    .trait_headers
+                    .get(&requirement.owner)
+                    .and_then(|h| h.generic_signature.as_ref())
+                    .and_then(|sig| {
+                        phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                            &sig.constraints,
+                            sig.owner.clone(),
+                            &snapshot.trait_surfaces,
+                        )
+                        .ok()
+                    })
+                    .map_or(0, |env| env.len() as u16);
+                let requirement_slot = callee_generic_evidence_len + raw_slot;
+                let req_slots = requirement_slots.iter().map(|(id, slot)| (id.clone(), callee_generic_evidence_len + *slot)).collect();
+                let antecedent_slots = project_antecedent_slots(evidence, snapshot)?;
                 Ok(ForIterationRequirementSpec::Selected(TraitInvocationSpec {
                     selection,
                     requirement_slot,
-                    requirement_slots: requirement_slots.iter().map(|(id, slot)| (id.clone(), *slot)).collect(),
+                    requirement_slots: req_slots,
+                    antecedent_slots,
                     type_bindings: Box::new([]),
                 }))
             }
@@ -1586,14 +1624,31 @@ fn project_for_iteration_requirement(
                     selection,
                     requirement_targets: derived.requirements().clone(),
                 };
-                let requirement_slot = requirement_slots
+                let raw_slot = requirement_slots
                     .get(requirement)
                     .copied()
                     .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                let callee_generic_evidence_len = snapshot
+                    .trait_headers
+                    .get(&requirement.owner)
+                    .and_then(|h| h.generic_signature.as_ref())
+                    .and_then(|sig| {
+                        phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                            &sig.constraints,
+                            sig.owner.clone(),
+                            &snapshot.trait_surfaces,
+                        )
+                        .ok()
+                    })
+                    .map_or(0, |env| env.len() as u16);
+                let requirement_slot = callee_generic_evidence_len + raw_slot;
+                let req_slots = requirement_slots.iter().map(|(id, slot)| (id.clone(), callee_generic_evidence_len + *slot)).collect();
+                let antecedent_slots = project_antecedent_slots(evidence, snapshot)?;
                 Ok(ForIterationRequirementSpec::Selected(TraitInvocationSpec {
                     selection,
                     requirement_slot,
-                    requirement_slots: requirement_slots.iter().map(|(id, slot)| (id.clone(), *slot)).collect(),
+                    requirement_slots: req_slots,
+                    antecedent_slots,
                     type_bindings: Box::new([]),
                 }))
             }
@@ -2573,29 +2628,189 @@ fn project_callable_reference_resolution(
     }
 }
 
+fn nominal_declaration_of_type(ty: TypeId, store: &TypeStore) -> Option<DeclarationId> {
+    match store.get(ty) {
+        TypeData::Nominal { declaration } => Some(declaration.clone()),
+        TypeData::Applied { origin, .. } => nominal_declaration_of_type(*origin, store),
+        TypeData::ClassObject { declaration } => Some(declaration.clone()),
+        _ => None,
+    }
+}
+
+fn project_antecedent_slots(
+    evidence: &phalcom_semantic::generic_evidence::GenericConformanceEvidence,
+    snapshot: &SemanticSnapshot,
+) -> Result<Box<[(u16, phalcom_semantic::impls::RequirementSelectionTemplate, phalcom_common::selector::Selector)]>, ProjectionError> {
+    match evidence {
+        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) => {
+            let nested_signature = match &derived.origin {
+                phalcom_semantic::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
+                    snapshot.conformance_witness_plans.get(&exact_source.source_impl).and_then(|plan| plan.generic_signature.as_ref())
+                }
+                phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, .. } => {
+                    Some(&rule.generic_signature)
+                }
+            };
+            let Some(nested_sig) = nested_signature else {
+                return Ok(Box::new([]));
+            };
+            let nested_layout = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                &nested_sig.constraints,
+                nested_sig.owner.clone(),
+                &snapshot.trait_surfaces,
+            )
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+
+            let mut antecedent_slots = Vec::new();
+            for (constraint, nested_item) in nested_sig.constraints.iter().zip(derived.nested.iter()) {
+                if let (
+                    phalcom_semantic::types::parameter::GenericConstraint::Conforms { subject, trait_ref },
+                    phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(nested_conformance),
+                ) = (constraint, nested_item) {
+                    let conformance_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(subject.clone(), trait_ref.clone());
+                    for (slot_key, target_slot) in nested_layout.layout().slots.iter() {
+                        if slot_key.conformance != conformance_key {
+                            continue;
+                        }
+                        let selection = match nested_conformance {
+                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(exact_ev) => {
+                                exact_ev.requirements.get(&slot_key.requirement).cloned()
+                            }
+                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived_ev) => {
+                                derived_ev.requirements().get(&slot_key.requirement).cloned()
+                            }
+                            _ => None,
+                        };
+                        if let Some(selection) = selection {
+                            antecedent_slots.push((*target_slot, selection, slot_key.requirement.selector.clone()));
+                        }
+                    }
+                }
+            }
+            Ok(antecedent_slots.into_boxed_slice())
+        }
+        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(exact) => {
+            let trait_sig = snapshot
+                .trait_headers
+                .get(&exact.exact_trait_ref.declaration)
+                .and_then(|h| h.generic_signature.as_ref());
+            let Some(trait_sig) = trait_sig else {
+                return Ok(Box::new([]));
+            };
+            let nested_layout = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                &trait_sig.constraints,
+                trait_sig.owner.clone(),
+                &snapshot.trait_surfaces,
+            )
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+
+            let mut antecedent_slots = Vec::new();
+            for constraint in trait_sig.constraints.iter() {
+                if let phalcom_semantic::types::parameter::GenericConstraint::Conforms { subject, trait_ref } = constraint {
+                    let conformance_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(subject.clone(), trait_ref.clone());
+                    let subject_type = match subject {
+                        phalcom_semantic::types::parameter::TypeTerm::Canonical(ty) => match snapshot.store.get(*ty) {
+                            phalcom_semantic::types::TypeData::AssociatedProjection(proj) => {
+                                exact.associated_types
+                                    .get(&proj.requirement)
+                                    .and_then(|binding| match binding.value {
+                                        phalcom_semantic::impls::AssociatedTypeBindingValue::Type(ty) => Some(ty),
+                                        phalcom_semantic::impls::AssociatedTypeBindingValue::Dynamic => None,
+                                    })
+                            }
+                            phalcom_semantic::types::TypeData::TypeMemberProjection(proj) => {
+                                let name = proj.selector.name();
+                                let assoc_id = snapshot
+                                    .trait_surfaces
+                                    .get(&exact.exact_trait_ref.declaration)
+                                    .and_then(|s| s.associated_type_by_name(name))
+                                    .map(|req| &req.requirement);
+                                assoc_id
+                                    .and_then(|id| exact.associated_types.get(id))
+                                    .and_then(|binding| match binding.value {
+                                        phalcom_semantic::impls::AssociatedTypeBindingValue::Type(ty) => Some(ty),
+                                        phalcom_semantic::impls::AssociatedTypeBindingValue::Dynamic => None,
+                                    })
+                            }
+                            _ => Some(*ty),
+                        },
+                        phalcom_semantic::types::parameter::TypeTerm::SelfType(_) => Some(exact.exact_target),
+                        _ => None,
+                    };
+
+                    if let Some(subject_ty) = subject_type {
+                        let subject_decl = nominal_declaration_of_type(subject_ty, &snapshot.store);
+
+                        let matching_plan = snapshot
+                            .conformance_index
+                            .iter()
+                            .find(|(_, contrib)| {
+                                &contrib.trait_ref.declaration == &trait_ref.declaration
+                                    && subject_decl.as_ref().is_some_and(|decl| contrib.target.declaration() == decl)
+                            })
+                            .and_then(|(impl_id, _)| snapshot.conformance_witness_plans.get(impl_id));
+
+                        for (slot_key, target_slot) in nested_layout.layout().slots.iter() {
+                            if slot_key.conformance != conformance_key {
+                                continue;
+                            }
+                            if let Some(plan) = matching_plan {
+                                if let Some(selection) = plan.requirements.get(&slot_key.requirement) {
+                                    antecedent_slots.push((*target_slot, selection.clone(), slot_key.requirement.selector.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(antecedent_slots.into_boxed_slice())
+        }
+        _ => Ok(Box::new([])),
+    }
+}
+
 fn project_trait_invocation_spec(
     selection: &phalcom_semantic::trait_dispatch::TraitDispatchSelection,
     snapshot: &SemanticSnapshot,
 ) -> Result<TraitInvocationSpec, ProjectionError> {
-    let mut requirement_slots = BTreeMap::new();
+    let mut default_requirement_slots = BTreeMap::new();
     for (_, surface) in snapshot.trait_surfaces.iter() {
         for (requirement, _) in surface.iter() {
-            requirement_slots.entry(requirement.clone()).or_insert(0u16);
+            default_requirement_slots.entry(requirement.clone()).or_insert(0u16);
         }
     }
-    let requirement_order = requirement_slots.keys().cloned().collect::<Vec<_>>();
+    let requirement_order = default_requirement_slots.keys().cloned().collect::<Vec<_>>();
     for (slot, requirement) in requirement_order.into_iter().enumerate() {
         let slot = u16::try_from(slot).map_err(|_| ProjectionError::SlotOverflow(slot))?;
-        requirement_slots.insert(requirement, slot);
+        default_requirement_slots.insert(requirement, slot);
     }
-    let Some(&requirement_slot) = requirement_slots.get(&selection.requirement) else {
+    let Some(&raw_slot) = default_requirement_slots.get(&selection.requirement) else {
         return Err(ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()));
     };
-    let requirement_slots = requirement_slots.into_iter().collect();
+    let callee_generic_evidence_len = snapshot
+        .trait_headers
+        .get(&selection.requirement.owner)
+        .and_then(|h| h.generic_signature.as_ref())
+        .and_then(|sig| {
+            phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                &sig.constraints,
+                sig.owner.clone(),
+                &snapshot.trait_surfaces,
+            )
+            .ok()
+        })
+        .map_or(0, |env| env.len() as u16);
+    let requirement_slot = callee_generic_evidence_len + raw_slot;
+    let requirement_slots = default_requirement_slots
+        .into_iter()
+        .map(|(req, slot)| (req, callee_generic_evidence_len + slot))
+        .collect();
+    let antecedent_slots = project_antecedent_slots(&selection.evidence, snapshot)?;
     Ok(TraitInvocationSpec {
         selection: selection.clone(),
         requirement_slot,
         requirement_slots,
+        antecedent_slots,
         type_bindings: Box::new([]),
     })
 }

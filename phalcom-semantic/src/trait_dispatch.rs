@@ -370,13 +370,13 @@ pub fn resolve_trait_evidenced_candidates(
         );
         match proof {
             GenericConformanceProof::Proven(evidence) => {
-                if let Some(candidate) = candidate_from_proof(evidence, receiver, &requirement) {
+                if let Some(candidate) = candidate_from_proof(evidence, receiver, &requirement, store) {
                     proven.push(candidate);
                 }
             }
             GenericConformanceProof::Ambiguous(evidences) => {
                 for evidence in evidences.into_vec() {
-                    if let Some(candidate) = candidate_from_proof(evidence, receiver, &requirement) {
+                    if let Some(candidate) = candidate_from_proof(evidence, receiver, &requirement, store) {
                         proven.push(candidate);
                     }
                 }
@@ -424,6 +424,7 @@ fn candidate_from_proof(
     evidence: GenericConformanceEvidence,
     exact_target: TypeId,
     requirement_id: &TraitRequirementId,
+    store: &mut TypeStore,
 ) -> Option<TraitEvidencedMemberCandidate> {
     let (source_impl, exact_trait_ref, requirement_views, selections) = match &evidence {
         GenericConformanceEvidence::Exact(exact) => (
@@ -449,7 +450,35 @@ fn candidate_from_proof(
     };
     let requirement = requirement_views.get(requirement_id)?;
     let selection = selections.get(requirement_id)?.clone();
-    let signature = requirement.signature.clone();
+    let signature = match &evidence {
+        GenericConformanceEvidence::Derived(derived) => match &derived.origin {
+            crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { exact_subject, .. } => {
+                let mut environment = crate::types::environment::TypeEnvironment::new();
+                for (&param, &ty) in derived.impl_bindings.bindings() {
+                    environment.bind_param(param, ty);
+                }
+                environment.bind_self(*exact_subject);
+                let mut sig = requirement.signature.clone();
+                sig.parameters = sig
+                    .parameters
+                    .into_vec()
+                    .into_iter()
+                    .map(|mut parameter| {
+                        parameter.declared_type = crate::traits::instantiate_declared_type_fact(store, &environment, &parameter.declared_type);
+                        parameter
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                sig.declared_return = crate::traits::instantiate_declared_type_fact(store, &environment, &sig.declared_return);
+                if let Some(inferred_return) = &mut sig.inferred_return {
+                    *inferred_return = inferred_return.map_type(|ty| crate::types::environment::TypeView::new(ty, environment.clone()).materialize(store));
+                }
+                sig
+            }
+            _ => requirement.signature.clone(),
+        },
+        _ => requirement.signature.clone(),
+    };
     let requirement_targets = selections.clone();
     let evidence_fingerprint = evidence_fingerprint(&evidence);
     let convergence = selection_convergence_key(&selection, evidence_fingerprint);

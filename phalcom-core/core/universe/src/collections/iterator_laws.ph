@@ -560,7 +560,7 @@ class ChainIterator<I, J> {
     _phase = 0
   }
 
-  next {
+  next -> Option<<I as Iterator>::Item> {
     if _phase == 2 { return None }
     if _phase == 0 {
       let step = _first.next
@@ -602,7 +602,7 @@ class SkipIterator<I> {
     _done = false
   }
 
-  next {
+  next -> Option<<I as Iterator>::Item> {
     if _done { return None }
     while _remaining > 0 {
       let step = _upstream.next
@@ -645,7 +645,7 @@ class SkipWhileIterator<I> {
     _done = false
   }
 
-  next {
+  next -> Option<<I as Iterator>::Item> {
     if _done { return None }
     while _stillSkipping {
       let step = _upstream.next
@@ -693,7 +693,7 @@ class TakeIterator<I> {
     _done = false
   }
 
-  next {
+  next -> Option<<I as Iterator>::Item> {
     if _done or _remaining <= 0 {
       _done = true
       return None
@@ -730,7 +730,7 @@ class TakeWhileIterator<I> {
     _done = false
   }
 
-  next {
+  next -> Option<<I as Iterator>::Item> {
     if _done { return None }
     let step = _upstream.next
     if step.isNone {
@@ -768,7 +768,7 @@ class MapWhileIterator<I, U> {
     _done = false
   }
 
-  next {
+  next -> Option<U> {
     if _done { return None }
     let step = _upstream.next
     if step.isNone {
@@ -807,7 +807,7 @@ class InspectIterator<I> {
     _done = false
   }
 
-  next {
+  next -> Option<<I as Iterator>::Item> {
     if _done { return None }
     let step = _upstream.next
     if step.isNone {
@@ -842,7 +842,7 @@ class StrictZipIterator<I, J> {
     _done = false
   }
 
-  next {
+  next -> Option<(<I as Iterator>::Item, <J as Iterator>::Item)> {
     if _done { return None }
     let leftStep = _left.next
     let rightStep = _right.next
@@ -882,7 +882,7 @@ class IndexedIterator<I> {
     _done = false
   }
 
-  next {
+  next -> Option<(Int, <I as Iterator>::Item)> {
     if _done { return None }
     let step = _upstream.next
     if step.isNone {

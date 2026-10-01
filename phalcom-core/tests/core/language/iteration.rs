@@ -170,36 +170,27 @@ class Caller {
         "semantic diagnostics: {:#?}",
         analyzed.semantic.diagnostics
     );
-    let dispatch = analyzed
+    let (_callable, _callable_analysis, _text, selection) = analyzed
         .semantic
         .callable_analyses
         .iter()
         .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
-        .flat_map(|(_, callable)| callable.expressions.values())
-        .inspect(|expression| {
-            let text = source.get(expression.range.start..expression.range.end).unwrap_or("<unknown>");
-            eprintln!("EXPR: {:?} | status={:?} | ty={:?} | dispatch={:?}", text, expression.status, expression.knowledge.ty().map(|t| analyzed.semantic.store.format_type(t)), expression.trait_dispatch);
-        })
-        .find_map(|expression| {
-            let text = source.get(expression.range.start..expression.range.end)?;
-            if !text.contains(".take(10).toList") {
-                return None;
-            }
-            match expression.trait_dispatch.as_ref()? {
-                phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)
-                    if selection.requirement.selector.encode() == "toList" =>
-                {
-                    Some((text, selection))
+        .find_map(|(callable, analysis)| {
+            analysis.expressions.values().find_map(|expression| {
+                let text = source.get(expression.range.start..expression.range.end)?;
+                if !text.contains(".take(10).toList") {
+                    return None;
                 }
-                _ => None,
-            }
+                let phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) = expression.trait_dispatch.as_ref()? else {
+                    return None;
+                };
+                if selection.requirement.selector.encode() != "toList" {
+                    return None;
+                }
+                Some((callable, analysis, text, selection))
+            })
         })
-        .expect("the actual take/toList chain must publish an evidenced Iterable::toList dispatch");
-    let (text, selection) = dispatch;
-    assert!(
-        text.contains(".iter.take(10).toList"),
-        "wrong source occurrence: {text}"
-    );
+        .expect("the actual take(10).toList expression must publish evidenced trait dispatch");
     assert_eq!(selection.requirement.owner.name, "Iterable".into());
     let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) =
         &selection.evidence

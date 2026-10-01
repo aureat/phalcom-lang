@@ -397,6 +397,14 @@ impl GenericEvidenceEnvironment {
         &self.layout
     }
 
+    pub fn len(&self) -> usize {
+        self.layout.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.layout.is_empty()
+    }
+
     pub fn assumed_conformance(&self, key: &GenericConformanceKey) -> Option<&AssumedConformanceEvidence> {
         self.conformances.get(key)
     }

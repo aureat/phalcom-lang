@@ -1439,11 +1439,25 @@ impl ProgramCompiler {
 
                                         let mut nested_slots = Vec::new();
                                         if is_trait_default {
+                                            let callee_generic_evidence_len = analyzed
+                                                .semantic
+                                                .trait_headers
+                                                .get(&slot_key.conformance.trait_ref.declaration)
+                                                .and_then(|h| h.generic_signature.as_ref())
+                                                .and_then(|sig| {
+                                                    phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                                                        &sig.constraints,
+                                                        sig.owner.clone(),
+                                                        &analyzed.semantic.trait_surfaces,
+                                                    )
+                                                    .ok()
+                                                })
+                                                .map_or(0, |env| env.len() as u16);
                                             // A selected default executes its own compiled
                                             // requirement slots. Populate that callee layout
                                             // from the already-proven sibling selections of
                                             // this derived conformance; antecedent evidence is
-                                            // a separate relation handled below for witnesses.
+                                            // populated below from nested proofs.
                                             for (requirement, default_selection) in evidence.requirements().iter() {
                                                 let default_slot = default_requirement_slots.get(requirement).copied().ok_or_else(|| {
                                                     ProgramCompileError::GenericEvidenceLayout(format!("missing default requirement slot for {requirement:?}"))
@@ -1468,7 +1482,7 @@ impl ProgramCompiler {
                                                         .map(|member| member.requirement.selector.clone())
                                                         .unwrap_or_else(|| default_callable.selector.clone());
                                                     nested_slots.push((
-                                                        default_slot,
+                                                        callee_generic_evidence_len + default_slot,
                                                         crate::typing::RuntimeConformanceSlotRecipe::Selection {
                                                             callable: default_callable,
                                                             selector: default_selector,
@@ -1477,7 +1491,8 @@ impl ProgramCompiler {
                                                     ));
                                                 }
                                             }
-                                        } else {
+                                        }
+                                        if !evidence.nested.is_empty() {
                                             let nested_signature = match &evidence.origin {
                                                 phalcom_semantic::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => analyzed
                                                     .semantic

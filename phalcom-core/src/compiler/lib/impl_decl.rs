@@ -443,6 +443,9 @@ impl<'vm> Compiler<'vm> {
         for selection in spec.selection.requirement_targets.values() {
             self.prepare_trait_selection_method(selection)?;
         }
+        for (_, selection, _) in spec.antecedent_slots.iter() {
+            self.prepare_trait_selection_method(selection)?;
+        }
         Ok(())
     }
 
