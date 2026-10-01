@@ -977,7 +977,7 @@ class Container<T> where T |= Printable {
 }
 class Runner {
   @class run() -> String {
-    let c = Container.new(User.new())
+    const c = Container.new(User.new())
     let first = c.show()
     c.combine(User.new())
   }
