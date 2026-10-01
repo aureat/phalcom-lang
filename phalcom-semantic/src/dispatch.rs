@@ -425,8 +425,11 @@ impl SurfaceDispatchResolver {
         for owner in self.dispatch_owners(hierarchy, start_decl, side) {
             visited.push(owner.declaration.clone());
             if let Some(surface) = self.surfaces.get(&owner.declaration) {
-                if let Some((callable_id, sig)) = surface.surface(owner.side).get_callable_for_selector(selector) {
-                    let callable_id = callable_id.clone();
+                if let Some(sig) = surface.get_callable(owner.side, selector) {
+                    let callable_id = surface
+                        .get_callable_id(owner.side, selector)
+                        .cloned()
+                        .unwrap_or_else(|| CallableId::new(owner.declaration.clone(), sig.selector.clone(), owner.side));
                     return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
                         callable: callable_id,
                         signature: sig.clone(),
@@ -471,8 +474,13 @@ impl SurfaceDispatchResolver {
     ) -> Option<CallableId> {
         for owner in self.dispatch_owners(hierarchy, start_decl, side) {
             if let Some(surface) = self.surfaces.get(&owner.declaration) {
-                if let Some(id) = surface.get_callable_id(owner.side, selector) {
-                    return Some(id.clone());
+                if let Some(sig) = surface.get_callable(owner.side, selector) {
+                    return Some(
+                        surface
+                            .get_callable_id(owner.side, selector)
+                            .cloned()
+                            .unwrap_or_else(|| CallableId::new(owner.declaration.clone(), sig.selector.clone(), owner.side)),
+                    );
                 }
             }
         }
