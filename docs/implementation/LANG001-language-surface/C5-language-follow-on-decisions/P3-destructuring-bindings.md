@@ -65,7 +65,7 @@ error, not a pattern failure — there is no `match` yet).
 | `phalcom-core/src/compiler/lib.rs` | Desugar: eval RHS → temp; for each sub-pattern emit an element read + bind; `*rest` → slice/drop of the tail into a `List`. **Contended** — serialize. |
 | `phalcom-core/tests/lang.rs` (+ fixtures) | Destructuring corpus (§6). |
 | `docs/decisions/00XX-destructuring-bindings.md` | New ADR (desugaring protocol + irrefutable semantics) — provisional number, grab next-free. |
-| `docs/spec/open-questions.md` Q7 + a short `destructuring.md` (or a §in a binding spec) | Flip Q7 to RESOLVED; document the desugaring. |
+| `../../../__unstructured__/spec/open-questions.md` Q7 + a short `destructuring.md` (or a §in a binding spec) | Flip Q7 to RESOLVED; document the desugaring. |
 
 ## 4. Design decision (architect-owned — realize, record in the ADR)
 - **Desugaring target = a positional element-read protocol.** `let (a,b) = t` compiles to

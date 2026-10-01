@@ -34,8 +34,8 @@ Key current files and observed blob SHAs:
 | `phalcom-lsp/src/semantic_tokens.rs` | `7d9fa9fcd7fbaa32bc6020e0a158f79fe2bec73c` | Lexer-driven semantic tokens; currently assumes single-line token ranges |
 | `phalcom-lsp/src/line_index.rs` | `c19013e6da85768bd5a7e162d60f0564e08b60bb` | UTF-8 byte ↔ UTF-16 LSP coordinate conversion |
 | `phalcom-repl/src/highlighter.rs` | `7b9ad255bba21adca5aa78be81790e8836397ff3` | Reuses lexer token boundaries for string coloring |
-| `docs/spec/current/syntax/lexical.md` | current `main` | Canonical lexical grammar; explicitly defers multiline strings |
-| `docs/spec/current/string-interpolation.md` | current `main` | Accepted interpolation semantics and source-range contract |
+| `../../../__unstructured__/spec/current/syntax/lexical.md` | current `main` | Canonical lexical grammar; explicitly defers multiline strings |
+| `../../../__unstructured__/spec/current/string-interpolation.md` | current `main` | Accepted interpolation semantics and source-range contract |
 | `docs/decisions/0029-string-literals-and-interpolation-completion.md` | `2ed757b491b7d6573d250d08da0a78d9e1af3624` | Explicitly defers multiline literals |
 | `docs/work/deferred/multiline-string-literals.md` | `b1ff8ac5d4168a2bfca2430545a1c0144934c315` | Deferred-design marker |
 | `docs/work/analyses/multiline-string-literals.md` | `1c4bc66110769e3f654d36b5978cb2229d4d82a5` | Existing analysis containing the now-approved semantics |
@@ -2143,8 +2143,8 @@ git commit -m "fix(lsp): encode multiline string semantic tokens"
 ## Task 8 — Update canonical specifications
 
 **Files**
-- Modify: `docs/spec/current/syntax/lexical.md`
-- Modify: `docs/spec/current/string-interpolation.md`
+- Modify: `../../../__unstructured__/spec/current/syntax/lexical.md`
+- Modify: `../../../__unstructured__/spec/current/string-interpolation.md`
 
 **Consumes:** accepted PDR + tested implementation.
 

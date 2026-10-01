@@ -32,7 +32,7 @@ _Note: F1/F3/F4 are **bugs in existing aligned code** — cheap, high-value pre-
 
 # Phase 2 — Implementation Plan
 
-_Philosophy (per orchestrator course-correction): the spec (`docs/spec/` + ADRs) is the
+_Philosophy (per orchestrator course-correction): the spec (`../../../__unstructured__/spec/` + ADRs) is the
 design source of truth. We build the **right** architecture to realize it — we are NOT
 constrained to keep the current Wren/clox substrate (arity dispatch, operators-as-opcodes,
 dynamic field maps, first-class `nil`, `Rc<RefCell>` + inert `MaybeWeak`). Where the current

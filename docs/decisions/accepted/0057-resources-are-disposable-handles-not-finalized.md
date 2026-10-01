@@ -279,7 +279,7 @@ pending byte count. Losing buffered writes and leaking a descriptor are differen
 different fixes, and a report that conflates them sends the reader to the wrong place.
 
 Full protocol, laws, and conformance harness:
-[`stream-protocol.md`](../../spec/current/stdlib/stream-protocol.md).
+[`stream-protocol.md`](../../__unstructured__/spec/current/stdlib/stream-protocol.md).
 
 Selector spellings follow [TDR-0011](./0011-selector-signature-encoding-and-dispatch.md)
 (comma form; `openWith(_, mode:)` is one selector with a labelled second parameter) and

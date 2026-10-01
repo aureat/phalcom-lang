@@ -526,7 +526,7 @@ Do not, in this task-set:
 
 The task is complete when:
 
-- `docs/spec/callables/` exists;
+- `../../../__unstructured__/spec/callables/` exists;
 - all six required files exist;
 - all files use the new hierarchy consistently;
 - all direct relationships are cross-linked;

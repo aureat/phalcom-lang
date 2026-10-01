@@ -71,7 +71,7 @@ Do not upgrade a draft architecture analysis into normative semantics. Re-inspec
 
 At the repository state inspected for this skill (main around commit `61dae3400ba810d8f709725974e3c51838762905`, 2026-08-15), **CURRENT** `phalcom-lsp/src/semantic/` contains a VM-free semantic database with module-qualified `ModuleId`, `ClassId`, `CallableId`, `FieldId`; lexical `BindingId`/scope machinery; source surfaces and occurrences; `ValueShape` and `InferredValue`; structured statement flow; callable summaries; module/dependency graphs; contribution-indexed parameter evidence; a mutable worker engine; and immutable published snapshots. `ValueShape` is explicitly documented as advisory runtime value knowledge, deliberately not a language type. The engine uses generations, candidate-state publication, cancellation checks, dependency frontiers, and copy-on-write `Arc` state. Treat these as strong existing infrastructure, not as a finished formal type system or proof engine.
 
-The draft `docs/spec/typing/optional-typing-architecture-analysis.md` explicitly labels itself a draft architecture analysis rather than an implementation commitment. It also documents that the current compiler remains dynamic-first and that future formal typing should be a separate domain sharing semantic infrastructure. Preserve that status distinction.
+The draft `../../../docs/__unstructured__/spec/typing/optional-typing-architecture-analysis.md` explicitly labels itself a draft architecture analysis rather than an implementation commitment. It also documents that the current compiler remains dynamic-first and that future formal typing should be a separate domain sharing semantic infrastructure. Preserve that status distinction.
 
 ## Operational workflow
 

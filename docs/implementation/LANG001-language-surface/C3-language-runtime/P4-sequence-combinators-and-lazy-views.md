@@ -245,7 +245,7 @@ iterate(iterator) {
 This means a `TakeSequence` instance is only *safely* iterable **once** — a second `for` over the same
 value silently returns the wrong (empty, or truncated-early) result, because `_taken` keeps counting
 from where the first traversal left off. That directly violates
-[collection-protocol.md](../../../spec/current/core/collection-protocol.md) **law 2 — deterministic
+[collection-protocol.md](../../../__unstructured__/spec/current/core/collection-protocol.md) **law 2 — deterministic
 iteration: "two traversals of an unmutated collection agree."** This is a known, real Wren gotcha, not
 a semantic worth reproducing — **the fix is to make `iterate` a pure function of its `cursor` argument**,
 carrying the running "taken so far" count *inside the cursor* rather than in instance state, using the

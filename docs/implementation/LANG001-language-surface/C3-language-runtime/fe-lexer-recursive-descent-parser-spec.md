@@ -54,4 +54,4 @@ Front end, all in `phalcom-ast/src` (`phalcom-core` compiler and every AST snaps
 - ADR: [TDR-0014](../../../decisions/accepted/0014-hand-written-lexer-and-recursive-descent-parser.md)
 - Code: `phalcom-ast/src/lexer.rs`, `phalcom-ast/src/token.rs`, `phalcom-ast/src/parser.rs`, `phalcom-ast/src/ast.rs`, `phalcom-ast/src/error.rs`; tests `phalcom-ast/tests/lexer.rs`, `phalcom-ast/tests/parser.rs`.
 - Forge: [STATE.md](../../archive/phase2/STATE.md) (Phase log; "U-FE follow-ups"); [PHASE2-INDEX.md](../../archive/phase2/PHASE2-INDEX.md).
-- Deferred: [deferred-work.md](../../../spec/current/deferred-work.md); [DEFERRED.md](../../DEFERRED.md) #12/#32.
+- Deferred: [deferred-work.md](../../../__unstructured__/spec/current/deferred-work.md); [DEFERRED.md](../../DEFERRED.md) #12/#32.

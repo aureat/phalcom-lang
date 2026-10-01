@@ -77,11 +77,11 @@ For repository work, orient from the current tree rather than assuming paths or
 structures are unchanged:
 
 1. `CLAUDE.md` / `../../../AGENTS-old.md` for repository layout and graphify rules.
-2. `docs/spec/current/` and relevant ADR/PDR/spec documents for normative behavior.
+2. `../../../docs/__unstructured__/spec/current/` and relevant ADR/PDR/spec documents for normative behavior.
 3. `phalcom-lsp/src/semantic/` for the current live semantic implementation.
 4. `phalcom-core/src/` for runtime/compiler behavior that semantics must describe.
 5. `phalcom-ast/src/` for the source representation and ranges the semantic layer consumes.
-6. `docs/spec/typing/` for typing proposals; distinguish ratified/current behavior from proposed design.
+6. `../../../docs/__unstructured__/spec/typing/` for typing proposals; distinguish ratified/current behavior from proposed design.
 
 If `graphify-out/graph.json` exists, query graphify before broad source scanning.
 Use structural queries for definitions/callers/impact, then inspect the actual source.

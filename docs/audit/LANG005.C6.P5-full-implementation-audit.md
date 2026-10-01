@@ -1086,7 +1086,7 @@ That is not true repository-wide.
 
 ### Current normative iteration spec is still entirely cursor-based
 
-`docs/spec/current/iteration.md` begins:
+`../__unstructured__/spec/current/iteration.md` begins:
 
 ```text
 Status: Normative
@@ -1124,7 +1124,7 @@ with `iterate` / `iteratorValue`.
 
 ### Spread specification is stale
 
-`docs/spec/collections/06-rest-spread-and-pack-operators.md` still says:
+`../__unstructured__/spec/collections/06-rest-spread-and-pack-operators.md` still says:
 
 ```text
 *   Tuple/Unit direct positional lane; otherwise Iterable cursor protocol
@@ -1732,9 +1732,9 @@ preserved.
 | Dynamic associated binding representation | `phalcom-semantic/src/impls.rs:472–480` |
 | normalization has no TypeId for Dynamic | `phalcom-semantic/src/types/projection.rs:109–115` |
 | active cursor corpus registration/comments | `phalcom-core/tests/core/language/corpus.rs` |
-| stale normative cursor spec | `docs/spec/current/iteration.md` |
+| stale normative cursor spec | `../__unstructured__/spec/current/iteration.md` |
 | stale collection guide | `docs/guide/collections.md` |
-| stale spread spec | `docs/spec/collections/06-rest-spread-and-pack-operators.md` |
+| stale spread spec | `../__unstructured__/spec/collections/06-rest-spread-and-pack-operators.md` |
 | final completion record | `docs/implementation/LANG005/LANG005.C6/LANG005.C6.P5-walkthrough.md` |
 | final handoff | `docs/implementation/LANG005/LANG005.C6/LANG005.C6.P5-handoff.md` |
 

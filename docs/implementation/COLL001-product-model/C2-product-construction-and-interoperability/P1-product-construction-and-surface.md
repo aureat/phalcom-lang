@@ -181,7 +181,7 @@ A dedicated raw Symbol lookup is unnecessary in this phase: `.ph` can scan the s
 
 No mutation primitive, generic constructor primitive, shape-reflection object, merge/update primitive, Map conversion primitive, or expansion primitive belongs here.
 
-Register these on `Record` and add a scoped primitive-floor amendment together with the Tuple lane changes. Update `docs/spec/current/core/floor-census.md` and the invariant test that verifies installed bindings. The implementation report must give the exact before/after binding count.
+Register these on `Record` and add a scoped primitive-floor amendment together with the Tuple lane changes. Update `../../../__unstructured__/spec/current/core/floor-census.md` and the invariant test that verifies installed bindings. The implementation report must give the exact before/after binding count.
 
 `Record` remains under `Object` in this spec. Do not define generic `iterate(_)` until a later protocol decision says what Record iteration yields. Encounter order is nevertheless fully preserved by `labelAt_`/`valueAt_` and will feed `**Record` in Spec F.
 

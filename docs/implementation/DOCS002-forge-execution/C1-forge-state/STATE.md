@@ -136,7 +136,7 @@ new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
     (compiles `Expr::MethodRef`, builds Family + reference-time empty-check). `finalize_all_core_base_names`
     in `VM::new` covers kernel rows w/ no `.ph` reopen. `ClassObject.base_names: HashMap<Symbol,Vec<Symbol>>`.
     Floor 112→113 (§2.16), invariants.rs `core_class_rows` 27→28 lockstep. Census real path =
-    `docs/spec/current/core/floor-census.md` (brief typo said docs/forge; no docs/forge/floor-census.md exists).
+    `../../../__unstructured__/spec/current/core/floor-census.md` (brief typo said docs/forge; no docs/forge/floor-census.md exists).
     6 goldens (`tests/lang/family/`, 5 pos + 1 negative-lane). Empty-check verified DNU-honoring live.
     **Reviewer APPROVE** (`a07b3f78`) — all 8 load-bearing checks PASS (single-dispatch, inheritance-flatten,
     DNU-honoring empty-check, floor +1 lockstep, two-opcode wiring, Value-minimality, lane-correct goldens,

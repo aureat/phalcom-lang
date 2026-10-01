@@ -439,7 +439,7 @@ A native implementation may occupy a public selector. `_$` means internal, not m
 
 ## 11. Update lexical specification
 
-`docs/spec/current/syntax/lexical.md` must document the prefix forms and reserved/malformed cases.
+`../../../__unstructured__/spec/current/syntax/lexical.md` must document the prefix forms and reserved/malformed cases.
 
 Explicitly state that `_` alone is the positional declaration marker, while `_name` is a field token.
 

@@ -69,7 +69,7 @@ source edit requires focused validation.
 Remove or correct every live reference to `ConstructStaticCollision`, including:
 
 - compiler comments and documentation;
-- `docs/spec/current/traceback/output-catalog.md`; and
+- `../../../__unstructured__/spec/current/traceback/output-catalog.md`; and
 - U-CTOR planning text that presents it as current behavior.
 
 Historical ADR/PDR text is provenance. Do not rewrite it unless it makes an

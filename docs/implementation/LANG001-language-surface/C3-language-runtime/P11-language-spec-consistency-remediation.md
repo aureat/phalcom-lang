@@ -313,7 +313,7 @@ append-only rule — even when a subclass declares a same-named `_field` (which 
 > `K`'s fields fill `[base_K, base_K + n_K)`. Layout is append-only — a subclass
 > never renumbers a superclass's slots — which is what keeps a method's compiled
 > offsets valid under inheritance and preserves stability under a future runtime
-> `superclass=` ([Q4](../../../spec/open-questions.md)) as long as re-parenting only
+> `superclass=` ([Q4](../../../__unstructured__/spec/open-questions.md)) as long as re-parenting only
 > appends. A subclass field sharing a superclass field's name occupies a distinct
 > slot (fields are private/non-inherited), so there is no aliasing.
 

@@ -561,7 +561,7 @@ boolean}.rs` (the native fns) · `phalcom-core/src/primitive/mod.rs` (`hash_code
 · `phalcom-core/core/core.ph` (`Object#isA`) · `phalcom-core/src/vm.rs` (SD-1 boot
 check only) · `phalcom-core/tests/invariants.rs` + `phalcom-core/tests/lang/**`
 (new/retired fixtures) · **docs applied in lockstep by the implementer**: the census
-delta in `docs/spec/current/core/floor-census.md` (73 → 80) — [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md) is already Accepted, so there is no ADR to draft.
+delta in `../../../../__unstructured__/spec/current/core/floor-census.md` (73 → 80) — [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md) is already Accepted, so there is no ADR to draft.
 
 ### 8.3 Traceability
 

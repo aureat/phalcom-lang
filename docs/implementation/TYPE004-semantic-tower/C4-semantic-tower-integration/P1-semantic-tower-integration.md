@@ -60,10 +60,10 @@ deferred_reason: null
 
 ## Documentation
 
-- Modify: `docs/spec/typing/ontology.md`
-- Modify: `docs/spec/typing/README.md`
-- Modify: `docs/spec/typing/STATUS.md`
-- Modify: `docs/spec/typing/02-type-expression-foundation.md`
+- Modify: `../../../__unstructured__/spec/typing/ontology.md`
+- Modify: `../../../__unstructured__/spec/typing/README.md`
+- Modify: `../../../__unstructured__/spec/typing/STATUS.md`
+- Modify: `../../../__unstructured__/spec/typing/02-type-expression-foundation.md`
 - Modify copied historical typing examples only to add supersession banners where current agents may read them.
 
 ## `phalcom-semantic`
@@ -167,10 +167,10 @@ Import-only or formatting-only churn is acceptable; behavioral changes are not.
 # Task 1: Freeze the Current Ontology and Remove Stale `Type`-Protocol Authority
 
 **Files:**
-- Modify: `docs/spec/typing/ontology.md`
-- Modify: `docs/spec/typing/README.md`
-- Modify: `docs/spec/typing/STATUS.md`
-- Modify: `docs/spec/typing/02-type-expression-foundation.md`
+- Modify: `../../../__unstructured__/spec/typing/ontology.md`
+- Modify: `../../../__unstructured__/spec/typing/README.md`
+- Modify: `../../../__unstructured__/spec/typing/STATUS.md`
+- Modify: `../../../__unstructured__/spec/typing/02-type-expression-foundation.md`
 
 **Interfaces:**
 - Consumes: ratified ontology and this implementation plan.

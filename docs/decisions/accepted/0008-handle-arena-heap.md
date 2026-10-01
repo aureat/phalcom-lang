@@ -49,10 +49,10 @@ index into the heap arena, not a pointer; dereferencing goes through the `Heap`.
   by construction, not patched.
 - **Inline-cache- and GC-ready.** Handles are stable keys, so they double as inline
   cache tags ([TDR-0011](./0011-selector-signature-encoding-and-dispatch.md)); the
-  arena is the natural home for a future tracing GC ([System §gc](../../spec/current/system.md)),
+  arena is the natural home for a future tracing GC ([System §gc](../../__unstructured__/spec/current/system.md)),
   which can compact and relocate without invalidating handles.
 - **Runtime hierarchy mutability stays open.** Because links are handles patched in
-  place, `superclass=` ([open question Q4](../../spec/current/open-questions.md)) remains
+  place, `superclass=` ([open question Q4](../../__unstructured__/spec/current/open-questions.md)) remains
   implementable without unwinding an ownership model.
 - Every dereference goes through the `Heap`, so hot paths thread a heap reference;
   this is the deliberate cost of removing pointer aliasing and it keeps object

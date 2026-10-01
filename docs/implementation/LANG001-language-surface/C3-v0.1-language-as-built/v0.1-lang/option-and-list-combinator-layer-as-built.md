@@ -49,7 +49,7 @@ Single file — `phalcom-core/core/core.ph`:
 
 ## Deviations & deferrals
 
-- **Option (B) scope, not the literal plan:** the plan's broad Object/Number/String/Symbol/System surface was already-landed or re-carved to the `docs/spec/current/core/` U-CORE-N track — the forge-index vs. `docs/spec/core` scope-taxonomy divergence is [DEFERRED #29](../../DEFERRED.md) (resolved for this unit via Option B).
+- **Option (B) scope, not the literal plan:** the plan's broad Object/Number/String/Symbol/System surface was already-landed or re-carved to the `../../../../__unstructured__/spec/current/core/` U-CORE-N track — the forge-index vs. `../../../../__unstructured__/spec/core` scope-taxonomy divergence is [DEFERRED #29](../../DEFERRED.md) (resolved for this unit via Option B).
 - **No element stringification** in any combinator — a general user-callable content `toString` does not exist yet (blocked on U-CORE-4); see [DEFERRED #19](../../DEFERRED.md).
 - **List-literal syntax `[a, b, c]` still deferred** (needs a new ADR + parser work) — [DEFERRED #6/#28](../../DEFERRED.md).
 - The `absence` label was **not** un-ignored (its `#[ignore]` reason is unrelated drift); `system()`/`system_pending()` untouched.

@@ -68,11 +68,11 @@ option is binding.
 
 Option OI-3A means updating these active surfaces:
 
-- `docs/spec/current/string-interpolation.md`;
-- `docs/spec/current/syntax/grammar.md`;
-- `docs/spec/current/syntax/lexical.md`;
-- `docs/spec/current/syntax/expressions.md`, if its interpolation summary needs the new escape/error wording;
-- `docs/spec/current/syntax/README.md`, if it indexes the canonical interpolation document; and
+- `../../../__unstructured__/spec/current/string-interpolation.md`;
+- `../../../__unstructured__/spec/current/syntax/grammar.md`;
+- `../../../__unstructured__/spec/current/syntax/lexical.md`;
+- `../../../__unstructured__/spec/current/syntax/expressions.md`, if its interpolation summary needs the new escape/error wording;
+- `../../../__unstructured__/spec/current/syntax/README.md`, if it indexes the canonical interpolation document; and
 - source comments in `phalcom-ast` that describe the old behavior.
 
 Accepted ADRs remain historical records. Do not rewrite their original decision

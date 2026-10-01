@@ -2930,7 +2930,7 @@ Before handing this body to an implementer, and again before P1 completion, revi
 ## 26.7 Approved documentation/specification deviation
 
 - [ ] no existing `time.md` file is treated as authority.
-- [ ] no P1 task edits `docs/spec/current/stdlib/time.md`.
+- [ ] no P1 task edits `../../../__unstructured__/spec/current/stdlib/time.md`.
 - [ ] no P1 task edits `docs/implementation/time.md`.
 - [ ] checkpoint records the explicit user deferral.
 - [ ] `P1-CV-50` is satisfied through plan/API/source-test agreement, with the stale-spec leg marked USER-DEFERRED.

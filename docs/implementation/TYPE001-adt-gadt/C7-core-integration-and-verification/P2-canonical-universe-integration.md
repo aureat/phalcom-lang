@@ -2447,7 +2447,7 @@ git commit -m "refactor(universe): delete legacy core and std machinery"
 
 **Files:**
 
-- Modify language/module specification docs under `docs/spec/`
+- Modify language/module specification docs under `../../../__unstructured__/spec/`
 - Modify current architecture docs under `docs/impl/`
 - Modify error documentation/tests
 - Do not rewrite historical documents as though old decisions never existed

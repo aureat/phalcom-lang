@@ -136,7 +136,7 @@ is worth more than the item itself. `math` is the natural first.
 
 **4. Timers moved last, and re-ranked to complexity 5.** Listed mid-order and reading like
 a small item — it is not. `System.sleep(_)` is documented **still open** in
-[`system.md`](../../spec/current/system.md), the scheduler is a bare ready-queue, and there is no
+[`system.md`](../../__unstructured__/spec/current/system.md), the scheduler is a bare ready-queue, and there is no
 reactor. A timer needs a completion source, integration with `VM::ready_queue`, and an
 answer to `open-questions.md` §15 on fairness. It *is* the blocking-vs-reactor fork (**S-2**)
 wearing a smaller name, and S-2 changes the **signatures** of items 7, 8, and 9 — `Result`
@@ -188,7 +188,7 @@ biggest debuggability win per unit of work in the whole program.
 
 These block specs, not implementations — a spec written before its ruling encodes the
 ruling by accident. Full text in
-[`stdlib-catalog.md` §Open questions](../../spec/design/drafts/stdlib-catalog.md#open-questions).
+[`stdlib-catalog.md` §Open questions](../../__unstructured__/spec/design/drafts/stdlib-catalog.md#open-questions).
 
 | Ruling | Blocks | Why it cannot be deferred |
 |---|---|---|
@@ -197,7 +197,7 @@ ruling by accident. Full text in
 | **S-3** are threads ever user-visible | S-2's implementation | Also changes the object model's mutability story and ADR-0050's root enumeration. Should precede S-2. |
 | **S-4** `Path` opaque or `String`-backed | 6 | `Object::Str` is UTF-8-enforced; `String`-paths cannot represent real POSIX filenames. |
 | **S-13** `process`/`os` as modules or blessed classes | 9, 14 | Module and blessed class are different mechanisms with different bootstrap-DAG consequences. Settle once for all Tier-3 surfaces. |
-| **S-7** does `System` remain the single effect receiver | 8, 9, 14 | [`system.md`](../../spec/current/system.md) §1's rule is "effects are named, not ambient". If `Fs`/`os` become plain globals, that property is lost in one commit. |
+| **S-7** does `System` remain the single effect receiver | 8, 9, 14 | [`system.md`](../../__unstructured__/spec/current/system.md) §1's rule is "effects are named, not ambient". If `Fs`/`os` become plain globals, that property is lost in one commit. |
 
 **S-1**, **S-2**, and **S-13** are the three that gate the most work. None is an
 engineering question.

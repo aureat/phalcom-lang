@@ -144,7 +144,7 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 
 ## 11. Performance, GC & benchmarking
 
-Tiered strategy per `docs/spec/current/performance.md` ("measure first") — `U-BENCH` gates
+Tiered strategy per `../../../__unstructured__/spec/current/performance.md` ("measure first") — `U-BENCH` gates
 everything else in this group; the rest can reorder based on what the baseline shows.
 
 - [x] **U-BENCH** — [plan](units/U-BENCH/bench-instruments.md) — `ebe9d97` Tier 0: Wren-suite reference programs + plan landed (perf harness binary itself still pending). Blocks every later perf tier.

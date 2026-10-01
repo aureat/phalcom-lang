@@ -41,15 +41,15 @@ This line prevents the worst diagnostic regression: an intentional missing imple
 
 ### 2.1 Existing decorator contract
 
-**[V]** Built decorators are Compile-tier AST transforms today. The registry is the name and target-legality gate; unknown built-in names fail as `attr.unknown`. The current expander interface mutates one member but cannot remove it; subtractive attributes therefore need a driver-owned pass. [V: [decorator index](../../spec/current/decorators/index.md), [native implementation rationale](../../spec/current/decorators/native.md)]
+**[V]** Built decorators are Compile-tier AST transforms today. The registry is the name and target-legality gate; unknown built-in names fail as `attr.unknown`. The current expander interface mutates one member but cannot remove it; subtractive attributes therefore need a driver-owned pass. [V: [decorator index](../../__unstructured__/spec/current/decorators/index.md), [native implementation rationale](../../__unstructured__/spec/current/decorators/native.md)]
 
-**[V]** `@native` and `@ignore` prove the required ordering rule: check target legality first, then drop before member derivation or body weaving. Otherwise an illegal target can vanish silently, or a later decorator can operate on a member that will disappear. [V: [native ordering](../../spec/current/decorators/native.md)]
+**[V]** `@native` and `@ignore` prove the required ordering rule: check target legality first, then drop before member derivation or body weaving. Otherwise an illegal target can vanish silently, or a later decorator can operate on a member that will disappear. [V: [native ordering](../../__unstructured__/spec/current/decorators/native.md)]
 
-**[V]** Method, getter, and setter are different declaration kinds. In particular, `toString` and `toString()` are different selectors. A status attribute whose invariant compares selectors must retain selector kind, labels, and arity rather than compare printed names. [V: [native legality](../../spec/current/decorators/native.md)]
+**[V]** Method, getter, and setter are different declaration kinds. In particular, `toString` and `toString()` are different selectors. A status attribute whose invariant compares selectors must retain selector kind, labels, and arity rather than compare printed names. [V: [native legality](../../__unstructured__/spec/current/decorators/native.md)]
 
-**[V]** Attribute arguments currently have a registry-wide validation hole: existing no-argument built-ins accept and discard arguments. New status attributes must specify argument arity and get a shared validation mechanism; silently accepting `@abstract("why")` is not an acceptable permanent contract. [V: [native legality](../../spec/current/decorators/native.md)]
+**[V]** Attribute arguments currently have a registry-wide validation hole: existing no-argument built-ins accept and discard arguments. New status attributes must specify argument arity and get a shared validation mechanism; silently accepting `@abstract("why")` is not an acceptable permanent contract. [V: [native legality](../../__unstructured__/spec/current/decorators/native.md)]
 
-**[V]** Constructor declarations cannot carry attributes in the present grammar, despite some registry target lists naming `Construct`; the parser rejects the attachment first. New specs must say “unavailable in current syntax,” not claim constructor support from a future-facing target table. [V: [native legality](../../spec/current/decorators/native.md), [ignore legality](../../spec/current/decorators/ignore.md)]
+**[V]** Constructor declarations cannot carry attributes in the present grammar, despite some registry target lists naming `Construct`; the parser rejects the attachment first. New specs must say “unavailable in current syntax,” not claim constructor support from a future-facing target table. [V: [native legality](../../__unstructured__/spec/current/decorators/native.md), [ignore legality](../../__unstructured__/spec/current/decorators/ignore.md)]
 
 ### 2.2 Design axes and hazards
 
@@ -148,7 +148,7 @@ Steps 4–9 are semantic phases, not a promise about one Rust function. The orde
 
 ## 4. `@native`: ratify and close its existing gaps
 
-**[V]** Existing meaning is sound: a `.ph` member is a navigation/documentation anchor for a Rust primitive; the compiler drops it and does not install or protect a binding. Bootstrap owns the live binding. [V: [native semantics](../../spec/current/decorators/native.md)]
+**[V]** Existing meaning is sound: a `.ph` member is a navigation/documentation anchor for a Rust primitive; the compiler drops it and does not install or protect a binding. Bootstrap owns the live binding. [V: [native semantics](../../__unstructured__/spec/current/decorators/native.md)]
 
 ### Required contract
 
@@ -294,7 +294,7 @@ The wire format is illustrative; stable field names and sort order need the owni
 | `@unimplemented` | Stub is discoverable and raises `UnimplementedError`; it is not DNU; body is rejected; it cannot falsely satisfy an abstract obligation. |
 | `@todo` | Stable extraction ordering; class/member target records; records survive `@ignore`/`@native`; identical runtime output/bytecode with and without TODO. |
 
-Every test lane should include a mutation check proving the harness notices a wrong expected result, following current decorator-fixture practice. [V: [native test strategy](../../spec/current/decorators/native.md), [ignore test strategy](../../spec/current/decorators/ignore.md)]
+Every test lane should include a mutation check proving the harness notices a wrong expected result, following current decorator-fixture practice. [V: [native test strategy](../../__unstructured__/spec/current/decorators/native.md), [ignore test strategy](../../__unstructured__/spec/current/decorators/ignore.md)]
 
 ---
 
@@ -340,8 +340,8 @@ Until these are answered, this document recommends no code changes.
 | Source | Use | First-hand? |
 |---|---|---:|
 | Graphify query/explain over `graphify-out/graph.json` | Located decorator surface, `@native` sections, attribute compiler relationships, and current source nodes without broad repository exploration. | Yes |
-| [Decorators index](../../spec/current/decorators/index.md) | Built tiers, order, registry limits, and subtractive-attribute boundary. | Yes |
-| [`@native`](../../spec/current/decorators/native.md) | Existing anchor semantics, legality, ordering, bootstrap invariant gap, hazards, and open questions. | Yes |
-| [`@ignore`](../../spec/current/decorators/ignore.md) | Sole sanctioned drop semantics, legality-first rule, and collision precedent. | Yes |
+| [Decorators index](../../__unstructured__/spec/current/decorators/index.md) | Built tiers, order, registry limits, and subtractive-attribute boundary. | Yes |
+| [`@native`](../../__unstructured__/spec/current/decorators/native.md) | Existing anchor semantics, legality, ordering, bootstrap invariant gap, hazards, and open questions. | Yes |
+| [`@ignore`](../../__unstructured__/spec/current/decorators/ignore.md) | Sole sanctioned drop semantics, legality-first rule, and collision precedent. | Yes |
 
 No external source, implementation file, or unrelated specification was used. Recalled precedents in §2.3 are marked `[R]`.

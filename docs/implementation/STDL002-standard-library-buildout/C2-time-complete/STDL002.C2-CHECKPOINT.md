@@ -79,7 +79,7 @@ Durable planning facts now established:
 6. P2 may not execute production work beyond its takeover task until a completed P1 walkthrough/handoff exists and is consumed.
 7. LANG006 is the current authority for implementation kind and visibility mechanics: `Phalcom` / `Native` / `Foreign`, lexical identity-based visibility, and metadata-only `@primitive` / `@intrinsic`.
 8. Older C2/P1 wording that described `primitive` as a declaration implementation kind is superseded by the approved C2 amendment in §23.
-9. Existing `docs/spec/current/stdlib/time.md`, `docs/implementation/time.md`, and other prior `time.md` material are stale, excluded from semantic authority, and must not be read, edited, rehabilitated, or used as a completion gate during P1/P2 unless explicitly re-enabled later.
+9. Existing `../../../__unstructured__/spec/current/stdlib/time.md`, `docs/implementation/time.md`, and other prior `time.md` material are stale, excluded from semantic authority, and must not be read, edited, rehabilitated, or used as a completion gate during P1/P2 unless explicitly re-enabled later.
 10. The public implementation must remain ordinary Phalcom first; Rust/provider code is restricted to explicit Native boundaries and host facts.
 
 > Re-read named live source paths before editing. Adapt mechanical drift locally. Treat architectural drift as an escalation condition. Do not use stale time specifications to fill design gaps.

@@ -290,7 +290,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 
 ## Spec coverage
 
-Every document in `docs/spec/` maps to at least one label:
+Every document in `../../../../docs/__unstructured__/spec/` maps to at least one label:
 
 | Spec doc | Labels |
 |---|---|

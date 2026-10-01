@@ -86,7 +86,7 @@ class Object {
   only if a field is genuinely missing.
 - `phalcom-core/core/core.ph` — `is`/`isExactly` added, `isA` → alias.
 - `phalcom-core/tests/` — goldens + graduate any pending is-test fixture.
-- `docs/spec/current/is-tests.md` — mark surface IMPLEMENTED; `docs/forge/units/README.md` +
+- `../../../__unstructured__/spec/current/is-tests.md` — mark surface IMPLEMENTED; `docs/forge/units/README.md` +
   DEFERRED/STATE as the index requires.
 - **Floor: +0** (pure parser desugar + `.ph` methods over the floor; no native primitive). If a
   primitive turns out needed → STOP-and-report per TDR-0017.

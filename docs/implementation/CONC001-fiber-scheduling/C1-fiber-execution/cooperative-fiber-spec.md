@@ -38,7 +38,7 @@
 
 ## 1. Surface
 
-*Deepens [`concurrency.md`](../../../spec/current/concurrency.md) §1.* `Fiber` is an
+*Deepens [`concurrency.md`](../../../__unstructured__/spec/current/concurrency.md) §1.* `Fiber` is an
 independently-suspendable call stack — the **sole** concurrency primitive. Both the
 instance and class sides are ordinary metaclass methods (ADR-0030 §Consequences, D6).
 
@@ -47,7 +47,7 @@ instance and class sides are ordinary metaclass methods (ADR-0030 §Consequences
 | Signature | Side | Meaning |
 |---|---|---|
 | `@constructor
-new(_)` | class | wrap a [`Function`](../../../spec/current/functions.md) as a not-yet-started (`suspended`) fiber |
+new(_)` | class | wrap a [`Function`](../../../__unstructured__/spec/current/functions.md) as a not-yet-started (`suspended`) fiber |
 | `call` / `call(_)` | instance | resume; the argument becomes the value of the suspended `yield` (or the entry's parameter on first resume). Returns the next yielded/returned value. **Re-raises** if the fiber fails. |
 | `try` / `try(_)` | instance | like `call`, but a failure yields the captured `Error` value (or `None`) instead of propagating |
 | `isDone` | instance | `true` once `done` or `failed` |
@@ -149,9 +149,9 @@ never `done`/`failed` under normal termination and has no resumer.
 
 ## 3. Execution model — restricted yield (Option A)
 
-*Deepens [`concurrency.md`](../../../spec/current/concurrency.md) §1 "Execution model";
+*Deepens [`concurrency.md`](../../../__unstructured__/spec/current/concurrency.md) §1 "Execution model";
 grounded in [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §4
-and [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §7.2.*
+and [`forward-compat.md`](../../../__unstructured__/spec/current/core/forward-compat.md) §7.2.*
 
 ### 3.1 The crown-jewel hazard — native-stack frames ⊗ suspendable control {#the-crown-jewel}
 
@@ -269,7 +269,7 @@ boundary raises `DeadFrameError`." **This falls out with no new code**, provided
 ## 5. Failure and the fiber-floor unwind
 
 *Grounded in [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §6,
-[`forward-compat.md`](../../../spec/current/core/forward-compat.md) §7.1 D7,
+[`forward-compat.md`](../../../__unstructured__/spec/current/core/forward-compat.md) §7.1 D7,
 [TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md), and the landed U-CORE-6
 unwind.*
 
@@ -368,7 +368,7 @@ land ([LANG001 iteration protocol](../../../lang/LANG001-language-surface/C3-lan
 ### 7.2 `Fiber` ⊗ `Future` — the resumer/result-slot seam (with [Future library](../C4-future-library/future-library-spec.md)) {#future-seam}
 
 *Cross-links [Future library §The Fiber seam](../C4-future-library/future-library-spec.md#the-fiber-seam);
-[`concurrency.md`](../../../spec/current/concurrency.md) §2; ADR-0030 §1.*
+[`concurrency.md`](../../../__unstructured__/spec/current/concurrency.md) §2; ADR-0030 §1.*
 
 `Future`/`async`/`await` are a **Deferred post-v0.2 track** ([Future library](../C4-future-library/future-library-spec.md)),
 **not** built here. But U-FIBER must leave them layerable: `await` will be defined as "add

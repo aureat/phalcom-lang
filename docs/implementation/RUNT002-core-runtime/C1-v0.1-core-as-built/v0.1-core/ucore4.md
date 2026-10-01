@@ -539,7 +539,7 @@ committing; `list_to_string_renders_brackets` (numbers only) and the two
 ### 4.4 Invariants this unit adds — all **corpus** (`tests/invariants.rs`, "C")
 
 Per invariant-requirements §4 (re-confirmed unchanged this pass — R-INV-4.1–4.4
-still exact at `docs/spec/current/core/invariant-requirements.md` §4, "U-CORE-4 —
+still exact at `../../../../__unstructured__/spec/current/core/invariant-requirements.md` §4, "U-CORE-4 —
 value classes"), U-CORE-4 rows are all corpus (behavioral) — none go in
 `verify_invariants` (boot). `tests/invariants.rs` currently defines R-INV-0.x
 (L532+) and R-INV-1.x (L749+, U-CORE-1); R-INV-4.x does not exist yet — this

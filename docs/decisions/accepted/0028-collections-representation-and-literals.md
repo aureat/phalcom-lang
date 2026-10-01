@@ -53,7 +53,7 @@ primitives were. **Combinators (`map`/`filter`/`reduce`/…) stay `.ph`.**
 
 ### 2. Shared protocol + laws are binding
 
-All four satisfy the [collection-protocol](../../spec/current/core/collection-protocol.md)
+All four satisfy the [collection-protocol](../../__unstructured__/spec/current/core/collection-protocol.md)
 (already Normative): totality, deterministic iteration, structural `==`, and
 **hashability-iff-immutable**. Concretely (decisions.md Q5): `List`/`Map`/`Set` are
 mutable ⇒ **identity `hash`, not valid `Map`/`Set` keys**; `Tuple`/`Range` are
@@ -101,7 +101,7 @@ as ADR-0029 established for `List`).
 
 The operator literals are **reserved and inactive**, but their meaning is
 **committed** so activation later is not a fresh decision (RG-1/RG-2 of
-[tuple-and-range.md](../../spec/current/stdlib/tuple-and-range.md)):
+[tuple-and-range.md](../../__unstructured__/spec/current/stdlib/tuple-and-range.md)):
 
 - `a..b` — **inclusive** of `b`; `a...b` — **exclusive** of `b`.
 - `Range` is **lazy** — `each` generates `a, a+1, …`; no element allocation;

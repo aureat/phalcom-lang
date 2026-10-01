@@ -1121,7 +1121,7 @@ The implementer may adapt:
 
 | Assumption | Verify at | If false |
 |---|---|---|
-| fields remain private/non-inherited-visible | `docs/spec/current/classes.md`, field resolver/compiler | STOP if semantics changed; do not add superclass scan casually |
+| fields remain private/non-inherited-visible | `../../../__unstructured__/spec/current/classes.md`, field resolver/compiler | STOP if semantics changed; do not add superclass scan casually |
 | field semantic signatures expose mutability + declared type | `signature.rs` | adapt mechanically if equivalent canonical product moved |
 | conformance-owned bodies can resolve exact target field owner | `checker/body.rs`, C4 conformance body setup | if categorically false for semantic reasons, STOP AND CONSULT before restricting `via` |
 | C4 exact conformance environment can materialize impl parameter forms | `impls.rs`, `types/environment.rs` | STOP if a new generic proof mechanism seems required |

@@ -60,7 +60,7 @@ No path becomes authoritative merely because this manifest calls it a candidate.
 | `design/{bound-callable-unification,bytes,fiber-ensure-and-limits,iteration-protocol,scheduler-unit}.md` | D | `design/proposals/` | Future or unresolved design work. |
 | `design-notes/**` | D | `design/research/` | Technique and feasibility notes, not a language contract. |
 
-## Specification sources outside `docs/spec/`
+## Specification sources outside `../../__unstructured__/spec/`
 
 | Source | Mark | Destination or action | Reason |
 |---|:--:|---|---|
@@ -68,9 +68,9 @@ No path becomes authoritative merely because this manifest calls it a candidate.
 | `docs/forge/spec-status.md`, `docs/forge/STATE.md`, `docs/forge/UNITS-TRACKER.md`, `docs/forge/DEFERRED.md`, `docs/forge/units/**` | I | `docs/implementation/{status,roadmap,as-built}/` | Execution state, unit plans, and implementation evidence. |
 | `docs/forge/archive/**`, `docs/work/completed/**`, `docs/work/logs/**` | A | `docs/archive/{forge,work}/` | Closed-phase, completed, and historical records. |
 | `docs/work/pending/**`, `docs/work/deferred/**`, `docs/work/testing/**` | I | `docs/implementation/roadmap/` and `docs/implementation/verification/` | Active plans and verification design. |
-| `docs/work/analyses/**`, `docs/theory/**`, `docs/learn/**` | D | `docs/design/research/` | Analysis, theory, and learning material. |
+| `docs/work/analyses/**`, `../../__unstructured__/theory/**`, `docs/learn/**` | D | `docs/design/research/` | Analysis, theory, and learning material. |
 | `docs/guide/**` | D | `docs/guide/` | User guide derived from spec; it is neither a decision record nor a specification source. |
-| `docs/apps/**`, `docs/visualization/**` | D | `docs/projects/` | Product-specific documentation, outside language authority. |
+| `docs/apps/**`, `../../__unstructured__/visualization/**` | D | `docs/projects/` | Product-specific documentation, outside language authority. |
 | `docs/drafts.md` | A | `docs/archive/spec-reorg-2026-08/drafts.md` | Unstructured scratch material. |
 | `docs/archive/**` | A | Preserve in place until archive normalization pass. | Already historical; do not churn before replacement references exist. |
 
@@ -103,10 +103,10 @@ is complete.
 
 ### 2026-08-08 — Numeric module
 
-- `docs/spec/numerical/README.md` and its five public chapters moved to
-  `docs/spec/library/numbers/`.
-- `docs/spec/numerical/conformance.md` moved to
-  `docs/spec/conformance/numbers.md`.
+- `../../__unstructured__/spec/numerical/README.md` and its five public chapters moved to
+  `../../__unstructured__/spec/library/numbers/`.
+- `../../__unstructured__/spec/numerical/conformance.md` moved to
+  `../../__unstructured__/spec/conformance/numbers.md`.
 - `implementation.md` and `migration.md` moved to
   `docs/implementation/roadmap/` as non-normative landing records.
 - Rewrote live numeric references in PDR, current-spec, work, and transition
@@ -116,8 +116,8 @@ is complete.
 
 ### 2026-08-08 — Standard-library build program
 
-- `docs/spec/current/stdlib/index.md` moved to
+- `../../__unstructured__/spec/current/stdlib/index.md` moved to
   `docs/implementation/roadmap/stdlib-program.md`.
 - Rewrote its links to the actual draft and current-spec sources.
 - No public standard-library contract moved or changed; those chapters remain
-  candidates for later reconciliation into `docs/spec/library/`.
+  candidates for later reconciliation into `../../__unstructured__/spec/library/`.

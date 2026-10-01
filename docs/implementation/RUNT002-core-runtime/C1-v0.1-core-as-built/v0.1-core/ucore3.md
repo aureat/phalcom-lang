@@ -470,7 +470,7 @@ they need the arm.
   `block_arity`/`block_name` Method+BoundMethod arms; `resolve_callable` error msg.
 - `phalcom-core/src/primitive/mod.rs` — `expect_method` helper.
 - `phalcom-core/tests/` — the unit-local fixture + invariant corpus (§4).
-- `docs/spec/current/core/floor-census.md` — re-baseline (80 → 85); `docs/decisions/00NN` — the
+- `../../../../__unstructured__/spec/current/core/floor-census.md` — re-baseline (80 → 85); `docs/decisions/00NN` — the
   ADR-0019 amendment. **`core.ph` is NOT modified.**
 
 ---

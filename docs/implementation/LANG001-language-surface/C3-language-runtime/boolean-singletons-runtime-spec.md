@@ -92,4 +92,4 @@ System.print(true.ifTrue { 42 }.isSome) // → true   (U-CORE-2 Some-lift surviv
 - Forge: `U11-implementation-spec.md`, `U11-plan.md` (folded into this spec; see git history), [STATE.md](../../archive/phase2/u0-state.md) "U11 — LANDED".
 - Commits `23cafe2`, `96b440c`, `c0e1066`.
 - Code: `phalcom-core/src/{value,universe,vm}.rs`, `phalcom-core/src/primitive/mod.rs`,
-  `core/core.ph`; docs `docs/spec/object-model.md` §3/§4.
+  `core/core.ph`; docs `../../../__unstructured__/spec/object-model.md` §3/§4.

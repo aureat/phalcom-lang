@@ -72,8 +72,8 @@ RECOMMENDATION
 
 At the repository checkpoint inspected while this skill was deepened (2026-08-14):
 
-- `docs/spec/typing/01-core-type-lattice-and-unit.md` is marked a normative design specification and fixes major laws for `Never`, `()`, `Option`, `Any`, `Dynamic`, and ordinary return behavior.
-- `docs/spec/typing/02-type-expression-foundation.md` and `03-type-parameters-and-generic-signatures.md` explicitly say "Proposed normative design; not a claim of current compiler or VM support" even though the status series records Documents 01–03 as completed design work.
+- `../../../docs/__unstructured__/spec/typing/01-core-type-lattice-and-unit.md` is marked a normative design specification and fixes major laws for `Never`, `()`, `Option`, `Any`, `Dynamic`, and ordinary return behavior.
+- `../../../docs/__unstructured__/spec/typing/02-type-expression-foundation.md` and `03-type-parameters-and-generic-signatures.md` explicitly say "Proposed normative design; not a claim of current compiler or VM support" even though the status series records Documents 01–03 as completed design work.
 - Later documents for applied types, substitution, complete subtype/consistency/acceptance relations, variance validation, inference, structural conformance, callables, aliases/intersections, checker modes, and tooling are planned/deferred in that series.
 
 Treat these as a **status-reading example**, not a timeless snapshot. Re-read the repository before implementation.

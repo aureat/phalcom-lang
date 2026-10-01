@@ -93,7 +93,7 @@ push the waiting fiber onto `VM::ready_queue`. `ready_queue` therefore stays a s
 
 ### 5. `System.sleep(_)` is a timer completion source on this reactor
 
-[system.md](../../spec/current/system.md) records `sleep` as "still open — U-SCHED deliberately splits
+[system.md](../../__unstructured__/spec/current/system.md) records `sleep` as "still open — U-SCHED deliberately splits
 the ready-queue from timers." This decision closes it: timers are reactor-owned, and `sleep`
 returns a `Future` settling after the interval.
 

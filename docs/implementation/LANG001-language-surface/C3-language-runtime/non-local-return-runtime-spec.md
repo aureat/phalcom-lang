@@ -55,7 +55,7 @@ The Primitive-arm guard (`call_method`) is the second, mandatory half: snapshot 
 - **Primitive-arm guard re-pushes the value** rather than skipping the push, correcting U10-implementation-spec §2 pt3 (see above).
 - **Pending fixtures rewritten off real `List`:** `pending/blocks_non_local_return.ph` (used unparseable `[3,-5,8]` list-literal syntax) was rewritten against `List.new()`/`.add(_)` and promoted; `pending/blocks_argument_to_method.ph` stays pending — it needs `List.reduce`, which is U-STD's job, **not** a U10 blocker ([`docs/forge/DEFERRED.md`](../../DEFERRED.md) #25).
 - **No exception machinery.** ADR-0008 notes `throw`/`return`/`abort` unify as one unwind primitive; U10 implements only the `return` slice and does not preclude that reuse. `break`/`continue` are out of scope (loop sugar, U5).
-- **Concurrency-forward:** the unwind operates only on the current fiber's `frames`/`stack`; nothing assumes a single global call stack, so a future per-fiber stack is not foreclosed. See [deferred-work.md](../../../spec/current/deferred-work.md).
+- **Concurrency-forward:** the unwind operates only on the current fiber's `frames`/`stack`; nothing assumes a single global call stack, so a future per-fiber stack is not foreclosed. See [deferred-work.md](../../../__unstructured__/spec/current/deferred-work.md).
 
 ## Sources
 - Forge work orders (`U10-plan.md` and the superseding `U10-implementation-spec.md`) folded into this spec (see git history); landing record: [`../../archive/phase2/u0-state.md`](../../archive/phase2/u0-state.md) "U10 — LANDED".

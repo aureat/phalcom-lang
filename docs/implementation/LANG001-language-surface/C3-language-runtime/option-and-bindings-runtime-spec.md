@@ -79,9 +79,9 @@ let z = x ?? 7                 // x is None → 7
   with no flow analysis, so the general `if(opt)` case cannot be a pure compile error.
 - **Deferred:** captured-`let` reassignment through an upvalue compiles to `SetUpvalue` with
   no diagnostic (the compile check is syntactic, current-fn + module only) →
-  [deferred-work §4](../../../spec/current/deferred-work.md); the `if(opt)` literal-only diagnostic carries no
+  [deferred-work §4](../../../__unstructured__/spec/current/deferred-work.md); the `if(opt)` literal-only diagnostic carries no
   source span; `Some` niche-encoding into `Value` deferred pending GC/benchmarks
-  ([deferred-work §1](../../../spec/current/deferred-work.md)).
+  ([deferred-work §1](../../../__unstructured__/spec/current/deferred-work.md)).
 
 ## Sources
 - Forge: `U6-plan.md` (folded into this spec; see git history), [STATE.md](../../archive/phase2/u0-state.md) "U6 — LANDED".

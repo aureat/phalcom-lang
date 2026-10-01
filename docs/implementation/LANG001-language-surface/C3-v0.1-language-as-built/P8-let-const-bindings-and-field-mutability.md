@@ -133,8 +133,8 @@ and is **specified**, not a bug. Fixture it so it stays specified.
 | `phalcom-core/core/core.ph` | codemod (`var _targets` → `_targets`, etc.) |
 | `phalcom-lsp/src/*` | keyword lists, highlighting, completion — `var`→`const` |
 | corpus `.ph` ×395 files | **the codemod, 1080 sites** |
-| `docs/spec/current/syntax/{grammar,lexical,statements-and-declarations}.md` | grammar + keyword lists |
-| `docs/spec/current/classes.md` §2 | field mutability + `const` |
+| `../../../__unstructured__/spec/current/syntax/{grammar,lexical,statements-and-declarations}.md` | grammar + keyword lists |
+| `../../../__unstructured__/spec/current/classes.md` §2 | field mutability + `const` |
 | `docs/decisions/accepted/0014-*.md` + `docs/decisions/STATUS.md` | flip to Superseded, both sides |
 
 ---

@@ -48,7 +48,7 @@ exactly three things, **all of which depend on [[U-FIBER]](../../../../forge/uni
    then `Fiber.yield` to the scheduler";
 2. **a scheduler** (§4, the proposed **U-SCHED**) — a ready-queue of resumable fibers plus
    an external-completion source (timers, I/O) exposed through
-   [`System`](../../../../spec/current/system.md);
+   [`System`](../../../../__unstructured__/spec/current/system.md);
 3. **settlement** (§5) moves the future to `fulfilled`/`rejected` and enqueues every waiter
    fiber and `then` continuation onto the ready-queue.
 
@@ -64,7 +64,7 @@ concurrency primitive stays singular (ADR-0030).
 
 ## 2. Surface
 
-*Deepens [`concurrency.md`](../../../../spec/current/concurrency.md) §2.*
+*Deepens [`concurrency.md`](../../../../__unstructured__/spec/current/concurrency.md) §2.*
 
 | Signature | Side | Meaning | Needs scheduler? |
 |---|---|---|---|
@@ -214,7 +214,7 @@ U-FIBER failure-capture path.
   `Future`-heavy program is a DoS surface without these; **flag as a robustness dependency**
   (post-v0.2).
 - **Structured concurrency / cancellation scopes, `select`/`race`, scheduler fairness** —
-  **still open** ([`open-questions.md`](../../../../spec/current/open-questions.md) §15). U-FUTURE
+  **still open** ([`open-questions.md`](../../../../__unstructured__/spec/current/open-questions.md) §15). U-FUTURE
   ships none of them; leave the waiter list + ready-queue shaped so a later cancellation
   scope / `select` can layer on.
 

@@ -210,7 +210,7 @@ Do not limit the search to this list. Use repository-wide searches to find curre
 
 ---
 
-## 4. Rewrite `docs/spec/current/blocks.md`
+## 4. Rewrite `../../../../__unstructured__/spec/current/blocks.md`
 
 The current block specification defines forms such as:
 

@@ -58,8 +58,8 @@ Repository inspection is mandatory before repository-specific work. As of the re
 
 Important current observations to re-check rather than memorize blindly:
 
-- `docs/spec/current/decorators/requires.md` records `@requires` as implemented and woven to an entry predicate check.
-- `docs/spec/current/decorators/ensures.md` records `@ensures` as implemented, including `old(...)` hoisting and normal-return rewriting.
+- `../../../docs/__unstructured__/spec/current/decorators/requires.md` records `@requires` as implemented and woven to an entry predicate check.
+- `../../../docs/__unstructured__/spec/current/decorators/ensures.md` records `@ensures` as implemented, including `old(...)` hoisting and normal-return rewriting.
 - Current runtime-weave purity validation is a conservative syntactic floor, not a proof of semantic purity.
 - Current contract metadata plumbing and future prover/checker integration may differ from older design documents.
 

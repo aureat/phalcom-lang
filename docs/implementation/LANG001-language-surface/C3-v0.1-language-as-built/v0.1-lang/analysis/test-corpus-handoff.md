@@ -164,7 +164,7 @@ Each `.ph` starts with a header using the language's line-comment syntax (confir
 - **Only touch**: `phalcom-core/tests/lang/**`, new `phalcom-core/tests/lang.rs`, new
   `phalcom-core/tests/support/mod.rs`, and (optionally) `scripts/test-lang.sh` wrapper.
 - **Do NOT modify**: `phalcom-core/src/**`, `phalcom-ast/**`, `phalcom-core/tests/golden.rs`,
-  `tests/invariants.rs`, `tests/fixtures/**`, `docs/spec/**`, `docs/decisions/**`, **`Cargo.toml`** (any).
+  `tests/invariants.rs`, `tests/fixtures/**`, `../../../../../__unstructured__/spec/**`, `docs/decisions/**`, **`Cargo.toml`** (any).
   Reading them is fine.
 - If a test reveals a real VM bug (panic on valid input, wrong output), **do not fix it** — record it
   in the manifest and append a one-liner to `docs/forge/DEFERRED.md`.

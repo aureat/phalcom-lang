@@ -82,8 +82,8 @@ The following may explain why the current code looks the way it does, but may no
 - ADR 0029 cursor protocol;
 - ADR 0041 bare-cursor / runtime Iterable root;
 - historical COLL001/COLL004 iterator-pipeline implementation documents that specify reusable stateless cursor descriptors;
-- `docs/spec/current/iteration.md` cursor wording where it conflicts with `docs/specs/iterator.md` and the final P5 requirements;
-- `docs/spec/iterator.md` where it reflects the pre-P5 class/cursor model.
+- `../../../__unstructured__/spec/current/iteration.md` cursor wording where it conflicts with `docs/specs/iterator.md` and the final P5 requirements;
+- `../../../__unstructured__/spec/iterator.md` where it reflects the pre-P5 class/cursor model.
 
 Historical records should normally remain historical rather than being rewritten to pretend the old decision never existed.
 

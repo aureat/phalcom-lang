@@ -98,4 +98,4 @@ discipline (ADR-0002) applied to the annotation layer.
 ## What this precludes
 
 Nothing — this draft is additive process scaffolding. It is the gate the other
-annotation drafts must pass before promotion to `docs/decisions/` + `docs/spec/`.
+annotation drafts must pass before promotion to `docs/decisions/` + `../../../__unstructured__/spec/`.

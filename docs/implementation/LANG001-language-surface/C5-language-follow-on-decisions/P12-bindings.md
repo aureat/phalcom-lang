@@ -192,19 +192,19 @@ ADR-0014 status flip as work to do. **All of it is already done**, verified 2026
 
 | Doc | Current text |
 |---|---|
-| `docs/spec/current/syntax/grammar.md:60` | `binding := ( "let" \| "const" ) IDENT [ "=" expr ]` |
-| `docs/spec/current/syntax/grammar.md:160` | `keyword := "let" \| "const" \| "class"` |
-| `docs/spec/current/syntax/lexical.md:89,301` | already lists `let`/`const` as the live pair |
-| `docs/spec/current/syntax/statements-and-declarations.md:28` | `binding := ("let" \| "const") IDENT [ "=" expr ]` |
-| `docs/spec/current/syntax/statements-and-declarations.md:42-43` | "`var` is **not** a keyword." |
-| `docs/spec/current/classes.md:8,134,143` | cites ADR-0064, uses `let` for mutable |
+| `../../../__unstructured__/spec/current/syntax/grammar.md:60` | `binding := ( "let" \| "const" ) IDENT [ "=" expr ]` |
+| `../../../__unstructured__/spec/current/syntax/grammar.md:160` | `keyword := "let" \| "const" \| "class"` |
+| `../../../__unstructured__/spec/current/syntax/lexical.md:89,301` | already lists `let`/`const` as the live pair |
+| `../../../__unstructured__/spec/current/syntax/statements-and-declarations.md:28` | `binding := ("let" \| "const") IDENT [ "=" expr ]` |
+| `../../../__unstructured__/spec/current/syntax/statements-and-declarations.md:42-43` | "`var` is **not** a keyword." |
+| `../../../__unstructured__/spec/current/classes.md:8,134,143` | cites ADR-0064, uses `let` for mutable |
 | `docs/decisions/accepted/0014-…:3` | already `Superseded by ADR-0064` |
 | `docs/decisions/STATUS.md:44` | already `Superseded by 0064` |
 
 **This is a status/reality gap running the opposite direction from the usual one.** The
 normal Phalcom failure is an ADR left Proposed after the code shipped (0028/0036/0037/0040,
 and 0056 today). Here the *spec* is ahead of the *code*: anyone reading
-`docs/spec/current/syntax/` today will conclude `let`/`const` is implemented. It is not — the
+`../../../__unstructured__/spec/current/syntax/` today will conclude `let`/`const` is implemented. It is not — the
 lexer still has `Token::Var` and no `Token::Const`. Until U-BINDINGS lands, the v0.2 syntax
 spec is not a description of Phalcom.
 
@@ -493,10 +493,10 @@ after. One pre-registered exception (§1.3). Anything else that moves is a regre
 | `phalcom-repl/src/completer.rs:113` | duplicate of the above array (its own comment admits the dupe) |
 | `phalcom-repl/src/rustyline/completer.rs:73` | **third** independent copy, doesn't import `common::KEYWORDS` |
 | `fuzz/phalcom.dict:8,80` | `"let"` entries stay valid; add `"const"` |
-| `docs/spec/current/syntax/{grammar,lexical,statements-and-declarations}.md`, `classes.md` | ⚠️ **already migrated (§1.5) — verify only, do not rewrite** |
+| `../../../__unstructured__/spec/current/syntax/{grammar,lexical,statements-and-declarations}.md`, `classes.md` | ⚠️ **already migrated (§1.5) — verify only, do not rewrite** |
 | `docs/decisions/accepted/0014-*.md`, `docs/decisions/STATUS.md` | ⚠️ **already flipped (§1.5) — no action** |
 | `docs/decisions/README.md:57` | ADR-0014 row still says Accepted; **ADR-0064 has no row at all** (§1.6) |
-| ~30 further `docs/spec/current/**` files | still describe the old pair — `implementation-status.md:26-27,60`, `destructuring.md` (title included), `values-and-absence.md`, `modules.md`, `iteration.md:50`, `selectors.md:236-239`, `is-tests.md:122`, `open-questions.md`, `deferred-work.md`, plus most of `decorators/` and `drafts/` and `experimental/`. **Scope decision required — see §12.5** |
+| ~30 further `../../../__unstructured__/spec/current/**` files | still describe the old pair — `implementation-status.md:26-27,60`, `destructuring.md` (title included), `values-and-absence.md`, `modules.md`, `iteration.md:50`, `selectors.md:236-239`, `is-tests.md:122`, `open-questions.md`, `deferred-work.md`, plus most of `decorators/` and `drafts/` and `experimental/`. **Scope decision required — see §12.5** |
 
 ---
 

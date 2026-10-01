@@ -406,7 +406,7 @@ Primary inspect set:
 - `phalcom-core/src/vm/{mod,dispatch,control,send}.rs` as they exist post-P1;
 - `phalcom-core/src/primitive/system.rs`;
 - `phalcom-core/core/universe/src/concurrency/fiber.ph`;
-- `docs/spec/current/concurrency.md`;
+- `../../../__unstructured__/spec/current/concurrency.md`;
 - P1-R1 implementation-state file;
 - concurrency language corpus registrations and fixtures.
 
@@ -1319,7 +1319,7 @@ Tasks:
 
 ### Task 27 — Canonical specification update
 
-Update `docs/spec/current/concurrency.md`.
+Update `../../../__unstructured__/spec/current/concurrency.md`.
 
 Required final statements:
 - Fiber consumer is one active manual call turn, not scheduler ownership;

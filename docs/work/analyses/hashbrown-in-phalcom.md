@@ -325,7 +325,7 @@ the member is *deleted* before anything else sees it:
 class.members.retain(|m| !member_has_attr(m, "native") && !member_has_attr(m, "ignore"));
 ```
 
-Its own spec (`docs/spec/current/decorators/native.md`, "What it is not") says: "It is not a binding
+Its own spec (`../../__unstructured__/spec/current/decorators/native.md`, "What it is not") says: "It is not a binding
 directive. `@native` does not tell the compiler which Rust function to install, and does not
 cause anything to be installed." It is an LSP anchor.
 
@@ -353,8 +353,8 @@ never in `i64` range (`:93-94`).
 So even after TDR-0065 ships in full:
 
 - R1 is still unmet — bitwise ops are ruled by nothing. They appear in
-  `docs/spec/current/experimental/numeric-and-string-indexing.md` (status **Proposed**) and are
-  sketched in `docs/spec/current/drafts/stdlib-catalog.md:109-113` as
+  `../../__unstructured__/spec/current/experimental/numeric-and-string-indexing.md` (status **Proposed**) and are
+  sketched in `../../__unstructured__/spec/current/drafts/stdlib-catalog.md:109-113` as
   `and/or/xor/not/shl/shr/ushr/bitAt/bitCount/leadingZeros/trailingZeros`. A draft is not a record.
 - **R2 is not merely unmet; it is in tension with what was ratified.** `Int` is *unbounded*.
   Unbounded integers have no wrapping semantics — there is no width for a borrow to propagate
@@ -560,8 +560,8 @@ Per R2 of the citation discipline: the verb needs its object.
 `phalcom-core/src/primitive/mod.rs:150-160`, `:356-370`,
 `phalcom-core/src/universe/primitives.rs:106-127`, `:297`, `:305-325`,
 `phalcom-core/src/compiler/attributes.rs:1790-1796`, `phalcom-core/core/core.ph:107`,
-`docs/spec/current/core/{bytes,map-and-set,numeric-tower}.md`,
-`docs/spec/current/drafts/stdlib-catalog.md:95-135`, `docs/spec/current/memory-management.md:1-60`,
+`../../__unstructured__/spec/current/core/{bytes,map-and-set,numeric-tower}.md`,
+`../../__unstructured__/spec/current/drafts/stdlib-catalog.md:95-135`, `../../__unstructured__/spec/current/memory-management.md:1-60`,
 `docs/decisions/README.md:30`, `docs/pdr/0012-…md` (grep),
 `docs/forge/perf-log/SCOREBOARD.md:253-303`.
 

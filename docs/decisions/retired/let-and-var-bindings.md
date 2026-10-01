@@ -59,5 +59,5 @@ Two binding forms, resolving Q1:
   cleanly; the absence model already gives an unambiguous value for the empty slot.
   Rejected in favor of reading `None`.
 - **A surface uninitialized/`nil` value for the empty case.** Reintroduces the null
-  coercion the object model exists to remove ([Values & Absence §2](../../spec/current/values-and-absence.md)).
+  coercion the object model exists to remove ([Values & Absence §2](../../__unstructured__/spec/current/values-and-absence.md)).
   Rejected.

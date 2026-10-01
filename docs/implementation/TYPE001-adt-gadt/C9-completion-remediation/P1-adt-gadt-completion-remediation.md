@@ -267,7 +267,7 @@ Do not rewrite historical plans wholesale. Add a clear “superseded semantic cl
 
 ## Edits
 
-### 0.1 Update `docs/spec/current/selectors.md`
+### 0.1 Update `../../../__unstructured__/spec/current/selectors.md`
 
 Keep the existing bound-family law, but add associated precedence:
 
@@ -287,7 +287,7 @@ Clarify that:
 - whole base reservation prevents behavioral/associated overload mixing;
 - exact selector/family-pattern syntax remains unchanged.
 
-### 0.2 Update `docs/spec/adts.md`
+### 0.2 Update `../../../__unstructured__/spec/adts.md`
 
 Replace wording such as:
 
@@ -1974,7 +1974,7 @@ Use the actual normalized test harness/module names on main.
 
 This section is the implementation checklist by file.
 
-## `docs/spec/current/selectors.md`
+## `../../../__unstructured__/spec/current/selectors.md`
 
 - Preserve receiver-bound Family semantics.
 - Add associated-first precedence when receiver/declaration exposes a reserved associated base.
@@ -1982,7 +1982,7 @@ This section is the implementation checklist by file.
 - Clarify associated-member family vs behavioral Family value.
 - Remove any wording implying every `Type::name` is intrinsically associated/static lookup.
 
-## `docs/spec/adts.md`
+## `../../../__unstructured__/spec/adts.md`
 
 - Replace “static associated `::` surface” shorthand with layered semantics.
 - Add entire-base reservation rule.

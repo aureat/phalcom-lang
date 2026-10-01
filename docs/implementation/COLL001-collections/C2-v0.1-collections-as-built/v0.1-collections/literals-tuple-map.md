@@ -220,7 +220,7 @@ write-sets vs U-COLL:
   absorb." U-COLL owns expression position; U14 owns pattern position; the shared helper is the seam.
 - **`phalcom-core/core/core.ph` — the never-two-editors file.** If U-COLL's tuple slice authors `class
   Tuple` (DEC-COLL-A=A), it edits `core.ph`, which the **U-CORE track is actively editing** (live churn
-  in git status: `docs/spec/current/core/*`; U-CORE authors `Map`/`Set` there). Per "never co-schedule two
+  in git status: `../../../../__unstructured__/spec/current/core/*`; U-CORE authors `Map`/`Set` there). Per "never co-schedule two
   `core.ph` editors," **U-COLL's tuple slice must be serialized against every U-CORE `core.ph` unit.**
   The **list slice touches no `core.ph`** and is free of this — the reason to keep list as the
   collision-free MVP.

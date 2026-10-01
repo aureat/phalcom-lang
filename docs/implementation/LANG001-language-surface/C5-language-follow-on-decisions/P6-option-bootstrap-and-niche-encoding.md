@@ -58,7 +58,7 @@ API as a speed item alongside NaN-boxing.
 | File | Why |
 |---|---|
 | `docs/decisions/00XX-option-bootstrap-and-niche.md` | **Primary deliverable** — the ADR formalizing the blessed-singleton bootstrap + the niche decision. Provisional number, grab next-free. |
-| `docs/spec/open-questions.md` Q13, `docs/spec/values-and-absence.md §3.1` | Flip Q13 to RESOLVED; document the bootstrap special-casing precisely. |
+| `../../../__unstructured__/spec/open-questions.md` Q13, `docs/spec/values-and-absence.md §3.1` | Flip Q13 to RESOLVED; document the bootstrap special-casing precisely. |
 | `phalcom-core/src/value.rs` | **Only if niche ruled in:** the representation change (e.g. `Value::None` immediate arm or a reserved niche) + `class()`/`value_eq`/`type_name`/`Hash`. **Contended (`value.rs` group with U12/U16)** — serialize. |
 | `phalcom-core/src/universe.rs`, `primitive/*` (option) | **Only if niche ruled in:** construct/compare `None` via the niche. |
 | `phalcom-core/core/core.ph` | **Only if niche ruled in:** confirm `None` field-count = 0. **Contended (additive)** — serialize. |

@@ -267,7 +267,7 @@ For each task:
 | Core classes/invariants | `universe/core_classes.rs`, `tests/invariants.rs`, native surface generator/table if required | class identity and floor registration |
 | Language tests | `phalcom-core/tests/lang.rs`, `tests/lang/functions/**`, `tests/lang/reflection/**`, negative fixtures | end-to-end semantics |
 | Performance | `phalcom-core/benches/vm_bench.rs`, `benchmarks/**`, `docs/forge/perf-log/**` as project convention requires | allocation/send regression proof |
-| Documentation migration | `docs/spec/current/selectors.md`, `docs/spec/callables/{family,method,bound-method,reflection,dispatch}.md`, ADR/status references | normative semantic update |
+| Documentation migration | `../../../__unstructured__/spec/current/selectors.md`, `../../../__unstructured__/spec/callables/{family,method,bound-method,reflection,dispatch}.md`, ADR/status references | normative semantic update |
 
 ---
 
@@ -1156,13 +1156,13 @@ Commit only optimizations that are neutral/positive under the repository benchma
 - [ ] Complete this task and its focused validation: **Migrate specifications and explicitly retire old semantics**
 
 **Files:**
-- `docs/spec/current/selectors.md`
-- `docs/spec/callables/family.md`
-- `docs/spec/callables/method.md`
-- `docs/spec/callables/bound-method.md`
-- `docs/spec/callables/reflection.md`
-- `docs/spec/callables/dispatch.md`
-- `docs/spec/current/syntax/{lexical,expressions}.md`
+- `../../../__unstructured__/spec/current/selectors.md`
+- `../../../__unstructured__/spec/callables/family.md`
+- `../../../__unstructured__/spec/callables/method.md`
+- `../../../__unstructured__/spec/callables/bound-method.md`
+- `../../../__unstructured__/spec/callables/reflection.md`
+- `../../../__unstructured__/spec/callables/dispatch.md`
+- `../../../__unstructured__/spec/current/syntax/{lexical,expressions}.md`
 - old U16/ADR references as project policy permits
 
 - [ ] State that `obj::name` is exact getter, not old open-family base name.

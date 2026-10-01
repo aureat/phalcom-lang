@@ -1374,10 +1374,10 @@ Risk:
 - Implementation fanout: documentation
 
 Primary current documents found during investigation:
-- `docs/spec/current/selectors.md`
-- `docs/spec/callables/family.md`
-- `docs/spec/associated-lookup-surface.md`
-- `docs/spec/adts.md`
+- `../../../__unstructured__/spec/current/selectors.md`
+- `../../../__unstructured__/spec/callables/family.md`
+- `../../../__unstructured__/spec/associated-lookup-surface.md`
+- `../../../__unstructured__/spec/adts.md`
 - relevant current guides/examples.
 
 Required documentation invariant:

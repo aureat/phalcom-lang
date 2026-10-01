@@ -2764,7 +2764,7 @@ VM specs only where they incorrectly state source semantics
 5. Update `associated-types.md` to distinguish inherent associated `type data` from evidence-bound trait associated types.
 6. Update `universe.md` for canonical structural facade declarations and runtime/source identity.
 7. Update `README.md` ownership map and all active links.
-8. Do not rewrite `docs/spec/`, historical implementation records, walkthroughs, or old ADRs merely to change terminology.
+8. Do not rewrite `../../../__unstructured__/spec/`, historical implementation records, walkthroughs, or old ADRs merely to change terminology.
 
 ### Forbidden approaches
 

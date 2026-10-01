@@ -389,8 +389,8 @@ The shared diagnostic hashing helper is also used by some query-input fingerprin
 
 **Files:**
 
-- `docs/spec/semantic-analyzer/02-type-knowledge-and-evidence.md`;
-- `docs/spec/semantic-analyzer/08-callable-analysis-and-publication.md`;
+- `../../../__unstructured__/spec/semantic-analyzer/02-type-knowledge-and-evidence.md`;
+- `../../../__unstructured__/spec/semantic-analyzer/08-callable-analysis-and-publication.md`;
 - `phalcom-semantic/tests/semantic/capabilities/authority.rs`;
 - `phalcom-semantic/src/checker/call.rs`;
 - `phalcom-semantic/src/dispatch.rs`.

@@ -129,7 +129,7 @@ cancel fibers. Multiple awaiters of one future all observe the one cancellation 
 settlement is a settlement). Propagation — structured concurrency, linked tokens,
 cancel-on-drop scopes — is real design space with real precedents (JS `AbortSignal`
 chaining, Kotlin structured concurrency) and is **deferred with a name**
-([`stdlib/cancellation.md`](../../spec/current/stdlib/cancellation.md) Q-C1/Q-C2), not implied.
+([`stdlib/cancellation.md`](../../__unstructured__/spec/current/stdlib/cancellation.md) Q-C1/Q-C2), not implied.
 
 ## Consequences
 

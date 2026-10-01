@@ -89,7 +89,7 @@ The implementation is complete only when selector identity, AST/parser syntax, s
 | Public `Family` API | `phalcom-core/core/universe/src/callable/family.ph`, `phalcom-core/src/primitive/family.rs` | `Family`, `family_get`, `family_set` |
 | Reflection | `phalcom-core/src/primitive/selector.rs`, `method/mod.rs` | `Selector.from`, `Selector::kind`, `decode_selector` |
 | LSP presentation | `phalcom-lsp/src/selectors.rs`, `completion.rs`, hover/token consumers | selector formatting/completion helpers |
-| Current normative docs | `docs/spec/current/selectors.md`, `docs/spec/callables/family.md`, `docs/spec/adts.md`, ADR-0060 | selector/family laws |
+| Current normative docs | `../../../__unstructured__/spec/current/selectors.md`, `../../../__unstructured__/spec/callables/family.md`, `../../../__unstructured__/spec/adts.md`, ADR-0060 | selector/family laws |
 
 The shared structural selector is already the correct authority. `Selector::setter(name)` stores **zero ordinary slots**, and `Selector::subscript_set(slots)` stores only bracket/index slots. `SignatureKind::Setter` derives runtime arity 1; `SignatureKind::SubscriptSet(n)` derives `n + 1`. The repository therefore already contains the right semantic distinction: the `put` spelling is a surface/transport leak, not a reason to flatten the assigned value into the selector tuple.
 
@@ -1650,14 +1650,14 @@ The migration is incomplete if execution works but the current language corpus, 
 ### Working set
 
 **Primary normative/current:**
-- `docs/spec/current/selectors.md`
-- `docs/spec/callables/family.md`
-- `docs/spec/adts.md`
-- `docs/spec/current/lexical-structure.md`
+- `../../../__unstructured__/spec/current/selectors.md`
+- `../../../__unstructured__/spec/callables/family.md`
+- `../../../__unstructured__/spec/adts.md`
+- `../../../__unstructured__/spec/current/lexical-structure.md`
 - `docs/spec/primitives/Selectors I.md`
 - `docs/spec/primitives/Selectors II.md`
-- `docs/spec/current/core/core-classes.md`
-- `docs/spec/current/core/floor-census.md`
+- `../../../__unstructured__/spec/current/core/core-classes.md`
+- `../../../__unstructured__/spec/current/core/floor-census.md`
 - `docs/decisions/accepted/0060-index-operator-as-real-selector.md`
 - `docs/decisions/0032-transition-1-language-surface-convergence.md`
 - LANG004 C1 checkpoint/plan/state files.

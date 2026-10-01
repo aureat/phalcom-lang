@@ -114,7 +114,7 @@ C6 must implement:
 10. Migrate lazy adapters (`filter`, `map`, `take`) to stateful iterator composition.
 11. Retire runtime `Iterable` superclass from bootstrap.
 12. Retire `iterate(_)` and `iteratorValue(_)` cursor protocol.
-13. Update `docs/spec/current/iteration.md` to normative stateful iterator specification once migration is active.
+13. Update `../../../__unstructured__/spec/current/iteration.md` to normative stateful iterator specification once migration is active.
 
 ---
 

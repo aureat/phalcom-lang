@@ -55,7 +55,7 @@ Fiber/scheduler ownership seams.**
 Cooperative, single-threaded, no preemption. `Future`, `async`/`await`,
 generators, and the scheduler all derive from it. No data races by construction;
 no locks in the object model. A running fiber runs until it explicitly `yield`s,
-`await`s, returns, or raises. The surface is [`concurrency.md`](../../spec/current/concurrency.md)
+`await`s, returns, or raises. The surface is [`concurrency.md`](../../__unstructured__/spec/current/concurrency.md)
 §1–2 (`new`/`call`/`try`/`yield`/`current`/`abort`; `Future.async`/`await`/`then`).
 
 ### 2. `Fiber` is a heap object, not a new `Value` arm
@@ -166,7 +166,7 @@ open.
   moving-ready arena claim is preserved intact.
 - **New floor surface (ADR-0019 amendment).** The Fiber/Future primitive set —
   `call`/`yield`/`current`/`abort`, per-fiber stack machinery, and the scheduler
-  hooks exposed through [`System`](../../spec/current/system.md) — is a
+  hooks exposed through [`System`](../../__unstructured__/spec/current/system.md) — is a
   deliberate extension of the frozen floor, authorized here per the
   [TDR-0017](./0017-freeze-vm-blessed-primitive-floor.md) amendment convention (as
   [TDR-0018](./0018-kernel-list-native-array-protocol.md)/[TDR-0021](./0021-amend-floor-admit-hash-and-kernel-reflection.md)
@@ -177,7 +177,7 @@ open.
   spec documents the restriction and the index-iteration workaround.
 - Five pre-fiber invariants (§5–§7 plus frame-relative `stack_offset` and
   no-new-`Value`-arm) bind every unit that touches the VM before the fiber unit
-  lands ([forward-compat §7.3](../../spec/current/core/forward-compat.md)).
+  lands ([forward-compat §7.3](../../__unstructured__/spec/current/core/forward-compat.md)).
 
 ## Alternatives considered
 

@@ -62,7 +62,7 @@ lowering target — unchanged; only the *surface trigger* moves from `!` to `not
   `Bang` variant** — `scan_operator` (lexer.rs:594–595) still needs it to disambiguate `!=`.
 - `phalcom-core/core/core.ph` — the 5 `!` sites + the 383–384 comment.
 - `phalcom-core/tests/` — goldens.
-- `docs/spec/current/is-tests.md` — strike the implementation-note caveat "not yet wired /
+- `../../../__unstructured__/spec/current/is-tests.md` — strike the implementation-note caveat "not yet wired /
   presently spelled `!`" once landed.
 - **Floor: +0** (pure parse-surface swap; `Bool#not` already exists).
 

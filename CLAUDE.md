@@ -94,7 +94,7 @@ scripts/bench.sh one benchmarks/wren-suite/fib.ph
 ```
 
 Example programs live in `examples/*.ph` (e.g. `simple.ph`, `calculator.ph`, `person*.ph`).
-The object-model design spec is `docs/spec/current/object-model.md`.
+The object-model design spec is `docs/__unstructured__/spec/current/object-model.md`.
 
 ## Conventions
 
@@ -107,7 +107,7 @@ The object-model design spec is `docs/spec/current/object-model.md`.
 - Rust 2024 edition across all crates; shared deps are pinned in the root `[workspace.dependencies]`.
 - Errors use `thiserror` (the diagnostics renderer is in-house, not `miette` — [PDR-0014](docs/pdr/0014-diagnostics-renderer-is-in-house.md)); prefer surfacing spans via `phalcom-common` ranges.
 - The object model follows Smalltalk-style semantics; method lookup keys on signature symbols
-  (arity + kind encoded), so `foo` and `foo(_)` can coexist. See `docs/spec/current/object-model.md` for the
+  (arity + kind encoded), so `foo` and `foo(_)` can coexist. See `docs/__unstructured__/spec/current/object-model.md` for the
   target design and current deviations before changing class/metaclass wiring.
 
 ## graphify

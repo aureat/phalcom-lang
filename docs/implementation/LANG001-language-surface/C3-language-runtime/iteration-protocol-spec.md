@@ -72,7 +72,7 @@ continue-stmt   ::= "continue"
 
 ## 2. The cursor protocol (deepened)
 
-*Deepens [`iteration.md`](../../../spec/current/iteration.md) §1.* A value is **iterable**
+*Deepens [`iteration.md`](../../../__unstructured__/spec/current/iteration.md) §1.* A value is **iterable**
 iff it answers two ordinary selectors:
 
 | Selector | Given | Returns | Notes |
@@ -87,7 +87,7 @@ iff it answers two ordinary selectors:
    whatever the two methods agree on.
 2. **`None` is the exhaustion signal** (ADR-0007). A conforming `iterate(_)` returns
    `Some(cursor)` while elements remain and `None` at the end. Because the "more?" bit
-   rides in `Option`, **no surface `nil` ever appears** ([Invariant 4](../../../spec/current/README.md)).
+   rides in `Option`, **no surface `nil` ever appears** ([Invariant 4](../../../__unstructured__/spec/current/README.md)).
 3. **`iteratorValue(_)` is total on live cursors** — it is only ever called with a
    cursor that `iterate(_)` just wrapped in `Some`, never with `None` and never with a
    past-the-end cursor. A type need not defend against out-of-range cursors *from the
@@ -118,7 +118,7 @@ surface in the implementation-spec §3.1.)
 
 A user type opts into `for` — and, once the U-STD follow-on lands, every combinator —
 by defining the two selectors. The canonical example (from
-[`iteration.md`](../../../spec/current/iteration.md) §1) drives `for` through nothing but
+[`iteration.md`](../../../__unstructured__/spec/current/iteration.md) §1) drives `for` through nothing but
 its own two `.ph` methods:
 
 ```phalcom
@@ -138,7 +138,7 @@ for (x in Countdown.from(n: 3)) { System.print(x) }   // 3 2 1 0
 
 ## 3. Operational semantics — the exact desugar
 
-*Deepens [`iteration.md`](../../../spec/current/iteration.md) §2 to the bytecode level.*
+*Deepens [`iteration.md`](../../../__unstructured__/spec/current/iteration.md) §2 to the bytecode level.*
 
 ### 3.1 `for` without `break`/`continue` — the plain cursor `while` (ADR-0035 §2)
 
@@ -156,7 +156,7 @@ while (_c.isSome) {
 ```
 
 **This supersedes the `for ≡ coll.each{…}` sketch in
-[`control-flow.md`](../../../spec/current/control-flow.md) §1** (ADR-0035 §2).
+[`control-flow.md`](../../../__unstructured__/spec/current/control-flow.md) §1** (ADR-0035 §2).
 
 **Lowering.** The `while` scaffold and the `isSome` test are realized as the *inlined
 `while` skeleton* — the same `Jump`/`JumpIfFalse`/`Loop` jump structure the sacred
@@ -219,14 +219,14 @@ opcode** (DEC-ITER-C resolved against HEAD, implementation-spec §1/§6).
   (§9 C-ITER-2).
 - **Loop variable freshness** — `x` is re-bound each step; a closure captured in the
   body over `x` observes that step's value (consistent with block-closure capture,
-  [blocks.md](../../../spec/current/blocks.md)).
+  [blocks.md](../../../__unstructured__/spec/current/blocks.md)).
 - **Nesting** — `break`/`continue` bind to the **innermost** enclosing loop (§4).
 
 ---
 
 ## 4. `break` / `continue` and the loop-context stack
 
-*Deepens [`iteration.md`](../../../spec/current/iteration.md) §3.*
+*Deepens [`iteration.md`](../../../__unstructured__/spec/current/iteration.md) §3.*
 
 `break`/`continue` are **loop-control keywords, not sends and not floor primitives**
 (ADR-0035 §3). Their resolution is a purely lexical, compile-time affair:
@@ -242,7 +242,7 @@ opcode** (DEC-ITER-C resolved against HEAD, implementation-spec §1/§6).
 
 **Interaction with non-local `return`.** `break`/`continue` are *not* `return`. A `return`
 inside a `for`/`while` body still compiles to `Bytecode::Return`/`ReturnNonLocal`
-([blocks.md](../../../spec/current/blocks.md) §5) and unwinds the enclosing **method/block**,
+([blocks.md](../../../__unstructured__/spec/current/blocks.md) §5) and unwinds the enclosing **method/block**,
 not just the loop. `break` leaves only the loop. This distinction is exactly why `for`
 lowers to a jump-`while` and not to `coll.each { … }`: a block handed to `.each` could
 only express early exit as a non-local `return` (which would leave the whole method), not
@@ -252,7 +252,7 @@ as `break` (ADR-0035 §2, Alternatives).
 
 ## 5. Dispatch and the inliner (deepened)
 
-*Deepens [`iteration.md`](../../../spec/current/iteration.md) §4; grounded in
+*Deepens [`iteration.md`](../../../__unstructured__/spec/current/iteration.md) §4; grounded in
 [TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md).*
 
 | Element of a `for` loop | Inlined? | Mechanism |
@@ -298,7 +298,7 @@ time, never at runtime.
 ### 7.1 `for` ⊗ the `Fiber` generator — the load-bearing seam {#fiber-generator-seam}
 
 *Cross-links [[U-FIBER §4.3]](../U-FIBER/specification.md#yield-guard)
-and [`iteration.md`](../../../spec/current/iteration.md) §6;
+and [`iteration.md`](../../../__unstructured__/spec/current/iteration.md) §6;
 [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §4,
 [TDR-0029](../../../decisions/accepted/0029-iteration-protocol-cursor.md) §5,
 [TDR — Amend the fiber execution model — trampoline the bytecode block call-site](../../../decisions/retired/amend-fiber-execution-trampolined-block-callsite.md) Context.*
@@ -319,7 +319,7 @@ Fiber.new { coll.each { x => Fiber.yield(x) } }    // ✗ CannotYieldAcrossNativ
   **re-entrant `run_until`** (a native frame), so the yield raises
   `CannotYieldAcrossNativeFrame` ([[U-FIBER]](../U-FIBER/specification.md), ADR-0030 §4).
 - **`for` is the idiomatic v0.2 generator body** and supersedes the older
-  "rewrite with index iteration" advice ([`concurrency.md`](../../../spec/current/concurrency.md)
+  "rewrite with index iteration" advice ([`concurrency.md`](../../../__unstructured__/spec/current/concurrency.md)
   §1). It also gives `break`/`continue`, which a block handed to `.each` cannot express.
 
 This interaction is **served, not precluded**, by U-ITER; it is verified by a PENDING

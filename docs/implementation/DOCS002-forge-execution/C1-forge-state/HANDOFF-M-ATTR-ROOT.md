@@ -222,7 +222,7 @@ Baseline `cargo test -p phalcom-core --test lang` fails 6 groups on a clean run,
    landed in `concurrency.md`/prior memory, or it regressed. **Nobody has looked into
    this yet** — worth a dedicated investigation, independent of everything else in
    this document. Entry point: `phalcom-core/tests/lang/concurrency/concurrency_sched_fifo_order.ph`,
-   `docs/spec/current/concurrency.md` §2 "Implementation" (the root-drive pump
+   `../../../__unstructured__/spec/current/concurrency.md` §2 "Implementation" (the root-drive pump
    description), `VM::run` (locate via graphify).
 
 ## Next step for whoever picks this up

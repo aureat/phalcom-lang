@@ -91,7 +91,7 @@ The program also:
 | Real cross-crate tests | `phalcom-core/tests/core/typing_integration/expression/` | refinement, higher-order, monad, rejection, integration, runtime |
 | Execution state | `docs/impl/semantic/typing-integration/typing-integration-implementation-state.md` | checkpoint/evidence ledger |
 | Existing Part 05.1 spec | `docs/impl/adt-gadt-associated-lookup/part-5/05.1-match-surface-pattern-semantics-exhaustiveness-gadt-proofs-technical-spec.md` | current residual-space model |
-| Forward pattern spec | `docs/spec/next/phalcom-pattern-matching-spec.md` | already states symbolic reasoning should replace eager product enumeration |
+| Forward pattern spec | `../../../__unstructured__/spec/next/phalcom-pattern-matching-spec.md` | already states symbolic reasoning should replace eager product enumeration |
 
 ## 2.2 Identities that must remain distinct
 
@@ -2720,7 +2720,7 @@ C6 proves the remediation in the real feature stack and prevents architecture dr
 - `phalcom-core/tests/core/typing_integration/sources/expression.ph`
 - `phalcom-semantic/tests/semantic/incremental/adts.rs`
 - Part 05.1 technical spec
-- `docs/spec/next/phalcom-pattern-matching-spec.md`
+- `../../../__unstructured__/spec/next/phalcom-pattern-matching-spec.md`
 - implementation state file
 
 ### Secondary
@@ -2860,7 +2860,7 @@ Make the root architecture explicit so a future refactor does not reintroduce ea
 ### Primary docs
 
 1. `docs/impl/adt-gadt-associated-lookup/part-5/05.1-match-surface-pattern-semantics-exhaustiveness-gadt-proofs-technical-spec.md`
-2. `docs/spec/next/phalcom-pattern-matching-spec.md`
+2. `../../../__unstructured__/spec/next/phalcom-pattern-matching-spec.md`
 
 ### Required normative sections
 

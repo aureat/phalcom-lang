@@ -43,7 +43,7 @@ Related: [Fibers & Futures](../../spec/current/concurrency.md), [TDR-0026](../..
     doOtherWork()
     let value = f.await
 
-Future.async starts a fresh fiber and returns a future; Future.await suspends current fiber until settlement, returns a value, or re-raises stored error. [Fibers & Futures §2](../../spec/current/concurrency.md#2-future--pending-asynchronous-result) states that await and continuation APIs bottom out in the same waiter list.
+Future.async starts a fresh fiber and returns a future; Future.await suspends current fiber until settlement, returns a value, or re-raises stored error. [Fibers & Futures §2](../../__unstructured__/spec/current/concurrency.md#2-future--pending-asynchronous-result) states that await and continuation APIs bottom out in the same waiter list.
 
 **[V]** A normal Phalcom method or block remains a normal callable. There is no compiler-lowered future value for every caller, no colored signature, and no separate async iterator or async callback protocol implied by the surface.
 
@@ -73,7 +73,7 @@ This makes the attribute useful documentation without smuggling function colorin
 
 ## 3. Real cost: logical reentrancy
 
-**[V]** Cooperative single-threading removes data races, not interleaving. A fiber switch occurs at explicit call, yield, or await points; another fiber may run before the first resumes. [Fibers & Futures §1](../../spec/current/concurrency.md#1-fiber--cooperative-coroutine) documents this model.
+**[V]** Cooperative single-threading removes data races, not interleaving. A fiber switch occurs at explicit call, yield, or await points; another fiber may run before the first resumes. [Fibers & Futures §1](../../__unstructured__/spec/current/concurrency.md#1-fiber--cooperative-coroutine) documents this model.
 
     account.debit(amount)
     receipt.await
@@ -93,7 +93,7 @@ This makes the attribute useful documentation without smuggling function colorin
 
 This does not let engine discard work prematurely. Scheduler, reactor registration, running fiber, and future-to-producer relationship retain whatever reachability is necessary to deliver a result safely. The boundary is API/lifecycle: a future handle does not own a task tree.
 
-**[V]** Existing future structure distinguishes state, waiter list, and — for async futures — driving fiber. It settles once and uses fibers plus ready queue as substrate. [Fibers & Futures §2](../../spec/current/concurrency.md#2-future--pending-asynchronous-result)
+**[V]** Existing future structure distinguishes state, waiter list, and — for async futures — driving fiber. It settles once and uses fibers plus ready queue as substrate. [Fibers & Futures §2](../../__unstructured__/spec/current/concurrency.md#2-future--pending-asynchronous-result)
 
 | Topic | Consequence |
 |---|---|
@@ -145,7 +145,7 @@ Runtime must distinguish these relationships even if public status remains Suspe
 
 ### Root await
 
-**[V]** Root fiber cannot yield because it has no resumer; current design drives ready queue and rechecks awaited future. [Fibers & Futures §2](../../spec/current/concurrency.md#2-future--pending-asynchronous-result)
+**[V]** Root fiber cannot yield because it has no resumer; current design drives ready queue and rechecks awaited future. [Fibers & Futures §2](../../__unstructured__/spec/current/concurrency.md#2-future--pending-asynchronous-result)
 
 **[O]** Root await should run one ready turn, poll completions, then recheck awaited future. It must not blindly drain unbounded queue before rechecking; unrelated self-scheduled work must not delay a future already ready. One non-yielding fiber remains able to monopolize cooperative scheduler.
 
@@ -255,7 +255,7 @@ Capability is expressible only after defining all five semantics. It is not need
 
 ## 9. Error, cleanup, non-local return
 
-**[V]** Non-local return is fiber-local. Return whose home frame is on another fiber raises DeadFrameError; errors cross boundaries only through call/await propagation or try/catch capture. [Fibers & Futures §3](../../spec/current/concurrency.md#3-relationship-to-the-rest-of-the-model)
+**[V]** Non-local return is fiber-local. Return whose home frame is on another fiber raises DeadFrameError; errors cross boundaries only through call/await propagation or try/catch capture. [Fibers & Futures §3](../../__unstructured__/spec/current/concurrency.md#3-relationship-to-the-rest-of-the-model)
 
 **[O]** Any TaskGroup or fiber-cancellation design must decide before implementation:
 
@@ -319,10 +319,10 @@ These are intentional exclusions, not implementation gaps. Model still admits la
 
 **Opened first-hand this session ([V]):**
 
-- [docs/spec/current/concurrency.md](../../spec/current/concurrency.md)
+- [docs/spec/current/concurrency.md](../../__unstructured__/spec/current/concurrency.md)
 - [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 - [TDR — `Future#cancel` is renunciation: settle `#cancelled` now, suppress unstarted work best-effort, interrupt nothing](../../decisions/proposed/future-cancel-is-renunciation.md)
-- [cancellation specification](../../spec/current/stdlib/cancellation.md)
+- [cancellation specification](../../__unstructured__/spec/current/stdlib/cancellation.md)
 - [U-SCHED implementation spec](../pending/scheduling/queue/implementation-spec.md)
 - [Wren vs Phalcom analysis](wren-vs-phalcom-fiber-yield.md)
 - [phalcom-core/src/primitive/fiber.rs](../../../phalcom-core/src/primitive/fiber.rs)

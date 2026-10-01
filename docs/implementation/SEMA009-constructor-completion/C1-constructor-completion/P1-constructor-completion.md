@@ -62,12 +62,12 @@ dissolved, not closed; rewrite it to say so.
 
 ## Spec anchor
 
-- **[TDR-0072](../../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)** — governing canon. `docs/spec/current` is authoritative; this pending unit follows it.
+- **[TDR-0072](../../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)** — governing canon. `../../../__unstructured__/spec/current` is authoritative; this pending unit follows it.
 - [TDR-0002](../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) — the parallel tower is the mechanism this stops opting out of.
 - [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) — `SignatureKind::Initializer` retired (§9).
 - [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) — **floor amendment**; census is normative.
 - [TDR-0048](../../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md) — measure performance but never make a semantic lowering optional.
-- [Classes §1–3](../../../spec/current/classes.md) and [Selectors §4](../../../spec/current/selectors.md) — canonical constructor, placement, and decorator-target contract.
+- [Classes §1–3](../../../__unstructured__/spec/current/classes.md) and [Selectors §4](../../../__unstructured__/spec/current/selectors.md) — canonical constructor, placement, and decorator-target contract.
 
 ### Current-spec crosswalk (implementation reading order)
 
@@ -77,19 +77,19 @@ must reconcile the source, tests, and every row below before changing behavior.
 
 | Surface | Current spec | Plan consequence |
 |---|---|---|
-| Public constructor contract, `new_`, handwritten construction, field initialization, `@class` fields | [Classes §1–2](../../../spec/current/classes.md) | U-CTOR-2..6; in particular, preserve ordinary lookup for `new`, reserve `new_`, and keep class-side storage per declaring class. |
-| Class/metaclass identity, `Behavior`, and parallel class-side lookup | [Object Model §2, §4–5](../../../spec/current/object-model.md) | U-CTOR-3/4 must install and resolve through the parallel metaclass tower; no constructor-only dispatch path may survive. |
-| Exact selector identity, declaration grammar, and attribute targets | [Selectors §1, §4](../../../spec/current/selectors.md) · [Messages & Selectors §2–4](../../../spec/current/messages-and-selectors.md) | U-CTOR-3/5 retire `SignatureKind::Initializer` without changing encoded selector identity; duplicate detection keys on side + canonical selector. |
-| Ordinary class-side and `super` lookup, DNU behavior | [Method Lookup §1–2](../../../spec/current/method-lookup.md) | U-CTOR-4 preserves inherited `new()`; U-CTOR-5's rewritten `super` send remains an ordinary super-send. |
-| Attribute spelling, migration recognition, and reserved declaration names | [Lexical Structure §3, §10](../../../spec/current/lexical-structure.md) · [Syntax grammar](../../../spec/current/syntax/grammar.md) · [Syntax declarations](../../../spec/current/syntax/statements-and-declarations.md) | U-CTOR-2/3/6 own lexer/parser recovery for `static`, `construct`, and the keyword-variable `class`; validate grammar rather than only AST lowering. |
-| Decorator tier/order and generated-member collisions | [Decorators overview](../../../spec/current/decorators/README.md) · [`@construct`](../../../spec/current/decorators/construct.md) · [`@constructor`](../../../spec/current/decorators/constructor.md) | U-CTOR-1/3 must preserve class-header derivation ordering, method-only `@constructor`, and same-side selector collisions. |
-| Derives and weaves that currently special-case `ConstructDef` | [`@data`](../../../spec/current/decorators/data.md) · [`@get` / `@set`](../../../spec/current/decorators/accessors.md) · [`@requires`](../../../spec/current/decorators/requires.md) · [`@ensures`](../../../spec/current/decorators/ensures.md) · [`@invariant`](../../../spec/current/decorators/invariant.md) · [`@native`](../../../spec/current/decorators/native.md) | U-CTOR-3 migrates every target/attribute path from `Construct` to method + `@constructor`; contracts and native anchors need explicit legality and regression coverage. |
-| Core allocator placement and native-class catalog | [Core overview](../../../spec/current/core/overview.md) · [Core classes](../../../spec/current/core/core-classes.md) · [Catalog delta](../../../spec/current/core/catalog-delta.md) | U-CTOR-4 moves the sole generic allocator without changing native constructors; `native_repr` must prevent invalid instance allocation. |
-| Tower boot order and invariant gates | [Bootstrap phases](../../../spec/current/core/bootstrap-phases.md) · [Invariant requirements](../../../spec/current/core/invariant-requirements.md) | U-CTOR-4 requires a clean boot plus parallel-tower and floor-census invariants before landing. |
-| Primitive floor accounting | [Floor census](../../../spec/current/core/floor-census.md) | U-CTOR-4 updates both census and `R-INV-0.1`; the claimed net −1 is not complete until live bindings agree. |
-| Heap edges, `static_slots`, and constructor-era VM metadata | [Memory management §2.1–2.3](../../../spec/current/memory-management.md) | U-CTOR-4's `native_repr` and class-side allocation changes must keep class objects, static slots, and every new heap edge traceable. |
-| Uninitialized state / `None` observable after bare allocation | [Values & Absence §3](../../../spec/current/values-and-absence.md) | U-CTOR-4 tests the ruled behavior: a legal bare allocation leaves fields as `None`, rather than inventing an arity/tombstone failure. |
-| Hot-path measurement and deoptimization equivalence | [Performance Strategy](../../../spec/current/performance.md) | U-CTOR-5 is required semantics. Benchmark and optimize only without changing its observable two-method behavior. |
+| Public constructor contract, `new_`, handwritten construction, field initialization, `@class` fields | [Classes §1–2](../../../__unstructured__/spec/current/classes.md) | U-CTOR-2..6; in particular, preserve ordinary lookup for `new`, reserve `new_`, and keep class-side storage per declaring class. |
+| Class/metaclass identity, `Behavior`, and parallel class-side lookup | [Object Model §2, §4–5](../../../__unstructured__/spec/current/object-model.md) | U-CTOR-3/4 must install and resolve through the parallel metaclass tower; no constructor-only dispatch path may survive. |
+| Exact selector identity, declaration grammar, and attribute targets | [Selectors §1, §4](../../../__unstructured__/spec/current/selectors.md) · [Messages & Selectors §2–4](../../../__unstructured__/spec/current/messages-and-selectors.md) | U-CTOR-3/5 retire `SignatureKind::Initializer` without changing encoded selector identity; duplicate detection keys on side + canonical selector. |
+| Ordinary class-side and `super` lookup, DNU behavior | [Method Lookup §1–2](../../../__unstructured__/spec/current/method-lookup.md) | U-CTOR-4 preserves inherited `new()`; U-CTOR-5's rewritten `super` send remains an ordinary super-send. |
+| Attribute spelling, migration recognition, and reserved declaration names | [Lexical Structure §3, §10](../../../__unstructured__/spec/current/lexical-structure.md) · [Syntax grammar](../../../__unstructured__/spec/current/syntax/grammar.md) · [Syntax declarations](../../../__unstructured__/spec/current/syntax/statements-and-declarations.md) | U-CTOR-2/3/6 own lexer/parser recovery for `static`, `construct`, and the keyword-variable `class`; validate grammar rather than only AST lowering. |
+| Decorator tier/order and generated-member collisions | [Decorators overview](../../../__unstructured__/spec/current/decorators/README.md) · [`@construct`](../../../__unstructured__/spec/current/decorators/construct.md) · [`@constructor`](../../../__unstructured__/spec/current/decorators/constructor.md) | U-CTOR-1/3 must preserve class-header derivation ordering, method-only `@constructor`, and same-side selector collisions. |
+| Derives and weaves that currently special-case `ConstructDef` | [`@data`](../../../__unstructured__/spec/current/decorators/data.md) · [`@get` / `@set`](../../../__unstructured__/spec/current/decorators/accessors.md) · [`@requires`](../../../__unstructured__/spec/current/decorators/requires.md) · [`@ensures`](../../../__unstructured__/spec/current/decorators/ensures.md) · [`@invariant`](../../../__unstructured__/spec/current/decorators/invariant.md) · [`@native`](../../../__unstructured__/spec/current/decorators/native.md) | U-CTOR-3 migrates every target/attribute path from `Construct` to method + `@constructor`; contracts and native anchors need explicit legality and regression coverage. |
+| Core allocator placement and native-class catalog | [Core overview](../../../__unstructured__/spec/current/core/overview.md) · [Core classes](../../../__unstructured__/spec/current/core/core-classes.md) · [Catalog delta](../../../__unstructured__/spec/current/core/catalog-delta.md) | U-CTOR-4 moves the sole generic allocator without changing native constructors; `native_repr` must prevent invalid instance allocation. |
+| Tower boot order and invariant gates | [Bootstrap phases](../../../__unstructured__/spec/current/core/bootstrap-phases.md) · [Invariant requirements](../../../__unstructured__/spec/current/core/invariant-requirements.md) | U-CTOR-4 requires a clean boot plus parallel-tower and floor-census invariants before landing. |
+| Primitive floor accounting | [Floor census](../../../__unstructured__/spec/current/core/floor-census.md) | U-CTOR-4 updates both census and `R-INV-0.1`; the claimed net −1 is not complete until live bindings agree. |
+| Heap edges, `static_slots`, and constructor-era VM metadata | [Memory management §2.1–2.3](../../../__unstructured__/spec/current/memory-management.md) | U-CTOR-4's `native_repr` and class-side allocation changes must keep class objects, static slots, and every new heap edge traceable. |
+| Uninitialized state / `None` observable after bare allocation | [Values & Absence §3](../../../__unstructured__/spec/current/values-and-absence.md) | U-CTOR-4 tests the ruled behavior: a legal bare allocation leaves fields as `None`, rather than inventing an arity/tombstone failure. |
+| Hot-path measurement and deoptimization equivalence | [Performance Strategy](../../../__unstructured__/spec/current/performance.md) | U-CTOR-5 is required semantics. Benchmark and optimize only without changing its observable two-method behavior. |
 
 ### Reconciliation record — resolved by PDR-0028
 
@@ -327,7 +327,7 @@ ordinary instance-side super-send.
 > **Performance discipline (ADR-0051).** Measure the extra send and optimize it only
 > with a guard/deopt path that is observably identical to this lowering. A regression
 > does not permit retaining a fused constructor or `Initializer` gate: the lowering is
-> the [Classes §1](../../../spec/current/classes.md) contract.
+> the [Classes §1](../../../__unstructured__/spec/current/classes.md) contract.
 
 ---
 
@@ -352,8 +352,8 @@ ordinary instance-side super-send.
 | `phalcom-core/core/core.ph` | 4 | `class Class { new() => self.new_() }`; codemod 28 sites |
 | `phalcom-lsp/src/*` | 3 | 4 `Construct` refs — exhaustive-match fixups |
 | `phalcom-core/tests/invariants.rs` | 4 | **R-INV-0.1 selector strings + count (−1)** |
-| `docs/spec/current/core/floor-census.md` | 4 | amendment row, net −1 fn/binding |
-| `docs/spec/current/decorators/{README,construct,constructor}.md` and related decorator docs | 3 | align legacy-internal status/evidence with PDR-0028 and the new AST/lowering path |
+| `../../../__unstructured__/spec/current/core/floor-census.md` | 4 | amendment row, net −1 fn/binding |
+| `../../../__unstructured__/spec/current/decorators/{README,construct,constructor}.md` and related decorator docs | 3 | align legacy-internal status/evidence with PDR-0028 and the new AST/lowering path |
 | corpus `.ph` ×~150 files | 2, 3 | recommended one-shot codemod; legacy forms remain accepted with help hints |
 
 ---
@@ -417,7 +417,7 @@ confirm the suite reddens, restore ([[phalcom-golden-test-lanes]]).
 | # | Question | Ruling |
 |---|---|---|
 | **A2** | Inherited `@class` method reading a subclass's unset `@class` field → `None` | **Working as designed — fixture it** |
-| **B** | Governing constructor canon | **PDR-0028 wins** — `docs/spec/current` is authoritative; ADR-0063's target-polymorphic surface is superseded. |
+| **B** | Governing constructor canon | **PDR-0028 wins** — `../../../__unstructured__/spec/current` is authoritative; ADR-0063's target-polymorphic surface is superseded. |
 | **C** | U-CTOR-5 desugar vs +1 send/construction | **Two-method lowering is semantics.** Measure and optimize, but do not decline it. |
 | **D** | Codemod one-shot vs compatibility | **Codemod recommended; legacy forms remain parseable with non-fatal help hints.** |
 | **E** | `@construct` vs `@constructor` for the header derive | **`@construct` class-only; `@constructor` method-only.** |

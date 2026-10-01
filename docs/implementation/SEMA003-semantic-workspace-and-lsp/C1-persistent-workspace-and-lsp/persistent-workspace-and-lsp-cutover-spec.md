@@ -542,7 +542,7 @@ but the Rust implementation ends with:
 Ok(vm.none_value())
 ```
 
-Meanwhile `docs/spec/current/system.md` currently says `print(_)` returns its argument.
+Meanwhile `../../../__unstructured__/spec/current/system.md` currently says `print(_)` returns its argument.
 
 The intended contract ratified for this Part 3 is:
 
@@ -550,7 +550,7 @@ The intended contract ratified for this Part 3 is:
 System.print(_): Unit
 ```
 
-Therefore Part 3 explicitly supersedes the stale `System.print` return text in `docs/spec/current/system.md`.
+Therefore Part 3 explicitly supersedes the stale `System.print` return text in `../../../__unstructured__/spec/current/system.md`.
 
 ## 8.1 Required implementation
 
@@ -769,7 +769,7 @@ Other mismatches found by the audit must be reconciled against the current norma
 
 ## 11.3 Confirmed adjacent correction: `System.gc`
 
-Current `System.gc` is declared `() -> Object`, returns `vm.none_value()`, while `docs/spec/current/system.md` describes it as returning `None`. `UniverseKey::None` is a canonical universe type, so this mismatch does not need to remain unresolved.
+Current `System.gc` is declared `() -> Object`, returns `vm.none_value()`, while `../../../__unstructured__/spec/current/system.md` describes it as returning `None`. `UniverseKey::None` is a canonical universe type, so this mismatch does not need to remain unresolved.
 
 Part 3 therefore also requires:
 
@@ -3198,7 +3198,7 @@ Every item below is mandatory.
 39. Phaldoc remains prominent.
 40. `System.print(_)` native metadata returns Unit.
 41. `System.print(_)` Rust implementation returns `vm.unit_value()`.
-42. `docs/spec/current/system.md` documents Unit return for print.
+42. `../../../__unstructured__/spec/current/system.md` documents Unit return for print.
 43. Compiler native import establishes Unit for `System.print`.
 44. A `System.print` call expression is Established Unit.
 45. A method with `System.print` as its normal tail is Established Unit.
@@ -3449,7 +3449,7 @@ metadata return: Object
 runtime normal result: vm.none_value()
 ```
 
-`docs/spec/current/system.md`:
+`../../../__unstructured__/spec/current/system.md`:
 
 ```text
 documented return: argument/pass-through

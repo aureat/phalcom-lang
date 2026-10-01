@@ -60,8 +60,8 @@ These are **not** unit sub-tasks; they are undecided design and must be resolved
   (stackful). This is the gate for everything else.
 - **Depends on.** Nothing (pure design). Consumes forward-compat §7.2.
 - **Write-set.** `docs/decisions/00NN-fiber-execution-model.md` (new;
-  number — 0024+ (ADR-0023 = floor amendment, ratified de03f26)), `docs/spec/open-questions.md` (add the
-  concurrency execution-model entry), `docs/spec/concurrency.md` (correct §1's
+  number — 0024+ (ADR-0023 = floor amendment, ratified de03f26)), `../../../__unstructured__/spec/open-questions.md` (add the
+  concurrency execution-model entry), `../../../__unstructured__/spec/concurrency.md` (correct §1's
   "return to the dispatch loop" sketch and the stale `Value::Fiber(PhRef<…>)`
   wording per forward-compat §7.4). **No source.**
 - **Design decision.** **BLOCKED-ON-DECISION (BD-U20-EXEC).** Options and the
@@ -253,7 +253,7 @@ These are **not** unit sub-tasks; they are undecided design and must be resolved
 - **Write-set (source).** **Almost entirely `phalcom-core/core/core.ph`** (Future
   is a plain `InstanceObject`, no new `Value` arm — forward-compat §7.1 D6 / spec
   §2). One `System` hook for external completions:
-  `phalcom-core/src/primitive/system.rs` + `docs/spec/system.md`. A tiny native
+  `phalcom-core/src/primitive/system.rs` + `../../../__unstructured__/spec/system.md`. A tiny native
   ready-queue may live on the `VM` or a `SchedulerObject` in `fiber.rs`.
 - **Design decision.** `Future` owns **no new VM mechanism beyond `Fiber` + a
   queue** (concurrency.md §2). The top-level program runs inside the scheduler's

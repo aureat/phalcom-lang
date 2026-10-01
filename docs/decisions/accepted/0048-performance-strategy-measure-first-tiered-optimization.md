@@ -66,7 +66,7 @@ path that silently changes semantics.
 Adopt a **measure-first, tiered, behavior-invariant** performance strategy,
 targeting **Wren parity (~2× on Skynet)**. The strategy is a standing policy plus
 an ordered sequence; the normative detail (laws, invariants, tier contract) is in
-`docs/spec/current/performance.md`.
+`../../__unstructured__/spec/current/performance.md`.
 
 1. **Measure-first is policy, not advice.** No optimization lands without (a) a
    reproducible in-repo benchmark, (b) a profile attributing the cost to a named

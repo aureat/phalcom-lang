@@ -83,7 +83,7 @@ instance** (`primitive/block.rs:253-263`, mirrored in `vm/dispatch.rs:370-379`
 `RangeError` / `TypeError` / `ZeroDivision` kernel classes — only `Error`,
 `MessageNotUnderstood`, and `CannotYieldAcrossNativeFrame`.
 
-So the worked examples at `docs/spec/current/error-handling.md:143-146` are false:
+So the worked examples at `../../__unstructured__/spec/current/error-handling.md:143-146` are false:
 
 ```phalcom
 { obj.frobnicate() }.on(MessageNotUnderstood) { e => … }   // works (reified via Raise)

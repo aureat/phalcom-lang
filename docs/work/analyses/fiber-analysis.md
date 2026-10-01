@@ -1725,7 +1725,7 @@ That decomposition maps much better onto the reactor realities the current PDR a
 
 # 34. The planned reactor is architecturally strong
 
-Although it is not yet implemented, `docs/spec/current/stdlib/reactor.md` contains several good decisions.
+Although it is not yet implemented, `../../__unstructured__/spec/current/stdlib/reactor.md` contains several good decisions.
 
 It divides external completion into:
 

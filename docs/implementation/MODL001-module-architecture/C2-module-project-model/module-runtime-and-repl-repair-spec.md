@@ -115,7 +115,7 @@ Read these files once, in this order:
     - `reload`
 11. `phalcom-core/tests/modules_runtime.rs`
 12. `phalcom-repl/tests/repl_phase_b.rs` and any existing REPL tests
-13. `docs/spec/next/modules-next.md` only after the runtime changes are understood.
+13. `../../../__unstructured__/spec/next/modules-next.md` only after the runtime changes are understood.
 
 Do not read broad compiler/universe files yet. Use symbol-targeted reads only when a phase below names them.
 
@@ -163,7 +163,7 @@ All line ranges below are pinned to baseline commit `f0e516...`. Use the **symbo
 | `phalcom-repl/src/repl.rs` | ~L52-L75 | `ReplSession`, legacy `start()` |
 | `phalcom-repl/src/repl.rs` | ~L76-L130 | `eval()` compiles whole source via `compile_closure_as` |
 | `phalcom-repl/src/repl.rs` | ~L132-L165 | `reload()` reconstructs the same legacy module |
-| `docs/spec/next/modules-next.md` | L1-L50 | contradictory `Module < Package < Project` headline vs project-owns-package prose |
+| `../../../__unstructured__/spec/next/modules-next.md` | L1-L50 | contradictory `Module < Package < Project` headline vs project-owns-package prose |
 
 ---
 

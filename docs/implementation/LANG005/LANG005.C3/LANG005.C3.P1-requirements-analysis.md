@@ -230,7 +230,7 @@ Protocol-era documents that define `@protocol class`, signature-only protocols, 
 
 ## 3.6 Future proposals
 
-C4–C8 support examples and `docs/spec/next/` material are forward-compatibility constraints, not permission to implement future features early. In particular:
+C4–C8 support examples and `../../../__unstructured__/spec/next/` material are forward-compatibility constraints, not permission to implement future features early. In particular:
 
 ```text
 C4    conformance + witnesses
@@ -1064,7 +1064,7 @@ TraitRef is contract reference, not ordinary value type
 - README/STATUS/index files must point to the new effective rule.
 - Protocol-era normative documents must be archived, explicitly marked superseded, or narrowed to historical context according to specification governance.
 - Generic-signature examples that use `@protocol class` as active syntax must be migrated to `trait` where they are still normative.
-- `docs/spec/next/` protocol claims must be marked superseded/deferred where they compete with accepted LANG005 semantics; next/proposal material must not remain an accidental stronger authority.
+- `../../../__unstructured__/spec/next/` protocol claims must be marked superseded/deferred where they compete with accepted LANG005 semantics; next/proposal material must not remain an accidental stronger authority.
 - Do **not** globally replace the ordinary English word “protocol” in cursor, API, network, call protocol, or procedural contexts.
 
 ## 17.4 Runtime descriptor language

@@ -173,7 +173,7 @@ No one axis substitutes for another.
 
 # 3. Normative semantic basis
 
-## 3.1 `docs/spec/semantic-analyzer/07-generic-inference-engine.md`
+## 3.1 `../../../__unstructured__/spec/semantic-analyzer/07-generic-inference-engine.md`
 
 This is the primary normative source for this slice.
 
@@ -196,7 +196,7 @@ It already establishes:
 
 Technical Specification 03 implements these laws in the current checker architecture.
 
-## 3.2 `docs/spec/semantic-analyzer/08-callable-analysis-and-publication.md`
+## 3.2 `../../../__unstructured__/spec/semantic-analyzer/08-callable-analysis-and-publication.md`
 
 Chapter 08 establishes the publication boundary:
 
@@ -219,7 +219,7 @@ It also establishes:
 
 Technical Specification 03 produces the proof-complete generic result that Chapter 08 publishes.
 
-## 3.3 `docs/spec/semantic-analyzer/06-relations-reconciliation-and-semantic-judgments.md`
+## 3.3 `../../../__unstructured__/spec/semantic-analyzer/06-relations-reconciliation-and-semantic-judgments.md`
 
 Chapter 06 establishes that semantic relations are structured computations rather than booleans.
 

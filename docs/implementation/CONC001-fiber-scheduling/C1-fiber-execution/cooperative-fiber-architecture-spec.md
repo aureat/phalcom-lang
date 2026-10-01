@@ -370,8 +370,8 @@ non-`done`) fiber's stacks remain reachable arena roots (spec §7.3).
 | Claim / requirement | Source |
 |---|---|
 | Execution model (Option A), typed switch, O(1) swap, GC roots, fiber-local return, floor amendment | [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1–§7 |
-| Surface (`new`/`call`/`try`/`yield`/`current`/`abort`), state machine | [concurrency.md](../../../spec/current/concurrency.md) §1; [cooperative-fiber-spec.md](cooperative-fiber-spec.md) §1–§2 |
-| D1–D7 audit; re-entrant-loop finding; pre-fiber invariants | [forward-compat.md](../../../spec/current/core/forward-compat.md) §7 |
+| Surface (`new`/`call`/`try`/`yield`/`current`/`abort`), state machine | [concurrency.md](../../../__unstructured__/spec/current/concurrency.md) §1; [cooperative-fiber-spec.md](cooperative-fiber-spec.md) §1–§2 |
+| D1–D7 audit; re-entrant-loop finding; pre-fiber invariants | [forward-compat.md](../../../__unstructured__/spec/current/core/forward-compat.md) §7 |
 | DEC-FIB-A: U-CORE-6 unwind not floor-parameterised → U-FIBER owns capture | `error.rs:86-94`, `vm.rs:818-826`/`:1149-1151` (this pass); [TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md); [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §6 |
 | No `Value::Fiber` (D2); `Object` enum | `value.rs:30-45`; `heap.rs:68`; [TDR-0008](../../../decisions/accepted/0008-handle-arena-heap.md)/[TDR-0009](../../../decisions/accepted/0009-tagged-value-enum.md) |
 | `next_frame_generation` VM-global (D4); `stack_offset` relative (D3) | `vm.rs:72`; `frame.rs:75` |

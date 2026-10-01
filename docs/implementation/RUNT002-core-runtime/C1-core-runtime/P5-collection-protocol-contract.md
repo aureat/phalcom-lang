@@ -55,7 +55,7 @@ deferred_reason: null
 2. A **reusable conformance harness** parameterized by *the collection under
    test* (a build-closure + a `ContractSpec`), so that when `Map`/`Set`/`Tuple`
    land (U-STD) they are certified against **this** corpus rather than ad-hoc
-   tests ([R-INV-5.4](../../../spec/current/core/invariant-requirements.md)).
+   tests ([R-INV-5.4](../../../__unstructured__/spec/current/core/invariant-requirements.md)).
 3. The **minimal `.ph`** that makes `List` satisfy the *whole* contract today —
    specifically a **structural `==`** (and its paired `!=`). `List` today has only
    **identity** equality (§1.3); without this it is not a conformant reference
@@ -514,7 +514,7 @@ System.print(total)    // 1*10 + 1*20 + 2*10 + 2*20 = 90
 
 All of R-INV-5.1…5.4 are **corpus** ("C") assertions — **none** touch
 `verify_invariants`/`universe.rs` (nothing here is a boot-soundness invariant), per
-[`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §4 U-CORE-5.
+[`invariant-requirements.md`](../../../__unstructured__/spec/current/core/invariant-requirements.md) §4 U-CORE-5.
 
 | R-INV | Contract law(s) | Where it lands |
 |---|---|---|
@@ -664,8 +664,8 @@ and (b) a self-referential list (`l.add(l)`) recurses unboundedly.
 | `==`/`!=` install as `Method(1)`, not sacred | `universe.rs` **L257–258** ⚠ (concurrently edited by U-CORE-4, re-confirm at dispatch); floor-census §2.1/§5 |
 | `at` out-of-range → `None` singleton | `primitive/list.rs` L72-79 (re-verified unchanged); invariants.rs (absence precedent) |
 | `isA(_)` / `hash` are U-CORE-1 — **landed** (`03764e3`) | catalog-delta §4.5; [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q1; invariant-requirements 1.2/1.3 |
-| R-INV-5.1…5.4 all corpus | [`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §4 U-CORE-5 |
-| Flips nothing directly; enables U-STD/U-LEX fixtures (2 of 3 rows turned out already resolved, see §4.3 re-grounding note) | [`pending-retirement.md`](../../../spec/current/core/pending-retirement.md) §4 |
+| R-INV-5.1…5.4 all corpus | [`invariant-requirements.md`](../../../__unstructured__/spec/current/core/invariant-requirements.md) §4 U-CORE-5 |
+| Flips nothing directly; enables U-STD/U-LEX fixtures (2 of 3 rows turned out already resolved, see §4.3 re-grounding note) | [`pending-retirement.md`](../../../__unstructured__/spec/current/core/pending-retirement.md) §4 |
 | No floor amendment; census stays wherever U-CORE-4 lands it (85 today → 86 expected) | [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md); floor-census §1.1/§7 |
-| int/float-safe by element delegation; fiber-safe iteration | [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §4, §1 |
+| int/float-safe by element delegation; fiber-safe iteration | [`forward-compat.md`](../../../__unstructured__/spec/current/core/forward-compat.md) §4, §1 |
 | Harness surfaces mirror in-process + golden precedent | `tests/invariants.rs`; `tests/support/mod.rs`; `tests/lang.rs` |

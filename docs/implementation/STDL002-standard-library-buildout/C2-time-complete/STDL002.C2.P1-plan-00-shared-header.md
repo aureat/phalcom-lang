@@ -38,7 +38,7 @@ executor_profile: GPT-5.6-Luna-High-or-Extra-High
 
 **Tech stack:** Phalcom Universe source; first-class `data`; classes/inheritance/abstract members; enum/product semantics; canonical module/package/project identity; lexical visibility; tuple-shaped grouped imports/exports; Rust host-clock bridge through the evolving Phalcom `primitive` implementation-kind infrastructure; `phalcom-semantic`; `phalcom-core`; arbitrary-precision `Int`; ordinary VM values/objects/GC/reflection; existing concurrency reactor/timer consumers.
 
-**Primary design / execution authorities:** `STDL002.C2-CHECKPOINT.md`; `STDL002.C2-GUIDANCE.md`; `STDL002.C1-CHECKPOINT.md`; accepted `data` decision `docs/decisions/accepted/0080-data-is-a-nominal-transparent-immutable-value-product.md`; current effective language specifications for modules/imports/exports, visibility, `data`, classes/abstract members, native/primitive declarations, enums, reflection, and errors; current C1 `docs/spec/current/stdlib/time.md` only for predecessor behavior not explicitly superseded by C2.
+**Primary design / execution authorities:** `STDL002.C2-CHECKPOINT.md`; `STDL002.C2-GUIDANCE.md`; `STDL002.C1-CHECKPOINT.md`; accepted `data` decision `docs/decisions/accepted/0080-data-is-a-nominal-transparent-immutable-value-product.md`; current effective language specifications for modules/imports/exports, visibility, `data`, classes/abstract members, native/primitive declarations, enums, reflection, and errors; current C1 `../../../__unstructured__/spec/current/stdlib/time.md` only for predecessor behavior not explicitly superseded by C2.
 
 ---
 
@@ -247,7 +247,7 @@ At the planning baseline:
 10. language fixtures currently encode `System.clock` and a legacy hidden host-read visibility test.
 11. `System` is currently declared in `concurrency/fiber.ph`; it owns public `clock`, sleep, scheduler operations, and the legacy monotonic host-read bridge.
 12. the Rust host read currently lives in the System primitive area and is registered as a System-side primitive.
-13. `docs/spec/current/stdlib/time.md` currently describes only the C1 monotonic surface.
+13. `../../../__unstructured__/spec/current/stdlib/time.md` currently describes only the C1 monotonic surface.
 14. `docs/implementation/time.md` contains broader design input for the full time library but is not the P1 execution authority.
 15. the STDL002 program still describes civil/timezone work as the later deep half of time, so C2 is a legitimate successor checkpoint rather than a retroactive redefinition of C1.
 
@@ -505,7 +505,7 @@ Duration's ordinary opaque class representation
 
 ## 5.4 Current C1 specification status
 
-`docs/spec/current/stdlib/time.md` is authoritative for the landed C1 surface until C2 changes are approved/implemented, but it is deliberately incomplete for C2.
+`../../../__unstructured__/spec/current/stdlib/time.md` is authoritative for the landed C1 surface until C2 changes are approved/implemented, but it is deliberately incomplete for C2.
 
 The P1 body must include the appropriate specification update so that P1 completion does not leave the effective time specification asserting superseded public APIs.
 

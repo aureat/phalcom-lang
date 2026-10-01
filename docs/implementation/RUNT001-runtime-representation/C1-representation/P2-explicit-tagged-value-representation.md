@@ -1368,7 +1368,7 @@ Remove wording that implies seven layers are a language rule.
 
 State that the implementation carries a practical `u32` nesting depth and that overflow is a physical-resource limit.
 
-## `docs/spec/current/performance.md`
+## `../../../__unstructured__/spec/current/performance.md`
 
 Correct any stale `Value` size statement to:
 
@@ -1378,7 +1378,7 @@ Correct any stale `Value` size statement to:
 
 and note that it is now an explicit internal representation invariant.
 
-## `docs/spec/current/memory-management.md`
+## `../../../__unstructured__/spec/current/memory-management.md`
 
 Update memory-density examples based on 16-byte `Value`.
 

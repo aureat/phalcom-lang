@@ -60,10 +60,10 @@ don't fail the run until `--strict`.
   static factories). Also U5-era; grouped separately only because exact rational
   arithmetic makes `==` assertions meaningful.
 - **Tier 2** — needs `var` (U6, [ADR-0014](../../docs/adr/accepted/0014-let-and-var-bindings.md)),
-  list/map literals ([lexical-structure.md §4/§6](../../docs/spec/lexical-structure.md)),
-  the iteration protocol ([iteration-protocol.md](../../docs/spec/experimental/iteration-protocol.md)),
+  list/map literals ([lexical-structure.md §4/§6](../../docs/__unstructured__/spec/lexical-structure.md)),
+  the iteration protocol ([iteration-protocol.md](../../docs/__unstructured__/spec/experimental/iteration-protocol.md)),
   and a standard-library collection surface that is **still deferred**
-  ([typing-stdlib-surface.md](../../docs/spec/experimental/typing-stdlib-surface.md)).
+  ([typing-stdlib-surface.md](../../docs/__unstructured__/spec/experimental/typing-stdlib-surface.md)).
   Selector names (`reduce`, `sorted`, `map`, list `+`) are best-effort guesses at
   the eventual surface and should be reconciled when U-STD is specified.
 

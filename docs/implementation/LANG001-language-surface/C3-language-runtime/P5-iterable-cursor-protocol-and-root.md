@@ -91,7 +91,7 @@ the returned cursor against `None` **by identity** via one new opcode, and intro
   `universe.rs`/`compiler/lib.rs` mid-edit by other sessions as recently as this same day (U16
   work); by plan time they are committed and clean again (verified via `git status --porcelain`
   at plan time — only doc files dirty: `deferred-work.md`, `iteration.md`,
-  `values-and-absence.md`, plus the new ADR-0048 and three `docs/spec/current/drafts/*` files,
+  `values-and-absence.md`, plus the new ADR-0048 and three `../../../__unstructured__/spec/current/drafts/*` files,
   untracked). **Re-run `git status`/`graphify affected` on all five write-set Rust files
   immediately before dispatch** — do not trust these line numbers blindly; they are exact as of
   this read, but `main` moves.
@@ -359,7 +359,7 @@ remove from each class body; nothing else in any of the five classes moves):
 **Deliberately NOT in scope:** `phalcom-ast/*` (no surface syntax changes — `for`/`break`/
 `continue` grammar is untouched), `primitive/*` (zero new native rows), `heap.rs`/`class.rs`
 (no new `Value`/`Object` variant, no `ClassObject` shape change beyond the ordinary
-`make_core_class` call already used for every kernel class), `docs/decisions/*`/`docs/spec/*` (already
+`make_core_class` call already used for every kernel class), `docs/decisions/*`/`../../../__unstructured__/spec/*` (already
 written — this unit is realization only), `docs/forge/DEFERRED.md` (flag DEC-ITER-A's closure
 for the orchestrator/reviewer, do not edit it yourself), U-SEQ's `all`/`any`/`count`/`find`/
 `join`/`toList`/lazy-view suite (iteration.md §5 lists it on `Iterable` but explicitly assigns

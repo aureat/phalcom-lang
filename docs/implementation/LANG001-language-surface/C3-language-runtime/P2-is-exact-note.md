@@ -53,7 +53,7 @@ disambiguation, the proxy P-2 policy, and the precludes list. Grounds on:
 At the comparison tier (parser.rs ~1242 region, same precedence as `==`/`!=`, non-associative,
 non-chaining), after parsing the left `shift`-level expr, if the next token is `Token::Is`:
 1. **Strict suffix** — peek for a **contiguous** `Token::Bang` (span end of `is` == span start of
-   `!`, the [selectors.md §2](../../../spec/current/selectors.md) adjacency test). Contiguous → strict
+   `!`, the [selectors.md §2](../../../__unstructured__/spec/current/selectors.md) adjacency test). Contiguous → strict
    (`isExactly`); consume the `Bang`. A space before `!` is **not** strict (and, post-U-NEG, a
    lone `!` in RHS position is a parse error — good).
 2. **`not` particle** — if the next token is `Token::Not`, consume it as the **negation particle**
@@ -101,7 +101,7 @@ class Object {
   only if a field is genuinely missing.
 - `phalcom-core/core/core.ph` — `is`/`isExactly` added, `isA` → alias.
 - `phalcom-core/tests/` — goldens + graduate any pending is-test fixture.
-- `docs/spec/current/is-tests.md` — mark surface IMPLEMENTED; `docs/forge/units/README.md` +
+- `../../../__unstructured__/spec/current/is-tests.md` — mark surface IMPLEMENTED; `docs/forge/units/README.md` +
   DEFERRED/STATE as the index requires.
 - **Floor: +0** (pure parser desugar + `.ph` methods over the floor; no native primitive). If a
   primitive turns out needed → STOP-and-report per TDR-0017.

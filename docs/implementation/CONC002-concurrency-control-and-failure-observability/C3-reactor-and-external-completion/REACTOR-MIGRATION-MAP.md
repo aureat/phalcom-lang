@@ -96,7 +96,7 @@ Delete `CONC001.../reactor-worker-pool-and-timers-spec.md` only after:
 
 - C3.P1 contains every P1 row above;
 - C3.P2 contains every poller row above;
-- `docs/spec/current/stdlib/reactor.md` points to C3;
+- `../../../__unstructured__/spec/current/stdlib/reactor.md` points to C3;
 - live PDR/spec implementation links no longer point at the missing U-REACTOR file or old CONC001 implementation record;
 - the old file is referenced only by historical snapshots, if any.
 

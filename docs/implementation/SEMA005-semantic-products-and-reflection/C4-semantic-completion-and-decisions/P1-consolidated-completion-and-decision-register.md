@@ -138,7 +138,7 @@ The current analysis-series documents are present under:
 docs/work/analyses/typing/
 ```
 
-The older `docs/spec/typing/STATUS.md` is historical and contains superseded concepts such as `Type.currentApplication`, `out`/`in`, finite-set bounds, and earlier document numbering. It is not used as the forward architectural authority for this plan.
+The older `../../../__unstructured__/spec/typing/STATUS.md` is historical and contains superseded concepts such as `Type.currentApplication`, `out`/`in`, finite-set bounds, and earlier document numbering. It is not used as the forward architectural authority for this plan.
 
 ## 1.2 Verification boundary
 

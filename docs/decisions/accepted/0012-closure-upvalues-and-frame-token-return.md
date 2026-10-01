@@ -47,9 +47,9 @@ token**:
   seen by the outer scope while the frame is live.
 - Non-local return is safe by construction: the generation check converts "return to
   a dead frame" from undefined behavior into `DeadFrameError`. (The unbraced arrow
-  form is expression-only and cannot carry `return` ([Blocks §2](../../spec/current/blocks.md)),
+  form is expression-only and cannot carry `return` ([Blocks §2](../../__unstructured__/spec/current/blocks.md)),
   which keeps the safe cases the common cases.)
-- One closure representation means `Fiber`/`Future` ([Concurrency](../../spec/current/concurrency.md))
+- One closure representation means `Fiber`/`Future` ([Concurrency](../../__unstructured__/spec/current/concurrency.md))
   take any `Function` as their unit of work without caring block-vs-method.
 - Open→closed promotion must interact correctly with the heap ownership model
   ([TDR-0008](./0008-handle-arena-heap.md)): the upvalue cell's lifetime is the

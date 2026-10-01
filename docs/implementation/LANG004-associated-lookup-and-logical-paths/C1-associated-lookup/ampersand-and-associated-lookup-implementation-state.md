@@ -57,7 +57,7 @@ The full workspace test gate completed all AST, core, LSP, modules, and related 
 
 The full workspace clippy gate is baseline-blocked by five existing `phalcom-modules` warnings (`unnecessary_map_or`, `too_many_arguments`, `type_complexity`, and `collapsible_if`). Package-level core and LSP lint also surface only existing warnings outside the changed implementation paths.
 
-The planned negative fixture search found no retired `::*`, `::(_)`, `::...`, or `::()` spellings. The only remaining old terminology match is the intentional historical-retirement sentence in `docs/spec/current/selectors.md`; `BoundBehavioralMember` is current semantic metadata, not a retired resolution kind.
+The planned negative fixture search found no retired `::*`, `::(_)`, `::...`, or `::()` spellings. The only remaining old terminology match is the intentional historical-retirement sentence in `../../../__unstructured__/spec/current/selectors.md`; `BoundBehavioralMember` is current semantic metadata, not a retired resolution kind.
 
 Final review: `git diff --check` passed. The dedicated worktree remains uncommitted on `codex/ampersand-associated-lookup`; the main checkout still contains its pre-existing unrelated edits, including the fibers/concurrency change.
 

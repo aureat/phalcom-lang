@@ -202,7 +202,7 @@ Working set — primary:
 - `phalcom-core/core/universe/src/concurrency/fiber.ph` — current API declarations (inspect; do not genericize yet);
 - `phalcom-core/src/primitive/fiber.rs` — `fiber_resume`/`fiber_yield` semantics;
 - existing concurrency language-corpus source directory/harness;
-- `docs/spec/current/concurrency.md` — behavioral contract.
+- `../../../__unstructured__/spec/current/concurrency.md` — behavioral contract.
 
 Out of scope:
 - new compiler/type syntax;
@@ -322,7 +322,7 @@ Primary working set:
 - `phalcom-semantic/src/types/{store,relation,substitution,instantiation}.rs` only for inspection unless tests reveal an owned defect;
 - `phalcom-ast/src/parser.rs` type-annotation parsing;
 - `phalcom-type-syntax/src/lib.rs` native callable/type metadata parsing;
-- `docs/spec/collections/07-callable-domains.md` — ratified callable-domain semantics;
+- `../../../__unstructured__/spec/collections/07-callable-domains.md` — ratified callable-domain semantics;
 - native surface generator/macro metadata consumers only if canonical Fiber native signatures require them.
 
 Secondary:
@@ -629,7 +629,7 @@ Must not:
 Update:
 - C1 `CHECKPOINT.md`: P4 is final C1 plan;
 - P4 state: record terminal-only Fiber target and deferred final implementation owner C2.P2;
-- `docs/spec/current/concurrency.md`: do **not** publish `Fiber<R>` yet unless promotion was explicitly approved and implemented; record the current Dynamic manual transfer truth;
+- `../../../__unstructured__/spec/current/concurrency.md`: do **not** publish `Fiber<R>` yet unless promotion was explicitly approved and implemented; record the current Dynamic manual transfer truth;
 - C2-R1 front matter/baseline/overlap language after P4 lands: remove claims that P4 §2 may independently implement native control; C2-R1 is sole owner.
 
 The C2 entry contract must state that it may assume:

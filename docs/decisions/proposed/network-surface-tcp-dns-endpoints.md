@@ -59,7 +59,7 @@ about what `getaddrinfo` returns for a hostname. Go's `net.SplitHostPort` exists
 colons as the standing ambiguity; a pair class avoids the string but still buys a kernel
 class for what is one address and one integer. Revisit only if SRV-style resolution (which
 genuinely returns endpoints) ever lands — recorded as open question Q-N6 in
-[`stdlib/net.md`](../../spec/current/stdlib/net.md).
+[`stdlib/net.md`](../../__unstructured__/spec/current/stdlib/net.md).
 
 ### 2. Blocking shape, applied honestly in both directions
 
@@ -180,7 +180,7 @@ unchanged). The `Err` kinds this surface adds: `#connectionRefused`, `#connectio
 type/range contract raises. Until traceback plan units T3/T6 land PDR-0010's `kind`
 carrier, these are dedicated `Error` classes; the symbols above are the names the `kind`
 field takes when that carrier exists — additions to the normative table in
-`docs/spec/current/traceback/implementation-spec.md` §8.1, filed with that plan's lane rather
+`../../__unstructured__/spec/current/traceback/implementation-spec.md` §8.1, filed with that plan's lane rather
 than duplicated here.
 
 ### 11. TLS is deferred wholesale
@@ -227,7 +227,7 @@ binding on this unit).
   resolver semantics). The `#closed` settlement contract forecloses close-blocks-until-
   drained semantics later.
 - The socket-echo conformance row (reactor.md §10) finally has the surface it was written
-  against; it moves into [`stdlib/net.md`](../../spec/current/stdlib/net.md) §10's harness.
+  against; it moves into [`stdlib/net.md`](../../__unstructured__/spec/current/stdlib/net.md) §10's harness.
 - `System.leakReport` gains stream/listener rows for free via `Resource` (PDR-0005 §5) —
   no new reporting machinery.
 

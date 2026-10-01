@@ -72,7 +72,7 @@ reversible pre-release, per the standing delegated-decision protocol).
 
 **Prose only. The decision stands: no default arguments.** This ADR was written as if the
 *mechanism* for a future re-add were an open design question ("aliasing vs call-site fold").
-[open-Q12](../../spec/current/open-questions.md) — a ruling, no ADR, narrower and more
+[open-Q12](../../__unstructured__/spec/current/open-questions.md) — a ruling, no ADR, narrower and more
 specific than this one — has since fixed it:
 
 - **Call-site / caller-side resolution is permanently forbidden.** It needs static callee
@@ -88,7 +88,7 @@ specific than this one — has since fixed it:
 "rejects arity-family expansion as *combinatorial*", putting it in tension with Q12, which
 ratifies that same mechanism where it is linear. **This ADR never said that** — the word
 appears nowhere in it. The claim came from `experimental/default-arguments.md` (retired
-2026-07-15, superseded by [`drafts/default-arguments.md`](../../spec/current/drafts/default-arguments.md)),
+2026-07-15, superseded by [`drafts/default-arguments.md`](../../__unstructured__/spec/current/drafts/default-arguments.md)),
 which *did* reject arity-family expansion as combinatorial and which CB-4 read as speaking
 for the ADR. There was no general-vs-trailing contradiction here to fix.
 

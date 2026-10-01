@@ -1410,7 +1410,7 @@ test: organize ADT conformance by language capability
 # Task 31 — Synchronize Authoritative Language Documentation
 
 **Files:**
-- Modify authoritative ADT/GADT/associated/match docs under `docs/spec`
+- Modify authoritative ADT/GADT/associated/match docs under `../../../__unstructured__/spec`
 - Modify language reflection docs or create focused reflection spec as appropriate
 - Update docs index/roadmap/ledger
 - Mark/remove stale legacy enum/Option documentation

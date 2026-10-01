@@ -75,7 +75,7 @@ retaining `x`'s tag and payload. This supports arbitrary nesting depth up to
 ## Alternatives considered
 
 - **A surface `nil` value** (JavaScript/Wren style). Rejected: it reintroduces the
-  null coercion the object model exists to remove ([Values & Absence §2](../../spec/current/values-and-absence.md),
+  null coercion the object model exists to remove ([Values & Absence §2](../../__unstructured__/spec/current/values-and-absence.md),
   Invariant 4); absence is `Option` ([TDR-0006](./0006-option-as-abstract-with-some-none.md)).
 - **NaN-boxing from the start.** Fewer bytes per value and better cache behavior,
   but it obscures the representation, complicates debugging, and buys speed before

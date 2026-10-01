@@ -1858,8 +1858,8 @@ I14. Module/package metadata is inert data only.
 
 When implementation lands, revise:
 
-- `docs/spec/next/modules-next.md` into the new normative static model;
-- `docs/spec/lexical-structure.md` for `from`, `export`, `expose`, dotted import paths, grouped forms;
+- `../../../__unstructured__/spec/next/modules-next.md` into the new normative static model;
+- `../../../__unstructured__/spec/lexical-structure.md` for `from`, `export`, `expose`, dotted import paths, grouped forms;
 - module/package/project learning material;
 - migration notes for U15 physical imports.
 

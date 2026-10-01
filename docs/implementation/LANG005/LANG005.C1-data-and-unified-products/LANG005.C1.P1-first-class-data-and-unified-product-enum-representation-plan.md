@@ -1323,7 +1323,7 @@ Owned files and symbols:
 - `heap/mod.rs`.
 - `heap/accessors.rs`.
 - `heap/trace.rs::trace_object`.
-- `docs/spec/current/memory-management.md` exact current location if required by repository tracing policy.
+- `../../../__unstructured__/spec/current/memory-management.md` exact current location if required by repository tracing policy.
 
 Dependencies:
 - Tasks 9–10.

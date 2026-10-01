@@ -29,7 +29,7 @@ Class-side (`static`) method inheritance now works: a subclass's static methods 
 ## Deviations & deferrals
 - **Reviewer gate skipped** (see above) — the one explicit verification-risk deferral.
 - Apex kernel rows use a **space** display name (`"Object class"`, matching the spec diagram) while runtime user classes use a **dot** (`"Object.class"`); the two naming conventions were not unified (out of scope).
-- **F4** (`object_name` / instance `toString`, [TDR-0013](../../../decisions/accepted/0013-object-default-tostring.md)) was scoped **out** of U2 — see [deferred-work](../../../spec/current/deferred-work.md).
+- **F4** (`object_name` / instance `toString`, [TDR-0013](../../../decisions/accepted/0013-object-default-tostring.md)) was scoped **out** of U2 — see [deferred-work](../../../__unstructured__/spec/current/deferred-work.md).
 - `clippy` and the strict byte-identical golden ceremony were not run this pass (golden tests did pass inside the full `cargo test -p phalcom-core`).
 - ADR fold-ins landed here: ADR-0002 gained a "Superseded (U2)" pointer note (Rc `new_cyclic` → ADR-0009 handle-patching); ADR-0003's "Open question" note replaced with an "Implementation note (U2)" confirming Q11 resolved.
 

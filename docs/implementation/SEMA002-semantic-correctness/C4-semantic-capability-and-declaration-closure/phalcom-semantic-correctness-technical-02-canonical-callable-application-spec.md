@@ -151,7 +151,7 @@ while preserving the underlying operation's status, causal invalidity, callable 
 
 This implementation is constrained by the current language and semantic-analyzer specifications.
 
-`docs/spec/semantic-analyzer/04-expression-analysis-and-contextual-typing.md` requires calls to distinguish:
+`../../../__unstructured__/spec/semantic-analyzer/04-expression-analysis-and-contextual-typing.md` requires calls to distinguish:
 
 ```text
 receiver/callee analysis
@@ -166,7 +166,7 @@ publication
 
 and explicitly requires operators, getters, setters, subscripts, constructors, and iteration to perform every relation/identity judgment their semantics require.
 
-`docs/spec/semantic-analyzer/08-callable-analysis-and-publication.md` distinguishes exact ordinary callables, constructors, trusted native callables, generic specialized returns, callable-valued premises, and unknown/dynamic callees. It also explicitly allows:
+`../../../__unstructured__/spec/semantic-analyzer/08-callable-analysis-and-publication.md` distinguishes exact ordinary callables, constructors, trusted native callables, generic specialized returns, callable-valued premises, and unknown/dynamic callees. It also explicitly allows:
 
 ```text
 known fixed return
@@ -184,7 +184,7 @@ Invalid(C)
 
 when the return proposition is independent of the failed argument relation.
 
-`docs/spec/callables/arguments.md` distinguishes:
+`../../../__unstructured__/spec/callables/arguments.md` distinguishes:
 
 ```text
 ArgumentShape
@@ -195,9 +195,9 @@ BindingPlan
 
 and states that labels are part of selector identity and spread must be evaluated exactly once in source order.
 
-`docs/spec/callables/dispatch.md` defines explicit receiver sends, lexical value calls, and implicit-self sends, and specifies value application as ordinary `call(...)` semantics.
+`../../../__unstructured__/spec/callables/dispatch.md` defines explicit receiver sends, lexical value calls, and implicit-self sends, and specifies value application as ordinary `call(...)` semantics.
 
-`docs/spec/callables/execution.md` states that every assignment expression returns `Unit`, including local, field, property, and subscript assignment, even when an underlying setter returns another value.
+`../../../__unstructured__/spec/callables/execution.md` states that every assignment expression returns `Unit`, including local, field, property, and subscript assignment, even when an underlying setter returns another value.
 
 ---
 

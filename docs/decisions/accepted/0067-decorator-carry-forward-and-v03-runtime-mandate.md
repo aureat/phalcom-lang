@@ -54,7 +54,7 @@ runtime machinery):
 
 These ADRs are **not** superseded by this record; `docs/decisions/README.md` is
 untouched. The canonical organizing spec for the decorator system is
-`docs/design/decorators/canonical/`; the as-built files under `docs/spec/current/decorators/`
+`docs/design/decorators/canonical/`; the as-built files under `../../__unstructured__/spec/current/decorators/`
 remain authoritative for what HEAD does.
 
 ### 2. The defect ledger is the debt register

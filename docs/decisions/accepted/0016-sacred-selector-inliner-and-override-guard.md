@@ -74,9 +74,9 @@ each is intentional and, where the spec is affected, the spec should be reconcil
 match (or an open question resolved) rather than the code changed back.
 
 1. **Selector spelling `ifTrue(_:ifFalse:)` vs spec's `ifTrue(_)ifFalse(_)`.**
-   [control-flow.md §3](../../spec/current/control-flow.md) lists the paired conditional as the
+   [control-flow.md §3](../../__unstructured__/spec/current/control-flow.md) lists the paired conditional as the
    comma/positional form `ifTrue(_)ifFalse(_)` (two block-typed positional slots),
-   flagged against an [open question](../../spec/current/open-questions.md). The implementation
+   flagged against an [open question](../../__unstructured__/spec/current/open-questions.md). The implementation
    uses the keyword-labelled selector `ifTrue(_:ifFalse:)` because that is what the
    surface desugaring of `if/else` and the existing selector encoder
    ([TDR-0011](./0011-selector-signature-encoding-and-dispatch.md)) naturally produce.
@@ -110,7 +110,7 @@ match (or an open question resolved) rather than the code changed back.
 
 ## Amendment (U-CORE-2): one-armed sacred conditionals are `Some`-lifting
 
-`docs/spec/current/core/catalog-delta.md` §4.2 flagged a confirmed divergence: `ifTrue(_)`/
+`../../__unstructured__/spec/current/core/catalog-delta.md` §4.2 flagged a confirmed divergence: `ifTrue(_)`/
 `ifFalse(_)` returned a **half-`Option`** (the taken arm's raw block result, the
 untaken arm `None`) rather than a well-formed `Option` (`Some(A) ∪ None`), even
 though `object-model.md` §4 and `control-flow.md` §1's `if/else ===

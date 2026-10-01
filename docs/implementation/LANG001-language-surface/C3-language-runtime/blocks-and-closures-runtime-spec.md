@@ -57,7 +57,7 @@ Apply protocol (`primitive/block.rs`, wired in `universe.rs`): `arity` and `name
 - **`callWith(_:)` stubbed** pending kernel `List` (landed later in U-LIST); tracked in [`docs/forge/DEFERRED.md`](../../DEFERRED.md).
 - **`call` arity capped at 4** (`MAX_CALL_ARITY`); higher-arity blocks are out of the pre-registered set.
 - Unbraced arrow blocks are expression-only by construction, so they cannot carry `return` (blocks.md §2) — a property U10 relies on.
-- See [deferred-work.md](../../../spec/current/deferred-work.md) for the running deferral ledger.
+- See [deferred-work.md](../../../__unstructured__/spec/current/deferred-work.md) for the running deferral ledger.
 
 ## Sources
 - Forge work order (`U4-plan.md`) + handoff (`U4-handoff.md`) folded into this spec (see git history); landing record: [`../../archive/phase2/u0-state.md`](../../archive/phase2/u0-state.md) "U4 — LANDED".

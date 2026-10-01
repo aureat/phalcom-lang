@@ -243,5 +243,5 @@ iterator for the GC roots scanner.
   product storage engine
 - [TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md) — tagged Value design
 - [TDR-0037](../../decisions/accepted/0037-option-bootstrap-formalization-and-defer-niche-encoding.md) — Option representation
-- [spec: associated-lookup-surface.md](../../spec/associated-lookup-surface.md)
-- [spec: nullary-adt-variant.md](../../spec/nullary-adt-variant.md)
+- [spec: associated-lookup-surface.md](../../__unstructured__/spec/associated-lookup-surface.md)
+- [spec: nullary-adt-variant.md](../../__unstructured__/spec/nullary-adt-variant.md)

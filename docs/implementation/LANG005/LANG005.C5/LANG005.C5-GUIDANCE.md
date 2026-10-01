@@ -87,7 +87,7 @@ constraints remain C6 work. The existing `T: Trait` spelling is not adopted
 as Phalcom conformance syntax.
 
 Current production iteration remains the cursor-based `Iterable`/`for`
-implementation described by `docs/spec/current/iteration.md`. P3 may certify
+implementation described by `../../../__unstructured__/spec/current/iteration.md`. P3 may certify
 only a concrete/exact stateful `Iterator`/`Iterable` reference model. C6 owns
 the general evidence relationships and production migration.
 

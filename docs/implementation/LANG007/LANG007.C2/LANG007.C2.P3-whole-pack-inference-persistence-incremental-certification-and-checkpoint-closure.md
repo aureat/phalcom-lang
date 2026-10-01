@@ -211,7 +211,7 @@ docs/decisions/accepted/0085-parameterized-type-members-and-symbolic-projections
 docs/decisions/accepted/0088-native-type-operations-use-closed-compiler-normalization.md
 ```
 
-Where historical `docs/spec/` material conflicts with a current owner in `docs/specs/`, the current owning specification wins.
+Where historical `../../../__unstructured__/spec/` material conflicts with a current owner in `docs/specs/`, the current owning specification wins.
 
 ### 4.4 Exact source paths
 

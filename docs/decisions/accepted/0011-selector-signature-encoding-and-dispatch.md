@@ -66,12 +66,12 @@ into the rewrite rather than scheduling them as separate patches.
 - One `encode_selector` helper keeps compile-time and run-time selector construction
   byte-identical, closing the F8 divergence permanently.
 - The monomorphic IC slot is the hook for later polymorphic/megamorphic caching and
-  for the variadic-table fallback ([Messages & Selectors §4](../../spec/current/messages-and-selectors.md)).
+  for the variadic-table fallback ([Messages & Selectors §4](../../__unstructured__/spec/current/messages-and-selectors.md)).
 - **Inline-cache population is deferred.** Dispatch is built IC-*ready* here; the
   cache itself is a speed item in the deferred register, not part of the accepted
   decision. The shape is fixed now so adding the cache later is not a redesign.
 - `Signature` reserves a separate internal-binding field and the variadic flag now,
-  so external≠internal parameter names ([open question Q3](../../spec/current/open-questions.md))
+  so external≠internal parameter names ([open question Q3](../../__unstructured__/spec/current/open-questions.md))
   and variadics can be added later **without** changing selector identity.
 
 ## Alternatives considered

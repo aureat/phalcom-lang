@@ -90,7 +90,7 @@ cost is in the lane's own doc.
   it costs to keep honest. Reconsider only if a fairness policy lands and the
   schedule stops being a pure function of the program.
 - **Cancellation, `select`/`race`, fairness policy** — all **OPEN** in the spec
-  (`docs/spec/current/concurrency.md` §3, TDR-0027). Unspecified behavior is not
+  (`../../__unstructured__/spec/current/concurrency.md` §3, TDR-0027). Unspecified behavior is not
   testable; testing it would only pin an accident. Blocked on an ADR, not on
   test engineering.
 - **Generators** — the feature does not exist. ADR-0033 (`CallBlock`

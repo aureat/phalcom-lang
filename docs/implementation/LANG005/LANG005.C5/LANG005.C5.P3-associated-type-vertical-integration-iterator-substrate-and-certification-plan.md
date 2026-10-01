@@ -169,7 +169,7 @@ Verified planning facts from the pushed tree:
 3. `ConformanceAssociatedTypePlan` owns source binding normalization; `ConformanceEvidence.associated_types` and exact requirement views own exact normalized meaning.
 4. P2 semantic gates passed for AST projection syntax, impl queries, associated incremental lifecycle, semantic editor/source-index integration, and projection normalization; two unrelated Universe `Bool` capability tests remain `C5-BL-07`.
 5. The current production iteration implementation is still the normative cursor model: runtime `class Iterable<T>`, `iterate(_)`, `iteratorValue(_)`, stateless cursor pipeline classes, structural `for` semantic analysis, and cursor bytecode lowering.
-6. `docs/spec/current/iteration.md` truthfully describes the current cursor implementation and must not be rewritten to claim the stateful iterator model is already production behavior.
+6. `../../../__unstructured__/spec/current/iteration.md` truthfully describes the current cursor implementation and must not be rewritten to claim the stateful iterator model is already production behavior.
 7. `docs/implementation/LANG005/support/iterable.ph` and `core_trait_impls.ph` still encode the now-superseded `Cursor`-associated design and current Map-key iteration assumption; they need revision as future migration support.
 8. Production `Map<K,V>` currently inherits `Iterable` and `iteratorValue(_)` returns keys; `.entries` creates separate entry objects. P3 must not change production Map iteration because the definitive iteration migration is deferred to C6.
 9. `phalcom-semantic/src/metadata/export.rs` currently rejects `TypeData::AssociatedProjection(_)` as `MetadataExportError::NonExportableForm`.
@@ -229,7 +229,7 @@ relevant tuple/product type specification currently authoritative in the tree
 relevant exact enum-case identity specification
 ```
 
-`docs/spec/current/iteration.md` describes current implemented iteration, not the newly ratified future target. Preserve that distinction.
+`../../../__unstructured__/spec/current/iteration.md` describes current implemented iteration, not the newly ratified future target. Preserve that distinction.
 
 ## 4.4 Ratified future iterator support records
 
@@ -672,7 +672,7 @@ P3 does not add a whole-workspace invalidation fallback.
 | executable trait method selection | semantic lowering | compiler/VM | VM conformance search |
 | stable source target | `SemanticTargetId::AssociatedType` | LSP | editor name search |
 | target iterator semantics | C5 checkpoint/support + C6 handoff | future C6 migration | production P3 special case |
-| current production iteration | `docs/spec/current/iteration.md` + live core/compiler | existing runtime | support fixture claiming already migrated |
+| current production iteration | `../../../__unstructured__/spec/current/iteration.md` + live core/compiler | existing runtime | support fixture claiming already migrated |
 | generic trait evidence | future C6 constraint/evidence subsystem | future generic checking | P3 hard-coded iterator theorem |
 
 ---
@@ -805,7 +805,7 @@ LANG005.C5.P3-walkthrough.md                     # create
 LANG005.C5.P3-handoff.md                         # create
 ```
 
-Do not rewrite `docs/spec/current/iteration.md` to the target model while production remains cursor-based. A small forward-reference/amendment note is permitted only if repository decision-record conventions require it and it remains truthful about current behavior.
+Do not rewrite `../../../__unstructured__/spec/current/iteration.md` to the target model while production remains cursor-based. A small forward-reference/amendment note is permitted only if repository decision-record conventions require it and it remains truthful about current behavior.
 
 ## 11.2 Expected semantic source areas
 
@@ -3080,7 +3080,7 @@ Do not document `|=` as implemented syntax.
 
 #### C. Current iteration spec
 
-Do not rewrite `docs/spec/current/iteration.md` into the future model unless production migration unexpectedly landed through an accepted amendment (which this plan forbids). If needed, add/adjust a non-normative forward reference elsewhere stating that a stateful target is ratified for C6.
+Do not rewrite `../../../__unstructured__/spec/current/iteration.md` into the future model unless production migration unexpectedly landed through an accepted amendment (which this plan forbids). If needed, add/adjust a non-normative forward reference elsewhere stating that a stateful target is ratified for C6.
 
 #### D. Walkthrough content
 

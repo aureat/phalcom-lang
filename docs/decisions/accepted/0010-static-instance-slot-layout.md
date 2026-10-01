@@ -53,7 +53,7 @@ An instance carries a **fixed slot vector**, not a map:
   shape per class.
 - Slot layout is intentionally **not** inheritance-visible; cross-hierarchy field
   access must go through accessors, matching the spec and keeping offsets static
-  even under a future runtime `superclass=` ([open question Q4](../../spec/current/open-questions.md)).
+  even under a future runtime `superclass=` ([open question Q4](../../__unstructured__/spec/current/open-questions.md)).
 - The dynamic `IndexMap<Symbol, Value>` per instance is removed.
 
 ## Alternatives considered

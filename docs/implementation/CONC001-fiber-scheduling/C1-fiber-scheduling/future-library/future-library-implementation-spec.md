@@ -45,7 +45,7 @@ buildable slice** is the scheduler-free `Future.value`/`error`/`isReady`/`value`
   (ADR-0030 §1). No opcode, no `Value` arm, no floor primitive **except** the scheduler
   hooks, which are **U-SCHED's**, not U-FUTURE's.
 - `select`/`race`, cancellation scopes, structured concurrency, fairness — open
-  ([`open-questions.md`](../../../../spec/current/open-questions.md) §15).
+  ([`open-questions.md`](../../../../__unstructured__/spec/current/open-questions.md) §15).
 
 ---
 
@@ -207,10 +207,10 @@ pointer until activation.
 
 | Claim | Source |
 |---|---|
-| `Future` = pure library over `Fiber` + ready-queue; no new VM mechanism / `Value` arm | [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1; [concurrency.md](../../../../spec/current/concurrency.md) §2 |
-| Surface (`value`/`error`/`async`/`await`/`then`/`map`/`catch`/`isReady`/`value`); state machine; settle-once | [concurrency.md](../../../../spec/current/concurrency.md) §2; [specification.md](specification.md) §2–§3 |
+| `Future` = pure library over `Fiber` + ready-queue; no new VM mechanism / `Value` arm | [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1; [concurrency.md](../../../../__unstructured__/spec/current/concurrency.md) §2 |
+| Surface (`value`/`error`/`async`/`await`/`then`/`map`/`catch`/`isReady`/`value`); state machine; settle-once | [concurrency.md](../../../../__unstructured__/spec/current/concurrency.md) §2; [specification.md](specification.md) §2–§3 |
 | Scheduler = U-SCHED (ready-queue + timers + root fiber); blocking-await precluded; not retrofittable | [scheduler-unit.md](../../../design/experimental/v0.2/scheduler-unit.md) |
-| The `Fiber` seam (resumer + result slot; `await` = waiters + `Fiber.yield`) | [[U-FIBER §7.2]](../../../../forge/units/U-FIBER/specification.md#72-fiber--future--the-resumerresult-slot-seam); [concurrency.md](../../../../spec/current/concurrency.md) §2 |
+| The `Fiber` seam (resumer + result slot; `await` = waiters + `Fiber.yield`) | [[U-FIBER §7.2]](../../../../forge/units/U-FIBER/specification.md#72-fiber--future--the-resumerresult-slot-seam); [concurrency.md](../../../../__unstructured__/spec/current/concurrency.md) §2 |
 | `ensure`-on-abandoned-fiber (no; opt-in `Fiber.finish`); caps (`StackOverflow`/`MemoryError`) | [fiber-ensure-and-limits.md](../../../design/experimental/v0.2/fiber-ensure-and-limits.md) |
-| Still-open: structured concurrency, `select`/`race`, fairness | [open-questions.md](../../../../spec/current/open-questions.md) §15 |
+| Still-open: structured concurrency, `select`/`race`, fairness | [open-questions.md](../../../../__unstructured__/spec/current/open-questions.md) §15 |
 | No new ADR needed (ADR-0030 already sanctions the library layer) | [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1/§Consequences |

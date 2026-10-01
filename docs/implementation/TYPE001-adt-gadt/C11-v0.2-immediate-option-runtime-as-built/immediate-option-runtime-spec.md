@@ -362,8 +362,8 @@ All pointers below refer to the inspected `main` snapshot on 2026-08-11. Use sym
 | literal truthiness | `phalcom-core/src/compiler/lib/expr.rs` | `is_option_literal` | Recognize `Some(...)`, `Some.call(...)`, compatibility `Some.new(...)` |
 | core library | `phalcom-core/core/core.ph` | `class Option`, `class Some` | Migrate canonical construction to `Some(...)`; update comments |
 | language harness | `phalcom-core/tests/lang.rs` | `absence`, `absence_negative`, `option`, `values` | Update comments and add fixtures |
-| primary semantics doc | `docs/spec/current/values-and-absence.md` | §3, especially §3.1 | Rewrite old heap layout |
-| object model | `docs/spec/current/object-model.md` | value table + primitive catalog | Mark `Some`/`None` immediate, exact `.class` |
+| primary semantics doc | `../../../__unstructured__/spec/current/values-and-absence.md` | §3, especially §3.1 | Rewrite old heap layout |
+| object model | `../../../__unstructured__/spec/current/object-model.md` | value table + primitive catalog | Mark `Some`/`None` immediate, exact `.class` |
 | historical ADR | `docs/decisions/accepted/0007-option-as-abstract-with-some-none.md` | decision banner | Add PDR-0033 amendment notice; do not erase history |
 | `Value` ADR | `docs/decisions/accepted/0010-tagged-value-enum.md` | decision/consequences | Add PDR-0033 amendment notice for bounded immediate Option substrate |
 | GC ADR | `docs/decisions/accepted/0050-non-moving-mark-sweep-collector.md` | `Value` tracing seam | Add PDR-0033 amendment notice: wrapped Option may contain an `ObjRef` |
@@ -1815,7 +1815,7 @@ No heap allocation is part of the expected path.
 
 # 21. Task 17 — Update public specifications
 
-## `docs/spec/current/values-and-absence.md`
+## `../../../__unstructured__/spec/current/values-and-absence.md`
 
 Rewrite §3.1.
 
@@ -1844,7 +1844,7 @@ State:
 
 Rewrite §3.6 equality wording from “None by identity” to value semantics consistent with immediate representation.
 
-## `docs/spec/current/object-model.md`
+## `../../../__unstructured__/spec/current/object-model.md`
 
 Update value representation table:
 

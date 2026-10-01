@@ -72,7 +72,7 @@ xs.toString                // "[1, 2, 3]"
   [forge/DEFERRED.md](../../DEFERRED.md) #18 (later delivered by U-STD).
 - **No combinators or list-literal syntax** (`map`/`reduce`/`filter`, `[a, b, c]`) — U-STD's
   job, layered additively over the floor → [forge/DEFERRED.md](../../DEFERRED.md) #20;
-  see also [deferred-work.md](../../../spec/current/deferred-work.md) (collection-literal lowering).
+  see also [deferred-work.md](../../../__unstructured__/spec/current/deferred-work.md) (collection-literal lowering).
 - **`None`-reopen compiler trap** (`Statement::Class` unconditional `DefineGlobal`) →
   [forge/DEFERRED.md](../../DEFERRED.md) #17 (high priority for the next `None` work).
 

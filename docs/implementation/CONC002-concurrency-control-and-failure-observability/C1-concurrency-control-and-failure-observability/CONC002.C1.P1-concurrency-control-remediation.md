@@ -110,9 +110,9 @@ The requested work is almost entirely owned by `phalcom-core/`.
 | `phalcom-core/core/universe/src/concurrency/fiber.ph` | public `System`/`Fiber` declarations and pure-Phalcom `Future` implementation |
 | `phalcom-core/tests/fixtures/language/concurrency/` | production-faithful end-to-end concurrency fixtures |
 | `phalcom-core/tests/core/` and source-local `#[cfg(test)]` modules | lower-level VM/Fiber state invariants |
-| `docs/spec/current/concurrency.md` | canonical concurrency semantics |
-| `docs/spec/current/system.md` | canonical `System` scheduler surface |
-| `docs/spec/current/core/floor-census.md` | native floor inventory |
+| `../../../__unstructured__/spec/current/concurrency.md` | canonical concurrency semantics |
+| `../../../__unstructured__/spec/current/system.md` | canonical `System` scheduler surface |
+| `../../../__unstructured__/spec/current/core/floor-census.md` | native floor inventory |
 | `docs/decisions/accepted/0030-fibers-and-futures-cooperative-concurrency.md` | accepted architectural rationale that must be amended where its Future-forward-compat assumption is no longer true |
 | `docs/work/errors/E007-async-await-missettle.md` | existing blocker for premature `Future.async` settlement |
 | `docs/work/errors/E008-double-schedule-kills-run.md` | existing high-severity duplicate queue failure |
@@ -2381,9 +2381,9 @@ It also aligns documentation only after behavior is proven.
 Primary:
 
 - changed `phalcom-core` runtime/library files;
-- `docs/spec/current/concurrency.md`;
-- `docs/spec/current/system.md`;
-- `docs/spec/current/core/floor-census.md`;
+- `../../../__unstructured__/spec/current/concurrency.md`;
+- `../../../__unstructured__/spec/current/system.md`;
+- `../../../__unstructured__/spec/current/core/floor-census.md`;
 - ADR-0030;
 - E007/E008;
 - concurrency fixtures.
@@ -2534,9 +2534,9 @@ Risk:
 
 Primary documents:
 
-- `docs/spec/current/concurrency.md`;
-- `docs/spec/current/system.md`;
-- `docs/spec/current/core/floor-census.md`;
+- `../../../__unstructured__/spec/current/concurrency.md`;
+- `../../../__unstructured__/spec/current/system.md`;
+- `../../../__unstructured__/spec/current/core/floor-census.md`;
 - `docs/decisions/accepted/0030-fibers-and-futures-cooperative-concurrency.md`.
 
 Required documentation changes:

@@ -1672,7 +1672,7 @@ Avoid generating gigantic source fixtures if the helper can be tested directly.
 
 This phase is mandatory because the repository currently contains mutually contradictory active specifications.
 
-## 14.1 `docs/spec/collections/06-rest-spread-and-pack-operators.md`
+## 14.1 `../../../../__unstructured__/spec/collections/06-rest-spread-and-pack-operators.md`
 
 The current file contains obsolete rules including:
 
@@ -1703,7 +1703,7 @@ Do not change rest capture from List to Tuple/Unit yet in descriptions of the **
 
 Instead clearly mark U9 capture as transitional and link/point to F.3-amended as the planned replacement.
 
-## 14.2 `docs/spec/collections/05-argument-packs.md`
+## 14.2 `../../../../__unstructured__/spec/collections/05-argument-packs.md`
 
 Remove/mark stale rest-capture statements that imply the final F.3 capture representation may be List/Map/Record or preserve arbitrary structural input kind.
 
@@ -1717,7 +1717,7 @@ F.3-amended will canonicalize captures to Unit/Tuple
 
 Do not claim F.3 runtime behavior is already implemented.
 
-## 14.3 `docs/spec/current/selectors.md`
+## 14.3 `../../../../__unstructured__/spec/current/selectors.md`
 
 Update selector-label documentation to describe F.1's total escaping for arbitrary Symbol labels.
 

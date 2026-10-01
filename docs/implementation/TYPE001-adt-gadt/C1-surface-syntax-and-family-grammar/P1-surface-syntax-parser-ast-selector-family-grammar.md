@@ -1402,7 +1402,7 @@ cargo test -p phalcom-ast --test parser
 
 **Files**
 
-- Modify: `docs/spec/selectors.md`
+- Modify: `../../../__unstructured__/spec/selectors.md`
 
 **Existing conflict**
 

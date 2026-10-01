@@ -107,7 +107,7 @@ The P2 plan remains the most useful statement of intended C2 semantics. The prog
 
 ## 1.3 Specification status
 
-Authoritative `time.md` work remains `USER-DEFERRED`. This audit does **not** use the stale `docs/implementation/time.md` or stale `docs/spec/current/stdlib/time.md` as semantic authority.
+Authoritative `time.md` work remains `USER-DEFERRED`. This audit does **not** use the stale `docs/implementation/time.md` or stale `../../../__unstructured__/spec/current/stdlib/time.md` as semantic authority.
 
 The relevant authority hierarchy for this audit is:
 

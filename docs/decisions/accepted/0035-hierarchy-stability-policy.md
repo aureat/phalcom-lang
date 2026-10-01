@@ -112,7 +112,7 @@ and none is added by this ADR). Traits/mixins/full multiple inheritance are
   A rejected `superclass=` leaves the class graph byte-for-byte unchanged —
   tested directly (see Test coverage below) — so there is no path by which an
   attempted mutation corrupts the tower without a loud, typed error.
-- **Concurrency (`docs/spec/current/concurrency.md`) is simplified.** Class
+- **Concurrency (`../../__unstructured__/spec/current/concurrency.md`) is simplified.** Class
   objects are shared across fibers via the handle heap; a sealed hierarchy
   means a `superclass=` mid-computation can never surprise a suspended fiber
   — the mutable-hierarchy hazard Q4's option B would have introduced does not

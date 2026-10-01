@@ -1091,7 +1091,7 @@ No runtime trait descriptor or conformance machinery was introduced.
 ### T11 completed state — effective trait specification
 
 The effective specification now names `trait` as the single C3 behavioral-
-contract model. `docs/spec/extensions/traits.md` is the canonical extension;
+contract model. `../../../__unstructured__/spec/extensions/traits.md` is the canonical extension;
 the current specification and syntax indexes link to it, and the current
 open-questions record no longer claims that traits are absent. The former
 protocol-oriented typing documents and deferred meta-dispatch proposal are
@@ -1101,7 +1101,7 @@ descriptor, or metatype rule was promoted.
 
 Focused T11 evidence:
 
-- targeted searches of `docs/spec/current` and `docs/spec/extensions` found no
+- targeted searches of `../../../__unstructured__/spec/current` and `../../../__unstructured__/spec/extensions` found no
   active `@protocol class`, signature-only protocol, structural-conformance, or
   protocol-default contract rule;
 - canonical extension/index links and migrated-document status markers were

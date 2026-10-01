@@ -832,13 +832,13 @@ The exact set may mechanically drift, but the following areas are expected.
 - `docs/implementation/LANG005/LANG005.C3/LANG005.C3-CHECKPOINT.md`
 - `docs/implementation/LANG005/LANG005.C3/LANG005.C3.P1-walkthrough.md`
 - `docs/implementation/LANG005/LANG005.C3/LANG005.C3.P1-handoff.md`
-- `docs/spec/typing/README.md`
-- `docs/spec/typing/STATUS.md`
-- `docs/spec/typing/01-protocol-foundation.md`
+- `../../../__unstructured__/spec/typing/README.md`
+- `../../../__unstructured__/spec/typing/STATUS.md`
+- `../../../__unstructured__/spec/typing/01-protocol-foundation.md`
 - `docs/spec/typing/Class-Declaration Attributes — Abstract, Protocol, Mixin.md`
-- `docs/spec/typing/phalcom-type-protocol-record-callable-unit-spec.md`
-- `docs/spec/typing/03-type-parameters-and-generic-signatures.md`
-- `docs/spec/next/phalcom-meta-dispatch-and-type-extension-spec.md` if still active/conflicting under spec governance.
+- `../../../__unstructured__/spec/typing/phalcom-type-protocol-record-callable-unit-spec.md`
+- `../../../__unstructured__/spec/typing/03-type-parameters-and-generic-signatures.md`
+- `../../../__unstructured__/spec/next/phalcom-meta-dispatch-and-type-extension-spec.md` if still active/conflicting under spec governance.
 
 ### Unexpected-touch rule
 

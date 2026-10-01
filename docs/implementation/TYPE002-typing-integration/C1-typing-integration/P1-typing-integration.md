@@ -244,7 +244,7 @@ zip
 
 This file is the correct basis for the single canonical shared `Either` source.
 
-The Either tests exercise existing `GEN-*` laws documented in `docs/spec/typing-generics.md` and include hostile no-escape cases such as:
+The Either tests exercise existing `GEN-*` laws documented in `../../../__unstructured__/spec/typing-generics.md` and include hostile no-escape cases such as:
 
 - conflicting constructor context;
 - wrong `map` result;
@@ -500,7 +500,7 @@ Old completed plans/logs may legitimately mention `phalcom-core/tests/core/eithe
 | Generic solution/provenance | callable explanation graph and exact `TypeParameterId` | MON and integration assertions | test-local reconstructed substitution map |
 | GADT branch proof | `GadtProofResult` / match branch proof product | Expression evaluator checking | manually substituting `T` in test harness |
 | Runtime behavior | compiled Phalcom source executed by `VM` | runtime test observations | direct Rust emulation of Either/Monad/Expression semantics |
-| GEN law definitions | `docs/spec/typing-generics.md` | Either test comments / unified law index | duplicate divergent law definitions |
+| GEN law definitions | `../../../__unstructured__/spec/typing-generics.md` | Either test comments / unified law index | duplicate divergent law definitions |
 | MON law definitions | migrated unified `LAWS.md`, preserving existing `MON-*` text/IDs | Monads tests | renumbered/reinvented MON catalog |
 | GEX/INT laws | unified `LAWS.md` after C4 | Expression/integration tests | production semantic code comments as test spec |
 
@@ -520,7 +520,7 @@ Old completed plans/logs may legitimately mention `phalcom-core/tests/core/eithe
 | Either support adds useful shape helpers but has overlapping method names | `phalcom-core/tests/core/either/support.rs` |
 | Existing MON tests require exact semantic identities/provenance | `monads/README.md`, `monads/LAWS.md`, `monads/inference.rs`, `monads/inherited_methods.rs` |
 | Existing negative suites explicitly forbid Dynamic escape | `either/rejection.rs`, `monads/rejection.rs` |
-| GADT syntax/result specialization is ratified | `docs/spec/adts.md` |
+| GADT syntax/result specialization is ratified | `../../../__unstructured__/spec/adts.md` |
 | Constructor-local generic GADT examples already exist | `examples/ide-golden/phalcom-enum-highlighting-showcase.ph` |
 | GADT proof engine exists as semantic authority | `phalcom-semantic/src/checker/gadt_proof.rs` |
 | Ownership-layer GADT refinement tests already exist | `phalcom-semantic/tests/semantic/adts/matching/gadt_refinement.rs` |
@@ -1580,7 +1580,7 @@ Primary:
 - `typing_integration/mod.rs`
 
 Secondary — inspect only if evidence requires it:
-- `docs/spec/typing-generics.md` — GEN authority
+- `../../../__unstructured__/spec/typing-generics.md` — GEN authority
 
 Out of scope for this checkpoint:
 - adding new Monad laws unrelated to integration;
@@ -1590,7 +1590,7 @@ Out of scope for this checkpoint:
 Semantic contract established by this checkpoint:
 - current package docs explain the unified ownership model;
 - all existing `MON-*` law IDs remain stable;
-- GEN laws remain sourced from `docs/spec/typing-generics.md` rather than duplicated;
+- GEN laws remain sourced from `../../../__unstructured__/spec/typing-generics.md` rather than duplicated;
 - a single `SemanticAnalysis` proves direct `Either.map` and `MonadAlgorithms.bind` on the same `Either` declaration/specialization.
 
 Semantic risks:
@@ -1648,7 +1648,7 @@ Owned files and symbols:
 
 Inspect before editing:
 - full existing Monads README/LAWS;
-- `docs/spec/typing-generics.md` GEN headings referenced by Either tests.
+- `../../../__unstructured__/spec/typing-generics.md` GEN headings referenced by Either tests.
 
 Do not inspect unless evidence forces expansion:
 - historical completed plans/logs.
@@ -1657,7 +1657,7 @@ Dependencies:
 - C2 unified ownership
 
 Source of truth:
-- `docs/spec/typing-generics.md` for GEN semantics;
+- `../../../__unstructured__/spec/typing-generics.md` for GEN semantics;
 - existing `MON-*` law text/IDs for Monad conformance semantics.
 
 Implementation boundary:
@@ -1697,7 +1697,7 @@ Edit operations:
 2. Move/adapt the Monads LAWS catalog to `typing_integration/LAWS.md`.
 3. Update its statement of package path/authority.
 4. Preserve all existing `MON-*` headings and mapped Rust test function names.
-5. Add a concise GEN section pointing to `docs/spec/typing-generics.md` and the `either/` sub-suite.
+5. Add a concise GEN section pointing to `../../../__unstructured__/spec/typing-generics.md` and the `either/` sub-suite.
 6. Update `monad-testing.md` paths/tree to the new package.
 7. Remove obsolete current-package README/LAWS copies if they would create two authorities. A focused walkthrough may remain under `monads/` but must not call itself the authoritative law catalog.
 8. Search current live package docs for old ownership claims.
@@ -1875,7 +1875,7 @@ Primary:
 - `phalcom-semantic/tests/semantic/adts/matching/gadt_refinement.rs` — evidence dependency, not normally edited
 
 Secondary — inspect only if evidence requires it:
-- `docs/spec/adts.md` — ratified GADT source syntax
+- `../../../__unstructured__/spec/adts.md` — ratified GADT source syntax
 - `phalcom-semantic/src/checker/gadt_proof.rs` — ownership boundary during diagnosis only
 - `phalcom-semantic/src/checker/pattern.rs`
 - `phalcom-semantic/src/checker/exhaustiveness.rs`
@@ -1985,7 +1985,7 @@ Owned files and symbols:
 - `typing_integration/support.rs` expression source builders
 
 Inspect before editing:
-- `docs/spec/adts.md` GADT syntax;
+- `../../../__unstructured__/spec/adts.md` GADT syntax;
 - existing GADT example in `examples/ide-golden/phalcom-enum-highlighting-showcase.ph`;
 - `sources/monads.ph` contract method signatures;
 - existing semantic GADT evaluator test for branch-result behavior.

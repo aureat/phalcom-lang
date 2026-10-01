@@ -178,7 +178,7 @@ Verified live facts at planning time:
 - `DeclarationTypeTable::insert` currently preserves old intrinsic projections when a new shell carries defaults, making authoritative replacement and shell refresh semantically ambiguous.
 - source-visible intrinsic type-member declarations and compiler intrinsic operation tables are not yet bidirectionally certified; `CompleteTypePack` has an intrinsic owner enum value but no operations.
 - the current type-member projection representation still documents compiler intrinsic projections as possibly source-less.
-- `docs/spec/collections/03-records.md` already shows bare `{...}` Record syntax, but currently says Record spread is illegal; this conflicts with the ratified P4 model and must be amended.
+- `../../../__unstructured__/spec/collections/03-records.md` already shows bare `{...}` Record syntax, but currently says Record spread is illegal; this conflicts with the ratified P4 model and must be amended.
 - VM product documentation still records nullary Record as Unit; that becomes false under `Unit != EmptyRecord`.
 
 **Implementation instruction:** re-read the named live paths immediately before editing. Adapt mechanical drift locally. Treat architectural drift—especially changes to row identity, runtime product representation, generic specialization, or declaration projection ownership—as an escalation condition.

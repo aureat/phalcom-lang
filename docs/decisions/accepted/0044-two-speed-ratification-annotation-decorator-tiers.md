@@ -101,9 +101,9 @@ conditions — both now satisfied, **ratified 2026-07-13**:
 
 With both satisfied, Install/Dispatch/Runtime tier moves from mechanism-only
 to implementable: the 8 named decorators speced in
-[decorators-behavioral.md](../../spec/current/drafts/decorators-behavioral.md),
-[decorators-dispatch-observability.md](../../spec/current/drafts/decorators-dispatch-observability.md),
-and [decorators-observable.md](../../spec/current/drafts/decorators-observable.md)
+[decorators-behavioral.md](../../__unstructured__/spec/current/drafts/decorators-behavioral.md),
+[decorators-dispatch-observability.md](../../__unstructured__/spec/current/drafts/decorators-dispatch-observability.md),
+and [decorators-observable.md](../../__unstructured__/spec/current/drafts/decorators-observable.md)
 are ratification-ready, not just mechanism-illustrated.
 
 The justification for reopening the foreclosure is **no longer**

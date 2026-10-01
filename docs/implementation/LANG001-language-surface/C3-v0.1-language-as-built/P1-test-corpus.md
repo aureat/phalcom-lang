@@ -131,13 +131,13 @@ Reference: subagent integration map located each site.
   strings `add(_:_:)`, `move(to:duration:)`, `name=(_:)`, `+(_:)`, `sum(_...)` (lines ~13,34,54)
   to comma form (`add(_,_)`, `move(_,to,duration)`, `name=(_)`, `+(_)`, `sum(*)`); add an
   amendment note that comma form supersedes the original colon encoding.
-- `docs/spec/messages-and-selectors.md` — rewrite the selector table (L15,27-32,34,44) and rest
+- `../../../__unstructured__/spec/messages-and-selectors.md` — rewrite the selector table (L15,27-32,34,44) and rest
   notation (`sum(*numbers)` stays; interned form `sum(_...)` → comma equivalent) to comma form.
-- `docs/spec/README.md` — Invariant 2 (L37-38): `move(to:duration:)`/`move(_:_:)` → comma form.
-- `docs/spec/object-model.md` — L66 symbol row `:name` and L278 selector example → comma form
+- `../../../__unstructured__/spec/README.md` — Invariant 2 (L37-38): `move(to:duration:)`/`move(_:_:)` → comma form.
+- `../../../__unstructured__/spec/object-model.md` — L66 symbol row `:name` and L278 selector example → comma form
   + `#`-prefixed symbol literal.
-- `docs/spec/control-flow.md` — sacred-selector list (L37-39) → comma form.
-- `docs/spec/functions.md` — L161 `#"+(_)"` example → comma form consistent with `#` literals.
+- `../../../__unstructured__/spec/control-flow.md` — sacred-selector list (L37-39) → comma form.
+- `../../../__unstructured__/spec/functions.md` — L161 `#"+(_)"` example → comma form consistent with `#` literals.
 - Fix selectors.md's own internal slip: L259 writes `ifTrue:ifFalse:` (colon) inside a comma doc.
 
 ### 1c. Weave selectors.md into the suite
@@ -171,7 +171,7 @@ Reference: subagent integration map located each site.
   removed per ADR-0016; parser is hand-written / `phalcom-ast`). Add gap rows for `#`/`::`/`@`/
   Family/base-name-index.
 - **Verify checklist:** `grep -rn 'to:duration:\|add(_:_:)\|name=(_:)\|:name' docs/spec docs/adr`
-  returns nothing (all comma form now); every `docs/spec/*.md` header matches house style;
+  returns nothing (all comma form now); every `../../../__unstructured__/spec/*.md` header matches house style;
   README reading-order has the Selectors row; no broken relative links (`grep` the `](../` and
   `](./` targets exist).
 
@@ -254,7 +254,7 @@ block literal + call, block-as-argument, non-local return, `Method.bind`/`method
    label with **no panics** (dirs exist, `.expected` present) — pending cases may "fail" only
    in the sense of being ignored; when un-ignored they assert today's behavior and pass.
 3. **Snapshot gate:** `cargo test -p phalcom-ast` green with all `.snap` committed.
-4. **Coverage audit:** every `docs/spec/*.md` maps to at least one PASS case and/or one
+4. **Coverage audit:** every `../../../__unstructured__/spec/*.md` maps to at least one PASS case and/or one
    `pending/` spec-target. Produce a short coverage table (spec doc → suites → PASS/PENDING
    counts) at the top of the refreshed MANIFEST.
 5. **No-invention audit:** `grep` PASS `.expected` files against the empirical matrix — no PASS

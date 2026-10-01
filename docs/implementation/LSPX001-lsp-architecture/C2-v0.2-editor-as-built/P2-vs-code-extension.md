@@ -45,13 +45,13 @@ surface. Concretely:
   U-VSPHALCOM-2: any harvested selector table, completion entry, or hover key
   MUST key by the comma-form selector symbol (name + arity + labels), **never**
   by bare name. A table keyed by bare name is wrong-by-construction.
-- `docs/spec/current/experimental/doc-comments-phaldoc.md` — Phaldoc: `///` outer
+- `../../../__unstructured__/spec/current/experimental/doc-comments-phaldoc.md` — Phaldoc: `///` outer
   doc, `//!` inner doc; tag vocabulary §3; adjacency rule §5 (a doc block
   associates with the *next non-blank, non-`///` line* item), §4 (keyed by
   selector, not bare name). STATUS experimental/unratified — but `//`-prefixed,
   so **already lexically inert trivia today**; a client-side text harvester
   reading raw source needs **zero** compiler changes.
-- `docs/spec/current/experimental/annotations-core.md` +
+- `../../../__unstructured__/spec/current/experimental/annotations-core.md` +
   `doc-comments-phaldoc.md` §8 — `@`-attribute contracts
   (`@requires`/`@ensures`/`@invariant`) and the contract-view hover harvest
   order. STATUS experimental/unratified, mid-implementation on main
@@ -114,7 +114,7 @@ parser). Scope:
    - **keywords** — correct current set only:
      `class extends super self static try catch on ensure throw break continue
      match return while for var` (drop `const is in and or not`; verify the
-     live set against `docs/spec/current/lexical-structure.md` keyword table and
+     live set against `../../../__unstructured__/spec/current/lexical-structure.md` keyword table and
      the lexer token enum before finalizing — the caller's list is the floor,
      not necessarily exhaustive).
    - **`#` symbol literal** — `keyword.other.symbol` / `constant.other.symbol`,

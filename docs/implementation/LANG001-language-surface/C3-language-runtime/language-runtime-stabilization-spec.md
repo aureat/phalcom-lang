@@ -34,7 +34,7 @@ The substrate is three test lanes plus one shell entry point:
 ## Deviations & deferrals
 - Fuzz and miri are **opt-in**, not in the default merge gate — they need a nightly toolchain with components that may not be installed, and are smoke checks. See [`scripts/verify.sh`](../../../../scripts/verify.sh) header.
 - The golden runner is a stdout-equality regression gate, not a semantic conformance check — deliberately (see its module doc). Two `tests/fixtures/golden/*.ph` fixtures predate the F10 fix and deliberately carry no trailing newline; left as-is since their goldens are pinned.
-- Excluded example programs remain blocked on unimplemented surface syntax; see [deferred-work](../../../spec/current/deferred-work.md).
+- Excluded example programs remain blocked on unimplemented surface syntax; see [deferred-work](../../../__unstructured__/spec/current/deferred-work.md).
 
 ## Sources
 - forge: [`u0-state.md`](../../archive/phase2/u0-state.md) phase log ("0. Stabilize"), [`u0-plan.md`](../../archive/phase2/u0-plan.md) §"U0 — Front-end stabilization (F9 + F10)".

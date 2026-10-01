@@ -147,6 +147,6 @@ User-facing numeric and collection-library contracts.
 
 ## Evidence and provenance
 
-Compiled pages cite immutable raw snapshots under [raw/](raw/). The append-only [operation log](log.md) records source ingests, taxonomy decisions, and migrations. Normative language and semantic rules remain in [docs/spec/](../spec/); implementation lifecycle remains in [docs/implementation/](../implementation/).
+Compiled pages cite immutable raw snapshots under [raw/](raw/). The append-only [operation log](log.md) records source ingests, taxonomy decisions, and migrations. Normative language and semantic rules remain in [docs/spec/](../__unstructured__/spec/); implementation lifecycle remains in [docs/implementation/](../implementation/).
 
 The wiki is an explanatory index, not a release certification. Each page labels proposed, partial, implemented, focused-tested, and unverified boundaries explicitly.

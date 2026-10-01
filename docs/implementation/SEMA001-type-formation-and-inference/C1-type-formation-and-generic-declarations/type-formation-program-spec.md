@@ -50,9 +50,9 @@ Conclusion: semantic kernel is good and should be retained. Next work is staged-
 
 | Subject | Authority | Classification | Rule |
 |---|---|---|---|
-| Runtime object/class/metaclass behavior | [Current object model](../../../spec/current/object-model.md), accepted ADRs, live VM | **Ratified/normative design** + **Observed current implementation** | Typing does not alter class identity, metaclass wiring, selector identity, allocation, or lookup. |
-| Two-axis type/kind ontology | [`ontology.md`](../../../spec/typing/ontology.md) where consistent with live model, completed two-axis plan/spec, live semantic code | **Ratified/normative design** | `value.class`, `value : Type`, and `form :: Kind` are distinct judgments. |
-| Existing typing documents 01–03 | `docs/spec/typing/01-*`, `02-*`, `03-*` | **Untracked forward-design input** where contradicted here | Retain useful protocol/generic ideas; discard `Type`-as-protocol, `Type.currentApplication`, applied class-side forwarding, and `out`/`in`. |
+| Runtime object/class/metaclass behavior | [Current object model](../../../__unstructured__/spec/current/object-model.md), accepted ADRs, live VM | **Ratified/normative design** + **Observed current implementation** | Typing does not alter class identity, metaclass wiring, selector identity, allocation, or lookup. |
+| Two-axis type/kind ontology | [`ontology.md`](../../../__unstructured__/spec/typing/ontology.md) where consistent with live model, completed two-axis plan/spec, live semantic code | **Ratified/normative design** | `value.class`, `value : Type`, and `form :: Kind` are distinct judgments. |
+| Existing typing documents 01–03 | `../../../__unstructured__/spec/typing/01-*`, `02-*`, `03-*` | **Untracked forward-design input** where contradicted here | Retain useful protocol/generic ideas; discard `Type`-as-protocol, `Type.currentApplication`, applied class-side forwarding, and `out`/`in`. |
 | Variance syntax | This series and user direction | **Ratified/normative design** | Declaration-site `+T`, `-T`, and `T`; unary signs are syntax over parameter declarations, conceptually related to `+`/`-` messages, not selector components. |
 | Five reviewed language decisions | Peer feedback supplied with this task and ratification instruction | **Ratified/normative design** | See §4. |
 | Static semantic facts | `phalcom-semantic::SemanticSnapshot` | **Observed current implementation** | Compiler, CLI, REPL, and LSP must consume one formal semantic source. |

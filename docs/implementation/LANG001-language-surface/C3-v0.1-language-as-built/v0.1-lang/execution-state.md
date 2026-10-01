@@ -68,7 +68,7 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 ## U-CORE-1 — LANDED ✅ (2026-07-12, `03764e3`, in-tree on `main`, no worktree)
 - **Scope:** kernel reflection, per [`U-CORE-1-implementation-spec.md`](../../../spec/core/U-CORE-1-implementation-spec.md)
   (re-grounded against HEAD `de03f26` before dispatch, commit `010268c`). First unit of the
-  `docs/spec/core/` successor track (§0.4 of the spec — subsumes the coarser U-STD/U11 "reflection"
+  `../../../../__unstructured__/spec/core/` successor track (§0.4 of the spec — subsumes the coarser U-STD/U11 "reflection"
   planning). **7 new floor primitives** (ADR-0023, floor **73 → 80**): `Object#hash` (identity
   digest of the heap handle) + value-based `hash` overrides on `Number`/`String`/`Symbol`/`Bool`;
   `Behavior#name` (shadows `Object#name`'s metaclass-name result for class receivers) and
@@ -175,7 +175,7 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
   warnings (Option B added no Rust). Reviewer OFF per policy — self-verified.
 - **Working model:** in-tree on `main`, no worktree. **Hard stop:** did not begin U11/U-CORE-N.
 - **Note for the orchestrator:** U11 (Bool tower) also edits `core.ph` and was held back for U-STD —
-  it is now unblocked. The forge-index vs. `docs/spec/core/` scope-taxonomy divergence is filed as
+  it is now unblocked. The forge-index vs. `../../../../__unstructured__/spec/core/` scope-taxonomy divergence is filed as
   DEFERRED #29 (resolved for this unit via Option B).
 
 ## U10 — LANDED ✅ (2026-07-12, in-tree on `main`, no worktree)

@@ -72,9 +72,9 @@ grows it capability-by-capability.
   external labels the completion snippets and hover signatures render.
 - **[TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../../decisions/retired/modules-as-files-with-public-by-default-imports.md)** —
   module = file: the workspace index's per-file granularity and warm-scan unit.
-- `docs/spec/current/lexical-structure.md` §§9–14 — the token surface Stage 5
+- `../../../__unstructured__/spec/current/lexical-structure.md` §§9–14 — the token surface Stage 5
   (`semanticTokens`) classifies from the real lexer, mooting DEC-VSP-C.
-- `docs/spec/current/experimental/doc-comments-phaldoc.md` §§3–5,8 — Phaldoc hover
+- `../../../__unstructured__/spec/current/experimental/doc-comments-phaldoc.md` §§3–5,8 — Phaldoc hover
   sources (`///` outer / `//!` inner, adjacency rule §5, selector-keyed §4,
   contract-view harvest order §8). STATUS experimental; `//`-prefixed so
   lexically inert trivia — a raw-source harvest needs no compiler change.

@@ -49,7 +49,7 @@ class object Int   --denotes-->  nominal type form Int :: Type
 class object List  --denotes-->  type constructor List :: Type -> Type
 ```
 
-The term **`TypeForm`** is used for the common semantic/behavioral category of values that denote type-level forms. `Type` is reserved for the atomic kind. The stale typing documents that use `@protocol class Type` are not implementation authority for this work; where they conflict with `docs/spec/typing/ontology.md` and this ratified architecture, the ontology wins.
+The term **`TypeForm`** is used for the common semantic/behavioral category of values that denote type-level forms. `Type` is reserved for the atomic kind. The stale typing documents that use `@protocol class Type` are not implementation authority for this work; where they conflict with `../../../../__unstructured__/spec/typing/ontology.md` and this ratified architecture, the ontology wins.
 
 The implementation is organized into ten work packages:
 
@@ -288,15 +288,15 @@ All paths in this section refer to baseline `ab9142700e53fb012a5da71a1074bd67ec8
 
 ## 4.1 Normative ontology already exists
 
-`docs/spec/typing/ontology.md` defines the one-value-universe/multiple-level model, the `e ⇓ v`, `v : T`, `T :: K` judgments, class/type distinctions, and the eventual reflection bridge.
+`../../../../__unstructured__/spec/typing/ontology.md` defines the one-value-universe/multiple-level model, the `e ⇓ v`, `v : T`, `T :: K` judgments, class/type distinctions, and the eventual reflection bridge.
 
 Relevant anchors:
 
-- `docs/spec/typing/ontology.md:1+` — one value universe, value/type/kind ladder.
-- `docs/spec/typing/ontology.md` section **Two orthogonal structures** — runtime object model vs semantic model.
-- `docs/spec/typing/ontology.md` section **Reflection** — class/type/kind reification examples.
+- `../../../../__unstructured__/spec/typing/ontology.md:1+` — one value universe, value/type/kind ladder.
+- `../../../../__unstructured__/spec/typing/ontology.md` section **Two orthogonal structures** — runtime object model vs semantic model.
+- `../../../../__unstructured__/spec/typing/ontology.md` section **Reflection** — class/type/kind reification examples.
 
-The older `docs/spec/typing/01-protocol-foundation.md`, `02-type-expression-foundation.md`, `03-type-parameters-and-generic-signatures.md`, `STATUS.md`, and related example copies predate this ontology. In particular, Document 02 defines `Type` as a protocol. That naming/level decision is superseded for this implementation.
+The older `../../../../__unstructured__/spec/typing/01-protocol-foundation.md`, `02-type-expression-foundation.md`, `03-type-parameters-and-generic-signatures.md`, `STATUS.md`, and related example copies predate this ontology. In particular, Document 02 defines `Type` as a protocol. That naming/level decision is superseded for this implementation.
 
 ## 4.2 AST already represents several rich annotation forms
 
@@ -504,7 +504,7 @@ Its rustdoc still says syntax-only.
 
 ## 4.19 Runtime object model is already the source of truth
 
-`docs/spec/current/object-model.md` fixes:
+`../../../../__unstructured__/spec/current/object-model.md` fixes:
 
 - every surface object has exactly one class;
 - every class is an object with a metaclass;
@@ -596,7 +596,7 @@ Make it impossible for implementation agents to follow the stale `@protocol Type
 
 ## Files to modify
 
-### `docs/spec/typing/ontology.md`
+### `../../../../__unstructured__/spec/typing/ontology.md`
 
 Add a short normative terminology/precedence section near the beginning:
 
@@ -616,15 +616,15 @@ Add a short normative terminology/precedence section near the beginning:
 
 Also add the eight ratified decisions from Section 2 as a compact invariant block.
 
-### `docs/spec/typing/README.md`
+### `../../../../__unstructured__/spec/typing/README.md`
 
 Change the status page so `ontology.md` is listed as the current semantic foundation. Mark Documents 01–03 as historical/stale where they conflict with the ontology. Do not delete them; preserve design history.
 
-### `docs/spec/typing/STATUS.md`
+### `../../../../__unstructured__/spec/typing/STATUS.md`
 
 Add a supersession banner at the top. Do not continue calling the old `Type`-protocol decision “locked.”
 
-### `docs/spec/typing/02-type-expression-foundation.md`
+### `../../../../__unstructured__/spec/typing/02-type-expression-foundation.md`
 
 Add a top-of-file notice only; do not rewrite the historical document in this change:
 
@@ -2628,16 +2628,16 @@ Raw `TypeId` integer values need not be a cross-process persistence contract, th
 
 This section is a concrete edit checklist.
 
-## `docs/spec/typing/ontology.md`
+## `../../../../__unstructured__/spec/typing/ontology.md`
 
 **Modify:** add `Type` atomic-kind / `TypeForm` terminology and precedence.
 **Do not:** add runtime TypeForm APIs.
 
-## `docs/spec/typing/README.md`
+## `../../../../__unstructured__/spec/typing/README.md`
 
 **Modify:** make ontology current foundation; mark conflicting earlier docs historical.
 
-## `docs/spec/typing/STATUS.md`
+## `../../../../__unstructured__/spec/typing/STATUS.md`
 
 **Modify:** supersession note; remove implication that stale `Type` protocol naming remains current.
 

@@ -59,7 +59,7 @@ correctness fix, and can follow the kernel work.
 - `None` and `Some` are immediate, so unassigned reads and present-value wrapping
   avoid Option-wrapper allocation; `Some` remains bounded to seven generic layers.
 - `?.` adds one token and desugaring to the grammar
-  ([lexical-structure.md §9](../../spec/current/lexical-structure.md)); it must be threaded
+  ([lexical-structure.md §9](../../__unstructured__/spec/current/lexical-structure.md)); it must be threaded
   into the precedence table in the grammar pass.
 - Two extra kernel classes to bootstrap and keep invariant-checked, plus the
   private VM `nil` must never leak into a `Some`.

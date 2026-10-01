@@ -46,7 +46,7 @@ Each was independently drafted as its own "amend ADR-0019" note inside its
 owning unit's implementation spec. Opening four separate superseding ADRs
 against the same frozen list is unnecessary churn and risks the amendments
 drifting out of sync (e.g. disagreeing on the resulting floor count). The
-`docs/spec/current/core/README.md` cross-spec integration notes flagged this and
+`../../__unstructured__/spec/current/core/README.md` cross-spec integration notes flagged this and
 called for **one omnibus amendment** instead. (Numbering note: the individual
 specs were drafted before U-LEX claimed ADR-0022 for string interpolation, so
 some cite "ADR-0022" for this amendment — 0023 is the correct, current number.)

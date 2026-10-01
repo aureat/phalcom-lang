@@ -125,7 +125,7 @@ territory and U-TRACE-3 must edit it — not a design conflict.
   (0/1/64/65/66/70/74) and `interpret_file` uses them; `cmd_run` exits 1 for everything. README
   §4.6's "specify the exit code table" is half-done — the spec adopts the existing table.
 - **`@native` is implemented** (contra the design-session note "not built yet"):
-  `attributes.rs:663-702`, spec at `docs/spec/current/decorators/native.md`, fixtures live. The
+  `attributes.rs:663-702`, spec at `../../../../__unstructured__/spec/current/decorators/native.md`, fixtures live. The
   anchors⊆bindings invariant test is the recorded follow-up. This unlocks the native-frame
   rendering section of the spec.
 - **E002 (fiber-floor upvalue-close crash, the "F1" hazard) is still OPEN** — status header

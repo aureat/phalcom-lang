@@ -154,8 +154,8 @@ when a wake races cancellation so the resumed code does not infer cause from Non
 ## N3 — Time, deadlines and honest root waiting
 
 Implement the ruled `System.sleep(Duration) -> Future` shape from
-[System](../../../spec/current/system.md) and the
-[reactor contract](../../../spec/current/stdlib/reactor.md), not the earlier draft's
+[System](../../../__unstructured__/spec/current/system.md) and the
+[reactor contract](../../../__unstructured__/spec/current/stdlib/reactor.md), not the earlier draft's
 synchronous `sleep(Duration) -> Unit`. Accept a Number representing finite integral
 milliseconds, reject negative/fractional/out-of-range input, and use a monotonic
 checked deadline internally. Zero creates a pending Future that settles on the
@@ -204,7 +204,7 @@ clock overflow, external event after cancellation and shutdown cleanup.
 
 ### Cancellation design gate
 
-The existing [Future cancellation document](../../../spec/current/stdlib/cancellation.md)
+The existing [Future cancellation document](../../../__unstructured__/spec/current/stdlib/cancellation.md)
 is explicitly proposed pending PDR-0017 ratification. It describes renouncing a
 Future, rejecting with catchable CancelledError and releasing its registration;
 it does not stop its producer. Task cancellation below instead requests execution

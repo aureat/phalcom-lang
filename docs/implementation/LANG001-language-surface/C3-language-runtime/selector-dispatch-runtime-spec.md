@@ -26,8 +26,8 @@ A selector is an interned symbol encoding **name + argument labels** (Smalltalk-
 - Later units assert against this substrate: U8's `decode_selector` round-trip unit tests, and the floor-census / dispatch goldens.
 
 ## Deviations & deferrals
-- **Inline-cache population is deferred** — dispatch is built IC-*ready* here; the cache itself is a speed item, not part of the accepted decision. See [deferred-work](../../../spec/current/deferred-work.md).
-- Canonical selector spelling was **amended to comma form** (`move(_,to,duration)`, [selectors.md](../../../spec/current/selectors.md)); ADR-0012's original colon spelling is superseded — decision and reasoning unchanged, only the string encoding. (The as-built `encode_selector` emits the `_:`/label`:` internal form seen in `method.rs`.)
+- **Inline-cache population is deferred** — dispatch is built IC-*ready* here; the cache itself is a speed item, not part of the accepted decision. See [deferred-work](../../../__unstructured__/spec/current/deferred-work.md).
+- Canonical selector spelling was **amended to comma form** (`move(_,to,duration)`, [selectors.md](../../../__unstructured__/spec/current/selectors.md)); ADR-0012's original colon spelling is superseded — decision and reasoning unchanged, only the string encoding. (The as-built `encode_selector` emits the `_:`/label`:` internal form seen in `method.rs`.)
 - The `Signature`'s reserved internal-binding field and variadic flag were added now but not populated until later units (variadics = U9).
 
 ## Sources

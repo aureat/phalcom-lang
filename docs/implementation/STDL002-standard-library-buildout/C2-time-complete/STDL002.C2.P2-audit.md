@@ -1162,7 +1162,7 @@ It does not break clock execution, but it means the final LANG006/C2 native-boun
 
 # 17. The floor census is stale
 
-`docs/spec/current/core/floor-census.md` still has, around line 553:
+`../../../__unstructured__/spec/current/core/floor-census.md` still has, around line 553:
 
 ```text
 | `_$monotonicNanoseconds` | static | `system_monotonic_nanoseconds` |

@@ -172,7 +172,7 @@ Verified planning facts:
 15. `VM::has_iteration_protocol` still tests cursor selectors for generic positional expansion; cursor deletion is unsafe until that dependency is migrated.
 16. compiler boundedness already recognizes `.iter`, `map`, `filter`, `flatMap`, `skip`, `take`, `takeWhile` through conservative syntax/source facts and must be updated rather than replaced.
 17. `examples/sheetcalc/src/grid/ref-range.ph` is a live repository subclass/use site of the legacy cursor root.
-18. `docs/guide/collections.md`, `docs/spec/current/iteration.md`, some current comments/LSP text, and historical accepted cursor decisions still contain cursor descriptions; authoritative `docs/specs/iterator.md` is the target language rule.
+18. `docs/guide/collections.md`, `../../../__unstructured__/spec/current/iteration.md`, some current comments/LSP text, and historical accepted cursor decisions still contain cursor descriptions; authoritative `docs/specs/iterator.md` is the target language rule.
 
 > Re-read the named live paths before editing. Adapt mechanical drift locally. Treat architectural drift as an escalation condition.
 
@@ -2847,7 +2847,7 @@ Reconcile current user/developer documentation and tooling with the canonical pr
 - `docs/specs/iterator.md` only for actual final API/catalog wording, not architecture rewrite
 - `docs/guide/collections.md`
 - `docs/wiki/collections/traversal.md`
-- `docs/spec/current/iteration.md` under the repository's specs migration/supersession convention
+- `../../../__unstructured__/spec/current/iteration.md` under the repository's specs migration/supersession convention
 - LSP hover strings/current semantic presentation text mentioning cursor selectors
 - AST/compiler comments and corpus comments that claim cursor lowering
 - `LANG005.C6-CHECKPOINT.md`

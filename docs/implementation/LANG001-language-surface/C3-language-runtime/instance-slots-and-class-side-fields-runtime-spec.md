@@ -93,10 +93,10 @@ new()` installs under the
 - **Precluded (acceptable per ADR-0011/0017, good for a future inline cache):** adding a field
   to a *live* class / `become:`-style reshape (offsets frozen at definition); shared *protected*
   inherited fields (subclasses use accessors). Reparenting / `reshape`-with-migration is sealed
-  by policy but left implementable → [deferred-work §1](../../../spec/current/deferred-work.md) (ADR-0026).
+  by policy but left implementable → [deferred-work §1](../../../__unstructured__/spec/current/deferred-work.md) (ADR-0026).
 - **Identity-dispatch ⊗ optional arity:** any future default/optional arg on `construct` would
   change the selector and miss — a cross-cutting decision, not a local one
-  ([deferred-work §1](../../../spec/current/deferred-work.md), open-Q12).
+  ([deferred-work §1](../../../__unstructured__/spec/current/deferred-work.md), open-Q12).
 
 ## Sources
 - Forge: `U7-plan.md` (folded into this spec; see git history), [STATE.md](../../archive/phase2/u0-state.md) "U7 — LANDED".

@@ -142,7 +142,7 @@ relevant predecessor: LANG005.C2.P1-inherent-impl-effective-surfaces-plan.md
 10. `phalcom-core/src/compiler/lib/enum_decl.rs` currently compiles enum-root and case-local behavior by walking enum AST. That direct AST authority must be removed for migrated behavior.
 11. `phalcom-core/src/modules/semantic_lowering.rs` currently keeps `EnumLoweringSpec` structural: enum owner, runtime representation, and variants. P1 plans a separate semantic impl-lowering product; P2 should extend that impl target projection rather than turning `EnumLoweringSpec` into a second behavior source of truth.
 12. `phalcom-core/src/vm/adt.rs` already allocates one enum root behavior class plus one hidden behavior class per exact variant, with each case class inheriting from the root class. This is exactly the runtime topology P2 needs: root defaults install once on the root class; case implementations install on the exact case class; ordinary inheritance supplies defaults.
-13. The current normative `docs/spec/adts.md` still describes behavior-bearing enum bodies and explicit `@variant` classification. That source-layout rule is stale relative to the ratified LANG005.C2.P2 update and must be reconciled as part of this plan before the implementation is considered complete.
+13. The current normative `../../../__unstructured__/spec/adts.md` still describes behavior-bearing enum bodies and explicit `@variant` classification. That source-layout rule is stale relative to the ratified LANG005.C2.P2 update and must be reconciled as part of this plan before the implementation is considered complete.
 14. `phalcom-semantic/tests/semantic/adts/declarations.rs` already contains formal closed-requirement, exact-case, and GADT tests that should be migrated/extended rather than replaced by a parallel test harness.
 15. `phalcom-semantic/tests/semantic/README.md` and `phalcom-core/tests/README.md` require formal identities/proofs to be tested in semantic tests and executable behavior in core/runtime tests, with focused commands during migration.
 
@@ -289,7 +289,7 @@ Current ADT semantics remain authoritative for:
 
 ### 5.3 Normative source-layout update required by P2
 
-The current `docs/spec/adts.md` still places behavior and requirements inside enum bodies. P2 changes that canonical source model. Update the normative spec as part of this plan so the live specification and implementation do not disagree.
+The current `../../../__unstructured__/spec/adts.md` still places behavior and requirements inside enum bodies. P2 changes that canonical source model. Update the normative spec as part of this plan so the live specification and implementation do not disagree.
 
 Canonical P2 syntax treats an enum body as a list of variants. The `@variant` marker must no longer be required to distinguish variants from behavior because behavior is no longer legal in the enum body. For migration safety, the parser may continue accepting legacy `@variant` as a compatibility attribute until LANG005.C8, but it must normalize to the same `VariantDecl` and must not remain the semantic discriminator for “this body member is a variant.” New normative examples use bare variants.
 
@@ -970,7 +970,7 @@ Do not expand P2 into:
 
 #### Normative docs / implementation state
 
-- `docs/spec/adts.md` — canonical variants-only + impl-based enum behavior semantics.
+- `../../../__unstructured__/spec/adts.md` — canonical variants-only + impl-based enum behavior semantics.
 - P1-established general `impl` spec chapter if one exists — add exact-case target grammar only where necessary.
 - `docs/implementation/LANG005/LANG005.C2/CHECKPOINT.md` or the live canonical checkpoint record.
 - P2 walkthrough and P2 handoff.
@@ -1390,7 +1390,7 @@ P1 impl syntax tests
 
 ### Required implementation shape
 
-1. Update `docs/spec/adts.md` so canonical examples and rules use variants-only enum declarations plus root/exact-case impls.
+1. Update `../../../__unstructured__/spec/adts.md` so canonical examples and rules use variants-only enum declarations plus root/exact-case impls.
 2. Preserve all ADT identity/GADT/visibility/representation semantics unrelated to behavior location.
 3. Make every canonical enum body item parse as a variant declaration. `@variant` may remain accepted as compatibility but cannot be required for variant classification.
 4. Extend P1 impl-target AST to represent exact variant selector shapes explicitly enough to resolve a `VariantId` semantically.

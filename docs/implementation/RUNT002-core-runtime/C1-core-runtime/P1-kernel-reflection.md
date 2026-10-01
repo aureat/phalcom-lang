@@ -575,19 +575,19 @@ boolean}.rs` (the native fns) · `phalcom-core/src/primitive/mod.rs` (`hash_code
 · `phalcom-core/core/core.ph` (`Object#isA`) · `phalcom-core/src/vm.rs` (SD-1 boot
 check only) · `phalcom-core/tests/invariants.rs` + `phalcom-core/tests/lang/**`
 (new/retired fixtures) · **docs applied in lockstep by the implementer**: the census
-delta in `docs/spec/current/core/floor-census.md` (73 → 80) — [TDR-0021](../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md) is already Accepted, so there is no ADR to draft.
+delta in `../../../__unstructured__/spec/current/core/floor-census.md` (73 → 80) — [TDR-0021](../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md) is already Accepted, so there is no ADR to draft.
 
 ### 8.3 Traceability
 
 | Claim | Source |
 |---|---|
 | `hash` is a floor primitive; ADR-0019 amendment | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q1; [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) §1 |
-| `isA`/`hash` on `Object`; `Behavior` adds `name`/`methods` | [`object-model.md`](../../../spec/current/object-model.md) §8, §4 |
-| `class`/`superclass` already floor (⇒ `isA` derivable) | [`floor-census.md`](../../../spec/current/core/floor-census.md) §2.1/§2.2; `universe.rs` L241/L269 |
+| `isA`/`hash` on `Object`; `Behavior` adds `name`/`methods` | [`object-model.md`](../../../__unstructured__/spec/current/object-model.md) §8, §4 |
+| `class`/`superclass` already floor (⇒ `isA` derivable) | [`floor-census.md`](../../../__unstructured__/spec/current/core/floor-census.md) §2.1/§2.2; `universe.rs` L241/L269 |
 | `Object#name` returns metaclass name for a class receiver | `primitive/object.rs::object_name` L23; `value.rs::class` L94 |
-| `Method < Function` re-parent + load order | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §4.1; [TDR-0005](../../../decisions/accepted/0005-function-as-abstract-callable-root.md); `universe.rs` L147–149; [`bootstrap-phases.md`](../../../spec/current/core/bootstrap-phases.md) §2.1 step 5 |
-| R-INV-0.1…0.4, 1.1…1.6 | [`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §3–§4 |
+| `Method < Function` re-parent + load order | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §4.1; [TDR-0005](../../../decisions/accepted/0005-function-as-abstract-callable-root.md); `universe.rs` L147–149; [`bootstrap-phases.md`](../../../__unstructured__/spec/current/core/bootstrap-phases.md) §2.1 step 5 |
+| R-INV-0.1…0.4, 1.1…1.6 | [`invariant-requirements.md`](../../../__unstructured__/spec/current/core/invariant-requirements.md) §3–§4 |
 | parallel rule (all rows) | [TDR-0002](../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md); `verify_invariants` L472 |
-| `Number#hash` by mathematical value; Value openness; module scoping | [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §4/§1/§3 |
-| pending flips | [`pending-retirement.md`](../../../spec/current/core/pending-retirement.md) §3–§4 |
+| `Number#hash` by mathematical value; Value openness; module scoping | [`forward-compat.md`](../../../__unstructured__/spec/current/core/forward-compat.md) §4/§1/§3 |
+| pending flips | [`pending-retirement.md`](../../../__unstructured__/spec/current/core/pending-retirement.md) §3–§4 |
 | slotmap key digest; cached string hash; interned id | `heap.rs` L43–52; `string.rs` L35/L54; `interner.rs` L10 |

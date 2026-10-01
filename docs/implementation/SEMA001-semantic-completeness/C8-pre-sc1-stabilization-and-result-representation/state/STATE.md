@@ -27,7 +27,7 @@ Pre-existing untracked paths at start:
 - `.agents/skills/claude-d3js-skill/`
 - `.agents/skills/karpathy-llm-wiki/`
 - `docs/impl/semantic/semantic-completeness/sc-1/phalcom-sc1-correctness-amendment-plan.md`
-- `docs/spec/universe.md`
+- `../../../../__unstructured__/spec/universe.md`
 
 Treat these as user-owned/non-SC-1. Preserve them. This working-state directory and implementation/test changes made for SC-1 are implementation-owned.
 
@@ -56,7 +56,7 @@ Important files and symbols: amendment §6–7, `phalcom-modules/Cargo.toml`, `p
 Must remain true: no edits outside working state; preserve user-owned untracked files.
 Important findings:
 
-- Preflight: `HEAD` was `4148de61f5415729fe5fe4ccfcef383292548ffe`; pre-existing untracked amendment and `docs/spec/universe.md` remain, and the state directory is implementation-owned.
+- Preflight: `HEAD` was `4148de61f5415729fe5fe4ccfcef383292548ffe`; pre-existing untracked amendment and `../../../../__unstructured__/spec/universe.md` remain, and the state directory is implementation-owned.
 - `graphify-out/graph.json` existed. Required query returned the authority/identity graph slice containing `ModuleId`, `SemanticSnapshot`, `Universe`, and `semantic_lowering.rs`; direct source anchors remain required for edits.
 - Target registration: `phalcom-modules` uses normal integration-test discovery, so `tests/builtin_catalog.rs` is the registered target; `phalcom-semantic/Cargo.toml:22-24` registers its sole unified `semantic` target.
 - Slice 1 direct anchors: `phalcom-modules/src/interface.rs:114-296` builds declarations and exports; `phalcom-modules/src/builtin_interface.rs:84-146` adds synthetic root bindings and non-root export-all behavior; `phalcom-modules/src/linker.rs:602-675` resolves/links declared exports; `phalcom-semantic/src/declarations.rs:157-208` bootstraps native Universe declaration forms; `phalcom-semantic/src/session.rs:238-510` mixes bootstrap and source declaration construction.

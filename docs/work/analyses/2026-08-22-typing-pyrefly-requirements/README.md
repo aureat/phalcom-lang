@@ -41,7 +41,7 @@ LSP already converts a semantic diagnostic to protocol diagnostics with source `
 
 ### 2.3 Contracts and proving
 
-`@requires` and `@ensures` have runtime weaving specifications and compiler paths, not static verification. In fact, their current documentation identifies a result-name implementation discrepancy and incomplete metadata plumbing ([requires](../../../spec/current/decorators/requires.md), [ensures](../../../spec/current/decorators/ensures.md)). `phalcom-semantic` presently has no proof IR, verification-condition generator, solver boundary, or proof-result domain despite aspirational crate wording. Any static-proving roadmap must begin by making typed control-flow, effects, call summaries, contracts, and dynamic/native boundaries explicit; it must not claim that runtime guards are proof evidence.
+`@requires` and `@ensures` have runtime weaving specifications and compiler paths, not static verification. In fact, their current documentation identifies a result-name implementation discrepancy and incomplete metadata plumbing ([requires](../../../__unstructured__/spec/current/decorators/requires.md), [ensures](../../../__unstructured__/spec/current/decorators/ensures.md)). `phalcom-semantic` presently has no proof IR, verification-condition generator, solver boundary, or proof-result domain despite aspirational crate wording. Any static-proving roadmap must begin by making typed control-flow, effects, call summaries, contracts, and dynamic/native boundaries explicit; it must not claim that runtime guards are proof evidence.
 
 ### 2.4 Verification observed during this analysis
 
@@ -96,7 +96,7 @@ untyped module interfaces ──► typed header shells ──► semantic-inter
 
 The pipeline must preserve two separations:
 
-1. **Semantic levels.** Evaluation classifies runtime values; the type system classifies semantic type terms; the kind system classifies type constructors. The ontology’s `value : type :: kind` direction is a useful guard against `Type :: Type` collapse and against making reflection dictate static type identity. See [ontology sections 1–4](../../../spec/typing/ontology.md).
+1. **Semantic levels.** Evaluation classifies runtime values; the type system classifies semantic type terms; the kind system classifies type constructors. The ontology’s `value : type :: kind` direction is a useful guard against `Type :: Type` collapse and against making reflection dictate static type identity. See [ontology sections 1–4](../../../__unstructured__/spec/typing/ontology.md).
 2. **Knowledge states.** A known static type, lack of evidence, an explicit dynamic escape, an unresolved dependency, an inference variable, a contradiction, and a proof unknown are distinct states with different diagnostics and cacheability. They must never be encoded as a convenient single `TypeId`.
 
 ## 5. What may be transferred from Pyrefly
