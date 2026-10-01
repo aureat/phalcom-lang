@@ -42,42 +42,70 @@ omitted, `*Ts` defaults to `TypePack`, `**Fs` to `RecordFields`, and `***Es` to
 `CompleteTypePack`; there is no contextual kind inference. Explicit compatible
 kind annotations remain available.
 
-## 2. Tuple formation
+## 2. Tuple formation and lane structure
 
-A positive-arity Tuple type consists of an ordered positional prefix followed by
-an ordered labeled suffix:
-
-```text
-Tuple(P, L)
-```
-
-where `P : TypePack` and `L : LabeledTypePack`.
-
-For example:
-
-```phalcom
-(Int, String, name: Symbol)
-```
-
-has positional pack `[Int, String]` and labeled pack `[(name, Symbol)]`.
-Positional entries must precede labeled entries. Tuple labels are unique, and
-the ordered label sequence participates in Tuple identity.
-
-## 3. Record formation
-
-A Record type is formed from a row:
+A Tuple type consists of two independent structural lanes:
+1. an ordered **positional lane** containing positional elements;
+2. an ordered **labeled lane** containing uniquely labeled elements.
 
 ```text
-Record(R)
+Tuple(P, L, Rem_P, Rem_L)
 ```
 
-where `R : RecordFields`. A closed row contains a finite key/type association;
-an open row additionally contains an abstract remainder. Record structural
-identity is determined by key/type association, not source or presentation
-order. Canonical field sorting is an implementation normalization, not a
-source-level ordering rule.
+where `P : TypePack`, `L : LabeledTypePack`, `Rem_P` is the positional remainder state, and `Rem_L` is the labeled remainder state.
 
-### 3.1 Record values and spread
+Positional entries must precede labeled entries. Positional elements are always required. Labeled elements may be explicitly declared **required** (`name: T`) or **optional** (`name?: T`).
+
+### 2.1 Tuple remainders
+The positional and labeled lanes have independent closed/open states:
+- `Closed` — admits no elements beyond the declared fixed prefix;
+- `Typed(T)` — admits zero or more additional elements in that lane, each constrained to subtype of `T` (`*: T` for positional, `**: T` for labeled);
+- `Unconstrained` — admits zero or more additional elements in that lane without a common element type constraint (`*: ...` for positional, `**: ...` for labeled, or `...` / `***: ...` for both lanes).
+
+Tuple complete remainder `(***: T)` is shorthand for `(*: T, **: T)`.
+Tuple unconstrained remainder `(...)` is shorthand for `(*: ..., **: ...)`.
+
+## 3. Record formation and presence
+
+A Record type is formed from a set of uniquely labeled fields and an optional tail:
+
+```text
+Record(Fields, Tail)
+```
+
+where `Fields` is an unordered key/type/presence association, and `Tail` is the row tail state.
+
+Each field has an explicit presence qualifier:
+- **Required** (`name: T`): the field must be present on instances of the record type.
+- **Optional** (`name?: T`): the field may be absent; if present, its value must have type `T`.
+
+Optionality is **member presence**, not `Option<T>` or `T | Unit`. A field `{ name?: String }` is satisfied by an instance with no `name` field, or an instance with `name: String`.
+
+### 3.1 Record remainders and row tails
+A Record row tail has one of four categories:
+1. `Closed` (`{ a: Int }`) — exactly the declared fields; admits no surplus fields.
+2. `Captured(R)` (`{ a: Int, **R }`) — row polymorphism with correlated row variable `R`.
+3. `Anonymous Typed(T)` (`{ a: Int, **: T }`) — admits zero or more additional fields, each constrained to type `T`.
+4. `Anonymous Unconstrained` (`{ a: Int, ... }` or `{ a: Int, **: ... }`) — admits zero or more additional fields without a common value type constraint.
+
+Captured row tails preserve correlated row identity. Anonymous remainders (`...`, `**: T`) introduce no row variable or solver identity.
+
+### 3.2 Record subtyping and compatibility
+Ordinary `<:` applies strictly between proper `Type` terms (`KindId::TYPE`).
+
+For Record types:
+1. **Target required field `k: T`**: source must provably contain `k`, and source type `S` must satisfy `S <: T`.
+2. **Target optional field `k?: T`**:
+   - If source provably contains `k: S`, `S <: T` is required.
+   - If source is closed and omits `k`, the target field is satisfied (absence).
+   - If source has an anonymous remainder that could contain `k`, the source remainder must be typed `**: S` with `S <: T` to prove compatibility; an unconstrained source remainder `...` cannot prove compatibility for an optional target field.
+3. **Extra source fields**:
+   - Closed target rejects surplus source fields (`{ a: Int, b: String } </: { a: Int }`).
+   - Open target with typed remainder `**: T` requires every surplus source field (and source remainder) to satisfy `<: T`.
+   - Open target with unconstrained remainder `...` accepts surplus source fields.
+4. **Source openness**: an open source cannot satisfy a closed target.
+
+### 3.3 Record values and spread
 
 Record value literals use bare braces, such as `{name: value}`. A `**source`
 entry contributes a statically projectable `RecordFields` shape. A Record

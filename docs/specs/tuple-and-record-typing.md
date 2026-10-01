@@ -2,7 +2,7 @@
 
 ## 1. Scope
 
-This specification defines the structural type semantics of Phalcom tuples and records, including:
+This specification defines the surface syntax, notation, and structural typing examples of Phalcom tuples and records, including:
 
 - closed and open structural types;
 - positional and labeled tuple lanes;
@@ -11,6 +11,8 @@ This specification defines the structural type semantics of Phalcom tuples and r
 - the structural meaning of `...`;
 - the lane operators `*`, `**`, and `***`;
 - tuple and record width subtyping.
+
+> **Authority rule:** [Structural Products](structural-products.md) is the primary normative semantic specification for static structural Tuple and Record typing, representation, and subtyping laws. This document provides the surface syntax, detailed notation, and examples synchronized with `structural-products.md`.
 
 This specification defines type semantics only. Runtime rest parameters, generic pack binding, pack expansion, and the runtime `Ellipsis` value are specified separately, except where their `*`, `**`, `***`, or `...` syntax shares the structural conventions defined here.
 

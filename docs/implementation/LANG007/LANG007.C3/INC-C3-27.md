@@ -199,3 +199,28 @@ blocked by the existing incomplete `TakeIterator` Iterator conformance. T6-B
 selectors are currently blocked before their assertions by the recorded
 Universe diagnostics. R1/G5 and P4/C3 remain `IN_PROGRESS / PARTIAL /
 UNVERIFIED`; no corpus or workspace gate was run.
+
+## 12. Last-known test and verification baseline — 2026-09-30
+
+This is a documentation refresh of the recorded evidence, not a test rerun.
+The focused `RangeIterator::take` body/signature selector
+`range_iterator_take_infers_and_publishes_specialized_constructor_result`
+passed 1/1. `natural_range_iter_and_take_stages_are_known` passed 1/1 for the
+Exact `Range -> Iterable::iter` selection, inherent `RangeIterator::take`, and
+Known `TakeIterator<RangeIterator>` result; it does not assert terminal
+`.toList` selection.
+
+The temporary direct `range_iterator_to_list_publication_probe` and nested
+`nested_dynamic_generic_result_classification_probe` each selected and passed
+1/1 only as diagnostic probes. They observed Dynamic propagation; both were
+removed and neither is acceptance evidence. The nested-generic probe's exact
+Cargo invocation was not retained. The two T6-B selectors and their exact
+commands are recorded in §6; each stopped before its focused assertions at
+the same recorded 23 Universe diagnostics (20 `ImplConformanceIncomplete`, 3
+`type.generic.underconstrained`). They are blocked, not passes.
+
+No production behavior or verification precondition changed. INC-C3-27 remains
+pending an architect ruling; T6-A's canonical `toList` result and T6-B's
+Derived/lowering evidence remain unverified. For the separate later iterator
+adapter/`toMap` baseline, see checkpoint §25; it is not causal evidence for
+this incident.

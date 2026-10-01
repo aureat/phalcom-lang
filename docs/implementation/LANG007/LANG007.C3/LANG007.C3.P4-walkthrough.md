@@ -4,23 +4,25 @@ kind: implementation-walkthrough
 status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
-as_of: 2026-09-29
+as_of: 2026-09-30
 ---
 
-# LANG007.C3.P4 Walkthrough — T13 Certification Outcome
+# LANG007.C3.P4 Walkthrough — T13 Outcome and R1 T6/G5 Baseline
 
-> T13 focused stabilization and the single authorized certification attempt
-> are recorded below. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`: the
-> broad gates are not all green, and this walkthrough does not claim C3
-> closure or release certification.
+> This is an interim P4 walkthrough, updated with the latest R1 T6/G5
+> attribution. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`: broad gates
+> are not all green, and this record does not claim C3 closure or release
+> certification.
 
 ## Current disposition
 
-P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. The final T13 records and
-localized rustfmt-only corrections were committed on local `main` as
-`40974862`; no push was performed by this continuation. The user-edited
-`docs/.obsidian/workspace.json` and `docs/__unstructured__/Untitled 1.md` were
-preserved and excluded from delivery. They remain the only modified paths.
+P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. The T13 records and localized
+rustfmt-only corrections were delivered earlier. At this update, local `main`
+and `origin/main` both resolve to `6dcdcec08e55c2eb67eb60fff959cfb71fc3e939`.
+The only pre-existing modified path is the user-edited
+`docs/__unstructured__/Static Context and Constants.md`; it is preserved and
+not part of this documentation update. These checkpoint, incident, and
+walkthrough documentation updates are uncommitted.
 
 The T13 certification result is incomplete: the one authorized full workspace
 test retry lost its command session after reporting the `phalcom-core --lib`
@@ -39,13 +41,9 @@ target can be derived. The confirmed defect is that a higher-kinded
 declaration-family form could enter ordinary value `TypeKnowledge`; the
 lexical-If path exposes/retains that fact for a later join, while the exact
 predecessor masking delta remains unisolated. Restoring predecessor
-information loss is not a valid repair. Do not coerce or filter non-proper terms. The live
-checkout at the start of this continuation is local `main` at `27d224a5`,
-matching both `origin/main` and the live remote `main` reference. The supplied
-architect note describes `8268c54e`, but that revision is not the current local
-or remote `main` in this checkout; this record follows the verified live state.
-The pre-existing unrelated
-`docs/.obsidian/workspace.json` edit is preserved.
+information loss is not a valid repair. Do not coerce or filter non-proper
+terms. This is historical T13/INC-C3-19 context; the current R1/T6 status is
+recorded below and in [INC-C3-27](INC-C3-27.md).
 
 ## Work and focused evidence recorded
 
@@ -508,3 +506,50 @@ change was attempted. P4 and C3 remain `IN_PROGRESS / PARTIAL / UNVERIFIED`,
 not `RELEASE_COMPLETE`. Do not repeat the workspace test or alter the two core
 failure paths without a cause-backed instruction. The checkpoint remains the
 authoritative status record; the current local changes were not pushed.
+
+## R1 T6/G5 — INC-C3-27 and last-known verification baseline — 2026-09-30
+
+R1 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. The architect decision in
+[INC-C3-27](INC-C3-27.md) is pending; no production edits are authorized for
+the nested-Dynamic/type-form question before that ruling. The incident
+attributes the direct `RangeIterator::toList` Unknown result to its body
+starting with `List<Dynamic>.new()`, which resolves as
+`Dynamic(ExplicitEscape)` before a Known applied List value or constructor
+selection exists. The mutable binding, append, normal return, and canonical
+inferred result consequently remain Unknown/absent. This is an observed
+producer path, not a settled language rule or an established result-publication
+defect.
+
+The last recorded focused baseline is:
+
+- `range_iterator_take_infers_and_publishes_specialized_constructor_result` —
+  1/1 PASS.
+- `natural_range_iter_and_take_stages_are_known` — 1/1 PASS for Exact
+  `Range -> Iterable::iter`, inherent `RangeIterator::take`, and Known
+  `TakeIterator<RangeIterator>`. It does not assert terminal `.toList`.
+- The temporary direct `range_iterator_to_list_publication_probe` and
+  `nested_dynamic_generic_result_classification_probe` each selected and
+  passed 1/1 as diagnostic probes only. They observed Dynamic propagation,
+  were removed, and do not constitute T6-A acceptance. The exact invocation
+  for the nested-generic probe was not retained.
+- `known_list_iterator_source_receiver_gets_guarded_iterable_to_list_evidence`
+  and `ordinary_trait_lowering_preserves_exact_and_derived_dispatch_evidence`
+  each selected 1 test but failed at the global semantic-error precondition on
+  the recorded 23 Universe diagnostics (20 `ImplConformanceIncomplete`, 3
+  `type.generic.underconstrained`). Their focused Derived/lowering assertions
+  were not reached; T6-B is blocked, not passed.
+
+The `TakeIterator<RangeIterator>` terminal `.toList` is separately unavailable
+because the existing `TakeIterator` Iterator conformance is incomplete at
+`Universe::collections.iterator_laws`, impl local 20. Do not repair
+conformance, weaken the global test precondition, add Dynamic defaults, or
+special-case `RangeIterator` while INC-C3-27 is pending. No corpus or workspace
+gate was run for this incident.
+
+The later 2026-09-30 adapter/`toMap` verification is a distinct baseline,
+already detailed in checkpoint §25: the semantic adapter fixture passed 1/1;
+the core four-entry `toMap` selector failed before its body on 20
+`ImplConformanceIncomplete` diagnostics, with the same failure class and count
+on clean parent `01e4db77`. That runtime gate is `BASELINE_BLOCKED`, not a
+pass, and is not causal evidence for INC-C3-27. Overall P4/C3 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.

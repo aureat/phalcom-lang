@@ -13,7 +13,7 @@ requires:
   - LANG007.C2
 prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
 prepared: 2026-09-22
-active_plan: LANG007.C3.P4.R1
+active_plan: LANG007.C3.P5
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted beyond active plan
 ---
@@ -30,10 +30,16 @@ checkpoint: LANG007.C3
 status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
-active_plan: LANG007.C3.P4.R1
+active_plan: LANG007.C3.P5
 latest_completed_plan: LANG007.C3.P3.R1
 next_plan: none accepted beyond active plan
 next_action: >
+  P5 is ACTIVE under adopted P5 rulings P5-A..P5-J. Tasks T1–T6 are completed
+  and verified (structural AST/types, subtyping relations, Dynamic generic slots).
+  Tasks T7–T8 resolved inferred return witness specialization and eliminated 100%
+  of Universe bootstrap diagnostics (all 20 ImplConformanceIncomplete and 3
+  GenericInferenceUnderconstrained diagnostics resolved). The next action is closing
+  T8/T9 iteration suite passes and proceeding to T10 (metadata/incremental parity).
   T12.7 is IMPLEMENTED / FOCUSED_TESTED across commits `a66b8906`,
   `a9e584b7`, and `8727d5df`; its source-index, navigation, completion, and
   syntax-token selectors each passed 1/1. T12.8 normative spec convergence is
@@ -426,8 +432,15 @@ next_action: >
   Universe/core verification is blocked before the test body by bootstrap
   conformance diagnostics confirmed at parent `01e4db77`; mark that runtime
   gate BASELINE_BLOCKED, not pass. Do not promote P4/C3 or treat the
-  source/runtime changes as end-to-end verified.
-blocker: INC-C3-20 natural iterator-chain integration remains blocked under Outcome B; no T13 return-inference expansion is authorized.
+  source/runtime changes as end-to-end verified. Latest R1/T6 status is
+  recorded in §26 and INC-C3-27: direct `RangeIterator::take` and the natural
+  `.iter`/`.take` stages have focused Known-result evidence; `toList` remains
+  unresolved at `List<Dynamic>` type-form formation, and its diagnostic probe
+  is not acceptance evidence. The two T6-B selectors each stop before their
+  assertions at the 23 recorded Universe bootstrap diagnostics. Await the
+  INC-C3-27 architect ruling before production edits; keep T6/G5 and P4/C3
+  `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+blocker: INC-C3-27 architect ruling is pending for nested Dynamic type-form semantics and the T6-A `RangeIterator::toList` disposition; T6-B remains blocked before focused assertions by the recorded 23 Universe diagnostics. No production change is authorized before the ruling.
 ```
 
 This checkpoint record is the single durable state authority for C3 once implementation begins.
@@ -3831,3 +3844,48 @@ the four-entry `toMap` runtime behavior have end-to-end evidence from this
 slice. No Universe conformance rule, `TypeStore::union` behavior, or fallback
 typing was changed. C3/P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED; the
 audit's structural-subtyping/spec conflict and broader gates remain open.
+
+## 26. P4.R1 T6/G5 incident and last-known verification baseline — 2026-09-30
+
+INC-C3-27 records the unresolved `RangeIterator::toList` result path and the
+separate T6-B bootstrap blocker. The direct body diagnostic observed
+`List<Dynamic>.new()` as `Dynamic(ExplicitEscape)` with no selected constructor;
+the mutable binding, append, normal return, and canonical inferred result
+remain Unknown/absent. A temporary nested-generic diagnostic likewise
+observed a dependent `Box<T>` result as `Dynamic(ExplicitEscape)`. Both
+diagnostic probes were removed and neither establishes implementation
+acceptance. The natural-chain selector passes for Exact `Range ->
+Iterable::iter`, inherent `RangeIterator::take`, and Known
+`TakeIterator<RangeIterator>`; it does not assert terminal `.toList`.
+
+Recorded focused tests for this slice:
+
+- `range_iterator_take_infers_and_publishes_specialized_constructor_result` —
+  1/1 PASS.
+- `natural_range_iter_and_take_stages_are_known` — 1/1 PASS; only `.iter` and
+  `.take` stages are asserted.
+- Temporary `range_iterator_to_list_publication_probe` — 1/1 diagnostic
+  selector; observed Dynamic/Unknown propagation, not a pass for T6-A.
+- Temporary
+  `nested_dynamic_generic_result_classification_probe` — 1/1 diagnostic
+  selector; the exact Cargo invocation was not retained. The probe was
+  removed.
+- `known_list_iterator_source_receiver_gets_guarded_iterable_to_list_evidence`
+  and `ordinary_trait_lowering_preserves_exact_and_derived_dispatch_evidence`
+  each selected 1 test and stopped at the global semantic-error precondition
+  on 23 Universe diagnostics (20 `ImplConformanceIncomplete`, 3
+  `type.generic.underconstrained`). They do not verify their Derived/lowering
+  assertions and are not T6-B passes.
+
+No production changes to Dynamic formation, callable-result publication,
+conformance, dispatch, or `TypeStore::union` were made for INC-C3-27. Keep its
+architectural question pending; do not add a Dynamic default, result
+annotation, method special case, or bypass the T6-B precondition. The later
+2026-09-30 iterator-adapter/`toMap` baseline is a separate issue already
+recorded in §25: the semantic adapter fixture passed 1/1, while the core
+`iterable_to_map_preserves_all_distinct_entries` selector stopped before its
+body on the same 20 `ImplConformanceIncomplete` diagnostics as clean parent
+`01e4db77`. It is `BASELINE_BLOCKED` for end-to-end verification, not a pass,
+and is not causal evidence for INC-C3-27. No corpus or workspace gate was run
+for this incident. P4/R1/G5 and C3 remain `IN_PROGRESS / PARTIAL /
+UNVERIFIED`.
