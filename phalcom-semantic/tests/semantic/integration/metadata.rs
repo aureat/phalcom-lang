@@ -1346,3 +1346,170 @@ fn p3_lambda_mode_only_changes_structural_and_interface_fingerprints() {
 
     assert_ne!(b1.types[id1.0 as usize].structural_fingerprint, b2.types[id2.0 as usize].structural_fingerprint);
 }
+
+#[test]
+fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainders() {
+    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail, StructuralMemberPresence};
+    use phalcom_semantic::types::store::{AnonymousTupleRemainder, TupleTypeElement};
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::type_node::{
+        AnonymousRecordRemainderRef, AnonymousTupleRemainderRef, StructuralMemberPresenceRef, TypeNode,
+    };
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal(dummy_decl("Int"));
+    let str_ty = store.nominal(dummy_decl("String"));
+
+    // 1. Open tuple with optional element and typed remainder: (Int, String?, ...Int)
+    let open_tuple_ty = store.open_tuple(
+        Box::new([
+            TupleTypeElement {
+                label: None,
+                ty: int_ty,
+                presence: StructuralMemberPresence::Required,
+            },
+            TupleTypeElement {
+                label: Some("opt".into()),
+                ty: str_ty,
+                presence: StructuralMemberPresence::Optional,
+            },
+        ]),
+        AnonymousTupleRemainder::Typed(int_ty),
+        AnonymousTupleRemainder::None,
+    );
+
+    // 2. Anonymous record with unconstrained remainder: { a: Int, b?: String, **... }
+    let row_id = store
+        .record_row_checked(
+            vec![
+                RecordRowField {
+                    name: "a".into(),
+                    ty: int_ty,
+                    presence: StructuralMemberPresence::Required,
+                },
+                RecordRowField {
+                    name: "b".into(),
+                    ty: str_ty,
+                    presence: StructuralMemberPresence::Optional,
+                },
+            ],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
+        )
+        .unwrap();
+    let anon_record_ty = store.intern_with_kind(
+        phalcom_semantic::types::store::TypeData::Record(row_id),
+        phalcom_semantic::types::id::KindId::TYPE,
+    );
+
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let tuple_node_id = exporter.export_type_form(open_tuple_ty).unwrap();
+    let record_node_id = exporter.export_type_form(anon_record_ty).unwrap();
+    let bundle = exporter.build_bundle(&[]).unwrap();
+
+    assert_eq!(bundle.header.schema_version, 10);
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+
+    let json = encode_metadata_json(&bundle).unwrap();
+    let decoded = decode_metadata_json(&json, &ValidationLimits::default()).unwrap();
+
+    let decoded_tuple = &decoded.types[tuple_node_id.0 as usize].form;
+    let TypeNode::OpenTuple(open_t) = decoded_tuple else {
+        panic!("Expected OpenTuple, found {:?}", decoded_tuple);
+    };
+    assert_eq!(open_t.elements.len(), 2);
+    assert_eq!(open_t.elements[0].presence, StructuralMemberPresenceRef::Required);
+    assert_eq!(open_t.elements[1].presence, StructuralMemberPresenceRef::Optional);
+    assert_eq!(open_t.elements[1].label.as_deref(), Some("opt"));
+    assert!(matches!(open_t.positional_remainder, AnonymousTupleRemainderRef::Typed(_)));
+    assert_eq!(open_t.labeled_remainder, AnonymousTupleRemainderRef::None);
+
+    let decoded_record = &decoded.types[record_node_id.0 as usize].form;
+    let TypeNode::AnonymousRecord(anon_r) = decoded_record else {
+        panic!("Expected AnonymousRecord, found {:?}", decoded_record);
+    };
+    assert_eq!(anon_r.fields.len(), 2);
+    assert_eq!(anon_r.fields[0].presence, StructuralMemberPresenceRef::Required);
+    assert_eq!(anon_r.fields[1].presence, StructuralMemberPresenceRef::Optional);
+    assert_eq!(anon_r.remainder, AnonymousRecordRemainderRef::Unconstrained);
+}
+
+#[test]
+fn structural_member_presence_and_remainder_affect_fingerprints() {
+    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail, StructuralMemberPresence};
+    use phalcom_semantic::types::store::{AnonymousTupleRemainder, TupleTypeElement};
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal(dummy_decl("Int"));
+
+    // Tuple Required vs Optional
+    let tuple_req = store.open_tuple(
+        Box::new([TupleTypeElement {
+            label: None,
+            ty: int_ty,
+            presence: StructuralMemberPresence::Required,
+        }]),
+        AnonymousTupleRemainder::None,
+        AnonymousTupleRemainder::None,
+    );
+    let tuple_opt = store.open_tuple(
+        Box::new([TupleTypeElement {
+            label: None,
+            ty: int_ty,
+            presence: StructuralMemberPresence::Optional,
+        }]),
+        AnonymousTupleRemainder::None,
+        AnonymousTupleRemainder::None,
+    );
+
+    let mut exp1 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let id_req = exp1.export_type_form(tuple_req).unwrap();
+    let id_opt = exp1.export_type_form(tuple_opt).unwrap();
+    let b1 = exp1.build_bundle(&[]).unwrap();
+
+    assert_ne!(
+        b1.types[id_req.0 as usize].structural_fingerprint,
+        b1.types[id_opt.0 as usize].structural_fingerprint
+    );
+
+    // Record Closed vs Anonymous Remainder
+    let row_closed = store
+        .record_row_checked(
+            vec![RecordRowField {
+                name: "x".into(),
+                ty: int_ty,
+                presence: StructuralMemberPresence::Required,
+            }],
+            RecordRowTail::Closed,
+        )
+        .unwrap();
+    let row_anon = store
+        .record_row_checked(
+            vec![RecordRowField {
+                name: "x".into(),
+                ty: int_ty,
+                presence: StructuralMemberPresence::Required,
+            }],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
+        )
+        .unwrap();
+
+    let rec_closed = store.intern_with_kind(
+        phalcom_semantic::types::store::TypeData::Record(row_closed),
+        phalcom_semantic::types::id::KindId::TYPE,
+    );
+    let rec_anon = store.intern_with_kind(
+        phalcom_semantic::types::store::TypeData::Record(row_anon),
+        phalcom_semantic::types::id::KindId::TYPE,
+    );
+
+    let mut exp2 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let id_closed = exp2.export_type_form(rec_closed).unwrap();
+    let id_anon = exp2.export_type_form(rec_anon).unwrap();
+    let b2 = exp2.build_bundle(&[]).unwrap();
+
+    assert_ne!(
+        b2.types[id_closed.0 as usize].structural_fingerprint,
+        b2.types[id_anon.0 as usize].structural_fingerprint
+    );
+}
+

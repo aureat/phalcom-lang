@@ -334,6 +334,43 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
+                TypeNode::OpenTuple(open_tuple) => {
+                    let mut parts = open_tuple
+                        .elements
+                        .iter()
+                        .map(|element| {
+                            let mut s = String::new();
+                            if let Some(label) = &element.label {
+                                s.push_str(label);
+                                s.push_str(": ");
+                            }
+                            s.push_str(&display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: element.ty }, depth + 1));
+                            if matches!(element.presence, phalcom_type_meta::type_node::StructuralMemberPresenceRef::Optional) {
+                                s.push('?');
+                            }
+                            s
+                        })
+                        .collect::<Vec<_>>();
+                    match &open_tuple.positional_remainder {
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::None => {}
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Unconstrained => {
+                            parts.push("...".to_string());
+                        }
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Typed(ty) => {
+                            parts.push(format!("...{}", display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)));
+                        }
+                    }
+                    match &open_tuple.labeled_remainder {
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::None => {}
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Unconstrained => {
+                            parts.push("**...".to_string());
+                        }
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Typed(ty) => {
+                            parts.push(format!("**...{}", display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)));
+                        }
+                    }
+                    format!("({})", parts.join(", "))
+                }
                 TypeNode::Record(fields) => format!(
                     "{{{}}}",
                     fields
@@ -346,6 +383,30 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
+                TypeNode::AnonymousRecord(anon_rec) => {
+                    let mut parts = anon_rec
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            let opt = if matches!(field.presence, phalcom_type_meta::type_node::StructuralMemberPresenceRef::Optional) { "?" } else { "" };
+                            format!(
+                                "{}{}: {}",
+                                field.name,
+                                opt,
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    match &anon_rec.remainder {
+                        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Unconstrained => {
+                            parts.push("**...".to_string());
+                        }
+                        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed(ty) => {
+                            parts.push(format!("**...{}", display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)));
+                        }
+                    }
+                    format!("{{{}}}", parts.join(", "))
+                }
                 TypeNode::OpenRecord(open_rec) => format!(
                     "{{{}, **R{}}}",
                     open_rec

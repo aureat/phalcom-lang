@@ -15,7 +15,7 @@ use crate::types::parameter::{
     GenericConstraint, GenericParameterMode, GenericSignature, GenericSignaturePublicationError, SelfRole, TypeParameterOwner, TypeTerm,
 };
 use crate::types::rigid::LocalType;
-use crate::types::store::{StaticArgument, StaticDomainData, TypeData, TypeStore};
+use crate::types::store::{AnonymousTupleRemainder, StaticArgument, StaticDomainData, StructuralMemberPresence, TypeData, TypeStore};
 use crate::types::type_lambda::ScopedTypeData;
 use crate::types::variance::Variance;
 use phalcom_type_meta::bundle::{RuntimeTypeFormKey, RuntimeTypeFormRoot, SemanticMetadataBundle};
@@ -37,12 +37,16 @@ use phalcom_type_meta::identity::SourceSpanRef;
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef, StableStaticDomainDeclarationRef};
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId, StaticDomainRef};
 use phalcom_type_meta::scoped_type::{
-    ScopedCallableParamRef, ScopedCallableTypeRef, ScopedOpenRecordTypeRef, ScopedRecordFieldRef, ScopedRecordTailRef, ScopedTupleElementRef, ScopedTypeNode,
-    ScopedTypeNodeEntry, ScopedTypeNodeId, TypeLambdaRef,
+    ScopedAnonymousRecordRemainderRef, ScopedAnonymousTupleRemainderRef,
+    ScopedCallableParamRef, ScopedCallableTypeRef, ScopedOpenRecordTypeRef,
+    ScopedRecordFieldRef, ScopedRecordRowTailRef, ScopedRecordRowTypeRef, ScopedRecordTailRef,
+    ScopedTupleElementRef, ScopedTypeNode, ScopedTypeNodeEntry, ScopedTypeNodeId, TypeLambdaRef,
 };
 use phalcom_type_meta::type_node::{
-    CallableParamRef, CallableTypeRef, OpenRecordTypeRef, RecordFieldRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef,
-    TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
+    AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef,
+    CallableParamRef, CallableTypeRef, OpenRecordTypeRef, OpenTupleTypeRef, RecordFieldRef,
+    RecordRowRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef,
+    StructuralMemberPresenceRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -556,21 +560,39 @@ impl<'a> MetadataExporter<'a> {
                 let row = self.store.record_row(row_id);
                 let mut fields = Vec::with_capacity(row.fields.len());
                 for field in row.fields.iter() {
+                    let presence = match field.presence {
+                        crate::types::store::StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
+                        crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
+                    };
                     fields.push(RecordFieldRef {
                         name: field.name.clone(),
                         ty: self.export_type_form(field.ty)?,
+                        presence,
                     });
                 }
-                let tail = match row.tail {
-                    crate::types::row::RecordRowTail::Closed => None,
-                    crate::types::row::RecordRowTail::Parameter(parameter) => Some(self.export_type_parameter(parameter)?),
-                    crate::types::row::RecordRowTail::Projection(_) | crate::types::row::RecordRowTail::Anonymous(_) => {
+                let (tail, remainder) = match row.tail {
+                    crate::types::row::RecordRowTail::Closed => (None, None),
+                    crate::types::row::RecordRowTail::Parameter(parameter) => (Some(self.export_type_parameter(parameter)?), None),
+                    crate::types::row::RecordRowTail::Anonymous(rem) => {
+                        let rem_ref = match rem {
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained => {
+                                AnonymousRecordRemainderRef::Unconstrained
+                            }
+                            crate::types::row::AnonymousRecordRemainder::Typed(ty) => {
+                                let id = self.export_type_form(ty)?;
+                                AnonymousRecordRemainderRef::Typed(id)
+                            }
+                        };
+                        (None, Some(rem_ref))
+                    }
+                    crate::types::row::RecordRowTail::Projection(_) => {
                         return Err(MetadataExportError::NonExportableForm(failure_context))
                     }
                 };
-                Ok(StaticArgumentRef::RecordRow(phalcom_type_meta::type_node::RecordRowRef {
+                Ok(StaticArgumentRef::RecordRow(RecordRowRef {
                     fields: fields.into_boxed_slice(),
                     tail,
+                    remainder,
                 }))
             }
             StaticArgument::DynamicType => Ok(StaticArgumentRef::DynamicType),
@@ -588,11 +610,27 @@ impl<'a> MetadataExporter<'a> {
                 builder.write_u32(row.fields.len() as u32);
                 for field in row.fields.iter() {
                     builder.write_str(&field.name);
+                    builder.write_u8(match field.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
                     builder.write_fingerprint(self.types[field.ty.0 as usize].structural_fingerprint);
                 }
                 if let Some(tail) = &row.tail {
                     builder.write_u8(1);
                     self.write_stable_parameter_fingerprint(builder, tail);
+                } else {
+                    builder.write_u8(0);
+                }
+                if let Some(rem) = &row.remainder {
+                    builder.write_u8(1);
+                    match rem {
+                        AnonymousRecordRemainderRef::Unconstrained => builder.write_u8(0),
+                        AnonymousRecordRemainderRef::Typed(ty) => {
+                            builder.write_u8(1);
+                            builder.write_fingerprint(self.types[ty.0 as usize].structural_fingerprint);
+                        }
+                    }
                 } else {
                     builder.write_u8(0);
                 }
@@ -778,6 +816,26 @@ impl<'a> MetadataExporter<'a> {
         Ok(param_ref)
     }
 
+    fn export_scoped_free_type_node(&mut self, global_id: TypeNodeId) -> ScopedTypeNodeId {
+        let scoped_node = ScopedTypeNode::Free(global_id);
+        if let Some(&id) = self.scoped_map.get(&scoped_node) {
+            return id;
+        }
+        let mut fp_b = FingerprintBuilder::new();
+        fp_b.write_u8(2);
+        fp_b.write_fingerprint(self.types[global_id.0 as usize].structural_fingerprint);
+        let structural_fingerprint = fp_b.finish();
+        let id = ScopedTypeNodeId(self.scoped_types.len() as u32);
+        let kind = self.types[global_id.0 as usize].kind;
+        self.scoped_types.push(ScopedTypeNodeEntry {
+            kind,
+            form: scoped_node.clone(),
+            structural_fingerprint,
+        });
+        self.scoped_map.insert(scoped_node, id);
+        id
+    }
+
     pub fn export_scoped_type(&mut self, scoped_id: ScopedTypeId) -> Result<ScopedTypeNodeId, MetadataExportError> {
         self.export_scoped_type_with_binders(scoped_id, &[])
     }
@@ -820,7 +878,15 @@ impl<'a> MetadataExporter<'a> {
                 let mut elems = Vec::new();
                 for el in elements.iter() {
                     let ty = self.export_scoped_type_with_binders(el.ty, binder_kinds)?;
-                    elems.push(ScopedTupleElementRef { label: el.label.clone(), ty });
+                    let presence = match el.presence {
+                        crate::types::store::StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
+                        crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
+                    };
+                    elems.push(ScopedTupleElementRef {
+                        label: el.label.clone(),
+                        ty,
+                        presence,
+                    });
                 }
                 ScopedTypeNode::Tuple(elems.into_boxed_slice())
             }
@@ -828,7 +894,15 @@ impl<'a> MetadataExporter<'a> {
                 let mut f_nodes = Vec::new();
                 for f in fields.iter() {
                     let ty = self.export_scoped_type_with_binders(f.ty, binder_kinds)?;
-                    f_nodes.push(ScopedRecordFieldRef { name: f.name.clone(), ty });
+                    let presence = match f.presence {
+                        crate::types::store::StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
+                        crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
+                    };
+                    f_nodes.push(ScopedRecordFieldRef {
+                        name: f.name.clone(),
+                        ty,
+                        presence,
+                    });
                 }
                 ScopedTypeNode::Record(f_nodes.into_boxed_slice())
             }
@@ -837,9 +911,15 @@ impl<'a> MetadataExporter<'a> {
                     .fields
                     .iter()
                     .map(|field| {
+                        let ty = self.export_scoped_type_with_binders(field.ty, binder_kinds)?;
+                        let presence = match field.presence {
+                            crate::types::store::StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
+                            crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
+                        };
                         Ok(ScopedRecordFieldRef {
                             name: field.name.clone(),
-                            ty: self.export_scoped_type_with_binders(field.ty, binder_kinds)?,
+                            ty,
+                            presence,
                         })
                     })
                     .collect::<Result<Vec<_>, MetadataExportError>>()?;
@@ -848,8 +928,17 @@ impl<'a> MetadataExporter<'a> {
                     crate::types::type_lambda::ScopedRecordTail::FreeParameter(parameter) => {
                         ScopedRecordTailRef::FreeParameter(self.export_type_parameter(parameter)?)
                     }
-                    crate::types::type_lambda::ScopedRecordTail::Anonymous(_) => {
-                        return Err(MetadataExportError::NonExportableForm(crate::types::id::TypeId::DUMMY))
+                    crate::types::type_lambda::ScopedRecordTail::Anonymous(remainder) => {
+                        let rem = match remainder {
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained => {
+                                ScopedAnonymousRecordRemainderRef::Unconstrained
+                            }
+                            crate::types::row::AnonymousRecordRemainder::Typed(ty) => {
+                                let node_id = self.export_type_form(ty)?;
+                                ScopedAnonymousRecordRemainderRef::Typed(self.export_scoped_free_type_node(node_id))
+                            }
+                        };
+                        ScopedRecordTailRef::Anonymous(rem)
                     }
                 };
                 ScopedTypeNode::OpenRecord(ScopedOpenRecordTypeRef {
@@ -862,31 +951,46 @@ impl<'a> MetadataExporter<'a> {
                     .fields
                     .iter()
                     .map(|field| {
+                        let ty = self.export_scoped_type_with_binders(field.ty, binder_kinds)?;
+                        let presence = match field.presence {
+                            crate::types::store::StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
+                            crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
+                        };
                         Ok(ScopedRecordFieldRef {
                             name: field.name.clone(),
-                            ty: self.export_scoped_type_with_binders(field.ty, binder_kinds)?,
+                            ty,
+                            presence,
                         })
                     })
                     .collect::<Result<Vec<_>, MetadataExportError>>()?;
                 let tail = match row.tail {
                     crate::types::type_lambda::ScopedRecordRowTail::Closed => {
-                        phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Closed
+                        ScopedRecordRowTailRef::Closed
                     }
                     crate::types::type_lambda::ScopedRecordRowTail::Bound { depth, index } => {
-                        phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Bound { depth, index }
+                        ScopedRecordRowTailRef::Bound { depth, index }
                     }
                     crate::types::type_lambda::ScopedRecordRowTail::FreeParameter(parameter) => {
-                        phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::FreeParameter(self.export_type_parameter(parameter)?)
+                        ScopedRecordRowTailRef::FreeParameter(self.export_type_parameter(parameter)?)
                     }
                     crate::types::type_lambda::ScopedRecordRowTail::Projection(projection) => {
-                        phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Projection(self.export_type_form(projection)?)
+                        ScopedRecordRowTailRef::Projection(self.export_type_form(projection)?)
                     }
-                    crate::types::type_lambda::ScopedRecordRowTail::Anonymous(_) => {
-                        return Err(MetadataExportError::NonExportableForm(crate::types::id::TypeId::DUMMY))
+                    crate::types::type_lambda::ScopedRecordRowTail::Anonymous(remainder) => {
+                        let rem = match remainder {
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained => {
+                                ScopedAnonymousRecordRemainderRef::Unconstrained
+                            }
+                            crate::types::row::AnonymousRecordRemainder::Typed(ty) => {
+                                let node_id = self.export_type_form(ty)?;
+                                ScopedAnonymousRecordRemainderRef::Typed(self.export_scoped_free_type_node(node_id))
+                            }
+                        };
+                        ScopedRecordRowTailRef::Anonymous(rem)
                     }
                 };
                 computed_kind = Some(self.export_kind(KindId::RECORD_ROW)?);
-                ScopedTypeNode::RecordRow(phalcom_type_meta::scoped_type::ScopedRecordRowTypeRef {
+                ScopedTypeNode::RecordRow(ScopedRecordRowTypeRef {
                     fields: fields.into_boxed_slice(),
                     tail,
                 })
@@ -1029,6 +1133,16 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(5);
                 fp_b.write_u32(elements.len() as u32);
                 for el in elements.iter() {
+                    if let Some(label) = &el.label {
+                        fp_b.write_u8(1);
+                        fp_b.write_str(label);
+                    } else {
+                        fp_b.write_u8(0);
+                    }
+                    fp_b.write_u8(match el.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
                     fp_b.write_fingerprint(self.scoped_types[el.ty.0 as usize].structural_fingerprint);
                 }
             }
@@ -1037,6 +1151,10 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u32(fields.len() as u32);
                 for f in fields.iter() {
                     fp_b.write_str(&f.name);
+                    fp_b.write_u8(match f.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
                     fp_b.write_fingerprint(self.scoped_types[f.ty.0 as usize].structural_fingerprint);
                 }
             }
@@ -1138,6 +1256,10 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u32(open_rec.fields.len() as u32);
                 for f in open_rec.fields.iter() {
                     fp_b.write_str(&f.name);
+                    fp_b.write_u8(match f.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
                     fp_b.write_fingerprint(self.scoped_types[f.ty.0 as usize].structural_fingerprint);
                 }
                 match &open_rec.tail {
@@ -1150,6 +1272,16 @@ impl<'a> MetadataExporter<'a> {
                         fp_b.write_u8(2);
                         self.write_stable_parameter_fingerprint(&mut fp_b, p);
                     }
+                    ScopedRecordTailRef::Anonymous(rem) => {
+                        fp_b.write_u8(3);
+                        match rem {
+                            ScopedAnonymousRecordRemainderRef::Unconstrained => fp_b.write_u8(0),
+                            ScopedAnonymousRecordRemainderRef::Typed(ty) => {
+                                fp_b.write_u8(1);
+                                fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
+                            }
+                        }
+                    }
                 }
             }
             ScopedTypeNode::RecordRow(row) => {
@@ -1157,22 +1289,88 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u32(row.fields.len() as u32);
                 for field in row.fields.iter() {
                     fp_b.write_str(&field.name);
+                    fp_b.write_u8(match field.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
                     fp_b.write_fingerprint(self.scoped_types[field.ty.0 as usize].structural_fingerprint);
                 }
                 match &row.tail {
-                    phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Closed => fp_b.write_u8(0),
-                    phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Bound { depth, index } => {
+                    ScopedRecordRowTailRef::Closed => fp_b.write_u8(0),
+                    ScopedRecordRowTailRef::Bound { depth, index } => {
                         fp_b.write_u8(1);
                         fp_b.write_u32(*depth);
                         fp_b.write_u32(*index);
                     }
-                    phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::FreeParameter(parameter) => {
+                    ScopedRecordRowTailRef::FreeParameter(parameter) => {
                         fp_b.write_u8(2);
                         self.write_stable_parameter_fingerprint(&mut fp_b, parameter);
                     }
-                    phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Projection(projection) => {
+                    ScopedRecordRowTailRef::Projection(projection) => {
                         fp_b.write_u8(3);
                         fp_b.write_fingerprint(self.types[projection.0 as usize].structural_fingerprint);
+                    }
+                    ScopedRecordRowTailRef::Anonymous(rem) => {
+                        fp_b.write_u8(4);
+                        match rem {
+                            ScopedAnonymousRecordRemainderRef::Unconstrained => fp_b.write_u8(0),
+                            ScopedAnonymousRecordRemainderRef::Typed(ty) => {
+                                fp_b.write_u8(1);
+                                fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
+                            }
+                        }
+                    }
+                }
+            }
+            ScopedTypeNode::OpenTuple(open_tuple) => {
+                fp_b.write_u8(24);
+                fp_b.write_u32(open_tuple.elements.len() as u32);
+                for el in open_tuple.elements.iter() {
+                    if let Some(label) = &el.label {
+                        fp_b.write_u8(1);
+                        fp_b.write_str(label);
+                    } else {
+                        fp_b.write_u8(0);
+                    }
+                    fp_b.write_u8(match el.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
+                    fp_b.write_fingerprint(self.scoped_types[el.ty.0 as usize].structural_fingerprint);
+                }
+                match &open_tuple.positional_remainder {
+                    ScopedAnonymousTupleRemainderRef::None => fp_b.write_u8(0),
+                    ScopedAnonymousTupleRemainderRef::Unconstrained => fp_b.write_u8(1),
+                    ScopedAnonymousTupleRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(2);
+                        fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
+                    }
+                }
+                match &open_tuple.labeled_remainder {
+                    ScopedAnonymousTupleRemainderRef::None => fp_b.write_u8(0),
+                    ScopedAnonymousTupleRemainderRef::Unconstrained => fp_b.write_u8(1),
+                    ScopedAnonymousTupleRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(2);
+                        fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
+                    }
+                }
+            }
+            ScopedTypeNode::AnonymousRecord(anon_rec) => {
+                fp_b.write_u8(25);
+                fp_b.write_u32(anon_rec.fields.len() as u32);
+                for f in anon_rec.fields.iter() {
+                    fp_b.write_str(&f.name);
+                    fp_b.write_u8(match f.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
+                    fp_b.write_fingerprint(self.scoped_types[f.ty.0 as usize].structural_fingerprint);
+                }
+                match &anon_rec.remainder {
+                    ScopedAnonymousRecordRemainderRef::Unconstrained => fp_b.write_u8(0),
+                    ScopedAnonymousRecordRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(1);
+                        fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
                     }
                 }
             }
@@ -1248,25 +1446,57 @@ impl<'a> MetadataExporter<'a> {
                 }
                 TypeNode::Union(member_ids.into_boxed_slice())
             }
-            TypeData::Tuple(ref elements) => {
+            TypeData::Tuple(ref tuple_ty) => {
                 let mut elem_refs = Vec::new();
-                for el in elements.elements.iter() {
+                let mut has_optional = false;
+                for el in tuple_ty.elements.iter() {
                     let ty_id = self.export_type_form(el.ty)?;
+                    let presence = match el.presence {
+                        StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
+                        StructuralMemberPresence::Optional => {
+                            has_optional = true;
+                            StructuralMemberPresenceRef::Optional
+                        }
+                    };
                     elem_refs.push(TupleElementRef {
                         label: el.label.clone(),
                         ty: ty_id,
+                        presence,
                     });
                 }
-                TypeNode::Tuple(elem_refs.into_boxed_slice())
+                let pos_rem = match tuple_ty.positional_remainder {
+                    AnonymousTupleRemainder::None => AnonymousTupleRemainderRef::None,
+                    AnonymousTupleRemainder::Unconstrained => AnonymousTupleRemainderRef::Unconstrained,
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainderRef::Typed(self.export_type_form(t)?),
+                };
+                let lab_rem = match tuple_ty.labeled_remainder {
+                    AnonymousTupleRemainder::None => AnonymousTupleRemainderRef::None,
+                    AnonymousTupleRemainder::Unconstrained => AnonymousTupleRemainderRef::Unconstrained,
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainderRef::Typed(self.export_type_form(t)?),
+                };
+                if !has_optional && pos_rem == AnonymousTupleRemainderRef::None && lab_rem == AnonymousTupleRemainderRef::None {
+                    TypeNode::Tuple(elem_refs.into_boxed_slice())
+                } else {
+                    TypeNode::OpenTuple(OpenTupleTypeRef {
+                        elements: elem_refs.into_boxed_slice(),
+                        positional_remainder: pos_rem,
+                        labeled_remainder: lab_rem,
+                    })
+                }
             }
             TypeData::Record(row_id) => {
                 let row = self.store.record_row(row_id).clone();
                 let mut field_refs = Vec::new();
                 for f in row.fields.iter() {
                     let ty_id = self.export_type_form(f.ty)?;
+                    let presence = match f.presence {
+                        StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
+                        StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
+                    };
                     field_refs.push(RecordFieldRef {
                         name: f.name.clone(),
                         ty: ty_id,
+                        presence,
                     });
                 }
                 match row.tail {
@@ -1275,7 +1505,21 @@ impl<'a> MetadataExporter<'a> {
                         fields: field_refs.into_boxed_slice(),
                         tail: self.export_type_parameter(parameter)?,
                     }),
-                    crate::types::row::RecordRowTail::Projection(_) | crate::types::row::RecordRowTail::Anonymous(_) => {
+                    crate::types::row::RecordRowTail::Anonymous(remainder) => {
+                        let rem_ref = match remainder {
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained => {
+                                AnonymousRecordRemainderRef::Unconstrained
+                            }
+                            crate::types::row::AnonymousRecordRemainder::Typed(t) => {
+                                AnonymousRecordRemainderRef::Typed(self.export_type_form(t)?)
+                            }
+                        };
+                        TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
+                            fields: field_refs.into_boxed_slice(),
+                            remainder: rem_ref,
+                        })
+                    }
+                    crate::types::row::RecordRowTail::Projection(_) => {
                         return Err(MetadataExportError::NonExportableForm(ty))
                     }
                 }
@@ -1511,6 +1755,16 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(6);
                 fp_b.write_u32(elements.len() as u32);
                 for el in elements.iter() {
+                    if let Some(label) = &el.label {
+                        fp_b.write_u8(1);
+                        fp_b.write_str(label);
+                    } else {
+                        fp_b.write_u8(0);
+                    }
+                    fp_b.write_u8(match el.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
                     fp_b.write_fingerprint(self.types[el.ty.0 as usize].structural_fingerprint);
                 }
             }
@@ -1519,6 +1773,10 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u32(fields.len() as u32);
                 for f in fields.iter() {
                     fp_b.write_str(&f.name);
+                    fp_b.write_u8(match f.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
                     fp_b.write_fingerprint(self.types[f.ty.0 as usize].structural_fingerprint);
                 }
             }
@@ -1527,9 +1785,65 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u32(open_rec.fields.len() as u32);
                 for f in open_rec.fields.iter() {
                     fp_b.write_str(&f.name);
+                    fp_b.write_u8(match f.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
                     fp_b.write_fingerprint(self.types[f.ty.0 as usize].structural_fingerprint);
                 }
                 self.write_stable_parameter_fingerprint(&mut fp_b, &open_rec.tail);
+            }
+            TypeNode::OpenTuple(open_tuple) => {
+                fp_b.write_u8(24);
+                fp_b.write_u32(open_tuple.elements.len() as u32);
+                for el in open_tuple.elements.iter() {
+                    if let Some(label) = &el.label {
+                        fp_b.write_u8(1);
+                        fp_b.write_str(label);
+                    } else {
+                        fp_b.write_u8(0);
+                    }
+                    fp_b.write_u8(match el.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
+                    fp_b.write_fingerprint(self.types[el.ty.0 as usize].structural_fingerprint);
+                }
+                match &open_tuple.positional_remainder {
+                    AnonymousTupleRemainderRef::None => fp_b.write_u8(0),
+                    AnonymousTupleRemainderRef::Unconstrained => fp_b.write_u8(1),
+                    AnonymousTupleRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(2);
+                        fp_b.write_fingerprint(self.types[ty.0 as usize].structural_fingerprint);
+                    }
+                }
+                match &open_tuple.labeled_remainder {
+                    AnonymousTupleRemainderRef::None => fp_b.write_u8(0),
+                    AnonymousTupleRemainderRef::Unconstrained => fp_b.write_u8(1),
+                    AnonymousTupleRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(2);
+                        fp_b.write_fingerprint(self.types[ty.0 as usize].structural_fingerprint);
+                    }
+                }
+            }
+            TypeNode::AnonymousRecord(anon_rec) => {
+                fp_b.write_u8(25);
+                fp_b.write_u32(anon_rec.fields.len() as u32);
+                for f in anon_rec.fields.iter() {
+                    fp_b.write_str(&f.name);
+                    fp_b.write_u8(match f.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
+                    fp_b.write_fingerprint(self.types[f.ty.0 as usize].structural_fingerprint);
+                }
+                match &anon_rec.remainder {
+                    AnonymousRecordRemainderRef::Unconstrained => fp_b.write_u8(0),
+                    AnonymousRecordRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(1);
+                        fp_b.write_fingerprint(self.types[ty.0 as usize].structural_fingerprint);
+                    }
+                }
             }
             TypeNode::Callable(call) => {
                 fp_b.write_u8(8);

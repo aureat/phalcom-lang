@@ -5,7 +5,7 @@ use super::family::{FamilyMemberType, FamilyMemberTypeKind, FamilyType, FamilyTy
 use super::id::{AlgebraicStaticConstructorId, KindId, ProperTypeId, RecordRowId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
 use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
-use super::row::{AnonymousRecordRemainder, RecordRowData, RecordRowField, RecordRowTail, StructuralMemberPresence};
+pub use super::row::{AnonymousRecordRemainder, RecordRowData, RecordRowField, RecordRowTail, StructuralMemberPresence};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
 use super::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberDeclarationId, TypeMemberSelector};
 use super::variance::Variance;

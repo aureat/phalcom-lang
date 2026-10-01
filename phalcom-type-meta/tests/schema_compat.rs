@@ -14,7 +14,8 @@ use phalcom_type_meta::scoped_type::{
     ScopedTypeNodeId,
 };
 use phalcom_type_meta::type_node::{
-    OpenRecordTypeRef, RecordFieldRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, TypeMemberProjectionRef, TypeMemberSelectorRef, TypeNode,
+    OpenRecordTypeRef, RecordFieldRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef,
+    StructuralMemberPresenceRef, TypeMemberProjectionRef, TypeMemberSelectorRef, TypeNode,
     TypeNodeEntry, TypeNodeId,
 };
 use phalcom_type_meta::validate::{MetadataValidationError, ValidationLimits, validate_metadata_bundle};
@@ -136,6 +137,7 @@ fn scoped_record_row_bundle(version: u32) -> SemanticMetadataBundle {
                 fields: Box::new([ScopedRecordFieldRef {
                     name: "payload".into(),
                     ty: ScopedTypeNodeId(0),
+                    presence: StructuralMemberPresenceRef::Required,
                 }]),
                 tail: ScopedRecordRowTailRef::Closed,
             }),
@@ -264,10 +266,12 @@ fn schema_v9_scoped_record_rows_round_trip_all_tail_forms_and_v8_remains_compati
         ScopedRecordFieldRef {
             name: "payload".into(),
             ty: ScopedTypeNodeId(0),
+            presence: StructuralMemberPresenceRef::Required,
         },
         ScopedRecordFieldRef {
             name: "payload".into(),
             ty: ScopedTypeNodeId(0),
+            presence: StructuralMemberPresenceRef::Required,
         },
     ]);
     assert!(matches!(
@@ -658,13 +662,13 @@ fn test_unsupported_schema_versions_rejected() {
         }
     );
 
-    // Version 10 (future)
-    let b10 = sample_bundle(10, false);
-    let err10 = validate_metadata_bundle(&b10, &limits).unwrap_err();
+    // Version 11 (future)
+    let b11 = sample_bundle(11, false);
+    let err11 = validate_metadata_bundle(&b11, &limits).unwrap_err();
     assert_eq!(
-        err10,
+        err11,
         MetadataValidationError::UnsupportedSchemaVersion {
-            found: 10,
+            found: 11,
             minimum: MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION,
             maximum: TYPE_METADATA_SCHEMA_VERSION,
         }
@@ -768,10 +772,12 @@ fn test_schema_v2_open_record_validation() {
                     RecordFieldRef {
                         name: "a".into(),
                         ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
                         name: "b".into(),
                         ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
                     },
                 ]),
                 tail: param_ref.clone(),
@@ -797,10 +803,12 @@ fn test_schema_v2_open_record_validation() {
                     RecordFieldRef {
                         name: "z".into(),
                         ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
                         name: "a".into(),
                         ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
                     },
                 ]),
                 tail: param_ref.clone(),
@@ -828,10 +836,12 @@ fn test_schema_v2_open_record_validation() {
                     RecordFieldRef {
                         name: "a".into(),
                         ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
                         name: "a".into(),
                         ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
                     },
                 ]),
                 tail: param_ref.clone(),
@@ -1158,3 +1168,133 @@ fn p3_schema_v4_rejects_malformed_lambda_modes() {
     });
     assert!(validate_metadata_bundle(&bundle, &limits).is_err());
 }
+
+#[test]
+fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
+    use phalcom_type_meta::type_node::{
+        AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef,
+        OpenTupleTypeRef, TupleElementRef,
+    };
+    use phalcom_type_meta::scoped_type::{
+        ScopedAnonymousRecordRemainderRef, ScopedAnonymousRecordTypeRef,
+        ScopedAnonymousTupleRemainderRef, ScopedOpenTupleTypeRef, ScopedTupleElementRef,
+    };
+
+    let limits = ValidationLimits::default();
+    let mut bundle = sample_bundle(10, true);
+    bundle.kinds = Box::new([
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::RecordRow,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle.types = Box::new([
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Unit,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::OpenTuple(OpenTupleTypeRef {
+                elements: Box::new([
+                    TupleElementRef {
+                        label: None,
+                        ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
+                    },
+                    TupleElementRef {
+                        label: Some("opt".into()),
+                        ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Optional,
+                    },
+                ]),
+                positional_remainder: AnonymousTupleRemainderRef::Unconstrained,
+                labeled_remainder: AnonymousTupleRemainderRef::Typed(TypeNodeId(0)),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
+                fields: Box::new([
+                    RecordFieldRef {
+                        name: "a".into(),
+                        ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
+                    },
+                    RecordFieldRef {
+                        name: "b".into(),
+                        ty: TypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Optional,
+                    },
+                ]),
+                remainder: AnonymousRecordRemainderRef::Typed(TypeNodeId(0)),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle.scoped_types = Box::new([
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::Free(TypeNodeId(0)),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::OpenTuple(ScopedOpenTupleTypeRef {
+                elements: Box::new([
+                    ScopedTupleElementRef {
+                        label: None,
+                        ty: ScopedTypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
+                    },
+                    ScopedTupleElementRef {
+                        label: Some("opt".into()),
+                        ty: ScopedTypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Optional,
+                    },
+                ]),
+                positional_remainder: ScopedAnonymousTupleRemainderRef::Unconstrained,
+                labeled_remainder: ScopedAnonymousTupleRemainderRef::Typed(ScopedTypeNodeId(0)),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::AnonymousRecord(ScopedAnonymousRecordTypeRef {
+                fields: Box::new([
+                    ScopedRecordFieldRef {
+                        name: "a".into(),
+                        ty: ScopedTypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Required,
+                    },
+                    ScopedRecordFieldRef {
+                        name: "b".into(),
+                        ty: ScopedTypeNodeId(0),
+                        presence: StructuralMemberPresenceRef::Optional,
+                    },
+                ]),
+                remainder: ScopedAnonymousRecordRemainderRef::Typed(ScopedTypeNodeId(0)),
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+
+    validate_metadata_bundle(&bundle, &limits).expect("schema v10 bundle should validate");
+
+    let encoded = encode_metadata_json(&bundle).expect("encode should succeed");
+    let decoded = decode_metadata_json(&encoded, &limits).expect("decode should succeed");
+    validate_metadata_bundle(&decoded, &limits).expect("decoded bundle should validate");
+    assert_eq!(bundle, decoded);
+
+    // Schema v9 rejects v10 structural nodes
+    let mut v9_bundle = bundle.clone();
+    v9_bundle.header.schema_version = 9;
+    assert!(validate_metadata_bundle(&v9_bundle, &limits).is_err());
+}
+

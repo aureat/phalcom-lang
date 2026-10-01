@@ -6,15 +6,52 @@ use crate::type_node::TypeNodeId;
 use serde::{Deserialize, Serialize};
 
 use crate::generic::{GenericParameterModeRef, StableTypeParameterRef};
+use crate::type_node::StructuralMemberPresenceRef;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct ScopedTypeNodeId(pub u32);
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum ScopedAnonymousTupleRemainderRef {
+    None,
+    Unconstrained,
+    Typed(ScopedTypeNodeId),
+}
+
+impl Default for ScopedAnonymousTupleRemainderRef {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum ScopedAnonymousRecordRemainderRef {
+    Unconstrained,
+    Typed(ScopedTypeNodeId),
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct ScopedTupleElementRef {
     pub label: Option<Box<str>>,
     pub ty: ScopedTypeNodeId,
+    #[serde(default)]
+    pub presence: StructuralMemberPresenceRef,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct ScopedOpenTupleTypeRef {
+    pub elements: Box<[ScopedTupleElementRef]>,
+    #[serde(default)]
+    pub positional_remainder: ScopedAnonymousTupleRemainderRef,
+    #[serde(default)]
+    pub labeled_remainder: ScopedAnonymousTupleRemainderRef,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct ScopedAnonymousRecordTypeRef {
+    pub fields: Box<[ScopedRecordFieldRef]>,
+    pub remainder: ScopedAnonymousRecordRemainderRef,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -34,12 +71,15 @@ pub enum ScopedPackProjectionLaneRef {
 pub struct ScopedRecordFieldRef {
     pub name: Box<str>,
     pub ty: ScopedTypeNodeId,
+    #[serde(default)]
+    pub presence: StructuralMemberPresenceRef,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum ScopedRecordTailRef {
     Bound { depth: u32, index: u32 },
     FreeParameter(StableTypeParameterRef),
+    Anonymous(ScopedAnonymousRecordRemainderRef),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -55,6 +95,7 @@ pub enum ScopedRecordRowTailRef {
     Bound { depth: u32, index: u32 },
     FreeParameter(StableTypeParameterRef),
     Projection(TypeNodeId),
+    Anonymous(ScopedAnonymousRecordRemainderRef),
 }
 
 /// A heterogeneous `RecordFields` argument retained in a scoped application.
@@ -126,6 +167,8 @@ pub enum ScopedTypeNode {
         subject: ScopedTypeNodeId,
         lane: ScopedPackProjectionLaneRef,
     },
+    OpenTuple(ScopedOpenTupleTypeRef),
+    AnonymousRecord(ScopedAnonymousRecordTypeRef),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

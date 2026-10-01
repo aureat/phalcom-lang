@@ -4,8 +4,14 @@ use crate::generic::{GenericParameterModeRef, VarianceRef};
 use crate::header::{MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION, supports_type_metadata_schema};
 use crate::identity::StableStaticDomainDeclarationRef;
 use crate::kind::{KindNode, KindNodeId, StaticDomainRef};
-use crate::scoped_type::{ScopedRecordRowTailRef, ScopedRecordTailRef, ScopedTypeNode};
-use crate::type_node::{StaticArgumentRef, TypeNode};
+use crate::scoped_type::{
+    ScopedAnonymousRecordRemainderRef, ScopedAnonymousTupleRemainderRef,
+    ScopedRecordRowTailRef, ScopedRecordTailRef, ScopedTypeNode,
+};
+use crate::type_node::{
+    AnonymousRecordRemainderRef, AnonymousTupleRemainderRef, StaticArgumentRef,
+    StructuralMemberPresenceRef, TypeNode,
+};
 use std::collections::HashSet;
 use thiserror::Error;
 
@@ -397,6 +403,26 @@ fn validate_static_argument_row(
             });
         }
     }
+    if let Some(remainder) = &row.remainder {
+        if let AnonymousRecordRemainderRef::Typed(ty) = remainder {
+            let index = ty.0 as usize;
+            if index >= bundle.types.len() {
+                return Err(MetadataValidationError::InvalidTypeIndex {
+                    index: ty.0,
+                    total: bundle.types.len(),
+                });
+            }
+            if before_type_node.is_some_and(|before| ty.0 >= before) {
+                return Err(MetadataValidationError::TopologicalOrderViolation {
+                    index: before_type_node.unwrap_or_default(),
+                    target: ty.0,
+                });
+            }
+            if !matches!(bundle.kinds[bundle.types[index].kind.0 as usize].node, KindNode::Type) {
+                return Err(MetadataValidationError::Malformed("record-row remainder type must have kind Type".to_string()));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -652,7 +678,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             validate_schema_v5_feature_floor(bundle)?;
             validate_pre_v8_catalog_floor(bundle)?;
         }
-        8 | 9 => validate_schema_v5_feature_floor(bundle)?,
+        8 | 9 | 10 => validate_schema_v5_feature_floor(bundle)?,
         _ => unreachable!("version range checked above"),
     }
 
@@ -663,6 +689,37 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
     }
     if bundle.scoped_types.iter().any(|entry| matches!(entry.form, ScopedTypeNode::RecordRow(_))) && !bundle.header.features.record_rows {
         return Err(MetadataValidationError::RecordRowFeatureRequired);
+    }
+
+    if bundle.header.schema_version < 10 {
+        if bundle.types.iter().any(|entry| {
+            matches!(entry.form, TypeNode::OpenTuple(_) | TypeNode::AnonymousRecord(_))
+                || match &entry.form {
+                    TypeNode::Tuple(elements) => elements.iter().any(|el| el.presence == StructuralMemberPresenceRef::Optional),
+                    TypeNode::Record(fields) => fields.iter().any(|f| f.presence == StructuralMemberPresenceRef::Optional),
+                    TypeNode::OpenRecord(open_rec) => open_rec.fields.iter().any(|f| f.presence == StructuralMemberPresenceRef::Optional),
+                    _ => false,
+                }
+        }) || bundle.scoped_types.iter().any(|entry| {
+            matches!(entry.form, ScopedTypeNode::OpenTuple(_) | ScopedTypeNode::AnonymousRecord(_))
+                || match &entry.form {
+                    ScopedTypeNode::Tuple(elements) => elements.iter().any(|el| el.presence == StructuralMemberPresenceRef::Optional),
+                    ScopedTypeNode::Record(fields) => fields.iter().any(|f| f.presence == StructuralMemberPresenceRef::Optional),
+                    ScopedTypeNode::OpenRecord(open_rec) => {
+                        open_rec.fields.iter().any(|f| f.presence == StructuralMemberPresenceRef::Optional)
+                            || matches!(open_rec.tail, ScopedRecordTailRef::Anonymous(_))
+                    }
+                    ScopedTypeNode::RecordRow(row) => {
+                        row.fields.iter().any(|f| f.presence == StructuralMemberPresenceRef::Optional)
+                            || matches!(row.tail, ScopedRecordRowTailRef::Anonymous(_))
+                    }
+                    _ => false,
+                }
+        }) {
+            return Err(MetadataValidationError::Malformed(
+                "schema before v10 cannot contain structural member presence, open tuples, or anonymous remainders".to_string(),
+            ));
+        }
     }
 
     if bundle.kinds.len() > limits.max_kind_nodes {
@@ -1162,6 +1219,86 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     }
                 }
             }
+            TypeNode::OpenTuple(open_tuple) => {
+                if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+                    return Err(MetadataValidationError::Malformed("OpenTuple node must have kind Type".to_string()));
+                }
+                for el in open_tuple.elements.iter() {
+                    if el.ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: el.ty.0,
+                        });
+                    }
+                    if el.label.is_none() && el.presence == StructuralMemberPresenceRef::Optional {
+                        return Err(MetadataValidationError::Malformed("positional tuple elements cannot be optional".to_string()));
+                    }
+                    if !matches!(bundle.kinds[bundle.types[el.ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("tuple elements must have kind Type".to_string()));
+                    }
+                }
+                if let AnonymousTupleRemainderRef::Typed(ty) = open_tuple.positional_remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: ty.0,
+                        });
+                    }
+                    if !matches!(bundle.kinds[bundle.types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("tuple positional remainder must have kind Type".to_string()));
+                    }
+                }
+                if let AnonymousTupleRemainderRef::Typed(ty) = open_tuple.labeled_remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: ty.0,
+                        });
+                    }
+                    if !matches!(bundle.kinds[bundle.types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("tuple labeled remainder must have kind Type".to_string()));
+                    }
+                }
+            }
+            TypeNode::AnonymousRecord(anon_rec) => {
+                if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+                    return Err(MetadataValidationError::Malformed("AnonymousRecord node must have kind Type".to_string()));
+                }
+                let mut prev_name: Option<&str> = None;
+                for f in anon_rec.fields.iter() {
+                    if f.ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: f.ty.0,
+                        });
+                    }
+                    if !matches!(bundle.kinds[bundle.types[f.ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("record field values must have kind Type".to_string()));
+                    }
+                    if let Some(prev) = prev_name {
+                        if &*f.name < prev {
+                            return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
+                        } else if &*f.name == prev {
+                            return Err(MetadataValidationError::RecordDuplicateField {
+                                node: i as u32,
+                                field: f.name.clone(),
+                            });
+                        }
+                    }
+                    prev_name = Some(&f.name);
+                }
+                if let AnonymousRecordRemainderRef::Typed(ty) = anon_rec.remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: ty.0,
+                        });
+                    }
+                    if !matches!(bundle.kinds[bundle.types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("record remainder must have kind Type".to_string()));
+                    }
+                }
+            }
         }
     }
 
@@ -1315,6 +1452,19 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             });
                         }
                     }
+                    ScopedRecordTailRef::Anonymous(remainder) => {
+                        if let ScopedAnonymousRecordRemainderRef::Typed(ty) = remainder {
+                            if ty.0 as usize >= i {
+                                return Err(MetadataValidationError::TopologicalOrderViolation {
+                                    index: i as u32,
+                                    target: ty.0,
+                                });
+                            }
+                            if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                                return Err(MetadataValidationError::Malformed("scoped record remainder must have kind Type".to_string()));
+                            }
+                        }
+                    }
                 }
             }
             ScopedTypeNode::RecordRow(row) => {
@@ -1399,6 +1549,19 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             return Err(MetadataValidationError::Malformed(format!(
                                 "scoped RecordRow projection tail at node {i} must have kind RecordRow"
                             )));
+                        }
+                    }
+                    ScopedRecordRowTailRef::Anonymous(remainder) => {
+                        if let ScopedAnonymousRecordRemainderRef::Typed(ty) = remainder {
+                            if ty.0 as usize >= i {
+                                return Err(MetadataValidationError::TopologicalOrderViolation {
+                                    index: i as u32,
+                                    target: ty.0,
+                                });
+                            }
+                            if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                                return Err(MetadataValidationError::Malformed("scoped record row remainder must have kind Type".to_string()));
+                            }
                         }
                     }
                 }
@@ -1623,6 +1786,86 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                                 "Invalid scoped PackProjection Complete lane kinds".to_string(),
                             ));
                         }
+                    }
+                }
+            }
+            ScopedTypeNode::OpenTuple(open_tuple) => {
+                if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+                    return Err(MetadataValidationError::Malformed("scoped OpenTuple node must have kind Type".to_string()));
+                }
+                for el in open_tuple.elements.iter() {
+                    if el.ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: el.ty.0,
+                        });
+                    }
+                    if el.label.is_none() && el.presence == StructuralMemberPresenceRef::Optional {
+                        return Err(MetadataValidationError::Malformed("positional tuple elements cannot be optional".to_string()));
+                    }
+                    if !matches!(bundle.kinds[bundle.scoped_types[el.ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("scoped tuple elements must have kind Type".to_string()));
+                    }
+                }
+                if let ScopedAnonymousTupleRemainderRef::Typed(ty) = open_tuple.positional_remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: ty.0,
+                        });
+                    }
+                    if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("scoped tuple positional remainder must have kind Type".to_string()));
+                    }
+                }
+                if let ScopedAnonymousTupleRemainderRef::Typed(ty) = open_tuple.labeled_remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: ty.0,
+                        });
+                    }
+                    if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("scoped tuple labeled remainder must have kind Type".to_string()));
+                    }
+                }
+            }
+            ScopedTypeNode::AnonymousRecord(anon_rec) => {
+                if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+                    return Err(MetadataValidationError::Malformed("scoped AnonymousRecord node must have kind Type".to_string()));
+                }
+                let mut prev_name: Option<&str> = None;
+                for f in anon_rec.fields.iter() {
+                    if f.ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: f.ty.0,
+                        });
+                    }
+                    if !matches!(bundle.kinds[bundle.scoped_types[f.ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("scoped record field values must have kind Type".to_string()));
+                    }
+                    if let Some(prev) = prev_name {
+                        if &*f.name < prev {
+                            return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
+                        } else if &*f.name == prev {
+                            return Err(MetadataValidationError::RecordDuplicateField {
+                                node: i as u32,
+                                field: f.name.clone(),
+                            });
+                        }
+                    }
+                    prev_name = Some(&f.name);
+                }
+                if let ScopedAnonymousRecordRemainderRef::Typed(ty) = anon_rec.remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: ty.0,
+                        });
+                    }
+                    if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("scoped record remainder must have kind Type".to_string()));
                     }
                 }
             }

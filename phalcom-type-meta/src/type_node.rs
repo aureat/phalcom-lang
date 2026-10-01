@@ -24,16 +24,66 @@ pub struct SelfTypeRef {
     pub role: SelfRoleRef,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum StructuralMemberPresenceRef {
+    Required,
+    Optional,
+}
+
+impl Default for StructuralMemberPresenceRef {
+    fn default() -> Self {
+        Self::Required
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum AnonymousTupleRemainderRef {
+    None,
+    Unconstrained,
+    Typed(TypeNodeId),
+}
+
+impl Default for AnonymousTupleRemainderRef {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum AnonymousRecordRemainderRef {
+    Unconstrained,
+    Typed(TypeNodeId),
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct TupleElementRef {
     pub label: Option<Box<str>>,
     pub ty: TypeNodeId,
+    #[serde(default)]
+    pub presence: StructuralMemberPresenceRef,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct RecordFieldRef {
     pub name: Box<str>,
     pub ty: TypeNodeId,
+    #[serde(default)]
+    pub presence: StructuralMemberPresenceRef,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct OpenTupleTypeRef {
+    pub elements: Box<[TupleElementRef]>,
+    #[serde(default)]
+    pub positional_remainder: AnonymousTupleRemainderRef,
+    #[serde(default)]
+    pub labeled_remainder: AnonymousTupleRemainderRef,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct AnonymousRecordTypeRef {
+    pub fields: Box<[RecordFieldRef]>,
+    pub remainder: AnonymousRecordRemainderRef,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -101,7 +151,10 @@ pub enum StaticArgumentRef {
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct RecordRowRef {
     pub fields: Box<[RecordFieldRef]>,
+    #[serde(default)]
     pub tail: Option<crate::generic::StableTypeParameterRef>,
+    #[serde(default)]
+    pub remainder: Option<AnonymousRecordRemainderRef>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -155,6 +208,8 @@ pub enum TypeNode {
         return_type: TypeNodeId,
     },
     TypeMemberProjection(TypeMemberProjectionRef),
+    OpenTuple(OpenTupleTypeRef),
+    AnonymousRecord(AnonymousRecordTypeRef),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
