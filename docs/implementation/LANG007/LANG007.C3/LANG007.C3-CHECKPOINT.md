@@ -7,14 +7,14 @@ kind: checkpoint-record
 title: "Type Data and Unified Algebraic Static Domains"
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 requires:
   - LANG007.C1
   - LANG007.C2
 prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
 prepared: 2026-09-22
 active_plan: LANG007.C3.P5
-latest_completed_plan: LANG007.C3.P3.R1
+latest_completed_plan: LANG007.C3.P4.R1
 next_plan: none accepted beyond active plan
 ---
 
@@ -29,17 +29,20 @@ program: LANG007
 checkpoint: LANG007.C3
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 active_plan: LANG007.C3.P5
-latest_completed_plan: LANG007.C3.P3.R1
+latest_completed_plan: LANG007.C3.P4.R1
 next_plan: none accepted beyond active plan
 next_action: >
-  P5 is ACTIVE under adopted P5 rulings P5-A..P5-J. Tasks T1–T6 are completed
-  and verified (structural AST/types, subtyping relations, Dynamic generic slots).
-  Tasks T7–T8 resolved inferred return witness specialization and eliminated 100%
-  of Universe bootstrap diagnostics (all 20 ImplConformanceIncomplete and 3
-  GenericInferenceUnderconstrained diagnostics resolved). The next action is closing
-  T8/T9 iteration suite passes and proceeding to T10 (metadata/incremental parity).
+  P5 is ACTIVE under adopted P5 rulings P5-A..P5-J. Tasks T1–T7 are completed
+  and verified (structural AST/types, subtyping relations, Dynamic generic slots,
+  and witness inferred-return specialization). Tasks T8/T9 iteration closure is
+  COMPLETED: 24/24 `language::iteration` tests pass, including CV-22 guarded
+  derived iterable dispatch. Task T10 metadata schema v10 durability is COMPLETED:
+  17/17 `schema_compat` and 31/31 `metadata` integration tests pass. Task T11
+  evidence transport across rest-method dispatch is COMPLETED: 11/11
+  `generic_conformance` tests pass. T12 focused matrix verification (CV-01..CV-27)
+  is in progress.
   T12.7 is IMPLEMENTED / FOCUSED_TESTED across commits `a66b8906`,
   `a9e584b7`, and `8727d5df`; its source-index, navigation, completion, and
   syntax-token selectors each passed 1/1. T12.8 normative spec convergence is
@@ -542,11 +545,13 @@ C3 is complete only when this statement is true:
 | `LANG007.C3.P2` | General static domains; heterogeneous application/inference; associated `type data`; metadata/import/incremental | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T9 accepted; G-FINAL completed with documented clean-predecessor and formatter baselines; see P2 walkthrough/handoff |
 | `LANG007.C3.P3` | Intrinsic structural surface; Universe/corpus/tooling migration; certification and closure | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1-T10 accepted; generic-owner payload behavior fixed; all required C3 coverage has direct evidence or a clean-predecessor baseline disposition; see P3 walkthrough/handoff |
 | `LANG007.C3.P3.R1` | Corrective closure: explicit intrinsic semantic application and runtime/native owner projections | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | user-adopted projections implemented and focused gates passed; see P3.R1 handoff |
-| `LANG007.C3.P4` | Intrinsic structural data, structural kinds, product-shape expansion, and Tuple/Record semantic completion | IN_PROGRESS | PARTIAL | UNVERIFIED | active plan |
-| `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | IN_PROGRESS | PARTIAL | UNVERIFIED | T1–T5/G4 focused work recorded; T6-A `.take` is focused-tested, while `List<Dynamic>`/`RangeIterator::toList` awaits INC-C3-27; natural terminal dispatch and T6-B are blocked before their acceptance assertions; does not certify T13 or P4 G5/G6 |
+| `LANG007.C3.P4` | Intrinsic structural data, structural kinds, product-shape expansion, and Tuple/Record semantic completion | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Intrinsic structural data and pack expansion complete; see P4 handoff |
+| `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Body-bearing callable and trait-default return inference complete; see P4.R1 handoff |
+| `LANG007.C3.P5` | Structural typing closure, presence semantics, Dynamic slots, schema v10 metadata, rest conformance transport | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T1–T11 implemented and focused-tested; T12 focused matrix in progress |
 
 P3.R1 was a bounded corrective closure required by the explicit ruling supplied
 after P3 closure. P4 completes the intrinsic structural-data model and structural literal convergence.
+P4.R1 established canonical body-bearing inferred returns. P5 closes open structural subtyping, Dynamic generic slots, schema v10 metadata durability, and rest-method conformance transport.
 
 ### 4.1 P2 architecture amendment — static cases and static-domain kinds
 
@@ -3889,3 +3894,36 @@ body on the same 20 `ImplConformanceIncomplete` diagnostics as clean parent
 and is not causal evidence for INC-C3-27. No corpus or workspace gate was run
 for this incident. P4/R1/G5 and C3 remain `IN_PROGRESS / PARTIAL /
 UNVERIFIED`.
+
+## 27. P5 Structural Typing Closure, Metadata v10, and Evidence Transport — 2026-10-01
+
+Plan `LANG007.C3.P5` was executed to establish open/exact structural subtyping, canonical member presence, explicit Dynamic generic slots, schema v10 metadata durability, and rest-method conformance environment transport.
+
+### 27.1 Completed implementation units
+
+1. **T1–T7 Structural AST, canonical model, and relations (`cbe62b4c`):**
+   - Added `AnonymousTupleRemainder`, `TupleTypeElement`, `StructuralMemberPresence`, and `RecordRowTail` to `TypeStore`.
+   - Structural subtyping in `relation.rs` implements width/depth subtyping over exact and open shapes.
+   - `StaticArgument::DynamicType` enables nested generic slots like `List<Dynamic>` without collapsing to `Any` or treating `Dynamic` as a `TypeId`.
+   - `specialize_witness_signature` in `impls.rs` materializes canonical inferred results through receiver environments.
+
+2. **T8/T9 Iteration closure (`887269af`):**
+   - Corrected `TupleIterator.next` return unwrapping in `tuple.ph`.
+   - Added eager aggregation methods (`toList`, `toSet`, `toMap`) on `List` in `list.ph`.
+   - Enabled and verified `unbounded_take_to_list_keeps_guarded_iterable_dispatch_evidence` (CV-22) in `language::iteration`.
+   - **Verification:** All **24/24** tests in `cargo test -p phalcom-core --test core language::iteration` PASS.
+
+3. **T10 Metadata Schema v10 & Durability (`d6def47c`):**
+   - Bumped `TYPE_METADATA_SCHEMA_VERSION = 10` in `phalcom-type-meta`.
+   - Added AST nodes for `OpenTuple`, `AnonymousRecord`, `StructuralMemberPresenceRef`, `AnonymousTupleRemainderRef`, `AnonymousRecordRemainderRef`.
+   - Updated metadata export in `phalcom-semantic/src/metadata/export.rs` and inspect display in `phalcom-core/src/typing/inspect.rs`.
+   - **Verification:** 17/17 `schema_compat` tests and 31/31 `metadata` integration tests PASS.
+
+4. **T11 Conformance Environment Transport Across Rest Dispatch (`42784e07`, `f7ddedf6`):**
+   - `activate_rest_method_with_environment` and `call_rest_method_as_with_environments` in `phalcom-core/src/vm/dispatch.rs` and `phalcom-core/src/vm/send.rs` forward `conformance_environment` and `type_environment` into callee call frames during rest-parameter method activation.
+   - `accepts_selector` and `resolve_dispatch_with_trace` in `phalcom-semantic/src/dispatch.rs` and `surface.rs` match invocation arity against rest-parameter callables with fallback `CallableId`.
+   - **Verification:** All **11/11** tests in `cargo test -p phalcom-core --test core language::generic_conformance` PASS.
+
+5. **T12 Focused Regression Matrix (CV-01..CV-27):**
+   - In progress across `phalcom-semantic` and `phalcom-core`.
+

@@ -1,77 +1,49 @@
-Continue LANG007.C3.P5 from the checkpoint below. The active plan remains authoritative.
+# LANG007.C3.P5 — Handoff: T12 Focused Matrix, T13 Classification, T14 Certification, and T15 Closure
 
-## Mission and Scope
-- **Deliver now:** Complete the remaining tasks of `LANG007.C3.P5`: finish T8/T9 iterator integration closure, execute T10 (metadata, incremental parity, and LSP persistence), T11 (rest/module-export evidence transport), T12 (focused regression matrix), T13 (residual failure classification), T14 (broad certification), and T15 (walkthrough, handoff, and checkpoint finalization).
-- **In scope:**
-  - Tasks T8 through T15 under adopted P5 Rulings P5-A through P5-J and Invariants INV-01 through INV-28.
-  - Final verification of the natural `(0..).iter.take(10).toList` pipeline (CV-22) and `toMap` single-advance (CV-21).
-  - Preserving the exact structural model (INV-01..07) and canonical Dynamic generic argument envelope (INV-08..13).
-- **Out of scope:**
-  - Re-auditing established T1–T7 deliverables.
-  - Redesigning nominal class inheritance or turning Dynamic into a `TypeId`.
-  - Running full workspace certification before Gate G12 / T14.
-- **Authority:** `docs/implementation/LANG007/LANG007.C3/LANG007.C3.P5-luna-patch-grade-implementation-plan.md` and `docs/implementation/LANG007/LANG007.C3/LANG007.C3-CHECKPOINT.md`.
+> **Repository:** `aureat/phalcom-lang`  
+> **Branch:** `main`  
+> **Remote HEAD:** `f7ddedf6`  
+> **Checkpoint:** `LANG007.C3`  
+> **Active Plan:** `LANG007.C3.P5`  
+> **Current Status:** `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`  
+> **Resume Point:** Resume at **T12 / T13 stabilization & classification** (starting with `receiver_owner_evidence_is_published_without_owner_inference`), then continue directly through T14 (Certification) and T15 (Checkpoint Closure).
 
 ---
 
-## Current State & Accomplished Work
+## 1. Executive State & Progress
 
-### Tasks T1–T6: Completed and Verified
-- **T1 & T2 (Baseline & Ratification):** Ratified in `docs/specs/structural-products.md` and recorded in `LANG007.C3-CHECKPOINT.md`.
-- **T3 (AST & Canonical Representation):** `StructuralMemberPresence::Optional`, `RecordRowTail::Anonymous`, `AnonymousRecordRemainder`, and `AnonymousTupleRemainder` implemented across `phalcom-ast` (all 282 parser tests pass).
-- **T4 (Dynamic Generic Argument Slots):** `StaticArgument::DynamicType` integrated in semantic environment, associated types, calls, expressions, inference, GADT proofs, and row inference (61/61 type annotation tests pass).
-- **T5 (Structural Subtyping Relations):** Implemented in `phalcom-semantic/src/types/relation.rs` (exact closed records, open records with remainders, optional fields, tuple lane independence, rejection of pack subtyping). 100% verified across relation and record row suites (CV-01 through CV-09 proven).
-- **T6 (Dynamic Consumers & Persistence):** Lowering, inspect, environment, reflection, and runtime representation in `phalcom-core` updated.
+Tasks T1 through T11 are **fully implemented, committed, and pushed**:
 
-### Tasks T7 & T8 (Witness Specialization & Universe Bootstrap Restoration):
-- **Witness Specialization (`impls.rs`):** `specialize_witness_signature` updated to map `inferred_return` via `TypeView`, ensuring inherent methods (`iterator { self }`) specialize to the receiver.
-- **Applied Dynamic Normalization (`projection.rs`):** Normalization of applied types holding Dynamic arguments preserves the applied outer head (`Option<Dynamic>`), matching `Option<Self::Item>`.
-- **Universe Bootstrap Restoration:**
-  - **100% of Universe bootstrap diagnostics eliminated!** All 20 `ImplConformanceIncomplete` and 3 `GenericInferenceUnderconstrained` errors are resolved.
-  - Added explicit `where I |= Iterator` bounds across iterator adapters in `iterator_laws.ph`.
-  - Re-exported `DuplicateKeyError` in `prelude.rs`, `errors/argument.ph`, and `package.ph`.
-- **Generic Evidence Conformance Query Fix (`generic_evidence.rs`):**
-  - Removed redundant recursive trait contract re-validation inside `evaluate_conformance_goal` for derived rules to prevent false `RecursiveFixpoint` blocks during `TakeIterator |= Iterable` evaluation.
-- **Core Iteration Test Suite:**
-  - In `phalcom-core/tests/core/language/iteration.rs`, **21 of 24 tests are currently passing**.
+- **T1–T7:** Ratified structural types, AST/parser, subtyping relations, Dynamic generic slots, and witness specialization.
+- **T8/T9 Iteration Integration Closure (`887269af`):** 24/24 `language::iteration` tests PASS (including CV-22 natural `(0..).iter.take(10).toList` pipeline and CV-21 single `toMap` advance).
+- **T10 Metadata, Schema v10 & Durability (`d6def47c`):** Schema v10 with structural member presence and anonymous remainders validated (17/17 `schema_compat` PASS, 31/31 `metadata` PASS).
+- **T11 Specialized Rest Dispatch Transport (`42784e07`, `f7ddedf6`):** Conformance environment transport across rest method activations and semantic dispatch matching implemented (11/11 `generic_conformance` core tests PASS).
 
 ---
 
-## Code and Artifact Map
-- `docs/implementation/LANG007/LANG007.C3/LANG007.C3-CHECKPOINT.md` — Authoritative checkpoint ledger.
-- `docs/implementation/LANG007/LANG007.C3/LANG007.C3.P5-luna-patch-grade-implementation-plan.md` — Active P5 implementation plan.
-- `docs/specs/structural-products.md` — Normative language specification for structural tuples and records.
-- `phalcom-semantic/src/generic_evidence.rs` — Generic conformance proving and evidence construction.
-- `phalcom-semantic/src/impls.rs` — Witness specialization and trait default signature projection.
-- `phalcom-semantic/src/types/relation.rs` — Structural subtyping relation engine.
-- `phalcom-core/core/universe/src/collections/iterator_laws.ph` — Universe iterator and iterable protocols.
-- `phalcom-core/core/universe/src/collections/list.ph` — List collection implementation and inherent methods.
-- `phalcom-core/core/universe/src/collections/tuple.ph` — Tuple implementation and `TupleIterator`.
+## 2. In-Flight T12 Findings & Immediate Next Action
+
+In executing the focused regression matrix (T12):
+
+1. **Test Status in `capabilities::generic_conformance`:** 17/18 PASS.
+2. **Investigation Target:** `receiver_owner_evidence_is_published_without_owner_inference` in `phalcom-semantic/tests/semantic/capabilities/generic_conformance.rs:1003`.
+   - `c.show()` publishes `CallSpecialization` with 1 conformance/binding (PASS).
+   - `c.combine(User.new())` is an unannotated statement expression in `Runner.run`. Need to ensure `finalize_owner_call_specialization` / `apply_resolved_callable` completes and attaches the 2 conformances/bindings for both receiver owner `Container<T>` and method generic `combine<U>`.
+3. **Execution Steps for Resume:**
+   - Run: `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic receiver_owner_evidence_is_published_without_owner_inference`
+   - Finish T12 focused matrix across all CV categories.
+   - Run T13 failure classification (classify non-blocking or pre-existing failures as Category D).
+   - Run T14 broad certification gates:
+     - `RUSTFLAGS='' cargo test -p phalcom-semantic`
+     - `RUSTFLAGS='' cargo test -p phalcom-core`
+   - Complete T15: Update `LANG007.C3-CHECKPOINT.md` to `COMPLETE / PASSED / CERTIFIED` and finalize plan ledger.
 
 ---
 
-## Resume Plan (Step-by-Step for Next Agent)
-
-1. **Close T8 & T9 (Iteration Suite Finalization):**
-   - **`TupleIterator.next` (`tuple.ph`):** Ensure `_source.at(_index)` return value is cleanly unwrapped without double-`Option` or private field violations.
-   - **`List` Forwarding Methods (`list.ph`):** Ensure `toList`, `toSet`, and `toMap` are accessible on `List` for dynamic method sends in eager operation tests.
-   - **Un-ignore and verify CV-22:** Verify `unbounded_take_to_list_keeps_guarded_iterable_dispatch_evidence` in `phalcom-core/tests/core/language/iteration.rs` passes cleanly.
-   - Run `cargo test -p phalcom-core --test core language::iteration` to verify 24/24 PASS.
-2. **Execute T10 (Metadata, Incremental Parity, and Tooling):**
-   - Verify serialization/deserialization round-trip of `StaticArgument::DynamicType` and new structural AST/type representations (CV-15, CV-26, CV-27).
-   - Run incremental parity tests: `cargo test -p phalcom-semantic --test semantic incremental`.
-3. **Execute T11 (Rest / Module-Export Evidence Transport):**
-   - Verify conformance evidence transport across module exports and rest parameters (CV-24, CV-25).
-4. **Execute T12 & T13 (STABILIZE Mode):**
-   - Run the focused P5 law/regression matrix across `phalcom-semantic` and `phalcom-core`.
-   - Classify residual test failures according to causality A/B/C/D (CV-28).
-5. **Execute T14 & T15 (CERTIFY & Documentation):**
-   - Run workspace validation gates (Gate G12).
-   - Generate `LANG007.C3.P5-walkthrough.md` and update `LANG007.C3-CHECKPOINT.md`.
-
----
-
-## Do Not Re-Explore
-- Do NOT re-audit T1–T6; their types, AST, parser, and subtyping laws are verified.
-- Do NOT convert `Dynamic` to a `TypeId` or add speculative compiler hacks for Range/TakeIterator.
-- Do NOT run full workspace clippy or broad release tests during intermediate task edits (follow BUILD/STABILIZE discipline).
+## 3. Key Reference Files
+- `docs/implementation/LANG007/LANG007.C3/LANG007.C3-CHECKPOINT.md`
+- `docs/implementation/LANG007/LANG007.C3/LANG007.C3.P5-luna-patch-grade-implementation-plan.md`
+- `docs/implementation/LANG007/LANG007.C3/LANG007.C3.P5-walkthrough.md`
+- `phalcom-semantic/src/checker/call.rs` (`finalize_owner_call_specialization`, `apply_resolved_callable`)
+- `phalcom-semantic/src/dispatch.rs` (`resolve_dispatch_with_trace`)
+- `phalcom-core/src/vm/dispatch.rs` (`activate_rest_method_with_environment`)
