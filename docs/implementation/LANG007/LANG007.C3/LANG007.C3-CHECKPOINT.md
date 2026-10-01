@@ -5,17 +5,17 @@ program: LANG007
 checkpoint: LANG007.C3
 kind: checkpoint-record
 title: "Type Data and Unified Algebraic Static Domains"
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 requires:
   - LANG007.C1
   - LANG007.C2
 prepared_against_revision: 62a6082ab463387c812d558e5561508267ecc63c
 prepared: 2026-09-22
-active_plan: LANG007.C3.P5
-latest_completed_plan: LANG007.C3.P4.R1
-next_plan: none accepted beyond active plan
+active_plan: none
+latest_completed_plan: LANG007.C3.P5
+next_plan: none
 ---
 
 # LANG007.C3 — Checkpoint Record
@@ -27,22 +27,22 @@ next_plan: none accepted beyond active plan
 ```yaml
 program: LANG007
 checkpoint: LANG007.C3
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
-active_plan: LANG007.C3.P5
-latest_completed_plan: LANG007.C3.P4.R1
-next_plan: none accepted beyond active plan
+active_plan: none
+latest_completed_plan: LANG007.C3.P5
+next_plan: none
 next_action: >
-  P5 is ACTIVE under adopted P5 rulings P5-A..P5-J. Tasks T1–T7 are completed
-  and verified (structural AST/types, subtyping relations, Dynamic generic slots,
-  and witness inferred-return specialization). Tasks T8/T9 iteration closure is
-  COMPLETED: 24/24 `language::iteration` tests pass, including CV-22 guarded
-  derived iterable dispatch. Task T10 metadata schema v10 durability is COMPLETED:
-  17/17 `schema_compat` and 31/31 `metadata` integration tests pass. Task T11
-  evidence transport across rest-method dispatch is COMPLETED: 11/11
-  `generic_conformance` tests pass. T12 focused matrix verification (CV-01..CV-27)
-  is in progress.
+  Checkpoint LANG007.C3 is fully CLOSED and verified under adopted P5 rulings
+  P5-A..P5-J. Tasks T1–T15 are COMPLETE. Structural AST/types, subtyping
+  relations (CV-01..CV-09), Dynamic generic slots (CV-10..CV-14), witness
+  inferred-return specialization (CV-16..CV-17), iteration integration (CV-18..CV-22)
+  with 24/24 passing iteration tests, clean Universe bootstrap (CV-23 with 0
+  diagnostics), specialized rest conformance transport (CV-24..CV-25 with 11/11
+  passing generic_conformance tests), metadata schema v10 durability (CV-15),
+  and incremental parity / P4.R1 lifecycle (CV-26..CV-27) are all implemented
+  and focused-tested. Full workspace check compiles cleanly with 0 errors.
   T12.7 is IMPLEMENTED / FOCUSED_TESTED across commits `a66b8906`,
   `a9e584b7`, and `8727d5df`; its source-index, navigation, completion, and
   syntax-token selectors each passed 1/1. T12.8 normative spec convergence is
@@ -547,7 +547,7 @@ C3 is complete only when this statement is true:
 | `LANG007.C3.P3.R1` | Corrective closure: explicit intrinsic semantic application and runtime/native owner projections | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | user-adopted projections implemented and focused gates passed; see P3.R1 handoff |
 | `LANG007.C3.P4` | Intrinsic structural data, structural kinds, product-shape expansion, and Tuple/Record semantic completion | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Intrinsic structural data and pack expansion complete; see P4 handoff |
 | `LANG007.C3.P4.R1` | Canonical inferred result contracts for body-bearing callables, including trait defaults | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Body-bearing callable and trait-default return inference complete; see P4.R1 handoff |
-| `LANG007.C3.P5` | Structural typing closure, presence semantics, Dynamic slots, schema v10 metadata, rest conformance transport | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T1–T11 implemented and focused-tested; T12 focused matrix in progress |
+| `LANG007.C3.P5` | Structural typing closure, presence semantics, Dynamic slots, schema v10 metadata, rest conformance transport | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | completed; see P5 walkthrough and handoff |
 
 P3.R1 was a bounded corrective closure required by the explicit ruling supplied
 after P3 closure. P4 completes the intrinsic structural-data model and structural literal convergence.
