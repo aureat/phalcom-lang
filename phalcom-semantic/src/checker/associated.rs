@@ -648,11 +648,13 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
                 let row = store.record_row(row_id);
                 row.fields.iter().any(|field| contains_any_type_parameter(store, field.ty))
                     || match row.tail {
-                        crate::types::row::RecordRowTail::Closed => false,
+                        crate::types::row::RecordRowTail::Closed | crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+                        crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => contains_any_type_parameter(store, ty),
                         crate::types::row::RecordRowTail::Parameter(_) => true,
                         crate::types::row::RecordRowTail::Projection(projection) => contains_any_type_parameter(store, projection),
                     }
             }
+            crate::types::store::StaticArgument::DynamicType => false,
         }
     }
 
@@ -669,13 +671,18 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
             ScopedTypeData::Tuple(elements) => elements.iter().any(|element| scoped_contains_any_type_parameter(store, element.ty)),
             ScopedTypeData::Record(fields) => fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty)),
             ScopedTypeData::OpenRecord(record) => {
-                matches!(record.tail, ScopedRecordTail::FreeParameter(_))
-                    || record.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
+                let tail_contains = match record.tail {
+                    ScopedRecordTail::FreeParameter(_) => true,
+                    ScopedRecordTail::Bound { .. } | ScopedRecordTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+                    ScopedRecordTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => contains_any_type_parameter(store, ty),
+                };
+                tail_contains || record.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
             }
             ScopedTypeData::RecordRow(row) => {
                 row.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
                     || match row.tail {
-                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } => false,
+                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } | ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+                        ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => contains_any_type_parameter(store, ty),
                         ScopedRecordRowTail::FreeParameter(_) => true,
                         ScopedRecordRowTail::Projection(projection) => contains_any_type_parameter(store, projection),
                     }
@@ -719,7 +726,7 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
                 || arguments.iter().copied().any(|argument| static_argument_contains_any_type_parameter(store, argument))
         }
         TypeData::Union(members) => members.iter().any(|&m| contains_any_type_parameter(store, m)),
-        TypeData::Tuple(elems) => elems.iter().any(|e| contains_any_type_parameter(store, e.ty)),
+        TypeData::Tuple(elems) => elems.elements.iter().any(|e| contains_any_type_parameter(store, e.ty)),
         TypeData::Record(row_id) => {
             let row = store.record_row(*row_id);
             row.fields.iter().any(|f| contains_any_type_parameter(store, f.ty)) || matches!(row.tail, crate::types::row::RecordRowTail::Parameter(_))
@@ -764,7 +771,7 @@ pub fn contains_only_variant_constructor_parameters(store: &TypeStore, ty: TypeI
             }
             TypeData::ExactCase { enum_type, .. } => visit(store, *enum_type, found),
             TypeData::Union(members) => members.iter().all(|&member| visit(store, member, found)),
-            TypeData::Tuple(elements) => elements.iter().all(|element| visit(store, element.ty, found)),
+            TypeData::Tuple(elements) => elements.elements.iter().all(|element| visit(store, element.ty, found)),
             TypeData::Record(row_id) => store.record_row(*row_id).fields.iter().all(|field| visit(store, field.ty, found)),
             TypeData::Callable(callable) => {
                 callable.parameters.iter().all(|parameter| visit(store, parameter.ty, found)) && visit(store, callable.return_type, found)
@@ -934,6 +941,7 @@ fn contextualize_exact_case_owner(ctx: &mut CheckingContext<'_>, value_type: Typ
             }
             (_, crate::types::store::StaticArgument::Term(_)) => {}
             (_, crate::types::store::StaticArgument::RecordRow(_)) => return None,
+            (_, crate::types::store::StaticArgument::DynamicType) => {}
         }
     }
 

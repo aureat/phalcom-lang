@@ -63,6 +63,12 @@ impl PreludeTypeMap {
         ]));
         entries.insert("Timestamp".into(), DeclarationId::new(timestamp_module, "Timestamp".into()));
 
+        let duplicate_key_error_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("errors").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("argument").expect("canonical Universe component"),
+        ]));
+        entries.insert("DuplicateKeyError".into(), DeclarationId::new(duplicate_key_error_module, "DuplicateKeyError".into()));
+
         Self { entries }
     }
 

@@ -137,7 +137,7 @@ native class List<T> is Collection {
     let captured = self.rawAt(p)
     let emptyList = List<T>.new()
     self.rawReplaceSlice(p, p + 1, emptyList)
-    let ok: Result<Dynamic, Error> = Result::Ok(captured)
+    let ok: Result<T, Error> = Result::Ok(captured)
     return ok
   }
 
@@ -262,6 +262,14 @@ native class List<T> is Collection {
   !=(_ other) {
     return not (self == other)
   }
+
+  toList { self }
+
+  toSet { self.iterator.toSet }
+
+  toMap { self.iterator.toMap }
+
+  toMap(merging block) { self.iterator.toMap(merging: block) }
 }
 
 class ListIterator<T> {

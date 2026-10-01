@@ -538,6 +538,11 @@ impl TypeReferenceTargetCollector<'_> {
                     match element {
                         phalcom_ast::ast::TypeTupleItem::Element(element) => self.annotation(&element.ty, bound),
                         phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                        phalcom_ast::ast::TypeTupleItem::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                self.annotation(constraint, bound);
+                            }
+                        }
                     }
                 }
             }
@@ -546,13 +551,17 @@ impl TypeReferenceTargetCollector<'_> {
                     match parameter {
                         phalcom_ast::ast::TypeCallableItem::Parameter(parameter) => self.annotation(&parameter.ty, bound),
                         phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                        phalcom_ast::ast::TypeCallableItem::Remainder(_) => {}
                     }
                 }
                 self.annotation(result, bound);
             }
-            TypeAnnotationExpr::Record { fields, .. } => {
+            TypeAnnotationExpr::Record { fields, tail, .. } => {
                 for field in fields {
                     self.annotation(&field.ty, bound);
+                }
+                if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. })) = tail {
+                    self.annotation(constraint, bound);
                 }
             }
             TypeAnnotationExpr::TypeLambda { parameters, body, .. } => {
@@ -795,12 +804,20 @@ impl SourceScopeBuilder<'_> {
                     match element {
                         phalcom_ast::ast::TypeTupleItem::Element(element) => self.visit_annotation_projection_targets(&element.ty),
                         phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => self.visit_annotation_projection_targets(&expansion.operand),
+                        phalcom_ast::ast::TypeTupleItem::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                self.visit_annotation_projection_targets(constraint);
+                            }
+                        }
                     }
                 }
             }
-            TypeAnnotationExpr::Record { fields, .. } => {
+            TypeAnnotationExpr::Record { fields, tail, .. } => {
                 for field in fields {
                     self.visit_annotation_projection_targets(&field.ty);
+                }
+                if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. })) = tail {
+                    self.visit_annotation_projection_targets(constraint);
                 }
             }
             TypeAnnotationExpr::Callable { parameters, result, .. } => {
@@ -808,6 +825,7 @@ impl SourceScopeBuilder<'_> {
                     match parameter {
                         phalcom_ast::ast::TypeCallableItem::Parameter(parameter) => self.visit_annotation_projection_targets(&parameter.ty),
                         phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => self.visit_annotation_projection_targets(&expansion.operand),
+                        phalcom_ast::ast::TypeCallableItem::Remainder(_) => {}
                     }
                 }
                 self.visit_annotation_projection_targets(result);

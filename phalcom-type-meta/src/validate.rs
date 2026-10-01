@@ -151,6 +151,11 @@ fn argument_kind_id(
             .iter()
             .position(|entry| matches!(entry.node, KindNode::RecordRow))
             .map(|index| KindNodeId(index as u32))),
+        StaticArgumentRef::DynamicType => Ok(bundle
+            .kinds
+            .iter()
+            .position(|entry| matches!(entry.node, KindNode::Type))
+            .map(|index| KindNodeId(index as u32))),
     }
 }
 
@@ -863,6 +868,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                                 }
                             }
                         }
+                        StaticArgumentRef::DynamicType => {}
                     }
                 }
             }

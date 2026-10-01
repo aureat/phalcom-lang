@@ -371,7 +371,7 @@ impl Fixture {
     pub fn assert_tuple_types(&self, actual: TypeId, expected: &[TypeId]) {
         match self.analysis.snapshot.store.get(actual) {
             TypeData::Tuple(elements) => {
-                let actual = elements.iter().map(|element| element.ty).collect::<Vec<_>>();
+                let actual = elements.elements.iter().map(|element| element.ty).collect::<Vec<_>>();
                 assert_eq!(actual, expected, "unexpected tuple type");
             }
             other => panic!("expected tuple type, got {other:?}"),
@@ -641,8 +641,8 @@ impl Fixture {
                 let TypeData::Tuple(actual_elements) = self.analysis.snapshot.store.get(actual) else {
                     panic!("expected tuple, got {:?}", self.analysis.snapshot.store.get(actual));
                 };
-                assert_eq!(actual_elements.len(), expected_elements.len());
-                for (actual, expected) in actual_elements.iter().zip(expected_elements) {
+                assert_eq!(actual_elements.elements.len(), expected_elements.len());
+                for (actual, expected) in actual_elements.elements.iter().zip(expected_elements) {
                     self.assert_type_expectation(actual.ty, expected);
                 }
             }
@@ -707,8 +707,9 @@ impl Fixture {
                 let TypeData::Tuple(actual_elements) = self.analysis.snapshot.store.get(actual) else {
                     return false;
                 };
-                actual_elements.len() == expected_elements.len()
+                actual_elements.elements.len() == expected_elements.len()
                     && actual_elements
+                        .elements
                         .iter()
                         .zip(expected_elements)
                         .all(|(actual, expected)| self.type_matches(actual.ty, expected))

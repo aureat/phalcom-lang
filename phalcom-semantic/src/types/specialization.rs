@@ -9,7 +9,7 @@ use super::environment::{TypeEnvironment, TypeView};
 use super::id::TypeId;
 use super::outcome::{BlockReason, BudgetReport};
 use super::relation::TypeHierarchy;
-use super::store::{TypeData, TypeStore};
+use super::store::{StaticArgument, TypeData, TypeStore};
 use crate::identity::DeclarationId;
 use phalcom_native_meta::UniverseKey;
 use std::collections::HashSet;
@@ -53,20 +53,24 @@ pub enum ReceiverSpecializationFailure {
     InternalFailure(String),
 }
 
-fn receiver_parts(store: &TypeStore, receiver: TypeId) -> Option<(DeclarationId, Vec<TypeId>)> {
+fn receiver_parts(store: &TypeStore, receiver: TypeId) -> Option<(DeclarationId, Vec<StaticArgument>)> {
     match store.get(receiver) {
         TypeData::Nominal { declaration } | TypeData::ClassObject { declaration } => Some((declaration.clone(), Vec::new())),
-        TypeData::Applied { .. } | TypeData::ExactCase { .. } => store.applied_nominal_parts(receiver),
+        TypeData::Applied { .. } | TypeData::ExactCase { .. } => store.applied_nominal_static_parts(receiver),
         _ => None,
     }
 }
 
-fn bind_owner_parameters(store: &TypeStore, owner: &DeclarationId, args: &[TypeId], environment: &mut TypeEnvironment) -> bool {
-    for (index, &arg) in args.iter().enumerate() {
+fn bind_owner_parameters(store: &TypeStore, owner: &DeclarationId, args: &[StaticArgument], environment: &mut TypeEnvironment) -> bool {
+    for (index, arg) in args.iter().enumerate() {
         let Some(parameter) = store.find_type_parameter_id(&super::parameter::TypeParameterOwner::Declaration(owner.clone()), index as u32) else {
             return false;
         };
-        environment.bind_param(parameter, arg);
+        match arg {
+            StaticArgument::Term(ty) => environment.bind_param(parameter, *ty),
+            StaticArgument::RecordRow(row) => environment.bind_row(parameter, *row),
+            StaticArgument::DynamicType => environment.bind_dynamic(parameter),
+        }
     }
     true
 }
@@ -111,7 +115,7 @@ pub fn specialize_receiver_to_owner<C: SpecializationControl>(
     if current_args.is_empty() && matches!(store.get(receiver), TypeData::Nominal { .. }) {
         let mut index = 0;
         while let Some(parameter) = store.find_type_parameter_id(&super::parameter::TypeParameterOwner::Declaration(receiver_owner.clone()), index) {
-            current_args.push(store.parameter_form(parameter));
+            current_args.push(StaticArgument::Term(store.parameter_form(parameter)));
             index += 1;
         }
     }
@@ -158,7 +162,7 @@ pub fn specialize_receiver_to_owner<C: SpecializationControl>(
             return Err(ReceiverSpecializationFailure::TargetNotReachable);
         };
 
-        let Some((next_owner, next_args)) = store.applied_nominal_parts(next_form) else {
+        let Some((next_owner, next_args)) = store.applied_nominal_static_parts(next_form) else {
             return Err(ReceiverSpecializationFailure::InvalidSupertypeTemplate);
         };
         current_owner = next_owner;

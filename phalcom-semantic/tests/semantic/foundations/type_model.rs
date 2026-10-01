@@ -518,7 +518,7 @@ fn tuple_from_packs_and_canonical_tuple_equivalence() {
         .unwrap();
 
     let from_packs = store.tuple_from_packs(pos_pack, lab_pack).unwrap();
-    let direct_tuple = store.tuple(Box::new([TupleTypeElement::unlabeled(int_ty), TupleTypeElement::labeled("key", str_ty)]));
+    let direct_tuple = store.tuple(Box::new([TupleTypeElement::unlabeled(int_ty), TupleTypeElement::labeled("key".into(), str_ty)]));
 
     assert_eq!(from_packs, direct_tuple);
 }

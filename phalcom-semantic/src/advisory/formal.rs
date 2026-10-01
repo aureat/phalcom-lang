@@ -53,6 +53,7 @@ fn shape_from_type_for_receiver(store: &TypeStore, ty: TypeId, receiver: &ValueS
         TypeData::Union(types) => ValueShape::bounded_union(types.iter().map(|ty| shape_from_type_for_receiver(store, *ty, receiver, depth - 1))),
         TypeData::Tuple(elements) => ValueShape::Tuple(
             elements
+                .elements
                 .iter()
                 .map(|element| shape_from_type_for_receiver(store, element.ty, receiver, depth - 1))
                 .collect::<Vec<_>>()
@@ -105,6 +106,7 @@ fn shape_from_type(store: &TypeStore, ty: TypeId, depth: usize) -> ValueShape {
         TypeData::Union(types) => ValueShape::bounded_union(types.iter().map(|ty| shape_from_type(store, *ty, depth - 1))),
         TypeData::Tuple(elements) => ValueShape::Tuple(
             elements
+                .elements
                 .iter()
                 .map(|element| shape_from_type(store, element.ty, depth - 1))
                 .collect::<Vec<_>>()

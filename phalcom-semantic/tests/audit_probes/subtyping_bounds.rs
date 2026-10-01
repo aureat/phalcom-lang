@@ -8,6 +8,7 @@ use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::outcome::{CancellationToken, QueryBudget};
 use phalcom_semantic::types::parameter::{SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, check_assignability, check_subtype_bounded, is_subtype};
+use phalcom_semantic::types::row::StructuralMemberPresence;
 use phalcom_semantic::types::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore};
 
 fn decl(name: &str) -> DeclarationId {
@@ -23,7 +24,7 @@ fn repeated_union_obligation_is_not_recursion() {
     let n = s.nominal(decl("Number"));
     let st = s.nominal(decl("String"));
     let u = s.union(&[n, st]);
-    let tuple = |a, b| Box::new([TupleTypeElement { label: None, ty: a }, TupleTypeElement { label: None, ty: b }]);
+    let tuple = |a, b| Box::new([TupleTypeElement::unlabeled(a), TupleTypeElement::unlabeled(b)]);
     let actual = s.tuple(tuple(i, i));
     let expected = s.tuple(tuple(u, u));
     assert!(is_subtype(&mut s, &h, actual, expected), "independent equal obligations must both succeed");
@@ -130,8 +131,8 @@ fn recursive_relation_charges_pair_budget() {
     h.insert(decl("Int"), decl("Number"));
     let i = s.nominal(decl("Int"));
     let n = s.nominal(decl("Number"));
-    let a = s.tuple(Box::new([TupleTypeElement { label: None, ty: i }]));
-    let b = s.tuple(Box::new([TupleTypeElement { label: None, ty: n }]));
+    let a = s.tuple(Box::new([TupleTypeElement::unlabeled(i)]));
+    let b = s.tuple(Box::new([TupleTypeElement::unlabeled(n)]));
     let mut budget = QueryBudget {
         max_relation_pairs: 1,
         ..QueryBudget::default()
@@ -147,8 +148,8 @@ fn recursive_relation_charges_pair_budget_at_exact_limit() {
     h.insert(decl("Int"), decl("Number"));
     let i = s.nominal(decl("Int"));
     let n = s.nominal(decl("Number"));
-    let a = s.tuple(Box::new([TupleTypeElement { label: None, ty: i }]));
-    let b = s.tuple(Box::new([TupleTypeElement { label: None, ty: n }]));
+    let a = s.tuple(Box::new([TupleTypeElement::unlabeled(i)]));
+    let b = s.tuple(Box::new([TupleTypeElement::unlabeled(n)]));
     let mut budget = QueryBudget {
         max_relation_pairs: 1,
         ..QueryBudget::default()
@@ -174,13 +175,10 @@ fn recursive_relation_enforces_type_depth_budget() {
     h.insert(decl("Int"), decl("Number"));
     let i = s.nominal(decl("Int"));
     let n = s.nominal(decl("Number"));
-    let inner_actual = s.tuple(Box::new([TupleTypeElement { label: None, ty: i }]));
-    let inner_expected = s.tuple(Box::new([TupleTypeElement { label: None, ty: n }]));
-    let actual = s.tuple(Box::new([TupleTypeElement { label: None, ty: inner_actual }]));
-    let expected = s.tuple(Box::new([TupleTypeElement {
-        label: None,
-        ty: inner_expected,
-    }]));
+    let inner_actual = s.tuple(Box::new([TupleTypeElement::unlabeled(i)]));
+    let inner_expected = s.tuple(Box::new([TupleTypeElement::unlabeled(n)]));
+    let actual = s.tuple(Box::new([TupleTypeElement::unlabeled(inner_actual)]));
+    let expected = s.tuple(Box::new([TupleTypeElement::unlabeled(inner_expected)]));
 
     let mut shallow = QueryBudget {
         max_type_depth: 1,
@@ -208,7 +206,7 @@ fn union_candidate_allocation_order_is_irrelevant() {
         let i = s.nominal(decl("Int"));
         let st = s.nominal(decl("String"));
         let u = s.union(&[i, st]);
-        let tuple = |a, b| Box::new([TupleTypeElement { label: None, ty: a }, TupleTypeElement { label: None, ty: b }]);
+        let tuple = |a, b| Box::new([TupleTypeElement::unlabeled(a), TupleTypeElement::unlabeled(b)]);
         let actual = s.tuple(tuple(i, i));
         let (first, second) = if good_first { (i, st) } else { (st, i) };
         let a = s.tuple(tuple(u, first));
@@ -237,8 +235,8 @@ fn canonicalization_binder_rows_and_application_controls() {
     let p = s.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(decl("A")), 0, "T", KindId::TYPE));
     let q = s.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(decl("B")), 0, "T", KindId::TYPE));
     assert_ne!(p, q);
-    let x = RecordTypeField { name: "x".into(), ty: i };
-    let y = RecordTypeField { name: "y".into(), ty: st };
+    let x = RecordTypeField { name: "x".into(), ty: i, presence: StructuralMemberPresence::Required };
+    let y = RecordTypeField { name: "y".into(), ty: st, presence: StructuralMemberPresence::Required };
     let xy = s.record(Box::new([x.clone(), y.clone()]));
     assert_eq!(s.record(Box::new([y, x])), xy);
 }
@@ -299,9 +297,9 @@ fn extended_type_relation_controls() {
     let lt = s.apply_type_form(list, &[t]).unwrap();
     let li = s.apply_type_form(list, &[i]).unwrap();
     let ln = s.apply_type_form(list, &[n]).unwrap();
-    let x = RecordTypeField { name: "x".into(), ty: i };
+    let x = RecordTypeField { name: "x".into(), ty: i, presence: StructuralMemberPresence::Required };
     let r1 = s.record(Box::new([x.clone()]));
-    let r2 = s.record(Box::new([x, RecordTypeField { name: "y".into(), ty: st }]));
+    let r2 = s.record(Box::new([x, RecordTypeField { name: "y".into(), ty: st, presence: StructuralMemberPresence::Required }]));
     let c1 = s.callable(CallableType {
         parameters: Box::new([CallableParameterType::new(n)]),
         return_type: i,
@@ -321,7 +319,7 @@ fn extended_type_relation_controls() {
         ("T <: Object", t, obj, false),
         ("List<T> <: List<T>", lt, lt, true),
         ("List<Int> <: List<Number>", li, ln, false),
-        ("record xy <: record x", r2, r1, true),
+        ("record xy <: record x", r2, r1, false),
         ("record x <: record xy", r1, r2, false),
         ("Number->Int <: Int->Number", c1, c2, true),
         ("ExactCase <: Enum", exact, en, true),

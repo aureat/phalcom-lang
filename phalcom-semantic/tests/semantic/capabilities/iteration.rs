@@ -301,17 +301,17 @@ class Probe {
     let TypeData::Tuple(zipped) = fixture.analysis.snapshot.store.get(zipped_item) else {
         panic!("expected precise zip item tuple");
     };
-    assert_eq!(zipped.len(), 2);
-    assert_projection(zipped[0].ty, fixture.ty("IntIterator"), "Iterator");
-    assert_projection(zipped[1].ty, fixture.ty("TextIterator"), "Iterator");
+    assert_eq!(zipped.elements.len(), 2);
+    assert_projection(zipped.elements[0].ty, fixture.ty("IntIterator"), "Iterator");
+    assert_projection(zipped.elements[1].ty, fixture.ty("TextIterator"), "Iterator");
 
     let indexed_item = option_payload(return_type("indexed"));
     let TypeData::Tuple(indexed) = fixture.analysis.snapshot.store.get(indexed_item) else {
         panic!("expected precise indexed item tuple");
     };
-    assert_eq!(indexed.len(), 2);
-    assert_eq!(indexed[0].ty, fixture.ty("Int"));
-    assert_projection(indexed[1].ty, fixture.ty("IntIterator"), "Iterator");
+    assert_eq!(indexed.elements.len(), 2);
+    assert_eq!(indexed.elements[0].ty, fixture.ty("Int"));
+    assert_projection(indexed.elements[1].ty, fixture.ty("IntIterator"), "Iterator");
 
     let invalid = Fixture::new_allowing_internal_incidents(
         r#"

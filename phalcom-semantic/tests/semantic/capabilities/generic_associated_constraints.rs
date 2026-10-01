@@ -537,8 +537,8 @@ fn match_impl_domain_head_matches_tuple_and_unit_against_tuple_from_packs() {
         phalcom_semantic::KindId::TYPE,
     );
     let concrete_tuple = store.tuple(Box::new([
-        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: int_ty },
-        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: str_ty },
+        phalcom_semantic::types::store::TupleTypeElement::unlabeled(int_ty),
+        phalcom_semantic::types::store::TupleTypeElement::unlabeled(str_ty),
     ]));
     let unit_ty = store.unit();
 

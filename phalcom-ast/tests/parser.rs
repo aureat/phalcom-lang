@@ -1393,9 +1393,46 @@ fn parse_structural_record_types() {
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].name, "name");
             assert_eq!(fields[1].name, "age");
-            assert_eq!(tail.as_ref().unwrap().name, "R");
+            assert!(matches!(tail.as_ref().unwrap(), phalcom_ast::ast::RecordRowTailSyntax::Captured(tail) if tail.name == "R"));
         }
         other => panic!("expected Record, got {other:?}"),
+    }
+
+    let p2 = parse_source("type OptRecord = { name: String, age?: Int, ... }\n", 0).expect("optional field and anonymous unconstrained remainder should parse");
+    let Statement::TypeAlias(alias2) = &p2.statements[0] else { panic!() };
+    match &alias2.body.expr {
+        TypeAnnotationExpr::Record { fields, tail, .. } => {
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].name, "name");
+            assert!(!fields[0].optional);
+            assert_eq!(fields[1].name, "age");
+            assert!(fields[1].optional);
+            assert!(matches!(tail.as_ref().unwrap(), phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_))));
+        }
+        other => panic!("expected Record, got {other:?}"),
+    }
+
+    let p3 = parse_source("type TypedRemRecord = { name: String, **: Int }\n", 0).expect("typed record remainder should parse");
+    let Statement::TypeAlias(alias3) = &p3.statements[0] else { panic!() };
+    match &alias3.body.expr {
+        TypeAnnotationExpr::Record { fields, tail, .. } => {
+            assert_eq!(fields.len(), 1);
+            assert!(matches!(tail.as_ref().unwrap(), phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { .. })));
+        }
+        other => panic!("expected Record, got {other:?}"),
+    }
+
+    let p4 = parse_source("type RemTuple = (Int, *: Float, opt?: String, **: Bool)\n", 0).expect("tuple with optional and remainders should parse");
+    let Statement::TypeAlias(alias4) = &p4.statements[0] else { panic!() };
+    match &alias4.body.expr {
+        TypeAnnotationExpr::Tuple { elements, .. } => {
+            assert_eq!(elements.len(), 4);
+            assert!(matches!(&elements[0], phalcom_ast::ast::TypeTupleItem::Element(el) if !el.optional));
+            assert!(matches!(&elements[1], phalcom_ast::ast::TypeTupleItem::Remainder(rem) if rem.mode == phalcom_ast::ast::RemainderLaneMode::Positional));
+            assert!(matches!(&elements[2], phalcom_ast::ast::TypeTupleItem::Element(el) if el.optional && el.label.as_deref() == Some("opt")));
+            assert!(matches!(&elements[3], phalcom_ast::ast::TypeTupleItem::Remainder(rem) if rem.mode == phalcom_ast::ast::RemainderLaneMode::Labeled));
+        }
+        other => panic!("expected Tuple, got {other:?}"),
     }
 }
 

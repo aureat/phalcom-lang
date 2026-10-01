@@ -65,6 +65,7 @@ fn tuple_ann(elements: Vec<(Option<&str>, TypeAnnotation)>) -> TypeAnnotation {
                     phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                         label: label.map(Into::into),
                         ty,
+                        optional: false,
                         range: RANGE,
                     })
                 })
@@ -83,6 +84,7 @@ fn record_ann(fields: Vec<(&str, TypeAnnotation)>) -> TypeAnnotation {
                 .map(|(name, ty)| phalcom_ast::ast::RecordTypeField {
                     name: name.into(),
                     ty,
+                    optional: false,
                     range: RANGE,
                 })
                 .collect(),
@@ -670,7 +672,7 @@ fn test_tuple_and_record_map_projection() {
     let list_str = env.store.apply_type_form(list_id, &[str_id]).unwrap();
     let expected_tup = env
         .store
-        .tuple(Box::new([TupleTypeElement::unlabeled(list_int), TupleTypeElement::labeled("name", list_str)]));
+        .tuple(Box::new([TupleTypeElement::unlabeled(list_int), TupleTypeElement::labeled("name".into(), list_str)]));
     assert_eq!(res_tup.ty(), Some(expected_tup));
     assert!(diags.is_empty());
 
@@ -683,14 +685,8 @@ fn test_tuple_and_record_map_projection() {
     let res_rec = resolve_type_annotation(&mut env.store, &env.declarations, &env.resolver, &env.site, &rec_ann, &mut diags);
 
     let expected_rec = env.store.record(Box::new([
-        RecordRowField {
-            name: "age".into(),
-            ty: list_int,
-        },
-        RecordRowField {
-            name: "name".into(),
-            ty: list_str,
-        },
+        RecordRowField::required("age".into(), list_int),
+        RecordRowField::required("name".into(), list_str),
     ]));
     assert_eq!(res_rec.ty(), Some(expected_rec));
     assert!(diags.is_empty());

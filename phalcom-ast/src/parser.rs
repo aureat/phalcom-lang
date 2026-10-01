@@ -1873,6 +1873,7 @@ impl<'source> Parser<'source> {
             let param = TypeCallableParameter {
                 label: None,
                 ty: atom.clone(),
+                optional: false,
                 rest: false,
                 range: atom.range,
             };
@@ -1917,7 +1918,69 @@ impl<'source> Parser<'source> {
         let mut items = Vec::new();
         let mut trailing_comma = false;
         while !matches!(self.peek(), Token::RParen | Token::Eof) {
+            self.skip_newlines();
             let item_start = self.cur_start();
+
+            // Check for lane remainder: `*: ...`, `*: Type`, `**: ...`, `**: Type`, `***: ...`, `***: Type`
+            let is_asterisk_token = matches!(self.peek(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk);
+            if is_asterisk_token && matches!(self.peek_next(), Token::Colon) {
+                let lane_mode = match self.peek() {
+                    Token::Asterisk => RemainderLaneMode::Positional,
+                    Token::DoubleAsterisk => RemainderLaneMode::Labeled,
+                    Token::TripleAsterisk => RemainderLaneMode::Complete,
+                    _ => unreachable!(),
+                };
+                self.advance(); // '*' / '**' / '***'
+                self.advance(); // ':'
+                self.skip_newlines();
+                let rem_start = self.cur_start();
+                let remainder = if self.eat(&Token::DotDotDot) {
+                    AnonymousRemainderSyntax::Unconstrained((rem_start..self.prev_end).into())
+                } else {
+                    let constraint = self.parse_type_form()?;
+                    AnonymousRemainderSyntax::Typed {
+                        constraint: Box::new(constraint),
+                        range: (rem_start..self.prev_end).into(),
+                    }
+                };
+                let item_range = (item_start..self.prev_end).into();
+                items.push(TypeCallableItem::Remainder(TupleRemainderSyntax {
+                    mode: lane_mode,
+                    remainder,
+                    range: item_range,
+                }));
+
+                if self.eat(&Token::Comma) {
+                    if matches!(self.peek(), Token::RParen) {
+                        trailing_comma = true;
+                        break;
+                    }
+                } else {
+                    break;
+                }
+                continue;
+            }
+
+            // Check for unconstrained complete remainder `...` when not followed by a type for callable rest
+            if matches!(self.peek(), Token::DotDotDot) && matches!(self.peek_next(), Token::Comma | Token::RParen) {
+                self.advance(); // '...'
+                let item_range = (item_start..self.prev_end).into();
+                items.push(TypeCallableItem::Remainder(TupleRemainderSyntax {
+                    mode: RemainderLaneMode::Complete,
+                    remainder: AnonymousRemainderSyntax::Unconstrained(item_range),
+                    range: item_range,
+                }));
+                if self.eat(&Token::Comma) {
+                    if matches!(self.peek(), Token::RParen) {
+                        trailing_comma = true;
+                        break;
+                    }
+                } else {
+                    break;
+                }
+                continue;
+            }
+
             if let Some(mode) = self.expansion_mode_at_cursor() {
                 let operator_range = (item_start..self.tokens[self.pos].end).into();
                 self.advance();
@@ -1939,19 +2002,46 @@ impl<'source> Parser<'source> {
                 }
                 continue;
             }
+
             let rest = self.eat(&Token::DotDotDot);
-            let label = if matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon) {
-                let lbl = self.expect_identifier(&["label"])?;
-                self.advance(); // ':'
-                Some(lbl)
-            } else {
-                None
-            };
+            let mut label = None;
+            let mut optional = false;
+
+            if matches!(self.peek(), Token::Identifier(_)) {
+                if matches!(self.peek_next(), Token::Colon) {
+                    let lbl = self.expect_identifier(&["label"])?;
+                    self.advance(); // ':'
+                    label = Some(lbl);
+                } else if matches!(self.peek_next(), Token::Question) {
+                    let lbl = self.expect_identifier(&["label"])?;
+                    self.advance(); // '?'
+                    if self.eat(&Token::Colon) {
+                        label = Some(lbl);
+                        optional = true;
+                    } else {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("optional positional members are not permitted in tuple types".to_string()),
+                            range: item_start..self.prev_end,
+                        });
+                    }
+                }
+            }
+
             let ty = self.parse_type_form()?;
+
+            // Check if trailing `?` follows a positional type
+            if label.is_none() && matches!(self.peek(), Token::Question) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("optional positional members are not permitted in tuple types".to_string()),
+                    range: item_start..self.cur_start() + 1,
+                });
+            }
+
             let item_range = (item_start..self.prev_end).into();
             items.push(TypeCallableItem::Parameter(TypeCallableParameter {
                 label,
                 ty,
+                optional,
                 rest,
                 range: item_range,
             }));
@@ -1970,6 +2060,14 @@ impl<'source> Parser<'source> {
         if self.eat(&Token::Arrow) {
             let result = self.parse_type_after_arrow()?;
             let range = (start..self.prev_end).into();
+            for item in &items {
+                if matches!(item, TypeCallableItem::Remainder(_)) {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("structural remainder is not permitted in callable parameter list".to_string()),
+                        range: item.range().start..item.range().end,
+                    });
+                }
+            }
             Ok(TypeAnnotation {
                 expr: TypeAnnotationExpr::Callable {
                     parameters: items,
@@ -1989,21 +2087,109 @@ impl<'source> Parser<'source> {
                     range: start..self.prev_end,
                 });
             }
-            if items.len() == 1 && !trailing_comma && matches!(&items[0], TypeCallableItem::Parameter(parameter) if parameter.label.is_none()) {
+            if items.len() == 1
+                && !trailing_comma
+                && matches!(&items[0], TypeCallableItem::Parameter(parameter) if parameter.label.is_none() && !parameter.optional)
+            {
                 let TypeCallableItem::Parameter(parameter) = items.remove(0) else {
                     unreachable!()
                 };
                 Ok(parameter.ty)
             } else {
+                let mut seen_labeled = false;
+                let mut seen_pos_rem = false;
+                let mut seen_lab_rem = false;
+                let mut seen_complete_rem = false;
+
+                for item in &items {
+                    match item {
+                        TypeCallableItem::Parameter(p) => {
+                            if p.label.is_some() {
+                                seen_labeled = true;
+                                if seen_lab_rem || seen_complete_rem {
+                                    return Err(SyntaxError {
+                                        kind: SyntaxErrorKind::Message("labeled tuple elements must precede labeled remainder".to_string()),
+                                        range: p.range.start..p.range.end,
+                                    });
+                                }
+                            } else {
+                                if seen_labeled {
+                                    return Err(SyntaxError {
+                                        kind: SyntaxErrorKind::Message("positional tuple elements must precede labeled elements".to_string()),
+                                        range: p.range.start..p.range.end,
+                                    });
+                                }
+                                if seen_pos_rem || seen_complete_rem {
+                                    return Err(SyntaxError {
+                                        kind: SyntaxErrorKind::Message("positional tuple elements must precede positional remainder".to_string()),
+                                        range: p.range.start..p.range.end,
+                                    });
+                                }
+                            }
+                        }
+                        TypeCallableItem::Expansion(e) => {
+                            if e.mode == ExpansionMode::Labeled && (seen_lab_rem || seen_complete_rem) {
+                                return Err(SyntaxError {
+                                    kind: SyntaxErrorKind::Message("labeled expansion must precede labeled remainder".to_string()),
+                                    range: e.range.start..e.range.end,
+                                });
+                            }
+                        }
+                        TypeCallableItem::Remainder(r) => {
+                            match r.mode {
+                                RemainderLaneMode::Positional => {
+                                    if seen_labeled {
+                                        return Err(SyntaxError {
+                                            kind: SyntaxErrorKind::Message("positional remainder must precede labeled lane".to_string()),
+                                            range: r.range.start..r.range.end,
+                                        });
+                                    }
+                                    if seen_pos_rem || seen_complete_rem {
+                                        return Err(SyntaxError {
+                                            kind: SyntaxErrorKind::Message("duplicate positional remainder in tuple type".to_string()),
+                                            range: r.range.start..r.range.end,
+                                        });
+                                    }
+                                    seen_pos_rem = true;
+                                }
+                                RemainderLaneMode::Labeled => {
+                                    if seen_lab_rem || seen_complete_rem {
+                                        return Err(SyntaxError {
+                                            kind: SyntaxErrorKind::Message("duplicate labeled remainder in tuple type".to_string()),
+                                            range: r.range.start..r.range.end,
+                                        });
+                                    }
+                                    seen_lab_rem = true;
+                                    seen_labeled = true;
+                                }
+                                RemainderLaneMode::Complete => {
+                                    if seen_pos_rem || seen_lab_rem || seen_complete_rem {
+                                        return Err(SyntaxError {
+                                            kind: SyntaxErrorKind::Message("duplicate remainder in tuple type".to_string()),
+                                            range: r.range.start..r.range.end,
+                                        });
+                                    }
+                                    seen_complete_rem = true;
+                                    seen_pos_rem = true;
+                                    seen_lab_rem = true;
+                                    seen_labeled = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let elements = items
                     .into_iter()
                     .map(|item| match item {
                         TypeCallableItem::Parameter(parameter) => TypeTupleItem::Element(TypeTupleElement {
                             label: parameter.label,
                             ty: parameter.ty,
+                            optional: parameter.optional,
                             range: parameter.range,
                         }),
                         TypeCallableItem::Expansion(expansion) => TypeTupleItem::Expansion(expansion),
+                        TypeCallableItem::Remainder(remainder) => TypeTupleItem::Remainder(remainder),
                     })
                     .collect();
                 Ok(TypeAnnotation {
@@ -2378,42 +2564,68 @@ impl<'source> Parser<'source> {
             if matches!(self.peek(), Token::Pipe) {
                 return Err(self.error_message_here("record row tails use `**R`; replace the old `| R` spelling"));
             }
-            if matches!(self.peek(), Token::DoubleAsterisk) {
-                let tail_start = self.cur_start();
-                self.advance();
-                let tail_name = self.expect_identifier(&["record row tail name"])?;
-                tail = Some(RecordRowTail {
-                    name: tail_name,
-                    range: (tail_start..self.prev_end).into(),
-                });
+            if self.eat(&Token::DotDotDot) {
+                let tail_range = (self.tokens[self.pos - 1].start..self.prev_end).into();
+                if tail.is_some() {
+                    return Err(self.error_message_here("duplicate record remainder or row tail"));
+                }
+                tail = Some(RecordRowTailSyntax::Anonymous(AnonymousRemainderSyntax::Unconstrained(tail_range)));
                 self.skip_newlines();
                 self.eat(&Token::Comma);
+                self.skip_newlines();
+                if !matches!(self.peek(), Token::RBrace) {
+                    return Err(self.error_message_here("record remainder must be the last entry in record type"));
+                }
+                break;
+            }
+            if matches!(self.peek(), Token::DoubleAsterisk) {
+                let tail_start = self.cur_start();
+                self.advance(); // '**'
+                if tail.is_some() {
+                    return Err(self.error_message_here("duplicate record remainder or row tail"));
+                }
+                if self.eat(&Token::Colon) {
+                    self.skip_newlines();
+                    let rem = if self.eat(&Token::DotDotDot) {
+                        AnonymousRemainderSyntax::Unconstrained((tail_start..self.prev_end).into())
+                    } else {
+                        let constraint = self.parse_type_form()?;
+                        AnonymousRemainderSyntax::Typed {
+                            constraint: Box::new(constraint),
+                            range: (tail_start..self.prev_end).into(),
+                        }
+                    };
+                    tail = Some(RecordRowTailSyntax::Anonymous(rem));
+                } else {
+                    let tail_name = self.expect_identifier(&["record row tail name"])?;
+                    tail = Some(RecordRowTailSyntax::Captured(RecordRowTail {
+                        name: tail_name,
+                        range: (tail_start..self.prev_end).into(),
+                    }));
+                }
+                self.skip_newlines();
+                self.eat(&Token::Comma);
+                self.skip_newlines();
+                if !matches!(self.peek(), Token::RBrace) {
+                    return Err(self.error_message_here("record row tail or remainder must be the last entry in record type"));
+                }
                 break;
             }
 
             let field_start = self.cur_start();
             let name = self.expect_identifier(&["field name"])?;
             self.skip_newlines();
+            let optional = self.eat(&Token::Question);
+            self.skip_newlines();
             self.expect(&Token::Colon, &["\":\""])?;
             self.skip_newlines();
             let ty = self.parse_type_form()?;
             let field_range = (field_start..self.prev_end).into();
-            fields.push(RecordTypeField { name, ty, range: field_range });
+            fields.push(RecordTypeField { name, ty, optional, range: field_range });
 
             self.skip_newlines();
             if self.eat(&Token::Comma) {
                 self.skip_newlines();
-                if self.eat(&Token::DoubleAsterisk) {
-                    let tail_start = self.cur_start();
-                    let tail_name = self.expect_identifier(&["record row tail name"])?;
-                    tail = Some(RecordRowTail {
-                        name: tail_name,
-                        range: (tail_start..self.prev_end).into(),
-                    });
-                    self.skip_newlines();
-                    self.eat(&Token::Comma);
-                    break;
-                }
             } else {
                 break;
             }

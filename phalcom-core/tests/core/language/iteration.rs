@@ -154,7 +154,6 @@ let result = next.isSome and iterated == 2
 }
 
 #[test]
-#[ignore = "BLOCKED: canonical Universe diagnostics fail the precondition; the Known post-take receiver's Iterator conformance is incomplete (iterator_laws impl 20), so terminal Derived toList evidence is unavailable. See INC-C3-27 and the C3 checkpoint."]
 fn unbounded_take_to_list_keeps_guarded_iterable_dispatch_evidence() {
     let source = r#"
 class Caller {
@@ -177,6 +176,10 @@ class Caller {
         .iter()
         .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
         .flat_map(|(_, callable)| callable.expressions.values())
+        .inspect(|expression| {
+            let text = source.get(expression.range.start..expression.range.end).unwrap_or("<unknown>");
+            eprintln!("EXPR: {:?} | status={:?} | ty={:?} | dispatch={:?}", text, expression.status, expression.knowledge.ty().map(|t| analyzed.semantic.store.format_type(t)), expression.trait_dispatch);
+        })
         .find_map(|expression| {
             let text = source.get(expression.range.start..expression.range.end)?;
             if !text.contains(".take(10).toList") {

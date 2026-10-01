@@ -541,15 +541,17 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                 let members = members.iter().map(|&member| normalize(store, substitution, member, states)).collect::<Vec<_>>();
                 store.union(&members)
             }
-            TypeData::Tuple(elements) => {
-                let elements = elements
+            TypeData::Tuple(tuple) => {
+                let elements = tuple
+                    .elements
                     .iter()
                     .map(|element| TupleTypeElement {
                         label: element.label.clone(),
                         ty: normalize(store, substitution, element.ty, states),
+                        presence: element.presence,
                     })
                     .collect::<Vec<_>>();
-                store.tuple(elements.into_boxed_slice())
+                store.open_tuple(elements.into_boxed_slice(), tuple.positional_remainder, tuple.labeled_remainder)
             }
             TypeData::Record(row_id) => {
                 let (fields, tail) = {
@@ -561,6 +563,7 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                     .map(|field| crate::types::row::RecordRowField {
                         name: field.name,
                         ty: normalize(store, substitution, field.ty, states),
+                        presence: field.presence,
                     })
                     .collect::<Vec<_>>();
                 store
@@ -654,6 +657,7 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                     .map(|argument| match argument {
                         StaticArgument::Term(argument) => StaticArgument::Term(normalize(store, substitution, *argument, states)),
                         StaticArgument::RecordRow(row) => StaticArgument::RecordRow(*row),
+                        StaticArgument::DynamicType => StaticArgument::DynamicType,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
@@ -710,8 +714,8 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
                 collect_type_parameters(store, member, output);
             }
         }
-        TypeData::Tuple(elements) => {
-            for element in elements.iter() {
+        TypeData::Tuple(tuple) => {
+            for element in tuple.elements.iter() {
                 collect_type_parameters(store, element.ty, output);
             }
         }
@@ -825,12 +829,15 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
                     .zip(right_members.iter())
                     .all(|(&left, &right)| unify_equality(store, substitution, left, right))
         }
-        (TypeData::Tuple(left_elements), TypeData::Tuple(right_elements)) => {
-            left_elements.len() == right_elements.len()
-                && left_elements
+        (TypeData::Tuple(left_tuple), TypeData::Tuple(right_tuple)) => {
+            left_tuple.positional_remainder == right_tuple.positional_remainder
+                && left_tuple.labeled_remainder == right_tuple.labeled_remainder
+                && left_tuple.elements.len() == right_tuple.elements.len()
+                && left_tuple
+                    .elements
                     .iter()
-                    .zip(right_elements.iter())
-                    .all(|(left, right)| left.label == right.label && unify_equality(store, substitution, left.ty, right.ty))
+                    .zip(right_tuple.elements.iter())
+                    .all(|(left, right)| left.label == right.label && left.presence == right.presence && unify_equality(store, substitution, left.ty, right.ty))
         }
         (TypeData::Record(left_row_id), TypeData::Record(right_row_id)) => unify_record_rows(store, substitution, left_row_id, right_row_id),
         (TypeData::Callable(left_callable), TypeData::Callable(right_callable)) => {

@@ -411,7 +411,7 @@ fn metadata_round_trip_preserves_heterogeneous_application_and_scoped_static_dom
 
     let int = store.nominal_type(dummy_decl("Int"));
     let row = store
-        .record_row_checked(vec![RecordRowField { name: "value".into(), ty: int }], RecordRowTail::Closed)
+        .record_row_checked(vec![RecordRowField::required("value".into(), int)], RecordRowTail::Closed)
         .expect("closed row argument");
     let tensor_kind = store.arrow_kind(vec![KindId::TYPE, KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
     let tensor = store.nominal_form(dummy_decl("Tensor"), tensor_kind);
@@ -712,7 +712,7 @@ fn open_record_metadata_is_tail_sensitive_and_enables_row_feature() {
     let owner_two = CallableId::new(dummy_decl("Owner"), Selector::getter("row-two").unwrap(), DispatchSide::Instance);
     let row_one = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Callable(owner_one), 0, "R", KindId::RECORD_ROW));
     let row_two = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Callable(owner_two), 0, "R", KindId::RECORD_ROW));
-    let fields = vec![RecordRowField { name: "value".into(), ty: int }];
+    let fields = vec![RecordRowField::required("value".into(), int)];
     let closed = store.record_row_type_checked(fields.clone(), RecordRowTail::Closed).unwrap();
     let open_one = store.record_row_type_checked(fields.clone(), RecordRowTail::Parameter(row_one)).unwrap();
     let open_two = store.record_row_type_checked(fields, RecordRowTail::Parameter(row_two)).unwrap();

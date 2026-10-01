@@ -961,45 +961,7 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
                             }
                         }
 
-                        // The rule's antecedent evidence is the executable
-                        // evidence product. Validate the consequent trait
-                        // contract in the same proof session, but do not add
-                        // its implied constraints to `nested`: the Iterator
-                        // proof is already present and must be reused rather
-                        // than duplicated in derived evidence.
-                        if failure_proof.is_none() {
-                            let contract_constraints = surfaces
-                                .get(&key.trait_ref.declaration)
-                                .and_then(|trait_surface| trait_surface.generic_signature.as_ref())
-                                .and_then(|signature| {
-                                    context
-                                        .store
-                                        .as_deref_mut()
-                                        .map(|store| crate::traits::instantiate_trait_generic_contract_for_term(store, signature, &key.subject, &key.trait_ref))
-                                })
-                                .unwrap_or_default();
-                            for constraint in &contract_constraints {
-                                let obligation_proof = prove_constraint(constraint, &impl_bindings, context);
-                                match obligation_proof {
-                                    GenericObligationProof::Conformance(GenericConformanceProof::Proven(_))
-                                    | GenericObligationProof::Equivalent(GenericEquivalenceProof::Proven) => {}
-                                    GenericObligationProof::Conformance(failing) => {
-                                        failure_proof = Some(failing);
-                                        break;
-                                    }
-                                    GenericObligationProof::Equivalent(failing) => {
-                                        failure_proof = Some(map_equivalence_proof_to_conformance_proof(failing));
-                                        break;
-                                    }
-                                    GenericObligationProof::Subtype(outcome) => {
-                                        if !outcome.is_proven() {
-                                            failure_proof = Some(map_subtype_outcome_to_conformance_proof(outcome));
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+
 
                         if let Some(failing) = failure_proof {
                             failure_proofs.push(failing);

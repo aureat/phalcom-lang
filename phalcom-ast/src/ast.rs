@@ -1037,7 +1037,7 @@ pub enum TypeAnnotationExpr {
     /// Structural record type (e.g. `{ name: String, age: Int }` or `{ name: String, **R }`).
     Record {
         fields: Vec<RecordTypeField>,
-        tail: Option<RecordRowTail>,
+        tail: Option<RecordRowTailSyntax>,
         range: SourceRange,
     },
     /// Type lambda expression (e.g. `<T> =>> Result<T, Error>`).
@@ -1160,6 +1160,7 @@ pub struct ExactCaseParameterSyntax {
 pub struct TypeTupleElement {
     pub label: Option<String>,
     pub ty: TypeAnnotation,
+    pub optional: bool,
     pub range: SourceRange,
 }
 
@@ -1200,6 +1201,7 @@ pub struct TypePackExpansionSyntax {
 pub enum TypeTupleItem {
     Element(TypeTupleElement),
     Expansion(TypePackExpansionSyntax),
+    Remainder(TupleRemainderSyntax),
 }
 
 impl TypeTupleItem {
@@ -1207,6 +1209,7 @@ impl TypeTupleItem {
         match self {
             Self::Element(element) => element.range,
             Self::Expansion(expansion) => expansion.range,
+            Self::Remainder(remainder) => remainder.range,
         }
     }
 }
@@ -1215,6 +1218,7 @@ impl TypeTupleItem {
 pub struct TypeCallableParameter {
     pub label: Option<String>,
     pub ty: TypeAnnotation,
+    pub optional: bool,
     pub rest: bool,
     pub range: SourceRange,
 }
@@ -1223,6 +1227,7 @@ pub struct TypeCallableParameter {
 pub enum TypeCallableItem {
     Parameter(TypeCallableParameter),
     Expansion(TypePackExpansionSyntax),
+    Remainder(TupleRemainderSyntax),
 }
 
 impl TypeCallableItem {
@@ -1230,6 +1235,7 @@ impl TypeCallableItem {
         match self {
             Self::Parameter(parameter) => parameter.range,
             Self::Expansion(expansion) => expansion.range,
+            Self::Remainder(remainder) => remainder.range,
         }
     }
 }
@@ -1362,6 +1368,7 @@ pub struct WhereClauseSyntax {
 pub struct RecordTypeField {
     pub name: String,
     pub ty: TypeAnnotation,
+    pub optional: bool,
     pub range: SourceRange,
 }
 
@@ -1369,6 +1376,53 @@ pub struct RecordTypeField {
 pub struct RecordRowTail {
     pub name: String,
     pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AnonymousRemainderSyntax {
+    Unconstrained(SourceRange),
+    Typed {
+        constraint: Box<TypeAnnotation>,
+        range: SourceRange,
+    },
+}
+
+impl AnonymousRemainderSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Unconstrained(r) => *r,
+            Self::Typed { range, .. } => *range,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RecordRowTailSyntax {
+    Captured(RecordRowTail),
+    Anonymous(AnonymousRemainderSyntax),
+}
+
+impl RecordRowTailSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Captured(tail) => tail.range,
+            Self::Anonymous(rem) => rem.range(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TupleRemainderSyntax {
+    pub mode: RemainderLaneMode,
+    pub remainder: AnonymousRemainderSyntax,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemainderLaneMode {
+    Positional,
+    Labeled,
+    Complete,
 }
 
 #[derive(Debug, Clone, PartialEq)]

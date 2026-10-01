@@ -19,6 +19,7 @@ pub enum RecordRowTermTail {
     Parameter(TypeParameterId),
     Projection(TypeId),
     Var(RecordRowVarId),
+    Anonymous(crate::types::row::AnonymousRecordRemainder),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,6 +66,7 @@ impl RecordRowTerm<TypeId> {
                 RecordRowTail::Closed => RecordRowTermTail::Closed,
                 RecordRowTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
                 RecordRowTail::Projection(proj) => RecordRowTermTail::Projection(proj),
+                RecordRowTail::Anonymous(rem) => RecordRowTermTail::Anonymous(rem),
             },
         }
     }
@@ -105,6 +107,7 @@ impl RecordRowSolution<TypeId> {
             RecordRowTermTail::Closed => RecordRowTail::Closed,
             RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
             RecordRowTermTail::Projection(proj) => RecordRowTail::Projection(proj),
+            RecordRowTermTail::Anonymous(rem) => RecordRowTail::Anonymous(rem),
             RecordRowTermTail::Var(variable) => {
                 if !visiting.insert(variable) {
                     return Err(RecordRowZonkError::Recursive(variable));
@@ -530,6 +533,16 @@ impl<V: Clone + Eq> RecordRowSolver<V> {
                 } else {
                     Err(ControlFailure::Rejected(RecordRowFailure::RigidTailMismatch {
                         expected: RecordRowTermTail::Projection(proj),
+                        actual: term.tail,
+                    }))
+                }
+            }
+            RecordRowTermTail::Anonymous(rem) => {
+                if term.fields.is_empty() && term.tail == RecordRowTermTail::Anonymous(rem) {
+                    Ok(())
+                } else {
+                    Err(ControlFailure::Rejected(RecordRowFailure::RigidTailMismatch {
+                        expected: RecordRowTermTail::Anonymous(rem),
                         actual: term.tail,
                     }))
                 }

@@ -392,8 +392,8 @@ impl Fixture {
                 let TypeData::Tuple(actual_elements) = self.analysis.snapshot.store.get(actual) else {
                     panic!("expected tuple, got {:?}", self.analysis.snapshot.store.get(actual));
                 };
-                assert_eq!(actual_elements.len(), elements.len());
-                for (actual, expected) in actual_elements.iter().zip(elements) {
+                assert_eq!(actual_elements.elements.len(), elements.len());
+                for (actual, expected) in actual_elements.elements.iter().zip(elements) {
                     self.assert_type(actual.ty, expected);
                 }
             }

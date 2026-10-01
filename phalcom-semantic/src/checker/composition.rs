@@ -93,6 +93,7 @@ pub(crate) fn project_tuple_elements(store: &TypeStore, knowledge: &TypeKnowledg
             };
             match store.get(source_ty) {
                 TypeData::Tuple(elements) => Ok(elements
+                    .elements
                     .iter()
                     .map(|element| knowledge.derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition))
                     .collect()),
@@ -143,6 +144,7 @@ pub(crate) fn project_record_shape(store: &TypeStore, knowledge: &TypeKnowledge)
                 // synthetic record fields.
                 TypeData::Tuple(elements) => Ok(RecordProjection {
                     fields: elements
+                        .elements
                         .iter()
                         .filter_map(|element| {
                             element
@@ -219,8 +221,8 @@ pub(crate) fn decompose_tuple_component(store: &TypeStore, parent: &TypeKnowledg
                 unreachable!("Known knowledge has a type");
             };
             match store.get(parent_ty) {
-                TypeData::Tuple(elements) if elements.len() == expected_len => {
-                    let Some(element) = elements.get(index) else {
+                TypeData::Tuple(elements) if elements.elements.len() == expected_len => {
+                    let Some(element) = elements.elements.get(index) else {
                         return TypeKnowledge::Unknown(UnknownReason::UncheckedExpression);
                     };
                     parent.derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition)

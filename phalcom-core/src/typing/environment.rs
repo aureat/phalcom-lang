@@ -150,6 +150,9 @@ fn instantiate_type_ref(
                             crate::typing::overlay::RuntimeStaticArgument::RecordRow(row) => {
                                 crate::typing::overlay::RuntimeStaticArgument::RecordRow(instantiate_record_row(row, env, context, registry, depth + 1)?)
                             }
+                            crate::typing::overlay::RuntimeStaticArgument::DynamicType => {
+                                crate::typing::overlay::RuntimeStaticArgument::DynamicType
+                            }
                         });
                     }
                     Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Applied {
@@ -282,6 +285,9 @@ fn instantiate_type_ref(
                                         tail: row.tail.clone(),
                                     },
                                 )
+                            }
+                            phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => {
+                                crate::typing::overlay::RuntimeStaticArgument::DynamicType
                             }
                         });
                     }

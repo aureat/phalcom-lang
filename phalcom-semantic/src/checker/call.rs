@@ -2741,7 +2741,7 @@ impl<'a> ParameterUseWalker<'a> {
                 self.visit_static_domain(term.domain) || term.arguments.iter().copied().any(|argument| self.visit_static_argument(argument))
             }
             TypeData::Union(members) => members.iter().copied().any(|member| self.visit_type(member)),
-            TypeData::Tuple(elements) => elements.iter().any(|element| self.visit_type(element.ty)),
+            TypeData::Tuple(elements) => elements.elements.iter().any(|element| self.visit_type(element.ty)),
             TypeData::Record(row) => self.visit_row(row),
             TypeData::TypePack(elements) | TypeData::TypePackConcat(elements) | TypeData::LabeledTypePackConcat(elements) => {
                 elements.iter().copied().any(|element| self.visit_type(element))
@@ -2783,6 +2783,7 @@ impl<'a> ParameterUseWalker<'a> {
         match argument {
             StaticArgument::Term(ty) => self.visit_type(ty),
             StaticArgument::RecordRow(row) => self.visit_row(row),
+            StaticArgument::DynamicType => false,
         }
     }
 
@@ -2805,7 +2806,8 @@ impl<'a> ParameterUseWalker<'a> {
         let row = self.store.record_row(row_id).clone();
         row.fields.iter().any(|field| self.visit_type(field.ty))
             || match row.tail {
-                RecordRowTail::Closed => false,
+                RecordRowTail::Closed | RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => self.visit_type(ty),
                 RecordRowTail::Parameter(parameter) => self.parameters.contains(&parameter),
                 RecordRowTail::Projection(projection) => self.visit_type(projection),
             }
@@ -2838,12 +2840,17 @@ impl<'a> ParameterUseWalker<'a> {
             ScopedTypeData::Record(fields) => fields.iter().any(|field| self.visit_scoped_type(field.ty)),
             ScopedTypeData::OpenRecord(record) => {
                 record.fields.iter().any(|field| self.visit_scoped_type(field.ty))
-                    || matches!(record.tail, ScopedRecordTail::FreeParameter(parameter) if self.parameters.contains(&parameter))
+                    || match record.tail {
+                        ScopedRecordTail::FreeParameter(parameter) => self.parameters.contains(&parameter),
+                        ScopedRecordTail::Bound { .. } | ScopedRecordTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+                        ScopedRecordTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => self.visit_type(ty),
+                    }
             }
             ScopedTypeData::RecordRow(row) => {
                 row.fields.iter().any(|field| self.visit_scoped_type(field.ty))
                     || match row.tail {
-                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } => false,
+                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } | ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+                        ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => self.visit_type(ty),
                         ScopedRecordRowTail::FreeParameter(parameter) => self.parameters.contains(&parameter),
                         ScopedRecordRowTail::Projection(projection) => self.visit_type(projection),
                     }

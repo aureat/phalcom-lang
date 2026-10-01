@@ -82,6 +82,7 @@ fn tuple_ann(elements: Vec<(Option<&str>, TypeAnnotation)>) -> TypeAnnotation {
                     phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                         label: label.map(Into::into),
                         ty,
+                        optional: false,
                         range: RANGE,
                     })
                 })
@@ -100,6 +101,7 @@ fn record_ann(fields: Vec<(&str, TypeAnnotation)>) -> TypeAnnotation {
                 .map(|(name, ty)| phalcom_ast::ast::RecordTypeField {
                     name: name.into(),
                     ty,
+                    optional: false,
                     range: RANGE,
                 })
                 .collect(),
@@ -695,7 +697,7 @@ fn tuple_element_unions_payloads_and_preserves_unsolved_pack_projection() {
     let mixed_tuple = env.store.tuple(Box::new([
         TupleTypeElement::unlabeled(int_ty),
         TupleTypeElement::unlabeled(bool_ty),
-        TupleTypeElement::labeled("name", string_ty),
+        TupleTypeElement::labeled("name".into(), string_ty),
     ]));
     let mixed_element = env.store.type_member_projection(
         TypeLevelProjection {
@@ -792,18 +794,9 @@ fn record_value_unions_closed_fields_and_preserves_open_row_projection() {
     let string_ty = env.store.nominal(decl("String"));
 
     let closed_record = env.store.record(Box::new([
-        RecordRowField {
-            name: "count".into(),
-            ty: int_ty,
-        },
-        RecordRowField {
-            name: "enabled".into(),
-            ty: bool_ty,
-        },
-        RecordRowField {
-            name: "label".into(),
-            ty: string_ty,
-        },
+        RecordRowField::required("count".into(), int_ty),
+        RecordRowField::required("enabled".into(), bool_ty),
+        RecordRowField::required("label".into(), string_ty),
     ]));
     let closed_value = env.store.type_member_projection(
         TypeLevelProjection {
@@ -855,7 +848,7 @@ fn record_value_unions_closed_fields_and_preserves_open_row_projection() {
     );
 
     let row_parameter = env.store.intern_type_parameter(TypeParameterData::new(
-        TypeParameterOwner::Declaration(decl("SymbolicRecordValue")),
+        TypeParameterOwner::Declaration(decl("SymbolRecordValue")),
         0,
         "R",
         KindId::RECORD_ROW,
@@ -863,10 +856,7 @@ fn record_value_unions_closed_fields_and_preserves_open_row_projection() {
     let open_record = env
         .store
         .record_row_type_checked(
-            vec![RecordRowField {
-                name: "known".into(),
-                ty: int_ty,
-            }],
+            vec![RecordRowField::required("known".into(), int_ty)],
             RecordRowTail::Parameter(row_parameter),
         )
         .expect("open Record row with a canonical row-variable tail");

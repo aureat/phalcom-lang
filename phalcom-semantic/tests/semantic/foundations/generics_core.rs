@@ -129,15 +129,9 @@ fn gate_01_5_c_lazy_view_and_eager_materialization_equivalence() {
     // Composite record: { first: A, second: B, tag: String }
     let rec_ty = store.record(
         vec![
-            RecordTypeField { name: "first".into(), ty: t_a },
-            RecordTypeField {
-                name: "second".into(),
-                ty: t_b,
-            },
-            RecordTypeField {
-                name: "tag".into(),
-                ty: str_ty,
-            },
+            RecordTypeField::required("first".into(), t_a),
+            RecordTypeField::required("second".into(), t_b),
+            RecordTypeField::required("tag".into(), str_ty),
         ]
         .into_boxed_slice(),
     );

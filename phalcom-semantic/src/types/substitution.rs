@@ -1,9 +1,12 @@
 //! Type parameter substitution for generic declarations and applied member views.
 
 use super::id::{KindId, TypeId, TypeParameterId};
-use super::row::{RecordRowField, RecordRowTail};
+use super::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
 use super::application::TypeApplicationError;
-use super::store::{CallableParameterType, CallableType, PackFormationError, StaticDataFormationError, TupleTypeElement, TypeData, TypeStore};
+use super::store::{
+    AnonymousTupleRemainder, CallableParameterType, CallableType, PackFormationError, StaticDataFormationError, TupleTypeElement, TypeData,
+    TypeStore,
+};
 use super::type_lambda::TypeLambdaArena;
 use crate::declarations::DeclarationTypeTable;
 use std::collections::HashMap;
@@ -96,6 +99,7 @@ impl TypeSubstitution {
                             Ok(super::store::StaticArgument::Term(self.try_apply_with_arena(store, arena, *argument)?))
                         }
                         super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(*row)),
+                        super::store::StaticArgument::DynamicType => Ok(super::store::StaticArgument::DynamicType),
                     })
                     .collect::<Result<Vec<_>, TypeSubstitutionError>>()?
                     .into_boxed_slice();
@@ -124,21 +128,32 @@ impl TypeSubstitution {
                     .map(|argument| match argument {
                         super::store::StaticArgument::Term(argument) => Ok(super::store::StaticArgument::Term(self.try_apply_with_arena(store, arena, *argument)?)),
                         super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(self.apply_record_row_with_arena(store, arena, *row))),
+                        super::store::StaticArgument::DynamicType => Ok(super::store::StaticArgument::DynamicType),
                     })
                     .collect::<Result<Vec<_>, TypeSubstitutionError>>()?;
                 Ok(store.apply_static_form_with_arena(arena, subst_origin, &subst_args)?)
             }
-            TypeData::Tuple(elements) => {
-                let subst_elements = elements
+            TypeData::Tuple(tuple) => {
+                let subst_elements = tuple
+                    .elements
                     .iter()
                     .map(|elem| {
                         Ok(TupleTypeElement {
                             label: elem.label.clone(),
                             ty: self.try_apply_with_arena(store, arena, elem.ty)?,
+                            presence: elem.presence,
                         })
                     })
                     .collect::<Result<Vec<_>, TypeSubstitutionError>>()?;
-                Ok(store.tuple(subst_elements.into_boxed_slice()))
+                let pos_rem = match tuple.positional_remainder {
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(self.try_apply_with_arena(store, arena, t)?),
+                    rem => rem,
+                };
+                let lab_rem = match tuple.labeled_remainder {
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(self.try_apply_with_arena(store, arena, t)?),
+                    rem => rem,
+                };
+                Ok(store.open_tuple(subst_elements.into_boxed_slice(), pos_rem, lab_rem))
             }
             TypeData::Callable(callable) => {
                 let params = callable
@@ -201,10 +216,15 @@ impl TypeSubstitution {
             .map(|field| RecordRowField {
                 name: field.name,
                 ty: self.apply_with_arena(store, arena, field.ty),
+                presence: field.presence,
             })
             .collect();
         let subst_tail = match tail {
             RecordRowTail::Closed => RecordRowTail::Closed,
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(t)) => {
+                RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(self.apply_with_arena(store, arena, t)))
+            }
+            RecordRowTail::Anonymous(rem) => RecordRowTail::Anonymous(rem),
             RecordRowTail::Parameter(param) => RecordRowTail::Parameter(param),
             RecordRowTail::Projection(proj) => RecordRowTail::Projection(self.apply_with_arena(store, arena, proj)),
         };
@@ -241,6 +261,7 @@ impl TypeSubstitution {
                     .map(|argument| match argument {
                         super::store::StaticArgument::Term(argument) => super::store::StaticArgument::Term(self.apply_with_arena(store, arena, *argument)),
                         super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(self.apply_record_row_with_arena(store, arena, *row)),
+                        super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                     })
                     .collect::<Vec<_>>();
                 store.apply_static_form_with_arena(arena, subst_origin, &subst_args).unwrap_or(ty)
@@ -254,15 +275,25 @@ impl TypeSubstitution {
                 let subst_members: Vec<TypeId> = members.iter().map(|&m| self.apply_with_arena(store, arena, m)).collect();
                 store.union(&subst_members)
             }
-            TypeData::Tuple(elements) => {
-                let subst_elements: Vec<TupleTypeElement> = elements
+            TypeData::Tuple(tuple) => {
+                let subst_elements: Vec<TupleTypeElement> = tuple
+                    .elements
                     .iter()
                     .map(|elem| TupleTypeElement {
                         label: elem.label.clone(),
                         ty: self.apply_with_arena(store, arena, elem.ty),
+                        presence: elem.presence,
                     })
                     .collect();
-                store.tuple(subst_elements.into_boxed_slice())
+                let pos_rem = match tuple.positional_remainder {
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(self.apply_with_arena(store, arena, t)),
+                    rem => rem,
+                };
+                let lab_rem = match tuple.labeled_remainder {
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(self.apply_with_arena(store, arena, t)),
+                    rem => rem,
+                };
+                store.open_tuple(subst_elements.into_boxed_slice(), pos_rem, lab_rem)
             }
             TypeData::Record(row_id) => {
                 let subst_row = self.apply_record_row_with_arena(store, arena, row_id);
@@ -402,6 +433,7 @@ impl TypeSubstitution {
                             super::store::StaticArgument::Term(self.apply_with_arena(store, arena, *argument))
                         }
                         super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                        super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
@@ -480,6 +512,7 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                         super::store::StaticArgument::Term(specialize_self_type(store, declarations, receiver, *argument))
                     }
                     super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                    super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                 })
                 .collect::<Vec<_>>();
             store.apply_static_form(subst_origin, &subst_args).unwrap_or(ty)
@@ -538,15 +571,25 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
             let subst_members: Vec<TypeId> = members.iter().map(|&m| specialize_self_type(store, declarations, receiver, m)).collect();
             store.union(&subst_members)
         }
-        TypeData::Tuple(elements) => {
-            let subst_elements: Vec<TupleTypeElement> = elements
+        TypeData::Tuple(tuple) => {
+            let subst_elements: Vec<TupleTypeElement> = tuple
+                .elements
                 .iter()
                 .map(|elem| TupleTypeElement {
                     label: elem.label.clone(),
                     ty: specialize_self_type(store, declarations, receiver, elem.ty),
+                    presence: elem.presence,
                 })
                 .collect();
-            store.tuple(subst_elements.into_boxed_slice())
+            let pos_rem = match tuple.positional_remainder {
+                AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(specialize_self_type(store, declarations, receiver, t)),
+                rem => rem,
+            };
+            let lab_rem = match tuple.labeled_remainder {
+                AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(specialize_self_type(store, declarations, receiver, t)),
+                rem => rem,
+            };
+            store.open_tuple(subst_elements.into_boxed_slice(), pos_rem, lab_rem)
         }
         TypeData::Record(row_id) => {
             let (fields, tail) = {
@@ -558,10 +601,20 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 .map(|field| RecordRowField {
                     name: field.name,
                     ty: specialize_self_type(store, declarations, receiver, field.ty),
+                    presence: field.presence,
                 })
                 .collect();
+            let subst_tail = match tail {
+                RecordRowTail::Closed => RecordRowTail::Closed,
+                RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(t)) => {
+                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(specialize_self_type(store, declarations, receiver, t)))
+                }
+                RecordRowTail::Anonymous(rem) => RecordRowTail::Anonymous(rem),
+                RecordRowTail::Parameter(param) => RecordRowTail::Parameter(param),
+                RecordRowTail::Projection(proj) => RecordRowTail::Projection(specialize_self_type(store, declarations, receiver, proj)),
+            };
             store
-                .record_row_type_checked(subst_fields, tail)
+                .record_row_type_checked(subst_fields, subst_tail)
                 .expect("Self specialization must preserve canonical Record-row invariants")
         }
         TypeData::Callable(callable) => {
@@ -650,6 +703,7 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                         super::store::StaticArgument::Term(specialize_self_type(store, declarations, receiver, *argument))
                     }
                     super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                    super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();

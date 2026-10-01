@@ -5,7 +5,10 @@ use super::family::FamilyMemberType;
 use super::id::{RecordRowId, TypeId};
 use super::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget};
 use super::row::RecordRowField;
-use super::store::{AssociatedTypeProjection, CallableParameterType, CallableType, StaticArgument, TupleTypeElement, TypeData, TypeStore};
+use super::store::{
+    AnonymousTupleRemainder, AssociatedTypeProjection, CallableParameterType, CallableType, StaticArgument, TupleType, TupleTypeElement,
+    TypeData, TypeStore,
+};
 use crate::declarations::DeclarationTypeTable;
 use crate::generic_evidence::{GenericConformanceKey, GenericEvidenceEnvironment};
 use crate::identity::ImplId;
@@ -179,15 +182,29 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
             let origin = origin.type_id().expect("successful normalization has a type");
             let mut normalized_arguments = Vec::with_capacity(arguments.len());
             for argument in arguments {
-                let Some(argument) = argument.as_type_id() else {
-                    return ProjectionNormalizationResult::Symbolic(ty);
-                };
-                let result = normalize_type(store, argument, context);
-                symbolic |= result.is_symbolic();
-                let Some(argument) = result.type_id() else { return result };
-                normalized_arguments.push(argument);
+                match argument {
+                    StaticArgument::Term(argument_ty) => {
+                        let result = normalize_type(store, argument_ty, context);
+                        symbolic |= result.is_symbolic();
+                        match result {
+                            ProjectionNormalizationResult::Normalized(t) | ProjectionNormalizationResult::Symbolic(t) => {
+                                normalized_arguments.push(StaticArgument::Term(t));
+                            }
+                            ProjectionNormalizationResult::Dynamic(_) => {
+                                normalized_arguments.push(StaticArgument::DynamicType);
+                            }
+                            other => return other,
+                        }
+                    }
+                    StaticArgument::RecordRow(row) => {
+                        normalized_arguments.push(StaticArgument::RecordRow(row));
+                    }
+                    StaticArgument::DynamicType => {
+                        normalized_arguments.push(StaticArgument::DynamicType);
+                    }
+                }
             }
-            let normalized = store.apply_type_form(origin, &normalized_arguments).unwrap_or(ty);
+            let normalized = store.apply_static_form(origin, &normalized_arguments).unwrap_or(ty);
             if symbolic {
                 ProjectionNormalizationResult::Symbolic(normalized)
             } else {
@@ -225,16 +242,38 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 ProjectionNormalizationResult::Normalized(normalized)
             }
         }
-        TypeData::Tuple(elements) => {
+        TypeData::Tuple(tuple) => {
             let mut symbolic = false;
-            let mut normalized_elements = Vec::with_capacity(elements.len());
-            for element in elements {
+            let mut normalized_elements = Vec::with_capacity(tuple.elements.len());
+            for element in tuple.elements.iter() {
                 let result = normalize_type(store, element.ty, context);
                 symbolic |= result.is_symbolic();
                 let Some(ty) = result.type_id() else { return result };
-                normalized_elements.push(TupleTypeElement { label: element.label, ty });
+                normalized_elements.push(TupleTypeElement {
+                    label: element.label.clone(),
+                    ty,
+                    presence: element.presence,
+                });
             }
-            let normalized = store.tuple(normalized_elements.into_boxed_slice());
+            let pos_rem = match tuple.positional_remainder {
+                AnonymousTupleRemainder::Typed(t) => {
+                    let result = normalize_type(store, t, context);
+                    symbolic |= result.is_symbolic();
+                    let Some(ty) = result.type_id() else { return result };
+                    AnonymousTupleRemainder::Typed(ty)
+                }
+                rem => rem,
+            };
+            let lab_rem = match tuple.labeled_remainder {
+                AnonymousTupleRemainder::Typed(t) => {
+                    let result = normalize_type(store, t, context);
+                    symbolic |= result.is_symbolic();
+                    let Some(ty) = result.type_id() else { return result };
+                    AnonymousTupleRemainder::Typed(ty)
+                }
+                rem => rem,
+            };
+            let normalized = store.open_tuple(normalized_elements.into_boxed_slice(), pos_rem, lab_rem);
             if symbolic {
                 ProjectionNormalizationResult::Symbolic(normalized)
             } else {
@@ -249,7 +288,11 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 let result = normalize_type(store, field.ty, context);
                 symbolic |= result.is_symbolic();
                 let Some(ty) = result.type_id() else { return result };
-                fields.push(RecordRowField { name: field.name, ty });
+                fields.push(RecordRowField {
+                    name: field.name,
+                    ty,
+                    presence: field.presence,
+                });
             }
             let normalized = match store.record_row_type_checked(fields, row.tail) {
                 Ok(normalized) => normalized,
@@ -840,7 +883,7 @@ fn normalize_intrinsic_projection(
 ) -> Option<ProjectionNormalizationResult> {
     let (owner, subject_data) = match subject {
         ProjectionSubject::Type(ty) => match store.get(*ty).clone() {
-            TypeData::Tuple(elems) => (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(elems))),
+            TypeData::Tuple(tuple) => (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(tuple))),
             TypeData::TupleFromPacks { positionals, labeled } => match (store.get(positionals).clone(), store.get(labeled).clone()) {
                 (TypeData::TypePack(pos), TypeData::LabeledTypePack(lab)) => {
                     let mut elems = Vec::with_capacity(pos.len() + lab.len());
@@ -850,11 +893,11 @@ fn normalize_intrinsic_projection(
                     for l in lab.iter() {
                         elems.push(TupleTypeElement::labeled(l.label.clone(), l.element));
                     }
-                    (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(elems.into_boxed_slice())))
+                    (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(TupleType::closed(elems.into_boxed_slice()))))
                 }
                 _ => (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::TupleFromPacks { positionals, labeled })),
             },
-            TypeData::Unit => (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(Box::new([])))),
+            TypeData::Unit => (Some(IntrinsicTypeOwner::Tuple), Some(TypeData::Tuple(TupleType::closed(Box::new([]))))),
             TypeData::Record(row_id) => (Some(IntrinsicTypeOwner::Record), Some(TypeData::Record(row_id))),
             TypeData::TypePack(elems) => (Some(IntrinsicTypeOwner::TypePack), Some(TypeData::TypePack(elems))),
             TypeData::LabeledTypePack(elems) => (Some(IntrinsicTypeOwner::LabeledTypePack), Some(TypeData::LabeledTypePack(elems))),
@@ -900,14 +943,14 @@ fn normalize_intrinsic_projection(
             ProjectionSubject::RecordRow(_) => Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
         },
         IntrinsicTypeOperation::TupleElement => {
-            let elems = match subject_data? {
-                TypeData::Tuple(elems) => elems,
+            let tuple = match subject_data? {
+                TypeData::Tuple(tuple) => tuple,
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            if elems.is_empty() {
+            if tuple.elements.is_empty() {
                 Some(ProjectionNormalizationResult::Normalized(store.never()))
             } else {
-                let elem_types: Vec<TypeId> = elems.iter().map(|e| e.ty).collect();
+                let elem_types: Vec<TypeId> = tuple.elements.iter().map(|e| e.ty).collect();
                 let union_ty = store.union(&elem_types);
                 Some(ProjectionNormalizationResult::Normalized(union_ty))
             }
@@ -920,14 +963,14 @@ fn normalize_intrinsic_projection(
                 },
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            let elems = match subject_data? {
-                TypeData::Tuple(elems) => elems,
+            let tuple = match subject_data? {
+                TypeData::Tuple(tuple) => tuple,
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            let n = elems.len() as i64;
+            let n = tuple.elements.len() as i64;
             let actual_idx = if idx < 0 { n + idx } else { idx };
-            if actual_idx >= 0 && (actual_idx as usize) < elems.len() {
-                let target_ty = elems[actual_idx as usize].ty;
+            if actual_idx >= 0 && (actual_idx as usize) < tuple.elements.len() {
+                let target_ty = tuple.elements[actual_idx as usize].ty;
                 Some(normalize_type(store, target_ty, context))
             } else {
                 Some(ProjectionNormalizationResult::InternalFailure(
@@ -940,22 +983,24 @@ fn normalize_intrinsic_projection(
                 TypeMemberArgument::Type(ty) => *ty,
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            let elems = match subject_data? {
-                TypeData::Tuple(elems) => elems,
+            let tuple = match subject_data? {
+                TypeData::Tuple(tuple) => tuple,
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            let mut transformed_elements = Vec::with_capacity(elems.len());
-            for elem in elems.iter() {
+            let mut transformed_elements = Vec::with_capacity(tuple.elements.len());
+            for elem in tuple.elements.iter() {
                 let applied = store.apply_type_form(transform_fn, &[elem.ty]).unwrap_or(elem.ty);
                 let norm_res = normalize_type(store, applied, context);
-                let Some(norm_ty) = norm_res.type_id() else { return Some(norm_res) };
+                let Some(target_ty) = norm_res.type_id() else {
+                    return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback));
+                };
                 transformed_elements.push(TupleTypeElement {
                     label: elem.label.clone(),
-                    ty: norm_ty,
+                    ty: target_ty,
+                    presence: elem.presence,
                 });
             }
-            let normalized = store.tuple(transformed_elements.into_boxed_slice());
-            Some(ProjectionNormalizationResult::Normalized(normalized))
+            Some(ProjectionNormalizationResult::Normalized(store.tuple(transformed_elements.into_boxed_slice())))
         }
         IntrinsicTypeOperation::RecordMap => {
             let transform_fn = match arguments.first()? {
@@ -975,6 +1020,7 @@ fn normalize_intrinsic_projection(
                 transformed_fields.push(RecordRowField {
                     name: field.name.clone(),
                     ty: norm_ty,
+                    presence: field.presence,
                 });
             }
             let normalized_rec = store.record_row_type_checked(transformed_fields, row.tail).ok()?;

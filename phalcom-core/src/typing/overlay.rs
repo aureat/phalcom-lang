@@ -58,6 +58,7 @@ pub struct RuntimeRecordRow {
 pub enum RuntimeStaticArgument {
     Term(RuntimeTypeRef),
     RecordRow(RuntimeRecordRow),
+    DynamicType,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

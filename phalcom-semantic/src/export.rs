@@ -133,6 +133,7 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
         }
         TypeData::Tuple(elems) => {
             let tuple_elems = elems
+                .elements
                 .iter()
                 .map(|e| export_type_form(store, e.ty).map(|t| CompiledTupleElement { label: e.label.clone(), ty: t }))
                 .collect::<Result<Vec<_>, _>>()?;

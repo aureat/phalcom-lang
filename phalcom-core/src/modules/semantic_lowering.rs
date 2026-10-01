@@ -647,10 +647,11 @@ fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -
                 || arguments.iter().any(|argument| match argument {
                     phalcom_semantic::types::store::StaticArgument::Term(argument) => contains_exact_case(store, *argument),
                     phalcom_semantic::types::store::StaticArgument::RecordRow(row) => contains_exact_case_in_row(store, *row),
+                    phalcom_semantic::types::store::StaticArgument::DynamicType => false,
                 })
         }
         TypeData::Union(members) => members.iter().any(|&m| contains_exact_case(store, m)),
-        TypeData::Tuple(elems) => elems.iter().any(|e| contains_exact_case(store, e.ty)),
+        TypeData::Tuple(elems) => elems.elements.iter().any(|e| contains_exact_case(store, e.ty)),
         TypeData::Record(row_id) => contains_exact_case_in_row(store, *row_id),
         TypeData::Callable(call) => call.parameters.iter().any(|p| contains_exact_case(store, p.ty)) || contains_exact_case(store, call.return_type),
         TypeData::Lambda(lambda_id) => {
@@ -680,7 +681,12 @@ fn contains_exact_case_in_row(store: &phalcom_semantic::types::TypeStore, row_id
     row.fields.iter().any(|field| contains_exact_case(store, field.ty))
         || match row.tail {
             phalcom_semantic::types::RecordRowTail::Projection(projection) => contains_exact_case(store, projection),
-            phalcom_semantic::types::RecordRowTail::Closed | phalcom_semantic::types::RecordRowTail::Parameter(_) => false,
+            phalcom_semantic::types::RecordRowTail::Closed
+            | phalcom_semantic::types::RecordRowTail::Parameter(_)
+            | phalcom_semantic::types::RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Unconstrained) => false,
+            phalcom_semantic::types::RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Typed(elem_ty)) => {
+                contains_exact_case(store, elem_ty)
+            }
         }
 }
 
@@ -2039,10 +2045,10 @@ fn project_anonymous_products(
             let AnonymousProductSource::Tuple { positional_len, labels, .. } = source else {
                 unreachable!()
             };
-            let phalcom_semantic::types::store::TypeData::Tuple(elements) = snapshot.store.get(type_id) else {
+            let phalcom_semantic::types::store::TypeData::Tuple(tuple) = snapshot.store.get(type_id) else {
                 continue;
             };
-            if elements.len() != component_ranges.len() || elements.len() != (positional_len as usize + labels.len()) {
+            if tuple.elements.len() != component_ranges.len() || tuple.elements.len() != (positional_len as usize + labels.len()) {
                 continue;
             }
             AnonymousProductConstructionLoweringSpec {
@@ -2051,7 +2057,8 @@ fn project_anonymous_products(
                     labels: labels.into_boxed_slice(),
                 },
                 layout: crate::product::ProductLayoutSpec::new(
-                    elements
+                    tuple
+                        .elements
                         .iter()
                         .enumerate()
                         .map(|(index, element)| crate::product::ProductComponentSpec {
@@ -2137,7 +2144,7 @@ pub fn anonymous_product_type_roots(module: &ModuleId, snapshot: &SemanticSnapsh
             };
             let ty = expression_facts.get(&range).copied().flatten()?;
             match snapshot.store.get(ty) {
-                TypeData::Tuple(elements) if elements.len() == component_count => Some((range, ty)),
+                TypeData::Tuple(tuple) if tuple.elements.len() == component_count => Some((range, ty)),
                 TypeData::Record(row_id) => {
                     let row = snapshot.store.record_row(*row_id);
                     if matches!(row.tail, phalcom_semantic::types::row::RecordRowTail::Closed) && row.fields.len() == component_count {

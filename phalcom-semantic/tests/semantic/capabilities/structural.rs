@@ -30,9 +30,9 @@ class Probe {
     let outer = f.binding(run, "x").current.ty().expect("tuple type");
     match f.analysis.snapshot.store.get(outer) {
         phalcom_semantic::types::store::TypeData::Tuple(elements) => {
-            assert_eq!(elements.len(), 2);
-            assert_eq!(elements[0].ty, int_ty);
-            f.assert_tuple_types(elements[1].ty, &[string_ty, cell_num]);
+            assert_eq!(elements.elements.len(), 2);
+            assert_eq!(elements.elements[0].ty, int_ty);
+            f.assert_tuple_types(elements.elements[1].ty, &[string_ty, cell_num]);
         }
         other => panic!("expected nested tuple, got {other:?}"),
     }

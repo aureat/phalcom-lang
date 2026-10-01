@@ -95,6 +95,7 @@ pub struct StaticConstructorRef {
 pub enum StaticArgumentRef {
     Term(TypeNodeId),
     RecordRow(RecordRowRef),
+    DynamicType,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]

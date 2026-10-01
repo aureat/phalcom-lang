@@ -1667,16 +1667,16 @@ impl Iterator for Counter {
 
     let tuple_ty = store.tuple(
         vec![
-            phalcom_semantic::types::store::TupleTypeElement { label: None, ty: counter_ty },
-            phalcom_semantic::types::store::TupleTypeElement { label: None, ty: proj },
+            phalcom_semantic::types::store::TupleTypeElement::unlabeled(counter_ty),
+            phalcom_semantic::types::store::TupleTypeElement::unlabeled(proj),
         ]
         .into_boxed_slice(),
     );
 
     let expected_tuple = store.tuple(
         vec![
-            phalcom_semantic::types::store::TupleTypeElement { label: None, ty: counter_ty },
-            phalcom_semantic::types::store::TupleTypeElement { label: None, ty: item_ty },
+            phalcom_semantic::types::store::TupleTypeElement::unlabeled(counter_ty),
+            phalcom_semantic::types::store::TupleTypeElement::unlabeled(item_ty),
         ]
         .into_boxed_slice(),
     );

@@ -103,10 +103,7 @@ data Envelope<**Fs: RecordFields> {
 
     let concrete = materialize_row(
         &mut store,
-        vec![RecordRowField {
-            name: "extra".into(),
-            ty: field_type,
-        }],
+        vec![RecordRowField::required("extra".into(), field_type)],
     )
     .expect("non-conflicting row materializes");
     assert_eq!(concrete.state, DataProductShapeState::Concrete);
@@ -117,14 +114,8 @@ data Envelope<**Fs: RecordFields> {
     let duplicate = materialize_row(
         &mut store,
         vec![
-            RecordRowField {
-                name: "id".into(),
-                ty: field_type,
-            },
-            RecordRowField {
-                name: "extra".into(),
-                ty: field_type,
-            },
+            RecordRowField::required("id".into(), field_type),
+            RecordRowField::required("extra".into(), field_type),
         ],
     );
     assert!(
@@ -171,10 +162,7 @@ data Envelope<**Fs: RecordFields> {
     ));
     let open_row = store
         .record_row_checked(
-            vec![RecordRowField {
-                name: "name".into(),
-                ty: fixed_type,
-            }],
+            vec![RecordRowField::required("name".into(), fixed_type)],
             RecordRowTail::Parameter(open_tail),
         )
         .expect("open RecordFields row");
@@ -1179,7 +1167,7 @@ fn user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple() {
         "user data specialization must retain its nominal Applied identity, got {:?}",
         store.get(nominal)
     );
-    assert!(matches!(store.get(structural), TypeData::Tuple(elements) if elements.len() == 2));
+    assert!(matches!(store.get(structural), TypeData::Tuple(elements) if elements.elements.len() == 2));
     assert_ne!(nominal, structural, "user MyTuple must not collapse to structural Tuple");
 }
 
@@ -1203,14 +1191,8 @@ fn user_record_row_data_type_keeps_nominal_identity_distinct_from_record() {
     let int = store.nominal_type(DeclarationId::new(module.clone(), "Int".into()));
     let string = store.nominal_type(DeclarationId::new(module, "String".into()));
     let fields = vec![
-        RecordRowField {
-            name: "age".into(),
-            ty: int,
-        },
-        RecordRowField {
-            name: "name".into(),
-            ty: string,
-        },
+        RecordRowField::required("age".into(), int),
+        RecordRowField::required("name".into(), string),
     ];
     let row = store
         .record_row_checked(fields.clone(), RecordRowTail::Closed)

@@ -94,6 +94,7 @@ fn materialize_type_inner(
                         row_mode,
                         visiting_rows,
                     )?)),
+                    super::store::StaticArgument::DynamicType => Ok(super::store::StaticArgument::DynamicType),
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
             store.apply_static_form(origin, &arguments).map_err(|_| TypeMaterializationError::TypeApplication)
@@ -160,11 +161,13 @@ fn materialize_type_inner(
         }
         TypeData::Tuple(elements) => {
             let elements = elements
+                .elements
                 .iter()
                 .map(|element| {
                     Ok(TupleTypeElement {
                         label: element.label.clone(),
                         ty: materialize_type_inner(store, element.ty, instantiation, row_mode, visiting_rows)?,
+                        presence: element.presence,
                     })
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
@@ -283,6 +286,7 @@ fn materialize_type_inner(
                         row_mode,
                         visiting_rows,
                     )?)),
+                    super::store::StaticArgument::DynamicType => Ok(super::store::StaticArgument::DynamicType),
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?
                 .into_boxed_slice();
@@ -310,6 +314,7 @@ fn materialize_row(
             Ok(RecordRowField {
                 name: field.name.clone(),
                 ty: materialize_type_inner(store, field.ty, instantiation, row_mode, visiting_rows)?,
+                presence: field.presence,
             })
         })
         .collect::<Result<Vec<_>, TypeMaterializationError>>()?;

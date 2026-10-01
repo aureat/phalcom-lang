@@ -23,7 +23,7 @@ fn row_parameter(store: &mut TypeStore) -> TypeParameterId {
 fn prefixed_row(store: &mut TypeStore, parameter: TypeParameterId) -> phalcom_semantic::types::id::RecordRowId {
     let int = store.nominal(declaration("Int"));
     store
-        .record_row_checked(vec![RecordRowField { name: "known".into(), ty: int }], RecordRowTail::Parameter(parameter))
+        .record_row_checked(vec![RecordRowField::required("known".into(), int)], RecordRowTail::Parameter(parameter))
         .expect("valid prefixed row")
 }
 
@@ -37,7 +37,7 @@ fn assert_nested_lack_rejects_duplicate_extension(store: &mut TypeStore, paramet
         .expect("formal open row");
     let int = store.nominal(declaration("Int"));
     let actual = store
-        .record_row_type_checked(vec![RecordRowField { name: "known".into(), ty: int }], RecordRowTail::Closed)
+        .record_row_type_checked(vec![RecordTypeField::required("known".into(), int)], RecordRowTail::Closed)
         .expect("actual row with duplicate field");
     let InferenceTerm::Record(formal_record) = session.type_term(formal, store) else {
         panic!("expected formal row inference term")
@@ -81,17 +81,14 @@ fn record_argument_decomposition_solves_remainder_without_publishing_row_variabl
     let int = store.nominal(declaration("Int"));
     let string = store.nominal(declaration("String"));
     let formal = store
-        .record_row_type_checked(vec![RecordTypeField { name: "item".into(), ty: int }], RecordRowTail::Parameter(row_parameter))
+        .record_row_type_checked(vec![RecordTypeField::required("item".into(), int)], RecordRowTail::Parameter(row_parameter))
         .unwrap();
     session.constrain_signature_type_lacks(formal, &store).unwrap();
     let actual = store
         .record_row_type_checked(
             vec![
-                RecordTypeField { name: "item".into(), ty: int },
-                RecordTypeField {
-                    name: "name".into(),
-                    ty: string,
-                },
+                RecordTypeField::required("item".into(), int),
+                RecordTypeField::required("name".into(), string),
             ],
             RecordRowTail::Closed,
         )
@@ -119,10 +116,7 @@ fn record_argument_decomposition_solves_remainder_without_publishing_row_variabl
     let data = store.record_row(remainder);
     assert_eq!(
         data.fields.as_ref(),
-        &[RecordRowField {
-            name: "name".into(),
-            ty: string,
-        }]
+        &[RecordRowField::required("name".into(), string)]
     );
     assert_eq!(data.tail, RecordRowTail::Closed);
     assert!(!store.contains_parameter_type(row_parameter));
@@ -140,24 +134,15 @@ fn return_record_prefix_contributes_signature_lacks_to_row_inference() {
     let string = store.nominal(declaration("String"));
     let formal = store
         .record_row_type_checked(
-            vec![RecordTypeField {
-                name: "name".into(),
-                ty: string,
-            }],
+            vec![RecordTypeField::required("name".into(), string)],
             RecordRowTail::Parameter(row_parameter),
         )
         .unwrap();
     let returned = store
         .record_row_type_checked(
             vec![
-                RecordTypeField {
-                    name: "name".into(),
-                    ty: string,
-                },
-                RecordTypeField {
-                    name: "tag".into(),
-                    ty: string,
-                },
+                RecordTypeField::required("name".into(), string),
+                RecordTypeField::required("tag".into(), string),
             ],
             RecordRowTail::Parameter(row_parameter),
         )
@@ -168,14 +153,8 @@ fn return_record_prefix_contributes_signature_lacks_to_row_inference() {
     let actual = store
         .record_row_type_checked(
             vec![
-                RecordTypeField {
-                    name: "name".into(),
-                    ty: string,
-                },
-                RecordTypeField {
-                    name: "tag".into(),
-                    ty: string,
-                },
+                RecordTypeField::required("name".into(), string),
+                RecordTypeField::required("tag".into(), string),
             ],
             RecordRowTail::Closed,
         )

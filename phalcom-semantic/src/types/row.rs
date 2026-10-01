@@ -2,15 +2,57 @@
 
 use super::id::{KindId, TypeId, TypeParameterId};
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StructuralMemberPresence {
+    Required,
+    Optional,
+}
+
+impl StructuralMemberPresence {
+    pub fn is_optional(self) -> bool {
+        self == Self::Optional
+    }
+
+    pub fn is_required(self) -> bool {
+        self == Self::Required
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AnonymousRecordRemainder {
+    Unconstrained,
+    Typed(TypeId),
+}
+
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RecordRowField<T = TypeId> {
     pub name: Box<str>,
     pub ty: T,
+    pub presence: StructuralMemberPresence,
+}
+
+impl<T> RecordRowField<T> {
+    pub fn new(name: Box<str>, ty: T, presence: StructuralMemberPresence) -> Self {
+        Self {
+            name,
+            ty,
+            presence,
+        }
+    }
+
+    pub fn required(name: Box<str>, ty: T) -> Self {
+        Self::new(name, ty, StructuralMemberPresence::Required)
+    }
+
+    pub fn optional(name: Box<str>, ty: T) -> Self {
+        Self::new(name, ty, StructuralMemberPresence::Optional)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RecordRowTail {
     Closed,
+    Anonymous(AnonymousRecordRemainder),
     Parameter(TypeParameterId), // must have kind RecordRow
     Projection(TypeId),         // must have kind RecordRow
 }

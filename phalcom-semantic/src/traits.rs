@@ -656,7 +656,7 @@ fn type_contains_self(store: &TypeStore, ty: TypeId) -> bool {
         }
         crate::types::store::TypeData::ExactCase { enum_type, .. } => type_contains_self(store, *enum_type),
         crate::types::store::TypeData::Union(types) => types.iter().any(|&t| type_contains_self(store, t)),
-        crate::types::store::TypeData::Tuple(elems) => elems.iter().any(|e| type_contains_self(store, e.ty)),
+        crate::types::store::TypeData::Tuple(elems) => elems.elements.iter().any(|e| type_contains_self(store, e.ty)),
         crate::types::store::TypeData::Callable(c) => type_contains_self(store, c.return_type) || c.parameters.iter().any(|p| type_contains_self(store, p.ty)),
         _ => false,
     }
@@ -846,12 +846,14 @@ fn substitute_type_id_self_and_params(store: &mut TypeStore, ty: TypeId, subject
         }
         crate::types::store::TypeData::Tuple(elements) => {
             let subst_elements: Vec<crate::types::store::TupleTypeElement> = elements
+                .elements
                 .iter()
                 .map(|elem| {
                     let term = substitute_type_id_self_and_params(store, elem.ty, subject, subst);
                     crate::types::store::TupleTypeElement {
                         label: elem.label.clone(),
                         ty: term_to_type_id(store, term),
+                        presence: elem.presence,
                     }
                 })
                 .collect();

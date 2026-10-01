@@ -58,6 +58,7 @@ pub enum ScopedTypeData {
 pub struct ScopedTupleElement {
     pub label: Option<Box<str>>,
     pub ty: ScopedTypeId,
+    pub presence: super::row::StructuralMemberPresence,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -77,12 +78,14 @@ pub enum ScopedPackProjectionLane {
 pub struct ScopedRecordField {
     pub name: Box<str>,
     pub ty: ScopedTypeId,
+    pub presence: super::row::StructuralMemberPresence,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ScopedRecordTail {
     Bound { depth: u32, index: u32 },
     FreeParameter(TypeParameterId),
+    Anonymous(super::row::AnonymousRecordRemainder),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -94,6 +97,7 @@ pub struct ScopedOpenRecord {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ScopedRecordRowTail {
     Closed,
+    Anonymous(super::row::AnonymousRecordRemainder),
     Bound { depth: u32, index: u32 },
     FreeParameter(TypeParameterId),
     Projection(TypeId),
@@ -433,6 +437,7 @@ impl TypeLambdaArena {
                     .map(|element| ScopedTupleElement {
                         label: element.label.clone(),
                         ty: self.substitute_free_scoped(element.ty, substitution, store),
+                        presence: element.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
@@ -444,6 +449,7 @@ impl TypeLambdaArena {
                     .map(|field| ScopedRecordField {
                         name: field.name.clone(),
                         ty: self.substitute_free_scoped(field.ty, substitution, store),
+                        presence: field.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
@@ -456,6 +462,7 @@ impl TypeLambdaArena {
                     .map(|field| ScopedRecordField {
                         name: field.name.clone(),
                         ty: self.substitute_free_scoped(field.ty, substitution, store),
+                        presence: field.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
@@ -468,6 +475,7 @@ impl TypeLambdaArena {
                     .map(|field| ScopedRecordField {
                         name: field.name.clone(),
                         ty: self.substitute_free_scoped(field.ty, substitution, store),
+                        presence: field.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
@@ -597,6 +605,7 @@ impl TypeLambdaArena {
                         Ok(super::store::TupleTypeElement {
                             label: e.label.clone(),
                             ty: self.subst_scoped_to_canonical(e.ty, depth, args, store)?,
+                            presence: e.presence,
                         })
                     })
                     .collect::<Result<_, BetaReductionError>>()?;
@@ -609,10 +618,11 @@ impl TypeLambdaArena {
                         Ok(super::store::RecordTypeField {
                             name: f.name.clone(),
                             ty: self.subst_scoped_to_canonical(f.ty, depth, args, store)?,
+                            presence: f.presence,
                         })
                     })
                     .collect::<Result<_, BetaReductionError>>()?;
-                Ok(store.record(can_fields.into_boxed_slice()))
+                Ok(store.record_row_type_checked(can_fields, RecordRowTail::Closed).map_err(BetaReductionError::RecordRowFormation)?)
             }
             ScopedTypeData::OpenRecord(record) => {
                 let can_fields = record
@@ -622,11 +632,13 @@ impl TypeLambdaArena {
                         Ok(super::store::RecordTypeField {
                             name: field.name.clone(),
                             ty: self.subst_scoped_to_canonical(field.ty, depth, args, store)?,
+                            presence: field.presence,
                         })
                     })
                     .collect::<Result<Vec<_>, BetaReductionError>>()?;
                 let tail = match record.tail {
                     ScopedRecordTail::FreeParameter(parameter) => RecordRowTail::Parameter(parameter),
+                    ScopedRecordTail::Anonymous(remainder) => RecordRowTail::Anonymous(remainder),
                     ScopedRecordTail::Bound { .. } => return Err(BetaReductionError::UnsupportedRecordRowArgument),
                 };
                 store.record_row_type_checked(can_fields, tail).map_err(BetaReductionError::RecordRowFormation)
@@ -758,6 +770,7 @@ impl TypeLambdaArena {
                 Ok(super::store::RecordTypeField {
                     name: field.name.clone(),
                     ty: self.subst_scoped_to_canonical(field.ty, depth, args, store)?,
+                    presence: field.presence,
                 })
             })
             .collect::<Result<Vec<_>, BetaReductionError>>()?;
@@ -766,6 +779,7 @@ impl TypeLambdaArena {
             ScopedRecordRowTail::Bound { .. } => return Err(BetaReductionError::UnsupportedRecordRowArgument),
             ScopedRecordRowTail::FreeParameter(parameter) => RecordRowTail::Parameter(parameter),
             ScopedRecordRowTail::Projection(projection) => RecordRowTail::Projection(projection),
+            ScopedRecordRowTail::Anonymous(remainder) => RecordRowTail::Anonymous(remainder),
         };
         let row = store.record_row_checked(fields, tail).map_err(BetaReductionError::RecordRowFormation)?;
         Ok(StaticArgument::RecordRow(row))
@@ -807,6 +821,7 @@ impl TypeLambdaArena {
                     .map(|e| ScopedTupleElement {
                         label: e.label.clone(),
                         ty: self.subst_scoped_partial(e.ty, depth, args, store),
+                        presence: e.presence,
                     })
                     .collect();
                 self.intern_scoped(ScopedTypeData::Tuple(s_elems.into_boxed_slice()))
@@ -817,6 +832,7 @@ impl TypeLambdaArena {
                     .map(|f| ScopedRecordField {
                         name: f.name.clone(),
                         ty: self.subst_scoped_partial(f.ty, depth, args, store),
+                        presence: f.presence,
                     })
                     .collect();
                 self.intern_scoped(ScopedTypeData::Record(s_fields.into_boxed_slice()))
@@ -828,6 +844,7 @@ impl TypeLambdaArena {
                     .map(|field| ScopedRecordField {
                         name: field.name.clone(),
                         ty: self.subst_scoped_partial(field.ty, depth, args, store),
+                        presence: field.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
@@ -840,6 +857,7 @@ impl TypeLambdaArena {
                     .map(|field| ScopedRecordField {
                         name: field.name.clone(),
                         ty: self.subst_scoped_partial(field.ty, depth, args, store),
+                        presence: field.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();

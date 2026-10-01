@@ -140,9 +140,9 @@ type AddHead<*Ts> = (Int, *Ts);
     let TypeData::Tuple(elements) = store.get(applied) else {
         panic!("concrete pack alias must reduce to the canonical Tuple")
     };
-    assert_eq!(elements.len(), 2);
-    assert_eq!(elements[0].ty, fixture.ty("Int"));
-    assert_eq!(elements[1].ty, fixture.ty("String"));
+    assert_eq!(elements.elements.len(), 2);
+    assert_eq!(elements.elements[0].ty, fixture.ty("Int"));
+    assert_eq!(elements.elements[1].ty, fixture.ty("String"));
 }
 
 #[test]

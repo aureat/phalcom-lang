@@ -1081,6 +1081,7 @@ fn specialize_data_constructor_target(
                     fixed_generics.push((parameter, *ty));
                 }
                 crate::types::store::StaticArgument::RecordRow(row) => environment.bind_row(parameter, *row),
+                crate::types::store::StaticArgument::DynamicType => environment.bind_dynamic(parameter),
             }
         }
     }
@@ -1929,6 +1930,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                             fixed_generics.push((param_id, ty));
                         }
                         crate::types::store::StaticArgument::RecordRow(row) => env.bind_row(param_id, row),
+                        crate::types::store::StaticArgument::DynamicType => env.bind_dynamic(param_id),
                     }
                 }
             }
@@ -2017,6 +2019,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                             fixed_generics.push((param_id, ty));
                         }
                         crate::types::store::StaticArgument::RecordRow(row) => env.bind_row(param_id, row),
+                        crate::types::store::StaticArgument::DynamicType => env.bind_dynamic(param_id),
                     }
                 }
             }
@@ -2431,7 +2434,7 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
                 match crate::checker::composition::project_tuple_elements(ctx.store, &typed.knowledge) {
                     Ok(projected) => {
                         let source_labels = typed.knowledge.ty().and_then(|ty| match ctx.store.get(ty) {
-                            TypeData::Tuple(elements) => Some(elements.iter().map(|element| element.label.clone()).collect::<Vec<_>>()),
+                            TypeData::Tuple(elements) => Some(elements.elements.iter().map(|element| element.label.clone()).collect::<Vec<_>>()),
                             _ => None,
                         });
                         for (index, component) in projected.into_iter().enumerate() {
@@ -2458,7 +2461,7 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
             .iter()
             .cloned()
             .zip(types.iter().copied())
-            .map(|(label, ty)| TupleTypeElement { label, ty })
+            .map(|(label, ty)| TupleTypeElement { label, ty, presence: crate::types::row::StructuralMemberPresence::Required })
             .collect::<Vec<_>>();
         Ok(ctx.store.tuple(elements.into_boxed_slice()))
     });
@@ -2489,8 +2492,8 @@ fn expected_tuple_component(expected: &ExpectedType, store: &crate::types::store
                 return ExpectedType::None;
             };
             let element = label
-                .and_then(|name| elements.iter().find(|element| element.label.as_deref() == Some(name)))
-                .or_else(|| elements.get(index));
+                .and_then(|name| elements.elements.iter().find(|element| element.label.as_deref() == Some(name)))
+                .or_else(|| elements.elements.get(index));
             element
                 .map(|element| ExpectedType::proper_from(element.ty, *origin))
                 .unwrap_or(ExpectedType::None)
@@ -2772,7 +2775,7 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                 .iter()
                 .cloned()
                 .zip(types.iter().copied())
-                .map(|(name, ty)| RecordTypeField { name, ty })
+                .map(|(name, ty)| RecordTypeField { name, ty, presence: crate::types::row::StructuralMemberPresence::Required })
                 .collect::<Vec<_>>();
             match ctx.store.record_row_type_checked(fields, open_tail.unwrap_or(RecordRowTail::Closed)) {
                 Ok(ty) => Ok(ty),

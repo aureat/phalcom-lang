@@ -20,3 +20,5 @@ class DuplicateKeyError is Error {
   }
   key { _key }
 }
+
+export ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError

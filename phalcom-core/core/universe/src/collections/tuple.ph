@@ -252,9 +252,9 @@ class TupleIterator<***Es: CompleteTypePack> {
       _done = true
       return None
     }
-    let value = _source.at(_index)
+    let value = _source[_index]
     _index = _index + 1
-    value
+    Some(value)
   }
 
   iterator { self }

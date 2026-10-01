@@ -6,12 +6,13 @@ use super::row::RecordRowField;
 use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
 use crate::identity::CallableId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// An environment mapping type parameters and `Self` bindings for lazy specialization.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TypeEnvironment {
     pub bindings: HashMap<TypeParameterId, TypeId>,
+    pub dynamic_bindings: HashSet<TypeParameterId>,
     pub row_bindings: HashMap<TypeParameterId, RecordRowId>,
     pub self_binding: Option<TypeId>,
 }
@@ -23,6 +24,14 @@ impl TypeEnvironment {
 
     pub fn bind_param(&mut self, param: TypeParameterId, ty: TypeId) {
         self.bindings.insert(param, ty);
+    }
+
+    pub fn bind_dynamic(&mut self, param: TypeParameterId) {
+        self.dynamic_bindings.insert(param);
+    }
+
+    pub fn is_dynamic(&self, param: TypeParameterId) -> bool {
+        self.dynamic_bindings.contains(&param)
     }
 
     pub fn bind_row(&mut self, param: TypeParameterId, row: RecordRowId) {
@@ -46,7 +55,7 @@ impl TypeEnvironment {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.bindings.is_empty() && self.row_bindings.is_empty() && self.self_binding.is_none()
+        self.bindings.is_empty() && self.dynamic_bindings.is_empty() && self.row_bindings.is_empty() && self.self_binding.is_none()
     }
 
     pub fn to_substitution(&self) -> TypeSubstitution {
@@ -94,6 +103,20 @@ impl TypeView {
             return self.root;
         }
         materialize_view(store, self.root, &self.environment)
+    }
+
+    /// Materializes this view into knowledge-bearing `TypeKnowledge`.
+    pub fn materialize_knowledge(&self, store: &mut TypeStore) -> crate::types::evidence::TypeKnowledge {
+        if self.environment.is_empty() {
+            return crate::types::evidence::TypeKnowledge::assumed(self.root, crate::types::evidence::EvidenceOrigin::CallableSignature);
+        }
+        if let TypeData::Parameter(param) = store.get(self.root) {
+            if self.environment.is_dynamic(*param) {
+                return crate::types::evidence::TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape);
+            }
+        }
+        let materialized = self.materialize(store);
+        crate::types::evidence::TypeKnowledge::assumed(materialized, crate::types::evidence::EvidenceOrigin::CallableSignature)
     }
 
     pub fn materialize_checked(&self, store: &mut TypeStore, row_mode: RowMaterializationMode) -> Result<TypeId, TypeMaterializationError> {
@@ -161,14 +184,24 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
         }
         TypeData::Applied { origin, arguments } => {
             let subst_origin = materialize_view(store, origin, env);
-            let Some(subst_args) = arguments
+            let subst_args = arguments
                 .iter()
-                .map(|argument| argument.as_type_id().map(|argument| materialize_view(store, argument, env)))
-                .collect::<Option<Vec<_>>>()
-            else {
-                return ty;
-            };
-            store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty)
+                .map(|argument| match argument {
+                    super::store::StaticArgument::Term(arg) => {
+                        if let TypeData::Parameter(param) = store.get(*arg) {
+                            if env.is_dynamic(*param) {
+                                return super::store::StaticArgument::DynamicType;
+                            }
+                        }
+                        super::store::StaticArgument::Term(materialize_view(store, *arg, env))
+                    }
+                    super::store::StaticArgument::RecordRow(row) => {
+                        super::store::StaticArgument::RecordRow(*row)
+                    }
+                    super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
+                })
+                .collect::<Vec<_>>();
+            store.apply_static_form(subst_origin, &subst_args).unwrap_or(ty)
         }
         TypeData::ExactCase { variant, enum_type } => {
             let subst_enum = materialize_view(store, enum_type, env);
@@ -181,10 +214,12 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
         }
         TypeData::Tuple(elems) => {
             let subst_elems: Vec<TupleTypeElement> = elems
+                .elements
                 .iter()
                 .map(|e| TupleTypeElement {
                     label: e.label.clone(),
                     ty: materialize_view(store, e.ty, env),
+                    presence: e.presence,
                 })
                 .collect();
             store.tuple(subst_elems.into_boxed_slice())
@@ -199,6 +234,7 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 .map(|f| RecordRowField {
                     name: f.name,
                     ty: materialize_view(store, f.ty, env),
+                    presence: f.presence,
                 })
                 .collect();
             store
@@ -291,6 +327,7 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 .map(|argument| match argument {
                     super::store::StaticArgument::Term(argument) => super::store::StaticArgument::Term(materialize_view(store, *argument, env)),
                     super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                    super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();

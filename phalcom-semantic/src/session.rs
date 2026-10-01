@@ -7391,6 +7391,11 @@ fn collect_alias_dependencies(
                     phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
                         collect_alias_dependencies(&expansion.operand, module, resolver, aliases, dependencies);
                     }
+                    phalcom_ast::ast::TypeTupleItem::Remainder(remainder) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                            collect_alias_dependencies(constraint, module, resolver, aliases, dependencies);
+                        }
+                    }
                 }
             }
         }
@@ -7403,13 +7408,17 @@ fn collect_alias_dependencies(
                     phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
                         collect_alias_dependencies(&expansion.operand, module, resolver, aliases, dependencies);
                     }
+                    phalcom_ast::ast::TypeCallableItem::Remainder(_) => {}
                 }
             }
             collect_alias_dependencies(result, module, resolver, aliases, dependencies);
         }
-        TypeAnnotationExpr::Record { fields, .. } => {
+        TypeAnnotationExpr::Record { fields, tail, .. } => {
             for field in fields {
                 collect_alias_dependencies(&field.ty, module, resolver, aliases, dependencies);
+            }
+            if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. })) = tail {
+                collect_alias_dependencies(constraint, module, resolver, aliases, dependencies);
             }
         }
         TypeAnnotationExpr::TypeLambda { body, .. } => collect_alias_dependencies(body, module, resolver, aliases, dependencies),
@@ -7507,12 +7516,20 @@ fn collect_associated_projection_targets(
                     phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
                         collect_associated_projection_targets(&expansion.operand, module, surface, targets);
                     }
+                    phalcom_ast::ast::TypeTupleItem::Remainder(remainder) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                            collect_associated_projection_targets(constraint, module, surface, targets);
+                        }
+                    }
                 }
             }
         }
-        TypeAnnotationExpr::Record { fields, .. } => {
+        TypeAnnotationExpr::Record { fields, tail, .. } => {
             for field in fields {
                 collect_associated_projection_targets(&field.ty, module, surface, targets);
+            }
+            if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. })) = tail {
+                collect_associated_projection_targets(constraint, module, surface, targets);
             }
         }
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
@@ -7524,6 +7541,7 @@ fn collect_associated_projection_targets(
                     phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
                         collect_associated_projection_targets(&expansion.operand, module, surface, targets);
                     }
+                    phalcom_ast::ast::TypeCallableItem::Remainder(_) => {}
                 }
             }
             collect_associated_projection_targets(result, module, surface, targets);
@@ -7644,6 +7662,11 @@ fn collect_type_annotation_declarations(
                     phalcom_ast::ast::TypeTupleItem::Expansion(expansion) => {
                         collect_type_annotation_declarations(&expansion.operand, module, resolver, dependencies);
                     }
+                    phalcom_ast::ast::TypeTupleItem::Remainder(rem) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &rem.remainder {
+                            collect_type_annotation_declarations(constraint, module, resolver, dependencies);
+                        }
+                    }
                 }
             }
         }
@@ -7655,6 +7678,11 @@ fn collect_type_annotation_declarations(
                     }
                     phalcom_ast::ast::TypeCallableItem::Expansion(expansion) => {
                         collect_type_annotation_declarations(&expansion.operand, module, resolver, dependencies);
+                    }
+                    phalcom_ast::ast::TypeCallableItem::Remainder(rem) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &rem.remainder {
+                            collect_type_annotation_declarations(constraint, module, resolver, dependencies);
+                        }
                     }
                 }
             }
@@ -8010,6 +8038,11 @@ fn collect_static_case_signature_dependencies(
                     TypeTupleItem::Expansion(expansion) => {
                         collect_static_case_signature_dependencies(&expansion.operand, module, resolver, catalogs, dependencies)
                     }
+                    TypeTupleItem::Remainder(rem) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &rem.remainder {
+                            collect_static_case_signature_dependencies(constraint, module, resolver, catalogs, dependencies);
+                        }
+                    }
                 }
             }
         }
@@ -8021,6 +8054,11 @@ fn collect_static_case_signature_dependencies(
                     }
                     TypeCallableItem::Expansion(expansion) => {
                         collect_static_case_signature_dependencies(&expansion.operand, module, resolver, catalogs, dependencies)
+                    }
+                    TypeCallableItem::Remainder(rem) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &rem.remainder {
+                            collect_static_case_signature_dependencies(constraint, module, resolver, catalogs, dependencies);
+                        }
                     }
                 }
             }
@@ -8394,6 +8432,11 @@ fn collect_source_member_projection_dependencies(
                     TypeTupleItem::Expansion(expansion) => {
                         collect_source_member_projection_dependencies(&expansion.operand, module, resolver, members, dependencies);
                     }
+                    TypeTupleItem::Remainder(rem) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &rem.remainder {
+                            collect_source_member_projection_dependencies(constraint, module, resolver, members, dependencies);
+                        }
+                    }
                 }
             }
         }
@@ -8405,6 +8448,11 @@ fn collect_source_member_projection_dependencies(
                     }
                     TypeCallableItem::Expansion(expansion) => {
                         collect_source_member_projection_dependencies(&expansion.operand, module, resolver, members, dependencies);
+                    }
+                    TypeCallableItem::Remainder(rem) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &rem.remainder {
+                            collect_source_member_projection_dependencies(constraint, module, resolver, members, dependencies);
+                        }
                     }
                 }
             }

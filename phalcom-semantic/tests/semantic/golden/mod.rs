@@ -101,8 +101,8 @@ fn golden_02_flow_pattern_publication() {
     let phalcom_semantic::types::store::TypeData::Tuple(elements) = f.analysis.snapshot.store.get(pair) else {
         panic!("Factory.pair should publish tuple, got {:?}", f.analysis.snapshot.store.get(pair));
     };
-    f.assert_type(elements[0].ty, union([cat.into(), dog.into()]));
-    assert_eq!(elements[1].ty, int);
+    f.assert_type(elements.elements[0].ty, union([cat.into(), dog.into()]));
+    assert_eq!(elements.elements[1].ty, int);
     f.assert_binding_type(service, "result", pair);
     f.assert_type(f.binding(probe, "animal").current.ty().expect("animal type"), union([cat.into(), dog.into()]));
     f.assert_binding_type(probe, "count", int);

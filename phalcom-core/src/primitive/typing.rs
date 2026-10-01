@@ -1087,6 +1087,9 @@ fn descriptor_arguments(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
                     crate::typing::overlay::RuntimeStaticArgument::RecordRow(_) => {
                         Err(RuntimeError::Message("type arguments contain a RecordRow value".into()))
                     }
+                    crate::typing::overlay::RuntimeStaticArgument::DynamicType => {
+                        Err(RuntimeError::Message("type arguments contain a Dynamic value".into()))
+                    }
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
@@ -1123,6 +1126,9 @@ fn descriptor_argument_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
                 Some(crate::typing::overlay::RuntimeStaticArgument::Term(ty)) => *ty,
                 Some(crate::typing::overlay::RuntimeStaticArgument::RecordRow(_)) => {
                     return Err(RuntimeError::Message("type argument is a RecordRow value".into()).into());
+                }
+                Some(crate::typing::overlay::RuntimeStaticArgument::DynamicType) => {
+                    return Err(RuntimeError::Message("type argument is a Dynamic value".into()).into());
                 }
                 None => return Err(RuntimeError::Message("type argument index out of range".into()).into()),
             }

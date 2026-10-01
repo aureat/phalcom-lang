@@ -5,7 +5,7 @@ use super::family::{FamilyMemberType, FamilyMemberTypeKind, FamilyType, FamilyTy
 use super::id::{AlgebraicStaticConstructorId, KindId, ProperTypeId, RecordRowId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
 use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
-use super::row::{RecordRowData, RecordRowField, RecordRowTail};
+use super::row::{AnonymousRecordRemainder, RecordRowData, RecordRowField, RecordRowTail, StructuralMemberPresence};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
 use super::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberDeclarationId, TypeMemberSelector};
 use super::variance::Variance;
@@ -39,19 +39,57 @@ fn is_complete_pack_lane_projection(projection: &TypeLevelProjection, selector: 
 
 static NEXT_TYPE_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AnonymousTupleRemainder {
+    None,
+    Unconstrained,
+    Typed(TypeId),
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TupleTypeElement {
     pub label: Option<Box<str>>,
     pub ty: TypeId,
+    pub presence: StructuralMemberPresence,
 }
 
 impl TupleTypeElement {
     pub fn unlabeled(ty: TypeId) -> Self {
-        Self { label: None, ty }
+        Self { label: None, ty, presence: StructuralMemberPresence::Required }
     }
 
-    pub fn labeled(label: impl Into<Box<str>>, ty: TypeId) -> Self {
-        Self { label: Some(label.into()), ty }
+    pub fn labeled(label: Box<str>, ty: TypeId) -> Self {
+        Self { label: Some(label), ty, presence: StructuralMemberPresence::Required }
+    }
+
+    pub fn optional_unlabeled(ty: TypeId) -> Self {
+        Self { label: None, ty, presence: StructuralMemberPresence::Optional }
+    }
+
+    pub fn optional_labeled(label: Box<str>, ty: TypeId) -> Self {
+        Self { label: Some(label), ty, presence: StructuralMemberPresence::Optional }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct TupleType {
+    pub elements: Box<[TupleTypeElement]>,
+    pub positional_remainder: AnonymousTupleRemainder,
+    pub labeled_remainder: AnonymousTupleRemainder,
+}
+
+impl TupleType {
+    pub fn closed(elements: Box<[TupleTypeElement]>) -> Self {
+        Self {
+            elements,
+            positional_remainder: AnonymousTupleRemainder::None,
+            labeled_remainder: AnonymousTupleRemainder::None,
+        }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.positional_remainder == AnonymousTupleRemainder::None
+            && self.labeled_remainder == AnonymousTupleRemainder::None
     }
 }
 
@@ -168,7 +206,7 @@ pub enum TypeData {
     /// Flat, deduplicated, sorted union of two or more distinct types.
     Union(Box<[TypeId]>),
     /// Tuple type.
-    Tuple(Box<[TupleTypeElement]>),
+    Tuple(TupleType),
     /// Record / structural property map backed by a canonical record row.
     Record(RecordRowId),
     /// Flat, ordered pack of types (kind TypePack).
@@ -257,6 +295,8 @@ pub enum StaticArgument {
     Term(TypeId),
     /// A record-row argument (for future structural static row domains; P2).
     RecordRow(RecordRowId),
+    /// Dynamic type argument (represented explicitly in generic application without making Dynamic a proper TypeId).
+    DynamicType,
 }
 
 impl StaticArgument {
@@ -264,7 +304,7 @@ impl StaticArgument {
     pub fn as_type_id(self) -> Option<TypeId> {
         match self {
             Self::Term(ty) => Some(ty),
-            Self::RecordRow(_) => None,
+            Self::RecordRow(_) | Self::DynamicType => None,
         }
     }
 }
@@ -797,6 +837,7 @@ impl TypeStore {
             let actual = match argument {
                 StaticArgument::Term(ty) => self.kind_of(*ty),
                 StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+                StaticArgument::DynamicType => KindId::TYPE,
             };
             if actual != expected {
                 return Err(StaticDataFormationError::ArgumentKindMismatch { index, expected, actual });
@@ -919,6 +960,7 @@ impl TypeStore {
             .map(|argument| match argument {
                 StaticArgument::Term(argument) => self.kind_of(*argument),
                 StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+                StaticArgument::DynamicType => KindId::TYPE,
             })
             .collect();
 
@@ -973,9 +1015,22 @@ impl TypeStore {
         self.apply_static_form_with_arena(arena, origin, &arguments)
     }
 
-    /// Interns a tuple type with full validation.
+    /// Interns a closed tuple type with full validation.
     pub fn tuple(&mut self, elements: Box<[TupleTypeElement]>) -> TypeId {
-        if elements.is_empty() {
+        self.open_tuple(elements, AnonymousTupleRemainder::None, AnonymousTupleRemainder::None)
+    }
+
+    /// Interns a tuple type with optional lane remainders and full validation.
+    pub fn open_tuple(
+        &mut self,
+        elements: Box<[TupleTypeElement]>,
+        positional_remainder: AnonymousTupleRemainder,
+        labeled_remainder: AnonymousTupleRemainder,
+    ) -> TypeId {
+        if elements.is_empty()
+            && positional_remainder == AnonymousTupleRemainder::None
+            && labeled_remainder == AnonymousTupleRemainder::None
+        {
             return self.unit();
         }
         let mut seen_labels = std::collections::HashSet::new();
@@ -989,7 +1044,20 @@ impl TypeStore {
                 assert!(!seen_labeled, "unlabeled tuple element cannot follow labeled elements");
             }
         }
-        self.intern_with_kind(TypeData::Tuple(elements), KindId::TYPE)
+        if let AnonymousTupleRemainder::Typed(ty) = positional_remainder {
+            assert!(self.is_proper_type(ty), "tuple positional remainder element must be a proper type");
+        }
+        if let AnonymousTupleRemainder::Typed(ty) = labeled_remainder {
+            assert!(self.is_proper_type(ty), "tuple labeled remainder element must be a proper type");
+        }
+        self.intern_with_kind(
+            TypeData::Tuple(TupleType {
+                elements,
+                positional_remainder,
+                labeled_remainder,
+            }),
+            KindId::TYPE,
+        )
     }
 
     /// Interns a TypePack into the store after validation.
@@ -1079,8 +1147,9 @@ impl TypeStore {
         }
         match self.get(ty).clone() {
             TypeData::CompleteTypePack { positionals, .. } | TypeData::TupleFromPacks { positionals, .. } => Ok(positionals),
-            TypeData::Tuple(elements) => self.type_pack(
-                elements
+            TypeData::Tuple(tuple) => self.type_pack(
+                tuple
+                    .elements
                     .iter()
                     .filter(|element| element.label.is_none())
                     .map(|element| element.ty)
@@ -1112,8 +1181,9 @@ impl TypeStore {
         }
         match self.get(ty).clone() {
             TypeData::CompleteTypePack { labeled, .. } | TypeData::TupleFromPacks { labeled, .. } => Ok(labeled),
-            TypeData::Tuple(elements) => self.labeled_type_pack(
-                elements
+            TypeData::Tuple(tuple) => self.labeled_type_pack(
+                tuple
+                    .elements
                     .iter()
                     .filter_map(|element| {
                         element.label.as_ref().map(|label| LabeledTypePackElement {
@@ -1291,13 +1361,10 @@ impl TypeStore {
             }
             let mut elements = Vec::with_capacity(pos_elems.len() + lab_elems.len());
             for &elem in pos_elems.iter() {
-                elements.push(TupleTypeElement { label: None, ty: elem });
+                elements.push(TupleTypeElement::unlabeled(elem));
             }
             for elem in lab_elems.iter() {
-                elements.push(TupleTypeElement {
-                    label: Some(elem.label.clone()),
-                    ty: elem.element,
-                });
+                elements.push(TupleTypeElement::labeled(elem.label.clone(), elem.element));
             }
             return Ok(self.tuple(elements.into_boxed_slice()));
         }
@@ -1553,48 +1620,67 @@ impl TypeStore {
                     .map(|argument| match argument {
                         StaticArgument::Term(argument) => self.format_type(*argument),
                         StaticArgument::RecordRow(row) => format!("{row:?}"),
+                        StaticArgument::DynamicType => "Dynamic".to_string(),
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{orig_str}<{args_str}>")
             }
             TypeData::Union(types) => types.iter().map(|&t| self.format_type(t)).collect::<Vec<_>>().join(" | "),
-            TypeData::Tuple(elements) => {
-                let elems = elements
-                    .iter()
-                    .map(|elem| {
-                        let t_str = self.format_type(elem.ty);
-                        if let Some(ref l) = elem.label { format!("{l}: {t_str}") } else { t_str }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("({elems})")
+            TypeData::Tuple(tuple) => {
+                let mut parts = Vec::new();
+                for elem in tuple.elements.iter() {
+                    let t_str = self.format_type(elem.ty);
+                    let opt = if elem.presence.is_optional() { "?" } else { "" };
+                    if let Some(ref l) = elem.label {
+                        parts.push(format!("{l}{opt}: {t_str}"));
+                    } else if elem.presence.is_optional() {
+                        parts.push(format!("?: {t_str}"));
+                    } else {
+                        parts.push(t_str);
+                    }
+                }
+                match tuple.positional_remainder {
+                    AnonymousTupleRemainder::None => {}
+                    AnonymousTupleRemainder::Unconstrained => parts.push("*:".to_string()),
+                    AnonymousTupleRemainder::Typed(t) => parts.push(format!("*: {}", self.format_type(t))),
+                }
+                match tuple.labeled_remainder {
+                    AnonymousTupleRemainder::None => {}
+                    AnonymousTupleRemainder::Unconstrained => parts.push("**:".to_string()),
+                    AnonymousTupleRemainder::Typed(t) => parts.push(format!("**: {}", self.format_type(t))),
+                }
+                format!("({})", parts.join(", "))
             }
             TypeData::Record(row_id) => {
                 let row = &self.row_arena[row_id.index()];
-                let fields = row
+                let mut fields: Vec<String> = row
                     .fields
                     .iter()
-                    .map(|f| format!("{}: {}", f.name, self.format_type(f.ty)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    .map(|f| {
+                        let opt = if f.presence.is_optional() { "?" } else { "" };
+                        format!("{}{opt}: {}", f.name, self.format_type(f.ty))
+                    })
+                    .collect();
                 match row.tail {
-                    RecordRowTail::Closed => format!("{{{fields}}}"),
+                    RecordRowTail::Closed => format!("{{{}}}", fields.join(", ")),
+                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained) => {
+                        fields.push("...".to_string());
+                        format!("{{{}}}", fields.join(", "))
+                    }
+                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(ty)) => {
+                        fields.push(format!("**: {}", self.format_type(ty)));
+                        format!("{{{}}}", fields.join(", "))
+                    }
                     RecordRowTail::Parameter(p) => {
                         let p_name = &self.type_parameters[p.index()].name;
-                        if fields.is_empty() {
-                            format!("{{**{p_name}}}")
-                        } else {
-                            format!("{{{fields}, **{p_name}}}")
-                        }
+                        fields.push(format!("**{p_name}"));
+                        format!("{{{}}}", fields.join(", "))
                     }
                     RecordRowTail::Projection(proj) => {
                         let proj_name = self.format_type(proj);
-                        if fields.is_empty() {
-                            format!("{{**{proj_name}}}")
-                        } else {
-                            format!("{{{fields}, **{proj_name}}}")
-                        }
+                        fields.push(format!("**{proj_name}"));
+                        format!("{{{}}}", fields.join(", "))
                     }
                 }
             }
@@ -1817,11 +1903,25 @@ impl TypeStore {
                     || arguments.iter().any(|argument| argument.as_type_id().is_some_and(|a| self.contains_type_parameter(a, target)))
             }
             TypeData::Union(members) => members.iter().any(|&m| self.contains_type_parameter(m, target)),
-            TypeData::Tuple(elems) => elems.iter().any(|e| self.contains_type_parameter(e.ty, target)),
+            TypeData::Tuple(tuple) => {
+                tuple.elements.iter().any(|e| self.contains_type_parameter(e.ty, target))
+                    || match tuple.positional_remainder {
+                        AnonymousTupleRemainder::Typed(t) => self.contains_type_parameter(t, target),
+                        _ => false,
+                    }
+                    || match tuple.labeled_remainder {
+                        AnonymousTupleRemainder::Typed(t) => self.contains_type_parameter(t, target),
+                        _ => false,
+                    }
+            }
             TypeData::Record(row_id) => {
                 let row = self.record_row(*row_id);
                 row.fields.iter().any(|f| self.contains_type_parameter(f.ty, target))
-                    || matches!(row.tail, RecordRowTail::Parameter(parameter) if parameter == target)
+                    || match row.tail {
+                        RecordRowTail::Parameter(parameter) => parameter == target,
+                        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(t)) => self.contains_type_parameter(t, target),
+                        _ => false,
+                    }
             }
             TypeData::Callable(call) => {
                 call.parameters.iter().any(|p| self.contains_type_parameter(p.ty, target)) || self.contains_type_parameter(call.return_type, target)
@@ -2079,14 +2179,14 @@ mod tests {
         let subject = store.nominal_type(test_decl("List"));
         let requirement = AssociatedTypeRequirementId::new(owner.clone(), 0);
         let projection = store.associated_projection(self_type, TraitRef::new(owner, Vec::<TypeId>::new().into_boxed_slice()), requirement.clone());
-        let nested = store.tuple(vec![TupleTypeElement { label: None, ty: projection }].into_boxed_slice());
+        let nested = store.tuple(vec![TupleTypeElement::unlabeled(projection)].into_boxed_slice());
         let mut environment = TypeEnvironment::new();
         environment.bind_self(subject);
         let materialized = TypeView::new(nested, environment).materialize(&mut store);
         let TypeData::Tuple(elements) = store.get(materialized) else {
             panic!("expected tuple")
         };
-        let TypeData::AssociatedProjection(projected) = store.get(elements[0].ty) else {
+        let TypeData::AssociatedProjection(projected) = store.get(elements.elements[0].ty) else {
             panic!("expected projection")
         };
         assert_eq!(projected.subject, subject);

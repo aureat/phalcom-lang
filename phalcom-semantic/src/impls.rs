@@ -289,6 +289,9 @@ pub(crate) fn specialize_witness_signature(
         materialize_fact(store, &mut parameter.declared_type);
     }
     materialize_fact(store, &mut signature.declared_return);
+    if let Some(inferred) = &mut signature.inferred_return {
+        *inferred = inferred.map_type(|ty| crate::types::environment::TypeView::new(ty, environment.clone()).materialize(store));
+    }
     if let Some(generics) = &mut signature.generics {
         for constraint in &mut generics.constraints {
             let materialize_term = |store: &mut TypeStore, term: &mut TypeTerm| {
@@ -2853,6 +2856,7 @@ fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, 
         TypeData::ExactCase { enum_type, .. } => occurs_in_conformance_binding(store, parameter, *enum_type, bindings),
         TypeData::Union(members) => members.iter().any(|&member| occurs_in_conformance_binding(store, parameter, member, bindings)),
         TypeData::Tuple(elements) => elements
+            .elements
             .iter()
             .any(|element| occurs_in_conformance_binding(store, parameter, element.ty, bindings)),
         TypeData::Record(row) => store
@@ -2990,10 +2994,11 @@ fn match_conformance_head_with_mode(
             },
         ) => left_variant == right_variant && match_conformance_head_with_mode(store, left_enum, right_enum, mode, bindings),
         (TypeData::Tuple(left), TypeData::Tuple(right)) => {
-            left.len() == right.len()
+            left.elements.len() == right.elements.len()
                 && left
+                    .elements
                     .iter()
-                    .zip(right.iter())
+                    .zip(right.elements.iter())
                     .all(|(left, right)| left.label == right.label && match_conformance_head_with_mode(store, left.ty, right.ty, mode, bindings))
         }
         (TypeData::TypePack(left), TypeData::TypePack(right)) => {
@@ -3629,7 +3634,7 @@ fn type_id_mentions_param(store: &TypeStore, ty: TypeId, param: TypeParameterId)
                     _ => false,
                 })
         }
-        TypeData::Tuple(elements) => elements.iter().any(|e| type_id_mentions_param(store, e.ty, param)),
+        TypeData::Tuple(elements) => elements.elements.iter().any(|e| type_id_mentions_param(store, e.ty, param)),
         TypeData::Union(types) => types.iter().any(|&t| type_id_mentions_param(store, t, param)),
         TypeData::Callable(callable) => {
             type_id_mentions_param(store, callable.return_type, param) || callable.parameters.iter().any(|p| type_id_mentions_param(store, p.ty, param))
@@ -4099,7 +4104,7 @@ pub fn collect_impl_params_in_type(store: &TypeStore, ty: TypeId, impl_id: &Impl
             }
         }
         TypeData::Tuple(elements) => {
-            for e in elements.iter() {
+            for e in elements.elements.iter() {
                 collect_impl_params_in_type(store, e.ty, impl_id, out);
             }
         }
@@ -4173,6 +4178,7 @@ fn collect_impl_params_in_static_argument(store: &TypeStore, argument: StaticArg
     match argument {
         StaticArgument::Term(ty) => collect_impl_params_in_type(store, ty, impl_id, out),
         StaticArgument::RecordRow(row) => collect_impl_params_in_row(store, row, impl_id, out),
+        StaticArgument::DynamicType => {}
     }
 }
 
@@ -4182,7 +4188,8 @@ fn collect_impl_params_in_row(store: &TypeStore, row: RecordRowId, impl_id: &Imp
         collect_impl_params_in_type(store, field.ty, impl_id, out);
     }
     match row_data.tail {
-        RecordRowTail::Closed => {}
+        RecordRowTail::Closed | RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => {}
+        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => collect_impl_params_in_type(store, ty, impl_id, out),
         RecordRowTail::Parameter(parameter) => {
             if matches!(&store.type_parameter(parameter).owner, TypeParameterOwner::Impl(owner) if owner == impl_id) {
                 out.insert(parameter);
@@ -4215,9 +4222,10 @@ fn direct_impl_parameter_in_static_argument(store: &TypeStore, argument: StaticA
             }
             match row.tail {
                 RecordRowTail::Parameter(parameter) => parameter,
-                RecordRowTail::Closed | RecordRowTail::Projection(_) => return None,
+                RecordRowTail::Closed | RecordRowTail::Projection(_) | RecordRowTail::Anonymous(_) => return None,
             }
         }
+        StaticArgument::DynamicType => return None,
     };
     matches!(&store.type_parameter(parameter).owner, TypeParameterOwner::Impl(owner) if owner == impl_id).then_some(parameter)
 }
@@ -4265,7 +4273,7 @@ fn contains_unresolved_applicability_type(store: &TypeStore, ty: TypeId) -> bool
         }
         TypeData::ExactCase { enum_type, .. } => contains_unresolved_applicability_type(store, *enum_type),
         TypeData::Union(members) => members.iter().any(|&member| contains_unresolved_applicability_type(store, member)),
-        TypeData::Tuple(elements) => elements.iter().any(|element| contains_unresolved_applicability_type(store, element.ty)),
+        TypeData::Tuple(elements) => elements.elements.iter().any(|element| contains_unresolved_applicability_type(store, element.ty)),
         TypeData::Record(row) => store
             .record_row(*row)
             .fields

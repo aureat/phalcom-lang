@@ -181,11 +181,13 @@ fn lowers_labeled_tuple_and_callable_forms() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("Int"),
+                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: Some("name".into()),
                     ty: reference("String"),
+                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -195,7 +197,7 @@ fn lowers_labeled_tuple_and_callable_forms() {
     };
     let tuple = resolve(&mut env, &tuple).0;
     let TypeKnowledge::Known(tuple) = tuple else { panic!("expected tuple type") };
-    assert!(matches!(env.store.get(tuple.ty()), TypeData::Tuple(elements) if elements[1].label.as_deref() == Some("name")));
+    assert!(matches!(env.store.get(tuple.ty()), TypeData::Tuple(elements) if elements.elements[1].label.as_deref() == Some("name")));
 
     let callable = TypeAnnotation {
         expr: TypeAnnotationExpr::Callable {
@@ -203,12 +205,14 @@ fn lowers_labeled_tuple_and_callable_forms() {
                 phalcom_ast::ast::TypeCallableItem::Parameter(TypeCallableParameter {
                     label: None,
                     ty: reference("Int"),
+                    optional: false,
                     rest: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeCallableItem::Parameter(TypeCallableParameter {
                     label: Some("names".into()),
                     ty: reference("String"),
+                    optional: false,
                     rest: true,
                     range: RANGE,
                 }),
@@ -463,11 +467,13 @@ fn lowers_structural_record_annotations() {
                 phalcom_ast::ast::RecordTypeField {
                     name: "x".into(),
                     ty: reference("Int"),
+                    optional: false,
                     range: RANGE,
                 },
                 phalcom_ast::ast::RecordTypeField {
                     name: "y".into(),
                     ty: reference("Int"),
+                    optional: false,
                     range: RANGE,
                 },
             ],
@@ -498,6 +504,7 @@ fn open_record_tail_is_preserved_without_closed_record_recovery() {
             fields: vec![phalcom_ast::ast::RecordTypeField {
                 name: "name".into(),
                 ty: reference("String"),
+                optional: false,
                 range: RANGE,
             }],
             tail: None,
@@ -513,12 +520,13 @@ fn open_record_tail_is_preserved_without_closed_record_recovery() {
             fields: vec![phalcom_ast::ast::RecordTypeField {
                 name: "name".into(),
                 ty: reference("String"),
+                optional: false,
                 range: RANGE,
             }],
-            tail: Some(phalcom_ast::ast::RecordRowTail {
+            tail: Some(phalcom_ast::ast::RecordRowTailSyntax::Captured(phalcom_ast::ast::RecordRowTail {
                 name: "R".into(),
                 range: RANGE,
-            }),
+            })),
             range: RANGE,
         },
         range: RANGE,
@@ -542,12 +550,13 @@ fn wrong_kind_record_row_tail_is_reported_at_checked_boundary() {
             fields: vec![phalcom_ast::ast::RecordTypeField {
                 name: "value".into(),
                 ty: reference("Int"),
+                optional: false,
                 range: RANGE,
             }],
-            tail: Some(phalcom_ast::ast::RecordRowTail {
+            tail: Some(phalcom_ast::ast::RecordRowTailSyntax::Captured(phalcom_ast::ast::RecordRowTail {
                 name: "R".into(),
                 range: RANGE,
-            }),
+            })),
             range: RANGE,
         },
         range: RANGE,
@@ -599,11 +608,13 @@ fn scoped_complete_pack_expansion_projects_a_tuple_with_bound_elements() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("T"),
+                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: Some("enabled".into()),
                     ty: reference("Bool"),
+                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -645,8 +656,8 @@ fn scoped_complete_pack_expansion_projects_a_tuple_with_bound_elements() {
     let TypeData::Tuple(elements) = env.store.get(reduced) else {
         panic!("expected the expanded Tuple to reduce to its exact structural shape")
     };
-    assert!(elements.iter().any(|element| element.label.is_none() && element.ty == int_ty));
-    assert!(elements.iter().any(|element| {
+    assert!(elements.elements.iter().any(|element| element.label.is_none() && element.ty == int_ty));
+    assert!(elements.elements.iter().any(|element| {
         element.label.as_deref() == Some("enabled")
             && element.ty == env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap()
     }));
@@ -666,12 +677,13 @@ fn scoped_open_record_captures_free_record_row_tail() {
             fields: vec![phalcom_ast::ast::RecordTypeField {
                 name: "value".into(),
                 ty: reference("T"),
+                optional: false,
                 range: RANGE,
             }],
-            tail: Some(phalcom_ast::ast::RecordRowTail {
+            tail: Some(phalcom_ast::ast::RecordRowTailSyntax::Captured(phalcom_ast::ast::RecordRowTail {
                 name: "R".into(),
                 range: RANGE,
-            }),
+            })),
             range: RANGE,
         },
         range: RANGE,
@@ -708,6 +720,7 @@ fn scoped_bound_row_tail_remains_domain_specific() {
         fields: Box::new([ScopedRecordField {
             name: "value".into(),
             ty: field,
+            presence: phalcom_semantic::types::row::StructuralMemberPresence::Required,
         }]),
         tail: ScopedRecordTail::Bound { depth: 0, index: 0 },
     }));
@@ -721,6 +734,7 @@ fn scoped_bound_row_tail_remains_domain_specific() {
         fields: vec![ScopedRecordField {
             name: "payload".into(),
             ty: row_field,
+            presence: phalcom_semantic::types::row::StructuralMemberPresence::Required,
         }]
         .into_boxed_slice(),
         tail: ScopedRecordRowTail::Bound { depth: 0, index: 1 },
@@ -911,11 +925,13 @@ fn nested_type_lambda_beta_reduction_avoids_capture() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("T"),
+                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("U"),
+                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -955,8 +971,8 @@ fn nested_type_lambda_beta_reduction_avoids_capture() {
     let TypeData::Tuple(elements) = env.store.get(reduced) else {
         panic!("expected fully reduced tuple")
     };
-    assert_eq!(elements[0].ty, int_ty);
-    assert_eq!(elements[1].ty, string_ty);
+    assert_eq!(elements.elements[0].ty, int_ty);
+    assert_eq!(elements.elements[1].ty, string_ty);
 }
 
 #[test]
@@ -968,11 +984,13 @@ fn fresh_captured_nested_lambda_is_applied_during_outer_reduction() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("T"),
+                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("U"),
+                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -996,8 +1014,8 @@ fn fresh_captured_nested_lambda_is_applied_during_outer_reduction() {
         panic!("expected reduced tuple")
     };
     let string_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
-    assert_eq!(elements[0].ty, int_ty);
-    assert_eq!(elements[1].ty, string_ty);
+    assert_eq!(elements.elements[0].ty, int_ty);
+    assert_eq!(elements.elements[1].ty, string_ty);
 }
 
 #[test]
@@ -1077,10 +1095,7 @@ fn free_capture_specialization_threads_nested_lambda_applications() {
         },
         KindId::TYPE,
     );
-    let captured_type = env.store.tuple(Box::new([phalcom_semantic::types::store::TupleTypeElement {
-        label: None,
-        ty: nested_application,
-    }]));
+    let captured_type = env.store.tuple(Box::new([phalcom_semantic::types::store::TupleTypeElement::unlabeled(nested_application)]));
 
     let arena = env.store.arena_mut();
     let captured = arena.intern_scoped(ScopedTypeData::Free(captured_parameter));
@@ -1512,8 +1527,8 @@ fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
     let tuple = TypeAnnotation {
         expr: TypeAnnotationExpr::Tuple {
             elements: vec![
-                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement { label: None, ty: reference("Int"), range: RANGE }),
-                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement { label: None, ty: reference("String"), range: RANGE }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement { label: None, ty: reference("Int"), optional: false, range: RANGE }),
+                phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement { label: None, ty: reference("String"), optional: false, range: RANGE }),
             ],
             range: RANGE,
         },
@@ -1595,11 +1610,13 @@ fn fixed_generic_prefix_accepts_explicit_complete_pack_expansion_only() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("String"),
+                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: Some("flag".into()),
                     ty: reference("Bool"),
+                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -1886,6 +1903,7 @@ fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() 
             fields: vec![phalcom_ast::ast::RecordTypeField {
                 name: "name".into(),
                 ty: reference("String"),
+                optional: false,
                 range: RANGE,
             }],
             tail: None,
@@ -2100,6 +2118,7 @@ fn scoped_record_row_type_fields_substitute_and_alpha_normalize() {
                         fields: vec![phalcom_ast::ast::RecordTypeField {
                             name: "payload".into(),
                             ty: reference(parameter),
+                            optional: false,
                             range: RANGE,
                         }],
                         tail: None,
@@ -2416,6 +2435,7 @@ fn callable_domain_pack_expansion_and_concrete_collapse() {
                 phalcom_ast::ast::TypeCallableItem::Parameter(phalcom_ast::ast::TypeCallableParameter {
                     label: Some("flag".into()),
                     ty: reference("Bool"),
+                    optional: false,
                     rest: false,
                     range: RANGE,
                 }),
@@ -2507,4 +2527,116 @@ fn callable_domain_symbolic_pack_expansion_produces_callable_from_packs() {
         }
         other => panic!("expected substitution to collapse to TypeData::Callable, got {other:?}"),
     }
+}
+
+#[test]
+fn cv10_list_dynamic_formation_preserves_outer_applied_type_and_differs_from_any() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+
+    let dynamic_annotation = TypeAnnotation {
+        expr: TypeAnnotationExpr::Dynamic { range: RANGE },
+        range: RANGE,
+    };
+    let list_dynamic_expr = application(reference("List"), vec![dynamic_annotation.clone()]);
+    let res = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &list_dynamic_expr, &mut diagnostics);
+    let TypeFormResolution::Ready(list_dynamic_ty) = res else {
+        panic!("List<Dynamic> should resolve as ready applied type: {diagnostics:?}");
+    };
+
+    let list_obj_expr = application(reference("List"), vec![reference("Object")]);
+    let TypeFormResolution::Ready(list_obj_ty) = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &list_obj_expr, &mut diagnostics) else {
+        panic!("List<Object> should resolve: {diagnostics:?}");
+    };
+
+    assert_ne!(list_dynamic_ty, list_obj_ty, "List<Dynamic> and List<Object> must be distinct TypeIds");
+
+    let list_decl = DeclarationId::new(env.module.clone(), "List".into());
+    let list_form = env.declarations.form(&list_decl).unwrap();
+
+    let TypeData::Applied { origin, arguments } = env.store.get(list_dynamic_ty).clone() else {
+        panic!("expected TypeData::Applied for List<Dynamic>");
+    };
+    assert_eq!(origin, list_form);
+    assert_eq!(arguments.as_ref(), &[StaticArgument::DynamicType]);
+}
+
+#[test]
+fn cv11_dynamic_argument_rejected_for_non_type_kind_parameter() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+
+    let row_family_decl = DeclarationId::new(env.module.clone(), "RowFamily".into());
+    let row_param = env.store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(row_family_decl.clone()),
+        0,
+        "Fs",
+        KindId::RECORD_ROW,
+    ));
+    let signature = GenericSignature::new(TypeParameterOwner::Declaration(row_family_decl.clone()), vec![row_param].into_boxed_slice());
+    let constructor_kind = env.store.arrow_kind(vec![KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
+    let constructor = env.store.nominal_form(row_family_decl.clone(), constructor_kind);
+    env.declarations.insert(phalcom_semantic::declarations::DeclarationTypeInfo {
+        declaration: row_family_decl.clone(),
+        form: constructor,
+        class_object_type: env.store.class_object_type(row_family_decl.clone()),
+        kind: constructor_kind,
+        binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
+        generic_binder_header: Some(phalcom_semantic::types::parameter::GenericBinderHeader::from_signature(&env.store, &signature)),
+        generic_signature: Some(signature),
+        supertype_template: None,
+    });
+    env.resolver.insert("RowFamily", row_family_decl);
+
+    let dynamic_annotation = TypeAnnotation {
+        expr: TypeAnnotationExpr::Dynamic { range: RANGE },
+        range: RANGE,
+    };
+    let invalid_application = application(reference("RowFamily"), vec![dynamic_annotation]);
+    let res = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &invalid_application, &mut diagnostics);
+    assert!(matches!(res, TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch)));
+}
+
+#[test]
+fn cv12_to_cv14_knowledge_bearing_use_site_materialization() {
+    let mut env = setup();
+
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "TestHolder".into()));
+    let param_id = env.store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "T", KindId::TYPE));
+    let param_ty = env.store.parameter_form(param_id);
+
+    let mut environment = phalcom_semantic::types::environment::TypeEnvironment::new();
+    environment.bind_dynamic(param_id);
+
+    // CV-12: Bare T [T := Dynamic] -> TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape)
+    let bare_view = phalcom_semantic::types::environment::TypeView::new(param_ty, environment.clone());
+    let bare_knowledge = bare_view.materialize_knowledge(&mut env.store);
+    assert!(matches!(bare_knowledge, TypeKnowledge::Dynamic(phalcom_semantic::types::evidence::DynamicReason::ExplicitEscape)));
+
+    // CV-13: Nested List<T> [T := Dynamic] -> TypeKnowledge::assumed(List<Dynamic>)
+    let list_decl = DeclarationId::new(env.module.clone(), "List".into());
+    let list_form = env.declarations.form(&list_decl).unwrap();
+    let applied_t = env.store.apply_type_form(list_form, &[param_ty]).unwrap();
+
+    let nested_view = phalcom_semantic::types::environment::TypeView::new(applied_t, environment.clone());
+    let nested_knowledge = nested_view.materialize_knowledge(&mut env.store);
+    let TypeKnowledge::Known(ev) = nested_knowledge else {
+        panic!("expected Known(List<Dynamic>), got {nested_knowledge:?}");
+    };
+    let TypeData::Applied { origin, arguments } = env.store.get(ev.ty()).clone() else {
+        panic!("expected TypeData::Applied");
+    };
+    assert_eq!(origin, list_form);
+    assert_eq!(arguments.as_ref(), &[StaticArgument::DynamicType]);
+
+    // CV-14: Fixed Int [T := Dynamic] -> TypeKnowledge::assumed(Int)
+    let int_decl = DeclarationId::new(env.module.clone(), "Int".into());
+    let int_form = env.declarations.form(&int_decl).unwrap();
+
+    let fixed_view = phalcom_semantic::types::environment::TypeView::new(int_form, environment);
+    let fixed_knowledge = fixed_view.materialize_knowledge(&mut env.store);
+    let TypeKnowledge::Known(fixed_ev) = fixed_knowledge else {
+        panic!("expected Known(Int), got {fixed_knowledge:?}");
+    };
+    assert_eq!(fixed_ev.ty(), int_form);
 }

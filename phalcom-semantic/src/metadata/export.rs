@@ -464,6 +464,7 @@ impl<'a> MetadataExporter<'a> {
                     let actual = match argument {
                         StaticArgument::Term(term) => self.store.kind_of(term),
                         StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+                        StaticArgument::DynamicType => KindId::TYPE,
                     };
                     if actual != expected {
                         return Err(MetadataExportError::InvalidStaticDomainCatalog {
@@ -563,13 +564,16 @@ impl<'a> MetadataExporter<'a> {
                 let tail = match row.tail {
                     crate::types::row::RecordRowTail::Closed => None,
                     crate::types::row::RecordRowTail::Parameter(parameter) => Some(self.export_type_parameter(parameter)?),
-                    crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableForm(failure_context)),
+                    crate::types::row::RecordRowTail::Projection(_) | crate::types::row::RecordRowTail::Anonymous(_) => {
+                        return Err(MetadataExportError::NonExportableForm(failure_context))
+                    }
                 };
                 Ok(StaticArgumentRef::RecordRow(phalcom_type_meta::type_node::RecordRowRef {
                     fields: fields.into_boxed_slice(),
                     tail,
                 }))
             }
+            StaticArgument::DynamicType => Ok(StaticArgumentRef::DynamicType),
         }
     }
 
@@ -592,6 +596,9 @@ impl<'a> MetadataExporter<'a> {
                 } else {
                     builder.write_u8(0);
                 }
+            }
+            StaticArgumentRef::DynamicType => {
+                builder.write_u8(3);
             }
         }
     }
@@ -841,6 +848,9 @@ impl<'a> MetadataExporter<'a> {
                     crate::types::type_lambda::ScopedRecordTail::FreeParameter(parameter) => {
                         ScopedRecordTailRef::FreeParameter(self.export_type_parameter(parameter)?)
                     }
+                    crate::types::type_lambda::ScopedRecordTail::Anonymous(_) => {
+                        return Err(MetadataExportError::NonExportableForm(crate::types::id::TypeId::DUMMY))
+                    }
                 };
                 ScopedTypeNode::OpenRecord(ScopedOpenRecordTypeRef {
                     fields: fields.into_boxed_slice(),
@@ -870,6 +880,9 @@ impl<'a> MetadataExporter<'a> {
                     }
                     crate::types::type_lambda::ScopedRecordRowTail::Projection(projection) => {
                         phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Projection(self.export_type_form(projection)?)
+                    }
+                    crate::types::type_lambda::ScopedRecordRowTail::Anonymous(_) => {
+                        return Err(MetadataExportError::NonExportableForm(crate::types::id::TypeId::DUMMY))
                     }
                 };
                 computed_kind = Some(self.export_kind(KindId::RECORD_ROW)?);
@@ -1237,7 +1250,7 @@ impl<'a> MetadataExporter<'a> {
             }
             TypeData::Tuple(ref elements) => {
                 let mut elem_refs = Vec::new();
-                for el in elements.iter() {
+                for el in elements.elements.iter() {
                     let ty_id = self.export_type_form(el.ty)?;
                     elem_refs.push(TupleElementRef {
                         label: el.label.clone(),
@@ -1262,7 +1275,9 @@ impl<'a> MetadataExporter<'a> {
                         fields: field_refs.into_boxed_slice(),
                         tail: self.export_type_parameter(parameter)?,
                     }),
-                    crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableForm(ty)),
+                    crate::types::row::RecordRowTail::Projection(_) | crate::types::row::RecordRowTail::Anonymous(_) => {
+                        return Err(MetadataExportError::NonExportableForm(ty))
+                    }
                 }
             }
             TypeData::Callable(ref call) => {

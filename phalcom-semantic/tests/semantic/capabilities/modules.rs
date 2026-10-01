@@ -58,11 +58,8 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
 
     // 5. Tuple
     let tuple_ty = store.tuple(Box::new([
-        TupleTypeElement { label: None, ty: int_ty },
-        TupleTypeElement {
-            label: Some("name".into()),
-            ty: str_ty,
-        },
+        TupleTypeElement::unlabeled(int_ty),
+        TupleTypeElement::labeled("name".into(), str_ty),
     ]));
     assert_eq!(
         export_type_form(&store, tuple_ty).unwrap(),
@@ -80,8 +77,8 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
 
     // 6. Record
     let record_ty = store.record(Box::new([
-        RecordTypeField { name: "x".into(), ty: int_ty },
-        RecordTypeField { name: "y".into(), ty: int_ty },
+        RecordTypeField::required("x".into(), int_ty),
+        RecordTypeField::required("y".into(), int_ty),
     ]));
     assert_eq!(
         export_type_form(&store, record_ty).unwrap(),

@@ -167,9 +167,9 @@ pub fn compute_variance_occurrence(
             }
             result_variance
         }
-        TypeData::Tuple(elems) => {
+        TypeData::Tuple(tuple) => {
             let mut result_variance = None;
-            for (idx, e) in elems.iter().enumerate() {
+            for (idx, e) in tuple.elements.iter().enumerate() {
                 path.push(VarianceStep::TupleElement { index: idx as u32 });
                 if let Some((occ, p)) = compute_variance_occurrence(store, param, e.ty, context_polarity, path) {
                     result_variance = match result_variance {

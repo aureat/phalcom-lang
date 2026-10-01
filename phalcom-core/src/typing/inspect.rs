@@ -28,6 +28,7 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
                     match argument {
                         RuntimeStaticArgument::Term(ty) => children.push(*ty),
                         RuntimeStaticArgument::RecordRow(row) => children.extend(row.fields.iter().map(|field| field.ty)),
+                        RuntimeStaticArgument::DynamicType => {}
                     }
                 }
                 Some(children)
@@ -57,6 +58,7 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
                             phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
                                 children.extend(row.fields.iter().map(|field| RuntimeTypeRef::Base { pool, node: field.ty }));
                             }
+                            phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => {}
                         }
                     }
                     Some(children)
@@ -101,6 +103,9 @@ pub fn static_arguments(context: &TypingContextData, registry: &RuntimeTypingReg
                             tail: row.tail.clone(),
                         }))
                     }
+                    phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => {
+                        Some(RuntimeStaticArgument::DynamicType)
+                    }
                 })
                 .collect()
         }
@@ -115,7 +120,7 @@ pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                 .into_iter()
                 .map(|argument| match argument {
                     RuntimeStaticArgument::Term(ty) => Some(ty),
-                    RuntimeStaticArgument::RecordRow(_) => None,
+                    RuntimeStaticArgument::RecordRow(_) | RuntimeStaticArgument::DynamicType => None,
                 })
                 .collect(),
             RuntimeOverlayTypeNode::Union(members) => Some(members.to_vec()),
@@ -130,7 +135,7 @@ pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                 .into_iter()
                 .map(|argument| match argument {
                     RuntimeStaticArgument::Term(ty) => Some(ty),
-                    RuntimeStaticArgument::RecordRow(_) => None,
+                    RuntimeStaticArgument::RecordRow(_) | RuntimeStaticArgument::DynamicType => None,
                 })
                 .collect(),
             TypeNode::Union(members) => Some(members.iter().map(|node| RuntimeTypeRef::Base { pool, node: *node }).collect()),
@@ -231,6 +236,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                                 .join(", "),
                             row.tail.as_ref().map_or(String::new(), |tail| format!("{}**R{}", if row.fields.is_empty() { "" } else { ", " }, tail.index))
                         ),
+                        RuntimeStaticArgument::DynamicType => "Dynamic".to_string(),
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -308,6 +314,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                                     });
                                     format!("{{{fields}{tail}}}")
                                 }
+                                phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => "Dynamic".to_string(),
                             }
                         })
                         .collect::<Vec<_>>()

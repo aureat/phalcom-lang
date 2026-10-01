@@ -54,34 +54,28 @@ fn direct_and_nested_and_composite_substitution() {
     // 4. Tuple (T, String) -> (Int, String)
     let tuple = store.tuple(
         vec![
-            TupleTypeElement { label: None, ty: t_ty },
-            TupleTypeElement {
-                label: Some("name".into()),
-                ty: str_ty,
-            },
+            TupleTypeElement::unlabeled(t_ty),
+            TupleTypeElement::labeled("name".into(), str_ty),
         ]
         .into_boxed_slice(),
     );
     let subst_tuple = subst.apply(&mut store, tuple);
     let expected_tuple = store.tuple(
         vec![
-            TupleTypeElement { label: None, ty: int_ty },
-            TupleTypeElement {
-                label: Some("name".into()),
-                ty: str_ty,
-            },
+            TupleTypeElement::unlabeled(int_ty),
+            TupleTypeElement::labeled("name".into(), str_ty),
         ]
         .into_boxed_slice(),
     );
     assert_eq!(subst_tuple, expected_tuple);
 
     // 5. Record { a: T, b: String } -> { a: Int, b: String }
-    let record = store.record(vec![RecordTypeField { name: "a".into(), ty: t_ty }, RecordTypeField { name: "b".into(), ty: str_ty }].into_boxed_slice());
+    let record = store.record(vec![RecordTypeField::required("a".into(), t_ty), RecordTypeField::required("b".into(), str_ty)].into_boxed_slice());
     let subst_record = subst.apply(&mut store, record);
     let expected_record = store.record(
         vec![
-            RecordTypeField { name: "a".into(), ty: int_ty },
-            RecordTypeField { name: "b".into(), ty: str_ty },
+            RecordTypeField::required("a".into(), int_ty),
+            RecordTypeField::required("b".into(), str_ty),
         ]
         .into_boxed_slice(),
     );

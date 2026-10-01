@@ -178,15 +178,16 @@ pub(crate) fn decompose_domain(
 
     if let TypeData::Tuple(elements) = store.get(subject.canonical).clone() {
         let fields: Vec<CoverageSubject> = match &subject.local {
-            LocalType::Tuple(local_elems) if local_elems.len() == elements.len() => elements
+            LocalType::Tuple(local_elems) if local_elems.len() == elements.elements.len() => elements
+                .elements
                 .iter()
                 .zip(local_elems.iter())
                 .map(|(elem, local)| CoverageSubject::from_parts(elem.ty, local.ty.clone()))
                 .collect(),
-            _ => elements.iter().map(|elem| CoverageSubject::canonical(elem.ty)).collect(),
+            _ => elements.elements.iter().map(|elem| CoverageSubject::canonical(elem.ty)).collect(),
         };
         return DomainDecomposition::Closed(Box::new([ConstructorCase {
-            head: ConstructorHead::Tuple { arity: elements.len() },
+            head: ConstructorHead::Tuple { arity: elements.elements.len() },
             fields: fields.into_boxed_slice(),
             proof: BranchProofEnvironment::default(),
             exact_case: None,

@@ -9,7 +9,7 @@ use super::parameter::{
     GenericBinderHeader, GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm,
 };
 use super::row::RecordRowTail;
-use super::store::{CallableParameterType, CallableType, RecordTypeField, StaticArgument, TypeData, TypeStore};
+use super::store::{CallableParameterType, CallableType, StaticArgument, TypeData, TypeStore};
 use super::type_lambda::{
     ScopedCallableParameter, ScopedCallableType, ScopedLabeledTypePackElement, ScopedOpenRecord, ScopedPackProjectionLane, ScopedRecordField, ScopedRecordRow,
     ScopedRecordRowTail, ScopedRecordTail, ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
@@ -643,6 +643,7 @@ fn resolve_static_case_form(
                 let actual = match static_argument {
                     StaticArgument::Term(term) => store.kind_of(term),
                     StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+                    StaticArgument::DynamicType => KindId::TYPE,
                 };
                 if actual != *expected {
                     diagnostics.push(SemanticDiagnostic::error_in(
@@ -1181,6 +1182,7 @@ fn lower_scoped_type_form(
                             let tail = match record.tail {
                                 ScopedRecordTail::FreeParameter(parameter) => ScopedRecordRowTail::FreeParameter(parameter),
                                 ScopedRecordTail::Bound { depth, index } => ScopedRecordRowTail::Bound { depth, index },
+                                ScopedRecordTail::Anonymous(remainder) => ScopedRecordRowTail::Anonymous(remainder),
                             };
                             store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow {
                                 fields: record.fields,
@@ -1197,6 +1199,7 @@ fn lower_scoped_type_form(
                                     .map(|field| ScopedRecordField {
                                         name: field.name.clone(),
                                         ty: intern_scoped_free(store, field.ty),
+                                        presence: field.presence,
                                     })
                                     .collect::<Vec<_>>()
                                     .into_boxed_slice();
@@ -1204,6 +1207,7 @@ fn lower_scoped_type_form(
                                     RecordRowTail::Closed => ScopedRecordRowTail::Closed,
                                     RecordRowTail::Parameter(parameter) => ScopedRecordRowTail::FreeParameter(parameter),
                                     RecordRowTail::Projection(projection) => ScopedRecordRowTail::Projection(projection),
+                                    RecordRowTail::Anonymous(remainder) => ScopedRecordRowTail::Anonymous(remainder),
                                 };
                                 store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow { fields, tail }))
                             }
@@ -1423,9 +1427,15 @@ fn lower_scoped_type_form(
                     phalcom_ast::ast::TypeTupleItem::Element(element) => {
                         let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &element.ty, diagnostics,));
                         scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, element.range, diagnostics));
+                        let presence = if element.optional {
+                            super::row::StructuralMemberPresence::Optional
+                        } else {
+                            super::row::StructuralMemberPresence::Required
+                        };
                         fixed_elements.push(ScopedTupleElement {
                             label: element.label.clone().map(Into::into),
                             ty,
+                            presence,
                         });
                         if let Some(label) = &element.label {
                             labeled_phase = true;
@@ -1491,6 +1501,13 @@ fn lower_scoped_type_form(
                             }
                         }
                     }
+                    phalcom_ast::ast::TypeTupleItem::Remainder(remainder) => {
+                        // In scoped context with no expansion, ignore or lower typed remainder if needed
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range } = &remainder.remainder {
+                            let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, constraint, diagnostics));
+                            scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, *range, diagnostics));
+                        }
+                    }
                 }
             }
             if !has_expansion {
@@ -1513,47 +1530,69 @@ fn lower_scoped_type_form(
                 }
                 let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &field.ty, diagnostics,));
                 scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, field.range, diagnostics));
+                let presence = if field.optional {
+                    super::row::StructuralMemberPresence::Optional
+                } else {
+                    super::row::StructuralMemberPresence::Required
+                };
                 scoped_fields.push(ScopedRecordField {
                     name: field.name.clone().into(),
                     ty,
+                    presence,
                 });
             }
             let scoped_fields = scoped_fields.into_boxed_slice();
             let Some(tail) = tail else {
                 return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Record(scoped_fields)));
             };
-            let scoped_tail = if let Some((depth, index, kind)) = binders.resolve(&tail.name) {
-                if kind != KindId::RECORD_ROW {
-                    diagnostics.push(SemanticDiagnostic::error_in(
-                        current_module.clone(),
-                        DiagnosticCode::KindExpectedType,
-                        format!("record row tail `{}` must have kind RecordFields", tail.name),
-                        annotation.range,
-                    ));
-                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual: kind });
-                }
-                ScopedRecordTail::Bound { depth, index }
-            } else {
-                match resolver.resolve_type_level_binding(&tail.name) {
-                    Some(TypeLevelBinding::RecordRow(parameter)) => ScopedRecordTail::FreeParameter(parameter),
-                    Some(TypeLevelBinding::TypeForm(form)) => {
-                        let actual = store.kind_of(form);
-                        diagnostics.push(SemanticDiagnostic::error_in(
-                            current_module.clone(),
-                            DiagnosticCode::RecordRowTailKindMismatch,
-                            format!("record row tail `{}` must have kind RecordFields", tail.name),
-                            annotation.range,
-                        ));
-                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual });
+            let scoped_tail = match tail {
+                phalcom_ast::ast::RecordRowTailSyntax::Captured(named_tail) => {
+                    if let Some((depth, index, kind)) = binders.resolve(&named_tail.name) {
+                        if kind != KindId::RECORD_ROW {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::KindExpectedType,
+                                format!("record row tail `{}` must have kind RecordFields", named_tail.name),
+                                annotation.range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual: kind });
+                        }
+                        ScopedRecordTail::Bound { depth, index }
+                    } else {
+                        match resolver.resolve_type_level_binding(&named_tail.name) {
+                            Some(TypeLevelBinding::RecordRow(parameter)) => ScopedRecordTail::FreeParameter(parameter),
+                            Some(TypeLevelBinding::TypeForm(form)) => {
+                                let actual = store.kind_of(form);
+                                diagnostics.push(SemanticDiagnostic::error_in(
+                                    current_module.clone(),
+                                    DiagnosticCode::RecordRowTailKindMismatch,
+                                    format!("record row tail `{}` must have kind RecordFields", named_tail.name),
+                                    annotation.range,
+                                ));
+                                return TypeFormationOutcome::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual });
+                            }
+                            None => {
+                                diagnostics.push(SemanticDiagnostic::error_in(
+                                    current_module.clone(),
+                                    DiagnosticCode::RecordRowTailUnresolved,
+                                    format!("unresolved record row tail `{}`", named_tail.name),
+                                    annotation.range,
+                                ));
+                                return TypeFormationOutcome::Unresolved(TypeFormationUnresolved::Name(named_tail.name.clone().into()));
+                            }
+                        }
                     }
-                    None => {
-                        diagnostics.push(SemanticDiagnostic::error_in(
-                            current_module.clone(),
-                            DiagnosticCode::RecordRowTailUnresolved,
-                            format!("unresolved record row tail `{}`", tail.name),
-                            annotation.range,
-                        ));
-                        return TypeFormationOutcome::Unresolved(TypeFormationUnresolved::Name(tail.name.clone().into()));
+                }
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_)) => {
+                    ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Unconstrained)
+                }
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range }) => {
+                    let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, constraint, diagnostics));
+                    scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, *range, diagnostics));
+                    if let ScopedTypeData::Free(ty_id) = store.arena().get_scoped(ty) {
+                        ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Typed(*ty_id))
+                    } else {
+                        ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Unconstrained)
                     }
                 }
             };
@@ -1652,6 +1691,12 @@ fn lower_scoped_type_form(
                                     ScopedPackProjectionLane::Labeled,
                                 )));
                             }
+                        }
+                    }
+                    phalcom_ast::ast::TypeCallableItem::Remainder(remainder) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range } = &remainder.remainder {
+                            let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, constraint, diagnostics));
+                            scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, *range, diagnostics));
                         }
                     }
                 }
@@ -2763,8 +2808,8 @@ pub fn resolve_type_form(
                 };
                 let arg_res = resolve_type_form(store, declarations, resolver, site, arg, diagnostics);
                 match arg_res {
-                    TypeFormResolution::Ready(ty) => arg_tys.push(ty),
-                    TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
+                    TypeFormResolution::Ready(ty) => arg_tys.push(StaticArgument::Term(ty)),
+                    TypeFormResolution::Dynamic => arg_tys.push(StaticArgument::DynamicType),
                     TypeFormResolution::Unresolved(reason) => return TypeFormResolution::Unresolved(reason),
                     TypeFormResolution::Missing(reason) => return TypeFormResolution::Missing(reason),
                     TypeFormResolution::Invalid(reason) => return TypeFormResolution::Invalid(reason),
@@ -2775,7 +2820,7 @@ pub fn resolve_type_form(
                 }
             }
 
-            match store.apply_type_form(origin_ty, &arg_tys) {
+            match store.apply_static_form(origin_ty, &arg_tys) {
                 Ok(applied) => TypeFormResolution::Ready(applied),
                 Err(err) => {
                     let code = match &err {
@@ -2795,6 +2840,139 @@ pub fn resolve_type_form(
             }
         }
         TypeAnnotationExpr::Tuple { elements, range: _ } => {
+            let has_expansion = elements.iter().any(|e| matches!(e, phalcom_ast::ast::TypeTupleItem::Expansion(_)));
+            if !has_expansion {
+                let mut tuple_elements = Vec::with_capacity(elements.len());
+                let mut positional_remainder = super::store::AnonymousTupleRemainder::None;
+                let mut labeled_remainder = super::store::AnonymousTupleRemainder::None;
+                let mut labeled_phase = false;
+                let mut seen_labels = std::collections::HashSet::new();
+
+                for item in elements {
+                    match item {
+                        phalcom_ast::ast::TypeTupleItem::Element(elem) => {
+                            let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, &elem.ty, diagnostics));
+                            if store.kind_of(ty) != KindId::TYPE {
+                                diagnostics.push(SemanticDiagnostic::error_in(
+                                    current_module.clone(),
+                                    DiagnosticCode::KindExpectedType,
+                                    "tuple element must be a proper type",
+                                    elem.range,
+                                ));
+                                return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
+                            }
+                            let presence = if elem.optional {
+                                if elem.label.is_none() {
+                                    diagnostics.push(SemanticDiagnostic::error_in(
+                                        current_module.clone(),
+                                        DiagnosticCode::AnnotationUnsupported,
+                                        "optional Tuple elements must be labeled",
+                                        elem.range,
+                                    ));
+                                    return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                                }
+                                super::row::StructuralMemberPresence::Optional
+                            } else {
+                                super::row::StructuralMemberPresence::Required
+                            };
+                            if let Some(label) = &elem.label {
+                                labeled_phase = true;
+                                if !seen_labels.insert(label.clone()) {
+                                    diagnostics.push(SemanticDiagnostic::error_in(
+                                        current_module.clone(),
+                                        DiagnosticCode::RecordDuplicateField,
+                                        format!("duplicate label `{}` in tuple type annotation", label),
+                                        elem.range,
+                                    ));
+                                    return TypeFormResolution::Invalid(TypeFormationInvalid::DuplicateRecordField(label.clone().into()));
+                                }
+                                tuple_elements.push(super::store::TupleTypeElement {
+                                    label: Some(label.clone().into()),
+                                    ty,
+                                    presence,
+                                });
+                            } else {
+                                if labeled_phase {
+                                    diagnostics.push(SemanticDiagnostic::error_in(
+                                        current_module.clone(),
+                                        DiagnosticCode::AnnotationUnsupported,
+                                        "positional Tuple entries cannot follow labeled entries",
+                                        elem.range,
+                                    ));
+                                    return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                                }
+                                tuple_elements.push(super::store::TupleTypeElement {
+                                    label: None,
+                                    ty,
+                                    presence,
+                                });
+                            }
+                        }
+                        phalcom_ast::ast::TypeTupleItem::Remainder(rem) => {
+                            let rem_val = match &rem.remainder {
+                                phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_) => super::store::AnonymousTupleRemainder::Unconstrained,
+                                phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range } => {
+                                    let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, constraint, diagnostics));
+                                    if store.kind_of(ty) != KindId::TYPE {
+                                        diagnostics.push(SemanticDiagnostic::error_in(
+                                            current_module.clone(),
+                                            DiagnosticCode::KindExpectedType,
+                                            "tuple remainder type constraint must be a proper type",
+                                            *range,
+                                        ));
+                                        return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
+                                    }
+                                    super::store::AnonymousTupleRemainder::Typed(ty)
+                                }
+                            };
+                            match rem.mode {
+                                phalcom_ast::ast::RemainderLaneMode::Positional => {
+                                    if positional_remainder != super::store::AnonymousTupleRemainder::None {
+                                        diagnostics.push(SemanticDiagnostic::error_in(
+                                            current_module.clone(),
+                                            DiagnosticCode::AnnotationUnsupported,
+                                            "duplicate positional remainder in tuple",
+                                            rem.range,
+                                        ));
+                                        return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                                    }
+                                    positional_remainder = rem_val;
+                                }
+                                phalcom_ast::ast::RemainderLaneMode::Labeled => {
+                                    if labeled_remainder != super::store::AnonymousTupleRemainder::None {
+                                        diagnostics.push(SemanticDiagnostic::error_in(
+                                            current_module.clone(),
+                                            DiagnosticCode::AnnotationUnsupported,
+                                            "duplicate labeled remainder in tuple",
+                                            rem.range,
+                                        ));
+                                        return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                                    }
+                                    labeled_remainder = rem_val;
+                                }
+                                phalcom_ast::ast::RemainderLaneMode::Complete => {
+                                    if positional_remainder != super::store::AnonymousTupleRemainder::None
+                                        || labeled_remainder != super::store::AnonymousTupleRemainder::None
+                                    {
+                                        diagnostics.push(SemanticDiagnostic::error_in(
+                                            current_module.clone(),
+                                            DiagnosticCode::AnnotationUnsupported,
+                                            "duplicate remainder in tuple",
+                                            rem.range,
+                                        ));
+                                        return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                                    }
+                                    positional_remainder = rem_val;
+                                    labeled_remainder = rem_val;
+                                }
+                            }
+                        }
+                        phalcom_ast::ast::TypeTupleItem::Expansion(_) => unreachable!(),
+                    }
+                }
+                return TypeFormResolution::Ready(store.open_tuple(tuple_elements.into_boxed_slice(), positional_remainder, labeled_remainder));
+            }
+
             let mut positional_segments = Vec::new();
             let mut labeled_segments = Vec::new();
             let mut labeled_phase = false;
@@ -2874,6 +3052,15 @@ pub fn resolve_type_form(
                             return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                         }
                     }
+                    phalcom_ast::ast::TypeTupleItem::Remainder(rem) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::AnnotationUnsupported,
+                            "Tuple remainders cannot be combined with type-pack expansion",
+                            rem.range,
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                    }
                 }
             }
             let positionals = match store.type_pack_concat(&positional_segments) {
@@ -2892,7 +3079,7 @@ pub fn resolve_type_form(
         TypeAnnotationExpr::Record { fields, tail, range: _ } => {
             let record_tail = match tail {
                 None => RecordRowTail::Closed,
-                Some(tail) => match resolver.resolve_type_level_binding(&tail.name) {
+                Some(phalcom_ast::ast::RecordRowTailSyntax::Captured(tail)) => match resolver.resolve_type_level_binding(&tail.name) {
                     Some(TypeLevelBinding::RecordRow(parameter)) => RecordRowTail::Parameter(parameter),
                     Some(TypeLevelBinding::TypeForm(form)) => {
                         let actual = store.kind_of(form);
@@ -2912,6 +3099,24 @@ pub fn resolve_type_form(
                             annotation.range,
                         ));
                         return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(tail.name.clone().into()));
+                    }
+                },
+                Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(rem)) => match rem {
+                    phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_) => {
+                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained)
+                    }
+                    phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range } => {
+                        let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, constraint, diagnostics));
+                        if store.kind_of(ty) != KindId::TYPE {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::KindExpectedType,
+                                "record remainder type constraint must be a proper type",
+                                *range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
+                        }
+                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty))
                     }
                 },
             };
@@ -2950,9 +3155,14 @@ pub fn resolve_type_form(
                     TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
                     TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
                 };
-                record_fields.push(RecordTypeField {
+                record_fields.push(crate::types::row::RecordRowField {
                     name: field.name.clone().into(),
                     ty,
+                    presence: if field.optional {
+                        crate::types::row::StructuralMemberPresence::Optional
+                    } else {
+                        crate::types::row::StructuralMemberPresence::Required
+                    },
                 });
             }
             match store.record_row_type_checked(record_fields, record_tail) {
@@ -3075,6 +3285,15 @@ pub fn resolve_type_form(
                             ));
                             return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                         }
+                    }
+                    phalcom_ast::ast::TypeCallableItem::Remainder(rem) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::AnnotationUnsupported,
+                            "callable parameters do not support remainder syntax",
+                            rem.range,
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                     }
                 }
             }

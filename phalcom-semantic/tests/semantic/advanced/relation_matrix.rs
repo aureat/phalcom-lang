@@ -22,8 +22,8 @@ fn every_proper_matrix_form_has_explicit_relation_behavior() {
     let object = store.nominal(decl("Object"));
     hierarchy.insert(decl("Int"), decl("Object"));
     let class_object = store.class_object_type(decl("Int"));
-    let tuple = store.tuple(vec![TupleTypeElement { label: None, ty: int }, TupleTypeElement { label: None, ty: string }].into_boxed_slice());
-    let record = store.record(Box::new([RecordRowField { name: "value".into(), ty: int }]));
+    let tuple = store.tuple(vec![TupleTypeElement::unlabeled(int), TupleTypeElement::unlabeled(string)].into_boxed_slice());
+    let record = store.record(Box::new([RecordRowField::required("value".into(), int)]));
     let callable = store.callable(CallableType {
         parameters: Box::new([CallableParameterType::new(int)]),
         return_type: string,
@@ -93,17 +93,29 @@ fn exact_cases_and_open_records_follow_canonical_relation() {
     let red_case = store.exact_case_type(&red, color_type).expect("valid exact case");
     assert!(is_subtype(&mut store, &hierarchy, red_case, color_type));
 
-    let owner = TypeParameterOwner::Declaration(decl("RowOwner"));
-    let row_parameter = store.intern_type_parameter(TypeParameterData::new(owner, 0, "R", KindId::RECORD_ROW));
     let int = store.nominal(decl("Int"));
-    let open = store
-        .record_row_type_checked(vec![RecordRowField { name: "value".into(), ty: int }], RecordRowTail::Parameter(row_parameter))
+    let open_row = store
+        .record_row_checked(
+            vec![RecordRowField::required("value".into(), int)],
+            RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Unconstrained),
+        )
         .expect("valid open row");
-    let required = store.record(Box::new([RecordRowField { name: "value".into(), ty: int }]));
+    let open = store.intern_with_kind(phalcom_semantic::types::store::TypeData::Record(open_row), KindId::TYPE);
+    let required = store.record(Box::new([RecordRowField::required("value".into(), int)]));
+    let wide = store.record(Box::new([
+        RecordRowField::required("value".into(), int),
+        RecordRowField::required("extra".into(), int),
+    ]));
 
-    assert!(is_subtype(&mut store, &hierarchy, open, required));
-    assert!(!is_subtype(&mut store, &hierarchy, required, open));
-    let missing = store.record(Box::new([RecordRowField { name: "other".into(), ty: int }]));
+    // Wide closed record subtypes open record: { value: Int, extra: Int } <: { value: Int, ... }
+    assert!(is_subtype(&mut store, &hierarchy, wide, open));
+    // Exact closed record subtypes open record: { value: Int } <: { value: Int, ... }
+    assert!(is_subtype(&mut store, &hierarchy, required, open));
+    // Open record does NOT subtype closed record: { value: Int, ... } </: { value: Int }
+    assert!(!is_subtype(&mut store, &hierarchy, open, required));
+    // Missing required field fails: { other: Int } </: { value: Int, ... }
+    let missing = store.record(Box::new([RecordRowField::required("other".into(), int)]));
+    assert!(!is_subtype(&mut store, &hierarchy, missing, open));
     assert!(!is_subtype(&mut store, &hierarchy, missing, required));
 }
 

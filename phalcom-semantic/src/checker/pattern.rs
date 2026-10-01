@@ -120,7 +120,7 @@ fn resolve_pattern_with_mode(
 
             for (i, elem) in elements.iter().enumerate() {
                 let elem_ty = match ctx.store.get(subject.canonical) {
-                    TypeData::Tuple(elems) => elems.get(i).map(|e| e.ty).unwrap_or(subject.canonical),
+                    TypeData::Tuple(elems) => elems.elements.get(i).map(|e| e.ty).unwrap_or(subject.canonical),
                     _ => ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(subject.canonical),
                 };
                 let elem_local_ty = match &subject.local {

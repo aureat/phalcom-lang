@@ -25,6 +25,13 @@ expose .testing
 import .object
 import .scalar
 import .errors
+from .errors import (
+  ArgumentError,
+  KeyError,
+  IndexError,
+  SliceError,
+  DuplicateKeyError
+)
 import .callable
 import .option
 import .time
@@ -51,6 +58,13 @@ import .testing
 export object
 export scalar
 export errors
+export (
+  ArgumentError,
+  KeyError,
+  IndexError,
+  SliceError,
+  DuplicateKeyError
+)
 export callable
 export option
 export (

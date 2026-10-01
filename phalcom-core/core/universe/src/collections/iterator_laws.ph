@@ -39,7 +39,7 @@ trait Iterable
 
   iterator -> Self::Iterator
 
-  iter { self.iterator }
+  iter -> Self::Iterator { self.iterator }
 
   indexed -> IndexedIterator<Self::Iterator> { IndexedIterator.new(self.iterator) }
 
@@ -275,8 +275,11 @@ trait Iterable
     let result = Set<Dynamic>.new()
 
     let it = self.iterator
-    while let Some(val) = it.next {
+    let step = it.next
+    while step.isSome {
+      let val = step.match(some: |v| { v }, none: || { None })
       result.add(val)
+      step = it.next
     }
 
     return result
@@ -286,12 +289,15 @@ trait Iterable
     let result = Map<Dynamic, Dynamic>.new()
 
     let it = self.iterator
-    while let Some(entry) = it.next {
+    let step = it.next
+    while step.isSome {
+      let entry = step.match(some: |v| { v }, none: || { None })
       let key = entry.key
       if result.includes(key) {
         return Result::Error(DuplicateKeyError.new(key))
       }
       result.insert(entry.value, for: key)
+      step = it.next
     }
     return Result::Ok(result)
   }
@@ -346,7 +352,9 @@ class MappedIterator<I, U> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ mapper) {
+  new(_ upstream: I, _ mapper: (<I as Iterator>::Item) -> U)
+    where I |= Iterator
+  {
     _upstream = upstream
     _mapper = mapper
     _done = false
@@ -366,7 +374,9 @@ class MappedIterator<I, U> {
   iterator { self }
 }
 
-impl<I, U> Iterator for MappedIterator<I, U> {
+impl<I, U> Iterator for MappedIterator<I, U>
+  where I |= Iterator
+{
   type Item = U
 }
 
@@ -376,7 +386,9 @@ class FilterIterator<I> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ predicate) {
+  new(_ upstream: I, _ predicate: (<I as Iterator>::Item) -> Bool)
+    where I |= Iterator
+  {
     _upstream = upstream
     _predicate = predicate
     _done = false
@@ -400,7 +412,9 @@ class FilterIterator<I> {
   iterator { self }
 }
 
-impl<I> Iterator for FilterIterator<I> {
+impl<I> Iterator for FilterIterator<I>
+  where I |= Iterator
+{
   type Item = <I as Iterator>::Item
 }
 
@@ -410,7 +424,9 @@ class FilterMapIterator<I, U> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ mapper) {
+  new(_ upstream: I, _ mapper: (<I as Iterator>::Item) -> Option<U>)
+    where I |= Iterator
+  {
     _upstream = upstream
     _mapper = mapper
     _done = false
@@ -435,7 +451,9 @@ class FilterMapIterator<I, U> {
   iterator { self }
 }
 
-impl<I, U> Iterator for FilterMapIterator<I, U> {
+impl<I, U> Iterator for FilterMapIterator<I, U>
+  where I |= Iterator
+{
   type Item = U
 }
 
@@ -573,7 +591,9 @@ class SkipIterator<I> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ n) {
+  new(_ upstream: I, _ n)
+    where I |= Iterator
+  {
     if n is not Number or n < 0 or n % 1 != 0 {
       throw ArgumentError.new("skip: n must be a non-negative integer")
     }
@@ -603,7 +623,9 @@ class SkipIterator<I> {
   iterator { self }
 }
 
-impl<I> Iterator for SkipIterator<I> {
+impl<I> Iterator for SkipIterator<I>
+  where I |= Iterator
+{
   type Item = <I as Iterator>::Item
 }
 
@@ -614,7 +636,9 @@ class SkipWhileIterator<I> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ predicate) {
+  new(_ upstream: I, _ predicate: (<I as Iterator>::Item) -> Bool)
+    where I |= Iterator
+  {
     _upstream = upstream
     _predicate = predicate
     _stillSkipping = true
@@ -646,7 +670,9 @@ class SkipWhileIterator<I> {
   iterator { self }
 }
 
-impl<I> Iterator for SkipWhileIterator<I> {
+impl<I> Iterator for SkipWhileIterator<I>
+  where I |= Iterator
+{
   type Item = <I as Iterator>::Item
 }
 
@@ -656,7 +682,9 @@ class TakeIterator<I> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ n) {
+  new(_ upstream: I, _ n)
+    where I |= Iterator
+  {
     if n is not Number or n < 0 or n % 1 != 0 {
       throw ArgumentError.new("take: n must be a non-negative integer")
     }
@@ -682,7 +710,9 @@ class TakeIterator<I> {
   iterator { self }
 }
 
-impl<I> Iterator for TakeIterator<I> {
+impl<I> Iterator for TakeIterator<I>
+  where I |= Iterator
+{
   type Item = <I as Iterator>::Item
 }
 
@@ -692,7 +722,9 @@ class TakeWhileIterator<I> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ predicate) {
+  new(_ upstream: I, _ predicate: (<I as Iterator>::Item) -> Bool)
+    where I |= Iterator
+  {
     _upstream = upstream
     _predicate = predicate
     _done = false
@@ -716,7 +748,9 @@ class TakeWhileIterator<I> {
   iterator { self }
 }
 
-impl<I> Iterator for TakeWhileIterator<I> {
+impl<I> Iterator for TakeWhileIterator<I>
+  where I |= Iterator
+{
   type Item = <I as Iterator>::Item
 }
 
@@ -726,7 +760,9 @@ class MapWhileIterator<I, U> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ mapper) {
+  new(_ upstream: I, _ mapper: (<I as Iterator>::Item) -> Option<U>)
+    where I |= Iterator
+  {
     _upstream = upstream
     _mapper = mapper
     _done = false
@@ -751,7 +787,9 @@ class MapWhileIterator<I, U> {
   iterator { self }
 }
 
-impl<I, U> Iterator for MapWhileIterator<I, U> {
+impl<I, U> Iterator for MapWhileIterator<I, U>
+  where I |= Iterator
+{
   type Item = U
 }
 
@@ -761,7 +799,9 @@ class InspectIterator<I> {
   _done: Bool
 
   @constructor
-  new(_ upstream: I, _ callback) {
+  new(_ upstream: I, _ callback: (<I as Iterator>::Item) -> Unit)
+    where I |= Iterator
+  {
     _upstream = upstream
     _callback = callback
     _done = false
@@ -782,7 +822,9 @@ class InspectIterator<I> {
   iterator { self }
 }
 
-impl<I> Iterator for InspectIterator<I> {
+impl<I> Iterator for InspectIterator<I>
+  where I |= Iterator
+{
   type Item = <I as Iterator>::Item
 }
 

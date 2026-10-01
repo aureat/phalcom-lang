@@ -277,6 +277,7 @@ impl LocalType {
                     tuple.push(TupleTypeElement {
                         label: element.label.clone(),
                         ty: element.ty.materialize(store)?,
+                        presence: crate::types::row::StructuralMemberPresence::Required,
                     });
                 }
                 Ok(store.tuple(tuple.into_boxed_slice()))
@@ -287,6 +288,7 @@ impl LocalType {
                     record.push(RecordTypeField {
                         name: field.name.clone(),
                         ty: field.ty.materialize(store)?,
+                        presence: crate::types::row::StructuralMemberPresence::Required,
                     });
                 }
                 store
@@ -329,8 +331,9 @@ impl LocalType {
                 enum_type: Box::new(Self::from_canonical(store, enum_type, replacements)),
             },
             TypeData::Union(members) => Self::Union(members.iter().map(|member| Self::from_canonical(store, *member, replacements)).collect()),
-            TypeData::Tuple(elements) => Self::Tuple(
-                elements
+            TypeData::Tuple(tuple) => Self::Tuple(
+                tuple
+                    .elements
                     .iter()
                     .map(|element| LocalTupleElement {
                         label: element.label.clone(),
@@ -390,8 +393,9 @@ impl LocalType {
                 enum_type: Box::new(Self::from_canonical_types(store, enum_type, replacements)),
             },
             TypeData::Union(members) => Self::Union(members.iter().map(|member| Self::from_canonical_types(store, *member, replacements)).collect()),
-            TypeData::Tuple(elements) => Self::Tuple(
-                elements
+            TypeData::Tuple(tuple) => Self::Tuple(
+                tuple
+                    .elements
                     .iter()
                     .map(|element| LocalTupleElement {
                         label: element.label.clone(),

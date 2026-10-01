@@ -136,17 +136,14 @@ pub fn resolve_native_type_form(
                 if !store.is_proper_type(f) {
                     return Err(NativeTypeResolutionError::Unsupported);
                 }
-                elements.push(TupleTypeElement { label: None, ty: f });
+                elements.push(TupleTypeElement::unlabeled(f));
             }
             for labeled in tuple_spec.labeled {
                 let f = resolve_native_type_form(store, declarations, parameters, universe_resolver, labeled.ty)?;
                 if !store.is_proper_type(f) {
                     return Err(NativeTypeResolutionError::Unsupported);
                 }
-                elements.push(TupleTypeElement {
-                    label: Some(labeled.label.into()),
-                    ty: f,
-                });
+                elements.push(TupleTypeElement::labeled(labeled.label.into(), f));
             }
             Ok(store.tuple(elements.into_boxed_slice()))
         }
