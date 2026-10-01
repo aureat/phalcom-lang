@@ -416,7 +416,7 @@ mod tests {
     };
     use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
     use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
-    use phalcom_type_meta::type_node::{RecordFieldRef, StaticArgumentRef, TypeNode, TypeNodeEntry, TypeNodeId};
+    use phalcom_type_meta::type_node::{RecordFieldRef, StaticArgumentRef, StructuralMemberPresenceRef, TypeNode, TypeNodeEntry, TypeNodeId};
     use std::sync::Arc;
 
     fn row_test_bundle() -> (SemanticMetadataBundle, StableTypeParameterRef, StableTypeParameterRef) {
@@ -465,9 +465,11 @@ mod tests {
                     fields: vec![RecordFieldRef {
                         name: "payload".into(),
                         ty: TypeNodeId(2),
+                        presence: StructuralMemberPresenceRef::Required,
                     }]
                     .into_boxed_slice(),
                     tail: None,
+                    remainder: None,
                 })]
                 .into_boxed_slice(),
             }),
@@ -477,9 +479,11 @@ mod tests {
                     fields: vec![RecordFieldRef {
                         name: "payload".into(),
                         ty: TypeNodeId(2),
+                        presence: StructuralMemberPresenceRef::Required,
                     }]
                     .into_boxed_slice(),
                     tail: Some(open_tail.clone()),
+                    remainder: None,
                 })]
                 .into_boxed_slice(),
             }),

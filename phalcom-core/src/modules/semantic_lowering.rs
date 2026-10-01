@@ -2963,7 +2963,7 @@ mod tests {
     use phalcom_common::selector::Selector;
     use phalcom_modules::identity::ModuleId;
     use phalcom_semantic::identity::{DeclarationId, VariantId};
-    use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
+    use phalcom_semantic::types::row::{RecordRowField, RecordRowTail, StructuralMemberPresence};
     use phalcom_semantic::types::store::StaticArgument;
     use phalcom_semantic::types::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberSelector};
     use phalcom_semantic::types::{KindId, ScopedTypeData, TypeStore};
@@ -2998,6 +2998,7 @@ mod tests {
                 vec![RecordRowField {
                     name: "payload".into(),
                     ty: exact_case,
+                    presence: StructuralMemberPresence::Required,
                 }],
                 RecordRowTail::Closed,
             )
