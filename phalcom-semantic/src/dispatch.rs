@@ -110,6 +110,56 @@ impl CallableSignature {
     pub fn has_complete_types(&self) -> bool {
         self.return_type.ty().is_some() && self.parameters.iter().all(|parameter| parameter.ty.ty().is_some())
     }
+
+    /// Returns whether this callable signature accepts the incoming selector,
+    /// either via exact match or by accepting remaining slots through rest parameters.
+    pub fn accepts_selector(&self, selector: &Selector) -> bool {
+        if self.selector == *selector {
+            return true;
+        }
+        if !self.parameters.iter().any(|p| p.is_rest()) {
+            return false;
+        }
+        if self.selector.base != selector.base {
+            return false;
+        }
+        use phalcom_common::selector::{SelectorKind, SelectorSlot};
+        if !matches!((&self.selector.kind, &selector.kind), (SelectorKind::Method, SelectorKind::Method)) {
+            return false;
+        }
+        let positional_rest = self.parameters.iter().any(|p| matches!(p.rest, RestMode::Positional | RestMode::Complete));
+        let labeled_rest = self.parameters.iter().any(|p| matches!(p.rest, RestMode::Labeled | RestMode::Complete));
+
+        let fixed_positional_count = self.parameters.iter().filter(|p| p.rest == RestMode::None && p.external_label.is_none()).count();
+        let fixed_labels = self.parameters.iter().filter_map(|p| if p.rest == RestMode::None { p.external_label.as_deref() } else { None }).collect::<Vec<_>>();
+
+        let positional_count = selector.slots.iter().filter(|s| matches!(s, SelectorSlot::Positional)).count();
+        let labels: Vec<&str> = selector.slots.iter().filter_map(|s| match s { SelectorSlot::Label(l) => Some(l.as_str()), _ => None }).collect();
+
+        if positional_rest {
+            if positional_count < fixed_positional_count {
+                return false;
+            }
+        } else if positional_count != fixed_positional_count {
+            return false;
+        }
+
+        for fixed_label in &fixed_labels {
+            if !labels.contains(fixed_label) {
+                return false;
+            }
+        }
+
+        if labeled_rest {
+            if labels.len() < fixed_labels.len() {
+                return false;
+            }
+        } else if labels.len() != fixed_labels.len() {
+            return false;
+        }
+
+        true
+    }
 }
 
 /// Complete result of resolving dispatch, capturing visited hierarchy trace.
@@ -375,15 +425,12 @@ impl SurfaceDispatchResolver {
         for owner in self.dispatch_owners(hierarchy, start_decl, side) {
             visited.push(owner.declaration.clone());
             if let Some(surface) = self.surfaces.get(&owner.declaration) {
-                if let Some(sig) = surface.get_callable(owner.side, selector) {
-                    let callable_id = surface
-                        .get_callable_id(owner.side, selector)
-                        .cloned()
-                        .unwrap_or_else(|| CallableId::new(owner.declaration.clone(), selector.clone(), owner.side));
+                if let Some((callable_id, sig)) = surface.surface(owner.side).get_callable_for_selector(selector) {
+                    let callable_id = callable_id.clone();
                     return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
                         callable: callable_id,
                         signature: sig.clone(),
-                        visibility: surface.surface(owner.side).callable_visibility.get(selector).copied().unwrap_or_default(),
+                        visibility: surface.surface(owner.side).callable_visibility.get(&sig.selector).copied().unwrap_or_default(),
                         access_denied: false,
                         specialization: None,
                         conditional: None,

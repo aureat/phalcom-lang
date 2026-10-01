@@ -75,11 +75,36 @@ impl MemberSurface {
     }
 
     pub fn get_callable(&self, selector: &Selector) -> Option<&CallableSignature> {
-        self.callable_signatures.get(selector)
+        if let Some(sig) = self.callable_signatures.get(selector) {
+            return Some(sig);
+        }
+        self.callable_signatures.values().find(|sig| sig.accepts_selector(selector))
     }
 
     pub fn get_callable_id(&self, selector: &Selector) -> Option<&CallableId> {
-        self.callables_by_selector.get(selector)
+        if let Some(id) = self.callables_by_selector.get(selector) {
+            return Some(id);
+        }
+        for (sig_sel, sig) in &self.callable_signatures {
+            if sig.accepts_selector(selector) {
+                return self.callables_by_selector.get(sig_sel);
+            }
+        }
+        None
+    }
+
+    pub fn get_callable_for_selector(&self, selector: &Selector) -> Option<(&CallableId, &CallableSignature)> {
+        if let Some(sig) = self.callable_signatures.get(selector) {
+            let id = self.callables_by_selector.get(selector)?;
+            return Some((id, sig));
+        }
+        for (sig_sel, sig) in &self.callable_signatures {
+            if sig.accepts_selector(selector) {
+                let id = self.callables_by_selector.get(sig_sel)?;
+                return Some((id, sig));
+            }
+        }
+        None
     }
 }
 

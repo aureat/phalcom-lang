@@ -21,7 +21,7 @@ use phalcom_type_meta::header::{
 };
 use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, StableDispatchSide, StableFieldRef, StableModuleRef, StableProjectRef};
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
-use phalcom_type_meta::type_node::{RecordFieldRef, RecordRowRef, StaticArgumentRef, TypeNode, TypeNodeEntry, TypeNodeId};
+use phalcom_type_meta::type_node::{RecordFieldRef, RecordRowRef, StaticArgumentRef, StructuralMemberPresenceRef, TypeNode, TypeNodeEntry, TypeNodeId};
 use std::sync::Arc;
 
 fn send0(vm: &mut VM, receiver: Value, selector: &str) -> Value {
@@ -167,9 +167,11 @@ fn build_test_bundle() -> SemanticMetadataBundle {
                     fields: vec![RecordFieldRef {
                         name: "payload".into(),
                         ty: TypeNodeId(5),
+                        presence: StructuralMemberPresenceRef::Required,
                     }]
                     .into_boxed_slice(),
                     tail: None,
+                    remainder: None,
                 })]
                 .into_boxed_slice(),
             },
@@ -184,12 +186,14 @@ fn build_test_bundle() -> SemanticMetadataBundle {
                     fields: vec![RecordFieldRef {
                         name: "payload".into(),
                         ty: TypeNodeId(1),
+                        presence: StructuralMemberPresenceRef::Required,
                     }]
                     .into_boxed_slice(),
                     tail: Some(StableTypeParameterRef {
                         owner: StableTypeParameterOwnerRef::Declaration(decl_row_box.clone()),
                         index: 0,
                     }),
+                    remainder: None,
                 })]
                 .into_boxed_slice(),
             },

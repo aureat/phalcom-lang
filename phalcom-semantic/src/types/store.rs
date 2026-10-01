@@ -1005,6 +1005,7 @@ impl TypeStore {
         self.apply_static_form(origin, &arguments)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn apply_type_form_with_arena(
         &mut self,
         arena: &mut TypeLambdaArena,

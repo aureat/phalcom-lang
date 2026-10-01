@@ -252,6 +252,7 @@ impl VM {
     /// entering the closure frame. The raw pack never becomes visible to user
     /// bytecode.
     #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code)]
     pub(crate) fn call_rest_method_as(
         &mut self,
         receiver: &Value,
@@ -261,6 +262,32 @@ impl VM {
         labels: &[Symbol],
         source_range: SourceRange,
         caller_authority: (Option<crate::heap::ClassId>, crate::method::RuntimeAccessOrigin),
+    ) -> PhResult<()> {
+        self.call_rest_method_as_with_environments(
+            receiver,
+            method,
+            receiver_idx,
+            positional_count,
+            labels,
+            source_range,
+            caller_authority,
+            crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+            crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn call_rest_method_as_with_environments(
+        &mut self,
+        receiver: &Value,
+        method: crate::heap::ObjRef,
+        receiver_idx: usize,
+        positional_count: usize,
+        labels: &[Symbol],
+        source_range: SourceRange,
+        caller_authority: (Option<crate::heap::ClassId>, crate::method::RuntimeAccessOrigin),
+        type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
+        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
     ) -> PhResult<()> {
         let layout = self.heap.method(method).signature.rest.clone().expect("rest lookup only returns rest methods");
         let total = self.stack.len() - receiver_idx - 1;
@@ -325,7 +352,17 @@ impl VM {
         }
         let local_arity = self.stack.len() - receiver_idx - 1;
         let selector = self.heap.method(method).signature.selector;
-        self.call_method_with_selector_as(receiver, method, local_arity, selector, None, source_range, caller_authority)
+        self.call_method_with_selector_as_and_environments(
+            receiver,
+            method,
+            local_arity,
+            selector,
+            None,
+            source_range,
+            caller_authority,
+            type_environment,
+            conformance_environment,
+        )
     }
 
     /// Enters a rest-family method with the incoming shape intact for native
@@ -356,6 +393,34 @@ impl VM {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub(crate) fn activate_rest_method_with_environment(
+        &mut self,
+        receiver: &Value,
+        method: crate::heap::ObjRef,
+        receiver_idx: usize,
+        positional_count: usize,
+        labels: &[Symbol],
+        selector: Symbol,
+        source_range: SourceRange,
+        type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
+        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
+    ) -> PhResult<()> {
+        let caller_authority = self.current_caller_authority();
+        self.activate_rest_method_as_with_environment(
+            receiver,
+            method,
+            receiver_idx,
+            positional_count,
+            labels,
+            selector,
+            source_range,
+            caller_authority,
+            type_environment,
+            conformance_environment,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn activate_rest_method_as(
         &mut self,
         receiver: &Value,
@@ -366,6 +431,34 @@ impl VM {
         selector: Symbol,
         source_range: SourceRange,
         caller_authority: (Option<crate::heap::ClassId>, crate::method::RuntimeAccessOrigin),
+    ) -> PhResult<()> {
+        self.activate_rest_method_as_with_environment(
+            receiver,
+            method,
+            receiver_idx,
+            positional_count,
+            labels,
+            selector,
+            source_range,
+            caller_authority,
+            crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+            crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn activate_rest_method_as_with_environment(
+        &mut self,
+        receiver: &Value,
+        method: crate::heap::ObjRef,
+        receiver_idx: usize,
+        positional_count: usize,
+        labels: &[Symbol],
+        selector: Symbol,
+        source_range: SourceRange,
+        caller_authority: (Option<crate::heap::ClassId>, crate::method::RuntimeAccessOrigin),
+        type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
+        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
     ) -> PhResult<()> {
         let total = self.stack.len() - receiver_idx - 1;
         let signature = self.heap.method(method).signature.clone();
@@ -383,7 +476,7 @@ impl VM {
             self.heap.method(method).kind,
             crate::method::MethodKind::Primitive(crate::method::PrimitiveFn::Shape(_))
         ) {
-            return self.call_method_with_selector_as(
+            return self.call_method_with_selector_as_and_environments(
                 receiver,
                 method,
                 total,
@@ -391,9 +484,21 @@ impl VM {
                 Some(InvocationLayout::ordinary(positional_count, labels.to_vec().into_boxed_slice())),
                 source_range,
                 caller_authority,
+                type_environment,
+                conformance_environment,
             );
         }
-        self.call_rest_method_as(receiver, method, receiver_idx, positional_count, labels, source_range, caller_authority)
+        self.call_rest_method_as_with_environments(
+            receiver,
+            method,
+            receiver_idx,
+            positional_count,
+            labels,
+            source_range,
+            caller_authority,
+            type_environment,
+            conformance_environment,
+        )
     }
 
     /// Validates all rest-specific installation invariants before mutating
@@ -1453,7 +1558,17 @@ impl VM {
                 if !matches!(kind, SignatureKind::Method(_)) {
                     return self.forward_does_not_understand(receiver_idx, selector_sym, source_range);
                 }
-                self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector_sym, source_range)?;
+                self.activate_rest_method_with_environment(
+                    &receiver,
+                    method,
+                    receiver_idx,
+                    positional_count,
+                    &labels,
+                    selector_sym,
+                    source_range,
+                    type_environment,
+                    conformance_environment,
+                )?;
             } else {
                 self.call_method_with_selector_as_and_environments(
                     &receiver,
@@ -1509,7 +1624,17 @@ impl VM {
                         version: self.world_version,
                     };
                     callable.chunk.caches[cache_ip].set(Some(entry));
-                    self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector_sym, source_range)?;
+                    self.activate_rest_method_with_environment(
+                        &receiver,
+                        method,
+                        receiver_idx,
+                        positional_count,
+                        &labels,
+                        selector_sym,
+                        source_range,
+                        type_environment,
+                        conformance_environment,
+                    )?;
                 } else {
                     self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
                 }

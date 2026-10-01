@@ -928,7 +928,7 @@ impl VM {
         let before = self.frames.len();
         let outcome =
             if self.heap.method(method).signature.rest.is_some() && !matches!(self.heap.method(method).kind, MethodKind::Primitive(PrimitiveFn::Shape(_))) {
-                self.call_rest_method_as(
+                self.call_rest_method_as_with_environments(
                     &receiver,
                     method,
                     receiver_idx,
@@ -936,6 +936,8 @@ impl VM {
                     view.labels(),
                     source_range,
                     view.caller_authority(),
+                    type_environment,
+                    conformance_environment,
                 )?;
                 if self.frames.len() > before {
                     CallOutcome::EnteredFrame
