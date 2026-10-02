@@ -1422,15 +1422,9 @@ fn lower_scoped_type_form(
                     phalcom_ast::ast::TypeTupleItem::Element(element) => {
                         let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &element.ty, diagnostics,));
                         scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, element.range, diagnostics));
-                        let presence = if element.optional {
-                            super::row::StructuralMemberPresence::Optional
-                        } else {
-                            super::row::StructuralMemberPresence::Required
-                        };
                         fixed_elements.push(ScopedTupleElement {
                             label: element.label.clone().map(Into::into),
                             ty,
-                            presence,
                         });
                         if let Some(label) = &element.label {
                             labeled_phase = true;
@@ -2842,20 +2836,6 @@ pub fn resolve_type_form(
                                 ));
                                 return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
                             }
-                            let presence = if elem.optional {
-                                if elem.label.is_none() {
-                                    diagnostics.push(SemanticDiagnostic::error_in(
-                                        current_module.clone(),
-                                        DiagnosticCode::AnnotationUnsupported,
-                                        "optional Tuple elements must be labeled",
-                                        elem.range,
-                                    ));
-                                    return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
-                                }
-                                super::row::StructuralMemberPresence::Optional
-                            } else {
-                                super::row::StructuralMemberPresence::Required
-                            };
                             if let Some(label) = &elem.label {
                                 labeled_phase = true;
                                 if !seen_labels.insert(label.clone()) {
@@ -2870,7 +2850,6 @@ pub fn resolve_type_form(
                                 tuple_elements.push(super::store::TupleTypeElement {
                                     label: Some(label.clone().into()),
                                     ty,
-                                    presence,
                                 });
                             } else {
                                 if labeled_phase {
@@ -2882,7 +2861,7 @@ pub fn resolve_type_form(
                                     ));
                                     return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
                                 }
-                                tuple_elements.push(super::store::TupleTypeElement { label: None, ty, presence });
+                                tuple_elements.push(super::store::TupleTypeElement { label: None, ty });
                             }
                         }
                         phalcom_ast::ast::TypeTupleItem::Remainder(rem) => {

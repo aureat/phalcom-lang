@@ -274,21 +274,23 @@ Bare `...` in tuple type syntax does **not** mean homogeneous repetition of the 
 
 ---
 
-## 7. Required and Optional Labeled Members
+## 7. Required and Optional Record Fields
 
-A labeled member without `?` is required:
+Tuple fixed members (both positional and labeled) are always required. Optionality is exclusively a **Record field-presence** feature.
+
+In a Record type, a field without `?` is required:
 
 ```phalcom
 name: String
 ```
 
-A labeled member followed by `?` is optional:
+A field followed by `?` is optional:
 
 ```phalcom
 name?: String
 ```
 
-An optional member may be absent. If present, its value must satisfy its declared type.
+An optional field may be absent. If present, its value must satisfy its declared type.
 
 Optionality concerns **member presence** and is distinct from `Option<T>`.
 
@@ -308,11 +310,9 @@ permits the field `name` to be absent.
 
 requires the field `name` to be present; its value has type `Option<String>`.
 
-The same optional-member semantics apply to labeled tuple members.
+Tuple fixed elements never carry optional presence: `(name?: String)` is rejected by the grammar. Tuple variability is expressed exclusively through positional and labeled remainders (`*: T`, `**: T`).
 
-This specification does not define optional positional members.
-
-Explicitly declared required and optional labels are excluded from the labeled remainder. A labeled remainder constrains only labels not explicitly declared by the enclosing type.
+Explicitly declared required and optional fields are excluded from the record remainder. A record remainder constrains only fields not explicitly declared by the enclosing type.
 
 ---
 

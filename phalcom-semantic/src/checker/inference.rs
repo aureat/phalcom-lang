@@ -1557,7 +1557,6 @@ impl InferenceSession {
                         Some(TupleTypeElement {
                             label: element.label.clone(),
                             ty: self.materialize_for_expected(&element.term, store)?,
-                            presence: crate::types::row::StructuralMemberPresence::Required,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
@@ -4984,7 +4983,6 @@ impl InferenceSession {
                     tuple_elems.push(TupleTypeElement {
                         label: e.label.clone(),
                         ty: self.materialize(&e.term, store)?,
-                        presence: crate::types::row::StructuralMemberPresence::Required,
                     });
                 }
                 Ok(store.tuple(tuple_elems.into_boxed_slice()))

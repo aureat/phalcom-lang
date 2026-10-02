@@ -52,40 +52,15 @@ pub enum AnonymousTupleRemainder {
 pub struct TupleTypeElement {
     pub label: Option<Box<str>>,
     pub ty: TypeId,
-    pub presence: StructuralMemberPresence,
 }
 
 impl TupleTypeElement {
     pub fn unlabeled(ty: TypeId) -> Self {
-        Self {
-            label: None,
-            ty,
-            presence: StructuralMemberPresence::Required,
-        }
+        Self { label: None, ty }
     }
 
     pub fn labeled(label: Box<str>, ty: TypeId) -> Self {
-        Self {
-            label: Some(label),
-            ty,
-            presence: StructuralMemberPresence::Required,
-        }
-    }
-
-    pub fn optional_unlabeled(ty: TypeId) -> Self {
-        Self {
-            label: None,
-            ty,
-            presence: StructuralMemberPresence::Optional,
-        }
-    }
-
-    pub fn optional_labeled(label: Box<str>, ty: TypeId) -> Self {
-        Self {
-            label: Some(label),
-            ty,
-            presence: StructuralMemberPresence::Optional,
-        }
+        Self { label: Some(label), ty }
     }
 }
 
@@ -1633,11 +1608,8 @@ impl TypeStore {
                 let mut parts = Vec::new();
                 for elem in tuple.elements.iter() {
                     let t_str = self.format_type(elem.ty);
-                    let opt = if elem.presence.is_optional() { "?" } else { "" };
                     if let Some(ref l) = elem.label {
-                        parts.push(format!("{l}{opt}: {t_str}"));
-                    } else if elem.presence.is_optional() {
-                        parts.push(format!("?: {t_str}"));
+                        parts.push(format!("{l}: {t_str}"));
                     } else {
                         parts.push(t_str);
                     }

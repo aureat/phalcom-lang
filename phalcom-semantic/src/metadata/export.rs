@@ -869,14 +869,10 @@ impl<'a> MetadataExporter<'a> {
                 let mut elems = Vec::new();
                 for el in elements.iter() {
                     let ty = self.export_scoped_type_with_binders(el.ty, binder_kinds)?;
-                    let presence = match el.presence {
-                        crate::types::store::StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
-                        crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
-                    };
                     elems.push(ScopedTupleElementRef {
                         label: el.label.clone(),
                         ty,
-                        presence,
+                        presence: StructuralMemberPresenceRef::Required,
                     });
                 }
                 ScopedTypeNode::Tuple(elems.into_boxed_slice())
@@ -1427,20 +1423,12 @@ impl<'a> MetadataExporter<'a> {
             }
             TypeData::Tuple(ref tuple_ty) => {
                 let mut elem_refs = Vec::new();
-                let mut has_optional = false;
                 for el in tuple_ty.elements.iter() {
                     let ty_id = self.export_type_form(el.ty)?;
-                    let presence = match el.presence {
-                        StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
-                        StructuralMemberPresence::Optional => {
-                            has_optional = true;
-                            StructuralMemberPresenceRef::Optional
-                        }
-                    };
                     elem_refs.push(TupleElementRef {
                         label: el.label.clone(),
                         ty: ty_id,
-                        presence,
+                        presence: StructuralMemberPresenceRef::Required,
                     });
                 }
                 let pos_rem = match tuple_ty.positional_remainder {
@@ -1453,7 +1441,7 @@ impl<'a> MetadataExporter<'a> {
                     AnonymousTupleRemainder::Unconstrained => AnonymousTupleRemainderRef::Unconstrained,
                     AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainderRef::Typed(self.export_type_form(t)?),
                 };
-                if !has_optional && pos_rem == AnonymousTupleRemainderRef::None && lab_rem == AnonymousTupleRemainderRef::None {
+                if pos_rem == AnonymousTupleRemainderRef::None && lab_rem == AnonymousTupleRemainderRef::None {
                     TypeNode::Tuple(elem_refs.into_boxed_slice())
                 } else {
                     TypeNode::OpenTuple(OpenTupleTypeRef {

@@ -1160,7 +1160,6 @@ pub struct ExactCaseParameterSyntax {
 pub struct TypeTupleElement {
     pub label: Option<String>,
     pub ty: TypeAnnotation,
-    pub optional: bool,
     pub range: SourceRange,
 }
 

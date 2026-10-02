@@ -145,7 +145,6 @@ impl TypeSubstitution {
                         Ok(TupleTypeElement {
                             label: elem.label.clone(),
                             ty: self.try_apply_with_arena(store, arena, elem.ty)?,
-                            presence: elem.presence,
                         })
                     })
                     .collect::<Result<Vec<_>, TypeSubstitutionError>>()?;
@@ -288,7 +287,6 @@ impl TypeSubstitution {
                     .map(|elem| TupleTypeElement {
                         label: elem.label.clone(),
                         ty: self.apply_with_arena(store, arena, elem.ty),
-                        presence: elem.presence,
                     })
                     .collect();
                 let pos_rem = match tuple.positional_remainder {
@@ -586,7 +584,6 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 .map(|elem| TupleTypeElement {
                     label: elem.label.clone(),
                     ty: specialize_self_type(store, declarations, receiver, elem.ty),
-                    presence: elem.presence,
                 })
                 .collect();
             let pos_rem = match tuple.positional_remainder {

@@ -179,13 +179,11 @@ fn lowers_labeled_tuple_and_callable_forms() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("Int"),
-                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: Some("name".into()),
                     ty: reference("String"),
-                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -606,13 +604,11 @@ fn scoped_complete_pack_expansion_projects_a_tuple_with_bound_elements() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("T"),
-                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: Some("enabled".into()),
                     ty: reference("Bool"),
-                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -920,13 +916,11 @@ fn nested_type_lambda_beta_reduction_avoids_capture() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("T"),
-                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("U"),
-                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -979,13 +973,11 @@ fn fresh_captured_nested_lambda_is_applied_during_outer_reduction() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("T"),
-                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("U"),
-                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -1530,13 +1522,11 @@ fn variadic_nominal_application_is_binder_aligned_and_empty_specializes() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("Int"),
-                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("String"),
-                    optional: false,
                     range: RANGE,
                 }),
             ],
@@ -1609,13 +1599,11 @@ fn fixed_generic_prefix_accepts_explicit_complete_pack_expansion_only() {
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: None,
                     ty: reference("String"),
-                    optional: false,
                     range: RANGE,
                 }),
                 phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                     label: Some("flag".into()),
                     ty: reference("Bool"),
-                    optional: false,
                     range: RANGE,
                 }),
             ],

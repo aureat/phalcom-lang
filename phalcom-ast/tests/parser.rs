@@ -1424,18 +1424,21 @@ fn parse_structural_record_types() {
         other => panic!("expected Record, got {other:?}"),
     }
 
-    let p4 = parse_source("type RemTuple = (Int, *: Float, opt?: String, **: Bool)\n", 0).expect("tuple with optional and remainders should parse");
+    let p4 = parse_source("type RemTuple = (Int, *: Float, opt: String, **: Bool)\n", 0).expect("tuple with remainders should parse");
     let Statement::TypeAlias(alias4) = &p4.statements[0] else { panic!() };
     match &alias4.body.expr {
         TypeAnnotationExpr::Tuple { elements, .. } => {
             assert_eq!(elements.len(), 4);
-            assert!(matches!(&elements[0], phalcom_ast::ast::TypeTupleItem::Element(el) if !el.optional));
+            assert!(matches!(&elements[0], phalcom_ast::ast::TypeTupleItem::Element(el) if el.label.is_none()));
             assert!(matches!(&elements[1], phalcom_ast::ast::TypeTupleItem::Remainder(rem) if rem.mode == phalcom_ast::ast::RemainderLaneMode::Positional));
-            assert!(matches!(&elements[2], phalcom_ast::ast::TypeTupleItem::Element(el) if el.optional && el.label.as_deref() == Some("opt")));
+            assert!(matches!(&elements[2], phalcom_ast::ast::TypeTupleItem::Element(el) if el.label.as_deref() == Some("opt")));
             assert!(matches!(&elements[3], phalcom_ast::ast::TypeTupleItem::Remainder(rem) if rem.mode == phalcom_ast::ast::RemainderLaneMode::Labeled));
         }
         other => panic!("expected Tuple, got {other:?}"),
     }
+
+    assert!(parse_source("type BadTuple = (opt?: String)\n", 0).is_err());
+    assert!(parse_source("type BadTuple = (Int?)\n", 0).is_err());
 }
 
 #[test]

@@ -154,21 +154,9 @@ is checked.
 
 `source_field.presence` is ignored.
 
-### Labeled Tuple has the same bug
+### Former Labeled Tuple Presence (Removed by Remediation)
 
-`phalcom-semantic/src/types/relation.rs:484–508`
-
-Again:
-
-```rust
-if let Some(source_field) = ... {
-    check_subtype_impl(source_field.ty, target_field.ty, ...)
-} else if target_field.presence.is_required() {
-    Refuted(...)
-}
-```
-
-No source-presence relation is performed.
+Previously, Tuple elements carried presence variability and exhibited a similar defect in `phalcom-semantic/src/types/relation.rs`. Under the P5 Structural Presence Remediation, Tuple presence variability was identified as an unintended feature and completely removed: Tuple fixed members are always required, and Tuple variability is expressed exclusively through positional and labeled remainders. Optionality is strictly a Record field-presence feature. The Record half of this issue remains a subtype-soundness fix (`{ a?: Int } </: { a: Int }`).
 
 ### Consequence
 
@@ -1471,8 +1459,9 @@ At minimum, the next implementation should add direct discriminators for these p
 { a?: Int } </: { a: Int }
 { a: Int } <: { a?: Int }
 
-# Labeled Tuple equivalent
-(a?: Int) </: (a: Int)
+# Tuple optional members rejected by syntax
+(a?: Int) => parse error
+(Int?) => parse error
 
 # Generic presence preservation
 F<{ a?: T }>[T := Int]

@@ -169,7 +169,6 @@ fn materialize_type_inner(
                     Ok(TupleTypeElement {
                         label: element.label.clone(),
                         ty: materialize_type_inner(store, element.ty, instantiation, row_mode, visiting_rows)?,
-                        presence: element.presence,
                     })
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?;

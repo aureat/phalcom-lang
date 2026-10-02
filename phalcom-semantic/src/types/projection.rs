@@ -250,7 +250,6 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 normalized_elements.push(TupleTypeElement {
                     label: element.label.clone(),
                     ty,
-                    presence: element.presence,
                 });
             }
             let pos_rem = match tuple.positional_remainder {
@@ -997,7 +996,6 @@ fn normalize_intrinsic_projection(
                 transformed_elements.push(TupleTypeElement {
                     label: elem.label.clone(),
                     ty: target_ty,
-                    presence: elem.presence,
                 });
             }
             Some(ProjectionNormalizationResult::Normalized(store.tuple(transformed_elements.into_boxed_slice())))

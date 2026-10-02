@@ -217,7 +217,6 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 .map(|e| TupleTypeElement {
                     label: e.label.clone(),
                     ty: materialize_view(store, e.ty, env),
-                    presence: e.presence,
                 })
                 .collect();
             store.tuple(subst_elems.into_boxed_slice())

@@ -2446,11 +2446,7 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
             .iter()
             .cloned()
             .zip(types.iter().copied())
-            .map(|(label, ty)| TupleTypeElement {
-                label,
-                ty,
-                presence: crate::types::row::StructuralMemberPresence::Required,
-            })
+            .map(|(label, ty)| TupleTypeElement { label, ty })
             .collect::<Vec<_>>();
         Ok(ctx.store.tuple(elements.into_boxed_slice()))
     });

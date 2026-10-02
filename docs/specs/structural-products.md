@@ -54,7 +54,7 @@ Tuple(P, L, Rem_P, Rem_L)
 
 where `P : TypePack`, `L : LabeledTypePack`, `Rem_P` is the positional remainder state, and `Rem_L` is the labeled remainder state.
 
-Positional entries must precede labeled entries. Positional elements are always required. Labeled elements may be explicitly declared **required** (`name: T`) or **optional** (`name?: T`).
+Positional entries must precede labeled entries. Tuple fixed elements (both positional and labeled) are always required (`name: T`). Tuple variability is expressed exclusively through positional and labeled lane remainders (`*: T`, `**: T`).
 
 ### 2.1 Tuple remainders
 The positional and labeled lanes have independent closed/open states:
@@ -94,9 +94,9 @@ Captured row tails preserve correlated row identity. Anonymous remainders (`...`
 Ordinary `<:` applies strictly between proper `Type` terms (`KindId::TYPE`).
 
 For Record types:
-1. **Target required field `k: T`**: source must provably contain `k`, and source type `S` must satisfy `S <: T`.
+1. **Target required field `k: T`**: source must provably contain `k` with Required presence (`k: S` where `S <: T`). An optional source field `k?: S` cannot satisfy a required target field (`{ k?: S } </: { k: T }`).
 2. **Target optional field `k?: T`**:
-   - If source provably contains `k: S`, `S <: T` is required.
+   - If source provably contains `k: S` (Required) or `k?: S` (Optional), `S <: T` is required.
    - If source is closed and omits `k`, the target field is satisfied (absence).
    - If source has an anonymous remainder that could contain `k`, the source remainder must be typed `**: S` with `S <: T` to prove compatibility; an unconstrained source remainder `...` cannot prove compatibility for an optional target field.
 3. **Extra source fields**:

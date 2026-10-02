@@ -1358,18 +1358,13 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
     let int_ty = store.nominal(dummy_decl("Int"));
     let str_ty = store.nominal(dummy_decl("String"));
 
-    // 1. Open tuple with optional element and typed remainder: (Int, String?, ...Int)
+    // 1. Open tuple with typed remainder: (Int, opt: String, ...Int)
     let open_tuple_ty = store.open_tuple(
         Box::new([
-            TupleTypeElement {
-                label: None,
-                ty: int_ty,
-                presence: StructuralMemberPresence::Required,
-            },
+            TupleTypeElement { label: None, ty: int_ty },
             TupleTypeElement {
                 label: Some("opt".into()),
                 ty: str_ty,
-                presence: StructuralMemberPresence::Optional,
             },
         ]),
         AnonymousTupleRemainder::Typed(int_ty),
@@ -1416,7 +1411,7 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
     };
     assert_eq!(open_t.elements.len(), 2);
     assert_eq!(open_t.elements[0].presence, StructuralMemberPresenceRef::Required);
-    assert_eq!(open_t.elements[1].presence, StructuralMemberPresenceRef::Optional);
+    assert_eq!(open_t.elements[1].presence, StructuralMemberPresenceRef::Required);
     assert_eq!(open_t.elements[1].label.as_deref(), Some("opt"));
     assert!(matches!(open_t.positional_remainder, AnonymousTupleRemainderRef::Typed(_)));
     assert_eq!(open_t.labeled_remainder, AnonymousTupleRemainderRef::None);
@@ -1434,34 +1429,44 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
 #[test]
 fn structural_member_presence_and_remainder_affect_fingerprints() {
     use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail, StructuralMemberPresence};
-    use phalcom_semantic::types::store::{AnonymousTupleRemainder, TupleTypeElement};
 
     let mut store = TypeStore::new();
     let int_ty = store.nominal(dummy_decl("Int"));
 
-    // Tuple Required vs Optional
-    let tuple_req = store.open_tuple(
-        Box::new([TupleTypeElement {
-            label: None,
-            ty: int_ty,
-            presence: StructuralMemberPresence::Required,
-        }]),
-        AnonymousTupleRemainder::None,
-        AnonymousTupleRemainder::None,
+    // Record Required vs Optional
+    let row_req = store
+        .record_row_checked(
+            vec![RecordRowField {
+                name: "x".into(),
+                ty: int_ty,
+                presence: StructuralMemberPresence::Required,
+            }],
+            RecordRowTail::Closed,
+        )
+        .unwrap();
+    let row_opt = store
+        .record_row_checked(
+            vec![RecordRowField {
+                name: "x".into(),
+                ty: int_ty,
+                presence: StructuralMemberPresence::Optional,
+            }],
+            RecordRowTail::Closed,
+        )
+        .unwrap();
+
+    let rec_req = store.intern_with_kind(
+        phalcom_semantic::types::store::TypeData::Record(row_req),
+        phalcom_semantic::types::id::KindId::TYPE,
     );
-    let tuple_opt = store.open_tuple(
-        Box::new([TupleTypeElement {
-            label: None,
-            ty: int_ty,
-            presence: StructuralMemberPresence::Optional,
-        }]),
-        AnonymousTupleRemainder::None,
-        AnonymousTupleRemainder::None,
+    let rec_opt = store.intern_with_kind(
+        phalcom_semantic::types::store::TypeData::Record(row_opt),
+        phalcom_semantic::types::id::KindId::TYPE,
     );
 
     let mut exp1 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
-    let id_req = exp1.export_type_form(tuple_req).unwrap();
-    let id_opt = exp1.export_type_form(tuple_opt).unwrap();
+    let id_req = exp1.export_type_form(rec_req).unwrap();
+    let id_opt = exp1.export_type_form(rec_opt).unwrap();
     let b1 = exp1.build_bundle(&[]).unwrap();
 
     assert_ne!(
@@ -1509,4 +1514,43 @@ fn structural_member_presence_and_remainder_affect_fingerprints() {
         b2.types[id_closed.0 as usize].structural_fingerprint,
         b2.types[id_anon.0 as usize].structural_fingerprint
     );
+}
+
+#[test]
+fn metadata_rejects_optional_tuple_presence() {
+    use phalcom_semantic::types::store::TupleTypeElement;
+    use phalcom_type_meta::type_node::{OpenTupleTypeRef, StructuralMemberPresenceRef, TupleElementRef, TypeNode};
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal(dummy_decl("Int"));
+    let tuple_ty = store.tuple(vec![TupleTypeElement::unlabeled(int_ty)].into_boxed_slice());
+
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let _ = exporter.export_type_form(tuple_ty).unwrap();
+    let mut bundle = exporter.build_bundle(&[]).unwrap();
+
+    // Mutate bundle to have Optional Tuple element in TypeNode::Tuple
+    for entry in bundle.types.iter_mut() {
+        if let TypeNode::Tuple(elements) = &mut entry.form {
+            elements[0].presence = StructuralMemberPresenceRef::Optional;
+        }
+    }
+    assert!(validate_metadata_bundle(&bundle, &ValidationLimits::default()).is_err());
+
+    // Also test OpenTuple with Optional element
+    let mut bundle2 = bundle.clone();
+    for entry in bundle2.types.iter_mut() {
+        if let TypeNode::Tuple(elements) = &mut entry.form {
+            entry.form = TypeNode::OpenTuple(OpenTupleTypeRef {
+                elements: Box::new([TupleElementRef {
+                    label: None,
+                    ty: elements[0].ty,
+                    presence: StructuralMemberPresenceRef::Optional,
+                }]),
+                positional_remainder: phalcom_type_meta::type_node::AnonymousTupleRemainderRef::None,
+                labeled_remainder: phalcom_type_meta::type_node::AnonymousTupleRemainderRef::None,
+            });
+        }
+    }
+    assert!(validate_metadata_bundle(&bundle2, &ValidationLimits::default()).is_err());
 }

@@ -2005,7 +2005,6 @@ impl<'source> Parser<'source> {
 
             let rest = self.eat(&Token::DotDotDot);
             let mut label = None;
-            let mut optional = false;
 
             if matches!(self.peek(), Token::Identifier(_)) {
                 if matches!(self.peek_next(), Token::Colon) {
@@ -2013,17 +2012,15 @@ impl<'source> Parser<'source> {
                     self.advance(); // ':'
                     label = Some(lbl);
                 } else if matches!(self.peek_next(), Token::Question) {
-                    let lbl = self.expect_identifier(&["label"])?;
+                    let _lbl = self.expect_identifier(&["label"])?;
                     self.advance(); // '?'
-                    if self.eat(&Token::Colon) {
-                        label = Some(lbl);
-                        optional = true;
-                    } else {
-                        return Err(SyntaxError {
-                            kind: SyntaxErrorKind::Message("optional positional members are not permitted in tuple types".to_string()),
-                            range: item_start..self.prev_end,
-                        });
-                    }
+                    // label?: is invalid in tuple types — optional fields belong in Record types
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(
+                            "optional labeled members are not permitted in tuple types; use a record type `{ label?: Type }` instead".to_string(),
+                        ),
+                        range: item_start..self.prev_end,
+                    });
                 }
             }
 
@@ -2041,7 +2038,7 @@ impl<'source> Parser<'source> {
             items.push(TypeCallableItem::Parameter(TypeCallableParameter {
                 label,
                 ty,
-                optional,
+                optional: false,
                 rest,
                 range: item_range,
             }));
@@ -2183,7 +2180,6 @@ impl<'source> Parser<'source> {
                         TypeCallableItem::Parameter(parameter) => TypeTupleItem::Element(TypeTupleElement {
                             label: parameter.label,
                             ty: parameter.ty,
-                            optional: parameter.optional,
                             range: parameter.range,
                         }),
                         TypeCallableItem::Expansion(expansion) => TypeTupleItem::Expansion(expansion),

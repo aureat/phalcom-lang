@@ -277,7 +277,6 @@ impl LocalType {
                     tuple.push(TupleTypeElement {
                         label: element.label.clone(),
                         ty: element.ty.materialize(store)?,
-                        presence: crate::types::row::StructuralMemberPresence::Required,
                     });
                 }
                 Ok(store.tuple(tuple.into_boxed_slice()))

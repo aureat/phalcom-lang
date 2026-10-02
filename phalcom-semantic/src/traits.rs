@@ -852,7 +852,6 @@ fn substitute_type_id_self_and_params(store: &mut TypeStore, ty: TypeId, subject
                     crate::types::store::TupleTypeElement {
                         label: elem.label.clone(),
                         ty: term_to_type_id(store, term),
-                        presence: elem.presence,
                     }
                 })
                 .collect();

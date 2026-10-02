@@ -67,7 +67,6 @@ fn tuple_ann(elements: Vec<(Option<&str>, TypeAnnotation)>) -> TypeAnnotation {
                     phalcom_ast::ast::TypeTupleItem::Element(TypeTupleElement {
                         label: label.map(Into::into),
                         ty,
-                        optional: false,
                         range: RANGE,
                     })
                 })

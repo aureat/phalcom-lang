@@ -548,7 +548,6 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                     .map(|element| TupleTypeElement {
                         label: element.label.clone(),
                         ty: normalize(store, substitution, element.ty, states),
-                        presence: element.presence,
                     })
                     .collect::<Vec<_>>();
                 store.open_tuple(elements.into_boxed_slice(), tuple.positional_remainder, tuple.labeled_remainder)
@@ -847,7 +846,7 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
                     .elements
                     .iter()
                     .zip(right_tuple.elements.iter())
-                    .all(|(left, right)| left.label == right.label && left.presence == right.presence && unify_equality(store, substitution, left.ty, right.ty))
+                    .all(|(left, right)| left.label == right.label && unify_equality(store, substitution, left.ty, right.ty))
         }
         (TypeData::Record(left_row_id), TypeData::Record(right_row_id)) => unify_record_rows(store, substitution, left_row_id, right_row_id),
         (TypeData::Callable(left_callable), TypeData::Callable(right_callable)) => {

@@ -990,6 +990,9 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             }
             TypeNode::Tuple(elements) => {
                 for el in elements.iter() {
+                    if el.presence == StructuralMemberPresenceRef::Optional {
+                        return Err(MetadataValidationError::Malformed("tuple elements cannot be optional".to_string()));
+                    }
                     if el.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
                             index: i as u32,
@@ -1240,8 +1243,8 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             target: el.ty.0,
                         });
                     }
-                    if el.label.is_none() && el.presence == StructuralMemberPresenceRef::Optional {
-                        return Err(MetadataValidationError::Malformed("positional tuple elements cannot be optional".to_string()));
+                    if el.presence == StructuralMemberPresenceRef::Optional {
+                        return Err(MetadataValidationError::Malformed("tuple elements cannot be optional".to_string()));
                     }
                     if !matches!(bundle.kinds[bundle.types[el.ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
                         return Err(MetadataValidationError::Malformed("tuple elements must have kind Type".to_string()));
@@ -1360,6 +1363,9 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             }
             ScopedTypeNode::Tuple(elements) => {
                 for el in elements.iter() {
+                    if el.presence == StructuralMemberPresenceRef::Optional {
+                        return Err(MetadataValidationError::Malformed("scoped tuple elements cannot be optional".to_string()));
+                    }
                     if el.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
                             index: i as u32,
@@ -1800,8 +1806,8 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             target: el.ty.0,
                         });
                     }
-                    if el.label.is_none() && el.presence == StructuralMemberPresenceRef::Optional {
-                        return Err(MetadataValidationError::Malformed("positional tuple elements cannot be optional".to_string()));
+                    if el.presence == StructuralMemberPresenceRef::Optional {
+                        return Err(MetadataValidationError::Malformed("scoped tuple elements cannot be optional".to_string()));
                     }
                     if !matches!(bundle.kinds[bundle.scoped_types[el.ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
                         return Err(MetadataValidationError::Malformed("scoped tuple elements must have kind Type".to_string()));

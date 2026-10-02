@@ -1184,7 +1184,7 @@ fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
                     TupleElementRef {
                         label: Some("opt".into()),
                         ty: TypeNodeId(0),
-                        presence: StructuralMemberPresenceRef::Optional,
+                        presence: StructuralMemberPresenceRef::Required,
                     },
                 ]),
                 positional_remainder: AnonymousTupleRemainderRef::Unconstrained,
@@ -1230,7 +1230,7 @@ fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
                     ScopedTupleElementRef {
                         label: Some("opt".into()),
                         ty: ScopedTypeNodeId(0),
-                        presence: StructuralMemberPresenceRef::Optional,
+                        presence: StructuralMemberPresenceRef::Required,
                     },
                 ]),
                 positional_remainder: ScopedAnonymousTupleRemainderRef::Unconstrained,

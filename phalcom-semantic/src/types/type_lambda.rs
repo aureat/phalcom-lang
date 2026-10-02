@@ -58,7 +58,6 @@ pub enum ScopedTypeData {
 pub struct ScopedTupleElement {
     pub label: Option<Box<str>>,
     pub ty: ScopedTypeId,
-    pub presence: super::row::StructuralMemberPresence,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -437,7 +436,6 @@ impl TypeLambdaArena {
                     .map(|element| ScopedTupleElement {
                         label: element.label.clone(),
                         ty: self.substitute_free_scoped(element.ty, substitution, store),
-                        presence: element.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
@@ -605,7 +603,6 @@ impl TypeLambdaArena {
                         Ok(super::store::TupleTypeElement {
                             label: e.label.clone(),
                             ty: self.subst_scoped_to_canonical(e.ty, depth, args, store)?,
-                            presence: e.presence,
                         })
                     })
                     .collect::<Result<_, BetaReductionError>>()?;
@@ -823,7 +820,6 @@ impl TypeLambdaArena {
                     .map(|e| ScopedTupleElement {
                         label: e.label.clone(),
                         ty: self.subst_scoped_partial(e.ty, depth, args, store),
-                        presence: e.presence,
                     })
                     .collect();
                 self.intern_scoped(ScopedTypeData::Tuple(s_elems.into_boxed_slice()))

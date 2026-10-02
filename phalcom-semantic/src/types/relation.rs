@@ -487,11 +487,13 @@ fn check_subtype_impl(
                         if !out.is_proven() {
                             return out;
                         }
-                    } else if target_field.presence.is_required() {
-                        return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
                     } else {
+                        // Tuple fixed elements are always required — a missing labeled element is a failure
+                        // unless the source has a compatible typed remainder.
                         match sub_tuple.labeled_remainder {
-                            super::store::AnonymousTupleRemainder::None => {}
+                            super::store::AnonymousTupleRemainder::None => {
+                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                            }
                             super::store::AnonymousTupleRemainder::Typed(elem_ty) => {
                                 let out = check_subtype_impl(store, hierarchy, elem_ty, target_field.ty, budget, cancellation, visited, depth + 1);
                                 if !out.is_proven() {
@@ -820,6 +822,15 @@ pub fn check_record_row_subtype(
     // 1. Check all target fields in sup_row.
     for target_field in sup_row.fields.iter() {
         if let Some(source_field) = sub_row.fields.iter().find(|f| f.name == target_field.name) {
+            // Presence check: source Optional cannot satisfy target Required.
+            // `{ k?: S } <: { k: T }` is Refuted even when S <: T.
+            if target_field.presence.is_required() && source_field.presence.is_optional() {
+                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                    actual: sub_ty,
+                    expected: sup_ty,
+                });
+            }
+            // Type compatibility check.
             let outcome = check_subtype_impl(store, hierarchy, source_field.ty, target_field.ty, budget, cancellation, visited, depth + 1);
             if !outcome.is_proven() {
                 return outcome;
