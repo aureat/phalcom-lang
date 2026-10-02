@@ -61,12 +61,14 @@ enum ProductLabelStart {
 }
 
 /// Whether a closure parser entry point accepts expression bodies or requires
-/// braces. Trailing closures require braces so `|` remains unambiguous with
-/// bitwise OR after a completed expression.
+/// braces. Parenthesized closures accept any body. Trailing closures accept
+/// braced blocks or single-expression bodies bounded by newlines.
 #[derive(Clone, Copy)]
 enum ClosureBodyRequirement {
     Any,
+    #[allow(dead_code)]
     Braced,
+    TrailingAny,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -315,6 +317,9 @@ struct Parser<'source> {
     /// Disabled while parsing a refutable-header scrutinee so its following
     /// body brace cannot be consumed as a trailing closure argument.
     trailing_closures_enabled: bool,
+    /// When true, any newline terminates expression parsing (used for expression-body
+    /// trailing closures so that subsequent method calls on the next line belong to the outer call chain).
+    newline_terminates_expr: bool,
     /// Syntax errors recovered so far, in discovery order.
     errors: Vec<SyntaxError>,
 }
@@ -374,6 +379,7 @@ impl<'source> Parser<'source> {
             in_class_body: false,
             parenthesized_ranges: Vec::new(),
             trailing_closures_enabled: true,
+            newline_terminates_expr: false,
             errors,
         }
     }
@@ -6102,7 +6108,11 @@ impl<'source> Parser<'source> {
             };
             if let Some(rest_mode) = rest_mode {
                 let name_start = self.cur_start();
-                let name = self.expect_identifier(&["parameter name"])?;
+                let name = if self.eat(&Token::Underscore) {
+                    "_".to_string()
+                } else {
+                    self.expect_identifier(&["parameter name", "\"_\""])?
+                };
                 let name_range = (name_start..self.prev_end).into();
                 if rest_mode == RestMode::Positional && any_labeled {
                     return Err(SyntaxError {
@@ -6303,13 +6313,16 @@ impl<'source> Parser<'source> {
             let body = self.parse_block_statements()?;
             self.expect(&Token::RBrace, &["\"}\""])?;
             (body, false)
-        } else {
-            if matches!(body_requirement, ClosureBodyRequirement::Braced) {
-                return Err(self.error_here(strs(&["\"{\" (trailing closures require a braced body)"])));
-            }
+        } else if matches!(body_requirement, ClosureBodyRequirement::TrailingAny) {
+            let expr = self.parse_expr_newline_terminated()?;
+            let range = expr.range();
+            (vec![Statement::Expr { expr, range }], true)
+        } else if matches!(body_requirement, ClosureBodyRequirement::Any) {
             let expr = self.parse_expr()?;
             let range = expr.range();
             (vec![Statement::Expr { expr, range }], true)
+        } else {
+            return Err(self.error_here(strs(&["\"{\" (trailing closures require a braced body)"])));
         };
 
         Ok(Expr::Block(Box::new(BlockExpr {
@@ -6481,6 +6494,21 @@ impl<'source> Parser<'source> {
         result
     }
 
+    /// Parses an expression for an expression-body trailing closure.
+    /// Newlines immediately terminate expression parsing (so chained method calls on
+    /// the following line belong to the outer call chain), and trailing closures are
+    /// disabled within the body expression.
+    fn parse_expr_newline_terminated(&mut self) -> ParserResult<Expr> {
+        let prev_nl = self.newline_terminates_expr;
+        let prev_tc = self.trailing_closures_enabled;
+        self.newline_terminates_expr = true;
+        self.trailing_closures_enabled = false;
+        let result = self.parse_expr();
+        self.newline_terminates_expr = prev_nl;
+        self.trailing_closures_enabled = prev_tc;
+        result
+    }
+
     /// Parses assignments and compound assignments (right-associative).
     ///
     /// A simple `=` produces an [`Expr::Assignment`], or an [`Expr::SetProperty`]
@@ -6575,9 +6603,8 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Determines endpoint presence from grammar, not whitespace.
-    fn starts_expression(&self) -> bool {
-        match self.peek() {
+    pub(crate) fn token_starts_expression(token: &Token) -> bool {
+        match token {
             Token::If
             | Token::While
             | Token::True
@@ -6601,10 +6628,15 @@ impl<'source> Parser<'source> {
             | Token::Not
             | Token::Tilde
             | Token::Ampersand
-            | Token::DotDotDot => true,
-            Token::LBrace => true,
+            | Token::DotDotDot
+            | Token::LBrace => true,
             _ => false,
         }
+    }
+
+    /// Determines endpoint presence from grammar, not whitespace.
+    fn starts_expression(&self) -> bool {
+        Self::token_starts_expression(self.peek())
     }
 
     /// Parses a `??` null-coalescing chain (right-associative), desugaring to
@@ -7070,6 +7102,9 @@ impl<'source> Parser<'source> {
         let mut trailing_target = TrailingTarget::None;
         loop {
             if matches!(self.peek(), Token::Newline) {
+                if self.newline_terminates_expr {
+                    break;
+                }
                 let mut next = self.pos;
                 while matches!(self.tokens.get(next).map(|lexeme| &lexeme.token), Some(Token::Newline)) {
                     next += 1;
@@ -7078,7 +7113,8 @@ impl<'source> Parser<'source> {
                     self.tokens.get(next).map(|lexeme| &lexeme.token),
                     Some(Token::Dot | Token::QuestionDot | Token::ColonColon)
                 );
-                let continues_labelled_closure = trailing_target == TrailingTarget::MemberSend && self.starts_labelled_braced_closure_literal(next);
+                let continues_labelled_closure = trailing_target == TrailingTarget::MemberSend
+                    && (self.starts_labelled_braced_closure_literal(next) || self.starts_labelled_expression_closure_literal(next));
                 if continues_postfix || continues_labelled_closure {
                     while self.pos < next {
                         self.advance();
@@ -8077,36 +8113,97 @@ impl<'source> Parser<'source> {
         pos
     }
 
-    /// Non-consuming recognizer for exactly the closure grammar accepted by
-    /// `parse_closure_literal(Braced)`.
-    fn starts_braced_closure_literal(&self, pos: usize) -> bool {
+    fn find_closure_closing_pipe(&self, pos: usize) -> Option<usize> {
         let mut pos = pos;
         if !matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Pipe)) {
-            return false;
+            return None;
         }
         pos = self.skip_newlines_at(pos + 1);
         if matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Pipe)) {
-            return matches!(self.tokens.get(self.skip_newlines_at(pos + 1)).map(|lexeme| &lexeme.token), Some(Token::LBrace));
+            return Some(pos);
         }
         loop {
             if matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Asterisk)) {
                 pos = self.skip_newlines_at(pos + 1);
                 if !matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Identifier(_) | Token::Underscore)) {
-                    return false;
+                    return None;
                 }
                 pos = self.skip_newlines_at(pos + 1);
-                return matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Pipe))
-                    && matches!(self.tokens.get(self.skip_newlines_at(pos + 1)).map(|lexeme| &lexeme.token), Some(Token::LBrace));
+                if matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Colon)) {
+                    pos = self.skip_newlines_at(pos + 1);
+                    pos = self.skip_type_annotation_at(pos);
+                }
+                return if matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Pipe)) {
+                    Some(pos)
+                } else {
+                    None
+                };
             }
             if !matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Identifier(_) | Token::Underscore)) {
-                return false;
+                return None;
             }
             pos = self.skip_newlines_at(pos + 1);
-            match self.tokens.get(pos).map(|lexeme| &lexeme.token) {
-                Some(Token::Pipe) => return matches!(self.tokens.get(self.skip_newlines_at(pos + 1)).map(|lexeme| &lexeme.token), Some(Token::LBrace)),
-                Some(Token::Comma) => pos = self.skip_newlines_at(pos + 1),
-                _ => return false,
+            if matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Colon)) {
+                pos = self.skip_newlines_at(pos + 1);
+                pos = self.skip_type_annotation_at(pos);
             }
+            match self.tokens.get(pos).map(|lexeme| &lexeme.token) {
+                Some(Token::Pipe) => return Some(pos),
+                Some(Token::Comma) => pos = self.skip_newlines_at(pos + 1),
+                _ => return None,
+            }
+        }
+    }
+
+    fn skip_type_annotation_at(&self, mut pos: usize) -> usize {
+        let mut depth: usize = 0;
+        while let Some(lexeme) = self.tokens.get(pos) {
+            match &lexeme.token {
+                Token::Newline => {
+                    pos += 1;
+                }
+                Token::LParen | Token::LBracket | Token::Less => {
+                    depth += 1;
+                    pos += 1;
+                }
+                Token::RParen | Token::RBracket | Token::Greater => {
+                    depth = depth.saturating_sub(1);
+                    pos += 1;
+                }
+                Token::Comma | Token::Pipe if depth == 0 => {
+                    break;
+                }
+                Token::Eof => break,
+                _ => {
+                    pos += 1;
+                }
+            }
+        }
+        pos
+    }
+
+    /// Non-consuming recognizer for exactly the closure grammar accepted by
+    /// `parse_closure_literal(Braced)`.
+    fn starts_braced_closure_literal(&self, pos: usize) -> bool {
+        let closing_pipe_pos = match self.find_closure_closing_pipe(pos) {
+            Some(p) => p,
+            None => return false,
+        };
+        let after = self.skip_newlines_at(closing_pipe_pos + 1);
+        matches!(self.tokens.get(after).map(|lexeme| &lexeme.token), Some(Token::LBrace))
+    }
+
+    /// Non-consuming recognizer for single-expression trailing closure bodies
+    /// (`|params| expr` without braces).
+    fn starts_expression_closure_literal(&self, pos: usize) -> bool {
+        let closing_pipe_pos = match self.find_closure_closing_pipe(pos) {
+            Some(p) => p,
+            None => return false,
+        };
+        let after = self.skip_newlines_at(closing_pipe_pos + 1);
+        match self.tokens.get(after).map(|lexeme| &lexeme.token) {
+            Some(Token::LBrace) | None => false,
+            Some(token) => Self::token_starts_expression(token),
         }
     }
 
@@ -8120,13 +8217,19 @@ impl<'source> Parser<'source> {
             || matches!(self.tokens.get(pos + 2).map(|lexeme| &lexeme.token), Some(Token::LBrace)))
     }
 
+    fn starts_labelled_expression_closure_literal(&self, pos: usize) -> bool {
+        self.tokens.get(pos).is_some_and(|lexeme| Self::label_name(&lexeme.token).is_some())
+            && matches!(self.tokens.get(pos + 1).map(|lexeme| &lexeme.token), Some(Token::Colon))
+            && self.starts_expression_closure_literal(pos + 2)
+    }
+
     /// Parses the closure-only, unparenthesized arguments attached to an
     /// explicit member send. A positional clause may be followed by labeled
     /// clauses; subsequent positional clauses are deliberately unsupported.
     fn parse_trailing_closure_arguments(&mut self) -> ParserResult<Option<(Vec<PackItem>, usize)>> {
         let mut args = Vec::new();
-        let positional = self.starts_braced_closure_literal(self.pos);
-        let labelled = self.starts_labelled_braced_closure_literal(self.pos);
+        let positional = self.starts_braced_closure_literal(self.pos) || self.starts_expression_closure_literal(self.pos);
+        let labelled = self.starts_labelled_braced_closure_literal(self.pos) || self.starts_labelled_expression_closure_literal(self.pos);
         if !positional && !labelled {
             return Ok(None);
         }
@@ -8148,7 +8251,7 @@ impl<'source> Parser<'source> {
             let expr = if matches!(parser.peek(), Token::LBrace) {
                 parser.parse_brace_block()?
             } else {
-                parser.parse_closure_literal(ClosureBodyRequirement::Braced)?
+                parser.parse_closure_literal(ClosureBodyRequirement::TrailingAny)?
             };
             let range = (start..parser.prev_end).into();
             args.push(match label {
@@ -8161,7 +8264,7 @@ impl<'source> Parser<'source> {
         parse_one(self, labelled)?;
         while self.eat(&Token::Comma) {
             self.skip_newlines();
-            if !self.starts_labelled_braced_closure_literal(self.pos) {
+            if !self.starts_labelled_braced_closure_literal(self.pos) && !self.starts_labelled_expression_closure_literal(self.pos) {
                 return Err(self.error_here(strs(&["labeled trailing closure after `,`"])));
             }
             parse_one(self, true)?;
@@ -10387,7 +10490,9 @@ mod tests {
         assert_eq!(filter.method, "filter");
         assert!(matches!(filter.object, Expr::MethodCall(_)));
 
-        let Statement::Expr { expr, .. } = only_statement("obj.flags | mask | other") else {
+        // Under Option 1 (closure precedence), `(obj.flags)` must be parenthesized
+        // to express bitwise OR immediately after a member send.
+        let Statement::Expr { expr, .. } = only_statement("(obj.flags) | mask | other") else {
             panic!("expected expression statement");
         };
         let Expr::Binary(binary) = expr else {
@@ -10395,6 +10500,151 @@ mod tests {
         };
         assert!(matches!(binary.op, BinaryOp::BitOr));
         assert!(matches!(binary.left, Expr::Binary(_)));
+
+        // Non-member sends remain unaffected ordinary bitwise operations.
+        let Statement::Expr { expr, .. } = only_statement("flags | mask | other") else {
+            panic!("expected expression statement");
+        };
+        let Expr::Binary(binary) = expr else {
+            panic!("expected bitwise binary expression");
+        };
+        assert!(matches!(binary.op, BinaryOp::BitOr));
+
+        // Unparenthesized `obj.flags | mask | other` binds as a trailing closure to `obj.flags`.
+        let Statement::Expr { expr, .. } = only_statement("obj.flags | mask | other") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else {
+            panic!("expected trailing closure call under closure precedence");
+        };
+        assert_eq!(call.method, "flags");
+        assert_eq!(call.args.len(), 1);
+    }
+
+    #[test]
+    fn expression_body_trailing_closures() {
+        // Simple single-line positional expression trailing closure
+        let Statement::Expr { expr, .. } = only_statement("items.map |x| x + 1") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else { panic!("expected method call") };
+        assert_eq!(call.method, "map");
+        assert_eq!(call.args.len(), 1);
+        let PackItem::Positional { expr: Expr::Block(block), .. } = &call.args[0] else {
+            panic!("expected positional block");
+        };
+        assert!(block.expr_body);
+        assert_eq!(block.params.fixed.len(), 1);
+        assert_eq!(block.params.fixed[0].name, "x");
+
+        // Single-line concise closure on member access
+        let Statement::Expr { expr, .. } = only_statement("users.map |user| user.fullName") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else { panic!("expected method call") };
+        assert_eq!(call.method, "map");
+        assert_eq!(call.args.len(), 1);
+
+        // Single-line with comparison operator
+        let Statement::Expr { expr, .. } = only_statement("users.filter |user| user.followers > 1_000_000") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else { panic!("expected method call") };
+        assert_eq!(call.method, "filter");
+        let PackItem::Positional { expr: Expr::Block(block), .. } = &call.args[0] else {
+            panic!("expected positional block");
+        };
+        assert!(block.expr_body);
+        let [
+            Statement::Expr {
+                expr: Expr::Binary(binary), ..
+            },
+        ] = block.body.as_slice()
+        else {
+            panic!("expected binary expression in block body");
+        };
+        assert!(matches!(binary.op, BinaryOp::GreaterThan));
+
+        // Single-line labeled trailing expr closure
+        let Statement::Expr { expr, .. } = only_statement("users.group by: |user| user.role") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else { panic!("expected method call") };
+        assert_eq!(call.method, "group");
+        assert_eq!(call.args.len(), 1);
+        assert_eq!(static_pack_label(&call.args[0]), Some("by"));
+        assert!(matches!(&call.args[0], PackItem::Labeled { value: Expr::Block(b), .. } if b.expr_body));
+
+        // Single-line call with receiver args + labeled trailing expr closure
+        let Statement::Expr { expr, .. } = only_statement("items.fold(0) using: |x, y| x + y") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else { panic!("expected method call") };
+        assert_eq!(call.method, "fold");
+        assert_eq!(call.args.len(), 2);
+        assert!(matches!(&call.args[0], PackItem::Positional { expr: Expr::Int { .. }, .. }));
+        assert_eq!(static_pack_label(&call.args[1]), Some("using"));
+        let PackItem::Labeled { value: Expr::Block(block), .. } = &call.args[1] else {
+            panic!("expected labeled block");
+        };
+        assert!(block.expr_body);
+        assert_eq!(block.params.fixed.len(), 2);
+
+        // Single-line trailing closure with inner parenthesized closure
+        let Statement::Expr { expr, .. } = only_statement("groups.map |group| group.members.filter(|m| m.active)") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else { panic!("expected method call") };
+        assert_eq!(call.method, "map");
+
+        // Single-line nested closure guard: inside expr body, trailing closures are disabled,
+        // so `|` parses as Bitwise OR.
+        let Statement::Expr { expr, .. } = only_statement("a.map |x| x.b | y") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else { panic!("expected method call") };
+        assert_eq!(call.method, "map");
+        let PackItem::Positional { expr: Expr::Block(block), .. } = &call.args[0] else {
+            panic!("expected positional block");
+        };
+        assert!(block.expr_body);
+        let [
+            Statement::Expr {
+                expr: Expr::Binary(binary), ..
+            },
+        ] = block.body.as_slice()
+        else {
+            panic!("expected binary BitOr expression in block body");
+        };
+        assert!(matches!(binary.op, BinaryOp::BitOr));
+
+        // Critical newline chaining guard: `.h` attaches to outer chain, NOT closure body
+        let Statement::Expr { expr, .. } = only_statement("a.f |x| x.g\n  .h |y| y") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(h_call) = expr else { panic!("expected outer h call") };
+        assert_eq!(h_call.method, "h");
+        let Expr::MethodCall(f_call) = h_call.object else {
+            panic!("expected f call as object of h call");
+        };
+        assert_eq!(f_call.method, "f");
+        assert_eq!(f_call.args.len(), 1);
+
+        // Labeled continuation across newline
+        let Statement::Expr { expr, .. } = only_statement("a.f |x| x\n  label: |y| y") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else { panic!("expected method call") };
+        assert_eq!(call.method, "f");
+        assert_eq!(call.args.len(), 2);
+        assert_eq!(static_pack_label(&call.args[1]), Some("label"));
+
+        // Semicolon terminates expression body and statement
+        let parsed = parse("users.map |u| u.name; other", 0);
+        assert!(parsed.errors.is_empty(), "unexpected errors: {:?}", parsed.errors);
+        assert_eq!(parsed.program.statements.len(), 2);
+        assert!(matches!(parsed.program.statements[0], Statement::Expr { expr: Expr::MethodCall(_), .. }));
+        assert!(matches!(parsed.program.statements[1], Statement::Expr { expr: Expr::Var { .. }, .. }));
     }
 
     #[test]

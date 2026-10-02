@@ -611,6 +611,26 @@ The combination of `*rest` and `**rest` is a **split rest** shape: the residual 
 
 `***rest` is a **complete rest** shape: both residual lanes are captured together as one complete product.
 
+### Discarding rest parameters with `_`
+
+Any of the three rest forms may use `_` as the parameter name to signal that
+the residual values are received but not used in the body:
+
+```phalcom
+fn log(*_)   { ... }    // accepts any extra positional args, ignores them
+fn log(**_)  { ... }    // accepts any extra labeled args, ignores them
+fn log(***_) { ... }    // accepts any extra complete args, ignores them
+```
+
+The split-rest combination also allows either or both halves to be discarded:
+
+```phalcom
+fn forward(_ x, *_, to destination, **_) { destination.receive(x) }
+```
+
+`_` is not accessible inside the body. Multiple `_` rest parameters in the same
+declaration do not conflict with each other or with fixed `_` parameters.
+
 ### Fixed prefixes
 
 A rest-capable Method may still require fixed parameters before the residual capture.

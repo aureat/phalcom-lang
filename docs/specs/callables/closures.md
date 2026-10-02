@@ -68,6 +68,115 @@ users.any where: |user| {
 }
 ```
 
+### Multiple labeled trailing Closures
+
+A member send may be followed by several labeled trailing Closure arguments.
+Each subsequent labeled Closure appears on its own line, optionally separated by
+a comma, and the entire sequence is parsed as a single call:
+
+```phalcom
+r.packOrElse
+    name: |rec| {
+        expr1(rec)
+    }
+    age: |_| {
+        expr2
+    }
+    address: |rec| {
+        expr3(rec)
+    }
+```
+
+This is syntactically equivalent to the parenthesized form:
+
+```phalcom
+r.packOrElse(name: |rec| { expr1(rec) }, age: |_| { expr2 }, address: |rec| { expr3(rec) })
+```
+
+The selector is derived from the ordered label sequence in the usual way:
+
+```text
+packOrElse(name, age, address)
+```
+
+A bare positional trailing Closure (no label) may appear first, followed by any
+number of labeled trailing Closures:
+
+```phalcom
+predicate.ifTrue || { 1 }
+    ifFalse: || { 2 }
+```
+
+After a labeled Closure argument begins the trailing sequence, all further
+arguments in that sequence must also be labeled.
+
+### Concise expression-body trailing Closures
+
+A trailing Closure may use a single expression body without curly braces:
+
+```phalcom
+users.map |user| user.fullName
+
+users.iterator
+  .filter |user| user.followers > 1_000_000
+  .group by: |user| user.role
+  .fold(0) using: |x, y| x + y
+```
+
+These desugar to standard parenthesized calls:
+
+```phalcom
+users.map(|user| user.fullName)
+users.iterator
+  .filter(|user| user.followers > 1_000_000)
+  .group(by: |user| user.role)
+  .fold(0, using: |x, y| x + y)
+```
+
+#### Newline termination rule
+
+An expression-body trailing Closure is bounded by the first physical newline
+following the body expression. A method send on the subsequent line (`.group by:...`)
+always attaches to the outer call chain, never to the inner closure body:
+
+```phalcom
+// `.filter` and `.map` chain on the outer iterator, not inside `filter`'s body:
+users.iterator
+  .filter |user| user.followers > 1_000_000
+  .map |user| user.role
+```
+
+#### Trailing Closure precedence and bitwise OR
+
+Following a member send that accepts trailing arguments, a token sequence
+beginning with `|` that forms a valid closure parameter list is parsed with
+closure precedence.
+
+In an ambiguous expression where bitwise OR is intended immediately after such a
+member send, the member expression must be parenthesized:
+
+```phalcom
+(obj.flags) | READ | WRITE    // bitwise OR: (obj.flags | READ) | WRITE
+obj.flags | READ | WRITE      // trailing closure call: obj.flags(|READ| WRITE)
+flags | READ | WRITE          // non-member send: ordinary bitwise OR
+```
+
+#### Single-level scope
+
+Expression-body trailing Closures are single-level: inside an unbraced body,
+trailing closures are disabled so that inner `|` is parsed as bitwise OR.
+For nested closures inside a body, use parenthesized closures or a braced block:
+
+```phalcom
+// Nested inner closure via parentheses:
+groups.map |group| group.members.filter(|m| m.active)
+
+// Or using a braced body:
+groups.map |group| {
+  group.members.filter |m| m.active
+}
+```
+
 Ambiguous collection/block literals must be disambiguated according to the expression grammar rather than by treating braces as universally callable.
 
 ## Closure parameters
@@ -99,6 +208,37 @@ Examples:
 |x, y| { ... }
 |head, *tail| { ... }
 ```
+
+### Discarding Closure parameters with `_`
+
+A Closure parameter may be named `_` to indicate that its value is received but
+not used in the body:
+
+```phalcom
+|_| { expr }
+```
+
+Multiple parameters may independently use `_`; duplicate `_` names do not
+constitute a redeclaration conflict:
+
+```phalcom
+|_, _| { expr }
+```
+
+The same convention applies to the positional rest parameter (the only rest form
+Closures support):
+
+```phalcom
+|*_| { expr }
+```
+
+`**_` and `***_` are not applicable to Closures because Closures do not support
+labeled or complete rest parameters.
+Named Methods support all three discard-rest forms — see
+[Arguments and Parameters](arguments.md).
+
+`_` is not an identifier that can be referenced inside the body.
+It is a conventional discard marker and is never resolved as a local binding.
 
 The general argument-shape and rest-capture laws are defined by [Arguments and Parameters](arguments.md).
 
