@@ -16,6 +16,19 @@ prepared: 2026-09-21
 | `LANG007.C1` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C2` | frozen C1 substrate |
 | `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | successor: `LANG007.C3` | frozen C2 substrate |
 | `LANG007.C3` | `IN_PROGRESS / PARTIAL / UNVERIFIED` | active: `LANG007.C3.P4` | Complete structural kinds, product-shape expansion, Tuple/Record semantics, and the required audit corrections |
+| `LANG007.C4` | `DESIGN_RATIFIED / DOCS_MIGRATED / NOT_IMPLEMENTED` | specification/requirements phase | Structural static evaluation, Pack/Product/Sum reflection, binding semantics, generalized FieldKey |
+
+## C4 accepted successor checkpoint
+
+C4 is ratified at the design/specification level but is not implemented at this
+repository revision. Its authoritative entry point is
+[`LANG007.C4-CHECKPOINT.md`](LANG007.C4/LANG007.C4-CHECKPOINT.md) and its decision
+record is
+[TDR-0090](../../decisions/accepted/0090-structural-static-evaluation-packs-products-sums-and-binding-semantics.md).
+
+C4 does not retroactively change the implementation status recorded for C3. It defines
+the target public Pack/Product/Sum ontology and static evaluator that the next
+implementation work must realize.
 
 ## Current program state
 
