@@ -106,22 +106,26 @@ Examples:
 <CP: CompleteTypePack>
 ```
 
-Pack binders retain their lane semantics:
+In ordered-Pack/static-computation parameter positions, the expansion binders preserve
+Pack lane semantics:
 
 ```telos
-<*Ts>      // positional Pack of Type values by default
-<**Ls>     // labeled Pack of Type values by default
-<***Es>    // complete Pack of Type values by default
+<*Ts>      // positional Pack capture
+<**Ls>     // labeled Pack capture
+<***Es>    // complete Pack capture
 ```
 
+The same punctuation also appears inside structural forms whose owner determines the
+structural domain. In particular, `Record<**Fs>` and Record field/tail syntax denote
+unordered field structure, not an ordered labeled Pack. This contextual structural
+meaning is owned by [Structural Products](structural-products.md).
+
+There is therefore no global rule that every source occurrence of `**` denotes one
+compiler kind. The semantic owner/form determines whether the contribution is an
+ordered labeled Pack lane or unordered field structure.
+
 Where explicit syntax constrains each entry value, the constraint applies to entry
-values, not to the entire Pack shape.
-
-For example, the language must distinguish “every labeled argument has value Type T”
-from “the whole captured labeled Pack has this exact structural shape”.
-
-Binder expansion markers are syntax for binding structural Pack lanes; they do not
-create hidden collection kinds.
+values, not automatically to the entire captured shape.
 
 ## 6. Generic/static arguments
 
