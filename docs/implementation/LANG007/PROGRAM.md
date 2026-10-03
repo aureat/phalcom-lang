@@ -11,9 +11,9 @@ prepared: 2026-09-21
 
 # LANG007 — Type-Level Structural Domains and Intrinsic Type Operations
 
-LANG007 owns the implementation of Phalcom's compiler-assisted type-level structural operations: explicit type-level sequence domains, structural Tuple/Record type-member projection, typed compile-time type-member arguments, intrinsic normalization, and the semantic infrastructure required to preserve those operations through inference, metadata, and canonical Universe source.
+LANG007 owns the implementation of Telos compiler-assisted structural/static computation: the canonical type/static semantic substrate established by C1–C3 and the C4 public Pack/Product/Sum model, static evaluation, reflection, and binding-phase semantics built on that substrate.
 
-The program exists to make structural type computation a coherent part of Phalcom's type/value model without turning the VM into a type solver, without treating compile-time constants as fake types, and without collapsing distinct structural domains such as `TypePack`, `LabeledTypePack`, and `RecordRow`.
+The program exists to make structural computation a coherent part of Telos's type/value model without turning the VM into a type solver or compile-time evaluator, and without conflating ordered Pack lanes with unordered row structure. C4 makes historical `TypePack` / `RecordRow` forms implementation details beneath the public Pack/Product/Sum ontology.
 
 ## Program ownership
 
@@ -26,7 +26,7 @@ LANG007 owns implementation work for:
 - structural `Map<F>` over Tuple/Record-related domains;
 - stable symbolic projections when a type-level computation is well formed but not yet reducible;
 - substitution, inference, metadata, source indexing, and Universe integration needed to preserve those semantics;
-- future LANG007 checkpoints that extend this substrate into broader variadic/type-level structural programming when separately accepted and planned.
+- C4 structural/static evaluation, first-class Pack transport, Product/Sum reflection, generalized unordered keys, and compile-time `const` semantics.
 
 LANG007 does not own ordinary runtime collection iteration, general VM dispatch, arbitrary compile-time evaluation, unrelated trait/conformance architecture, or general-purpose metaprogramming unless a later checkpoint explicitly expands the program's bounded objective.
 
@@ -50,6 +50,27 @@ Current numbered plans for C2:
 - `LANG007.C2.P2` — source variadic generic binding and structural/callable type expansion — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C2.P3` — whole-pack inference, persistence, incremental certification, and checkpoint closure — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 
+### C4 — Structural static evaluation, Packs, Products, Sums, and binding semantics
+
+C4 is **DESIGN_RATIFIED / DOCUMENTATION_MIGRATED / IMPLEMENTATION_NOT_STARTED**.
+
+Its authoritative decision is
+[TDR-0090](../../decisions/accepted/0090-structural-static-evaluation-packs-products-sums-and-binding-semantics.md).
+The checkpoint specification set is indexed by
+[`LANG007.C4-CHECKPOINT.md`](LANG007.C4/LANG007.C4-CHECKPOINT.md).
+
+C4 builds on the C1–C3 canonical terms and solvers while changing the public model:
+
+- `let` runtime immutable, `let mut` runtime mutable, `const` compile-time;
+- first-class Pack as the variadic/rest/spread product;
+- Pack-based public Type collections rather than a separate TypePack ontology;
+- Product / OrderedProduct / UnorderedProduct reflection;
+- generalized `FieldKey = Symbol | String | Int | Bool`;
+- Sum / Variant / Variants reflection;
+- bounded semantic static evaluation with normalized residual IR;
+- one pattern/GADT authority for runtime and static matching;
+- no compile-time VM and no arbitrary runtime dispatch.
+
 ### C3 — Type Data and Unified Algebraic Static Domains
 
 **State:** `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`
@@ -72,7 +93,7 @@ Current numbered plans for C3:
 
 The active objective and durable progress ledger are in
 [`LANG007.C3-CHECKPOINT.md`](LANG007/LANG007.C3/LANG007.C3-CHECKPOINT.md).
-No successor checkpoint or plan is currently accepted; no C4 is implied.
+C4 is now accepted as the successor structural/static checkpoint. Its implementation has not started.
 
 C1 is the first implementation checkpoint. It establishes the canonical domains, type-member identity/projection machinery, structural operations, persistence/inference integration, and runtime boundary required for:
 
@@ -219,4 +240,4 @@ Numbered plans describe intended work; they do not replace checkpoint state.
 ## Next action
 
 No successor LANG007 checkpoint or plan is currently accepted. Await the next
-scoped objective; do not infer C4/P4 from C3 closure.
+scoped objective. C4 is now explicitly governed by TDR-0090 and its own checkpoint/specification set rather than inferred from C3.
