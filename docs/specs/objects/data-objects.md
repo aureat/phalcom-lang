@@ -13,6 +13,12 @@ selects one of two semantic shapes:
 The declaration keyword, semantic owner, and case identity are shared across
 both shapes. Physical representation remains an implementation choice.
 
+C4 structural reflection is specified by
+[Structural Products](../structural-products.md): every product-shaped `data`
+declaration receives compiler-derived sealed `Product` plus
+`OrderedProduct` or `UnorderedProduct` capability according to its payload form.
+The reflected payload shape does not replace this document's nominal data identity.
+
 The `data` body defines the complete representation-bearing component or case
 set; it does not contain associated `type data` declarations. A data-owned
 associated static domain is declared in an unguarded inherent `impl` in the
