@@ -20,9 +20,13 @@ Language specifications define source-visible and semantic behavior independent 
 
 They include:
 
-- [`type-level-domains.md`](type-level-domains.md) — type-level kinds and domains, type forms, packs, rows, and compile-time parameter domains;
-- [`type-members.md`](type-members.md) — type-member declarations, ownership, identity, lookup, application, and projection normalization;
-- [`structural-products.md`](structural-products.md) (and companion [`tuple-and-record-typing.md`](tuple-and-record-typing.md)) — static structural Tuple/Record typing, presence, remainders, and structural type operations;
+- [`bindings-and-fields.md`](bindings-and-fields.md) — runtime binding phase/mutability, uninitialized mutable storage, local initialization proof, and field initialization/mutability;
+- [`static-evaluation.md`](static-evaluation.md) — compile-time constants, executable static `type` definitions, static control, residualization, proof predicates, budgets, and materialization;
+- [`type-level-domains.md`](type-level-domains.md) — proper Types, static value domains, Pack-based Type collections, generic/static parameter domains, and canonical static terms;
+- [`type-members.md`](type-members.md) — type-member declarations, ownership, identity, lookup, application, result domains, and projection normalization;
+- [`structural-products.md`](structural-products.md) — Pack/Product/OrderedProduct/UnorderedProduct semantics, ordered/unordered shapes, FieldKey, tails, lookup, and structural iteration;
+- [`structural-sums.md`](structural-sums.md) — Sum/Variant/Variants reflection, variant families, specialization, and GADT reflection boundary;
+- [`tuple-and-record-typing.md`](tuple-and-record-typing.md) — Tuple/Record typing details that compose with the general structural-product model;
 - [`generic-constraints.md`](generic-constraints.md) — generic `where` constraints, conformance bounds, associated specialization, generic projection, equivalence, and subtyping constraints;
 - [`associated-types.md`](associated-types.md) — trait-owned associated declarations, conformance bindings, and the trait specialization of general type members;
 - [`objects/`](objects/) — values, runtime algebraic data, traits, and implementation declarations;
@@ -84,9 +88,13 @@ An accepted decision or implementation checkpoint that changes current language 
 
 | Domain | Owning specification |
 | --- | --- |
-| Type-level kinds, type forms, packs, rows, and compile-time parameter domains | [`type-level-domains.md`](type-level-domains.md) |
+| Runtime binding/field mutability and initialization | [`bindings-and-fields.md`](bindings-and-fields.md) |
+| Static evaluation, constants, static `type` computation, residualization, proof predicates | [`static-evaluation.md`](static-evaluation.md) |
+| Proper Types, static value domains, Pack-based Type collections, compile-time parameter domains | [`type-level-domains.md`](type-level-domains.md) |
 | Type-member declarations, ownership, identity, lookup, application, and projection normalization | [`type-members.md`](type-members.md) |
-| Structural Tuple/Record typing, presence, remainders, and structural type operations | [`structural-products.md`](structural-products.md) (companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md)) |
+| Pack/Product structural typing, ordered/unordered shapes, FieldKey, tails, lookup, iteration | [`structural-products.md`](structural-products.md) |
+| Sum/Variant/Variants structural reflection | [`structural-sums.md`](structural-sums.md) |
+| Tuple/Record family typing details | [`tuple-and-record-typing.md`](tuple-and-record-typing.md) |
 | Generic `where` constraints and generic evidence | [`generic-constraints.md`](generic-constraints.md) |
 | Trait-owned associated declarations, bindings, and conformance evidence | [`associated-types.md`](associated-types.md) |
 | Source declaration modifiers, access domains, implementation origin, and legacy namespace retirement | [`source-declarations.md`](source-declarations.md) |
@@ -134,8 +142,11 @@ type-member declaration/projection identity and result domains
 trait-associated ownership, bindings, and evidence
     owned by associated-types.md
 
-structural Tuple/Record formation and operations
+structural Pack/Product formation and operations
     owned by structural-products.md
+
+static compile-time execution and residualization
+    owned by static-evaluation.md
 
 generic T::Item / <T as Trait>::Item syntax
     owned by generic-constraints.md, using the projection model from type-members.md
