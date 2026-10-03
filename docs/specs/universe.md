@@ -653,48 +653,47 @@ The runtime must not allocate another closed-sum root merely because generic ADT
 Variant behavior classes may be distinct runtime objects, but they must attach
 to the same canonical closed-sum/case semantics.
 
-### 10.2 Intrinsic structural facades
+### 10.2 Intrinsic structural and static facades
 
-Universe exposes the compiler-owned structural domains through intrinsic source
-declarations. `Unit` uses its canonical zero-product identity; `Tuple` and
-`Record` retain their existing structural applications and specialized runtime
-classes. The declarations publish source, reflection, and tooling anchors; they
-do not mint replacement semantic domains or runtime classes.
+Universe exposes the C4 structural/static model through canonical source declarations.
+Those declarations are discovery, reflection, and tooling anchors over canonical
+semantic identities; they do not mint parallel compiler domains.
 
-```phalcom
-intrinsic type data TypePack
-intrinsic type data LabeledTypePack
-intrinsic type data CompleteTypePack
-intrinsic type data RecordFields
+Representative structural anchors include:
 
+```telos
+intrinsic data Pack<***Es>(***Es)
 intrinsic data Tuple<***Es>(***Es)
 intrinsic data Record<**Fs> { **Fs }
 
-impl<***Es> Tuple<***Es> {
-  intrinsic type Entries: CompleteTypePack
-  intrinsic type Positionals: TypePack
-  intrinsic type Labeled: LabeledTypePack
-  intrinsic type Element: Type
-  intrinsic type At<I: Int>: Type
-  intrinsic type Map<F: Type -> Type>: Type
-}
+type PositionalPack<T: Type> = Pack<*: T>
+type LabeledPack<T: Type> = Pack<**: T>
+type CompletePack<T: Type> = Pack<***: T>
 
-impl<**Fs> Record<**Fs> {
-  intrinsic type Fields: RecordFields
-  intrinsic type Value: Type
-  intrinsic type Map<F: Type -> Type>: Type
-}
+type PositionalTypePack = PositionalPack<Type>
+type LabeledTypePack = LabeledPack<Type>
+type CompleteTypePack = CompletePack<Type>
 
-intrinsic type Unit = Tuple<>
-intrinsic type EmptyRecord = Record<>
+intrinsic data ProductShape { ... }
+intrinsic data OrderedShape(...)
+intrinsic data UnorderedShape(...)
+intrinsic data Variant(...)
+type Variants = PositionalPack<Variant>
 ```
 
-`Tuple` and `Record` applications reduce to the existing structural semantic
-types while their source declarations retain higher-kinded family signatures
-and independently project runtime owners. Omitted binder kinds follow their
-prefix defaults (`***` is `CompleteTypePack`; `**` is `RecordFields`); there is
-no contextual kind inference. The aliases preserve the distinct zero-product
-laws `Tuple<> == Unit` and `Record<> == EmptyRecord`.
+The compiler may retain specialized TypePack and RecordRow nodes internally, but
+Universe does not expose them as a competing public ontology.
+
+Product/OrderedProduct/UnorderedProduct and Sum are compiler-derived sealed
+capabilities attached to canonical declarations. Ordinary user implementations cannot
+forge them.
+
+`Pack()` is distinct from Unit/`()` and the empty Record.
+
+The full semantic contracts are owned by
+[Structural Products](structural-products.md),
+[Structural Sums](structural-sums.md), and
+[Static Evaluation](static-evaluation.md).
 
 ---
 
