@@ -210,99 +210,78 @@ An explicit labeled argument or `**` contribution still begins the labeled sourc
 
 ## Expansion markers
 
-Phalcom has exactly three argument expansion markers:
+Telos has exactly three argument expansion markers:
 
 ```text
-*      positional expansion
-**     labeled expansion
-***    complete expansion
+*      positional Pack expansion
+**     labeled Pack expansion
+***    complete Pack expansion
 ```
 
-The same markers are used for corresponding rest-parameter forms where those forms are supported.
+The same markers are used for corresponding rest-parameter forms. The selector-pattern
+ellipsis `...` is unrelated.
 
-The selector-pattern ellipsis:
-
-```text
-...
-```
-
-is unrelated. It is not argument spread syntax.
+Argument expansion is a native Pack operation. Record, Map, Tuple, Unit, and arbitrary
+Iterable values are not implicitly converted into Pack merely because they could be
+enumerated into similar values. Explicit conversion APIs may be defined separately.
 
 ### Positional expansion with `*`
 
-A positional expansion:
-
-```phalcom
+```telos
 target(*source)
 ```
 
-contributes zero or more values to the positional lane.
+`source` must be a positional Pack-compatible value. It contributes its positional
+entries in Pack order.
 
 The operand is evaluated once.
-
-A valid `*` source is one of:
-
-- `Unit`, representing zero positional values;
-- a `Tuple`, contributing its positional lane;
-- another value implementing Phalcom's iteration protocol, whose yielded values are contributed in iteration order.
-
-For an iterable expansion source, expansion uses the ordinary iteration behavior of that value. Errors or control effects produced by a real iterator implementation propagate normally.
-
-A value that is neither `Unit`, a `Tuple`, nor iterable is an invalid positional expansion source.
-
-`*` does not consume or synthesize labels. Applying `*` to a Tuple contributes only that Tuple's positional lane.
 
 ### Labeled expansion with `**`
 
-A labeled expansion:
-
-```phalcom
+```telos
 target(**source)
 ```
 
-contributes zero or more entries to the labeled lane.
+`source` must be a labeled Pack-compatible value. It contributes its ordered
+Symbol-labeled entries in Pack order.
 
 The operand is evaluated once.
 
-A valid `**` source is one of:
+Duplicate labels are invalid.
 
-- `Unit`, contributing no labeled entries;
-- a `Tuple`, contributing its labeled lane;
-- a `Record`, contributing its fields in their defined order;
-- a `Map`, contributing its ordered entries when every key is a `Symbol`.
-
-For a Map source, a non-`Symbol` key makes the expansion invalid.
-
-`**` does not contribute positional values. Applying `**` to a Tuple contributes only its labeled lane.
-
-The order exposed by the source is preserved in the final labeled lane.
+Record is an unordered product and is not an implicit `**` source.
 
 ### Complete expansion with `***`
 
-A complete expansion:
-
-```phalcom
+```telos
 target(***source)
 ```
 
-contributes both lanes of a complete argument product.
+`source` must be a complete Pack-compatible value. Both Pack lanes are contributed
+without flattening one lane into the other.
 
-The source must be:
+Multiple complete expansions preserve contribution order within each lane.
 
-- `Unit`, representing an empty complete product; or
-- a `Tuple`, contributing both its positional and labeled lanes.
+### Fused expansion
 
-`Record`, `Map`, arbitrary `Iterable`, and other values are not complete argument products merely because they can contribute one of the lanes through `*` or `**`.
+Expansion does not semantically require repeated immutable Pack concatenation.
 
-A complete expansion therefore preserves the Tuple's argument shape rather than converting it to another collection form.
+For:
 
-Multiple complete expansions may appear in one positional source phase:
-
-```phalcom
-target(***first, ***second)
+```telos
+target(*a, *b, *c)
 ```
 
-Their positional contributions are appended to the positional lane in source order, and their labeled contributions are appended to the labeled lane in source order, subject to label uniqueness.
+an implementation may form one argument-construction plan from the three Pack segments
+and fill the final argument window once.
+
+The required complexity is O(total contributed entries), subject to ordinary expression
+evaluation cost.
+
+An ordinary fixed-shape call does not allocate a Pack solely because its argument shape
+is semantically Pack-shaped.
+
+## Labels are unique within an argument shape
 
 ## Labels are unique within an argument shape
 
@@ -341,31 +320,16 @@ A duplicate label is not resolved by keeping the first value, keeping the last v
 
 ## Complete argument products
 
-Phalcom uses its product model to make a complete argument shape first-class.
+The first-class semantic representation of an argument product is Pack.
 
-The canonical empty product is:
+```telos
+const arguments =
+    Pack(10, 20, debug: true)
 
-```phalcom
-()
-```
-
-which is `Unit`.
-
-A non-empty complete product is a `Tuple`, which may carry:
-
-```text
-ordered positional values
-ordered labeled entries
-```
-
-For example:
-
-```phalcom
-const arguments = (10, 20, debug: true)
 target(***arguments)
 ```
 
-forwards:
+A complete argument Pack preserves two independent lanes:
 
 ```text
 positionals:
@@ -376,31 +340,28 @@ labeled:
     debug: true
 ```
 
-A complete argument product is not a List of values and is not a Map of labels. Both lanes remain semantically distinct.
+A complete argument product is not Unit, Tuple, List, Record, or Map. `Pack()` is the
+empty complete argument product.
 
 **Invariant — `ARG-COMPLETE-SHAPE-PRESERVED`**
 
-> Complete argument transport preserves the positional lane, ordered label identities, and corresponding labeled values without flattening them into one positional sequence.
+> Complete argument transport preserves the positional lane, ordered Symbol labels,
+> and corresponding labeled values without flattening or reordering them.
 
-This invariant applies to `***` forwarding and to other APIs that explicitly transport complete call shapes, including Function `callWith`, exact Method forwarding, and dynamic `perform`-style operations.
+The same invariant applies to rest capture, forwarding, dynamic invocation, exact
+Method forwarding, and Function call-shape transport.
 
-### Empty and non-empty products
+### Materialization freedom
 
-Where the language captures or materializes an argument product:
+A semantic argument Pack does not imply a materialized runtime Pack object.
 
-```text
-no captured entries
-    → Unit / ()
+A fixed call may use a stack/register argument window directly. A Pack that is
+immediately spread may remain compiler-virtual. A captured or escaping Pack may be
+materialized.
 
-one or more captured positional or labeled entries
-    → Tuple
-```
+These choices are unobservable.
 
-A rest capture does not become a List merely because it contains multiple positional values.
-
-A labeled rest capture does not become a Map merely because it contains labels.
-
-The resulting Tuple preserves whichever lanes were captured.
+## Parameter shape
 
 ## Parameter shape
 
@@ -590,233 +551,91 @@ This keeps structural callable selection deterministic and consistent with selec
 
 ## Rest parameters on named Methods
 
-Ordinary named Methods may declare residual argument capture with:
+Rest parameters capture the unmatched suffix of an accepted argument shape as Pack.
 
 ```text
-*rest      positional residual capture
-**rest     labeled residual capture
-***rest    complete residual capture
+*rest   -> positional Pack
+**rest  -> labeled Pack
+***rest -> complete Pack
 ```
 
-A Method may use:
+The empty capture is `Pack()`, specialized to the corresponding lane shape. Rest
+capture does not produce Tuple, Record, Map, List, or `None`.
 
-```text
-*rest only
-**rest only
-*rest together with **rest
-***rest only
-```
-
-The combination of `*rest` and `**rest` is a **split rest** shape: the residual positional and labeled lanes are captured separately.
-
-`***rest` is a **complete rest** shape: both residual lanes are captured together as one complete product.
+A rest binding is an ordinary immutable binding unless the declaration syntax
+explicitly makes another binding mutable.
 
 ### Discarding rest parameters with `_`
 
-Any of the three rest forms may use `_` as the parameter name to signal that
-the residual values are received but not used in the body:
-
-```phalcom
-fn log(*_)   { ... }    // accepts any extra positional args, ignores them
-fn log(**_)  { ... }    // accepts any extra labeled args, ignores them
-fn log(***_) { ... }    // accepts any extra complete args, ignores them
+```telos
+consume(*_)
+consume(**_)
+consume(***_)
 ```
 
-The split-rest combination also allows either or both halves to be discarded:
-
-```phalcom
-fn forward(_ x, *_, to destination, **_) { destination.receive(x) }
-```
-
-`_` is not accessible inside the body. Multiple `_` rest parameters in the same
-declaration do not conflict with each other or with fixed `_` parameters.
+A discarded rest parameter accepts the corresponding remainder without introducing a
+source binding. The implementation need not materialize a Pack when the remainder is
+unobserved.
 
 ### Fixed prefixes
 
-A rest-capable Method may still require fixed parameters before the residual capture.
-
-The fixed positional parameters consume a positional prefix.
-
-Fixed labeled parameters consume an ordered labeled prefix.
-
-Residual capture begins only after those fixed portions have been satisfied.
-
-For example:
-
-```phalcom
-route(_ first, *middle, to destination, **options)
-```
-
-has:
-
-```text
-fixed positional prefix:
-    first
-
-fixed labeled prefix:
-    to
-
-residual positional capture:
-    middle
-
-residual labeled capture:
-    options
-```
-
-The local binding names do not affect matching.
+Fixed parameters bind before their corresponding rest capture. The captured Pack
+contains only unmatched entries and preserves original order within each lane.
 
 ## Positional rest
 
-A Method with positional rest and no labeled rest accepts extra positional values while requiring its labeled lane to match the fixed labeled shape exactly.
-
-Using the notation above, positional rest accepts when:
-
-```text
-P >= F
-L == K
+```telos
+method(first, *rest) {
+    ...
+}
 ```
 
-It captures:
+`rest` is a positional Pack.
 
-```text
-positionals[F..P]
-```
-
-For:
-
-```phalcom
-collect(_ head, *tail)
-```
-
-a call equivalent to:
-
-```phalcom
-collect(1, 2, 3)
-```
-
-binds:
-
-```text
-head = 1
-tail = (2, 3)
-```
-
-A call with no residual values binds:
-
-```text
-tail = ()
-```
-
-Positional rest by itself does not absorb unexpected labels.
+Where the runtime calling convention permits it, rest may be represented as an O(1)
+slice/view over the incoming argument window. Capturing rest does not require copying
+the suffix merely to produce Pack semantics.
 
 ## Labeled rest
 
-A Method with labeled rest and no positional rest accepts residual labels after its fixed labeled prefix, but it does not absorb extra positional values.
-
-It accepts when:
-
-```text
-P == F
-L starts with K
+```telos
+method(debug: flag, **rest) {
+    ...
+}
 ```
 
-It captures the labeled suffix after `K`.
+`rest` is a labeled Pack containing unmatched ordered Symbol-labeled entries.
 
-For:
-
-```phalcom
-configure(mode selectedMode, **options)
-```
-
-an accepted call may supply additional labels after `mode`, and those residual labeled entries are captured into `options` in order.
-
-No residual labeled entries produce:
-
-```phalcom
-()
-```
-
-One or more residual labeled entries produce a Tuple carrying that labeled lane.
+Duplicate labels are already invalid at argument-shape construction, so a successfully
+bound labeled rest is duplicate-free.
 
 ## Split rest
 
-A Method with both positional and labeled rest accepts residual values in each lane independently.
+A declaration may capture positional and labeled remainders separately when the
+ordinary parameter grammar permits both:
 
-It accepts when:
-
-```text
-P >= F
-L starts with K
+```telos
+method(*positionals, **labeled) {
+    ...
+}
 ```
 
-It captures:
-
-```text
-residual positionals:
-    positionals[F..P]
-
-residual labels:
-    labels[K.length..] with their values
-```
-
-The two captures remain distinct.
-
-For:
-
-```phalcom
-route(_ first, *middle, to destination, **options)
-```
-
-a matching call may have additional positionals absorbed by `middle` and additional labels after `to` absorbed by `options`.
-
-Each capture is normalized independently:
-
-```text
-empty residual lane
-    → ()
-
-non-empty residual lane
-    → Tuple with that lane
-```
+The two captures are independent Pack lanes.
 
 ## Complete rest
 
-A Method with complete rest accepts residual values from both lanes as one complete product.
-
-It accepts when:
-
-```text
-P >= F
-L starts with K
+```telos
+method(***rest) {
+    ...
+}
 ```
 
-It captures:
+`rest` is one complete two-lane Pack.
 
-```text
-residual positionals after F
-+
-residual labeled entries after K
-```
+A complete rest capture preserves lane identity and ordering. It is not implemented
+semantically as “positional tuple plus labeled record”.
 
-as one complete product.
-
-For:
-
-```phalcom
-forward(***arguments)
-```
-
-the complete call shape is captured unchanged:
-
-```text
-no arguments
-    → ()
-
-non-empty shape
-    → Tuple
-```
-
-A declaration may also have fixed prefixes before a terminal complete rest where the declaration grammar permits them. Only the residual portion enters the `***` binding.
+## Rest-parameter ordering and validity
 
 ## Rest-parameter ordering and validity
 
@@ -1050,34 +869,29 @@ The complete product determines the actual send shape. Reflection semantics belo
 
 ## Static and dynamic shape construction
 
-A call whose complete shape is visible statically and a call whose shape is assembled through expansions use the same argument-shape model.
-
-For example:
-
-```phalcom
-target(1, debug: true)
-```
-
-and:
-
-```phalcom
-const args = (1, debug: true)
-target(***args)
-```
-
-produce equivalent final argument shapes.
-
-The implementation may construct them differently, but once shape construction succeeds:
+Argument-shape construction has one Pack semantics and multiple permitted physical
+strategies.
 
 ```text
-positional count
-ordered labels
-argument values
+known fixed shape
+    -> direct argument window
+    -> no Pack allocation required
+
+expanded but non-escaping shape
+    -> virtual Pack / segmented argument plan
+
+captured or escaping shape
+    -> materialized immutable Pack
 ```
 
-have the same semantic meaning.
+Dynamic construction may use a private mutable builder, but that builder is not the
+language Pack value.
 
-Dispatch then follows the same rules as specified in [Dispatch](dispatch.md).
+When labels are assembled dynamically, duplicate detection must remain efficient.
+Implementations may use linear checks for small shapes and a transient index for larger
+shapes; the final Pack itself need not carry a permanent duplicate-detection table.
+
+## Invalid argument forms
 
 ## Invalid argument forms
 
@@ -1129,14 +943,20 @@ Such failures occur before target behavioral activation.
 
 ## Invariants defined by this specification
 
-The following coded invariants are defined here because they constrain multiple independent forwarding and invocation paths and are useful to other callable specifications.
+- **ARG-TWO-LANES** — every argument shape has independent ordered positional and
+  labeled lanes.
+- **ARG-LABEL-SYMBOL** — ordered call labels are Symbols.
+- **ARG-LABEL-UNIQUE** — a final argument shape contains no duplicate labels.
+- **ARG-PACK** — first-class complete, positional, and labeled argument products are
+  Pack values.
+- **ARG-NO-IMPLICIT-RECORD-PACK** — unordered Record is not implicitly converted into
+  labeled Pack for invocation.
+- **ARG-REST-PACK** — `*rest`, `**rest`, and `***rest` capture Pack.
+- **ARG-REST-SLICE** — semantics permit O(1) rest slices/views.
+- **ARG-FUSED-SPREAD** — multiple spreads need not construct intermediate Packs.
+- **ARG-FIXED-FASTPATH** — fixed-shape calls do not require Pack allocation.
+- **ARG-EVALUATE-ONCE** — each argument/expansion source expression is evaluated
+  exactly once in source evaluation order.
+- **ARG-SHAPE-BEFORE-BEHAVIOR** — duplicate/shape construction failure occurs before
+  target behavioral activation.
 
-**`ARG-COMPLETE-SHAPE-PRESERVED`**
-
-> Complete argument transport preserves the positional lane, ordered label identities, and corresponding labeled values without flattening them into one positional sequence.
-
-**`ARG-ACCEPTANCE-STRUCTURAL`**
-
-> Argument-shape acceptance and rest matching depend on structural call shape, not on runtime argument values or runtime value types.
-
-Evaluation order remains owned by `DSP-EVALUATION-ORDER`; selector slot ordering remains owned by `SEL-SLOT-ORDER`; the Setter assigned-value distinction remains owned by `SEL-SETTER-VALUE-EXTERNAL`.
