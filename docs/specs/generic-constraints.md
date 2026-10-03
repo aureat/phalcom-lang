@@ -223,23 +223,27 @@ contains two independent propositions.
 An ordinary generic parameter defaults to the proper `Type` domain unless an explicit
 annotation or expansion prefix supplies another static parameter domain.
 
-Pack binder prefixes have fixed C4 defaults:
+For static algorithms over ordered Packs, expansion binders capture the corresponding
+Pack lane:
 
 ```text
-*Ts      -> positional Pack of Type values
-**Ls     -> labeled Pack of Type values
-***Es    -> complete Pack of Type values
+*Ts      -> positional Pack capture
+**Ls     -> labeled Pack capture
+***Es    -> complete Pack capture
 ```
 
-These are the public aliases `PositionalTypePack`, `LabeledTypePack`, and
-`CompleteTypePack`. They are Pack specializations, not independent TypePack kinds.
+The resulting public Type-valued families are `PositionalTypePack`,
+`LabeledTypePack`, and `CompleteTypePack`; they are Pack specializations rather than
+independent TypePack kinds.
 
-Unordered row correlation is expressed through the structural unordered-product forms
-owned by [Structural Products](structural-products.md), not through a public
-`RecordFields` kind.
+Expansion punctuation is also used by structural owner grammars. A Record field/tail
+form such as `Record<**Fs>` is interpreted by the Record/unordered-product grammar and
+does not become an ordered LabeledPack merely because it uses `**`.
 
-An explicit compatible annotation may refine a binder's static value domain. There is no
-contextual invention of a different lane/domain based on downstream use.
+The parameter's checked semantic domain therefore comes from the declaration/form that
+owns the binder, not from punctuation alone. Unordered row correlation uses the
+UnorderedShape/tail model from [Structural Products](structural-products.md), not a
+public `RecordFields` kind.
 
 A `where` kind constraint directly constrains a generic parameter. Compound type expressions are kind-checked through ordinary type formation.
 
