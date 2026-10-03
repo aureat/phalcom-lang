@@ -3,7 +3,7 @@
 - Legacy record: `ADR-0064`
 - Ratified: 2026-07-15
 
-- Status: **Accepted** (ratified by the user 2026-07-15, DEC-CTOR-I/I2)
+- Status: **Superseded by [TDR-0090](./0090-structural-static-evaluation-packs-products-sums-and-binding-semantics.md)**
 - Date: 2026-07-15
 - **Supersedes [TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../retired/let-and-var-bindings.md)** (*let and var bindings*).
   ADR-0014's *semantics* survive unchanged; only the spellings move, plus one new rule
@@ -14,6 +14,14 @@
   read-before-write) · [TDR-0015](./0015-class-side-stored-static-fields.md) (class-side
   storage) · [TDR-0006](./0006-option-as-abstract-with-some-none.md) (an unset binding
   reads `None`)
+
+> **Current-status note (LANG007.C4):** This record is historical. Its
+> `let = mutable`, runtime-`const`, mutable-by-default field, implicit-field, and
+> implicit-`None` uninitialized semantics are superseded by TDR-0090 and the current
+> [Bindings and Fields](../../specs/bindings-and-fields.md) specification.
+>
+> The remainder of this file is preserved as the rationale and contract that applied
+> before the C4 structural/static upgrade.
 
 ## Context
 
