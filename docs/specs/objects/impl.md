@@ -262,12 +262,12 @@ impl<***Es: CompleteTypePack> Tuple<***Es> { ... }
 impl (Int, String) { ... }
 impl<T> (T, T) { ... }
 
-impl<**Fs: RecordFields> Record<**Fs> { ... }
+impl<**Fs> Record<**Fs> { ... }
 impl { name: String } { ... }
 impl<T> { value: T } { ... }
 ```
 
-Equivalent structural and family-application spellings canonicalize to one target type before applicability, overlap, and selector-collision analysis. For example, `(Int, String)` and `Tuple<***(Int, String)>` denote one Tuple impl domain; `{ name: String }` and `Record<**{ name: String }>` denote one Record impl domain. Direct generic pack contributions such as `Tuple<Int, String>` and `Record<name: String>` are not supported; variadic contributions require an explicit expansion.
+Equivalent structural and family-application spellings canonicalize to one target type before applicability, overlap, and selector-collision analysis. For example, `(Int, String)` and `Tuple<***(Int, String)>` denote one Tuple impl domain; `{ name: String }` and `Record<**{ name: String }>` denote one Record impl domain. Direct generic structural contributions such as `Tuple<Int, String>` and `Record<name: String>` are not supported; variadic/field contributions use the expansion form owned by the corresponding structural family.
 
 Only the module that owns the canonical Universe family may author these impls. Structural shape does not grant extension rights to a foreign module. This rule applies to both covering family impls and specialized structural domains.
 
