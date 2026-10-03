@@ -6,8 +6,9 @@ The canonical runtime algebraic declaration form is `data`. A `data`
 declaration may define either a product or a closed sum. A sum-shaped `data`
 declaration owns its cases and exact-case semantics. The spelling `enum` is an
 ordinary identifier and is not a Phalcom declaration keyword. This document
-owns closed-sum behavior; it does not define a second algebraic declaration
-category.
+owns closed-sum runtime behavior; it does not define a second algebraic declaration
+category. C4 static `Sum` / `Variant` / `Variants` reflection is owned by
+[Structural Sums](../structural-sums.md).
 
 In this document, **closed sum** names the language semantic category and its
 root type. Remaining uses of *enum* in descriptive terms such as *enum root*
