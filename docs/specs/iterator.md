@@ -4,6 +4,15 @@
 > **Semantic ownership:** the `Iterable` and `Iterator` contracts, traversal state and exhaustion, `for` iteration semantics, indexed and parallel loop lanes, and the standard item types of core iterable families.  
 > **Related specifications:** [Traits](objects/traits.md), [Associated Types](associated-types.md), [Dispatch](callables/dispatch.md), [Selectors](callables/selectors.md), and the pattern/control-flow specifications.
 
+> **Static structural iteration boundary**
+>
+> This specification owns ordinary runtime `Iterable`/`Iterator` traversal.
+> C4 static iteration over Pack/Product/UnorderedShape/Sum reflection is a separate
+> semantic operation owned by [Static Evaluation](static-evaluation.md) and
+> [Structural Products](structural-products.md). Static structural `for` does not
+> send `iterator`/`next` and does not require Product values or Types to conform to
+> `Iterable`.
+>
 Iteration in Phalcom is trait-based. An **iterable** is a value that can produce a traversal; an **iterator** is one stateful traversal.
 
 ```phalcom
