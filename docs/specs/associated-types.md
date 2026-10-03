@@ -1091,7 +1091,7 @@ compiler/domain-native members such as structural `At<I>` and `Map<F>`.
 ### 20.3 Non-`Type` and higher-kinded result domains
 
 An associated declaration may have an explicit result domain where its owning
-grammar permits it. A result such as `TypePack` is not a proper type, and a
+grammar permits it. A result such as `PositionalTypePack` or `ProductShape` is a static result rather than an ordinary proper runtime-Type result, and a
 higher-kinded result is not implicitly saturated. The declaration's domain is
 part of its identity and binding contract.
 
