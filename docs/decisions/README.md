@@ -69,7 +69,7 @@ A `*` date was inferred because the source lacked an explicit ratification date.
 | [TDR-0049](./accepted/0049-index-operator-as-real-selector.md) | 2026-07-14 | `[]` Is a Real, Overridable Selector — No `at` Lowering | ADR-0060 | Accepted |
 | [TDR-0050](./accepted/0050-amend-floor-admit-string-byte-and-raw-write-primitives.md) | 2026-07-15† | Amend the floor: admit String byte/slice accessors + raw stdout write | ADR-0049 | Accepted |
 | [TDR-0051](./accepted/0051-constructors-are-ordinary-class-side-methods.md) | 2026-07-15 | Constructors are ordinary class-side methods: `@constructor`/`@class` decorators, `new_` allocator | ADR-0063 | Accepted |
-| [TDR-0052](./accepted/0052-let-const-bindings-and-field-mutability.md) | 2026-07-15 | `let`/`const` bindings; unkeyworded mutable fields | ADR-0064 | Accepted |
+| [TDR-0052](./accepted/0052-let-const-bindings-and-field-mutability.md) | 2026-07-15 | `let`/`const` bindings; unkeyworded mutable fields | ADR-0064 | **Superseded by TDR-0090** |
 | [TDR-0053](./accepted/0053-classes-are-closed.md) | 2026-07-19 | Classes are closed: remove class reopening | PDR-0001 | Accepted |
 | [TDR-0054](./accepted/0054-class-declarations-join-the-binding-namespace.md) | 2026-07-19 | Class declarations join the binding namespace; the duplicate diagnostic carries both spans | PDR-0002 | Accepted |
 | [TDR-0055](./accepted/0055-no-user-visible-threads-fibers-and-isolates.md) | 2026-07-20 | No user-visible shared-memory threads: fibers now, isolates if ever | PDR-0003 | Accepted |
