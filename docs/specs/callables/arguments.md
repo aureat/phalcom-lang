@@ -283,8 +283,6 @@ is semantically Pack-shaped.
 
 ## Labels are unique within an argument shape
 
-## Labels are unique within an argument shape
-
 An argument shape may contain each label at most once.
 
 This applies regardless of how the label was contributed.
@@ -360,8 +358,6 @@ immediately spread may remain compiler-virtual. A captured or escaping Pack may 
 materialized.
 
 These choices are unobservable.
-
-## Parameter shape
 
 ## Parameter shape
 
@@ -637,8 +633,6 @@ semantically as “positional tuple plus labeled record”.
 
 ## Rest-parameter ordering and validity
 
-## Rest-parameter ordering and validity
-
 Rest declarations obey lane structure rather than arbitrary parameter order.
 
 The following rules apply to ordinary named Method rest parameters:
@@ -890,8 +884,6 @@ language Pack value.
 When labels are assembled dynamically, duplicate detection must remain efficient.
 Implementations may use linear checks for small shapes and a transient index for larger
 shapes; the final Pack itself need not carry a permanent duplicate-detection table.
-
-## Invalid argument forms
 
 ## Invalid argument forms
 
