@@ -281,7 +281,7 @@ fn repl_cp_02_selectively_imported_class_usable_in_later_cell() {
 fn repl_cp_03_import_declaration_and_use_persist() {
     let mut s = repl();
     assert_cell_ok(&mut s, "from universe.reflection.selector import Selector");
-    assert_cell_ok(&mut s, "class Box {\n  _v\n  set(_ v) { _v = v }\n  get() { _v }\n}");
+    assert_cell_ok(&mut s, "class Box {\n  mut _v\n  set(_ v) { _v = v }\n  get() { _v }\n}");
     let out = assert_cell_ok(&mut s, "let b = Box.new()\nb.set(Selector)\nb.get()");
     let val = assert_value_non_none(out);
     assert!(val.is_obj());

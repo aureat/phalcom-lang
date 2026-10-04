@@ -1,7 +1,49 @@
+use phalcom_ast::ast::*;
+use phalcom_ast::error::{SyntaxError, SyntaxErrorKind};
+use phalcom_ast::parser::parse;
 use std::fs;
 use std::path::{Path, PathBuf};
-use phalcom_ast::ast::*;
-use phalcom_ast::parser::parse;
+
+const LEGACY_CONST_FIELD_MESSAGE: &str = "`const` is not field syntax; use `_field` for an immutable field or `mut _field` for a mutable field";
+
+fn parse_for_migration(content: &str) -> Result<phalcom_ast::parser::Parse, String> {
+    let parsed = parse(content, 0);
+    let unexpected: Vec<_> = parsed
+        .errors
+        .iter()
+        .filter(|error| {
+            !matches!(
+                &error.kind,
+                SyntaxErrorKind::Message(message) if message == LEGACY_CONST_FIELD_MESSAGE
+            )
+        })
+        .collect();
+    if !unexpected.is_empty() {
+        return Err(format!("Parse errors: {unexpected:?}"));
+    }
+    Ok(parsed)
+}
+
+fn legacy_const_field_error<'a>(field: &FieldDef, errors: &'a [SyntaxError]) -> Option<&'a SyntaxError> {
+    errors.iter().find(|error| {
+        matches!(
+            &error.kind,
+            SyntaxErrorKind::Message(message) if message == LEGACY_CONST_FIELD_MESSAGE
+        ) && field.range.start <= error.range.start
+            && error.range.end <= field.name_range.start
+    })
+}
+
+fn is_mut_modifier_prefix(prefix: &str) -> bool {
+    prefix.split_whitespace().last() == Some("mut")
+}
+
+fn skip_field_prefix_whitespace(content: &str, mut end: usize, limit: usize) -> usize {
+    while end < limit && matches!(content.as_bytes()[end], b' ' | b'\t') {
+        end += 1;
+    }
+    end
+}
 
 fn find_ph_files(dir: &Path, files: &mut Vec<PathBuf>) {
     if let Ok(entries) = fs::read_dir(dir) {
@@ -493,10 +535,7 @@ fn collect_assigned_fields_stmt(stmt: &Statement, fields: &mut Vec<String>) {
 }
 
 fn plan_file_edits(content: &str) -> Result<Vec<Edit>, String> {
-    let res = parse(content, 0);
-    if !res.errors.is_empty() {
-        return Err(format!("Parse errors: {:?}", res.errors));
-    }
+    let res = parse_for_migration(content)?;
 
     let mut edits = Vec::new();
 
@@ -548,26 +587,21 @@ fn plan_file_edits(content: &str) -> Result<Vec<Edit>, String> {
             // Declared fields rewrite
             for m in &c.members {
                 if let ClassMember::Field(f) = m {
-                    if !f.mutable {
-                        // Old immutable field: `const _field` -> `_field`
-                        let prefix = &content[f.range.start..f.name_range.start];
-                        if let Some(pos) = prefix.find("const") {
-                            let start = f.range.start + pos;
-                            let mut end = start + 5;
-                            while end < f.name_range.start && (content.as_bytes()[end] == b' ' || content.as_bytes()[end] == b'\t') {
-                                end += 1;
-                            }
-                            edits.push(Edit {
-                                start,
-                                end,
-                                replacement: String::new(),
-                                kind: EditKind::ConstFieldToBare,
-                            });
-                        }
+                    if let Some(error) = legacy_const_field_error(f, &res.errors) {
+                        // Old immutable field: `const _field` -> `_field`.
+                        let end = skip_field_prefix_whitespace(content, error.range.end, f.name_range.start);
+                        edits.push(Edit {
+                            start: error.range.start,
+                            end,
+                            replacement: String::new(),
+                            kind: EditKind::ConstFieldToBare,
+                        });
                     } else {
-                        // Old bare mutable field: `_field` -> `mut _field`
+                        // Old bare mutable field: `_field` -> `mut _field`.
+                        // The target AST treats bare fields as immutable, so
+                        // inspect the original source modifier instead.
                         let prefix = &content[f.range.start..f.name_range.start];
-                        if !prefix.contains("mut") {
+                        if !is_mut_modifier_prefix(prefix) {
                             edits.push(Edit {
                                 start: f.name_range.start,
                                 end: f.name_range.start,
@@ -696,8 +730,7 @@ fn main() {
 
     for file in &files {
         if let Ok(content) = fs::read_to_string(file) {
-            let res = parse(&content, 0);
-            if res.errors.is_empty() {
+            if let Ok(res) = parse_for_migration(&content) {
                 let mut bindings = Vec::new();
                 for stmt in &res.program.statements {
                     collect_bindings_from_stmt(stmt, &mut bindings);
@@ -718,7 +751,7 @@ fn main() {
                         }).collect();
                         for m in &c.members {
                             if let ClassMember::Field(f) = m {
-                                if !f.mutable {
+                                if legacy_const_field_error(f, &res.errors).is_some() {
                                     repo_total_const_fields += 1;
                                 }
                             }

@@ -43,6 +43,11 @@ fn classes() {
 }
 
 #[test]
+fn fields() {
+    support::check_pass("fields");
+}
+
+#[test]
 fn classes_negative() {
     // U-REOPEN-FIX (ADR-0018 "attaches methods, not shadows"): the two
     // reopen shapes ruled out of scope for the reopen-appends-methods fix —

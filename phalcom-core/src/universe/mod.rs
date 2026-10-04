@@ -545,7 +545,7 @@ let d = true.ifTrue || { }.isSome
 
         let module = vm.create_module("main", "kernel_block_sacred_override_deopts_inline_while_true");
         let source = "
-let i = 0
+let mut i = 0
 let r = || { i < 3 }.whileTrue || { i = i + 1 }
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");

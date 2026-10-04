@@ -2233,8 +2233,8 @@ intrinsic type MyType = Map<Symbol, UserInfo>
 fn parses_intrinsic_fields_and_methods() {
     let source = r#"
 class BuiltinBox {
-    intrinsic _handle: Int
-    intrinsic const _id: Int
+    intrinsic mut _handle: Int
+    intrinsic _id: Int
 
     @class
     intrinsic create(id: Int) -> BuiltinBox

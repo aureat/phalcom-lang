@@ -535,7 +535,7 @@ fn binding_kind_controls_mutability_and_immutable_write_preserves_state() {
 class Probe {
   @class
   run() {
-    let mutable = 1
+    let mut mutable = 1
     mutable = 2
     const constant = 1
     constant = 2
@@ -592,6 +592,7 @@ class Probe {
     const constant: Int
     let annotated: Int
     let plain
+    let mut writable: Int
   }
 }
 "#;
@@ -611,7 +612,12 @@ class Probe {
         binding(run, "plain").current,
         TypeKnowledge::Unknown(UnknownReason::MissingInitializer)
     ));
-    assert_eq!(diagnostics(&analysis, DiagnosticCode::ConstWithoutInitializer).len(), 1);
+    assert!(binding(run, "writable").mutable);
+    assert!(matches!(
+        binding(run, "writable").current,
+        TypeKnowledge::Unknown(UnknownReason::MissingInitializer)
+    ));
+    assert_eq!(diagnostics(&analysis, DiagnosticCode::ConstWithoutInitializer).len(), 3);
 }
 
 #[test]

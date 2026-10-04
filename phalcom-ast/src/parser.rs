@@ -5579,14 +5579,20 @@ impl<'source> Parser<'source> {
         // tokens in method-shaped positions fall through and are rejected as
         // non-selector names below.
         if matches!(self.peek(), Token::Const) {
-            let start = self.cur_start();
+            let const_start = self.cur_start();
             self.advance();
-            return Err(SyntaxError {
+            self.errors.push(SyntaxError {
                 kind: SyntaxErrorKind::Message(
                     "`const` is not field syntax; use `_field` for an immutable field or `mut _field` for a mutable field".to_string(),
                 ),
-                range: start..self.prev_end,
+                range: const_start..self.prev_end,
             });
+            // Keep parsing this recognizable legacy declaration as an
+            // immutable field so the class remains a recovery boundary. The
+            // recorded migration diagnostic makes parse_source reject it,
+            // while parse() avoids cascading at the remaining field tokens
+            // and the class's closing brace.
+            return self.parse_field_decl(start, false, modifiers);
         }
         if matches!(self.peek(), Token::Let) {
             self.advance();

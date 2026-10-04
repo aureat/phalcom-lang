@@ -855,7 +855,7 @@ fn dependency_paths_exports_and_exposed_children_use_canonical_targets() {
 }
 
 #[test]
-fn for_binding_is_owned_by_loop_scope_and_is_mutable() {
+fn for_binding_is_owned_by_loop_scope_and_is_immutable() {
     let source = "let values = [1, 2]\nfor value in values { value }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
@@ -863,7 +863,7 @@ fn for_binding_is_owned_by_loop_scope_and_is_mutable() {
     let value = index.bindings.values().find(|binding| binding.name.as_ref() == "value").expect("for binding");
 
     assert_eq!(value.kind, SourceBindingKind::ForBinding);
-    assert!(value.mutable);
+    assert!(!value.mutable);
     assert_ne!(value.scope, index.root);
 }
 
