@@ -323,7 +323,7 @@ fn direct_field_assignment_keeps_field_mismatch_status() {
     let fixture = Fixture::new(
         r#"
 class Box {
-  _value: Int = 0
+  mut _value: Int = 0
   run() { self._value = "wrong" }
 }
 "#,

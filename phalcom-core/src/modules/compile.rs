@@ -1821,7 +1821,7 @@ mod tests {
             .map(|module| module.text.clone())
             .expect("canonical Range source text");
         let source = source.as_ref();
-        let lower_offset = source.find("let lowerOpt = _range.rawLower").expect("RangeIterator lower binding");
+        let lower_offset = source.find("lowerOpt = _range.rawLower").expect("RangeIterator lower binding");
         let is_none_offset = source[lower_offset..]
             .find("lowerOpt.isNone")
             .map(|offset| lower_offset + offset)

@@ -375,7 +375,7 @@ fn opaque_call_drops_narrow_field_refinement_to_validated_contract() {
     let f = Fixture::new(
         r#"
 class Probe {
-  _value: Object
+  mut _value: Object
 
   run() {
     self._value = 1

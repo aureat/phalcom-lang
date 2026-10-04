@@ -1125,13 +1125,13 @@ fn workspace_constructor_and_cross_module_dispatch_inference() {
 
     fs::write(
         proj_dir.join("src/domain/point.ph"),
-        "class Point {\n  _x: Int = 0\n  _y: Int = 0\n  @constructor\n  new(_ x: Int, y: Int) {\n    _x = x\n    _y = y\n  }\n}\nexport Point\n",
+        "class Point {\n  _x: Int\n  _y: Int\n  @constructor\n  new(_ x: Int, y: Int) {\n    _x = x\n    _y = y\n  }\n}\nexport Point\n",
     )
     .unwrap();
 
     fs::write(
         proj_dir.join("src/domain/weight.ph"),
-        "class Weight {\n  _units: Int = 0\n  @constructor\n  new(_ units: Int) {\n    _units = units\n  }\n}\nexport Weight\n",
+        "class Weight {\n  _units: Int\n  @constructor\n  new(_ units: Int) {\n    _units = units\n  }\n}\nexport Weight\n",
     )
     .unwrap();
 
@@ -1155,7 +1155,7 @@ fn workspace_constructor_and_cross_module_dispatch_inference() {
 
     fs::write(
         proj_dir.join("src/main.ph"),
-        "from .domain.point import Point\nfrom .domain.weight import Weight\nfrom .domain.parcel import Parcel\nfrom .service.planner import Planner\nclass Main {\n  @class\n  main {\n    const origin = Point.new(0, y: 0)\n    const destination = Point.new(3, y: 4)\n    const parcel = Parcel.new(\"PKG-001\", destination: destination, weight: Weight.new(12))\n    const shipment = Planner.plan(parcel, origin: origin)\n  }\n}\n",
+        "from .domain.point import Point\nfrom .domain.weight import Weight\nfrom .domain.parcel import Parcel\nfrom .service.planner import Planner\nclass Main {\n  @class\n  main {\n    let origin = Point.new(0, y: 0)\n    let destination = Point.new(3, y: 4)\n    let parcel = Parcel.new(\"PKG-001\", destination: destination, weight: Weight.new(12))\n    let shipment = Planner.plan(parcel, origin: origin)\n  }\n}\n",
     )
     .unwrap();
 

@@ -17,7 +17,7 @@ class Probe {
     } else {
       let negative_branch = input
     }
-    let keep_going = flag
+    let mut keep_going = flag
     while keep_going and input is not List {
       keep_going = false
     }
@@ -295,7 +295,7 @@ fn divergent_branch_assignments_join_current_binding_types() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let x = 1
+    let mut x = 1
     if flag {
       x = 2
     } else {
@@ -322,7 +322,7 @@ fn branch_join_preserves_narrow_flow_under_broad_declared_contract() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let x: Number = 1
+    let mut x: Number = 1
     if flag {
       x = 2
     } else {
@@ -353,7 +353,7 @@ fn refuted_branch_assignment_does_not_fabricate_declared_flow_fact() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let x: Number = 1
+    let mut x: Number = 1
     if flag {
       x = "bad"
     } else {
