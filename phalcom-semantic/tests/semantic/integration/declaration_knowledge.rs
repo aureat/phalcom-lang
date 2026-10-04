@@ -47,9 +47,10 @@ fn source_fields_publish_canonical_field_signatures() {
         r#"
 class Probe {
     _value: String
+    mut _mutable: String
 
     @class
-    _shared: Int = 0
+    _shared = 0
 }
 "#,
     );
@@ -59,16 +60,26 @@ class Probe {
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
     let owner = DeclarationId::new(module, "Probe".into());
     let value_id = FieldId::new(owner.clone(), "_value", DispatchSide::Instance);
-    let shared_id = FieldId::new(owner, "_shared", DispatchSide::Class);
+    let shared_id = FieldId::new(owner.clone(), "_shared", DispatchSide::Class);
 
     let value = analysis
         .snapshot
         .field_signatures
         .get(&value_id)
         .expect("annotated instance field must publish a canonical field signature");
-    assert!(value.mutable);
+    assert!(!value.mutable);
     assert_eq!(value.declared_type.basis, DeclaredTypeBasis::SourceAnnotation);
     assert!(matches!(value.declared_type.state, DeclaredTypeState::Known(_)));
+
+    let mutable_id = FieldId::new(owner.clone(), "_mutable", DispatchSide::Instance);
+    let mutable = analysis
+        .snapshot
+        .field_signatures
+        .get(&mutable_id)
+        .expect("explicitly mutable field must publish a canonical field signature");
+    assert!(mutable.mutable);
+    assert_eq!(mutable.declared_type.basis, DeclaredTypeBasis::SourceAnnotation);
+    assert!(matches!(mutable.declared_type.state, DeclaredTypeState::Known(_)));
 
     let shared = analysis
         .snapshot

@@ -739,6 +739,7 @@ class Defaults {
 
 class Source {
   _defaulted: Int = 0
+  @class mut _shared: Int = 0
   @constructor custom(_ value: Int) { _defaulted = value }
 }
 "#,
@@ -790,13 +791,16 @@ class Source {
 
     let source_owner = f.decl("Source");
     let source_factory = phalcom_semantic::CallableId::new(
-        source_owner,
+        source_owner.clone(),
         Selector::method("custom", [SelectorSlot::Positional]).unwrap(),
         DispatchSide::Class,
     );
     let source = table.get(&source_factory).expect("source constructor product");
     assert_eq!(source.origin, phalcom_semantic::ConstructorOrigin::Source);
-    assert_eq!(source.default_fields[0].name.as_ref(), "_defaulted");
+    assert_eq!(
+        source.default_fields.as_ref(),
+        &[phalcom_semantic::FieldId::new(source_owner, "_defaulted", DispatchSide::Instance)]
+    );
     assert!(source.parameter_fields.is_empty());
     assert!(signatures.get(&source.initializer).is_some(), "source initializer signature is canonical");
 }

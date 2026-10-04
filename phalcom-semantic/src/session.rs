@@ -4664,7 +4664,10 @@ impl SemanticWorkspaceSession {
                     .members
                     .iter()
                     .filter_map(|member| match member {
-                        ClassMember::Field(field) if !field.is_static => {
+                        ClassMember::Field(field)
+                            if crate::checker::declaration::member_side(member)
+                                == DispatchSide::Instance =>
+                        {
                             crate::checker::declaration_signature::field_id_for_member(&owner, member).map(|field_id| (field, field_id))
                         }
                         _ => None,

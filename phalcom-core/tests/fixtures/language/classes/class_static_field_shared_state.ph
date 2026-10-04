@@ -8,8 +8,9 @@
 class Counter {
   @class
   mut _count = 0
+  @class bump() { _count = _count + 1 }
   @constructor
-  new() { _count = _count + 1 }
+  new() { class.bump() }
   @class
   count { _count }
 }

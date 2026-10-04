@@ -6,7 +6,7 @@
 // same absence helper as instance fields — the private Nil sentinel never leaks.
 // `_last` is in the static layout (assigned in `register`), but never written.
 class Registry {
-  mut _last
+  @class mut _last
   @class
   register(_ v) { _last = v }
   @class

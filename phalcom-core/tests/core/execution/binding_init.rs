@@ -16,6 +16,16 @@ fn uninitialized_binding_is_not_none() {
 }
 
 #[test]
+fn uninitialized_binding_sentinel_does_not_allocate_heap_objects() {
+    let vm = VM::new();
+    let before = vm.heap.live_count();
+    for _ in 0..128 {
+        std::hint::black_box(Value::uninitialized_binding());
+    }
+    assert_eq!(vm.heap.live_count(), before, "the local sentinel is an immediate Value, not a heap object");
+}
+
+#[test]
 fn uninitialized_binding_is_not_nil_if_separate_tag() {
     let v = Value::uninitialized_binding();
     let nil = Value::nil();
@@ -248,6 +258,52 @@ let compute = |flag: Bool| {
     let chunk = &vm.heap.closure(inner_closure_ref).callable.chunk;
 
     assert!(chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocalChecked(..))), "uncertain local should emit GetLocalChecked");
+}
+
+#[test]
+fn initialization_flow_edit_relowers_local_read_from_unchecked_to_checked() {
+    fn read_opcodes(source: &str) -> (bool, bool) {
+        let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source)))
+            .map_err(PhError::from)
+            .expect("source should compile");
+        let mut vm = VM::new();
+        vm.materialize_program(&program).expect("materialize");
+        let closure = vm.compile_program_module_closure(&program.entry, source, &program).expect("compile closure");
+        let top_chunk = &vm.heap.closure(closure).callable.chunk;
+        let inner_closure_ref = top_chunk
+            .constants
+            .iter()
+            .find_map(|value| value.as_obj().filter(|object| vm.heap.as_closure(*object).is_some()))
+            .expect("compute closure");
+        let chunk = &vm.heap.closure(inner_closure_ref).callable.chunk;
+        (
+            chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocal(_))),
+            chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocalChecked(..))),
+        )
+    }
+
+    let definitely_initialized = r#"
+let compute = |flag: Bool| {
+  let mut x: Int
+  if flag { x = 5 } else { x = 6 }
+  x
+}
+"#;
+    let maybe_initialized = r#"
+let compute = |flag: Bool| {
+  let mut x: Int
+  if flag { x = 5 }
+  x
+}
+"#;
+
+    let (has_unchecked, has_checked) = read_opcodes(definitely_initialized);
+    assert!(has_unchecked, "definitely initialized local should use GetLocal");
+    assert!(!has_checked, "definitely initialized local should not branch through GetLocalChecked");
+
+    let (has_unchecked, has_checked) = read_opcodes(maybe_initialized);
+    assert!(has_unchecked, "other proven locals, such as `flag`, still use GetLocal");
+    assert!(has_checked, "maybe initialized local should use GetLocalChecked");
 }
 
 #[test]

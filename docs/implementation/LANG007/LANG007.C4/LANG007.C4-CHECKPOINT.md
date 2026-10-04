@@ -6,7 +6,7 @@ checkpoint: LANG007.C4
 kind: checkpoint-record
 title: "Structural Static Upgrade"
 status: IN_PROGRESS
-completion: NOT_STARTED
+completion: PARTIAL
 verification: UNVERIFIED
 requires:
   - LANG007.C1
@@ -29,18 +29,20 @@ next_plan: LANG007.C4.P2
 program: LANG007
 checkpoint: LANG007.C4
 status: IN_PROGRESS
-completion: NOT_STARTED
+completion: PARTIAL
 verification: UNVERIFIED
 active_plan: LANG007.C4.P1
 latest_completed_plan: none
 next_plan: LANG007.C4.P2
 next_action: >
-  Resume LANG007.C4.P1 after the T8a compiler-consumer slice. First run the
-  outstanding T7 explicit-field gates and classify their results. Then inspect
-  and finish T8 immutable-field lifecycle/codegen coverage, run G1, complete
-  T10 incremental/performance evidence, run G2, and close T11 records. T8a's
-  focused runtime consumer test passed; its broader semantic/incremental gates
-  and all P1 closure gates remain outstanding. Do not begin P2.
+  Continue LANG007.C4.P1 closure. T7 explicit-field behavior, T8 lifecycle,
+  and T10 incremental/runtime probes now have focused passing evidence. The
+  required post-inference-deletion layout parity oracle is still missing. G1 is
+  BASELINE_BLOCKED: semantic binding/field gates pass, the core bindings corpus
+  has a D failure in destructure_list_no_rest.ph, and the named core fields
+  corpus filter selects zero tests. Recover the class corpus lane after the
+  latest fixture edits, resolve the G1 fields selector with real evidence, run
+  G2 serially across six crates, then finish T11 and stop before P2.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -144,7 +146,7 @@ The intended C4 decomposition is:
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
-| `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | IN_PROGRESS | PARTIAL | UNVERIFIED | active |
+| `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | active; focused T7/T8/T10 evidence recorded, parity/G1/G2/T11 open |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -767,6 +769,8 @@ checkpoint closure
 | C4 planning baseline | repository + C3 takeover + C4 architecture | C4 requirements analysis and P1 repository audit | COMPLETE | planning is grounded; no implementation claim |
 | C4.P1 plan readiness | P1 execution design | Luna patch-grade plan prepared against audited revision | COMPLETE | P1 has bounded execution plan; no implementation claim |
 | C4.P1.T0 baseline control | audited revision 8c3a98aab41ed8631e9f8746a6b29984cf77581d | `cargo test -p phalcom-ast` (294 pass); focused semantic & modules suites run | BASELINE_RECORDED | starting revision frozen; pre-existing test failures cataloged |
+| `LANG007.C4.P1.T7/T8/T10` focused continuation | explicit field layout, field lifecycle/default products, binding flow/runtime representation | semantic capability tests; core `field_layout`, `field_lifecycle`, `binding_init`; incremental product tests | FOCUSED PASS | proves the selected local semantics and runtime/codegen properties only; the T7 migration parity oracle and broad gates remain open |
+| `LANG007.C4.P1.G1` | semantic bindings/fields plus core corpus | semantic selectors pass; `language-corpus bindings` fails on `destructure_list_no_rest.ph`; `language-corpus fields` selects zero tests | BASELINE_BLOCKED / INCOMPLETE | semantic results are positive evidence; the failing corpus case is D and zero selected tests provide no fields evidence |
 
 Future plan gates must be added only after actual execution.
 
@@ -1142,6 +1146,58 @@ was run. The dirty shared worktree remains preserved.
    then refresh the final walkthrough and handoff. Keep P2 blocked until P1 is
    complete.
 
+## 2026-10-04 — P1 T7/T8/T10 focused continuation
+
+### Implementation and focused evidence
+
+- Constructor default projection now classifies fields by canonical
+  `member_side`, so `@class` fields cannot leak into instance constructor
+  default products. The semantic constructor-product regression includes a
+  class-side field and asserts only the instance default is published.
+- Class-side fixtures now declare static storage with `@class`; the shared
+  state fixture mutates that storage through a class-side method.
+- T7's live layout builder has no assignment-inference fallback. Explicit
+  declaration order, immutable slot classification, and rejection of
+  undeclared field layout writes passed in the focused core layout suite.
+- Immutable lifecycle semantic tests, runtime default/read tests, and the
+  explicit-super semantic tests passed. Binding flow reanalysis, field
+  mutability invalidation, checked-read lowering, and the immediate-sentinel
+  allocation check also passed.
+
+### Verification
+
+```text
+semantic capabilities::bindings                 12 passed
+semantic capabilities::fields                   27 passed
+core field_layout                                4 passed, 1 ignored (GATED)
+core field_lifecycle                             2 passed
+core binding_init                                13 passed
+semantic binding_flow_edit_rechecks_only_the_affected_callable 1 passed
+semantic field_mutability_edit_invalidates_field_and_write_products 1 passed
+AST c4_migrate test_migrate_implicit_fields      1 passed
+```
+
+`cargo fmt --all -- --check` remains red because formatter differences are
+spread across many existing files, including files outside this scoped change;
+no repository-wide formatting was applied. `git diff --check` passed for the
+scoped work.
+
+### Open acceptance and failure classification
+
+- The named T7 `migrated_layout_matches_pre_cutover_oracle` test/harness is not
+  present. Existing explicit-layout tests do not establish the plan's
+  post-inference-deletion comparison of names, side, slot order, field count,
+  and superclass prefix.
+- The semantic portions of G1 passed. The core bindings corpus failed in
+  `bindings/destructure_list_no_rest.ph`: runtime attempted `unwrapOr(_)` on
+  integer `1` in `phalcom-core/src/compiler/lib/patterns.rs::emit_element_read`.
+  This is classified D (unrelated baseline). The core fields corpus filter
+  selected zero tests and is not evidence.
+- The broad `classes` corpus was interrupted after the latest fixture edits;
+  its result is incomplete. The focused constructor-product regression passed.
+- G2 has not run. P1 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`; this
+  continuation does not close the plan or authorize P2.
+
 # 9. Performance and resource invariants
 
 C4 performance is part of correctness.
@@ -1309,10 +1365,12 @@ release-wide certification.
 The next action is:
 
 ```text
-Resume LANG007.C4.P1 by running the outstanding T7 explicit-field focused
-gates, then finish T8 lifecycle/codegen acceptance and its semantic/incremental
-checks. T8a compiler-consumer implementation is focused-tested. Continue with
-G1, T10, G2, and T11 in plan order; do not begin P2.
+Continue LANG007.C4.P1 closure by adding/running the post-deletion T7 layout
+parity oracle; recover the affected class corpus lane and replace the zero-test
+G1 fields selector with selected evidence; record the G1 D failure without
+changing unrelated pattern lowering; then run G2 serially across the six
+affected crates. Finish T11 with the final P1 verification classification and
+completion records. Do not begin P2.
 ```
 
 Required artifacts:

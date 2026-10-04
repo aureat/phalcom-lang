@@ -14,9 +14,11 @@ created: 2026-10-04
 ## 1. Plan identity and final state
 
 **Plan**: LANG007.C4.P1 — Binding, Mutability, Field Lifecycle, and Corpus Cutover  
-**Status**: PARTIAL (resumed after the earlier T6 pause; latest pause is after the T8a compiler-consumer slice)  
-**Completion**: T0–T6 COMPLETE; T7 implementation present; T8a compiler consumer implemented; T8 lifecycle open; T9 tooling implemented; closure gates pending  
-**Verification**: FOCUSED_TESTED for T0–T6, the T8a consumer test, and listed T9 checks; T7 gates, T8 lifecycle, G1, T10, and G2 remain UNVERIFIED
+**Status**: PARTIAL (latest continuation completed focused T7/T8/T10 slices)
+
+**Completion**: T0–T6 COMPLETE; T7 explicit-field behavior implemented; T8a products/compiler consumer implemented; T8 lifecycle implemented; T9 tooling implemented; T10 focused evidence complete; closure gates pending
+
+**Verification**: focused T7/T8/T10 checks pass; G1 is BASELINE_BLOCKED / INCOMPLETE; the T7 migration parity oracle, affected class corpus lane, G2, and final T11 records remain open
 
 ---
 
@@ -31,7 +33,7 @@ P1 was the foundational semantic cutover for `LANG007.C4`. The plan established:
 5. Corpus-wide migration (719 files) from legacy `let` → `let mut` / field `const _field` → `mut _field`
 6. A closed `const` phase boundary that fails loudly if a `const` name reaches runtime lowering
 
-**Still open for P1**: T7 focused gates and failure classification; immutable-field construction lifecycle plus broader T8a semantic/incremental evidence; G1; T10; G2; and final T11 records. T9's focused LSP/REPL checks and grammar validation have passed. This walkthrough was updated at the T8a pause and does not close P1.
+**Still open for P1**: add/run the post-deletion field-layout parity oracle; complete the affected class corpus lane and resolve G1's zero-test fields selector; run G2; and finish T11. The core bindings corpus has a classified D failure. P1 remains partial and this walkthrough does not close it.
 
 ---
 
@@ -178,11 +180,12 @@ The accepted superclass rule is explicit: a subclass constructor must call the d
 
 ## 10. Deviations from plan
 
-1. **T7 implementation is present, acceptance is pending**: focused explicit-field gates and failure classification remain outstanding.
-2. **T8 is partial**: the T8a compiler consumer slice is implemented and focused-tested; immutable-field lifecycle and broader semantic/incremental checks remain open.
+1. **T7 focused behavior passes**: explicit order, undeclared-write rejection, and migration unit checks pass. The plan's layout parity oracle is absent.
+2. **T8 focused lifecycle passes**: semantic constructor-path tests, core default/read runtime tests, and semantic product/incremental checks pass. The affected class corpus lane remains incomplete.
 3. **T9 focused tooling checks passed**: LSP/REPL checks and TextMate JSON validation are recorded in the handoff; the extension-host suite was not run.
-4. **P1 closure remains pending**: G1, T10, G2, and final T11 records have not been completed.
-5. **Partial T6**: the static const barrier was implemented at compiler level. Module-level `StaticConstant` in `linkage.rs` removed the stale `declarations` loop since `LinkedModuleInterface` does not have `.declarations` (only `UnlinkedModuleInterface` does). The `const` barrier therefore relies on compile-time scope tracking rather than linked module inspection for within-module constants.
+4. **T10 focused evidence passes**: binding-flow and field-mutability incremental edits, checked-read lowering, branch-free `GetLocal`, and zero-allocation sentinel checks pass.
+5. **P1 closure remains pending**: G1 is baseline-blocked/incomplete, G2 is unrun, and T11 remains partial.
+6. **Partial T6**: the static const barrier was implemented at compiler level. Module-level `StaticConstant` in `linkage.rs` removed the stale `declarations` loop since `LinkedModuleInterface` does not have `.declarations` (only `UnlinkedModuleInterface` does). The `const` barrier therefore relies on compile-time scope tracking rather than linked module inspection for within-module constants.
 
 ---
 
@@ -195,7 +198,7 @@ The T8a constructor-consumer architecture was consulted and recorded in the chec
 ## 12. Tests added
 
 ### New test files
-- `phalcom-core/tests/core/execution/binding_init.rs` — 11 T5 tests
+- `phalcom-core/tests/core/execution/binding_init.rs` — 11 T5 tests plus 2 T10 regressions
 - `phalcom-core/tests/core/compiler/static_const.rs` — 5 T6 tests
 - `phalcom-semantic/tests/semantic/foundations/binding_init.rs` — semantic init tests
 
@@ -228,25 +231,34 @@ The T8a constructor-consumer architecture was consulted and recorded in the chec
 ## 13. Tests executed
 
 ```sh
-RUSTFLAGS='' cargo check -p phalcom-core     # PASSED
-RUSTFLAGS='' cargo test -p phalcom-core --test core compiler_static_const   # 5/5 PASSED
-RUSTFLAGS='' cargo test -p phalcom-core --test core execution_binding_init  # 11/11 PASSED
-RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic fields           # 33/33 PASSED
-RUSTFLAGS='' cargo test -p phalcom-core field_layout                        # 2 passed, 1 ignored (GATED)
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic capabilities::bindings # 12 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic capabilities::fields   # 27 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core field_layout -- --nocapture                # 4 passed, 1 ignored (GATED)
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core field_lifecycle -- --nocapture             # 2 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core binding_init -- --nocapture    # 13 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic binding_flow_edit_rechecks_only_the_affected_callable # 1 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic field_mutability_edit_invalidates_field_and_write_products # 1 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-ast --bin c4_migrate test_migrate_implicit_fields # 1 passed
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core compiler_installs_and_executes_canonical_constructor_projections -- --nocapture  # 1 passed
 ```
 
 T9 focused LSP and REPL selectors passed, and `tools/vsphalcom/syntaxes/phalcom.tmLanguage.json` parsed successfully; exact checks are listed in the handoff. The extension-host suite was not run.
 
+The required G1 `language-corpus bindings` command failed in
+`bindings/destructure_list_no_rest.ph`: pattern lowering attempted
+`unwrapOr(_)` on integer `1`. This is classified D and is outside P1. The G1
+`language-corpus fields` selector selected zero tests, so it provides no
+evidence. The substitute core field suites above passed. The latest broad
+`classes` corpus run was interrupted after the final fixture edits.
+
 ---
 
 ## 14. Tests deferred
 
-- G1 semantic/runtime behavior gate (broad `phalcom-semantic` + `phalcom-core` capability suites)
-- G2 affected-crate stabilization gate (workspace crate tests)
-- T10 incremental invalidation and performance evidence
-- T7 explicit field layout tests: `bare_field_signature_is_immutable`, `mut_field_signature_is_mutable`, `assignment_to_undeclared_field_is_diagnostic`, `assignment_does_not_change_layout`, `explicit_field_layout_preserves_declaration_order`, `migrated_layout_matches_pre_cutover_oracle`
-- T8 immutable-field lifecycle regressions and broader semantic/incremental evidence for the T8a consumer slice.
+- T7 post-inference-deletion layout parity oracle; the planned named test is absent.
+- G1 closure: the bindings corpus has a D failure and the fields selector selects zero tests.
+- The affected `classes` corpus lane after the final static-field fixture corrections.
+- G2 affected-crate stabilization gate (six crate test suites).
 - T9 extension-host suite; focused LSP/REPL and grammar checks passed.
 
 ---
@@ -254,16 +266,19 @@ T9 focused LSP and REPL selectors passed, and `tools/vsphalcom/syntaxes/phalcom.
 ## 15. Performance evidence
 
 - `GetLocal` is branch-free: confirmed structurally in `proven_local_uses_unchecked_getlocal` test (bytecode inspection shows `GetLocal`, no `GetLocalChecked`)
-- `UninitializedBinding` uses an immediate `ValueTag` representation. T10's explicit zero-allocation confirmation remains pending.
-- No formal benchmark run executed; T10 is not complete.
+- `UninitializedBinding` uses an immediate `ValueTag` representation; the new 128-value heap-count regression passed with zero additional heap objects.
+- T10 binding-flow and field-mutability incremental edit tests passed. No formal benchmark run executed.
 
 ---
 
 ## 16. Residual/baseline failures
 
-No known P1-caused failures. Corpus migration and semantic tests all green within the focused surface.
+The core bindings corpus has one failure classified D (baseline/unrelated):
+`bindings/destructure_list_no_rest.ph` attempts to call `unwrapOr(_)` on integer
+`1` through pattern lowering. Do not repair it under P1. The core fields corpus
+filter selected zero tests, which is incomplete evidence.
 
-The `adt_lower_08_imported_field_layout_uses_declared_physical_slot` test is **ignored (GATED)** — baseline/pre-existing, not caused by P1.
+The `adt_lower_08_imported_field_layout_uses_declared_physical_slot` test is **ignored (GATED)**.
 
 ---
 
@@ -278,16 +293,16 @@ The `adt_lower_08_imported_field_layout_uses_declared_physical_slot` test is **i
 | T4 | COMPLETE | FOCUSED_TESTED |
 | T5 | COMPLETE | FOCUSED_TESTED (11/11) |
 | T6 | COMPLETE | FOCUSED_TESTED (5/5) |
-| T7 | IMPLEMENTATION_PRESENT | UNVERIFIED (focused gates pending) |
-| T8a compiler consumer | IMPLEMENTED | FOCUSED_TESTED (one end-to-end test) |
-| T8 immutable-field lifecycle | OPEN | UNVERIFIED |
+| T7 | IMPLEMENTED | FOCUSED_TESTED (explicit layout tests pass; parity oracle missing) |
+| T8a compiler consumer | IMPLEMENTED | FOCUSED_TESTED (consumer, semantic products, incremental dependency) |
+| T8 immutable-field lifecycle | IMPLEMENTED | FOCUSED_TESTED (semantic and core runtime tests) |
 | T9 | IMPLEMENTED | FOCUSED_TESTED (LSP/REPL; grammar JSON valid) |
-| G1 | NOT_RUN | UNVERIFIED |
-| T10 | NOT_STARTED | UNVERIFIED |
+| G1 | INCOMPLETE | BASELINE_BLOCKED (semantic passes; bindings corpus D failure; fields selector zero tests) |
+| T10 | COMPLETE | FOCUSED_TESTED |
 | G2 | NOT_RUN | UNVERIFIED |
 | T11 | PARTIAL | N/A |
 
-**Overall P1 verification**: PARTIAL. T0–T6, the focused T8a consumer test, and listed T9 checks are focused-tested. T7 acceptance, T8 lifecycle, G1, T10, and G2 remain unverified; T11 is partial.
+**Overall P1 verification**: PARTIAL / BASELINE_BLOCKED. T7, T8, T9, and T10 have focused evidence. T7 parity, G1 completion, the affected class corpus lane, G2, and final T11 closure remain open.
 
 ---
 
@@ -295,12 +310,9 @@ The `adt_lower_08_imported_field_layout_uses_declared_physical_slot` test is **i
 
 P2 will build the static evaluator on top of P1's `const` phase boundary. Before P2 can begin, P1 must be completed (T7–T11). The next executor should:
 
-1. Run T7's focused explicit-field gates and classify every failure A/B/C/D.
-2. Complete T8 immutable-field lifecycle enforcement and its positive/negative constructor-path regressions; finish broader semantic/incremental evidence for T8a.
-3. Confirm and record T9's focused evidence (already passed); run the extension-host suite if required by the active plan.
-4. Run G1's four named semantic and language-corpus gates.
-5. Complete T10 incremental invalidation, `GetLocal` branch inspection, and zero-allocation evidence.
-6. Run G2 serially across the six affected crates and classify all failures A/B/C/D.
-7. Update the checkpoint and close the walkthrough/handoff in T11. P2 remains blocked until then.
+1. Add/run the T7 migration/layout parity oracle against the pre-cutover field order and current explicit declarations.
+2. Complete the affected `classes` corpus lane and replace G1's zero-test `fields` selector with selected evidence; retain the bindings failure as D.
+3. Run G2 serially across the six affected crates and classify all failures A/B/C/D.
+4. Finish T11 with the final checkpoint, walkthrough, and handoff state after those gates. P2 remains blocked until then.
 
 P2 hook: the `const` declaration identity (name in `global_static_constants`) is where P2 should attach `StaticValue`, the initializer semantic body, declared result domain, and materialization descriptor.

@@ -207,13 +207,10 @@ fn captured_method_can_use_dynamic_behavior_on_foreign_receiver() {
 
 #[test]
 fn captured_method_rejects_foreign_field_layout_before_slot_access() {
-    let mut vm = VM::new();
-    let module = vm.create_module("main", "captured_method_foreign_field_layout");
-    vm.interpret_source(
-        module,
-        "class Source { @constructor new() { _field = 41 } read { _field } }\nclass Target { @constructor new() { _other = 99 } }\nlet source = Source.new()\nlet target = Target.new()\n",
-    )
-    .expect("field-bearing classes should compile");
+    let source_text = "class Source {\n  _field: Int\n  @constructor\n  new() { _field = 41 }\n  read { _field }\n}\nclass Target {\n  _other: Int\n  @constructor\n  new() { _other = 99 }\n}\nlet source = Source.new()\nlet target = Target.new()\n";
+    let (mut vm, program, _closure) = compile_inline(source_text).expect("field-bearing classes should compile");
+    vm.run_compiled(&program).expect("field-bearing classes should initialize");
+    let module = vm.module_registry.get(&program.entry).expect("entry module should exist").object;
 
     let source = vm.heap.module(module).get(vm.interner.intern("source")).expect("source should exist");
     let target = vm.heap.module(module).get(vm.interner.intern("target")).expect("target should exist");

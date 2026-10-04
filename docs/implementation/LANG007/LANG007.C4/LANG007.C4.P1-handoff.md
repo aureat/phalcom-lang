@@ -9,8 +9,8 @@ for: next implementer (continuing T7–T11)
 
 # LANG007.C4.P1 — Handoff
 
-This handoff records a **partial** P1 pause after the T8a compiler-consumer
-slice. P1 remains active and P2 must not begin.
+This handoff records a **partial** P1 pause after focused T7/T8/T10 work.
+P1 remains active and P2 must not begin.
 
 ---
 
@@ -26,14 +26,14 @@ T3  COMPLETE — semantic binding/module/source semantics flipped
 T4  COMPLETE — 3-state initialization lattice + BindingReadSafety
 T5  COMPLETE — ValueTag::UninitializedBinding, GetLocalChecked, 11/11 tests passed
 T6  COMPLETE — static const phase barrier, 5/5 tests passed
-T7  explicit-field implementation is present in the shared tree; focused gates pending
-T8a compiler consumer implemented; focused end-to-end test passed; broader semantic/incremental evidence pending
-T8 lifecycle acceptance remains open
+T7  explicit-field behavior and focused layout checks pass; migration/layout parity oracle missing
+T8a compiler consumer and semantic product/incremental checks pass; affected class corpus lane incomplete
+T8 immutable lifecycle semantic/runtime checks pass; broad class corpus lane incomplete
 T9 tooling implementation and focused LSP/REPL checks passed
-G1  NOT_RUN
-T10 NOT_STARTED
+G1  BASELINE_BLOCKED / INCOMPLETE (semantic passes; core bindings D failure; core fields selects zero)
+T10 FOCUSED_TESTED (incremental invalidation, checked-read lowering, branch-free GetLocal, zero heap allocation)
 G2  NOT_RUN
-T11 PARTIAL (checkpoint/handoff updated for this pause; final closure records pending)
+T11 PARTIAL (checkpoint and handoff updated; final plan closure records pending)
 ```
 
 Focused T8a test that passed:
@@ -46,12 +46,8 @@ The approved superclass rule is explicit: subclass constructors call the
 direct parent's canonical initializer with `super.new(...)`. The compiler
 consumes the semantic resolved link; it does not synthesize a missing call.
 
-Untracked files (do not `git clean`):
-- `docs/implementation/LANG007/LANG007.C3/LANG007.C3.P5-full-implementation-audit-2026-10-01.md`
-- `docs/implementation/LANG007/LANG007.C4/` (entire directory, untracked)
-- `phalcom-ast/src/bin/c4_migrate.rs`
-- `phalcom-core/tests/core/execution/binding_init.rs`
-- `phalcom-semantic/tests/semantic/foundations/binding_init.rs`
+P1 focused implementation files were delivered on `main`; see the current
+checkpoint state for the verified revision and working-tree status.
 
 ---
 
@@ -165,22 +161,28 @@ The following are **FIXED** and must not be weakened:
 
 ### T7 — Verify explicit field layout authority
 
-The explicit-field implementation and undeclared-write diagnostic are present
-in the shared worktree. A live search confirms `class_decl.rs` no longer has the
-`collect_assigned_fields` inference fallback or `has_declared_fields` branch.
-T7 is not accepted yet: inspect the scoped diff, run the focused
-explicit-field/parser/core tests, and classify failures before changing code.
+The explicit-field implementation and undeclared-write diagnostic are present.
+A live search confirms `class_decl.rs` no longer has the `collect_assigned_fields`
+inference fallback or `has_declared_fields` branch. Focused semantic/core
+layout tests and the AST implicit-field migration test pass. T7 remains open
+because the required pre/post migration layout parity oracle is absent.
 
 **Files to inspect first**:
 - `phalcom-core/src/compiler/lib/class_decl.rs`: confirm physical layout comes from explicit declared fields and preserves declaration order.
 - `phalcom-semantic/src/checker/expression.rs`: confirm undeclared field writes produce the planned diagnostic.
 - Relevant parser/core tests and the scoped T7 diff.
 
-**Expected focused cases**:
-  - `assignment_does_not_create_field`
-  - `undeclared_field_write_is_diagnostic`
-  - `explicit_layout_preserved_after_inference_deletion`
-  - Layout parity oracle check (compare pre-T7 slot order against post-T7)
+**Focused evidence already run**:
+- Semantic `assignment_does_not_declare_a_field` passed in the field capability suite.
+- Core `undeclared_assignment_cannot_add_a_field_layout_slot` and
+  `explicit_field_layout_preserves_declaration_order_and_mutability` passed.
+- AST migration test `test_migrate_implicit_fields` passed.
+- `cargo test -p phalcom-core field_layout -- --nocapture`: 4 passed,
+  1 ignored (GATED).
+
+**Still required**: add/run the parity oracle comparing migrated pre-cutover
+field names, side, own-slot order, field count, superclass prefix, and
+mutability translation against explicit post-cutover declarations.
 
 **Key invariant**: `P1-INV-15` (explicit fields only). After T7, assignment is a consumer of declared storage, never a creator.
 
@@ -188,14 +190,13 @@ explicit-field/parser/core tests, and classify failures before changing code.
 
 ### T8 — Verify and close immutable-field construction lifecycle
 
-T8a now projects constructor factory/initializer members from the published
-semantic products. The focused compiler consumer test passed; T8's lifecycle
-acceptance and the broader T8a semantic/incremental checks remain open. The
-`field_lifecycle.rs` module and checker hooks already exist in the shared tree.
-The live checker contains immutable writes restricted to the canonical
-constructor, repeat-write diagnostics, constructor-exit checks, and explicit
-super-call enforcement. Focused semantic/runtime tests also exist, but this
-continuation did not run them. Verify their coverage and results before editing.
+T8a projects constructor factory/initializer members from published semantic
+products. Its compiler consumer test, semantic constructor-product tests, and
+incremental parent-product dependency tests pass. The instance-default
+collector now uses canonical `member_side`, excluding `@class` defaults from
+instance construction products. T8 immutable-lifecycle semantic tests and core
+runtime default/read tests pass. The broad `classes` corpus run was interrupted
+after the final static-field fixture correction, so that lane is incomplete.
 
 **Files and existing regressions to inspect/run**:
 - `phalcom-semantic/src/checker/field_lifecycle.rs`, `body.rs`, and `expression.rs`: verify lifecycle transitions, signature ownership, and every normal constructor exit.
@@ -233,21 +234,31 @@ The tooling changes are present and these focused checks passed:
 
 ### G1 — Semantic/runtime behavior gate
 
-Run after T8:
+G1 is **BASELINE_BLOCKED / INCOMPLETE**:
 
 ```sh
-RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic capabilities::bindings
-RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic capabilities::fields
-RUSTFLAGS='' cargo test -p phalcom-core --test language-corpus bindings
-RUSTFLAGS='' cargo test -p phalcom-core --test language-corpus fields
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic capabilities::bindings # 12 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic capabilities::fields   # 27 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus bindings          # D failure below
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus fields            # selected 0 tests
 ```
+
+The bindings corpus failure is `bindings/destructure_list_no_rest.ph`: pattern
+lowering calls `unwrapOr(_)` on integer `1`. It is classified D and remains
+outside P1. The `fields` selector has no matching corpus test, so it is not
+evidence; the focused `field_layout` and `field_lifecycle` core suites passed
+as substitutes, but the named G1 gate still needs an explicit resolution.
 
 ### T10 — Incremental and performance stabilization
 
-- Verify incremental: `let → let mut` edit invalidates semantic product, re-lowers to checked read
-- Verify `field bare → mut` invalidates field signature product
-- Verify `GetLocal` bytecode path has no uninitialized check (structural opcode inspection)
-- Verify `UninitializedBinding` representation is zero heap allocation
+T10 is focused-tested:
+
+- Binding-flow edit changed the semantic read product and re-lowered the local
+  read from `GetLocal` to `GetLocalChecked`.
+- Bare-field ↔ `mut` edit invalidated field signature and affected write
+  products while reusing the unrelated callable product.
+- `binding_init` passed 13 tests, including the structural `GetLocal` path and
+  zero heap allocations for 128 `UninitializedBinding` values.
 
 ### G2 — Affected-crate stabilization gate
 
@@ -265,13 +276,20 @@ cargo test -p phalcom-repl
 - Update `LANG007.C4-CHECKPOINT.md` with P1 final state
 - Close this handoff/walkthrough with final verification classification
 
+These final records remain open until the T7 parity oracle, G1 resolution, and
+G2 results are available.
+
 ---
 
 ## 6. Known baseline/deferred failures
 
-- `adt_lower_08_imported_field_layout_uses_declared_physical_slot` — **IGNORED (GATED)**, pre-existing baseline. Classification: D. Not P1-caused.
-
-No other deferred failures identified in the focused T0–T6 surface.
+- `adt_lower_08_imported_field_layout_uses_declared_physical_slot` — **IGNORED (GATED)**.
+- `language-corpus bindings` fails on `bindings/destructure_list_no_rest.ph`
+  because pattern lowering applies `unwrapOr(_)` to integer `1`. Classification:
+  D, unrelated baseline; do not repair in P1.
+- `language-corpus fields` selected zero tests and is not a pass.
+- The final `classes` corpus attempt was interrupted after the static-field
+  fixture edits; record it as incomplete.
 
 ---
 

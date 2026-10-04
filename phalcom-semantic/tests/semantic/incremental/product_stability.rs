@@ -6,7 +6,7 @@ use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, Li
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::db::QueryKey;
-use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, FieldId};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
@@ -893,6 +893,153 @@ class Unrelated {
     assert_eq!(unrelated_state.revision(), Some(rev1));
     assert_eq!(unrelated_state.validated_revision(), Some(rev2));
     assert!(Arc::ptr_eq(&unrelated_v1, update2.snapshot.callable_analyses.get(&unrelated_stable).unwrap()));
+}
+
+#[test]
+fn binding_flow_edit_rechecks_only_the_affected_callable() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(59),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("binding_flow_edit").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source_v1 = r#"
+class Consumer {
+  @class run(flag: Bool) -> Int {
+    let mut value: Int
+    if flag { value = 1 } else { value = 2 }
+    value
+  }
+}
+class Unrelated {
+  @class stable() -> Int { 7 }
+}
+"#;
+    let update1 = session.update(input(module.clone(), source_v1, 1));
+    assert!(!update1.snapshot.has_errors());
+
+    let run = CallableId::new(
+        DeclarationId::new(module.clone(), "Consumer".into()),
+        Selector::method("run", [phalcom_common::selector::SelectorSlot::Label("flag".into())]).unwrap(),
+        DispatchSide::Class,
+    );
+    let stable = CallableId::new(
+        DeclarationId::new(module.clone(), "Unrelated".into()),
+        Selector::method("stable", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let run_key = QueryKey::CallableBody(run.clone());
+    let stable_key = QueryKey::CallableBody(stable.clone());
+    let rev1 = update1.snapshot.id.revision();
+    let stable_v1 = update1.snapshot.callable_analyses.get(&stable).unwrap().clone();
+    let run_v1 = update1.snapshot.callable_analyses.get(&run).unwrap().clone();
+    let value_v1 = run_v1.bindings.values().find(|binding| binding.name == "value").expect("value binding");
+    assert_eq!(
+        value_v1.initialization,
+        phalcom_semantic::checker::flow::InitializationState::DefinitelyInitialized
+    );
+    assert_eq!(value_v1.current.ty(), value_v1.contract.as_ref().map(|contract| contract.ty));
+    let read_start = source_v1.rfind("value").expect("final value read");
+    let read_v1 = run_v1
+        .expressions
+        .values()
+        .find(|expression| expression.range.start == read_start)
+        .expect("final value expression");
+    assert_eq!(
+        read_v1.binding_read_safety,
+        Some(phalcom_semantic::checker::flow::BindingReadSafety::ProvenInitialized)
+    );
+
+    let source_v2 = r#"
+class Consumer {
+  @class run(flag: Bool) -> Int {
+    let mut value: Int
+    if flag { value = 1 }
+    value
+  }
+}
+class Unrelated {
+  @class stable() -> Int { 7 }
+}
+"#;
+    let update2 = session.update(input(module, source_v2, 2));
+    assert!(!update2.snapshot.has_errors());
+    let rev2 = update2.snapshot.id.revision();
+    let run_v2 = update2.snapshot.callable_analyses.get(&run).unwrap();
+    let value_v2 = run_v2.bindings.values().find(|binding| binding.name == "value").expect("value binding");
+    assert_eq!(value_v2.initialization, phalcom_semantic::checker::flow::InitializationState::MaybeInitialized);
+    assert_eq!(
+        value_v2.contract.as_ref().map(|contract| contract.ty),
+        value_v1.contract.as_ref().map(|contract| contract.ty),
+        "the edit changes initialization safety while preserving the declared type contract"
+    );
+    let read_start = source_v2.rfind("value").expect("final value read");
+    let read_v2 = run_v2
+        .expressions
+        .values()
+        .find(|expression| expression.range.start == read_start)
+        .expect("final value expression");
+    assert_eq!(
+        read_v2.binding_read_safety,
+        Some(phalcom_semantic::checker::flow::BindingReadSafety::RuntimeCheckRequired)
+    );
+    assert_eq!(session.db().query_state(&run_key).unwrap().revision(), Some(rev2));
+    assert_ne!(session.db().query_state(&run_key).unwrap().revision(), Some(rev1));
+    assert!(!Arc::ptr_eq(&run_v1, update2.snapshot.callable_analyses.get(&run).unwrap()));
+    assert_eq!(session.db().query_state(&stable_key).unwrap().revision(), Some(rev1));
+    assert_eq!(session.db().query_state(&stable_key).unwrap().validated_revision(), Some(rev2));
+    assert!(Arc::ptr_eq(&stable_v1, update2.snapshot.callable_analyses.get(&stable).unwrap()));
+}
+
+#[test]
+fn field_mutability_edit_invalidates_field_and_write_products() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(60),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("field_mutability_edit").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source = |mutable: bool| {
+        format!(
+            "class Store {{\n  {}_value: Int = 0\n  write() {{ _value = 1 }}\n}}\nclass Unrelated {{\n  @class stable() -> Int {{ 7 }}\n}}\n",
+            if mutable { "mut " } else { "" }
+        )
+    };
+    let source_v1 = source(false);
+    let update1 = session.update(input(module.clone(), &source_v1, 1));
+    let owner = DeclarationId::new(module.clone(), "Store".into());
+    let field = FieldId::new(owner.clone(), "_value", DispatchSide::Instance);
+    let write = CallableId::new(owner, Selector::method("write", []).unwrap(), DispatchSide::Instance);
+    let stable = CallableId::new(
+        DeclarationId::new(module.clone(), "Unrelated".into()),
+        Selector::method("stable", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let field_key = QueryKey::FieldSignature(field.clone());
+    let write_key = QueryKey::CallableBody(write.clone());
+    let stable_key = QueryKey::CallableBody(stable.clone());
+    let rev1 = update1.snapshot.id.revision();
+    assert!(!update1.snapshot.field_signatures.get(&field).unwrap().mutable);
+    let write_v1 = update1.snapshot.callable_analyses.get(&write).unwrap().clone();
+    let stable_v1 = update1.snapshot.callable_analyses.get(&stable).unwrap().clone();
+
+    let source_v2 = source(true);
+    let update2 = session.update(input(module.clone(), &source_v2, 2));
+    let rev2 = update2.snapshot.id.revision();
+    assert!(update2.snapshot.field_signatures.get(&field).unwrap().mutable);
+    assert_eq!(session.db().query_state(&field_key).unwrap().revision(), Some(rev2));
+    assert_eq!(session.db().query_state(&write_key).unwrap().revision(), Some(rev2));
+    assert!(!Arc::ptr_eq(&write_v1, update2.snapshot.callable_analyses.get(&write).unwrap()));
+    let write_v2 = update2.snapshot.callable_analyses.get(&write).unwrap().clone();
+    assert_eq!(session.db().query_state(&stable_key).unwrap().revision(), Some(rev1));
+    assert_eq!(session.db().query_state(&stable_key).unwrap().validated_revision(), Some(rev2));
+    assert!(Arc::ptr_eq(&stable_v1, update2.snapshot.callable_analyses.get(&stable).unwrap()));
+
+    let source_v3 = source(false);
+    let update3 = session.update(input(module, &source_v3, 3));
+    let rev3 = update3.snapshot.id.revision();
+    assert!(!update3.snapshot.field_signatures.get(&field).unwrap().mutable);
+    assert_eq!(session.db().query_state(&field_key).unwrap().revision(), Some(rev3));
+    assert_eq!(session.db().query_state(&write_key).unwrap().revision(), Some(rev3));
+    assert!(!Arc::ptr_eq(&write_v2, update3.snapshot.callable_analyses.get(&write).unwrap()));
 }
 
 #[test]
