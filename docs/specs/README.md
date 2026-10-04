@@ -25,7 +25,7 @@ They include:
 - [`structural-products.md`](structural-products.md) (and companion [`tuple-and-record-typing.md`](tuple-and-record-typing.md)) — static structural Tuple/Record typing, presence, remainders, and structural type operations;
 - [`generic-constraints.md`](generic-constraints.md) — generic `where` constraints, conformance bounds, associated specialization, generic projection, equivalence, and subtyping constraints;
 - [`associated-types.md`](associated-types.md) — trait-owned associated declarations, conformance bindings, and the trait specialization of general type members;
-- [`objects/`](objects/) — values, runtime algebraic data, traits, and implementation declarations;
+- [`objects/`](objects/) — values, classes and instance fields, runtime algebraic data, traits, and implementation declarations;
 - [`callables/`](callables/) — selectors, arguments, methods, callable values, closures, references, families, dispatch, execution context, binding, and callable reflection.
 
 A conforming implementation may choose different internal representations or algorithms provided that the language semantics remain unchanged.
@@ -91,6 +91,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | Trait-owned associated declarations, bindings, and conformance evidence | [`associated-types.md`](associated-types.md) |
 | Source declaration modifiers, access domains, implementation origin, and legacy namespace retirement | [`source-declarations.md`](source-declarations.md) |
 | Foundational value/object semantics and exactness | [`objects/values.md`](objects/values.md) |
+| Class instance fields, defaults, and constructor initialization | [`objects/classes.md`](objects/classes.md) |
 | Nominal transparent data objects | [`objects/data-objects.md`](objects/data-objects.md) |
 | Runtime closed sums, cases, exact-case semantics, and case construction | [`objects/enums.md`](objects/enums.md) |
 | Traits, requirements, witnesses, defaults, conformance, coherence | [`objects/traits.md`](objects/traits.md) |
