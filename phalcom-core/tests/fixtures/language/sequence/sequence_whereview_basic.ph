@@ -3,9 +3,9 @@
 // status: PASS
 // Iterator filter yields only elements matching predicate
 
-let source = [1, 2, 3, 4, 5]
-let view = source.iter.filter |x| { x > 2 }
-let result = []
+let mut source = [1, 2, 3, 4, 5]
+let mut view = source.iter.filter |x| { x > 2 }
+let mut result = []
 for x in view {
   result.append(x)
 }

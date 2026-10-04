@@ -29,9 +29,9 @@ native class List<T> is Collection {
   }
 
   get(_ index) {
-    let raw = self.rawAt(index)
-    let len = self.size
-    let i = index
+    let mut raw = self.rawAt(index)
+    let mut len = self.size
+    let mut i = index
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return Some(raw)
@@ -42,13 +42,13 @@ native class List<T> is Collection {
   private sliceByRange(_ range) {
     return range.rawSliceBounds(self.size).match(
       ok: |bounds| {
-        let start = bounds[0]
-        let end = bounds[1]
+        let mut start = bounds[0]
+        let mut end = bounds[1]
         if start > end {
           end = start
         }
-        let result = List<T>.new()
-        let i = start
+        let mut result = List<T>.new()
+        let mut i = start
         while i < end {
           result.rawPush(self.rawAt(i))
           i = i + 1
@@ -63,9 +63,9 @@ native class List<T> is Collection {
     if index is Range {
       return self.sliceByRange(index)
     }
-    let raw = self.rawAt(index)
-    let len = self.size
-    let i = index
+    let mut raw = self.rawAt(index)
+    let mut len = self.size
+    let mut i = index
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return raw
@@ -74,9 +74,9 @@ native class List<T> is Collection {
   }
 
   [_ index, default] {
-    let raw = self.rawAt(index)
-    let len = self.size
-    let i = index
+    let mut raw = self.rawAt(index)
+    let mut len = self.size
+    let mut i = index
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return raw
@@ -85,9 +85,9 @@ native class List<T> is Collection {
   }
 
   get(_ index, orElse) {
-    let raw = self.rawAt(index)
-    let len = self.size
-    let i = index
+    let mut raw = self.rawAt(index)
+    let mut len = self.size
+    let mut i = index
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return raw
@@ -101,71 +101,71 @@ native class List<T> is Collection {
   }
 
   prepend(_ value) {
-    let oneElementList = List<T>.new()
+    let mut oneElementList = List<T>.new()
     oneElementList.rawPush(value)
     self.rawReplaceSlice(0, 0, oneElementList)
     return ()
   }
 
   clear {
-    let emptyList = List<T>.new()
+    let mut emptyList = List<T>.new()
     self.rawReplaceSlice(0, self.size, emptyList)
     return ()
   }
 
   insert(_ value, at index) {
-    let n = self.size
-    let p = index
+    let mut n = self.size
+    let mut p = index
     if p < 0 { p = n + p }
     if p < 0 or p > n {
       return Result::Error(IndexError.new("List#insert: index out of bounds"))
     }
-    let oneElementList = List<T>.new()
+    let mut oneElementList = List<T>.new()
     oneElementList.rawPush(value)
     self.rawReplaceSlice(p, p, oneElementList)
-    let ok: Result<Unit, Error> = Result::Ok(())
+    let mut ok: Result<Unit, Error> = Result::Ok(())
     return ok
   }
 
   remove(at index) {
-    let n = self.size
-    let p = index
+    let mut n = self.size
+    let mut p = index
     if p < 0 { p = n + p }
     if p < 0 or p >= n {
       return Result::Error(IndexError.new("List#remove: index out of bounds"))
     }
-    let captured = self.rawAt(p)
-    let emptyList = List<T>.new()
+    let mut captured = self.rawAt(p)
+    let mut emptyList = List<T>.new()
     self.rawReplaceSlice(p, p + 1, emptyList)
-    let ok: Result<T, Error> = Result::Ok(captured)
+    let mut ok: Result<T, Error> = Result::Ok(captured)
     return ok
   }
 
   popFirst {
-    let n = self.size
+    let mut n = self.size
     if n == 0 { return None }
-    let captured = self.rawAt(0)
-    let emptyList = List<T>.new()
+    let mut captured = self.rawAt(0)
+    let mut emptyList = List<T>.new()
     self.rawReplaceSlice(0, 1, emptyList)
     return Some(captured)
   }
 
   popLast {
-    let n = self.size
+    let mut n = self.size
     if n == 0 { return None }
-    let captured = self.rawAt(n - 1)
-    let emptyList = List<T>.new()
+    let mut captured = self.rawAt(n - 1)
+    let mut emptyList = List<T>.new()
     self.rawReplaceSlice(n - 1, n, emptyList)
     return Some(captured)
   }
 
   removeAll(where predicate) {
-    let retained = List<Dynamic>.new()
-    let count = 0
-    let i = 0
-    let n = self.size
+    let mut retained = List<Dynamic>.new()
+    let mut count = 0
+    let mut i = 0
+    let mut n = self.size
     while i < n {
-      let x = self.rawAt(i)
+      let mut x = self.rawAt(i)
       if predicate.call(x) {
         count = count + 1
       } else {
@@ -178,33 +178,33 @@ native class List<T> is Collection {
   }
 
   swap(first a, second b) {
-    let n = self.size
-    let idxA = a
+    let mut n = self.size
+    let mut idxA = a
     if idxA < 0 { idxA = n + idxA }
     if idxA < 0 or idxA >= n {
       return Result::Error(IndexError.new("List#swap: first index out of bounds"))
     }
-    let idxB = b
+    let mut idxB = b
     if idxB < 0 { idxB = n + idxB }
     if idxB < 0 or idxB >= n {
       return Result::Error(IndexError.new("List#swap: second index out of bounds"))
     }
     if idxA == idxB {
-      let ok: Result<Unit, Error> = Result::Ok(())
+      let mut ok: Result<Unit, Error> = Result::Ok(())
       return ok
     }
-    let valA = self.rawAt(idxA)
-    let valB = self.rawAt(idxB)
+    let mut valA = self.rawAt(idxA)
+    let mut valB = self.rawAt(idxB)
     self.rawSet(idxA, valB)
     self.rawSet(idxB, valA)
-    let ok: Result<Unit, Error> = Result::Ok(())
+    let mut ok: Result<Unit, Error> = Result::Ok(())
     return ok
   }
 
   /// Replaces the element at `i` and returns the list.
   at(_ i, put) {
-    let len = self.size
-    let norm = i
+    let mut len = self.size
+    let mut norm = i
     if norm < 0 { norm = len + norm }
     if norm < 0 or norm >= len {
       throw IndexError.new("Expected an in-range index, got an out-of-range Number")
@@ -223,13 +223,13 @@ native class List<T> is Collection {
     }
     return range.rawSliceBounds(self.size).match(
       ok: |bounds| {
-        let start = bounds[0]
-        let end = bounds[1]
+        let mut start = bounds[0]
+        let mut end = bounds[1]
         if start > end {
           end = start
         }
         self.rawReplaceSlice(start, end, replacements)
-        let ok: Result<Unit, Error> = Result::Ok(())
+        let mut ok: Result<Unit, Error> = Result::Ok(())
         ok
       },
       err: |error| { Result::Error(error) }
@@ -247,8 +247,8 @@ native class List<T> is Collection {
   /// Compares lists by size and corresponding element equality.
   ==(_ other) {
     if other is List {
-      let same = self.size == other.size
-      let i = 0
+      let mut same = self.size == other.size
+      let mut i = 0
       while same and i < self.size {
         same = self.at(i) == other.at(i)
         i = i + 1
@@ -273,8 +273,8 @@ native class List<T> is Collection {
 }
 
 class ListIterator<T> {
-  _values: List<T>
-  _index: Int
+  mut _values: List<T>
+  mut _index: Int
 
   @constructor new(_ values: List<T>) {
     _values = values
@@ -283,7 +283,7 @@ class ListIterator<T> {
 
   next -> Option<T> {
     if _index < _values.size {
-      let value = _values[_index]
+      let mut value = _values[_index]
       _index = _index + 1
       return Some(value)
     }

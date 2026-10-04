@@ -17,13 +17,13 @@ impl DateTime {
 
   @class
   parse(_ text: String) -> DateTime {
-    const separator = text.indexOf("T")
+    let separator = text.indexOf("T")
     if separator <= 0 { ArgumentError.new("DateTime.parse: expected <date>T<time>").raise() }
     DateTime.new(Date.parse(text.slice(0, separator)), Time.parse(text.slice(separator + 1, text.size)))
   }
 
   compare(_ other: DateTime) -> Ordering {
-    const dateOrder = self.date.compare(other.date)
+    let dateOrder = self.date.compare(other.date)
     if dateOrder != Ordering::Equal { return dateOrder }
     self.time.compare(other.time)
   }
@@ -31,14 +31,14 @@ impl DateTime {
   <(_ other: DateTime) -> Bool { self.compare(other) === Ordering::Less }
 
   <=(_ other: DateTime) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Less { true } else { order === Ordering::Equal }
   }
 
   >(_ other: DateTime) -> Bool { self.compare(other) === Ordering::Greater }
 
   >=(_ other: DateTime) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Greater { true } else { order === Ordering::Equal }
   }
 
@@ -60,8 +60,8 @@ impl DateTime {
   }
 
   resolve(_ zone: TimeZone) -> LocalTimeResolution {
-    const encoded = zone.resolveNative(self.date.year, self.date.month.number, self.date.day, self.time.hour, self.time.minute, self.time.second, self.time.nanosecond)
-    const tag = encoded.at(0)
+    let encoded = zone.resolveNative(self.date.year, self.date.month.number, self.date.day, self.time.hour, self.time.minute, self.time.second, self.time.nanosecond)
+    let tag = encoded.at(0)
     if tag == 0 { return LocalTimeResolution::Unique(value: ZonedDateTime.from(self.timestampFromResolution(encoded, 1), zone)) }
     if tag == 1 {
       return LocalTimeResolution::Ambiguous(

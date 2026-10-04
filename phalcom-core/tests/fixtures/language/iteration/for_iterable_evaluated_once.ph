@@ -2,6 +2,7 @@
 // once — bound to a synthetic temporary before the loop — so a side-effecting
 // receiver runs a single time.
 class Source {
+  mut _calls
   @constructor
   new() { _calls = 0 }
   makeList {
@@ -11,6 +12,6 @@ class Source {
   }
   calls { _calls }
 }
-const s = Source.new()
+let s = Source.new()
 for x in s.makeList { System.print(x) }
 System.print(s.calls)

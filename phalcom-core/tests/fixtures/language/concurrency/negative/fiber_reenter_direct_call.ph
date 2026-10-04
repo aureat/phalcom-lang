@@ -6,7 +6,7 @@
 // — rejected by the same guard as calling a finished fiber, distinct
 // message ("fiber is already running").
 
-let fiber = None
+let mut fiber = None
 
 fiber = Fiber.new || {
   fiber.call()

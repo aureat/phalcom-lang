@@ -14,7 +14,7 @@ data Date private(_ year: Int, _ month: Month, _ day: Int)
 impl Date {
   @class
   new(_ year: Int, _ month: Month, _ day: Int) -> Date {
-    const lastDay = Gregorian.daysInMonth(year, month.number)
+    let lastDay = Gregorian.daysInMonth(year, month.number)
     if day < 1 or day > lastDay {
       ArgumentError.new("Date.new: day is outside the month").raise()
     }
@@ -23,7 +23,7 @@ impl Date {
 
   @class
   parse(_ text: String) -> Date {
-    const parts = text.split("-")
+    let parts = text.split("-")
     if parts.size != 3 { ArgumentError.new("Date.parse: expected YYYY-MM-DD").raise() }
     Date.new(Date.parseInteger(parts.at(0)), Month.fromNumber(Date.parseInteger(parts.at(1))), Date.parseInteger(parts.at(2)))
   }
@@ -31,12 +31,12 @@ impl Date {
   @class
   private parseInteger(_ text: String) -> Int {
     if text.size == 0 { ArgumentError.new("Date.parse: invalid integer").raise() }
-    let sign = 1
-    let index = 0
+    let mut sign = 1
+    let mut index = 0
     if text.codePointAt(0) == 45 { sign = -1; index = 1 }
-    let value = 0
+    let mut value = 0
     while index < text.size {
-      const cp = text.codePointAt(index)
+      let cp = text.codePointAt(index)
       if cp < 48 or cp > 57 { ArgumentError.new("Date.parse: invalid digit").raise() }
       value = value * 10 + cp - 48
       index = index + 1
@@ -60,13 +60,13 @@ impl Date {
   isLeapYear -> Bool { Gregorian.isLeapYear(self.year) }
 
   dayOfYear -> Int {
-    const start = Gregorian.daysFromCivil(self.year, 1, 1)
+    let start = Gregorian.daysFromCivil(self.year, 1, 1)
     Gregorian.daysFromCivil(self.year, self.month.number, self.day) - start + 1
   }
 
   weekday -> Weekday {
-    const epochDay = self.daysSince
-    let number = (epochDay + 4) % 7
+    let epochDay = self.daysSince
+    let mut number = (epochDay + 4) % 7
     if number < 0 { number = number + 7 }
     Weekday.fromNumber(number + 1)
   }
@@ -80,14 +80,14 @@ impl Date {
   <(_ other: Date) -> Bool { self.compare(other) === Ordering::Less }
 
   <=(_ other: Date) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Less { true } else { order === Ordering::Equal }
   }
 
   >(_ other: Date) -> Bool { self.compare(other) === Ordering::Greater }
 
   >=(_ other: Date) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Greater { true } else { order === Ordering::Equal }
   }
 
@@ -107,12 +107,12 @@ impl Date {
         ArgumentError.new("Date.advance: overflow must be a DateOverflow").raise()
     }
 
-    const targetYear = Gregorian.addMonthsYear(self.year, self.month.number, period.months)
-    const targetMonthNumber = Gregorian.addMonthsNumber(self.year, self.month.number, period.months)
-    const targetMonth = Month.fromNumber(targetMonthNumber)
-    const targetLastDay = Gregorian.daysInMonth(targetYear, targetMonthNumber)
+    let targetYear = Gregorian.addMonthsYear(self.year, self.month.number, period.months)
+    let targetMonthNumber = Gregorian.addMonthsNumber(self.year, self.month.number, period.months)
+    let targetMonth = Month.fromNumber(targetMonthNumber)
+    let targetLastDay = Gregorian.daysInMonth(targetYear, targetMonthNumber)
 
-    let targetDay = self.day
+    let mut targetDay = self.day
     if targetDay > targetLastDay {
       if overflowStrategy === DateOverflow::Constrain {
         targetDay = targetLastDay
@@ -121,8 +121,8 @@ impl Date {
       }
     }
 
-    const monthAdjusted = Gregorian.daysFromCivil(targetYear, targetMonth.number, targetDay)
-    const result = Gregorian.civilFromDays(monthAdjusted + period.days)
+    let monthAdjusted = Gregorian.daysFromCivil(targetYear, targetMonth.number, targetDay)
+    let result = Gregorian.civilFromDays(monthAdjusted + period.days)
     Date.new(
       result.get(#year).unwrapOr(-1),
       Month.fromNumber(result.get(#month).unwrapOr(-1)),
@@ -131,9 +131,9 @@ impl Date {
   }
 
   toString -> String {
-    const yearText = "\(self.year)"
-    const monthText = if self.month.number < 10 { "0\(self.month.number)" } else { "\(self.month.number)" }
-    const dayText = if self.day < 10 { "0\(self.day)" } else { "\(self.day)" }
+    let yearText = "\(self.year)"
+    let monthText = if self.month.number < 10 { "0\(self.month.number)" } else { "\(self.month.number)" }
+    let dayText = if self.day < 10 { "0\(self.day)" } else { "\(self.day)" }
     "\(yearText)-\(monthText)-\(dayText)"
   }
 }

@@ -6,8 +6,8 @@
 
 @construct
 class Point {
-  _x
-  _y
+  mut _x
+  mut _y
 
   sum { _x + _y }
 }

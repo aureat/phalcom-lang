@@ -5,6 +5,7 @@
 // must be named explicitly). `0...n` range-in-for replaced with a
 // while-counter. `this` -> `self` (Phalcom's self-reference keyword).
 class Toggle {
+  mut _state
   @constructor
   new(_ startState) {
     _state = startState
@@ -18,6 +19,8 @@ class Toggle {
 }
 
 class NthToggle is Toggle {
+  mut _countMax
+  mut _count
   @constructor
   new(_ startState, _ maxCounter) {
     super.new(startState)
@@ -36,11 +39,11 @@ class NthToggle is Toggle {
   }
 }
 
-let n = 100000
-let val = true
-let toggle = Toggle.new(val)
+let mut n = 100000
+let mut val = true
+let mut toggle = Toggle.new(val)
 
-let i = 0
+let mut i = 0
 while (i < n) {
   val = toggle.activate.value
   val = toggle.activate.value
@@ -58,7 +61,7 @@ while (i < n) {
 System.print(toggle.value)
 
 val = true
-let ntoggle = NthToggle.new(val, 3)
+let mut ntoggle = NthToggle.new(val, 3)
 
 i = 0
 while (i < n) {

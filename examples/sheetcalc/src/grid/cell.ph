@@ -12,7 +12,7 @@ class Cell {
 /// A literal cell stores a CellValue directly. Its value is the source of truth
 /// and never goes stale.
 class LiteralCell is Cell {
-  _value: CellValue
+  mut _value: CellValue
 
   @constructor
   of(_ v) {
@@ -25,10 +25,10 @@ class LiteralCell is Cell {
 /// A formula cell stores source text, parsed AST, a cached value, and a dirty
 /// flag. Only Engine.recalc() writes _cached and _dirty (REQ-GRID-2).
 class FormulaCell is Cell {
-  _source: String
-  _ast: Object
-  _cached: CellValue
-  _dirty: Bool
+  mut _source: String
+  mut _ast: Object
+  mut _cached: CellValue
+  mut _dirty: Bool
 
   @constructor
   of(_ source, _ ast) {

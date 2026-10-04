@@ -8,14 +8,14 @@
 class Adder {
   sum(_ a, _ b) { -1 }
   sum(*numbers) {
-    let total = 0
+    let mut total = 0
     numbers.each(|n| { total = total + n })
     return total
   }
 }
 
-const methods = Adder >> #sum(...)
+let methods = Adder >> #sum(...)
 System.print(methods.size)
-const bound = methods.bind(Adder.new())
+let bound = methods.bind(Adder.new())
 System.print(bound(1, 2))
 System.print(bound(1, 2, 3))

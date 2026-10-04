@@ -10,15 +10,15 @@ from universe.time import (
   clock
 )
 
-let date = Date.new(2024, Month::February, 29)
-let time = Time.new(12, 34, 56, 0)
-let dateTime = DateTime.new(date, time)
-let period = Period.months(1) + Period.days(2)
-let offset = UtcOffset.seconds(-21_036)
-let instant = clock.now
-let elapsed = instant.elapsed
-let duration = Duration.seconds(5)
-let timestamp = Timestamp.now
+let mut date = Date.new(2024, Month::February, 29)
+let mut time = Time.new(12, 34, 56, 0)
+let mut dateTime = DateTime.new(date, time)
+let mut period = Period.months(1) + Period.days(2)
+let mut offset = UtcOffset.seconds(-21_036)
+let mut instant = clock.now
+let mut elapsed = instant.elapsed
+let mut duration = Duration.seconds(5)
+let mut timestamp = Timestamp.now
 
 if date.day != 29 { ArgumentError.new("time_p1: invalid date").raise() }
 if dateTime.date != date { ArgumentError.new("time_p1: invalid DateTime date").raise() }

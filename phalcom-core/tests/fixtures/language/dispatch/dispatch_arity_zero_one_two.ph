@@ -13,7 +13,7 @@ class Overload {
     return a + b;
   }
 }
-const o = Overload.new()
+let o = Overload.new()
 System.print(o.m())
 System.print(o.m(7))
 System.print(o.m(2, 3))

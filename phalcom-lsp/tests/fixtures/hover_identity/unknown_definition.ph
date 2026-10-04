@@ -6,5 +6,5 @@ class B {
   ping() { }
 }
 
-const mystery = missing
+let mystery = missing
 mystery./*@ping*/ping()

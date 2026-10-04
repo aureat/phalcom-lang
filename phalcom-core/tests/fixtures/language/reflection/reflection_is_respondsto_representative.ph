@@ -11,7 +11,7 @@ class Widget {
     render { "drawn" }
 }
 
-const w = Widget.new()
+let w = Widget.new()
 
 System.print(w.is(Widget))
 System.print(w.is(Object))

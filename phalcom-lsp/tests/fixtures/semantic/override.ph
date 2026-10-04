@@ -9,5 +9,5 @@ class Child is Parent {
   childOnly() {}
 }
 
-const child = Child.new()
+let child = Child.new()
 child./*@completion*/run()

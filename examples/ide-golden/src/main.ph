@@ -7,18 +7,18 @@ from .domain.shipment import Shipment
 class Main {
   @class
   main {
-    const origin: Point = Point.new(0, y: 0)
-    const destination: Point = Point.new(3, y: 4)
+    let origin: Point = Point.new(0, y: 0)
+    let destination: Point = Point.new(3, y: 4)
 
-    const parcel: Parcel = Parcel.new(
+    let parcel: Parcel = Parcel.new(
       "PKG-001", 
       destination: destination, 
       weight: Weight.new(12)
     )
 
-    const shipment: Shipment = Planner.plan(parcel, origin: origin)
+    let shipment: Shipment = Planner.plan(parcel, origin: origin)
 
-    const x = { hello: String }
+    let x = { hello: String }
 
     System.print("Phalcom IDE Golden")
     System.print("parcel: " + shipment.parcel.id)

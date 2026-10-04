@@ -3,6 +3,7 @@
 // status: PASS
 
 class Circle {
+  mut _r
   @constructor
   new(_ r) {
     _r = r

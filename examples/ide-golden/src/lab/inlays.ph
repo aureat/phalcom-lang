@@ -1,5 +1,5 @@
-const /*@inlay.value.inferred*/inferredValue = 42
-const /*@inlay.value.explicit*/explicitValue: Int = 42
+let /*@inlay.value.inferred*/inferredValue = 42
+let /*@inlay.value.explicit*/explicitValue: Int = 42
 
 class InlayLab {
   inferred(_ /*@inlay.parameter.inferred*/value) {

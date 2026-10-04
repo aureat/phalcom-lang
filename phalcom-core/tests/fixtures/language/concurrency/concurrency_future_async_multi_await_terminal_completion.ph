@@ -3,9 +3,9 @@
 // status: PASS
 // Future.async settles only after an action completes all of its awaits.
 
-const first = Future.new()
-const second = Future.new()
-const result = Future.async || {
+let first = Future.new()
+let second = Future.new()
+let result = Future.async || {
   System.print("async-start")
   first.await
   System.print("async-mid")

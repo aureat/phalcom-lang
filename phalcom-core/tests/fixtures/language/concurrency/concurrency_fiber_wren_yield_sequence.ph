@@ -6,7 +6,7 @@
 // across three `call()` resumes — a bare `yield()` still hands control back
 // even though no value is threaded.
 
-const fiber = Fiber.new || {
+let fiber = Fiber.new || {
   System.print("fiber 1")
   Fiber.yield()
   System.print("fiber 2")

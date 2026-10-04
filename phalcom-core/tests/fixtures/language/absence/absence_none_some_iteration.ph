@@ -4,6 +4,6 @@
 // `Some(None)` is present during iteration; only the cursor's exact `None`
 // value terminates the loop.
 
-const values = [None, Some(None)]
+let values = [None, Some(None)]
 values.each |value| { System.print(value) }
 System.print(Some(None).isSome)

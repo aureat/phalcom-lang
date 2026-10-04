@@ -40,17 +40,17 @@ impl Duration {
     if text.size < 5 or text.slice(0, 2) != "PT" or text.slice(text.size - 2, text.size) != "NS" {
       ArgumentError.new("Duration.parse: expected PT<nanoseconds>NS").raise()
     }
-    const body = text.slice(2, text.size - 2)
-    let sign = 1
-    let index = 0
+    let body = text.slice(2, text.size - 2)
+    let mut sign = 1
+    let mut index = 0
     if body.size > 0 and body.codePointAt(0) == 45 {
       sign = -1
       index = 1
     }
     if index >= body.size { ArgumentError.new("Duration.parse: missing nanoseconds").raise() }
-    let value = 0
+    let mut value = 0
     while index < body.size {
-      const cp = body.codePointAt(index)
+      let cp = body.codePointAt(index)
       if cp < 48 or cp > 57 { ArgumentError.new("Duration.parse: invalid digit").raise() }
       value = value * 10 + cp - 48
       index = index + 1
@@ -94,7 +94,7 @@ impl Duration {
   }
 
   <=(_ other: Duration) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Less { true } else { order === Ordering::Equal }
   }
 
@@ -103,7 +103,7 @@ impl Duration {
   }
 
   >=(_ other: Duration) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Greater { true } else { order === Ordering::Equal }
   }
 

@@ -1,5 +1,5 @@
 class Path {
-  _segments: List<String>
+  mut _segments: List<String>
 
   @constructor
   new() {
@@ -11,7 +11,7 @@ class Path {
     _ args: List<Object>,
     _ proceed: () -> Unit
   ) -> Unit {
-    const selector = Selector(selector)
+    let selector = Selector(selector)
 
   }
 

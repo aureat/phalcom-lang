@@ -6,7 +6,7 @@
 // (safe path — element values via `list_to_string`), never the `toString`
 // *message* on an individual element (the class-name trap, DEFERRED.md #19).
 
-const l = []
+let l = []
 l.append(1)
 l.append(2)
 l.append(3)

@@ -11,10 +11,10 @@ class Reflector {
 }
 class Empty {}
 
-const receiver = Reflector.new()
-const getter = Reflector >> #value
-const nullary = Reflector >> #value()
-const double = Reflector >> #double(_)
+let receiver = Reflector.new()
+let getter = Reflector >> #value
+let nullary = Reflector >> #value()
+let double = Reflector >> #double(_)
 System.print(getter.bind(receiver)())
 System.print(nullary.bind(receiver)())
 System.print(double.bind(receiver)(6))

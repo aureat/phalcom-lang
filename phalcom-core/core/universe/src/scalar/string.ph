@@ -48,7 +48,7 @@ native class String is Object {
   /// @param i Byte offset into the string.
   /// @returns Number of bytes (1-4) or `None`.
   leadByteLen(_ i) {
-    const b = rawByteAt(i)
+    let b = rawByteAt(i)
     if b == None {
       return None
     }
@@ -71,7 +71,7 @@ native class String is Object {
   /// @param i Byte offset into the string.
   /// @returns Decoded Unicode codepoint as an `Int`, or `None`.
   codePointAt(_ i) {
-    const b0 = rawByteAt(i)
+    let b0 = rawByteAt(i)
     if b0 == None {
       return None
     }
@@ -84,24 +84,24 @@ native class String is Object {
       return None
     } else if b0 < 224 {
       // 2-byte sequence (110xxxxx 10xxxxxx)
-      const b1 = rawByteAt(i + 1)
+      let b1 = rawByteAt(i + 1)
       if b1 == None or b1 < 128 or b1 >= 192 {
         return None
       }
       return ((b0 - 192) * 64) + (b1 - 128)
     } else if b0 < 240 {
       // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
-      const b1 = rawByteAt(i + 1)
-      const b2 = rawByteAt(i + 2)
+      let b1 = rawByteAt(i + 1)
+      let b2 = rawByteAt(i + 2)
       if b1 == None or b2 == None or b1 < 128 or b1 >= 192 or b2 < 128 or b2 >= 192 {
         return None
       }
       return ((b0 - 224) * 4096) + ((b1 - 128) * 64) + (b2 - 128)
     } else if b0 < 248 {
       // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
-      const b1 = rawByteAt(i + 1)
-      const b2 = rawByteAt(i + 2)
-      const b3 = rawByteAt(i + 3)
+      let b1 = rawByteAt(i + 1)
+      let b2 = rawByteAt(i + 2)
+      let b3 = rawByteAt(i + 3)
       if b1 == None or b2 == None or b3 == None or b1 < 128 or b1 >= 192 or b2 < 128 or b2 >= 192 or b3 < 128 or b3 >= 192 {
         return None
       }
@@ -126,10 +126,10 @@ native class String is Object {
       throw ArgumentError.new("indexOf: needle must be non-empty")
     }
 
-    let i = 0
+    let mut i = 0
     while i <= rawByteCount - needle.rawByteCount {
-      let is_match = true
-      let j = 0
+      let mut is_match = true
+      let mut j = 0
       while j < needle.rawByteCount {
         if rawByteAt(i + j) != needle.rawByteAt(j) {
           is_match = false
@@ -179,16 +179,16 @@ native class String is Object {
       throw ArgumentError.new("split: delimiter must be non-empty")
     }
 
-    let result = List<Dynamic>.new()
-    let prev = 0
-    let i = indexOf(delimiter)
+    let mut result = List<Dynamic>.new()
+    let mut prev = 0
+    let mut i = indexOf(delimiter)
     while i != -1 {
       result.rawPush(rawSlice(prev, i))
       prev = i + delimiter.rawByteCount
 
       // Search for next occurrence after this delimiter
-      let rest = rawSlice(prev, rawByteCount)
-      let nextIdx = rest.indexOf(delimiter)
+      let mut rest = rawSlice(prev, rawByteCount)
+      let mut nextIdx = rest.indexOf(delimiter)
       if nextIdx == -1 {
         i = -1
       } else {
@@ -215,14 +215,14 @@ native class String is Object {
       throw ArgumentError.new("replace: from must be non-empty")
     }
 
-    let result = ""
-    let prev = 0
-    let i = indexOf(needle)
+    let mut result = ""
+    let mut prev = 0
+    let mut i = indexOf(needle)
     while i != -1 {
       result = result + rawSlice(prev, i) + to
       prev = i + needle.rawByteCount
-      let rest = rawSlice(prev, rawByteCount)
-      let nextIdx = rest.indexOf(needle)
+      let mut rest = rawSlice(prev, rawByteCount)
+      let mut nextIdx = rest.indexOf(needle)
       if nextIdx == -1 {
         i = -1
       } else {
@@ -263,17 +263,17 @@ native class String is Object {
       throw ArgumentError.new("trimStart: chars must be a String")
     }
 
-    let i = 0
-    let stop = false
+    let mut i = 0
+    let mut stop = false
     while i < rawByteCount and not stop {
-      const cp = codePointAt(i)
-      let found = false
-      let j = 0
+      let cp = codePointAt(i)
+      let mut found = false
+      let mut j = 0
       while j < chars.rawByteCount {
         if chars.codePointAt(j) == cp {
           found = true
         }
-        const len = chars.leadByteLen(j)
+        let len = chars.leadByteLen(j)
         if len == None {
           j = j + 1
         } else {
@@ -298,21 +298,21 @@ native class String is Object {
       throw ArgumentError.new("trimEnd: chars must be a String")
     }
 
-    let i = rawByteCount
-    let stop = false
+    let mut i = rawByteCount
+    let mut stop = false
     while i > 0 and not stop {
       // Scan backward one byte at a time to find previous lead byte
       i = i - 1
-      let cp = codePointAt(i)
+      let mut cp = codePointAt(i)
       if cp != None {
         // Found a lead byte; check if it matches the trim set
-        let found = false
-        let j = 0
+        let mut found = false
+        let mut j = 0
         while j < chars.rawByteCount {
           if chars.codePointAt(j) == cp {
             found = true
           }
-          const len = chars.leadByteLen(j)
+          let len = chars.leadByteLen(j)
           if len == None {
             j = j + 1
           } else {
@@ -347,8 +347,8 @@ native class String is Object {
     if count == 0 { return "" }
     if count == 1 { return self }
 
-    let result = ""
-    let i = 0
+    let mut result = ""
+    let mut i = 0
     while i < count {
       result = result + self
       i = i + 1
@@ -365,6 +365,7 @@ native class String is Object {
 
 /// Byte-level sequence view over a UTF-8 string.
 class StringByteSequence {
+  mut _string
   @constructor
   new(_ s) { _string = s }
 
@@ -377,7 +378,7 @@ class StringByteSequence {
   internal rawByteAt(_ i) { _string.rawByteAt(i) }
 
   each(_ f) {
-    let i = 0
+    let mut i = 0
     while i < size {
       f.call(at(i))
       i = i + 1
@@ -386,7 +387,7 @@ class StringByteSequence {
 
   // Iterate over byte offsets: cursor steps to next lead byte.
   private nextCursor(_ cursor) {
-    let next = 0
+    let mut next = 0
     if cursor != None {
       next = cursor + 1
     }
@@ -400,9 +401,9 @@ class StringByteSequence {
 
 /// Iterator over raw byte values of a string.
 class StringByteIterator {
-  _source: StringByteSequence
-  _offset: Int
-  _done: Bool
+  mut _source: StringByteSequence
+  mut _offset: Int
+  mut _done: Bool
 
   @constructor
   new(_ source: StringByteSequence) {
@@ -417,7 +418,7 @@ class StringByteIterator {
       _done = true
       return None
     }
-    let value = _source.rawByteAt(_offset)
+    let mut value = _source.rawByteAt(_offset)
     _offset = _offset + 1
     Some(value)
   }
@@ -437,6 +438,7 @@ impl CanonicalIterable for StringByteSequence {
 
 /// Unicode codepoint sequence view over a UTF-8 string.
 class StringCodePointSequence {
+  mut _string
   @constructor
   new(_ s) { _string = s }
 
@@ -444,8 +446,8 @@ class StringCodePointSequence {
 
   /// Number of Unicode code points in the string.
   size {
-    let n = 0
-    let i = nextCursor(None)
+    let mut n = 0
+    let mut i = nextCursor(None)
     while i != None {
       n = n + 1
       i = nextCursor(i)
@@ -462,7 +464,7 @@ class StringCodePointSequence {
   internal rawLeadByteLen(_ byteOffset) { _string.leadByteLen(byteOffset) }
 
   each(_ f) {
-    let i = nextCursor(None)
+    let mut i = nextCursor(None)
     while i != None {
       f.call(at(i))
       i = nextCursor(i)
@@ -471,7 +473,7 @@ class StringCodePointSequence {
 
   // Iterate over byte offsets: cursor steps by UTF-8 character boundary.
   private nextCursor(_ cursor) {
-    let next = 0
+    let mut next = 0
     if cursor != None {
       next = cursor + _string.leadByteLen(cursor)
     }
@@ -485,9 +487,9 @@ class StringCodePointSequence {
 
 /// Iterator over decoded Unicode scalar values of a string.
 class StringCodePointIterator {
-  _source: StringCodePointSequence
-  _offset: Int
-  _done: Bool
+  mut _source: StringCodePointSequence
+  mut _offset: Int
+  mut _done: Bool
 
   @constructor
   new(_ source: StringCodePointSequence) {
@@ -502,11 +504,11 @@ class StringCodePointIterator {
       _done = true
       return None
     }
-    let value = _source.rawCodePointAt(_offset)
+    let mut value = _source.rawCodePointAt(_offset)
     if value == None {
       throw Error.new("String code-point iterator encountered an invalid sequence")
     }
-    let length = _source.rawLeadByteLen(_offset)
+    let mut length = _source.rawLeadByteLen(_offset)
     if length == None {
       throw Error.new("String code-point iterator encountered an invalid lead byte")
     }

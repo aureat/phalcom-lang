@@ -1,4 +1,5 @@
 class Canonical {
+  mut _value
   @constructor
   new(_ value) { _value = value }
   value { _value }

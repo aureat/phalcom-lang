@@ -1,4 +1,4 @@
-let r = 1..=5
+let mut r = 1..=5
 System.print(3 in r)
 System.print(5 in r)
 System.print(6 in r)

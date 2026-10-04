@@ -1,47 +1,47 @@
 // Map capabilities
-const m = Map.new()
+let m = Map.new()
 m.at("a", put: 1)
 m.at("b", put: 2)
 System.print(m.isEmpty) // false
-const m_map = m.map |k| { k + k }.toList
+let m_map = m.map |k| { k + k }.toList
 System.print(m_map.size) // 2
 System.print(m_map.at(0)) // "aa"
 System.print(m_map.at(1)) // "bb"
 
-const m_filtered = m.filter |k| { k == "b" }
+let m_filtered = m.filter |k| { k == "b" }
 System.print(m_filtered.size) // 1
 System.print(m_filtered.at(0)) // "b"
 
-const m_reduced = m.fold(initial: "", using: |acc, k| { acc + k })
+let m_reduced = m.fold(initial: "", using: |acc, k| { acc + k })
 System.print(m_reduced) // "ab"
 
 // Set capabilities
-const s = #{10, 20}
+let s = #{10, 20}
 System.print(s.isEmpty) // false
 System.print(s.includes(10)) // true
 System.print(s.includes(15)) // false
-const s_map = s.map |x| { x * 10 }.toList
+let s_map = s.map |x| { x * 10 }.toList
 System.print(s_map.at(0)) // 100
 System.print(s_map.at(1)) // 200
 
 // Tuple capabilities
-const t = ("hello", "world")
+let t = ("hello", "world")
 System.print(t.isEmpty) // false
 System.print(t.includes("hello")) // true
 System.print(t.includes("world")) // true
 System.print(t.includes("nope")) // false
-const t_map = t.map |x| { x + "!" }.toList
+let t_map = t.map |x| { x + "!" }.toList
 System.print(t_map.at(0)) // "hello!"
 System.print(t_map.at(1)) // "world!"
 
 // Range capabilities
 // Range.new(1, 3, true) is inclusive on both ends: 1, 2, 3 (size 3).
-const r = 1..=3
+let r = 1..=3
 System.print(r.isEmpty) // false
-const r_map = r.map |x| { x * 2 }.toList
+let r_map = r.map |x| { x * 2 }.toList
 System.print(r_map.at(0)) // 2
 System.print(r_map.at(1)) // 4
 System.print(r_map.at(2)) // 6
 
-const r_reduced = r.fold(initial: 0, using: |acc, x| { acc + x })
+let r_reduced = r.fold(initial: 0, using: |acc, x| { acc + x })
 System.print(r_reduced) // 6

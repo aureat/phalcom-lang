@@ -3,6 +3,8 @@
 // status: PASS
 
 class Point {
+  mut _x
+  mut _y
   @constructor
   new(_ x, _ y) { _x = x; _y = y }
   move(to, duration) {
@@ -13,13 +15,13 @@ class Point {
   }
 }
 
-const p = Point.new(0, 0)
+let p = Point.new(0, 0)
 
-const labeled = (Point >> #move(to, duration)).bind(p)
-const positional = (Point >> #move(_,_)).bind(p)
+let labeled = (Point >> #move(to, duration)).bind(p)
+let positional = (Point >> #move(_,_)).bind(p)
 System.print("(exact) " + labeled(to: 5, duration: 2))
 System.print("(exact) " + positional(5, 2))
 
-const f = (Point >> #move(...)).bind(p)
+let f = (Point >> #move(...)).bind(p)
 System.print("(pattern) " + f(to: 5, duration: 2))
 System.print("(pattern) " + f(5, 2))

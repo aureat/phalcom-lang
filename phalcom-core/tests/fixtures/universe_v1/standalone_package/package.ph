@@ -1,4 +1,4 @@
 @!documentation("Standalone Package")
 
-let pkg_value = 55
+let mut pkg_value = 55
 export pkg_value

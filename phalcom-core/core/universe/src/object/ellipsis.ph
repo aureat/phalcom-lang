@@ -1,6 +1,6 @@
 @sealed
 class Ellipsis {
-  @class _instance
+  @class mut _instance
 
   @class
   instance {
@@ -28,6 +28,6 @@ class Ellipsis {
   toRepr { "..." }
 }
 
-const ellipsis = Ellipsis.instance
+let ellipsis = Ellipsis.instance
 
 export Ellipsis, ellipsis

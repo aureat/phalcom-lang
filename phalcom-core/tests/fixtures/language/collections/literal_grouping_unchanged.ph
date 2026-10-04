@@ -5,6 +5,6 @@
 // when there is no top-level comma: `(x)` is `x` (never a one-tuple), and
 // parenthesised precedence is unperturbed.
 
-const x = 5
+let x = 5
 System.print((x))
 System.print((1 + 2) * 3)

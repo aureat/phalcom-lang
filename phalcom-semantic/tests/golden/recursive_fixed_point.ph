@@ -20,8 +20,8 @@
 // 12 Probe tuple publication preserves independent Int evidence.
 
 class Item<T> {
-  _value: T
-  _next: Item<T> = mystery()
+  mut _value: T
+  mut _next: Item<T> = mystery()
 
   @constructor
   new(_ value: T, _ next: Item<T>) {
@@ -66,16 +66,16 @@ class IntWalker is Walker<Int> {
 class Service {
   @class
   execute(_ start: Item<Int>, _ limit: Int, _ abort: Bool) {
-    let current = 0
-    let index = 0
-    let walker = IntWalker.new()
+    let mut current = 0
+    let mut index = 0
+    let mut walker = IntWalker.new()
 
     while index < limit {
       if abort {
         throw "aborted"
       }
 
-      let candidate = walker.run(start, index)
+      let mut candidate = walker.run(start, index)
       current = candidate
       index = index + 1
 
@@ -95,9 +95,9 @@ class Service {
 class Probe {
   @class
   run(_ start: Item<Int>, _ limit: Int, _ abort: Bool) {
-    let result = Service.execute(start, limit, abort)
-    let (value, count) = result
-    let independent = 42
+    let mut result = Service.execute(start, limit, abort)
+    let mut (value, count) = result
+    let mut independent = 42
     (value, count, independent)
   }
 }

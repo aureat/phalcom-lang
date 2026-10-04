@@ -1,8 +1,7 @@
 // area: bindings
-// spec: ADR-0064; ADR-0007
+// spec: values-and-absence.md; LANG007.C4-I-02
 // status: PASS
-// `let x` with no initializer is legal and reads `None` (carried over from
-// ADR-0007 verbatim; ADR-0064 only flips which keyword is mutable).
+// `None` is an ordinary value; an uninitialized binding does not read as None.
 
-let x
+let mut x: Int | None = None
 System.print(x)

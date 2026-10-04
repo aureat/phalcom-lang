@@ -1,4 +1,6 @@
 class Point {
+  mut _x
+  mut _y
   @constructor
   new(_ x, _ y) {
     _x = x
@@ -7,6 +9,6 @@ class Point {
   x { _x }
   y { _y }
 }
-let p = Point.new(2, 3)
+let mut p = Point.new(2, 3)
 System.print(p.x)
 System.print(p.y)

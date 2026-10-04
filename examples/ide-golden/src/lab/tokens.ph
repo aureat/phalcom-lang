@@ -1,10 +1,10 @@
 /// Semantic-token fixture.
 /*@token.class*/
 class TokenSample {
-  const _value: Int = 1
+  _value: Int = 1
 
   /*@token.method*/read(_ /*@token.parameter*/fallback: Int) -> Int {
-    const /*@token.local*/current = _value
+    let /*@token.local*/current = _value
 
     if current > 0 { 
       current

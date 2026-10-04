@@ -6,6 +6,7 @@
 // boundaries. `\\(` remains literal text.
 
 class Counter {
+  mut _value
   @constructor
   new(_ value) { _value = value }
 
@@ -14,8 +15,8 @@ class Counter {
   }
 }
 
-const counter = Counter.new(4)
-const summary = counter.render("count")
+let counter = Counter.new(4)
+let summary = counter.render("count")
 System.print(summary)
 System.print("argument: \(counter.render("next"))")
 System.print("\(1)|left\(2)|right\(3)")

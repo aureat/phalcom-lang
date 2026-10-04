@@ -9,9 +9,10 @@
 // the map's value in the wrong place with no error at all (exit 0). Now it
 // must raise a catchable Error at the mutation site instead.
 
-let m = Map.new()
+let mut m = Map.new()
 
 class K {
+  mut _triggered
   @constructor
   new() {
     _triggered = false
@@ -26,8 +27,8 @@ class K {
   }
 }
 
-const k1 = K.new()
-const k2 = K.new()
+let k1 = K.new()
+let k2 = K.new()
 m.at(k1, put: 1)
 m.at(k2, put: 2)
 m.at(k1, put: 99)

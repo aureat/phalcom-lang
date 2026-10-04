@@ -14,8 +14,8 @@ class Proxy2 {
     return "proxied"
   }
 }
-const s = Speaker.new()
-const p = Proxy2.new()
+let s = Speaker.new()
+let p = Proxy2.new()
 System.print(s.say)
 System.print(p.whatever)
 System.print(s.say)

@@ -4,6 +4,6 @@
 // A write to a `const` field outside the constructor is `field.const_write`.
 
 class Account {
-  const _n = 0
+  _n = 0
   clobber(_ v) { _n = v }
 }

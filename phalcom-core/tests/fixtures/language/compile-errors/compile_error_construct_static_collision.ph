@@ -7,6 +7,7 @@
 // declaration-order coin flip.
 
 class Foo {
+  mut _x
   @constructor
   new() {
     _x = 1

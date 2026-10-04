@@ -1,6 +1,6 @@
 // area: concurrency
 // spec: concurrency.md §2
-const needsValue = Fiber.new |value| { value }
+let needsValue = Fiber.new |value| { value }
 System.schedule(|| { System.print("healthy") })
 try {
   System.schedule(needsValue)

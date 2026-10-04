@@ -6,7 +6,7 @@
 // scheduler failures produced while this await itself drove the scheduler.
 // The top-level form is required: `try` would place the scheduler switch
 // beneath the native `block_on` frame and must remain guarded.
-const pending = Future.new()
+let pending = Future.new()
 System.schedule || {
   Error.new("settler failed").raise()
 }

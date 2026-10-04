@@ -12,15 +12,15 @@ from universe.time import (
   UtcOffset
 )
 
-const zone = TimeZone.named("America/New_York")
+let zone = TimeZone.named("America/New_York")
 System.print(zone == TimeZone.named("US/Eastern"))
 System.print(TimeZone.fixed(UtcOffset.seconds(3_600)) == TimeZone.fixed(UtcOffset.seconds(3_600)))
-const start = DateTime.new(
+let start = DateTime.new(
   Date.new(2024, Month::March, 9),
   Time.new(12, 0, 0, 0)
 ).inZone(zone)
 
-const shifted = start.shift(Duration.hours(24))
+let shifted = start.shift(Duration.hours(24))
 
 System.print(shifted.date.day)
 System.print(shifted.time.hour)

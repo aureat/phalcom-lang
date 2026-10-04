@@ -4,7 +4,7 @@ class MonadSemanticProbe {
         _ monad: StringContractEitherMonad,
         _ source: Either<String, Int>
     ) {
-        let mapped = monad.map(
+        let mut mapped = monad.map(
             source,
             |value| { value > 0 }
         )
@@ -12,7 +12,7 @@ class MonadSemanticProbe {
 
     @class
     inheritedPure(_ monad: StringContractEitherMonad) {
-        let lifted = monad.pure(42)
+        let mut lifted = monad.pure(42)
     }
 
     @class
@@ -21,7 +21,7 @@ class MonadSemanticProbe {
         _ source: Either<String, Int>,
         _ next: (Int) -> Either<String, Bool>
     ) {
-        let chained = monad.flatMap(source, next)
+        let mut chained = monad.flatMap(source, next)
     }
 
     @class
@@ -30,7 +30,7 @@ class MonadSemanticProbe {
         _ source: Either<String, Int>,
         _ next: (Int) -> Either<String, Bool>
     ) {
-        let bound = MonadAlgorithms.bind(monad, source, next)
+        let mut bound = MonadAlgorithms.bind(monad, source, next)
     }
 
     @class
@@ -38,7 +38,7 @@ class MonadSemanticProbe {
         _ left: Either<String, Int>,
         _ right: Either<String, Bool>
     ) {
-        let agreed = MonadAlgorithms.sameConstructor(left, right)
+        let mut agreed = MonadAlgorithms.sameConstructor(left, right)
     }
 
     @class
@@ -47,7 +47,7 @@ class MonadSemanticProbe {
         _ values: List<Either<String, Int>>,
         _ initial: Either<String, List<Int>>
     ) {
-        let sequenced = MonadAlgorithms.sequenceSeed(monad, values, initial)
+        let mut sequenced = MonadAlgorithms.sequenceSeed(monad, values, initial)
     }
 
     @class
@@ -55,7 +55,7 @@ class MonadSemanticProbe {
         _ monad: StringEitherMonad,
         _ values: List<Either<String, Int>>
     ) {
-        let sequenced = MonadAlgorithms.sequence(monad, values)
+        let mut sequenced = MonadAlgorithms.sequence(monad, values)
     }
 
     @class
@@ -64,7 +64,7 @@ class MonadSemanticProbe {
         _ first: (String) -> Either<String, Int>,
         _ second: (Int) -> Either<String, Bool>
     ) {
-        let composed = MonadAlgorithms.kleisli(monad, first, second)
+        let mut composed = MonadAlgorithms.kleisli(monad, first, second)
     }
 
     @class
@@ -73,6 +73,6 @@ class MonadSemanticProbe {
         _ values: List<Int>,
         _ transform: (Int) -> Either<String, Bool>
     ) {
-        let traversed = MonadAlgorithms.traverse(monad, values, transform)
+        let mut traversed = MonadAlgorithms.traverse(monad, values, transform)
     }
 }

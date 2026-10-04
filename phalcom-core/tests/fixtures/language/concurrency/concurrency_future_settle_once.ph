@@ -5,12 +5,12 @@
 // settles `self` `fulfilled`; a subsequent `settleValue`/`settleError` call
 // (of either kind) is a no-op that leaves the first result untouched.
 
-const f = Future.value(1)
+let f = Future.value(1)
 f.settleValue(999)
 f.settleError(Error.new())
 System.print(f.value)
 
-const g = Future.error(Error.new())
+let g = Future.error(Error.new())
 g.settleValue(7)
 System.print(g.isReady)
 System.print(g.value)

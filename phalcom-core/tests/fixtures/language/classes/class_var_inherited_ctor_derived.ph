@@ -1,5 +1,5 @@
 class Base {
-  @class _count = 0
+  @class mut _count = 0
 
   @constructor
   new() {
@@ -20,22 +20,22 @@ class Base {
 
 class Derived is Base {}
 
-let d1 = Derived.new()
+let mut d1 = Derived.new()
 System.print("d1 = \(d1)")
 System.print("Base.count = \(Base.count)")
 System.print("Derived.count = \(Derived.count)")
 
-let d2 = Derived.new()
+let mut d2 = Derived.new()
 System.print("d2 = \(d2)")
 System.print("Base.count = \(Base.count)")
 System.print("Derived.count = \(Derived.count)")
 
-let b1 = Base.new()
+let mut b1 = Base.new()
 System.print("b1 = \(b1)")
 System.print("Base.count = \(Base.count)")
 System.print("Derived.count = \(Derived.count)")
 
-let d3 = Derived.new()
+let mut d3 = Derived.new()
 System.print("d3 = \(d3)")
 System.print("Base.count = \(Base.count)")
 System.print("Derived.count = \(Derived.count)")

@@ -9,7 +9,7 @@
 
 @On(Class)
 class Author is Attribute {
-  _name
+  mut _name
   @constructor
   new(_ name) { _name = name }
   name { _name }
@@ -17,7 +17,7 @@ class Author is Attribute {
 
 @On(Method)
 class Tag is Attribute {
-  _label
+  mut _label
   @constructor
   new(_ label) { _label = label }
   label { _label }
@@ -32,5 +32,5 @@ class Engine {
 System.print(Engine.attributesOfType(Author).at(0).name)
 System.print(Engine.attributes.size)
 
-const e = Engine.new()
+let e = Engine.new()
 System.print(e.methodFor(Symbol.new("run()")).attributesOfType(Tag).at(0).label)

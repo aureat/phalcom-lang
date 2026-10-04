@@ -4,5 +4,5 @@ class OnlyIndex {
   new() {}
   [_ i] { return i * 2 }
 }
-const obj = OnlyIndex.new()
+let obj = OnlyIndex.new()
 System.print(obj[3])

@@ -8,10 +8,10 @@ class CallableObject {
   call(_ value) { value + 1 }
 }
 
-const object = CallableObject.new()
-const method = object.methodFor(#call(_))
-const bound = method.bind(object)
-const family = &CallableObject.call...;
+let object = CallableObject.new()
+let method = object.methodFor(#call(_))
+let bound = method.bind(object)
+let family = &CallableObject.call...;
 
 System.print(object(4))
 System.print(object.is(Function))

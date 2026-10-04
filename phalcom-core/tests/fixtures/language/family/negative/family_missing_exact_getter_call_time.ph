@@ -5,6 +5,6 @@
 // method reaches ordinary doesNotUnderstand only when the Family is called.
 
 class Foo {}
-const f = Foo.new()
-const g = &f.typo()
+let f = Foo.new()
+let g = &f.typo()
 System.print(g())

@@ -2,6 +2,8 @@
 // spec: classes.md; object-model.md
 // status: PASS
 class Person {
+  mut _name
+  mut _age
   @constructor
   new(name, age) {
     _name = name

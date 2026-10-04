@@ -4,7 +4,7 @@
 // U-STD: `includes(_)` is `true` iff some element is `== x`; `isEmpty` is
 // `self.size == 0`. Both conditions are well-formed `Bool`s (ADR-0021).
 
-const l = []
+let l = []
 l.append(1)
 l.append(2)
 l.append(3)

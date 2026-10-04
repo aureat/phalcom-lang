@@ -1,5 +1,5 @@
 class Base {
-  @class _count = 0
+  @class mut _count = 0
 
   @constructor
   new() {
@@ -14,4 +14,4 @@ class Base {
 
 class Derived is Base {}
 
-let d = Derived.new()
+let mut d = Derived.new()

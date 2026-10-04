@@ -5,7 +5,7 @@ class Num {
   /// n - (n % 1) truncates toward zero, so negative numbers need correction.
   @class
   floor(_ n: Float) -> Float { 
-    const t = n - (n % 1)
+    let t = n - (n % 1)
     if (n < 0 and (n % 1) != 0) {
       return t - 1
     }
@@ -15,7 +15,7 @@ class Num {
   /// Ceiling of n, rounded up toward positive infinity.
   @class
   ceil(_ n: Float) -> Float {
-    const t = n - (n % 1)
+    let t = n - (n % 1)
     if (n > 0 and (n % 1) != 0) {
       return t + 1
     }
@@ -47,7 +47,7 @@ class Num {
       return nil
     }
 
-    let m = nums.at(0)
+    let mut m = nums.at(0)
     for n in nums {
       if n < m {
         m = n
@@ -63,7 +63,7 @@ class Num {
       return nil
     }
 
-    let m = nums.at(0)
+    let mut m = nums.at(0)
     for n in nums {
       if (n > m) {
         m = n

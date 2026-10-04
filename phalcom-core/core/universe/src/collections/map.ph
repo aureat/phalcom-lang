@@ -14,8 +14,8 @@ native class Map<K, V> is Collection {
 
   /// Renders entries in insertion order using each key and value's string form.
   toString {
-    let s = "{"
-    let i = 0
+    let mut s = "{"
+    let mut i = 0
     while i < self.rawSize {
       if i > 0 {
         s = s + ", "
@@ -55,7 +55,7 @@ native class Map<K, V> is Collection {
     return self.get(key).match(
       some: |value| { value },
       none: || {
-        let value = block.call(key)
+        let mut value = block.call(key)
         self.insert(value, for: key)
         value
       }
@@ -112,9 +112,9 @@ native class Map<K, V> is Collection {
     if record is not Record {
       throw ArgumentError.new("Map.from: argument must be a Record")
     }
-    let result = Map<Dynamic, Dynamic>.new()
+    let mut result = Map<Dynamic, Dynamic>.new()
     if record is Record {
-      let i = 0
+      let mut i = 0
       while i < record.rawSize {
         result.insert(record.rawValueAt(i), for: record.rawLabelAt(i))
         i = i + 1
@@ -126,10 +126,10 @@ native class Map<K, V> is Collection {
   /// Compares maps by key set and corresponding value equality.
   ==(_ other) {
     if other is Map {
-      let same = self.size == other.size
-      let i = 0
+      let mut same = self.size == other.size
+      let mut i = 0
       while same and i < self.size {
-        let key = self.rawKeyAt(i)
+        let mut key = self.rawKeyAt(i)
         same = other.get(key).match(
           some: |value| { self.rawValueAt(i) == value },
           none: || { false }
@@ -148,9 +148,9 @@ native class Map<K, V> is Collection {
 }
 
 class MapIterator<K, V> {
-  _source: Map<K, V>
-  _index: Int
-  _done: Bool
+  mut _source: Map<K, V>
+  mut _index: Int
+  mut _done: Bool
 
   @constructor
   new(_ source: Map<K, V>) {
@@ -165,8 +165,8 @@ class MapIterator<K, V> {
       _done = true
       return None
     }
-    let key = _source.rawKeyAt(_index)
-    let value = _source.rawValueAt(_index)
+    let mut key = _source.rawKeyAt(_index)
+    let mut value = _source.rawValueAt(_index)
     _index = _index + 1
     Some((key: key, value: value))
   }
@@ -186,7 +186,7 @@ impl<K, V> CanonicalIterable for Map<K, V> {
 
 /// Live view of map keys in encounter order.
 class MapKeysView<K, V> is Collection {
-  _map: Map<K, V>
+  mut _map: Map<K, V>
 
   @constructor
   new(_ map: Map<K, V>) { _map = map }
@@ -200,7 +200,7 @@ class MapKeysView<K, V> is Collection {
 
 /// Live view of map values in encounter order.
 class MapValuesView<K, V> is Collection {
-  _map: Map<K, V>
+  mut _map: Map<K, V>
 
   @constructor
   new(_ map: Map<K, V>) { _map = map }
@@ -214,6 +214,8 @@ class MapValuesView<K, V> is Collection {
 
 /// Immutable key-value association used by entry views.
 class Entry {
+  mut _key
+  mut _value
   @constructor
   new(_ key, _ value) {
     _key = key
@@ -226,7 +228,7 @@ class Entry {
 }
 
 class MapEntriesView<K, V> is Collection {
-  _map: Map<K, V>
+  mut _map: Map<K, V>
 
   @constructor
   new(_ map: Map<K, V>) { _map = map }
@@ -239,9 +241,9 @@ class MapEntriesView<K, V> is Collection {
 }
 
 class MapKeysIterator<K, V> {
-  _source: MapKeysView<K, V>
-  _index: Int
-  _done: Bool
+  mut _source: MapKeysView<K, V>
+  mut _index: Int
+  mut _done: Bool
 
   @constructor
   new(_ source: MapKeysView<K, V>) {
@@ -256,7 +258,7 @@ class MapKeysIterator<K, V> {
       _done = true
       return None
     }
-    let value = _source.at(_index)
+    let mut value = _source.at(_index)
     _index = _index + 1
     Some(value)
   }
@@ -265,9 +267,9 @@ class MapKeysIterator<K, V> {
 }
 
 class MapValuesIterator<K, V> {
-  _source: MapValuesView<K, V>
-  _index: Int
-  _done: Bool
+  mut _source: MapValuesView<K, V>
+  mut _index: Int
+  mut _done: Bool
 
   @constructor
   new(_ source: MapValuesView<K, V>) {
@@ -282,7 +284,7 @@ class MapValuesIterator<K, V> {
       _done = true
       return None
     }
-    let value = _source.at(_index)
+    let mut value = _source.at(_index)
     _index = _index + 1
     Some(value)
   }
@@ -291,9 +293,9 @@ class MapValuesIterator<K, V> {
 }
 
 class MapEntriesIterator<K, V> {
-  _source: MapEntriesView<K, V>
-  _index: Int
-  _done: Bool
+  mut _source: MapEntriesView<K, V>
+  mut _index: Int
+  mut _done: Bool
 
   @constructor
   new(_ source: MapEntriesView<K, V>) {
@@ -308,7 +310,7 @@ class MapEntriesIterator<K, V> {
       _done = true
       return None
     }
-    let value = _source.at(_index)
+    let mut value = _source.at(_index)
     _index = _index + 1
     Some(value)
   }

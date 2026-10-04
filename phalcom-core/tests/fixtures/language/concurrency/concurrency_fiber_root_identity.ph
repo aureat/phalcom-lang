@@ -4,6 +4,6 @@
 
 // Rootness is a stable identity fact, not a consequence of the current
 // dynamic resumer link.
-const child = Fiber.new || { 1 }
+let child = Fiber.new || { 1 }
 System.print(child.isRoot)
 System.print(Fiber.current.isRoot)

@@ -1,6 +1,6 @@
-const pending = Future.new()
-const other = Future.new()
-const f = Fiber.new || {
+let pending = Future.new()
+let other = Future.new()
+let f = Fiber.new || {
   System.print(pending.await)
   System.print("passed first await")
   System.print(other.await)
@@ -17,8 +17,8 @@ System.print(other.isReady)
 other.settleValue("also too late")
 System.runScheduled()
 System.print(f.isDone)
-const q = Future.new()
-const scheduled = Fiber.new || { System.print(q.await); "scheduled terminal" }
+let q = Future.new()
+let scheduled = Fiber.new || { System.print(q.await); "scheduled terminal" }
 scheduled.call()
 System.schedule(scheduled)
 System.runScheduled()
@@ -26,8 +26,8 @@ System.print(q.isReady)
 System.print(scheduled.isDone)
 q.settleValue(3)
 System.runScheduled()
-const r = Future.new()
-const called = Fiber.new || { System.print(r.await); 7 }
+let r = Future.new()
+let called = Fiber.new || { System.print(r.await); 7 }
 called.try()
 System.print(called.call(99))
 System.print(r.isReady)

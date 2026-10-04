@@ -8,7 +8,7 @@
 // independently-constructed-but-equal objects to prove key equality is
 // structural/value, not identity, for each type.
 
-const m = Map.new()
+let m = Map.new()
 m.at(None, put: "none value")
 m.at(true, put: "true value")
 m.at(false, put: "false value")

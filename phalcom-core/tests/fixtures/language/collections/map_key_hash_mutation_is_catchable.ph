@@ -7,9 +7,10 @@
 // failure. The map is left exactly as it was before the aborted `at(_,put:)`
 // call: the offending key's removal never went through.
 
-let m = Map.new()
+let mut m = Map.new()
 
 class BadKey {
+  mut _triggered
   @constructor
   new() {
     _triggered = false
@@ -18,16 +19,16 @@ class BadKey {
   ==(_ other) {
     if (not _triggered) {
       _triggered = true
-      const removedValue = m.remove(other)
+      let removedValue = m.remove(other)
     }
     return true
   }
 }
 
-const a = BadKey.new()
-const b = BadKey.new()
+let a = BadKey.new()
+let b = BadKey.new()
 m.at(a, put: 1)
-const caught = || { m.at(b, put: 2) }.on(Error) |e| { e.message }
+let caught = || { m.at(b, put: 2) }.on(Error) |e| { e.message }
 System.print(caught)
 System.print(m.size)
 System.print(m.includes(a))

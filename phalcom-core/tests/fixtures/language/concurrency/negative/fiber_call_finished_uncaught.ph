@@ -5,7 +5,7 @@
 // fiber a second time is illegal, uncaught here (contrast the caught form
 // in `../concurrency_fiber_abort_then_resume_fails.ph`).
 
-const fiber = Fiber.new || {
+let fiber = Fiber.new || {
   System.print("call")
 }
 

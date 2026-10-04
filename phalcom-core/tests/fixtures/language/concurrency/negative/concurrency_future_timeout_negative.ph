@@ -2,5 +2,5 @@
 // spec: CONC002.C4.P2
 // status: NEGATIVE
 
-const f = Future.new()
+let f = Future.new()
 f.timeout(Duration.milliseconds(-5))

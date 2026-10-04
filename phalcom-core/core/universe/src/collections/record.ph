@@ -26,7 +26,7 @@ impl<**Fs: RecordFields> Record<**Fs> {
 
   /// Returns the value for `key`, or `None` when the label is absent.
   get(_ key) -> Option<Record<**Fs>::Value> {
-    let i = 0
+    let mut i = 0
     while i < self.size {
       if self.labelAt(i) === key {
         return Some(self.rawValueAt(i))
@@ -41,12 +41,12 @@ impl<**Fs: RecordFields> Record<**Fs> {
     if other is not Record {
       return false
     }
-    let same = self.size == other.size
-    let i = 0
+    let mut same = self.size == other.size
+    let mut i = 0
     while same and i < self.size {
-      let label = self.rawLabelAt(i)
-      let j = 0
-      let found = false
+      let mut label = self.rawLabelAt(i)
+      let mut j = 0
+      let mut found = false
       while not found and j < other.size {
         if other.rawLabelAt(j) == label {
           found = self.rawValueAtChecked(i) == other.rawValueAtChecked(j)
@@ -60,8 +60,8 @@ impl<**Fs: RecordFields> Record<**Fs> {
   }
 
   hash {
-    let acc = 101 + self.size
-    let i = 0
+    let mut acc = 101 + self.size
+    let mut i = 0
     while i < self.size {
       acc = (acc + ((self.rawLabelAt(i).hash * 31) + self.rawValueAtChecked(i).hash)) % 999999937
       i = i + 1

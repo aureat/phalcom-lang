@@ -14,10 +14,10 @@ class Apply {
 class Service {
   @class
   run(_ flag: Bool) {
-    let base = 1
+    let mut base = 1
 
-    let transform = |x| {
-      let local = if flag {
+    let mut transform = |x| {
+      let mut local = if flag {
         x
       } else {
         base
@@ -25,8 +25,8 @@ class Service {
       local
     }
 
-    let result = Apply.apply(42, with: transform)
-    let stillBase = base
+    let mut result = Apply.apply(42, with: transform)
+    let mut stillBase = base
     (result, stillBase)
   }
 }

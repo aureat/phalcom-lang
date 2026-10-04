@@ -8,5 +8,5 @@ class Proxy3 {
     return "proxied"
   }
 }
-const p = Proxy3.new()
+let p = Proxy3.new()
 System.print(p.bogus(1, 2, 3))

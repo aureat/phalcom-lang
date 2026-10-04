@@ -32,34 +32,34 @@ class Gregorian {
 
   @class
   daysFromCivil(_ year: Int, _ month: Int, _ day: Int) -> Int {
-    const monthLength = Gregorian.daysInMonth(year, month)
+    let monthLength = Gregorian.daysInMonth(year, month)
     if day < 1 or day > monthLength {
       ArgumentError.new("Gregorian.daysFromCivil: day is outside the month").raise()
     }
-    let adjustedYear = year
+    let mut adjustedYear = year
     if month <= 2 { adjustedYear = adjustedYear - 1 }
-    const era = Gregorian.floorDiv(adjustedYear, 400)
-    const yearOfEra = adjustedYear - (era * 400)
-    let monthPrime = month
+    let era = Gregorian.floorDiv(adjustedYear, 400)
+    let yearOfEra = adjustedYear - (era * 400)
+    let mut monthPrime = month
     if monthPrime > 2 { monthPrime = monthPrime - 3 } else { monthPrime = monthPrime + 9 }
-    const dayOfYear = ((153 * monthPrime + 2) ~/ 5) + day - 1
-    const dayOfEra = (yearOfEra * 365) + (yearOfEra ~/ 4) - (yearOfEra ~/ 100) + dayOfYear
+    let dayOfYear = ((153 * monthPrime + 2) ~/ 5) + day - 1
+    let dayOfEra = (yearOfEra * 365) + (yearOfEra ~/ 4) - (yearOfEra ~/ 100) + dayOfYear
     (era * 146097) + dayOfEra - 719468
   }
 
   @class
   civilFromDays(_ days: Int) -> Record<**{ year: Int, month: Int, day: Int }> {
-    const adjustedDays = days + 719468
-    const era = Gregorian.floorDiv(adjustedDays, 146097)
-    const dayOfEra = adjustedDays - (era * 146097)
-    const yearOfEra = (dayOfEra - (dayOfEra ~/ 1460) + (dayOfEra ~/ 36524) - (dayOfEra ~/ 146096)) ~/ 365
-    const yearBase = yearOfEra + (era * 400)
-    const dayOfYear = dayOfEra - ((365 * yearOfEra) + (yearOfEra ~/ 4) - (yearOfEra ~/ 100))
-    const monthPrime = (5 * dayOfYear + 2) ~/ 153
-    const day = dayOfYear - ((153 * monthPrime + 2) ~/ 5) + 1
-    let month = monthPrime
+    let adjustedDays = days + 719468
+    let era = Gregorian.floorDiv(adjustedDays, 146097)
+    let dayOfEra = adjustedDays - (era * 146097)
+    let yearOfEra = (dayOfEra - (dayOfEra ~/ 1460) + (dayOfEra ~/ 36524) - (dayOfEra ~/ 146096)) ~/ 365
+    let yearBase = yearOfEra + (era * 400)
+    let dayOfYear = dayOfEra - ((365 * yearOfEra) + (yearOfEra ~/ 4) - (yearOfEra ~/ 100))
+    let monthPrime = (5 * dayOfYear + 2) ~/ 153
+    let day = dayOfYear - ((153 * monthPrime + 2) ~/ 5) + 1
+    let mut month = monthPrime
     if monthPrime < 10 { month = month + 3 } else { month = month - 9 }
-    let resultYear = yearBase
+    let mut resultYear = yearBase
     if month <= 2 { resultYear = resultYear + 1 }
     return { year: resultYear, month: month, day: day }
   }
@@ -69,7 +69,7 @@ class Gregorian {
     if month < 1 or month > 12 {
       ArgumentError.new("Gregorian.addMonthsYear: month must be between 1 and 12").raise()
     }
-    const totalMonths = (year * 12) + (month - 1) + months
+    let totalMonths = (year * 12) + (month - 1) + months
     Gregorian.floorDiv(totalMonths, 12)
   }
 
@@ -78,15 +78,15 @@ class Gregorian {
     if month < 1 or month > 12 {
       ArgumentError.new("Gregorian.addMonthsNumber: month must be between 1 and 12").raise()
     }
-    const totalMonths = (year * 12) + (month - 1) + months
-    const targetYear = Gregorian.floorDiv(totalMonths, 12)
+    let totalMonths = (year * 12) + (month - 1) + months
+    let targetYear = Gregorian.floorDiv(totalMonths, 12)
     totalMonths - (targetYear * 12) + 1
   }
 
   @class
   private floorDiv(_ value: Int, _ divisor: Int) -> Int {
-    const quotient = value ~/ divisor
-    const remainder = value % divisor
+    let quotient = value ~/ divisor
+    let remainder = value % divisor
     if remainder < 0 { quotient - 1 } else { quotient }
   }
 }

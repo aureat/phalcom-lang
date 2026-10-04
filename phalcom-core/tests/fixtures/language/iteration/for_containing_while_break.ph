@@ -4,7 +4,7 @@
 // nested `while` counts up and breaks at count==2, then "outer" prints.
 for a in [1, 2] {
   System.print(a)
-  let count = 0
+  let mut count = 0
   while (count < 5) {
     (count == 2).ifTrue || { break }
     System.print(count)

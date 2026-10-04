@@ -7,11 +7,13 @@
 // ordering holds transitively, not just for a single super-construct hop.
 
 class A {
+  mut _a
   @constructor
   new() { _a = "A" }
   a { _a }
 }
 class B is A {
+  mut _b
   @constructor
   new() {
     super.new()
@@ -20,6 +22,7 @@ class B is A {
   b { _b }
 }
 class C is B {
+  mut _c
   @constructor
   new() {
     super.new()
@@ -27,7 +30,7 @@ class C is B {
   }
   c { _c }
 }
-const x = C.new()
+let x = C.new()
 System.print(x.a)
 System.print(x.b)
 System.print(x.c)

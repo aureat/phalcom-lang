@@ -4,8 +4,8 @@
 // A Call-mode child failure terminally fails the scheduler-owned action, and
 // the durable observer still rejects the outer Future exactly once.
 
-const inner = Fiber.new || { throw Error.new("cascade failure") }
-const result = Future.async || { inner.call() }
+let inner = Fiber.new || { throw Error.new("cascade failure") }
+let result = Future.async || { inner.call() }
 System.runScheduled()
 try {
   result.await

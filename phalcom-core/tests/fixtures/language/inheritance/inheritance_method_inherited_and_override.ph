@@ -15,6 +15,6 @@ class Dog is Animal {
   new() { }
   describe { "a dog" }
 }
-const d = Dog.new()
+let d = Dog.new()
 System.print(d.legs)
 System.print(d.describe)

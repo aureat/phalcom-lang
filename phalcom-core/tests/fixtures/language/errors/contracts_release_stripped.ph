@@ -8,6 +8,7 @@
 // argument still raises PreconditionError.
 
 class Box {
+  mut _val
   @invariant(self.val >= 0)
 
   @constructor
@@ -28,7 +29,7 @@ class Box {
   }
 }
 
-const b = Box.new(5)
+let b = Box.new(5)
 System.print(b.val)
 
 // @ensures(false) would always raise PostconditionError in Debug mode —

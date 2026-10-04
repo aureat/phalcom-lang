@@ -1,2 +1,2 @@
-let shared = 99
+let mut shared = 99
 export shared

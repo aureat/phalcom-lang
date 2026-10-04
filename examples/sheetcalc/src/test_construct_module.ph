@@ -1,4 +1,5 @@
 class TestConstructModule {
+  mut _x
   @constructor
   new() {
     _x = 42

@@ -1,8 +1,9 @@
 class Countdown is Iterable {
+  mut _n
   @constructor
   from(n) { _n = n }
   iterate(_ cursor) {
-    const next = (cursor == None).ifTrue(|| { _n }, ifFalse: || { cursor - 1 })
+    let next = (cursor == None).ifTrue(|| { _n }, ifFalse: || { cursor - 1 })
     return (next >= 0).ifTrue(|| { next }, ifFalse: || { None })
   }
   iteratorValue(_ cursor) { cursor }

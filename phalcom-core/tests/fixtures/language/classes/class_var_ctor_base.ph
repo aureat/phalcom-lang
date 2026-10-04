@@ -1,5 +1,5 @@
 class Base {
-  @class _count = 0
+  @class mut _count = 0
 
   @constructor
   new() {
@@ -15,9 +15,9 @@ class Base {
   count { _count }
 }
 
-let b1 = Base.new()
+let mut b1 = Base.new()
 System.print("b1 = \(b1)")
 System.print("Base.count = \(Base.count)")
-let b2 = Base.new()
+let mut b2 = Base.new()
 System.print("b2 = \(b2)")
 System.print("Base.count = \(Base.count)")

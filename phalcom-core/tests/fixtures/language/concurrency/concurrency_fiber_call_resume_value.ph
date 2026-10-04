@@ -5,10 +5,10 @@
 // value `Fiber.yield(_)` returns inside the fiber. `System.print(_)` returns
 // `Unit` after emitting its argument.
 
-const echo = Fiber.new || {
-  const a = Fiber.yield("ready")
+let echo = Fiber.new || {
+  let a = Fiber.yield("ready")
   System.print(a)
-  const b = Fiber.yield("ready again")
+  let b = Fiber.yield("ready again")
   System.print(b)
 }
 System.print(echo.call())

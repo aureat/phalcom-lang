@@ -16,8 +16,8 @@ class NT {
   @class
   modpow(_ base, _ e, _ m) {
     if (e == 0) { return 1 }
-    const half = NT.modpow(base, (e - (e % 2)) / 2, m)
-    const sq = (half * half) % m
+    let half = NT.modpow(base, (e - (e % 2)) / 2, m)
+    let sq = (half * half) % m
     if (e % 2 == 1) { return (sq * base) % m }
     return sq
   }
@@ -25,7 +25,7 @@ class NT {
   @class
   isPrime(_ n) {
     if (n < 2) { return false }
-    const d = 2
+    let d = 2
     while (d * d <= n) {
       if (n % d == 0) { return false }
       d = d + 1
@@ -35,8 +35,8 @@ class NT {
 
   @class
   countPrimesBelow(_ n) {
-    const count = 0
-    const k = 2
+    let count = 0
+    let k = 2
     while (k < n) {
       if (NT.isPrime(k)) { count = count + 1 }
       k = k + 1
@@ -47,8 +47,8 @@ class NT {
   // Sum of proper divisors (aliquot sum). n is perfect iff this equals n.
   @class
   aliquot(_ n) {
-    const sum = 0
-    const d = 1
+    let sum = 0
+    let d = 1
     while (d < n) {
       if (n % d == 0) { sum = sum + d }
       d = d + 1
@@ -59,8 +59,8 @@ class NT {
   // Number of Collatz steps to reach 1.
   @class
   collatz(_ start) {
-    const n = start
-    const steps = 0
+    let n = start
+    let steps = 0
     while (n > 1) {
       if (n % 2 == 0) { n = n / 2 } else { n = 3 * n + 1 }
       steps = steps + 1

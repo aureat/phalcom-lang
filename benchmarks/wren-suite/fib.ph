@@ -9,7 +9,7 @@ class Fib {
   }
 }
 
-let i = 1
+let mut i = 1
 while (i <= 5) {
   System.print(Fib.get(28))
   i = i + 1

@@ -1,7 +1,7 @@
 class RowCalculusUnderconstrainedProbe {
     @class
     resultOnlyUnderconstrained() {
-        let result = RowCalculus.make()
+        let mut result = RowCalculus.make()
         result
     }
 }

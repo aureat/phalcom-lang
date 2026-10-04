@@ -11,8 +11,8 @@ class Mover {
     return p + " to " + to + " in " + duration.toString
   }
 }
-const m = Mover.new()
-const method = m.methodFor(#move(_,to,duration))
+let m = Mover.new()
+let method = m.methodFor(#move(_,to,duration))
 System.print(method.selector.toString)
-const args = ("A", to: "B", duration: 3)
+let args = ("A", to: "B", duration: 3)
 System.print(method.invokeOn(m, ***args))

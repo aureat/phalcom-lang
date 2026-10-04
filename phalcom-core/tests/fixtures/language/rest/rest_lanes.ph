@@ -18,7 +18,7 @@ class RestLanes {
   }
 }
 
-const lanes = RestLanes.new()
+let lanes = RestLanes.new()
 System.print(lanes.positional(1, 2, 3))
 System.print(lanes.labeled(timeout: 1, debug: 2))
 System.print(lanes.split(1, 2, 3, timeout: 4, debug: 5))

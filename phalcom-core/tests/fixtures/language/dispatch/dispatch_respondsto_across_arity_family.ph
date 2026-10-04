@@ -12,7 +12,7 @@ class Overload {
   m(_ a) { return a; }
   m(_ a, _ b) { return a + b; }
 }
-const o = Overload.new()
+let o = Overload.new()
 System.print(o.respondsTo(Symbol.new("m()")))
 System.print(o.respondsTo(Symbol.new("m(_)")))
 System.print(o.respondsTo(Symbol.new("m(_,_)")))

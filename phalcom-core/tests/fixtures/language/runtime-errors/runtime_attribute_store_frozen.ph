@@ -7,7 +7,7 @@
 
 @On(Class)
 class Author is Attribute {
-  _name
+  mut _name
   @constructor
   new(_ name) { _name = name }
   name { _name }

@@ -5,6 +5,7 @@
 // operator methods are overridable and now super-callable too.
 
 class Vec {
+  mut _x
   @constructor
   new(_ x) { _x = x }
   x { _x }
@@ -12,10 +13,10 @@ class Vec {
 }
 class Vec3 is Vec {
   +(_ other) {
-    const r = super.+(other);
+    let r = super.+(other);
     return r.x;
   }
 }
-const a = Vec3.new(2)
-const b = Vec3.new(3)
+let a = Vec3.new(2)
+let b = Vec3.new(3)
 System.print(a.+(b))

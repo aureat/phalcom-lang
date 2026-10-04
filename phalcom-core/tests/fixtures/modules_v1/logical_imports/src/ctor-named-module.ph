@@ -1,4 +1,6 @@
 class Ref {
+  mut _row
+  mut _col
   @constructor
   new(_ row, _ col) {
     _row = row

@@ -4,6 +4,7 @@
 // contract: A's public method calling B's public method must not suppress B's own @invariant check
 
 class B {
+  mut _val
   @invariant(self.val >= 0)
 
   @constructor
@@ -19,6 +20,7 @@ class B {
 }
 
 class A {
+  mut _b
   @constructor
   new(_ b) {
     _b = b
@@ -29,8 +31,8 @@ class A {
   }
 }
 
-const b = B.new(10)
-const a = A.new(b)
+let b = B.new(10)
+let a = A.new(b)
 
 a.poke(3)
 System.print(b.val)

@@ -4,7 +4,7 @@
 // U14: the RHS is evaluated exactly ONCE, into a scratch temp, before any
 // sub-pattern reads it — `const (a, b) = counterTuple()` must invoke the
 // producer exactly once, not once per binding.
-let count = 0
+let mut count = 0
 
 class Producer {
   @class
@@ -14,7 +14,7 @@ class Producer {
   }
 }
 
-const (a, b) = Producer.counterTuple()
+let (a, b) = Producer.counterTuple()
 System.print(a)
 System.print(b)
 System.print(count)

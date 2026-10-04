@@ -2,9 +2,11 @@
 // spec: string-interpolation.md §8
 // status: PASS
 
-let trace = []
+let mut trace = []
 
 class Probe {
+  mut _label
+  mut _trace
   @constructor
   new(_ label, _ trace) {
     _label = label
@@ -22,10 +24,10 @@ class Probe {
   }
 }
 
-let a = Probe.new("a", trace)
-let b = Probe.new("b", trace)
+let mut a = Probe.new("a", trace)
+let mut b = Probe.new("b", trace)
 
-let result = "\(a.value)-\(b.value)"
+let mut result = "\(a.value)-\(b.value)"
 System.print(result)
 System.print(trace.at(0))
 System.print(trace.at(1))

@@ -12,7 +12,7 @@ class Divider {
   }
 }
 
-const d = Divider.new()
+let d = Divider.new()
 
 try {
   d.divide(10, 0)

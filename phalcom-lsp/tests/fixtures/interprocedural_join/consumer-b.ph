@@ -5,5 +5,5 @@ class Dog {
   dogOnly() { }
 }
 
-const result = Provider.Service.new().consume(Dog.new())
+let result = Provider.Service.new().consume(Dog.new())
 result./*@result*/toString()

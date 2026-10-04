@@ -1,4 +1,4 @@
 import .child.module_a as a
 
-let val = a.item
+let mut val = a.item
 export val

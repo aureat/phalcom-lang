@@ -5,5 +5,5 @@
 // eliminator that leaves Option-world with a value; here it takes the `some:`
 // branch and yields the wrapped value.
 
-const o = Some(42)
+let o = Some(42)
 System.print(o.match(some: |v| { v }, none: || { 0 }))

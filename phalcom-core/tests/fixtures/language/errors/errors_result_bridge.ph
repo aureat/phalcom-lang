@@ -10,5 +10,5 @@ class ParseFailure is Error {
   @constructor
   new(_ msg) { super.new(msg) }
 }
-const parsed = || { throw ParseFailure.new("bad input") }.attempt()
+let parsed = || { throw ParseFailure.new("bad input") }.attempt()
 System.print(parsed.map |n| { n * 2 }.unwrapOr(0))

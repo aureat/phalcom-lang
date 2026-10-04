@@ -6,6 +6,6 @@
 // non-negative integer index — a fractional `Number` is rejected by the
 // same `expect_index` guard List/Tuple/Map share.
 
-const m = Map.new()
+let m = Map.new()
 m.at(1, put: "one")
 m.iteratorValue(1.5)

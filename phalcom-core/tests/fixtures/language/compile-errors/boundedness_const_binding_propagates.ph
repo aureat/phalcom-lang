@@ -1,2 +1,2 @@
-const xs = (0..).iter
+let xs = (0..).iter
 xs.toList

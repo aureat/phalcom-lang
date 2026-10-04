@@ -3,7 +3,7 @@
 // status: PASS
 // U14: `const [first, *rest] = list` — the rest sub-pattern binds a fresh
 // `List` holding everything from index `elements.len()` onward.
-const [first, *rest] = [1, 2, 3]
+let [first, *rest] = [1, 2, 3]
 System.print(first)
 System.print(rest.size)
 System.print(rest.at(0))

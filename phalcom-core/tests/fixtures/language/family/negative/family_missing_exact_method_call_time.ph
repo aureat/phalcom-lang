@@ -5,6 +5,6 @@
 // reaches ordinary doesNotUnderstand only when called with its exact shape.
 
 class Foo {}
-const f = Foo.new()
-const g = &Foo.typo(_)
+let f = Foo.new()
+let g = &Foo.typo(_)
 System.print(g(1))

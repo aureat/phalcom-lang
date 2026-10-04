@@ -11,10 +11,10 @@ native class Error is Object {
   native message -> String
   native raise() -> Dynamic
 
-  _message
-  _kind
-  _cause
-  _displaced
+  mut _message
+  mut _kind
+  mut _cause
+  mut _displaced
 
   /// Creates a blank `Error` with no message.
   @constructor

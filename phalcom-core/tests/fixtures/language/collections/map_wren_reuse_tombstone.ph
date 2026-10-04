@@ -5,7 +5,7 @@
 // regression) — insert, remove, reinsert at a since-vacated key, remove
 // again: the vacated slot must not resurrect a stale entry.
 
-const m = Map.new()
+let m = Map.new()
 m.at(2, put: "two")
 m.at(0, put: "zero")
 m.remove(2)

@@ -7,7 +7,7 @@
 // single-point range (`1...1`) is empty; the matching inclusive range
 // (`1..1`) is not.
 
-const empty = Range.new(1, 1, false)
+let empty = Range.new(1, 1, false)
 System.print(empty.size == 0)
-const full = Range.new(1, 1, true)
+let full = Range.new(1, 1, true)
 System.print(full.size == 0)

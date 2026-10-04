@@ -2,7 +2,9 @@
 // spec: classes.md; messages-and-selectors.md
 // status: PASS (graduated U5: == dispatches through the class hierarchy)
 
-class Pt { x { _x }
+class Pt {
+  mut _x
+ x { _x }
   @constructor
   new(_ x) {
     _x = x
@@ -11,8 +13,8 @@ class Pt { x { _x }
     return _x == other.x
   }
 }
-const a = Pt.new(1)
-const b = Pt.new(1)
-const c = Pt.new(2)
+let a = Pt.new(1)
+let b = Pt.new(1)
+let c = Pt.new(2)
 System.print(a == b)
 System.print(a == c)

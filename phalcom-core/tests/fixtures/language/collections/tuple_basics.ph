@@ -5,8 +5,8 @@
 // across independently-built tuples, value-hash equality, immutability (no
 // mutation selector — dNU).
 
-const a = (1, 2)
-const b = (1, 2)
+let a = (1, 2)
+let b = (1, 2)
 System.print(a.size)
 System.print(a.at(0))
 System.print(a.at(1))

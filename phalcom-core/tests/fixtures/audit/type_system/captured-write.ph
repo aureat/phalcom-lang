@@ -1,8 +1,8 @@
 class Probe {
   @class
   run() -> Int {
-    let x: Int | String = 1
-    let action = || { x = "changed" }
+    let mut x: Int | String = 1
+    let mut action = || { x = "changed" }
     action()
     return x
   }

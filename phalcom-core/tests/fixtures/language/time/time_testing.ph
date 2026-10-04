@@ -4,12 +4,12 @@
 from universe.time import Duration, Timestamp, clock, wallClock
 from universe.time.testing.clocks import ManualClock, ManualWallClock
 
-const monotonic = ManualClock.new(100)
-const first = monotonic.now
+let monotonic = ManualClock.new(100)
+let first = monotonic.now
 monotonic.advance(Duration.nanoseconds(25))
 System.print(monotonic.now.since(first).nanoseconds)
 
-const wall = ManualWallClock.new(Timestamp.seconds(10))
+let wall = ManualWallClock.new(Timestamp.seconds(10))
 wall.advance(Duration.seconds(2))
 System.print(wall.now.seconds)
 wall.set(Timestamp.seconds(3))

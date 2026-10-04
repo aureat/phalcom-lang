@@ -1,9 +1,7 @@
 // area: bindings
-// spec: values-and-absence.md; ADR-0014; ADR-0007
+// spec: values-and-absence.md; LANG007.C4-I-02
 // status: PASS
-// U6: a `let` with no initializer reads as `None`. The slot is backed
-// internally by the private `Value::Nil` sentinel, surfaced to the shared
-// `None` singleton at the read boundary (never the raw sentinel).
+// An explicitly initialized mutable optional binding reads as `None`.
 
-let x
+let mut x: Int | None = None
 System.print(x)

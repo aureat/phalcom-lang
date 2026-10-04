@@ -13,6 +13,7 @@ class SliceError is Error {}
 // was already contributed. Ordinary post-construction Map insertion still
 // overwrites by design.
 class DuplicateKeyError is Error {
+  mut _key
   @constructor
   new(_ key) {
     super.new("Duplicate key: " + key.toString)

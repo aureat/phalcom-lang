@@ -27,11 +27,11 @@ impl Period {
   @class
   parse(_ text: String) -> Period {
     if text.size < 5 or text.codePointAt(0) != 80 { ArgumentError.new("Period.parse: expected P<months>M<days>D").raise() }
-    const monthEnd = text.indexOf("M")
-    const dayEnd = text.indexOf("D")
+    let monthEnd = text.indexOf("M")
+    let dayEnd = text.indexOf("D")
     if monthEnd < 2 or dayEnd <= monthEnd { ArgumentError.new("Period.parse: invalid fields").raise() }
-    const monthText = text.slice(1, monthEnd)
-    const dayText = text.slice(monthEnd + 1, dayEnd)
+    let monthText = text.slice(1, monthEnd)
+    let dayText = text.slice(monthEnd + 1, dayEnd)
     Period.newParsed(Period.parseInteger(monthText), Period.parseInteger(dayText))
   }
 
@@ -40,13 +40,13 @@ impl Period {
 
   @class
   private parseInteger(_ text: String) -> Int {
-    let sign = 1
-    let index = 0
+    let mut sign = 1
+    let mut index = 0
     if text.size > 0 and text.codePointAt(0) == 45 { sign = -1; index = 1 }
     if index >= text.size { ArgumentError.new("Period.parse: invalid integer").raise() }
-    let value = 0
+    let mut value = 0
     while index < text.size {
-      const cp = text.codePointAt(index)
+      let cp = text.codePointAt(index)
       if cp < 48 or cp > 57 { ArgumentError.new("Period.parse: invalid digit").raise() }
       value = value * 10 + cp - 48
       index = index + 1

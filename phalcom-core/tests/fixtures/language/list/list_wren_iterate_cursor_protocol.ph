@@ -9,7 +9,7 @@
 // elements remain, `None` once exhausted; an empty list yields `None`
 // immediately.
 
-const a = []
+let a = []
 a.append("one")
 a.append("two")
 a.append("three")

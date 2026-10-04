@@ -44,10 +44,10 @@ trait Iterable
   indexed -> IndexedIterator<Self::Iterator> { IndexedIterator.new(self.iterator) }
 
   each(_ f) {
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       f.call(val)
       step = it.next
     }
@@ -55,11 +55,11 @@ trait Iterable
   }
 
   each(indexed f) {
-    let it = self.iterator
-    let step = it.next
-    let index = 0
+    let mut it = self.iterator
+    let mut step = it.next
+    let mut index = 0
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       f.call(index, val)
       index = index + 1
       step = it.next
@@ -68,10 +68,10 @@ trait Iterable
   }
 
   contains(_ x) {
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if val == x { return true }
       step = it.next
     }
@@ -81,9 +81,9 @@ trait Iterable
   includes(_ x) { self.contains(x) }
 
   count {
-    let it = self.iterator
-    let n = 0
-    let step = it.next
+    let mut it = self.iterator
+    let mut n = 0
+    let mut step = it.next
     while step.isSome {
       n = n + 1
       step = it.next
@@ -92,11 +92,11 @@ trait Iterable
   }
 
   count(where f) {
-    let it = self.iterator
-    let n = 0
-    let step = it.next
+    let mut it = self.iterator
+    let mut n = 0
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if f.call(val) { n = n + 1 }
       step = it.next
     }
@@ -104,10 +104,10 @@ trait Iterable
   }
 
   find(where f) {
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if f.call(val) { return Some(val) }
       step = it.next
     }
@@ -115,11 +115,11 @@ trait Iterable
   }
 
   index(where f) {
-    let it = self.iterator
-    let index = 0
-    let step = it.next
+    let mut it = self.iterator
+    let mut index = 0
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if f.call(val) { return Some(index) }
       index = index + 1
       step = it.next
@@ -128,10 +128,10 @@ trait Iterable
   }
 
   any(where f) {
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if f.call(val) { return true }
       step = it.next
     }
@@ -139,10 +139,10 @@ trait Iterable
   }
 
   all(where f) {
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if not f.call(val) { return false }
       step = it.next
     }
@@ -150,10 +150,10 @@ trait Iterable
   }
 
   none(where f) {
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if f.call(val) { return false }
       step = it.next
     }
@@ -165,10 +165,10 @@ trait Iterable
     if n is not Number or n < 0 or n % 1 != 0 {
       throw ArgumentError.new("nth: n must be a non-negative integer")
     }
-    let it = self.iterator
-    let rem = n
+    let mut it = self.iterator
+    let mut rem = n
     while rem > 0 {
-      let step = it.next
+      let mut step = it.next
       if step.isNone { return None }
       rem = rem - 1
     }
@@ -176,10 +176,10 @@ trait Iterable
   }
 
   last {
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     if step.isNone { return None }
-    let lastVal = step.match(some: |v| { v }, none: || { None })
+    let mut lastVal = step.match(some: |v| { v }, none: || { None })
     step = it.next
     while step.isSome {
       lastVal = step.match(some: |v| { v }, none: || { None })
@@ -189,11 +189,11 @@ trait Iterable
   }
 
   fold(initial initial, using f) {
-    let it = self.iterator
-    let acc = initial
-    let step = it.next
+    let mut it = self.iterator
+    let mut acc = initial
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       acc = f.call(acc, val)
       step = it.next
     }
@@ -201,13 +201,13 @@ trait Iterable
   }
 
   reduce(using f) {
-    let it = self.iterator
-    let firstStep = it.next
+    let mut it = self.iterator
+    let mut firstStep = it.next
     if firstStep.isNone { return None }
-    let acc = firstStep.match(some: |v| { v }, none: || { None })
-    let step = it.next
+    let mut acc = firstStep.match(some: |v| { v }, none: || { None })
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       acc = f.call(acc, val)
       step = it.next
     }
@@ -217,13 +217,13 @@ trait Iterable
   join { self.join("") }
 
   join(_ sep) {
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     if step.isNone { return "" }
-    let first = true
-    let result = ""
+    let mut first = true
+    let mut result = ""
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if not first {
         result = result + sep
       }
@@ -235,16 +235,16 @@ trait Iterable
   }
 
   group(by block) {
-    let it = self.iterator
-    let result = Map<Dynamic, Dynamic>.new()
-    let step = it.next
+    let mut it = self.iterator
+    let mut result = Map<Dynamic, Dynamic>.new()
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
-      let key = block.call(val)
-      let list = result.get(key).match(
+      let mut val = step.match(some: |v| { v }, none: || { None })
+      let mut key = block.call(val)
+      let mut list = result.get(key).match(
         some: |list| { list },
         none: || {
-          let new_list = List<Dynamic>.new()
+          let mut new_list = List<Dynamic>.new()
           result.insert(new_list, for: key)
           new_list
         }
@@ -256,10 +256,10 @@ trait Iterable
   }
 
   partition(where predicate) {
-    let accepted = List<Dynamic>.new()
-    let rejected = List<Dynamic>.new()
+    let mut accepted = List<Dynamic>.new()
+    let mut rejected = List<Dynamic>.new()
 
-    let it = self.iterator
+    let mut it = self.iterator
     while let Some(val) = it.next {
       if predicate.call(val) {
         accepted.append(val)
@@ -272,12 +272,12 @@ trait Iterable
   }
 
   toSet {
-    let result = Set<Dynamic>.new()
+    let mut result = Set<Dynamic>.new()
 
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       result.add(val)
       step = it.next
     }
@@ -286,13 +286,13 @@ trait Iterable
   }
 
   toMap -> Result<Map<Dynamic, Dynamic>, DuplicateKeyError> {
-    let result = Map<Dynamic, Dynamic>.new()
+    let mut result = Map<Dynamic, Dynamic>.new()
 
-    let it = self.iterator
-    let step = it.next
+    let mut it = self.iterator
+    let mut step = it.next
     while step.isSome {
-      let entry = step.match(some: |v| { v }, none: || { None })
-      let key = entry.key
+      let mut entry = step.match(some: |v| { v }, none: || { None })
+      let mut key = entry.key
       if result.includes(key) {
         return Result::Error(DuplicateKeyError.new(key))
       }
@@ -303,16 +303,16 @@ trait Iterable
   }
 
   toMap(merging block) {
-    let it = self.iterator
-    let result = Map<Dynamic, Dynamic>.new()
-    let step = it.next
+    let mut it = self.iterator
+    let mut result = Map<Dynamic, Dynamic>.new()
+    let mut step = it.next
     while step.isSome {
-      let entry = step.match(some: |v| { v }, none: || { None })
-      let key = entry.key
-      let val = entry.value
+      let mut entry = step.match(some: |v| { v }, none: || { None })
+      let mut key = entry.key
+      let mut val = entry.value
       result.get(key).match(
         some: |existingVal| {
-          let merged = block.call(existingVal, val)
+          let mut merged = block.call(existingVal, val)
           result.insert(merged, for: key)
         },
         none: || {
@@ -325,11 +325,11 @@ trait Iterable
   }
 
   toList {
-    let it = self.iterator
-    let result = List<Dynamic>.new()
-    let step = it.next
+    let mut it = self.iterator
+    let mut result = List<Dynamic>.new()
+    let mut step = it.next
     while step.isSome {
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       result.append(val)
       step = it.next
     }
@@ -347,9 +347,9 @@ impl<I> Iterable for I
 }
 
 class MappedIterator<I, U> {
-  _upstream: I
-  _mapper
-  _done: Bool
+  mut _upstream: I
+  mut _mapper
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ mapper: (<I as Iterator>::Item) -> U)
@@ -362,12 +362,12 @@ class MappedIterator<I, U> {
 
   next {
     if _done { return None }
-    let step = _upstream.next
+    let mut step = _upstream.next
     if step.isNone {
       _done = true
       return None
     }
-    let val = step.match(some: |v| { v }, none: || { None })
+    let mut val = step.match(some: |v| { v }, none: || { None })
     Some(_mapper.call(val))
   }
 
@@ -381,9 +381,9 @@ impl<I, U> Iterator for MappedIterator<I, U>
 }
 
 class FilterIterator<I> {
-  _upstream: I
-  _predicate
-  _done: Bool
+  mut _upstream: I
+  mut _predicate
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ predicate: (<I as Iterator>::Item) -> Bool)
@@ -397,12 +397,12 @@ class FilterIterator<I> {
   next {
     if _done { return None }
     while true {
-      let step = _upstream.next
+      let mut step = _upstream.next
       if step.isNone {
         _done = true
         return None
       }
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if _predicate.call(val) {
         return Some(val)
       }
@@ -419,9 +419,9 @@ impl<I> Iterator for FilterIterator<I>
 }
 
 class FilterMapIterator<I, U> {
-  _upstream: I
-  _mapper
-  _done: Bool
+  mut _upstream: I
+  mut _mapper
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ mapper: (<I as Iterator>::Item) -> Option<U>)
@@ -435,13 +435,13 @@ class FilterMapIterator<I, U> {
   next {
     if _done { return None }
     while true {
-      let step = _upstream.next
+      let mut step = _upstream.next
       if step.isNone {
         _done = true
         return None
       }
-      let val = step.match(some: |v| { v }, none: || { None })
-      let mapped = _mapper.call(val)
+      let mut val = step.match(some: |v| { v }, none: || { None })
+      let mut mapped = _mapper.call(val)
       if mapped.isSome {
         return mapped
       }
@@ -458,10 +458,10 @@ impl<I, U> Iterator for FilterMapIterator<I, U>
 }
 
 class FlatMapIterator<I, S> {
-  _upstream: I
-  _mapper
-  _currentInner
-  _done: Bool
+  mut _upstream: I
+  mut _mapper
+  mut _currentInner
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ mapper: (<I as Iterator>::Item) -> S)
@@ -477,19 +477,19 @@ class FlatMapIterator<I, S> {
     if _done { return None }
     while true {
       if _currentInner is not None {
-        let innerStep = _currentInner.next
+        let mut innerStep = _currentInner.next
         if innerStep.isSome {
           return innerStep
         }
         _currentInner = None
       }
-      let step = _upstream.next
+      let mut step = _upstream.next
       if step.isNone {
         _done = true
         return None
       }
-      let outerVal = step.match(some: |v| { v }, none: || { None })
-      let innerSource = _mapper.call(outerVal)
+      let mut outerVal = step.match(some: |v| { v }, none: || { None })
+      let mut innerSource = _mapper.call(outerVal)
       _currentInner = innerSource.iterator
     }
   }
@@ -504,9 +504,9 @@ impl<I, S> Iterator for FlatMapIterator<I, S>
 }
 
 class FlattenIterator<I> {
-  _upstream: I
-  _currentInner
-  _done: Bool
+  mut _upstream: I
+  mut _currentInner
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I)
@@ -521,18 +521,18 @@ class FlattenIterator<I> {
     if _done { return None }
     while true {
       if _currentInner is not None {
-        let innerStep = _currentInner.next
+        let mut innerStep = _currentInner.next
         if innerStep.isSome {
           return innerStep
         }
         _currentInner = None
       }
-      let step = _upstream.next
+      let mut step = _upstream.next
       if step.isNone {
         _done = true
         return None
       }
-      let innerSource = step.match(some: |v| { v }, none: || { None })
+      let mut innerSource = step.match(some: |v| { v }, none: || { None })
       _currentInner = innerSource.iterator
     }
   }
@@ -547,9 +547,9 @@ impl<I> Iterator for FlattenIterator<I>
 }
 
 class ChainIterator<I, J> {
-  _first: I
-  _second: J
-  _phase: Int
+  mut _first: I
+  mut _second: J
+  mut _phase: Int
 
   @constructor
   new(_ first: I, _ second: J)
@@ -563,12 +563,12 @@ class ChainIterator<I, J> {
   next -> Option<<I as Iterator>::Item> {
     if _phase == 2 { return None }
     if _phase == 0 {
-      let step = _first.next
+      let mut step = _first.next
       if step.isSome { return step }
       _phase = 1
     }
     if _phase == 1 {
-      let step = _second.next
+      let mut step = _second.next
       if step.isSome { return step }
       _phase = 2
       return None
@@ -586,9 +586,9 @@ impl<I, J> Iterator for ChainIterator<I, J>
 }
 
 class SkipIterator<I> {
-  _upstream: I
-  _remaining: Int
-  _done: Bool
+  mut _upstream: I
+  mut _remaining: Int
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ n)
@@ -605,14 +605,14 @@ class SkipIterator<I> {
   next -> Option<<I as Iterator>::Item> {
     if _done { return None }
     while _remaining > 0 {
-      let step = _upstream.next
+      let mut step = _upstream.next
       if step.isNone {
         _done = true
         return None
       }
       _remaining = _remaining - 1
     }
-    let step = _upstream.next
+    let mut step = _upstream.next
     if step.isNone {
       _done = true
       return None
@@ -630,10 +630,10 @@ impl<I> Iterator for SkipIterator<I>
 }
 
 class SkipWhileIterator<I> {
-  _upstream: I
-  _predicate
-  _stillSkipping: Bool
-  _done: Bool
+  mut _upstream: I
+  mut _predicate
+  mut _stillSkipping: Bool
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ predicate: (<I as Iterator>::Item) -> Bool)
@@ -648,18 +648,18 @@ class SkipWhileIterator<I> {
   next -> Option<<I as Iterator>::Item> {
     if _done { return None }
     while _stillSkipping {
-      let step = _upstream.next
+      let mut step = _upstream.next
       if step.isNone {
         _done = true
         return None
       }
-      let val = step.match(some: |v| { v }, none: || { None })
+      let mut val = step.match(some: |v| { v }, none: || { None })
       if not _predicate.call(val) {
         _stillSkipping = false
         return step
       }
     }
-    let step = _upstream.next
+    let mut step = _upstream.next
     if step.isNone {
       _done = true
       return None
@@ -677,9 +677,9 @@ impl<I> Iterator for SkipWhileIterator<I>
 }
 
 class TakeIterator<I> {
-  _upstream: I
-  _remaining: Int
-  _done: Bool
+  mut _upstream: I
+  mut _remaining: Int
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ n)
@@ -698,7 +698,7 @@ class TakeIterator<I> {
       _done = true
       return None
     }
-    let step = _upstream.next
+    let mut step = _upstream.next
     if step.isNone {
       _done = true
       return None
@@ -717,9 +717,9 @@ impl<I> Iterator for TakeIterator<I>
 }
 
 class TakeWhileIterator<I> {
-  _upstream: I
-  _predicate
-  _done: Bool
+  mut _upstream: I
+  mut _predicate
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ predicate: (<I as Iterator>::Item) -> Bool)
@@ -732,12 +732,12 @@ class TakeWhileIterator<I> {
 
   next -> Option<<I as Iterator>::Item> {
     if _done { return None }
-    let step = _upstream.next
+    let mut step = _upstream.next
     if step.isNone {
       _done = true
       return None
     }
-    let val = step.match(some: |v| { v }, none: || { None })
+    let mut val = step.match(some: |v| { v }, none: || { None })
     if _predicate.call(val) {
       return step
     }
@@ -755,9 +755,9 @@ impl<I> Iterator for TakeWhileIterator<I>
 }
 
 class MapWhileIterator<I, U> {
-  _upstream: I
-  _mapper
-  _done: Bool
+  mut _upstream: I
+  mut _mapper
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ mapper: (<I as Iterator>::Item) -> Option<U>)
@@ -770,13 +770,13 @@ class MapWhileIterator<I, U> {
 
   next -> Option<U> {
     if _done { return None }
-    let step = _upstream.next
+    let mut step = _upstream.next
     if step.isNone {
       _done = true
       return None
     }
-    let val = step.match(some: |v| { v }, none: || { None })
-    let mapped = _mapper.call(val)
+    let mut val = step.match(some: |v| { v }, none: || { None })
+    let mut mapped = _mapper.call(val)
     if mapped.isSome {
       return mapped
     }
@@ -794,9 +794,9 @@ impl<I, U> Iterator for MapWhileIterator<I, U>
 }
 
 class InspectIterator<I> {
-  _upstream: I
-  _callback
-  _done: Bool
+  mut _upstream: I
+  mut _callback
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I, _ callback: (<I as Iterator>::Item) -> Unit)
@@ -809,12 +809,12 @@ class InspectIterator<I> {
 
   next -> Option<<I as Iterator>::Item> {
     if _done { return None }
-    let step = _upstream.next
+    let mut step = _upstream.next
     if step.isNone {
       _done = true
       return None
     }
-    let val = step.match(some: |v| { v }, none: || { None })
+    let mut val = step.match(some: |v| { v }, none: || { None })
     _callback.call(val)
     step
   }
@@ -829,9 +829,9 @@ impl<I> Iterator for InspectIterator<I>
 }
 
 class StrictZipIterator<I, J> {
-  _left: I
-  _right: J
-  _done: Bool
+  mut _left: I
+  mut _right: J
+  mut _done: Bool
 
   @constructor
   new(_ left: I, _ right: J)
@@ -844,11 +844,11 @@ class StrictZipIterator<I, J> {
 
   next -> Option<(<I as Iterator>::Item, <J as Iterator>::Item)> {
     if _done { return None }
-    let leftStep = _left.next
-    let rightStep = _right.next
+    let mut leftStep = _left.next
+    let mut rightStep = _right.next
     if leftStep.isSome and rightStep.isSome {
-      let leftVal = leftStep.match(some: |v| { v }, none: || { None })
-      let rightVal = rightStep.match(some: |v| { v }, none: || { None })
+      let mut leftVal = leftStep.match(some: |v| { v }, none: || { None })
+      let mut rightVal = rightStep.match(some: |v| { v }, none: || { None })
       return Some((leftVal, rightVal))
     }
     if leftStep.isNone and rightStep.isNone {
@@ -869,9 +869,9 @@ impl<I, J> Iterator for StrictZipIterator<I, J>
 }
 
 class IndexedIterator<I> {
-  _upstream: I
-  _ordinal: Int
-  _done: Bool
+  mut _upstream: I
+  mut _ordinal: Int
+  mut _done: Bool
 
   @constructor
   new(_ upstream: I)
@@ -884,13 +884,13 @@ class IndexedIterator<I> {
 
   next -> Option<(Int, <I as Iterator>::Item)> {
     if _done { return None }
-    let step = _upstream.next
+    let mut step = _upstream.next
     if step.isNone {
       _done = true
       return None
     }
-    let val = step.match(some: |v| { v }, none: || { None })
-    let ord = _ordinal
+    let mut val = step.match(some: |v| { v }, none: || { None })
+    let mut ord = _ordinal
     _ordinal = _ordinal + 1
     Some((ord, val))
   }

@@ -1,7 +1,7 @@
-const a = Future.new()
-const b = Future.new()
-const c = Future.new()
-const result = Future.async || {
+let a = Future.new()
+let b = Future.new()
+let c = Future.new()
+let result = Future.async || {
   System.print(a.await)
   System.print(b.await)
   System.print(c.await)
@@ -18,8 +18,8 @@ System.runScheduled()
 c.settleValue("C")
 System.runScheduled()
 System.print(result.value)
-const pending = Future.new()
-const failed = Future.async || { pending.await; Error.new("late failure").raise() }
+let pending = Future.new()
+let failed = Future.async || { pending.await; Error.new("late failure").raise() }
 System.runScheduled()
 pending.settleValue(1)
 System.runScheduled()

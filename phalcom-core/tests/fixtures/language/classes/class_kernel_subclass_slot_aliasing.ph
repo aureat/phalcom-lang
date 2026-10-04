@@ -1,9 +1,9 @@
 class Sub is List {
-  _tag
+  mut _tag
   @constructor
   new(_ t) { _tag = t }
   tag { _tag }
 }
 
-let s = Sub.new("ok")
+let mut s = Sub.new("ok")
 System.print(s.tag)

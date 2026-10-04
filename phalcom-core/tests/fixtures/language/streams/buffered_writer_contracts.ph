@@ -1,4 +1,8 @@
 class ScriptedWriter {
+  mut _counts
+  mut _index
+  mut _out
+  mut _written
   @constructor
   new(_ counts) {
     _counts = counts
@@ -8,7 +12,7 @@ class ScriptedWriter {
   }
 
   write(_ src) {
-    let count = _counts.at(_index)
+    let mut count = _counts.at(_index)
     _index = _index + 1
     src.slice(0, count).copyInto(_out, _written)
     _written = _written + count
@@ -31,6 +35,10 @@ class ZeroWriter {
 }
 
 class FailingWriter {
+  mut _out
+  mut _written
+  mut _failed
+  mut _recovered
   @constructor
   new() {
     _out = Bytes.new(3)
@@ -65,6 +73,9 @@ class FailingWriter {
 }
 
 class FlushCountingWriter {
+  mut _out
+  mut _written
+  mut _flushes
   @constructor
   new() {
     _out = Bytes.new(32)
@@ -89,6 +100,8 @@ class FlushCountingWriter {
 }
 
 class PendingWriter {
+  mut _pending
+  mut _size
   @constructor
   new() {
     _pending = Future.new()
@@ -105,6 +118,9 @@ class PendingWriter {
 }
 
 class SnapshotWriter {
+  mut _pending
+  mut _source
+  mut _out
   @constructor
   new() {
     _pending = Future.new()
@@ -128,13 +144,13 @@ class SnapshotWriter {
   close { Result::Ok(None) }
 }
 
-const shortSink = ScriptedWriter.new([2, 1, 2])
-const shortBuffered = BufferedWriter.new(shortSink)
+let shortSink = ScriptedWriter.new([2, 1, 2])
+let shortBuffered = BufferedWriter.new(shortSink)
 shortBuffered.write(Bytes.fromString("ABCDE"))
 shortBuffered.flush.await
 System.print(shortSink.toBytes.utf8)
 
-const zeroBuffered = BufferedWriter.new(ZeroWriter.new())
+let zeroBuffered = BufferedWriter.new(ZeroWriter.new())
 zeroBuffered.write(Bytes.fromString("zero"))
 try {
   zeroBuffered.flush.await
@@ -143,8 +159,8 @@ try {
 }
 System.print(zeroBuffered.pending.toString)
 
-const failingSink = FailingWriter.new()
-const failingBuffered = BufferedWriter.new(failingSink)
+let failingSink = FailingWriter.new()
+let failingBuffered = BufferedWriter.new(failingSink)
 failingBuffered.write(Bytes.fromString("abc"))
 try {
   failingBuffered.flush.await
@@ -157,18 +173,18 @@ failingBuffered.flush.await
 System.print(failingSink.toBytes.utf8)
 System.print(failingBuffered.pending.toString)
 
-const layeredSink = FlushCountingWriter.new()
-const innerBuffered = BufferedWriter.new(layeredSink)
-const outerBuffered = BufferedWriter.new(innerBuffered)
+let layeredSink = FlushCountingWriter.new()
+let innerBuffered = BufferedWriter.new(layeredSink)
+let outerBuffered = BufferedWriter.new(innerBuffered)
 innerBuffered.write(Bytes.fromString("layered"))
 outerBuffered.flush.await
 System.print(layeredSink.toBytes.utf8)
 System.print(layeredSink.flushes.toString)
 
-const pendingSink = PendingWriter.new()
-const pendingBuffered = BufferedWriter.new(pendingSink)
+let pendingSink = PendingWriter.new()
+let pendingBuffered = BufferedWriter.new(pendingSink)
 pendingBuffered.write(Bytes.fromString("pending"))
-const unresolved = pendingBuffered.flush
+let unresolved = pendingBuffered.flush
 try {
   pendingBuffered.write(Bytes.fromString("overlap"))
 } catch e {
@@ -177,11 +193,11 @@ try {
 pendingSink.release
 unresolved.await
 
-const snapshotSink = SnapshotWriter.new()
-const snapshotBuffered = BufferedWriter.new(snapshotSink)
-const original = Bytes.new(8192)
+let snapshotSink = SnapshotWriter.new()
+let snapshotBuffered = BufferedWriter.new(snapshotSink)
+let original = Bytes.new(8192)
 original.set(0, 65)
-const snapshotWrite = snapshotBuffered.write(original)
+let snapshotWrite = snapshotBuffered.write(original)
 original.set(0, 90)
 snapshotSink.release
 snapshotWrite.await

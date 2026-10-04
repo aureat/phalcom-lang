@@ -13,12 +13,12 @@ class Router {
   route(bar) { "bar" }
 }
 
-const r = Router.new()
-const any = (Router >> #route...).bind(r)
-const methods = (Router >> #route(...)).bind(r)
-const prefix = (Router >> #route(_, ...)).bind(r)
-const suffix = (Router >> #route(..., foo)).bind(r)
-const sandwich = (Router >> #route(_, ..., foo)).bind(r)
+let r = Router.new()
+let any = (Router >> #route...).bind(r)
+let methods = (Router >> #route(...)).bind(r)
+let prefix = (Router >> #route(_, ...)).bind(r)
+let suffix = (Router >> #route(..., foo)).bind(r)
+let sandwich = (Router >> #route(_, ..., foo)).bind(r)
 
 System.print(any())
 System.print(any(1))

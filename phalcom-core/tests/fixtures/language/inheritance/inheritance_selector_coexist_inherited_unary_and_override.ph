@@ -13,6 +13,6 @@ class Base {
 }
 class Sub is Base { foo { "Sub.foo" }
 }
-const s = Sub.new()
+let s = Sub.new()
 System.print(s.foo)
 System.print(s.foo(5))

@@ -4,14 +4,14 @@
 // Mutable fields take no keyword — bare `_x`.
 
 class Counter {
-  _n
+  mut _n
   @constructor
   new() { _n = 0 }
   bump { _n = _n + 1 }
   get { return _n }
 }
 
-const c = Counter.new()
+let c = Counter.new()
 c.bump
 c.bump
 System.print(c.get)

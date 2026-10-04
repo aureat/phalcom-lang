@@ -1,6 +1,6 @@
 class Probe {
     @class
     run() {
-        let bad: Either<String, Int> = Either::Left(42)
+        let mut bad: Either<String, Int> = Either::Left(42)
     }
 }

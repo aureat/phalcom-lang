@@ -9,22 +9,22 @@
 // `max`/`sum` `Fn` objects (stored here as blocks instead, `Fn`'s Phalcom
 // analog).
 
-const a = []
+let a = []
 a.append(1)
 a.append(4)
 a.append(2)
 a.append(1)
 a.append(5)
 
-const max = |x, y| { (x > y).ifTrue(|| { x }, ifFalse: || { y }) }
-const sum = |x, y| { x + y }
+let max = |x, y| { (x > y).ifTrue(|| { x }, ifFalse: || { y }) }
+let sum = |x, y| { x + y }
 
 System.print(a.fold(initial: 0, using: |acc, x| { max.call(acc, x) }))
 System.print(a.fold(initial: 10, using: |acc, x| { max.call(acc, x) }))
 System.print(a.fold(initial: 0, using: |acc, x| { sum.call(acc, x) }))
 System.print(a.fold(initial: -1, using: |acc, x| { sum.call(acc, x) }))
 
-const b = []
+let b = []
 b.append("W")
 b.append("o")
 b.append("r")

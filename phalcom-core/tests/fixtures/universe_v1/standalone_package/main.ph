@@ -1,2 +1,2 @@
-let x = 123
+let mut x = 123
 export x

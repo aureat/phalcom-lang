@@ -11,9 +11,10 @@
 // itself is rejected, raising a catchable Error before either corruption can
 // happen.
 
-let s = Set.new()
+let mut s = Set.new()
 
 class SK {
+  mut _triggered
   @constructor
   new() {
     _triggered = false
@@ -28,8 +29,8 @@ class SK {
   }
 }
 
-const a = SK.new()
-const b = SK.new()
+let a = SK.new()
+let b = SK.new()
 s.add(a)
 s.add(b)
 System.print("unreachable")

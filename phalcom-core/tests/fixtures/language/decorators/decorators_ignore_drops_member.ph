@@ -17,7 +17,7 @@ class Draft {
   finished { "ok" }
 }
 
-const d = Draft.new()
+let d = Draft.new()
 System.print(d.finished)
 
 try {

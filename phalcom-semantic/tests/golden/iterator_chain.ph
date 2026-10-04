@@ -5,8 +5,8 @@
 // 4. Loop break leaves last and tuple publication precise.
 
 class Entry<K, V> {
-  _key: K
-  _value: V
+  mut _key: K
+  mut _value: V
 
   @constructor
   new(_ key: K, _ value: V) {
@@ -32,11 +32,11 @@ class Decoder {
 class Service {
   @class
   collect(_ source: Strange<Int, String>, _ stop: Bool) {
-    let last = 0
+    let mut last = 0
 
     for entry in source {
-      let key = entry.key()
-      let value = Decoder.decode(entry.value())
+      let mut key = entry.key()
+      let mut value = Decoder.decode(entry.value())
       last = value
 
       if stop {
@@ -51,7 +51,7 @@ class Service {
 class Probe {
   @class
   run(_ source: Strange<Int, String>, _ stop: Bool) {
-    let result = Service.collect(source, stop)
-    let (last, status) = result
+    let mut result = Service.collect(source, stop)
+    let mut (last, status) = result
   }
 }

@@ -7,8 +7,8 @@ data Shape {
   @variant Rect(w: Int, h: Int)
 }
 
-const c = Shape::Circle(radius: 3)
-const r = Shape::Rect(w: 4, h: 5)
+let c = Shape::Circle(radius: 3)
+let r = Shape::Rect(w: 4, h: 5)
 
 System.print(3 * c.radius)
 System.print(r.w * r.h)

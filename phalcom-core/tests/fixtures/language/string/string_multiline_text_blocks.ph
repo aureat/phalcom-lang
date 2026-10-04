@@ -2,22 +2,22 @@
 // spec: docs/pdr/0034-multiline-string-text-blocks.md
 // status: PASS
 
-let basic = """
+let mut basic = """
     hello
     world
     """
 
-let interpolation = """
+let mut interpolation = """
     sum: \(1 + 2)
     end
     """
 
-let escapes = """
+let mut escapes = """
     \"""
     \\(escaped)
     """
 
-let blank_lines = """
+let mut blank_lines = """
     first
 
     third

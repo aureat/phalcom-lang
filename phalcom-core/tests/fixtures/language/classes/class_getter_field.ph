@@ -3,6 +3,7 @@
 // status: PASS
 
 class Box {
+  mut _v
   @constructor
   new(_ v) {
     _v = v

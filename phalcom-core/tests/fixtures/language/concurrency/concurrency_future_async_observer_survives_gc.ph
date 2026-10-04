@@ -4,8 +4,8 @@
 // A parked action and its completion observer survive a forced GC before the
 // dependency wakes the action.
 
-const dependency = Future.new()
-const result = Future.async || {
+let dependency = Future.new()
+let result = Future.async || {
   dependency.await
   "survived-gc"
 }

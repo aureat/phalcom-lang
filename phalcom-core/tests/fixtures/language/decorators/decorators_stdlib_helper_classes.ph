@@ -8,7 +8,7 @@
 Tracer.stdout.enter("deposit", [100])
 Tracer.stdout.exit("deposit", 100, None)
 
-const ob = OffBehavior.fallback(#cachedPrice)
+let ob = OffBehavior.fallback(#cachedPrice)
 System.print(ob.kind)
 System.print(ob.payload.isSome)
 

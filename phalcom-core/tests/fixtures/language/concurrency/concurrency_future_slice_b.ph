@@ -3,11 +3,11 @@
 // status: PASS
 
 // C-FUT-1: value/error await
-const f1 = Future.value("ok")
+let f1 = Future.value("ok")
 System.print(f1.await)
 
-const err = Error.new("rejected")
-const f2 = Future.error(err)
+let err = Error.new("rejected")
+let f2 = Future.error(err)
 try {
   f2.await
 } catch e {
@@ -19,7 +19,7 @@ try {
 // non-root fiber that parks on a pending future and resumes — is
 // `concurrency_future_await_suspends.ph` (E004); until that landed, this case
 // was labelled "suspending" while exercising only the fallback.
-const f3 = Future.async || {
+let f3 = Future.async || {
   System.print("async running")
   "async result"
 }
@@ -32,16 +32,16 @@ System.print(f3.await)
 // iteration (it used to call `System.runScheduled`, which pumps to exhaustion).
 // Same callbacks and results. Terminal observer handoffs are scheduler work,
 // so both callback actions may begin before either derived Future is settled.
-const f4 = Future.new()
-const f5 = f4.then |v| {
+let f4 = Future.new()
+let f5 = f4.then |v| {
   System.print("then run: " + v)
   Future.value("then result")
 }
-const f6 = f4.map |v| {
+let f6 = f4.map |v| {
   System.print("map run: " + v)
   "map result"
 }
-const f7 = f4.catch |e| {
+let f7 = f4.catch |e| {
   System.print("catch run: " + e.message)
   "catch result"
 }
@@ -51,8 +51,8 @@ System.print(f5.await)
 System.print(f6.await)
 System.print(f7.await) // should pass through fulfilled value without running catch
 
-const f8 = Future.new()
-const f9 = f8.catch |e| {
+let f8 = Future.new()
+let f9 = f8.catch |e| {
   System.print("catch run error: " + e.message)
   "catch recovered"
 }
@@ -72,9 +72,9 @@ class Probe {
     return 0
   }
 }
-const f10 = Future.new()
-const helper = Fiber.new || {
-  let s = Set.new()
+let f10 = Future.new()
+let helper = Fiber.new || {
+  let mut s = Set.new()
   s.add(Probe.new())
 }
 helper.try()

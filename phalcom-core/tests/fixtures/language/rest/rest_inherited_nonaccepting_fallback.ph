@@ -10,10 +10,10 @@ class ChildRest is ParentRest {
   route(_ fixed, **extra) { return 200 + extra.size }
 }
 
-const child = ChildRest.new()
+let child = ChildRest.new()
 System.print(child.route(1, 2))
 
-const positional = (1, 2)
+let positional = (1, 2)
 System.print(child.route(*positional))
 
 System.print(child.route(1, debug: 2))

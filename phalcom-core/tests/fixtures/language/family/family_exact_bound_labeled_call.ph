@@ -5,12 +5,14 @@
 // same labeled shape. `::` owns selector-spec context; no `#` is used here.
 
 class Point {
+  mut _x
+  mut _y
   @constructor
   new(_ x, _ y) { _x = x; _y = y }
   move(to, duration) {
     return "moved to " + to.toString + " over " + duration.toString
   }
 }
-const p = Point.new(0, 0)
-const f = (Point >> #move(to, duration)).bind(p)
+let p = Point.new(0, 0)
+let f = (Point >> #move(to, duration)).bind(p)
 System.print(f(to: 5, duration: 2))

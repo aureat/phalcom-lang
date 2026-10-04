@@ -3,6 +3,6 @@ from universe.time import (
   SystemClock
 )
 
-let raw = Instant.from(SystemClock.instance, 0)
-let protectedValue = SystemClock.instance.instant(0)
-let systemClock = System.clock
+let mut raw = Instant.from(SystemClock.instance, 0)
+let mut protectedValue = SystemClock.instance.instant(0)
+let mut systemClock = System.clock

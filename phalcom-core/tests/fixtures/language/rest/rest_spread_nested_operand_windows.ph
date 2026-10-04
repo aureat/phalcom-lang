@@ -12,12 +12,12 @@ class Pairer {
   pair(_ left, _ right) { "\(left):\(right)" }
 }
 
-const args = [1, 2, 3]
+let args = [1, 2, 3]
 
 System.print(Adder.new().add(*args))
 System.print(100 + Adder.new().add(*args))
 System.print(Pairer.new().pair("kept", Adder.new().add(*args)))
 
-const values = ["kept", Adder.new().add(*args)]
+let values = ["kept", Adder.new().add(*args)]
 System.print(values[0])
 System.print(values[1])

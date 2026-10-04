@@ -6,9 +6,9 @@ import app.service.UserService
 class Controller {
   @class
   run() {
-    let user = UserService.current()
-    let id = user.id()
-    let name = user.name()
+    let mut user = UserService.current()
+    let mut id = user.id()
+    let mut name = user.name()
     (id, name)
   }
 }

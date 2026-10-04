@@ -4,6 +4,7 @@ from universe.time.timestamp import Timestamp
 from universe.time.timestamp import WallClock
 
 class ManualClock is Clock {
+  mut _ticks
   @constructor
   new(_ initialTicks: Int) {
     _ticks = initialTicks
@@ -19,6 +20,7 @@ class ManualClock is Clock {
 }
 
 class ManualWallClock is WallClock {
+  mut _current
   @constructor
   new(_ initial: Timestamp) {
     _current = initial

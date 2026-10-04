@@ -13,6 +13,6 @@ class B is A {
 }
 class C is B {
 }
-const c = C.new()
+let c = C.new()
 System.print(c.respondsTo(Symbol.new("greet")))
 System.print(c.respondsTo(Symbol.new("missing")))

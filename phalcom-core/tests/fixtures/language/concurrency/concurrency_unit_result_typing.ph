@@ -11,8 +11,8 @@ class UnitResultProbe {
     result
   }
 }
-const result: Result<Unit, Error> = UnitResultProbe.method(1)
+let result: Result<Unit, Error> = UnitResultProbe.method(1)
 System.print(UnitResultProbe.same(result).isOk)
-const action = Future.async || { () }
+let action = Future.async || { () }
 System.runScheduled()
 System.print(action.await)

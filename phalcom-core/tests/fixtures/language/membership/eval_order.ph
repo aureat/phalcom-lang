@@ -1,12 +1,12 @@
-let order = List.new()
-const getLeft = || {
+let mut order = List.new()
+let getLeft = || {
   order.append("L")
   2
 }
-const getRight = || {
+let getRight = || {
   order.append("R")
   [1, 2, 3]
 }
-let res = getLeft.call() in getRight.call()
+let mut res = getLeft.call() in getRight.call()
 System.print(order.join(""))
 System.print(res)

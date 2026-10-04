@@ -5,9 +5,9 @@
 // await receives a new generation and the old Future cannot resume the later
 // suspension.
 
-const first = Future.new()
-const second = Future.new()
-const worker = Fiber.new || {
+let first = Future.new()
+let second = Future.new()
+let worker = Fiber.new || {
   System.print("park-a")
   first.await
   System.print("park-b")

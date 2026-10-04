@@ -17,7 +17,7 @@
 class Check {
   @class
   approx(_ a, _ b) {
-    let d = a - b
+    let mut d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.0000001
   }
@@ -27,8 +27,8 @@ class Vec {
   @class
   sqrt(_ a) {
     if (a == 0) { return 0 }
-    let g = a
-    let i = 0
+    let mut g = a
+    let mut i = 0
     while (i < 50) { g = (g + a / g) / 2; i = i + 1 }
     return g
   }
@@ -36,8 +36,8 @@ class Vec {
   // Index-wise fold; assumes equal length.
   @class
   dot(_ a, _ b) {
-    let acc = 0
-    let i = 0
+    let mut acc = 0
+    let mut i = 0
     while (i < a.size) {
       acc = acc + a[i] * b[i]
       i = i + 1
@@ -47,8 +47,8 @@ class Vec {
 
   @class
   add(_ a, _ b) {
-    let out = []
-    let i = 0
+    let mut out = []
+    let mut i = 0
     while (i < a.size) {
       out.add(a[i] + b[i])
       i = i + 1
@@ -67,17 +67,17 @@ class Vec {
   }
 }
 
-const a = [3, 4]
-const b = [0, 5]
-const u = [1, 0, 0]
-const v = [0, 1, 0]      // orthogonal to u
+let a = [3, 4]
+let b = [0, 5]
+let u = [1, 0, 0]
+let v = [0, 1, 0]      // orthogonal to u
 
 // --- dot(a,a) == norm(a)^2 ------------------------------------------------
 System.print(Check.approx(Vec.dot(a, a), Vec.norm(a) * Vec.norm(a)))   // true
 System.print(Vec.norm(a) == 5)                                         // true (3-4-5)
 
 // --- Cauchy–Schwarz inequality --------------------------------------------
-let lhs = Vec.dot(a, b)
+let mut lhs = Vec.dot(a, b)
 if (lhs < 0) { lhs = 0 - lhs }
 System.print(lhs <= Vec.norm(a) * Vec.norm(b))                         // true
 
@@ -86,6 +86,6 @@ System.print(Check.approx(Vec.cosine(a, a), 1))                        // true
 
 // --- orthogonal unit vectors: cosine == 0, and Pythagoras holds -----------
 System.print(Check.approx(Vec.cosine(u, v), 0))                        // true
-const w = Vec.add(u, v)
+let w = Vec.add(u, v)
 System.print(Check.approx(Vec.norm(w) * Vec.norm(w),
                           Vec.norm(u) * Vec.norm(u) + Vec.norm(v) * Vec.norm(v)))  // true

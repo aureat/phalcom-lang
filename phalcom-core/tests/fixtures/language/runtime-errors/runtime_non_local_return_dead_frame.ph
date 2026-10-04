@@ -9,5 +9,5 @@
 class Maker {
   make() { return || { return 1 } }
 }
-const escaped = Maker.new().make()
+let escaped = Maker.new().make()
 System.print(escaped.call())

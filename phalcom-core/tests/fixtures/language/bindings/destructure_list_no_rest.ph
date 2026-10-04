@@ -4,6 +4,6 @@
 // U14: a rest-less `List` pattern requires an EXACT arity match too (not
 // just a `Tuple` pattern) — `[a, b]` against a 2-element `List` binds
 // cleanly.
-const [a, b] = [1, 2]
+let [a, b] = [1, 2]
 System.print(a)
 System.print(b)

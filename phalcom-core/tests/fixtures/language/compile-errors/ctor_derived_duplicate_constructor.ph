@@ -1,6 +1,6 @@
 @construct
 class Foo {
-  _value
+  mut _value
   @constructor
   new(value) { _value = value }
 }

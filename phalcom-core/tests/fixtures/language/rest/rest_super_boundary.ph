@@ -18,18 +18,18 @@ class ChildRestBoundary is ParentRestBoundary {
 
   exactSuper() { return super.choose(1, 2) }
   exactSuperDynamic() {
-    const args = (1, 2)
+    let args = (1, 2)
     return super.choose(*args)
   }
 
   fallbackSuper() { return super.fallback(1, 2) }
   fallbackSuperDynamic() {
-    const args = (1, 2)
+    let args = (1, 2)
     return super.fallback(*args)
   }
 }
 
-const child = ChildRestBoundary.new()
+let child = ChildRestBoundary.new()
 System.print(child.exactSuper())
 System.print(child.exactSuperDynamic())
 System.print(child.fallbackSuper())

@@ -6,8 +6,8 @@
 class Gen {
   @class
   run() {
-    let x = 7
-    const f = Fiber.new || {
+    let mut x = 7
+    let f = Fiber.new || {
       Fiber.yield(x)   // read x across the fiber boundary (gen's frame parked)
       x = 99           // write x back into gen's parked stack
     }

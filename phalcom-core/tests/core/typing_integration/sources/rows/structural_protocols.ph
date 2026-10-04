@@ -25,15 +25,15 @@ class RowCapabilities {
 class RowStructuralProbe {
     @class
     widthAndDepth() {
-        let env = { config: { port: 8080, host: "localhost", debug: true }, cache: "redis", requestId: "req-123" }
-        let port = RowCapabilities.port(env)
-        let host = RowCapabilities.host(env)
+        let mut env = { config: { port: 8080, host: "localhost", debug: true }, cache: "redis", requestId: "req-123" }
+        let mut port = RowCapabilities.port(env)
+        let mut host = RowCapabilities.host(env)
         port
     }
 
     @class
     widthOnly() {
-        let env = { config: { port: 9000 }, extra: "value" }
+        let mut env = { config: { port: 9000 }, extra: "value" }
         RowCapabilities.port(env)
     }
 }

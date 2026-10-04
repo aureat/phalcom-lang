@@ -4,7 +4,7 @@
 // Zero-filled birth, size stability, set/at roundtrip, at-totality (bare
 // octet or None, never a raise), debug toString.
 
-const b = Bytes.new(4)
+let b = Bytes.new(4)
 System.print(b.toString)
 System.print(b.size)
 System.print(b.at(3))

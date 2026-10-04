@@ -1,11 +1,12 @@
 class Probe {
+  mut _size
   @constructor
   new(size) { _size = size }
   size { _size }
   iterate(_ cursor) {
-    const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || { cursor + 1 })
+    let next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || { cursor + 1 })
     return (next < self.size).ifTrue(|| { next }, ifFalse: || { None })
   }
 }
-const p = Probe.new(size: 5)
+let p = Probe.new(size: 5)
 System.print(p.iterate(None))

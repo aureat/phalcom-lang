@@ -7,7 +7,7 @@
 // propagation). The successful call returns the last statement's `Unit`
 // result.
 
-const fiber = Fiber.new || {
+let fiber = Fiber.new || {
   System.print("fiber")
 }
 

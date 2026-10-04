@@ -4,11 +4,14 @@
 // while-counters (no range-literal parser production). String interpolation
 // `%()` -> `\()` (ADR-0022).
 class Tree {
+  mut _item
+  mut _left
+  mut _right
   @constructor
   new(_ item, _ depth) {
     _item = item
     if (depth > 0) {
-      let item2 = item + item
+      let mut item2 = item + item
       depth = depth - 1
       _left = Tree.new(item2 - 1, depth)
       _right = Tree.new(item2, depth)
@@ -24,27 +27,27 @@ class Tree {
   }
 }
 
-let minDepth = 4
-let maxDepth = 12
-let stretchDepth = maxDepth + 1
+let mut minDepth = 4
+let mut maxDepth = 12
+let mut stretchDepth = maxDepth + 1
 
 System.print("stretch tree of depth \(stretchDepth) check: " +
     "\(Tree.new(0, stretchDepth).check)")
 
-let longLivedTree = Tree.new(0, maxDepth)
+let mut longLivedTree = Tree.new(0, maxDepth)
 
 // iterations = 2 ** maxDepth
-let iterations = 1
-let d = 0
+let mut iterations = 1
+let mut d = 0
 while (d < maxDepth) {
   iterations = iterations * 2
   d = d + 1
 }
 
-let depth = minDepth
+let mut depth = minDepth
 while (depth < stretchDepth) {
-  let check = 0
-  let i = 1
+  let mut check = 0
+  let mut i = 1
   while (i <= iterations) {
     check = check + Tree.new(i, depth).check + Tree.new(0 - i, depth).check
     i = i + 1

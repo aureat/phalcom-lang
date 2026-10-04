@@ -4,7 +4,7 @@
 // A `const` field with no default is assignable inside its constructor.
 
 class Id {
-  const _id
+  _id
 
   @constructor
   new(_ v) {

@@ -3,13 +3,14 @@
 // status: PASS
 
 class Box {
+  mut _value
   @constructor
   new() { _value = 1 }
   value { _value }
   value=(_ next) { _value = next }
 }
 
-const box = Box.new()
-const setter = (Box >> #value=(_)).bind(box)
+let box = Box.new()
+let setter = (Box >> #value=(_)).bind(box)
 setter(12)
 System.print(box.value)

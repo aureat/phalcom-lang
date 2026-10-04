@@ -32,36 +32,36 @@ class Main {
     System.print("")
 
     /// Test CellValue
-    const n1: Int = Value.CellNum.of(5)
-    const n2: Int = Value.CellNum.of(3)
-    const n2: Value.CellNum = Value.CellNum.of(3)
+    let n1: Int = Value.CellNum.of(5)
+    let n2: Int = Value.CellNum.of(3)
+    let n2: Value.CellNum = Value.CellNum.of(3)
     System.print("CellNum(5) + CellNum(3) = " + n1.plus(n2).toString)
     System.print("CellNum(5) - CellNum(3) = " + n1.minus(n2).toString)
     System.print("CellNum(5) * CellNum(3) = " + n1.times(n2).toString)
     System.print("CellNum(5) / CellNum(3) = " + n1.dividedBy(n2).toString)
     System.print("")
 
-    const t1 = Value.CellText.of("hello")
+    let t1 = Value.CellText.of("hello")
     System.print("CellText('hello').toString = " + t1.toString)
     System.print("CellText('hello') + CellNum(5) = " + t1.plus(n1).toString)
     System.print("")
 
-    const err = Value.ErrorVal.divByZero
+    let err = Value.ErrorVal.divByZero
     System.print("ErrorVal.divByZero = " + err.toString)
     System.print("CellNum(5) + ErrorVal = " + n1.plus(err).toString)
     System.print("")
 
-    const e = Value.CellEmpty.of
+    let e = Value.CellEmpty.of
     System.print("CellEmpty + CellNum(5) = " + e.plus(n1).toString)
     System.print("CellEmpty * CellNum(5) = " + e.times(n1).toString)
     System.print("")
 
     /// Test division by zero
-    const divZero = n1.dividedBy(Value.CellNum.of(0))
+    let divZero = n1.dividedBy(Value.CellNum.of(0))
     System.print("CellNum(5) / CellNum(0) = " + divZero.toString)
     System.print("")
 
-    let n3 = Value.CellNum.of(10)
+    let mut n3 = Value.CellNum.of(10)
 
     System.print("✓ All smoke tests passed")
   }

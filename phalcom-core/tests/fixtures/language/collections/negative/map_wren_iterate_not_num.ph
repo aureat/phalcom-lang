@@ -6,7 +6,7 @@
 // (content irrelevant) hits the same `Expected String, got number` arithmetic
 // rejection as `map_wren_iterate_not_int.ph`.
 
-const m = Map.new()
+let m = Map.new()
 m.at(1, put: 2)
 m.at(3, put: 4)
 m.iterate("2")

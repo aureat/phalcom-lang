@@ -3,4 +3,4 @@
 // status: NEGATIVE
 // Repeated bare Symbol labels are a compile-time provable duplicate.
 
-const impossible = Map { same: 1, same: 2 }
+let impossible = Map { same: 1, same: 2 }

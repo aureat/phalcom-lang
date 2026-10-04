@@ -1,3 +1,3 @@
 from .dependent import DepThing
 
-let d = DepThing.new()
+let mut d = DepThing.new()

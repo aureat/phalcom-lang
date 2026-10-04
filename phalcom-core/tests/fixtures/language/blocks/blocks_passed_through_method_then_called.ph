@@ -7,6 +7,7 @@
 // tripped through the object, proving blocks are ordinary first-class values
 // across method-call boundaries.
 class Box {
+  mut _block
   store(_ block) {
     _block = block
     return self
@@ -15,7 +16,7 @@ class Box {
     return _block
   }
 }
-const box = Box.new()
+let box = Box.new()
 box.store(|| { 6 * 7 })
-const retrieved = box.fetch()
+let retrieved = box.fetch()
 System.print(retrieved.call())

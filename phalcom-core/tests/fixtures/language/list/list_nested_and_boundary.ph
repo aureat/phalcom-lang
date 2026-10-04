@@ -6,7 +6,7 @@
 // reference); empty-list boundary for `each`/`map`/`filter`/`reduce`
 // (all must be no-ops/identity, never a panic on a zero-length receiver).
 
-const outer = []
+let outer = []
 outer.append([1, 2])
 outer.append([3])
 System.print(outer.size)
@@ -16,9 +16,9 @@ System.print(outer.at(0))
 System.print(outer.at(0).size)
 System.print(outer)
 
-const empty = []
+let empty = []
 System.print(empty.isEmpty)
-let sum = 0
+let mut sum = 0
 empty.each |x| { sum = sum + x }
 System.print(sum)
 System.print(empty.map |x| { x * 2 }.toList)

@@ -1,4 +1,4 @@
-let badName = Path.ofBytes(Bytes.fromList([97, 47, 255, 46, 116, 120, 116]))
+let mut badName = Path.ofBytes(Bytes.fromList([97, 47, 255, 46, 116, 120, 116]))
 System.print(badName.extension)
 System.print(Path.ofBytes(Bytes.fromList([97, 46, 255])).extension)
 System.print(Path.ofBytes(Bytes.fromList([97, 46, 116, 120, 116])).extension)

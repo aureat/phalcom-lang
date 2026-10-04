@@ -1,4 +1,5 @@
 class Person {
+  mut _name
   @constructor
   make(_ name) {
     _name = name

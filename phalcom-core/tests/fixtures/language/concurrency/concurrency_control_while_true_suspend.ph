@@ -3,13 +3,13 @@
 // status: PASS
 // Proves that Block.whileTrue condition and body can suspend and resume freely.
 
-let f = Fiber.new || {
-  let count = 0
-  let cond = || {
+let mut f = Fiber.new || {
+  let mut count = 0
+  let mut cond = || {
     Fiber.yield("checking " + count.toString)
     count < 2
   }
-  let body = || {
+  let mut body = || {
     Fiber.yield("body " + count.toString)
     count = count + 1
   }

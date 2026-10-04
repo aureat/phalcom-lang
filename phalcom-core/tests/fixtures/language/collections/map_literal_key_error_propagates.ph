@@ -4,7 +4,7 @@
 // A key hash failure remains its original Error. It occurs after this entry's
 // value evaluation and stops later associations from running.
 
-let trace = []
+let mut trace = []
 
 class ExplodingKey {
   hash {
@@ -13,10 +13,10 @@ class ExplodingKey {
   }
 }
 
-const value = || { trace.append("value"); 1 }
-const later = || { trace.append("later"); 2 }
-const caught = || {
-  const ignored = Map {
+let value = || { trace.append("value"); 1 }
+let later = || { trace.append("later"); 2 }
+let caught = || {
+  let ignored = Map {
     [ExplodingKey.new()]: value.call(),
     [#later]: later.call(),
   }

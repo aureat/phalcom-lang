@@ -4,6 +4,6 @@
 // Ported from wren/test/core/map/new.wren — `Map.new()` starts empty; the
 // native `toString` renders it `{}` (Wren's own expectation, unchanged).
 
-const m = Map.new()
+let m = Map.new()
 System.print(m.size)
 System.print(m)

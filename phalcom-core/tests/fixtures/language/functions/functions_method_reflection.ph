@@ -16,11 +16,11 @@ class Greeter {
     return "Hello, " + name
   }
 }
-const g = Greeter.new()
-const m = g.methodFor(Symbol.new("greet(_)"))
-const args = ("World",)
+let g = Greeter.new()
+let m = g.methodFor(Symbol.new("greet(_)"))
+let args = ("World",)
 System.print(m.invokeOn(g, ***args))
-const bound = m.bind(g)
+let bound = m.bind(g)
 System.print(bound.call("World"))
 System.print(m.arity)
 System.print(m.name)

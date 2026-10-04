@@ -11,7 +11,7 @@ class Gadget {
   ok { "fine" }
 }
 
-const g = Gadget.new()
+let g = Gadget.new()
 System.print(g.ok)
 
 try {

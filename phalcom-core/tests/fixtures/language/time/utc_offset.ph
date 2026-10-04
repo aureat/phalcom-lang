@@ -4,13 +4,13 @@
 
 from universe.time import UtcOffset
 
-const zero = UtcOffset.utc
-const positive = UtcOffset.seconds(1)
-const negative = UtcOffset.seconds(-1)
-const lower = UtcOffset.seconds(-93_599)
-const upper = UtcOffset.seconds(93_599)
-const historical = UtcOffset.seconds(-21_036)
-const hourOffset = UtcOffset.hours(25)
+let zero = UtcOffset.utc
+let positive = UtcOffset.seconds(1)
+let negative = UtcOffset.seconds(-1)
+let lower = UtcOffset.seconds(-93_599)
+let upper = UtcOffset.seconds(93_599)
+let historical = UtcOffset.seconds(-21_036)
+let hourOffset = UtcOffset.hours(25)
 
 System.print(zero.seconds)
 System.print(positive.seconds)

@@ -1,4 +1,6 @@
 class TestObj {
+  mut _x
+  mut _m
   @constructor
   new() {
     _x = 42
@@ -12,7 +14,7 @@ class TestObj {
 class Main {
   @class
   main {
-    const obj = TestObj.new()
+    let obj = TestObj.new()
     System.print("obj.x = " + obj.x.toString)
     System.print("obj.m = " + obj.m.toString)
   }

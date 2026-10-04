@@ -14,8 +14,8 @@ impl YearMonth {
   isLeapYear -> Bool { Gregorian.isLeapYear(self.year) }
 
   plusMonths(_ amount: Int) -> YearMonth {
-    const resultYear = Gregorian.addMonthsYear(self.year, self.month.number, amount)
-    const resultMonth = Gregorian.addMonthsNumber(self.year, self.month.number, amount)
+    let resultYear = Gregorian.addMonthsYear(self.year, self.month.number, amount)
+    let resultMonth = Gregorian.addMonthsNumber(self.year, self.month.number, amount)
     YearMonth.new(resultYear, Month.fromNumber(resultMonth))
   }
 
@@ -29,7 +29,7 @@ data MonthDay private(_ month: Month, _ day: Int)
 impl MonthDay {
   @class
   new(_ month: Month, _ day: Int) -> MonthDay {
-    const maximum = Gregorian.daysInMonth(2000, month.number)
+    let maximum = Gregorian.daysInMonth(2000, month.number)
     if day < 1 or day > maximum {
       ArgumentError.new("MonthDay.new: day is outside the month").raise()
     }

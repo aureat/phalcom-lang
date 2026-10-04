@@ -18,7 +18,7 @@
 class Check {
   @class
   within(_ a, _ b, _ tol) {
-    const d = a - b
+    let d = a - b
     if (d < 0) { d = 0 - d }
     return d < tol
   }
@@ -26,9 +26,10 @@ class Check {
 
 // MINSTD (Park–Miller) linear congruential generator.
 class Rng {
+  mut _state
   @class
   seed(_ s) {
-    const r = self.new()
+    let r = self.new()
     r.setState(s)
     return r
   }
@@ -50,8 +51,8 @@ class MC {
   // Law of large numbers: mean of n uniforms.
   @class
   sampleMean(_ rng, _ n) {
-    const acc = 0
-    const i = 0
+    let acc = 0
+    let i = 0
     while (i < n) { acc = acc + rng.uniform; i = i + 1 }
     return acc / n
   }
@@ -59,27 +60,27 @@ class MC {
   // Population variance of n uniforms via E[x^2] - E[x]^2.
   @class
   sampleVariance(_ rng, _ n) {
-    const sum = 0
-    const sumSq = 0
-    const i = 0
+    let sum = 0
+    let sumSq = 0
+    let i = 0
     while (i < n) {
-      const u = rng.uniform
+      let u = rng.uniform
       sum = sum + u
       sumSq = sumSq + u * u
       i = i + 1
     }
-    const m = sum / n
+    let m = sum / n
     return sumSq / n - m * m
   }
 
   // pi/4 = P[(x,y) in unit quarter-disk], so pi ~ 4 * inside/n.
   @class
   piDarts(_ rng, _ n) {
-    const inside = 0
-    const i = 0
+    let inside = 0
+    let i = 0
     while (i < n) {
-      const x = rng.uniform
-      const y = rng.uniform
+      let x = rng.uniform
+      let y = rng.uniform
       if (x * x + y * y <= 1) { inside = inside + 1 }
       i = i + 1
     }
@@ -89,12 +90,12 @@ class MC {
   // Volume of unit ball / volume of [0,1]^3 cube octant = pi/6, so pi ~ 6*inside/n.
   @class
   piBall(_ rng, _ n) {
-    const inside = 0
-    const i = 0
+    let inside = 0
+    let i = 0
     while (i < n) {
-      const x = rng.uniform
-      const y = rng.uniform
-      const z = rng.uniform
+      let x = rng.uniform
+      let y = rng.uniform
+      let z = rng.uniform
       if (x * x + y * y + z * z <= 1) { inside = inside + 1 }
       i = i + 1
     }
@@ -104,11 +105,11 @@ class MC {
   // Expected number of uniforms drawn until the running sum first exceeds 1 is e.
   @class
   eEstimate(_ rng, _ trials) {
-    const total = 0
-    const t = 0
+    let total = 0
+    let t = 0
     while (t < trials) {
-      const sum = 0
-      const count = 0
+      let sum = 0
+      let count = 0
       while (sum <= 1) {
         sum = sum + rng.uniform
         count = count + 1
@@ -122,32 +123,32 @@ class MC {
   // Monte Carlo integral of block f over [0,1]: mean of f at uniform samples.
   @class
   integrate(_ rng, _ f, _ n) {
-    const acc = 0
-    const i = 0
+    let acc = 0
+    let i = 0
     while (i < n) { acc = acc + f.call(rng.uniform); i = i + 1 }
     return acc / n
   }
 }
 
 // --- law of large numbers -------------------------------------------------
-const g1 = Rng.seed(42)
+let g1 = Rng.seed(42)
 System.print(Check.within(MC.sampleMean(g1, 200000), 0.5, 0.01))          // true
-const g2 = Rng.seed(7)
+let g2 = Rng.seed(7)
 System.print(Check.within(MC.sampleVariance(g2, 200000), 1 / 12, 0.005))  // true (1/12 ~ 0.0833)
 
 // --- pi by two independent geometric estimators ---------------------------
-const g3 = Rng.seed(2024)
+let g3 = Rng.seed(2024)
 System.print(Check.within(MC.piDarts(g3, 300000), 3.141592653589793, 0.02))  // true
-const g4 = Rng.seed(99)
+let g4 = Rng.seed(99)
 System.print(Check.within(MC.piBall(g4, 300000), 3.141592653589793, 0.03))   // true
 
 // --- e via expected samples-to-exceed-1 -----------------------------------
-const g5 = Rng.seed(123)
+let g5 = Rng.seed(123)
 System.print(Check.within(MC.eEstimate(g5, 200000), 2.718281828459045, 0.02))  // true
 
 // --- Monte Carlo integration cross-checked against exact integrals --------
-const g6 = Rng.seed(555)
+let g6 = Rng.seed(555)
 System.print(Check.within(MC.integrate(g6, |x| 3 * x * x, 300000), 1, 0.02))  // true (int 3x^2 = 1)
-const g7 = Rng.seed(777)
+let g7 = Rng.seed(777)
 System.print(Check.within(MC.integrate(g7, |x| 4 / (1 + x * x), 300000),
                           3.141592653589793, 0.02))                            // true (-> pi)

@@ -24,7 +24,7 @@ System.print(C.get)
 class Probe {
   @class
   run() {
-    let List = 42
+    let mut List = 42
     System.print(C.get)
     List = 99
     System.print(C.get)
@@ -32,7 +32,7 @@ class Probe {
 }
 Probe.run()
 
-let x = 1
+let mut x = 1
 class D {
   @class
   get { x }

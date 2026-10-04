@@ -2,5 +2,5 @@
 // spec: CONC002.C4.P2
 // status: NEGATIVE
 
-const f = Future.race([])
+let f = Future.race([])
 f.await

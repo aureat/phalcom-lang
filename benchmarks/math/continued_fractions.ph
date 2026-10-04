@@ -13,7 +13,7 @@
 class Check {
   @class
   approx(_ a, _ b) {
-    const d = a - b
+    let d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.0000001
   }
@@ -22,8 +22,8 @@ class Check {
 class CF {
   @class
   sqrt(_ a) {
-    const g = a
-    const i = 0
+    let g = a
+    let i = 0
     while (i < 50) { g = (g + a / g) / 2; i = i + 1 }
     return g
   }
@@ -31,8 +31,8 @@ class CF {
   // phi = 1 + 1/(1 + 1/(1 + ...)); iterate x = 1 + 1/x to the fixed point.
   @class
   golden {
-    const x = 1
-    const i = 0
+    let x = 1
+    let i = 0
     while (i < 90) { x = 1 + 1 / x; i = i + 1 }
     return x
   }
@@ -40,20 +40,20 @@ class CF {
   // sqrt(2) via CF [1; 2,2,2,...]: iterate y = 2 + 1/y (-> 1 + sqrt 2), so sqrt2 = y - 1.
   @class
   rootTwo {
-    const y = 2
-    const i = 0
+    let y = 2
+    let i = 0
     while (i < 90) { y = 2 + 1 / y; i = i + 1 }
     return y - 1
   }
 }
 
 // --- golden ratio: defining identity phi^2 == phi + 1 ---------------------
-const phi = CF.golden
+let phi = CF.golden
 System.print(Check.approx(phi * phi, phi + 1))                 // true  (pure identity)
 System.print(Check.approx(phi, (1 + CF.sqrt(5)) / 2))          // true  (closed form)
 
 // --- sqrt(2) from its continued fraction ----------------------------------
-const r = CF.rootTwo
+let r = CF.rootTwo
 System.print(Check.approx(r * r, 2))                           // true  (pure identity)
 System.print(Check.approx(r, CF.sqrt(2)))                      // true  (vs Newton)
 

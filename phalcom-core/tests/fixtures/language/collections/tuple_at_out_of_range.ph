@@ -5,10 +5,10 @@
 // panic — mirroring List/Map's absence boundary. Empty product construction
 // normalizes to Unit, which is intentionally not a Tuple.
 
-const t = (1, 2)
+let t = (1, 2)
 System.print(t.at(2))
 System.print(t.at(2) == None)
 System.print(t.at(99))
 
-const e = ()
+let e = ()
 System.print(e == ())

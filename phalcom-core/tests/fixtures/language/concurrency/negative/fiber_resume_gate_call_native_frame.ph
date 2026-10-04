@@ -10,11 +10,11 @@
 
 class Probe {
   hash {
-    const f = Fiber.new || { 1 }
+    let f = Fiber.new || { 1 }
     f.call()
     return 0
   }
 }
 
-let s = Set.new()
+let mut s = Set.new()
 s.add(Probe.new())

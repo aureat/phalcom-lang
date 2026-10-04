@@ -7,6 +7,6 @@
 
 class Widget { render { "drawn" }
 }
-const w = Widget.new()
+let w = Widget.new()
 System.print(w.respondsTo(Symbol.new("render")))
 System.print(w.respondsTo(Symbol.new("nonexistent")))

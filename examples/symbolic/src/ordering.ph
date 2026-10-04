@@ -1,11 +1,11 @@
 @sealed
 class Ordering {
-  @get _kind
+  @get mut _kind
 
-  @class _less
-  @class _equal
-  @class _greater
-  @class _unordered
+  @class mut _less
+  @class mut _equal
+  @class mut _greater
+  @class mut _unordered
 
   @private
   @constructor

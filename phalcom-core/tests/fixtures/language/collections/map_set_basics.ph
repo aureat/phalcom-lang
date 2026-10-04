@@ -4,7 +4,7 @@
 // Map/Set surface protocol: construction, keyed put/get/overwrite, includes,
 // remove idempotence, keys/values in iteration order, Set add idempotence.
 
-const m = Map.new()
+let m = Map.new()
 System.print(m.size)
 m.at(1, put: 10) // returns receiver
 m.at(2, put: 20) // returns receiver
@@ -14,13 +14,13 @@ m.at(1, put: 99)
 System.print(m[1])
 System.print(m.includes(2))
 System.print(m.includes(5))
-const removedValue = m.remove(2) // 20
+let removedValue = m.remove(2) // 20
 System.print(removedValue)
 System.print(m.size)
 System.print(m.keys.toList)
 System.print(m.values.toList)
 
-const s = Set.new()
+let s = Set.new()
 s.add(1).add(2).add(1)
 System.print(s.size)
 System.print(s.includes(2))

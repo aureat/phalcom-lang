@@ -3,9 +3,9 @@
 // status: PASS
 // Iterator take takes first n elements
 
-let source = [1, 2, 3, 4, 5]
-let view = source.iter.take(3)
-let result = []
+let mut source = [1, 2, 3, 4, 5]
+let mut view = source.iter.take(3)
+let mut result = []
 for x in view {
   result.append(x)
 }

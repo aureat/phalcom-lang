@@ -1,2 +1,2 @@
-let C = 1
+let mut C = 1
 export C

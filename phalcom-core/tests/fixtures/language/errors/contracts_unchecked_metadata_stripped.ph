@@ -12,6 +12,7 @@
 // reflection surface exists yet to observe it from source.)
 
 class Box {
+  mut _val
   @invariant(self.val >= 0)
 
   @constructor
@@ -32,7 +33,7 @@ class Box {
   }
 }
 
-const b = Box.new(5)
+let b = Box.new(5)
 System.print(b.val)
 
 // @requires(amount > 0) is stripped under --unchecked — an invalid argument

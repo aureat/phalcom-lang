@@ -4,20 +4,20 @@
 // Pending then/map/catch callbacks may park, return None or Error as data,
 // adopt a nested Future, and fail after waking.
 
-const source = Future.new()
-const gate = Future.new()
-const thenFuture = source.then |value| {
+let source = Future.new()
+let gate = Future.new()
+let thenFuture = source.then |value| {
   System.print("then-start")
   gate.await
   Future.value("then-done")
 }
-const mapFuture = source.map |value| {
+let mapFuture = source.map |value| {
   System.print("map-start")
   gate.await
   None
 }
-const rejected = Future.new()
-const catchFuture = rejected.catch |error| {
+let rejected = Future.new()
+let catchFuture = rejected.catch |error| {
   System.print("catch-start")
   gate.await
   Error.new("data")
@@ -32,9 +32,9 @@ System.print(thenFuture.await)
 System.print(mapFuture.await)
 System.print("catch-data: " + catchFuture.await.message)
 
-const nestedSource = Future.new()
-const nestedGate = Future.new()
-const nested = nestedSource.then |value| {
+let nestedSource = Future.new()
+let nestedGate = Future.new()
+let nested = nestedSource.then |value| {
   nestedGate.await
   Future.value("nested-done")
 }
@@ -45,9 +45,9 @@ nestedGate.settleValue(5)
 System.runScheduled()
 System.print(nested.await)
 
-const failSource = Future.new()
-const failGate = Future.new()
-const failed = failSource.then |value| {
+let failSource = Future.new()
+let failGate = Future.new()
+let failed = failSource.then |value| {
   failGate.await
   throw Error.new("callback-failure")
 }

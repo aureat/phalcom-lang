@@ -7,6 +7,7 @@
 // unaffected by this unit's changes.
 
 class Counter {
+  mut _count
   @constructor
   new(_ start) {
     _count = start
@@ -20,7 +21,7 @@ class Counter {
   count { _count }
 }
 
-const c = Counter.new(10)
+let c = Counter.new(10)
 c.increment()
 c.increment()
 System.print(c.count)

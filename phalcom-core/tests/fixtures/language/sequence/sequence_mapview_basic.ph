@@ -3,9 +3,9 @@
 // status: PASS
 // Iterator map applies its function during traversal; no direct collection lazy API is involved.
 
-let source = [1, 2, 3]
-let view = source.iter.map |x| { x * 2 }
-let result = []
+let mut source = [1, 2, 3]
+let mut view = source.iter.map |x| { x * 2 }
+let mut result = []
 for x in view {
   result.append(x)
 }

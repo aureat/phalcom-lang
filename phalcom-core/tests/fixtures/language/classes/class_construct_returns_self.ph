@@ -5,6 +5,7 @@
 // `construct` implicitly returns the freshly-allocated instance (`self`),
 // so the constructor result can be messaged directly.
 class Box {
+  mut _v
   @constructor
   new(v) { _v = v }
   v { _v }

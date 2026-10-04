@@ -7,8 +7,8 @@ import app.consumer.Consumer
 class Controller {
   @class
   run(_ value: Int, _ useA: Bool) {
-    let packet = Consumer.choose(value, useA)
-    let observed = packet.value()
+    let mut packet = Consumer.choose(value, useA)
+    let mut observed = packet.value()
     (observed, packet.class)
   }
 }

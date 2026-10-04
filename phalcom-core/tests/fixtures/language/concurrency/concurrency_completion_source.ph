@@ -2,7 +2,7 @@
 // spec: CONC002.C4.P1
 // status: PASS
 
-const cs = CompletionSource.new()
+let cs = CompletionSource.new()
 System.print(cs.future == cs.future)
 System.print(cs.future.isReady)
 
@@ -11,7 +11,7 @@ System.print(cs.tryResolve("second"))
 System.print(cs.tryReject(Error.new("error")))
 System.print(cs.future.await)
 
-const cs2 = CompletionSource.new()
+let cs2 = CompletionSource.new()
 System.print(cs2.tryReject(Error.new("failed")))
 System.print(cs2.tryReject(Error.new("second")))
 System.print(cs2.tryResolve("ok"))

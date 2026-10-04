@@ -4,6 +4,7 @@ class Client {
 }
 
 class Service {
+  mut _client
   @constructor
   new() {
     _client = Client.new()

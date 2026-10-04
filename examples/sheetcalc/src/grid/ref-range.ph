@@ -8,6 +8,11 @@ import .ref as RefModule
 /// order (B7:A1 == A1:B7). Implements Iterable so it works with for/map/where
 /// (REQ-GRID-7, REQ-GRID-8). Iterates in row-major order.
 class RefRange is Collection {
+  mut _minCol
+  mut _maxCol
+  mut _minRow
+  mut _maxRow
+  mut _width
   /// Construct a range between two corners. Normalizes order.
   @constructor
   fromTo(_ a, _ b) {
@@ -42,16 +47,16 @@ class RefRange is Collection {
   /// Parse A1:B7 notation into a RefRange.
   @class
   fromA1(_ text) {
-    let parts = text.split(":")
+    let mut parts = text.split(":")
     return RefRange.fromTo(RefModule.Ref.fromA1(parts.at(0)), RefModule.Ref.fromA1(parts.at(1)))
   }
 }
 
 class RefRangeIterator {
-  _range: RefRange
-  _cursor: Int
-  _size: Int
-  _done: Bool
+  mut _range: RefRange
+  mut _cursor: Int
+  mut _size: Int
+  mut _done: Bool
 
   @constructor
   new(_ range: RefRange) {
@@ -66,9 +71,9 @@ class RefRangeIterator {
       _done = true
       return None
     }
-    let dc = _cursor % _range.width
-    let dr = (_cursor - dc) / _range.width
-    let ref = RefModule.Ref.at(_range.minCol + dc, _range.minRow + dr)
+    let mut dc = _cursor % _range.width
+    let mut dr = (_cursor - dc) / _range.width
+    let mut ref = RefModule.Ref.at(_range.minCol + dc, _range.minRow + dr)
     _cursor = _cursor + 1
     return Some(ref)
   }

@@ -8,11 +8,11 @@ from universe.time.calendar.month import Month
 from universe.time.calendar.partial import MonthDay, YearMonth
 from universe.time.calendar.time import Time
 
-const date = Date.new(2024, Month::February, 29)
-const time = Time.new(23, 59, 58, 123)
-const datetime = DateTime.new(date, time)
-const yearMonth = YearMonth.new(2024, Month::February)
-const monthDay = MonthDay.new(Month::February, 29)
+let date = Date.new(2024, Month::February, 29)
+let time = Time.new(23, 59, 58, 123)
+let datetime = DateTime.new(date, time)
+let yearMonth = YearMonth.new(2024, Month::February)
+let monthDay = MonthDay.new(Month::February, 29)
 
 System.print(date.dayOfYear)
 System.print(date.weekday.number)

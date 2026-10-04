@@ -3,7 +3,7 @@
 // status: PASS
 // System.schedule rejects a Fiber that is already in Yielded status.
 
-const f = Fiber.new || {
+let f = Fiber.new || {
   Fiber.yield("yielded")
 }
 

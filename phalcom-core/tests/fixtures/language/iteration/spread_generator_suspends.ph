@@ -7,7 +7,7 @@
 
 class YieldingSource is Iterable {
   iterate(_ cursor) {
-    let next = (cursor == None).ifTrue(|| { 1 }, ifFalse: || { cursor + 1 })
+    let mut next = (cursor == None).ifTrue(|| { 1 }, ifFalse: || { cursor + 1 })
     return (next <= 3).ifTrue(|| {
       Fiber.yield(next * 10)
       next
@@ -21,7 +21,7 @@ class Receiver {
   collect(_ a, _ b, _ c) { return a * 100 + b * 10 + c }
 }
 
-const f = Fiber.new || {
+let f = Fiber.new || {
   Receiver.new().collect(*YieldingSource.new())
 }
 

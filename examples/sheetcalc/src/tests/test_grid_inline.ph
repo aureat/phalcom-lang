@@ -1,4 +1,6 @@
 class TestGrid {
+  mut _cells
+  mut _minCol
   @constructor
   new() {
     System.print("[TestGrid construct] running")
@@ -20,11 +22,11 @@ class Main {
   @class
   main {
     System.print("Test inline Grid")
-    const g = TestGrid.new()
+    let g = TestGrid.new()
     System.print("Grid created, minCol = " + g.minCol.toString)
     System.print("About to call set()")
-    const r = "key"
-    const c = "cell"
+    let r = "key"
+    let c = "cell"
     g.set(r, c)
     System.print("set() done")
   }

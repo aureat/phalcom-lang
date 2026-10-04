@@ -5,5 +5,5 @@ class Product {
   productOnly() { }
 }
 
-const result = Provider.Relay.new().forward(Product.new())
+let result = Provider.Relay.new().forward(Product.new())
 result./*@result*/toString()

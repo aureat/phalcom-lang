@@ -1,3 +1,3 @@
-const m = Map {a: 1, b: 2}
+let m = Map {a: 1, b: 2}
 System.print(m[#a])
 System.print(m[#b])

@@ -8,6 +8,7 @@
 // the inherited slot. Both matching-arity `new` and named ctors inherit.
 
 class Point2 {
+  mut _v
   @constructor
   new(_ v) { _v = v }
   @constructor
@@ -16,7 +17,7 @@ class Point2 {
 }
 class Point3 is Point2 {
 }
-const a = Point3.new(11)
+let a = Point3.new(11)
 System.print(a.v)
-const b = Point3.named(22)
+let b = Point3.named(22)
 System.print(b.v)

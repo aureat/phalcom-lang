@@ -4,6 +4,8 @@
 // A constructor's matching `super.new` targets the hidden initializer, while
 // an unrelated `super.mark` remains an ordinary instance-side super-send.
 class Base {
+  mut _base
+  mut _marked
   @constructor
   new(_ value) { _base = value }
   mark(_ value) { _marked = value + 10 }
@@ -17,6 +19,6 @@ class Derived is Base {
     super.mark(value)
   }
 }
-let d = Derived.new(5)
+let mut d = Derived.new(5)
 System.print(d.base)
 System.print(d.marked)

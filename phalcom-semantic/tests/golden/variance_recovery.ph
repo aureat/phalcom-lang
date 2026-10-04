@@ -9,7 +9,7 @@ class Cat is Animal { @constructor new() {} }
 class Dog is Animal { @constructor new() {} }
 
 class Producer<+T> {
-  _value: T
+  mut _value: T
   @constructor new(_ value: T) { _value = value }
   value() -> T { _value }
 }
@@ -28,11 +28,11 @@ class Shelter {
 class Service {
   @class
   run(_ flag: Bool) {
-    let producer: Producer<Animal> = Shelter.choose(flag)
-    let animal = producer.value()
+    let mut producer: Producer<Animal> = Shelter.choose(flag)
+    let mut animal = producer.value()
 
-    let bad: Producer<String> = Shelter.choose(flag)
-    let independent = 42
+    let mut bad: Producer<String> = Shelter.choose(flag)
+    let mut independent = 42
 
     (animal, independent)
   }

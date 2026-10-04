@@ -6,7 +6,7 @@
 // `<ClassName> class`); a metaclass's own `.class` is `Class` itself.
 
 class Point {}
-const p = Point.new()
+let p = Point.new()
 System.print(p.class.name)
 System.print(Point.class.name)
 System.print(Point.class.class.name)

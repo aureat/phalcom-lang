@@ -7,13 +7,13 @@
 // inherits `Object#hash` (identity), so two structurally equal-but-distinct
 // lists hash UNEQUAL even though `==` reports them equal.
 
-const t1 = (1, 2)
-const t2 = (1, 2)
+let t1 = (1, 2)
+let t2 = (1, 2)
 System.print(t1 == t2)
 System.print(t1.hash == t2.hash)
 
-const l1 = [1, 2]
-const l2 = [1, 2]
+let l1 = [1, 2]
+let l2 = [1, 2]
 System.print(l1 == l2)
 System.print(l1.hash == l2.hash)
 System.print(l1.hash == l1.hash)

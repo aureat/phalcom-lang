@@ -9,7 +9,9 @@
 // `super.<name>` production only accepts an identifier or `class` after the
 // dot, not an operator token — see returned-report suspected gap.)
 
-class Box { value { _val }
+class Box {
+  mut _val
+ value { _val }
   @constructor
   new(_ v) { _val = v }
   +(_ other) { return Box.new(_val + other.value) }
@@ -18,8 +20,8 @@ class LoudBox is Box {
   @constructor
   new(_ v) { super.new(v) }
 }
-const a = LoudBox.new(2)
-const b = LoudBox.new(3)
-const c = a + b
+let a = LoudBox.new(2)
+let b = LoudBox.new(3)
+let c = a + b
 System.print(c.value)
 System.print(c.class.name)

@@ -3,8 +3,8 @@
 // status: PASS
 // Proves that Block.ensure cleanup is suspension-transparent: it can yield and restores saved outcome.
 
-let f = Fiber.new || {
-  let body = || { 42 }
+let mut f = Fiber.new || {
+  let mut body = || { 42 }
   body.ensure || {
     Fiber.yield("cleanup step 1")
     Fiber.yield("cleanup step 2")

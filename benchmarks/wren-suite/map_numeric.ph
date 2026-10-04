@@ -5,15 +5,15 @@
 // Map). `{}` is the empty-BLOCK literal in Phalcom, not empty-map (spec §6)
 // — `{}` -> `Map.new()`. `1..2000000` (inclusive) range-in-for replaced with
 // a while-counter.
-let map = Map.new()
+let mut map = Map.new()
 
-let i = 1
+let mut i = 1
 while (i <= 2000000) {
   map.at(i, put: i)
   i = i + 1
 }
 
-let sum = 0
+let mut sum = 0
 i = 1
 while (i <= 2000000) {
   sum = sum + map[i]

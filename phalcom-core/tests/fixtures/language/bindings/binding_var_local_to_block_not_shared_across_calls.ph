@@ -7,8 +7,8 @@
 // closures). Each `.call()` re-enters with a brand-new `localVar`, so
 // mutating it inside the block never persists to the next call.
 
-const bump = || {
-  let localVar = 5
+let bump = || {
+  let mut localVar = 5
   localVar = localVar + 1
   System.print(localVar)
 }

@@ -5,5 +5,5 @@
 class Adder {
   move(_ a, _ b) { return a + b }
 }
-const f = (Adder >> #move(_,_)).bind(Adder.new())
+let f = (Adder >> #move(_,_)).bind(Adder.new())
 System.print(f(3, 4))

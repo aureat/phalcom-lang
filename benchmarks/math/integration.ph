@@ -14,7 +14,7 @@
 class Check {
   @class
   approx(_ a, _ b) {
-    const d = a - b
+    let d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.00001
   }
@@ -26,11 +26,11 @@ class Simpson {
   // `f` is any block taking one number and returning a number.
   @class
   integrate(_ f, _ a, _ b, _ n) {
-    const h = (b - a) / n
-    const s = f.call(a) + f.call(b)
-    const k = 1
-    const x = 0
-    const coef = 0
+    let h = (b - a) / n
+    let s = f.call(a) + f.call(b)
+    let k = 1
+    let x = 0
+    let coef = 0
     while (k < n) {
       x = a + k * h
       coef = 4
@@ -53,7 +53,7 @@ System.print(Check.approx(Simpson.integrate( |x| x * x * x, 0, 2, 100), 4))     
 System.print(Check.approx(Simpson.integrate( |x| x * x, 0, 1, 1000), 1 / 3))     // true
 
 // --- linearity: integral(f) + integral(g) == integral(f+g) ----------------
-const a = Simpson.integrate( |x| x * x, 0, 1, 500)
-const b = Simpson.integrate( |x| x, 0, 1, 500)
-const ab = Simpson.integrate( |x| x * x + x, 0, 1, 500)
+let a = Simpson.integrate( |x| x * x, 0, 1, 500)
+let b = Simpson.integrate( |x| x, 0, 1, 500)
+let ab = Simpson.integrate( |x| x * x + x, 0, 1, 500)
 System.print(Check.approx(a + b, ab))                          // true

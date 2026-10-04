@@ -6,7 +6,7 @@
 // its first `call()`, delivering the last statement's value — `Unit`, since
 // `System.print` answers `Unit` — as the call's result.
 
-const fiber = Fiber.new || {
+let fiber = Fiber.new || {
   System.print("fiber")
 }
 

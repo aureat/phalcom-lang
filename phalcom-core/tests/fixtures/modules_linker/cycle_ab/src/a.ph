@@ -1,3 +1,3 @@
 from .b import X
-let A = 1
+let mut A = 1
 export A

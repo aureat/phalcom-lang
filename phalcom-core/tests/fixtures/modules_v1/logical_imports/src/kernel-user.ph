@@ -1,2 +1,2 @@
-let total = 3
+let mut total = 3
 export total
