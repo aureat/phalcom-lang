@@ -28,6 +28,7 @@ pub mod pattern;
 pub mod result;
 pub mod row_inference;
 pub mod statement;
+pub mod static_body;
 pub mod type_member_declaration;
 pub mod typed_expr;
 

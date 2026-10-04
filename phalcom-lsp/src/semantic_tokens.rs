@@ -645,7 +645,7 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>)
                     collect_member_decl_name(member, out);
                 }
             }
-            Statement::TypeAlias(alias) => {
+            Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => {
                 out.push(DeclNameOverride {
                     range: alias.name_range,
                     kind: SemanticTokenKind::Class,

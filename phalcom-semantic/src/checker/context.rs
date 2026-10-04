@@ -33,6 +33,7 @@ use phalcom_native_surface::NATIVE_SURFACES;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Storage abstraction for dispatch resolver avoiding per-callable cloning.
 ///
@@ -209,6 +210,39 @@ impl<'a> TrackingTypeResolver<'a> {
     pub(crate) fn inner(&self) -> &'a dyn TypeResolver {
         self.inner
     }
+
+    /// Resolves an application target through the ordinary linked-name
+    /// resolver while recording the static-definition product as its
+    /// declaration dependency. Value-domain static definitions do not publish
+    /// a nominal declaration shell or C3 alias product.
+    pub(crate) fn resolve_static_definition_name(
+        &self,
+        current_module: &ModuleId,
+        root: &str,
+        members: &[String],
+    ) -> Option<(DeclarationId, Arc<crate::static_definition::StaticDefinitionProduct>)> {
+        if is_query_owned_module(current_module) {
+            record_query_dependency(&self.dependencies, SemanticDependency::LinkedName(current_module.clone(), root.to_string()));
+        }
+
+        let qualified_target = if members.len() == 1 {
+            self.inner.resolve_module_alias(current_module, root)
+        } else {
+            None
+        };
+        if let Some(target) = &qualified_target {
+            if is_query_owned_module(target) {
+                record_query_dependency(&self.dependencies, SemanticDependency::PublicExport(target.clone(), members[0].clone()));
+            }
+        }
+
+        let declaration = self.inner.resolve_type_name(current_module, root, members)?;
+        let product = self.inner.resolve_static_definition(&declaration)?;
+        if is_query_owned_module(&declaration.module) && !is_bootstrap_declaration(&declaration) {
+            record_query_dependency(&self.dependencies, SemanticDependency::StaticDefinition(declaration.clone()));
+        }
+        Some((declaration, product))
+    }
 }
 
 /// Resolves one type name while exposing the exact semantic facts consumed by
@@ -283,6 +317,14 @@ impl TypeResolver for TrackingTypeResolver<'_> {
 
     fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
         self.inner.resolve_alias_form(declaration)
+    }
+
+    fn resolve_static_definition(&self, declaration: &DeclarationId) -> Option<Arc<crate::static_definition::StaticDefinitionProduct>> {
+        let product = self.inner.resolve_static_definition(declaration);
+        if product.is_some() {
+            record_query_dependency(&self.dependencies, SemanticDependency::StaticDefinition(declaration.clone()));
+        }
+        product
     }
 
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
@@ -467,6 +509,8 @@ pub struct CheckingContext<'a> {
     pub next_analysis_incident: u32,
     pub next_binding_id: u32,
     pub expressions: ExpressionAnalysisIndex,
+    pub(crate) checked_static_applications: Vec<crate::static_definition::CheckedStaticApplication>,
+    pub(crate) checked_static_constructions: BTreeMap<ExpressionId, crate::static_definition::CheckedStaticConstruction>,
     pub for_iteration_lanes: crate::checker::analysis::ForIterationLaneResolutionIndex,
     pub positional_expansions: crate::checker::analysis::PositionalExpansionIterationResolutionIndex,
     pub known_invalid_positional_expansions: crate::checker::analysis::KnownInvalidPositionalExpansionIndex,
@@ -590,6 +634,8 @@ impl<'a> CheckingContext<'a> {
             next_analysis_incident: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
+            checked_static_applications: Vec::new(),
+            checked_static_constructions: BTreeMap::new(),
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
@@ -693,6 +739,8 @@ impl<'a> CheckingContext<'a> {
             next_analysis_incident: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
+            checked_static_applications: Vec::new(),
+            checked_static_constructions: BTreeMap::new(),
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
@@ -775,6 +823,8 @@ impl<'a> CheckingContext<'a> {
             next_analysis_incident: self.next_analysis_incident,
             next_binding_id: self.next_binding_id,
             expressions: self.expressions.clone(),
+            checked_static_applications: self.checked_static_applications.clone(),
+            checked_static_constructions: self.checked_static_constructions.clone(),
             for_iteration_lanes: self.for_iteration_lanes.clone(),
             positional_expansions: self.positional_expansions.clone(),
             known_invalid_positional_expansions: self.known_invalid_positional_expansions.clone(),
@@ -1167,6 +1217,41 @@ impl<'a> CheckingContext<'a> {
 
     pub fn current_expression_id(&self) -> Option<ExpressionId> {
         self.expression_owners.last().copied()
+    }
+
+    pub(crate) fn record_checked_static_application(
+        &mut self,
+        owner: DeclarationId,
+        source_range: SourceRange,
+        target: DeclarationId,
+        signature: crate::static_definition::StaticDefinitionSignature,
+        arguments: Box<[crate::static_definition::CheckedStaticApplicationArgument]>,
+    ) -> Option<crate::static_definition::StaticApplicationId> {
+        let expression = self.current_expression_id()?;
+        let ordinal = u32::try_from(self.checked_static_applications.len()).ok()?;
+        let id = crate::static_definition::StaticApplicationId {
+            body: crate::static_definition::StaticBodyId(owner),
+            ordinal,
+        };
+        self.checked_static_applications.push(crate::static_definition::CheckedStaticApplication {
+            id: id.clone(),
+            expression,
+            source_range,
+            target,
+            signature,
+            arguments,
+        });
+        Some(id)
+    }
+
+    pub(crate) fn record_checked_static_construction(&mut self, construction: crate::static_definition::CheckedStaticConstruction) {
+        self.checked_static_constructions.insert(construction.expression, construction);
+    }
+
+    pub(crate) fn expression_id_for_static_range(&self, range: phalcom_common::range::SourceRange) -> Option<ExpressionId> {
+        let mut matches = self.expressions.iter().filter_map(|(id, analysis)| (analysis.range == range).then_some(*id));
+        let expression = matches.next()?;
+        matches.next().is_none().then_some(expression)
     }
 
     pub(crate) fn trait_dispatch_candidates_for_current_expression(&self) -> Option<&[crate::trait_dispatch::TraitEvidencedMemberCandidate]> {
@@ -1654,6 +1739,8 @@ impl<'a> CheckingContext<'a> {
         analysis.causal_invalidity = typed.causal_invalidity;
         analysis.explanation = explanation;
         analysis.binding_read_safety = typed.binding_read_safety;
+        analysis.binding_read = typed.binding_read;
+        analysis.binding_write = typed.binding_write;
 
         self.expressions.insert(id, analysis.clone());
         analysis
@@ -1682,6 +1769,8 @@ impl<'a> CheckingContext<'a> {
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
         analysis.binding_read_safety = typed.binding_read_safety;
+        analysis.binding_read = typed.binding_read;
+        analysis.binding_write = typed.binding_write;
     }
 
     pub(crate) fn take_call_specialization(&mut self, id: ExpressionId) -> Option<crate::checker::analysis::CallSpecialization> {
@@ -1776,6 +1865,52 @@ impl<'a> CheckingContext<'a> {
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(name, LocalBindingInfo { id: binding_id, denotation });
         }
+        BindingDeclarationResult::Inserted(binding_id)
+    }
+
+    /// Imports an already checked binding fact into the current lexical scope
+    /// with a fresh body-local identity, without rerunning contract inference.
+    pub(crate) fn declare_checked_binding(&mut self, name: String, source: &crate::checker::analysis::BindingState) -> BindingDeclarationResult {
+        let Some(scope) = self.scopes.last() else {
+            return BindingDeclarationResult::Redeclared(BindingId(u32::MAX));
+        };
+        if let Some(existing) = scope.get(&name).cloned() {
+            let mut diagnostic = SemanticDiagnostic::error_in(
+                self.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::BindingRedeclared,
+                format!("binding `{name}` is already declared in this scope"),
+                source.range,
+            );
+            if let Some(previous) = self.flow.get_binding(existing.id) {
+                diagnostic = diagnostic.with_label(previous.range, "first declaration");
+            }
+            self.emit_diagnostic(diagnostic);
+            return BindingDeclarationResult::Redeclared(existing.id);
+        }
+
+        let binding_id = self.alloc_binding();
+        let seed = BindingSeed {
+            name: name.clone(),
+            parameter: None,
+            range: source.range,
+            contract: source.contract.clone(),
+            current: source.current.clone(),
+            denotation: source.denotation.clone(),
+            causal_invalidity: source.causal_invalidity,
+            mutable: source.mutable,
+            initialization: source.initialization,
+        };
+        self.flow.declare_seed(binding_id, seed, source.current.clone(), source.consistency.clone());
+        if let Some(state) = self.flow.get_binding(binding_id).cloned() {
+            self.binding_history.insert(binding_id, state);
+        }
+        self.scopes.last_mut().expect("scope checked above").insert(
+            name,
+            LocalBindingInfo {
+                id: binding_id,
+                denotation: source.denotation.clone(),
+            },
+        );
         BindingDeclarationResult::Inserted(binding_id)
     }
 

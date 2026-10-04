@@ -4,8 +4,8 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C4
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 depends_on:
   - LANG007.C4.P1
@@ -1728,6 +1728,12 @@ Immutable content/spelling semantics; no VM object/interner authority.
 
 Add proper `Type(TypeId)` and other `StaticTerm(TypeId)` with validation.
 
+Implemented API adaptation: `domain_of(ref, &TypeStore) -> Result<StaticValueDomain, _>`.
+The canonical value domain stores `TypeId`/`KindId`, so resolving primitive
+domains requires the paired TypeStore; this keeps built-in type identity in its
+existing authority instead of inventing a second registry. `intern_type` and
+`intern_static_term` likewise return checked results for invalid kind admission.
+
 ## Forbidden
 
 - per-query arenas referenced by DB products;
@@ -1851,7 +1857,23 @@ ValueType result mismatch uses existing relation engine
 
 ## Checkpoint update
 
-Record DAG/exact VariantId invariants.
+Record DAG/exact VariantId invariants. T5 execution record (2026-10-04):
+
+- **COMPLETE / IMPLEMENTED / FOCUSED_TESTED**.
+- Added immutable store-owned Tuple, P2 string-keyed Record, Data, and Variant
+  nodes. Constructors accept only existing same-lineage children.
+- Data payload order is canonicalized through `DataComponentId`; enum values
+  retain and validate exact `VariantId` and exact-case type identity.
+- `static_value_type` derives structural Tuple/Record types through `TypeStore`
+  and checks canonical Data/Enum products. `check_value_type` calls existing
+  assignability machinery.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::static_values_structural -- --nocapture`
+  selected 1 test and passed.
+- The paired-TypeStore-only `domain_of` method reports that structural values
+  need semantic products. Structural type-domain callers must use
+  `static_value_type` with Data/Enum tables; no second type authority was added.
+- Next task: T6 (ordinary checker-backed static body and exact intrinsic
+  authorization). P2 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 
 ---
@@ -1883,6 +1905,8 @@ StaticValueDomain
 
 ```text
 CheckedStaticBody
+CheckedStaticBodyProduct (separate SemanticDb query)
+ModuleStaticBindingIndex (ordinary-module-checker handoff)
 StaticBodyId
 StaticOperationResolution
 StaticOperationResolutionIndex
@@ -1897,6 +1921,7 @@ phase/result-domain diagnostics
 phalcom-semantic/src/static_intrinsic.rs
 phalcom-semantic/src/static_definition.rs
 phalcom-semantic/src/checker/static_body.rs        # or equivalent
+phalcom-semantic/src/db/{key.rs,product.rs,query.rs,fingerprint.rs,mod.rs}
 phalcom-semantic/src/checker/{analysis.rs,body.rs,statement.rs,expression.rs,context.rs,call.rs}
 phalcom-semantic/src/core_surface/identity.rs       # registry bootstrap helpers only if needed
 phalcom-semantic/src/diagnostic.rs
@@ -1919,11 +1944,65 @@ binding identity
 diagnostics
 ```
 
+### T6.1a Checked-body query ownership — implementation amendment
+
+The live session resolves and queries `StaticDefinitionProduct` before the
+canonical dispatch surfaces needed to check static bodies are available. That
+query's input fingerprint is currently declaration-only, it records no body
+semantic dependencies, and reuse returns the early product. Do not enrich and
+query that same key a second time.
+
+Give checked bodies a distinct query identity (`StaticBodyId`, backed by the
+definition's `DeclarationId`) and a distinct `CheckedStaticBodyProduct` in
+`SemanticDb`. Its input fingerprint covers the source body, signature/result
+domain, and phase-readable outer binding inputs. The ordinary checker supplies
+precise semantic dependencies; the output fingerprint covers exact selected
+callables, binding/slot mappings, operation resolutions, result facts, and
+diagnostics. Invalidate/recompute this product when any such input or
+dependency changes.
+
+### T6.1b Static-constant binding handoff — implementation amendment
+
+Static body checking must not reconstruct module binding names/types. The
+ordinary module checker currently retains `BindingAnalysisIndex` on `<main>`,
+but that state alone does not mark which immutable bindings are static
+constants, and its `BindingId` is body-local. Publish an explicit
+`ModuleStaticBindingIndex` alongside the ordinary module analysis. It maps
+stable module binding identity (`SymbolId`, or an equivalent `StaticConstantId`)
+to checked binding facts qualified by the owning `<main>` body, type/contract,
+source site, and a declaration-time phase category (`StaticConstant` versus
+runtime binding).
+
+Static-body setup consumes only this checker-produced product, seeds
+body-local environment bindings, and keeps their association to stable
+constant identities. It records which constants each body reads. The
+checked-body query fingerprints the consumed module-binding product and
+depends on it, so a changed constant declaration/type invalidates the body.
+T8 consumes the same product and the body's recorded stable constant reads
+when building `StaticConstant` queries; it must not resolve names or checked
+types again. Determine imports/aliases through the existing linked module
+identity products, not by spelling-based fallback.
+
+The snapshot-facing `StaticDefinitionProduct` remains the single public
+definition view and references the checked-body product after body checking.
+The checked-body query is the sole cached owner of checker facts; the snapshot
+view only composes it with the already-resolved signature/alias projection.
+Do not publish the early definition query as if its body were checked. This
+amendment preserves §5.4's canonical checked-definition contract while making
+the query lifecycle match live session ordering.
+
 ### T6.2 Static readability
 
-The checker distinguishes static-readable identities from runtime-only bindings.
+The checker consumes `ModuleStaticBindingIndex` facts published by ordinary
+module checking. It seeds fresh body-local binding identities for static
+constants, retains their mapping to stable `SymbolId`/`StaticConstantId`, and
+distinguishes static-readable identities from runtime-only bindings.
 
-A reference to runtime `let`, `let mut`, method parameter, `self`, field, runtime global or runtime closure capture is a phase error even when optimizer knowledge could prove a value constant.
+A reference to runtime `let`, `let mut`, method parameter, `self`, field,
+runtime global or runtime closure capture is a phase error even when optimizer
+knowledge could prove a value constant. Static-constant references are recorded
+by stable identity for T8 dependency construction; imports/aliases follow
+canonical linked identities.
 
 ### T6.3 Exact registry
 
@@ -2011,8 +2090,68 @@ Focused call/operator/static-body tests only.
 ## Checkpoint update
 
 Record exact semantic static-operation authorization as a durable invariant.
+T6 has started; the current implementation slice is not task completion:
+
+- `StaticIntrinsicRegistry` is private to additions and keyed by complete
+  `CallableId`; its initial `NumberAdd` entry is bootstrapped from the exact
+  canonical Universe `Number.+(_)` native surface row.
+- `resolve_ready_expressions` is crate-private, consumes ordinary
+  `ExpressionAnalysis`, and projects only ready entries whose exact selected
+  callable is allowlisted.
+- Focused integration test `foundations::static_intrinsics` passed 1/1,
+  covering exact core identity, same-spelling user rejection, and another
+  native owner rejection. Focused unit test
+  `static_intrinsic::tests::ready_analysis_projection_keeps_exact_callable_and_skips_invalid_sites`
+  passed 1/1, covering exact target preservation and invalid-expression
+  suppression. A focused `foundations::binding_init::read_after_assignment_is_proven`
+  test passed 1/1 after expression analysis began retaining the exact local
+  `BindingId`; the focused incremental fingerprint regression passed 1/1 for
+  identity-sensitive product hashing; `cargo check -p phalcom-semantic`
+  completed.
+- **T6 remains IN_PROGRESS / PARTIAL**. The exact registry and standalone
+  ordinary-checker body analyzer exist. `ModuleStaticBindingIndex` now carries
+  final checked main-body facts, linked import aliases follow canonical
+  `SymbolId`s, and a new analyzer entry point consumes them under fresh local
+  identities while recording stable constant reads. A distinct checked-body
+  query, query key/product, input/output fingerprints, semantic dependency
+  edges, and final session composition are now implemented. Snapshot-facing
+  definition products reference the checked-body result while the early
+  definition query remains definition-only. These latest changes are
+  implementation-only and unverified; focused query, invalidation, import,
+  phase, and result-domain regressions remain. P2 remains IN_PROGRESS /
+  PARTIAL / UNVERIFIED.
+
+### Consultation and plan amendment — checked-body query lifecycle
+
+The live session resolves `StaticDefinitionProduct` around
+`session.rs:3636–3659`, before final canonical checker/dispatch products exist.
+`query_static_definition` uses `QueryKey::StaticDefinition`, an
+ID-only input fingerprint, and no semantic dependencies; a reused query
+returns its earlier product. Therefore enriching that query after the final
+checker pass would permit stale body facts and would not invalidate them when
+dispatch/type dependencies change.
+
+The architectural consultation recommended a distinct incremental query keyed
+by `StaticBodyId`/`DeclarationId`, with precise checker dependencies and an
+output fingerprint, then composing that one checked-body result into the
+snapshot-facing static-definition product. The decision preserves
+`StaticDefinition` as the definition authority and prevents a second computed
+body authority. See the checkpoint consultation/amendment ledger for the
+evidence and decision.
 
 ---
+
+### T6 completion update — checked-body publication
+
+The separate checked-body query, module binding handoff, phase read/write
+checks, exact operation projection, and session snapshot composition are
+implemented. Focused evidence includes 4 selected
+`checker::static_body::tests`, 19 selected `foundations::static_` tests,
+and 3 selected `integration::static_definition_bodies` tests. The integration
+cases cover same-module and imported const identity plus provider-change
+invalidation and body recomputation. T6 is COMPLETE / IMPLEMENTED /
+FOCUSED_TESTED. The earlier partial-state note in this section records the
+intermediate point before those focused gates completed.
 
 # T7 — Implement bounded explicit-frame StaticEvaluator
 
@@ -2201,6 +2340,154 @@ Focused evaluator suite only.
 ## Checkpoint update
 
 Record evaluator frame/control seam and exact P2 supported subset.
+
+### T7 progress update — evaluator foundation slice
+
+The new `phalcom-semantic/src/static_eval/` module currently has an explicit
+work queue for primitive literals, checked parameter reads, checked local-slot
+reads/initialization, ordered expression-only lexical blocks, `if`, lazy
+`and`/`or`, and exact-authorized integer `Number.+`. Integer literal
+parsing and BigInt addition charge query steps proportionally to input size.
+Primitive Symbol values use the shared canonical selector encoder; positional
+Tuple and bare-label Record literals use the T5 StaticValueStore constructors.
+Evaluator arguments
+retain the checked interleaving of kinded TypeId arguments and ordinary
+StaticValue arguments; wrong argument counts or kinds fail before execution.
+Local declaration sites are joined to checked BindingId facts only when the
+checker-provided name and source range identify one unique local binding.
+
+Focused evidence: the checked static-body unit selector passed 4 tests,
+including evaluator parameter reduction, local initialization/read, argument
+count/kind rejection, budget exhaustion, and cancellation. The session
+integration selector passed 3 tests, covering exact-authorized integer
+addition, selected `if` branch reduction, paired lazy `and`/`or`
+positive/negative paths, and positional Tuple/bare-label Record construction.
+The same integration also reduces primitive Symbol literals into the semantic
+store, confirms that assignment through the checker-selected mutable BindingId
+updates the later read, and constructs positional Tuple and bare-label Record
+values through the semantic store.
+The semantic crate check completed. This is a partial implementation only.
+Static-definition applications/re-entry, Data/Variant construction, diagnostic
+traces, and remaining resource-boundary tests are open. Do not count local
+mutation or Tuple/Record construction among the remaining T7 work.
+Do not advance to T8.
+
+### T7.10 — checked static-application authority and publication resolution
+
+**Decision (2026-10-04):** add a checked static-application product carrying
+the exact target declaration/signature/domain and argument identities. T7 must
+consume that product; value-parameter applications are not deferred. Preserve
+C3 `TypeAliasInfo` as the optimized compatibility projection for ordinary
+Type-valued definitions. The product must be produced by ordinary semantic
+checking so it agrees with the canonical TypeForm result. Do not add evaluator
+name resolution or change static-definition identity.
+
+The checker records `CheckedStaticApplication` under `CheckedStaticBody`, adds
+a formal `SemanticDependency::StaticDefinition`, and fingerprints the
+denotation. The evaluator consumes this product without source-name lookup.
+
+**Original observation (2026-10-04, resolved):** adding `type Literal: Int = 3` and
+`type Applied: Int = Literal<>` to the previously passing
+`integration::static_definition_bodies` fixture causes its existing
+`ReadBase` lookup to fail because the published snapshot's static-definition
+table is empty. Removing the application makes that lookup pass. The focused
+selector therefore fails before it can assert the new checked product. The
+minimal isolated fixture is non-discriminating because it also produces no
+static-definition entries without an application. No application evaluator,
+spelling lookup, or corrective workaround has been added.
+
+The focused consultation identified the cause: `TrackingTypeResolver::resolve_type_name`
+recorded a `DeclarationShell` edge for value-domain static definitions. Its
+replay path accepts declaration/alias products, while these definitions publish
+neither. The failed replay prevented checked-body publication and left the
+prior empty snapshot. `resolve_static_definition_name` now preserves
+`LinkedName` and `PublicExport` edges while recording the canonical
+`StaticDefinition` edge without the invalid shell edge. The three-test
+`integration::static_definition_bodies` selector passed after this correction.
+
+The evaluator now reduces zero-argument, value-parameter, directly resolved
+kinded-parameter, mixed kinded/value, and nested nonrecursive applications
+through explicit frames; exact self-reentry returns `Recursive`. The same
+focused selector passed 3/3 after adding the mixed-parameter regression. T7.10
+publication and these application paths are established; T7 remains open for
+kinded-expression applications and remaining resource-boundary tests. Bounded
+trace coverage is recorded under T7.12 below.
+
+### T7.11 — canonical checked-constructor projection
+
+The ordinary checker owns the construction decision. `CheckedStaticBody` must
+retain body-local associated-resolution facts and publish a compact static
+construction projection with exact `InvocationTargetId`, result `TypeId`,
+argument expression identities, and stable payload identities. For Data,
+convert the checker-produced argument/component mapping to exact
+`DataComponentId`s while `DataInfo` is available. For Variant, publish exact
+argument/`VariantFieldId` mapping when the accepted syntax can reorder or label
+payloads; never infer it from AST labels in the evaluator.
+
+`DataInfo` and `VariantInfo` stay in their canonical semantic tables. Supply
+borrowed canonical tables (and the canonical `TypeStore` required by T5's
+interners) through the evaluator's semantic environment. The evaluator
+consumes checked constructor facts and calls only the existing pure
+`StaticValueStore::intern_data` / `intern_variant` APIs; it does not resolve
+constructors or duplicate catalog metadata.
+
+Discriminating regressions must include reordered labeled Data payloads whose
+stored values follow exact component identity, and an exact Variant identity
+test that cannot pass by matching a case name alone. If the ordinary checker
+cannot publish exact Variant payload mapping for the accepted syntax, surface
+that gap at the checker product before implementing evaluator-side guesses.
+
+**Progress (2026-10-04):** `CheckedStaticBody` now retains body-local ordinary
+associated resolutions and a compact constructor product with exact invocation
+target, result type, argument expression IDs, and `DataComponentId` or
+`VariantFieldId` payload identities. The evaluator receives borrowed canonical
+TypeStore/Data/Enum tables through `with_semantic_tables` and calls the T5
+interners. The `integration::static_definition_bodies` selector passed 3/3
+with a reordered labeled `Point` constructor and two same-named `Same` cases
+under different enum owners. The evaluated Point matched canonical component
+identity/order, and the two Variant values remained distinct. No source-name or
+label fallback is used by the evaluator. T7 remains partial pending
+kinded-expression application and resource-boundary acceptance.
+
+### T7.12 — bounded evaluator trace and application cycle/resource evidence
+
+`StaticEvaluator::trace()` exposes the active/terminal definition,
+application, and source-expression path. Every trace push charges the existing
+`QueryBudget`; cancellation is checked before growth. There is no independent
+depth ceiling or new diagnostic budget. The evaluator outcome remains
+orthogonal to trace provenance.
+
+Focused `integration::static_definition_bodies` passed 3/3 after adding
+mutually recursive A→B→A definitions, application step-budget exhaustion, and
+trace assertions for the recursive target/source path. `Recursive`,
+`BudgetExceeded`, and `Cancelled` remain separate outcomes; the existing unit
+test covers pre-cancelled evaluation. T7 is still partial because kinded
+expression applications and remaining resource/value-node boundaries are
+open.
+
+### T7.10 plan amendment — kinded-expression result boundary (2026-10-04)
+
+An architectural consultation resolved the evaluator result shape: body
+completion and nested-application continuations need a tagged result with
+`StaticValue(StaticValueRef)` and `KindedTerm(TypeId)` cases. Keep the ordinary
+expression stack value-only. A kinded result may bind only the exact checked
+kinded parameter slot; the existing direct checked-`TypeId` argument path is
+unchanged. T7 support is limited to checked TypeForm/static-application
+results, and unsupported TypeForm computations fail closed. The evaluator
+must not resolve names/types or synthesize type products.
+
+The canonical TypeStore is borrowed immutably during evaluation, and general
+`TypeView` materialization requires mutable access. T7 therefore accepts a
+TypeForm result only when its checker-published canonical `TypeId` is
+independent of the callee's kinded parameters, or is exactly one of those
+parameter nodes; in the latter case, forward the supplied canonical `TypeId`
+unchanged. Reject composite results containing any callee kinded parameter,
+because specialization would require mutation/interning. Admit other already
+canonical results only when their kind matches the checked result domain. Do
+not create a cloned/parallel TypeStore or publish clone-qualified identities.
+Focused discriminators cover independent result, exact parameter forwarding,
+and composite parameter-dependent rejection. No wider TypeStore ownership
+change or TypeForm evaluator is authorized.
 
 ---
 
@@ -3448,3 +3735,46 @@ The highest-risk mistakes to prevent are:
 ```
 
 If live implementation pressure requires changing any of those boundaries, STOP AND CONSULT rather than improvising.
+
+
+### T7 focused acceptance closure — 2026-10-04
+
+The focused `integration::static_definition_bodies` selector passed 3/3 after
+adding the remaining discriminators for false and nested `if`, nested
+arithmetic, source-ordered mutable writes, uninitialized local reads, and
+immutable reassignment rejection. Existing coverage includes both lazy boolean
+operators and executed/untaken unsupported operations, application argument
+validation, self/mutual recursion, cancellation, trace growth, and structural
+construction identity. A Data-construction budget boundary proves exhaustion
+before interning the Data value node. The plan's optional separate value-node
+quota is not enabled: `QueryBudget` exposes no such quota. T7 is therefore
+`IMPLEMENTED / FOCUSED_TESTED`; proceed to T8. P2 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED` until T8–T11 and their gates complete.
+
+
+### T8 plan amendment — constant-owned initializer source/result (2026-10-04)
+
+The stable query identity is `StaticConstantId(SymbolId)`. Add a
+constant-specific initializer source/check result, fingerprint, and product
+keyed by that identity. Do not fabricate a `StaticDefinition` or reuse
+`StaticBodyId(DeclarationId)` for module constants. Extend `ModuleBindingFact`
+with the exact const declaration/initializer source site as it is built beside
+ordinary `<main>` analysis. Retrieve syntax from `ParsedModuleUnit` using that
+site and stable `SymbolId`; never re-resolve its name.
+
+`CallableAnalysis` provides checked expression facts but does not provide the
+initializer AST subtree or expression-tree relationship required to construct
+the evaluator body. Check the exact initializer with the shared ordinary
+checker in a static-body context, consuming canonical module bindings and
+existing dispatch/semantic products. This is another analysis invocation, not a
+second checker or resolution authority. The constant-owned product carries
+checked body facts, dependencies, evaluation outcome, and targeted source
+fingerprint.
+
+Amend the write set to include `phalcom-semantic/src/module_bindings.rs` and
+`phalcom-semantic/src/static_constant.rs` alongside the listed DB/session/
+snapshot files. Required discriminator: for two constants in one module,
+changing one initializer invalidates only its `StaticConstant(SymbolId)` result
+while reusing the other; assert checked reads preserve stable `SymbolId`s.
+T8.1/T8.2 are the next implementation slice. T9 remains blocked until T8 is
+accepted.

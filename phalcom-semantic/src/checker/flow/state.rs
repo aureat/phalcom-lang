@@ -461,15 +461,7 @@ impl FlowState {
         initial: TypeKnowledge,
         mutable: bool,
     ) {
-        self.declare_with_initialization(
-            binding,
-            name,
-            range,
-            contract,
-            initial,
-            mutable,
-            InitializationState::DefinitelyInitialized,
-        );
+        self.declare_with_initialization(binding, name, range, contract, initial, mutable, InitializationState::DefinitelyInitialized);
     }
 
     pub fn declare_with_initialization(
@@ -482,16 +474,7 @@ impl FlowState {
         mutable: bool,
         initialization: InitializationState,
     ) {
-        let state = BindingState::new_with_contract(
-            binding,
-            name,
-            range,
-            contract,
-            initial,
-            None,
-            mutable,
-            initialization,
-        );
+        let state = BindingState::new_with_contract(binding, name, range, contract, initial, None, mutable, initialization);
         self.bindings.insert(binding, state);
     }
 
@@ -863,9 +846,7 @@ impl FlowState {
                         && next_b.initialization == InitializationState::DefinitelyInitialized
                     {
                         InitializationState::DefinitelyInitialized
-                    } else if h_b.initialization == InitializationState::Uninitialized
-                        && next_b.initialization == InitializationState::Uninitialized
-                    {
+                    } else if h_b.initialization == InitializationState::Uninitialized && next_b.initialization == InitializationState::Uninitialized {
                         InitializationState::Uninitialized
                     } else {
                         InitializationState::MaybeInitialized

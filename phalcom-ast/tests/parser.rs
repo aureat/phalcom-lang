@@ -20,8 +20,9 @@
 use phalcom_ast::{
     ast::{
         AssociatedMemberSyntax, ClassMember, ExpansionMode, Expr, GenericArgumentSyntax, GenericConstraintSyntax, ImplementationKind, KindSyntax, MemberBody,
-        MetadataLiteral, RecordLiteralEntry, ReturnStatement, SetLiteralEntry, Statement, SymbolLiteralKind, TypeAnnotationExpr, TypeCallableItem,
-        TypeMemberArgumentSyntax, TypeMemberParameterDomainSyntax, TypeMemberResultSyntax, TypeMemberSelectorSyntax, TypeTupleItem, VarianceSyntax,
+        MetadataLiteral, RecordLiteralEntry, ReturnStatement, SetLiteralEntry, Statement, StaticDefinitionBody, StaticParameterSyntax, SymbolLiteralKind,
+        TypeAnnotationExpr, TypeCallableItem, TypeMemberArgumentSyntax, TypeMemberParameterDomainSyntax, TypeMemberResultSyntax, TypeMemberSelectorSyntax,
+        TypeTupleItem, VarianceSyntax,
     },
     error::SyntaxErrorKind,
     parse as parse_with_recovery, parse_source,
@@ -552,10 +553,10 @@ match subject {
     };
     assert_eq!(construction.target.root, "Person");
 
-    let Statement::TypeAlias(alias) = &program.statements[4] else {
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &program.statements[4] else {
         panic!("expected a structural type alias");
     };
-    assert!(matches!(&alias.body.expr, TypeAnnotationExpr::Record { .. }));
+    assert!(matches!(&alias.type_form_body().unwrap().expr, TypeAnnotationExpr::Record { .. }));
 
     let Statement::Expr {
         expr: Expr::Match(match_expr), ..
@@ -1257,27 +1258,27 @@ type Fn<*Ps> = (*Ps,) -> Bool
         assert_eq!(source_slice(source, parameter.mode_range.expect("operator range")), expected_operator);
     }
 
-    let Statement::TypeAlias(add_head) = &program.statements[3] else {
+    let (Statement::TypeDefinition(add_head) | Statement::TypeAlias(add_head)) = &program.statements[3] else {
         panic!("expected AddHead alias")
     };
-    let TypeAnnotationExpr::Tuple { elements, .. } = &add_head.body.expr else {
+    let TypeAnnotationExpr::Tuple { elements, .. } = &add_head.type_form_body().unwrap().expr else {
         panic!("expected tuple alias body")
     };
     assert!(matches!(elements[1], TypeTupleItem::Expansion(ref expansion) if expansion.mode == ExpansionMode::Positional));
 
-    let Statement::TypeAlias(callable) = &program.statements[4] else {
+    let (Statement::TypeDefinition(callable) | Statement::TypeAlias(callable)) = &program.statements[4] else {
         panic!("expected Fn alias")
     };
-    let TypeAnnotationExpr::Callable { parameters, .. } = &callable.body.expr else {
+    let TypeAnnotationExpr::Callable { parameters, .. } = &callable.type_form_body().unwrap().expr else {
         panic!("expected callable alias body")
     };
     assert!(matches!(parameters[0], TypeCallableItem::Expansion(ref expansion) if expansion.mode == ExpansionMode::Positional));
 
     let application = parse_source("type Applied<P> = Target<*P>\n", 0).expect("generic expansion parses");
-    let Statement::TypeAlias(alias) = &application.statements[0] else {
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &application.statements[0] else {
         panic!("expected type alias")
     };
-    let TypeAnnotationExpr::Application { arguments, .. } = &alias.body.expr else {
+    let TypeAnnotationExpr::Application { arguments, .. } = &alias.type_form_body().unwrap().expr else {
         panic!("expected generic application")
     };
     assert!(matches!(arguments[0], GenericArgumentSyntax::Expansion(ref expansion) if expansion.mode == ExpansionMode::Positional));
@@ -1286,11 +1287,11 @@ type Fn<*Ps> = (*Ps,) -> Bool
 #[test]
 fn parse_compact_type_lambda_as_generic_argument() {
     let program = parse_source("type M<E> = Monad<<X> =>> Either<E, X>>\n", 0).expect("compact type-lambda generic argument should parse");
-    let Statement::TypeAlias(alias) = &program.statements[0] else {
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &program.statements[0] else {
         panic!("expected type alias");
     };
 
-    let TypeAnnotationExpr::Application { arguments, .. } = &alias.body.expr else {
+    let TypeAnnotationExpr::Application { arguments, .. } = &alias.type_form_body().unwrap().expr else {
         panic!("expected outer type application");
     };
     assert_eq!(arguments.len(), 1);
@@ -1354,10 +1355,10 @@ fn compact_shift_tokens_remain_binary_operators_outside_type_application() {
 #[test]
 fn parse_type_alias_and_type_precedence() {
     let p = parse_source("type Callback<T> = (T) -> String | None\n", 0).expect("type alias with callable and union should parse");
-    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &p.statements[0] else { panic!() };
     assert_eq!(alias.name, "Callback");
-    assert_eq!(alias.generic_parameters.len(), 1);
-    match &alias.body.expr {
+    assert_eq!(alias.parameters.len(), 1);
+    match &alias.type_form_body().unwrap().expr {
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
             assert_eq!(parameters.len(), 1);
             match &result.expr {
@@ -1374,17 +1375,17 @@ fn parse_type_alias_and_type_precedence() {
 #[test]
 fn parse_static_alias_result_domain() {
     let p = parse_source("type DefaultShape: Shape = Shape\n", 0).expect("static alias result domain should parse");
-    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &p.statements[0] else { panic!() };
     assert!(
-        matches!(alias.result_kind, Some(KindSyntax::StaticDomain { ref form, .. }) if matches!(&form.expr, TypeAnnotationExpr::Reference(reference) if reference.leaf_name() == "Shape"))
+        matches!(alias.result_kind(), Some(KindSyntax::StaticDomain { ref form, .. }) if matches!(&form.expr, TypeAnnotationExpr::Reference(reference) if reference.leaf_name() == "Shape"))
     );
 }
 
 #[test]
 fn parse_structural_record_types() {
     let p = parse_source("type UserRow<**R> = { name: String, age: Int, **R }\n", 0).expect("structural record type with row tail should parse");
-    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
-    match &alias.body.expr {
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &p.statements[0] else { panic!() };
+    match &alias.type_form_body().unwrap().expr {
         TypeAnnotationExpr::Record { fields, tail, .. } => {
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].name, "name");
@@ -1395,8 +1396,8 @@ fn parse_structural_record_types() {
     }
 
     let p2 = parse_source("type OptRecord = { name: String, age?: Int, ... }\n", 0).expect("optional field and anonymous unconstrained remainder should parse");
-    let Statement::TypeAlias(alias2) = &p2.statements[0] else { panic!() };
-    match &alias2.body.expr {
+    let (Statement::TypeDefinition(alias2) | Statement::TypeAlias(alias2)) = &p2.statements[0] else { panic!() };
+    match &alias2.type_form_body().unwrap().expr {
         TypeAnnotationExpr::Record { fields, tail, .. } => {
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].name, "name");
@@ -1412,8 +1413,8 @@ fn parse_structural_record_types() {
     }
 
     let p3 = parse_source("type TypedRemRecord = { name: String, **: Int }\n", 0).expect("typed record remainder should parse");
-    let Statement::TypeAlias(alias3) = &p3.statements[0] else { panic!() };
-    match &alias3.body.expr {
+    let (Statement::TypeDefinition(alias3) | Statement::TypeAlias(alias3)) = &p3.statements[0] else { panic!() };
+    match &alias3.type_form_body().unwrap().expr {
         TypeAnnotationExpr::Record { fields, tail, .. } => {
             assert_eq!(fields.len(), 1);
             assert!(matches!(
@@ -1425,8 +1426,8 @@ fn parse_structural_record_types() {
     }
 
     let p4 = parse_source("type RemTuple = (Int, *: Float, opt: String, **: Bool)\n", 0).expect("tuple with remainders should parse");
-    let Statement::TypeAlias(alias4) = &p4.statements[0] else { panic!() };
-    match &alias4.body.expr {
+    let (Statement::TypeDefinition(alias4) | Statement::TypeAlias(alias4)) = &p4.statements[0] else { panic!() };
+    match &alias4.type_form_body().unwrap().expr {
         TypeAnnotationExpr::Tuple { elements, .. } => {
             assert_eq!(elements.len(), 4);
             assert!(matches!(&elements[0], phalcom_ast::ast::TypeTupleItem::Element(el) if el.label.is_none()));
@@ -1444,8 +1445,9 @@ fn parse_structural_record_types() {
 #[test]
 fn parse_kind_expressions_and_higher_kinded_binders() {
     let p = parse_source("type Functor<F: Type -> Type> = F\n", 0).expect("kind annotation on generic parameter should parse");
-    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
-    let param = &alias.generic_parameters[0];
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &p.statements[0] else { panic!() };
+    let generic_params = alias.generic_parameters();
+    let param = &generic_params[0];
     assert_eq!(param.name, "F");
     match param.kind.as_ref().expect("kind") {
         KindSyntax::Arrow { parameter, result, .. } => {
@@ -1460,15 +1462,16 @@ fn parse_kind_expressions_and_higher_kinded_binders() {
 fn parse_expansion_binders_with_explicit_semantic_kinds_and_defaulted_modes() {
     let source = "type Packs<*Ts, **Fs, **Ls: LabeledTypePack, **Rs: RecordFields, ***Es: CompleteTypePack> = Type\n";
     let p = parse_source(source, 0).expect("pack binders should parse");
-    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
-    assert_eq!(alias.generic_parameters.len(), 5);
-    assert_eq!(alias.generic_parameters[0].mode, Some(ExpansionMode::Positional));
-    assert_eq!(alias.generic_parameters[1].mode, Some(ExpansionMode::Labeled));
-    assert_eq!(alias.generic_parameters[1].kind, None);
-    assert!(matches!(alias.generic_parameters[2].kind.as_ref(), Some(KindSyntax::LabeledTypePack(_))));
-    assert!(matches!(alias.generic_parameters[3].kind.as_ref(), Some(KindSyntax::RecordFields(_))));
-    assert_eq!(alias.generic_parameters[4].mode, Some(ExpansionMode::Complete));
-    assert!(matches!(alias.generic_parameters[4].kind.as_ref(), Some(KindSyntax::CompleteTypePack(_))));
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &p.statements[0] else { panic!() };
+    let generic_params = alias.generic_parameters();
+    assert_eq!(generic_params.len(), 5);
+    assert_eq!(generic_params[0].mode, Some(ExpansionMode::Positional));
+    assert_eq!(generic_params[1].mode, Some(ExpansionMode::Labeled));
+    assert_eq!(generic_params[1].kind, None);
+    assert!(matches!(generic_params[2].kind.as_ref(), Some(KindSyntax::LabeledTypePack(_))));
+    assert!(matches!(generic_params[3].kind.as_ref(), Some(KindSyntax::RecordFields(_))));
+    assert_eq!(generic_params[4].mode, Some(ExpansionMode::Complete));
+    assert!(matches!(generic_params[4].kind.as_ref(), Some(KindSyntax::CompleteTypePack(_))));
 }
 
 #[test]
@@ -1904,12 +1907,12 @@ fn enum_header_is_layout_insensitive() {
 fn type_alias_header_and_body_are_layout_insensitive() {
     let source = "type Maybe\n\n<T>\n\nwhere\n\nT == Y\n\n=\n\nOption<\n    T\n>\n";
     let program = parse_source(source, 0).expect("multiline type alias should parse");
-    let Statement::TypeAlias(alias) = &program.statements[0] else {
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &program.statements[0] else {
         panic!("expected type alias");
     };
-    assert_eq!(alias.generic_parameters.len(), 1);
+    assert_eq!(alias.parameters.len(), 1);
     assert_eq!(alias.where_clause.as_ref().expect("where clause").constraints.len(), 1);
-    assert!(matches!(alias.body.expr, TypeAnnotationExpr::Application { .. }));
+    assert!(matches!(alias.type_form_body().unwrap().expr, TypeAnnotationExpr::Application { .. }));
 }
 
 #[test]
@@ -2089,12 +2092,13 @@ fn parses_same_subject_trait_conjunction() {
 fn parses_type_pack_and_labeled_type_pack_kinds() {
     let source = "type PackAlias<P: TypePack, L: LabeledTypePack> = P\n";
     let program = parse_source(source, 0).expect("type pack kinds should parse");
-    let Statement::TypeAlias(alias) = &program.statements[0] else {
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &program.statements[0] else {
         panic!("expected type alias");
     };
-    assert_eq!(alias.generic_parameters.len(), 2);
-    assert!(matches!(alias.generic_parameters[0].kind.as_ref().unwrap(), KindSyntax::TypePack(_)));
-    assert!(matches!(alias.generic_parameters[1].kind.as_ref().unwrap(), KindSyntax::LabeledTypePack(_)));
+    let generic_params = alias.generic_parameters();
+    assert_eq!(generic_params.len(), 2);
+    assert!(matches!(generic_params[0].kind.as_ref().unwrap(), KindSyntax::TypePack(_)));
+    assert!(matches!(generic_params[1].kind.as_ref().unwrap(), KindSyntax::LabeledTypePack(_)));
 }
 
 #[test]
@@ -2104,8 +2108,8 @@ fn parses_type_member_projections() {
     assert_eq!(program.statements.len(), 5);
 
     // 0: Map<Option>
-    let Statement::TypeAlias(alias0) = &program.statements[0] else { panic!() };
-    match &alias0.body.expr {
+    let (Statement::TypeDefinition(alias0) | Statement::TypeAlias(alias0)) = &program.statements[0] else { panic!() };
+    match &alias0.type_form_body().unwrap().expr {
         TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
             assert!(matches!(selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "Map"));
             assert_eq!(arguments.len(), 1);
@@ -2115,8 +2119,8 @@ fn parses_type_member_projections() {
     }
 
     // 1: At<1>
-    let Statement::TypeAlias(alias1) = &program.statements[1] else { panic!() };
-    match &alias1.body.expr {
+    let (Statement::TypeDefinition(alias1) | Statement::TypeAlias(alias1)) = &program.statements[1] else { panic!() };
+    match &alias1.type_form_body().unwrap().expr {
         TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
             assert!(matches!(selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "At"));
             assert_eq!(arguments.len(), 1);
@@ -2126,8 +2130,8 @@ fn parses_type_member_projections() {
     }
 
     // 2: At<-1>
-    let Statement::TypeAlias(alias2) = &program.statements[2] else { panic!() };
-    match &alias2.body.expr {
+    let (Statement::TypeDefinition(alias2) | Statement::TypeAlias(alias2)) = &program.statements[2] else { panic!() };
+    match &alias2.type_form_body().unwrap().expr {
         TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
             assert!(matches!(selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "At"));
             assert_eq!(arguments.len(), 1);
@@ -2137,8 +2141,8 @@ fn parses_type_member_projections() {
     }
 
     // 3: [1]
-    let Statement::TypeAlias(alias3) = &program.statements[3] else { panic!() };
-    match &alias3.body.expr {
+    let (Statement::TypeDefinition(alias3) | Statement::TypeAlias(alias3)) = &program.statements[3] else { panic!() };
+    match &alias3.type_form_body().unwrap().expr {
         TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
             assert!(matches!(selector, TypeMemberSelectorSyntax::Subscript { .. }));
             assert_eq!(arguments.len(), 1);
@@ -2148,8 +2152,8 @@ fn parses_type_member_projections() {
     }
 
     // 4: Positionals
-    let Statement::TypeAlias(alias4) = &program.statements[4] else { panic!() };
-    match &alias4.body.expr {
+    let (Statement::TypeDefinition(alias4) | Statement::TypeAlias(alias4)) = &program.statements[4] else { panic!() };
+    match &alias4.type_form_body().unwrap().expr {
         TypeAnnotationExpr::TypeMemberProjection { selector, arguments, .. } => {
             assert!(matches!(selector, TypeMemberSelectorSyntax::Named { name, .. } if name == "Positionals"));
             assert!(arguments.is_empty());
@@ -2224,7 +2228,7 @@ intrinsic type MyType = Map<Symbol, UserInfo>
     assert_eq!(data.implementation, ImplementationKind::Intrinsic);
 
     // 2: intrinsic type MyType
-    let Statement::TypeAlias(alias) = &program.statements[2] else { panic!() };
+    let (Statement::TypeDefinition(alias) | Statement::TypeAlias(alias)) = &program.statements[2] else { panic!() };
     assert_eq!(alias.name, "MyType");
     assert_eq!(alias.implementation, ImplementationKind::Intrinsic);
 }
@@ -2309,4 +2313,131 @@ fn record_literal_parser_regressions() {
             ..
         }
     ));
+}
+
+#[test]
+fn c4_static_definition_legacy_alias() {
+    let p = parse_source("type Optional<T> = T | None\n", 0).expect("legacy type alias should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!("expected TypeDefinition") };
+    assert_eq!(def.name, "Optional");
+    assert_eq!(def.parameters.len(), 1);
+    assert_eq!(def.parameters[0].name, "T");
+    assert!(def.parameters[0].domain.is_none());
+    assert!(def.result_domain.is_none());
+    assert!(matches!(&def.body, StaticDefinitionBody::Expression(e) if matches!(&**e, Expr::TypeForm(_))));
+}
+
+#[test]
+fn c4_static_definition_canonical_order_and_domains() {
+    // N: Int
+    let p = parse_source("type IsZero<N: Int>: Bool = N == 0\n", 0).expect("IsZero should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    assert_eq!(def.name, "IsZero");
+    assert_eq!(def.parameters.len(), 1);
+    assert_eq!(def.parameters[0].name, "N");
+    let p_domain = def.parameters[0].domain.as_ref().unwrap();
+    assert!(matches!(&p_domain.form.expr, TypeAnnotationExpr::Reference(r) if r.root == "Int"));
+    let r_domain = def.result_domain.as_ref().unwrap();
+    assert!(matches!(&r_domain.form.expr, TypeAnnotationExpr::Reference(r) if r.root == "Bool"));
+    assert!(matches!(&def.body, StaticDefinitionBody::Expression(e) if matches!(&**e, Expr::Binary(_))));
+
+    // T: Type
+    let p = parse_source("type Id<T: Type>: Type = T\n", 0).expect("Id should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    assert_eq!(def.name, "Id");
+    assert!(matches!(&def.parameters[0].domain.as_ref().unwrap().form.expr, TypeAnnotationExpr::Reference(r) if r.root == "Type"));
+    assert!(matches!(&def.result_domain.as_ref().unwrap().form.expr, TypeAnnotationExpr::Reference(r) if r.root == "Type"));
+
+    // S: Shape
+    let p = parse_source("type ShapeDef<S: Shape>: Shape = S\n", 0).expect("ShapeDef should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    assert_eq!(def.name, "ShapeDef");
+    assert!(matches!(&def.parameters[0].domain.as_ref().unwrap().form.expr, TypeAnnotationExpr::Reference(r) if r.root == "Shape"));
+    assert!(matches!(&def.result_domain.as_ref().unwrap().form.expr, TypeAnnotationExpr::Reference(r) if r.root == "Shape"));
+
+    // Mixed domains
+    let p = parse_source("type Mixed<N: Int, T: Type, S: Shape>: Bool = true\n", 0).expect("Mixed should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    assert_eq!(def.parameters.len(), 3);
+    assert_eq!(def.parameters[0].name, "N");
+    assert_eq!(def.parameters[1].name, "T");
+    assert_eq!(def.parameters[2].name, "S");
+    assert!(matches!(&def.body, StaticDefinitionBody::Expression(e) if matches!(&**e, Expr::Boolean { value: true, .. })));
+}
+
+#[test]
+fn c4_static_definition_block_body() {
+    let src = "type Count<T>: Int {\n    let mut n = 0\n    n = n + 1\n    n\n}\n";
+    let p = parse_source(src, 0).expect("Count with block body should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    assert_eq!(def.name, "Count");
+    match &def.body {
+        StaticDefinitionBody::Block(block) => {
+            assert_eq!(block.body.len(), 3);
+            assert!(matches!(&block.body[0], Statement::Let(_)));
+            assert!(matches!(&block.body[1], Statement::Expr { expr: Expr::Assignment(_), .. }));
+            assert!(matches!(&block.body[2], Statement::Expr { expr: Expr::Var { .. }, .. }));
+        }
+        _ => panic!("expected Block body"),
+    }
+}
+
+#[test]
+fn c4_static_definition_stale_equals_brace_policy() {
+    let src = "type Foo: Int = {\n    let mut n = 0\n    n\n}\n";
+    let err = parse_source(src, 0).expect_err("stale '= {' should be rejected");
+    assert!(err.to_string().contains("stale '= {' syntax"));
+}
+
+#[test]
+fn c4_static_definition_where_clause_placement() {
+    let src = "type Constrained<T: Type, N: Int>: Bool where T == Int = N == 0\n";
+    let p = parse_source(src, 0).expect("Constrained with where clause should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    assert!(def.where_clause.is_some());
+    assert_eq!(def.where_clause.as_ref().unwrap().constraints.len(), 1);
+    assert_eq!(def.parameters.len(), 2);
+    assert!(def.result_domain.is_some());
+}
+
+#[test]
+fn c4_static_arguments_carrier() {
+    // 3 (int literal)
+    let p = parse_source("type A = IsZero<3>\n", 0).expect("IsZero<3> should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    let app = def.type_form_body().unwrap();
+    let TypeAnnotationExpr::Application { arguments, .. } = &app.expr else { panic!() };
+    assert_eq!(arguments.len(), 1);
+    assert!(matches!(&arguments[0], GenericArgumentSyntax::Value(e) if matches!(&**e, Expr::Int { digits, .. } if digits == "3")));
+
+    // true, Int, String (bool literal, types)
+    let p = parse_source("type B = Choose<true, Int, String>\n", 0).expect("Choose<true, Int, String> should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    let app = def.type_form_body().unwrap();
+    let TypeAnnotationExpr::Application { arguments, .. } = &app.expr else { panic!() };
+    assert_eq!(arguments.len(), 3);
+    assert!(matches!(&arguments[0], GenericArgumentSyntax::Value(e) if matches!(&**e, Expr::Boolean { value: true, .. })));
+    assert!(matches!(&arguments[1], GenericArgumentSyntax::Single(_)));
+    assert!(matches!(&arguments[2], GenericArgumentSyntax::Single(_)));
+
+    // String literal
+    let p = parse_source("type C = Tag<\"production\">\n", 0).expect("Tag<\"production\"> should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    let app = def.type_form_body().unwrap();
+    let TypeAnnotationExpr::Application { arguments, .. } = &app.expr else { panic!() };
+    assert!(matches!(&arguments[0], GenericArgumentSyntax::Value(e) if matches!(&**e, Expr::String { value, .. } if value == "production")));
+
+    // Symbol literal
+    let p = parse_source("type D = Named<#user>\n", 0).expect("Named<#user> should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    let app = def.type_form_body().unwrap();
+    let TypeAnnotationExpr::Application { arguments, .. } = &app.expr else { panic!() };
+    assert!(matches!(&arguments[0], GenericArgumentSyntax::Value(e) if matches!(&**e, Expr::Symbol(_))));
+
+    // Negative int literal
+    let p = parse_source("type E = Neg<-42>\n", 0).expect("Neg<-42> should parse");
+    let Statement::TypeDefinition(def) = &p.statements[0] else { panic!() };
+    let app = def.type_form_body().unwrap();
+    let TypeAnnotationExpr::Application { arguments, .. } = &app.expr else { panic!() };
+    assert!(matches!(&arguments[0], GenericArgumentSyntax::Value(e) if matches!(&**e, Expr::Unary(_))));
 }

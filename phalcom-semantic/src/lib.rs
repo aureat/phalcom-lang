@@ -35,6 +35,7 @@ pub mod impls;
 pub mod invalidation;
 pub mod match_semantics;
 pub mod metadata;
+pub mod module_bindings;
 pub mod module_product;
 pub mod prelude;
 pub mod presentation;
@@ -50,6 +51,11 @@ pub mod source;
 pub mod source_index;
 pub mod stable_identity;
 pub mod static_case;
+pub mod static_definition;
+pub mod static_domain;
+pub mod static_eval;
+pub mod static_intrinsic;
+pub mod static_value;
 pub mod surface;
 pub mod termination;
 pub mod tooling;
@@ -117,6 +123,7 @@ pub use identity::{
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use match_semantics::*;
+pub use module_bindings::{ModuleBindingFact, ModuleBindingPhase, ModuleStaticBindingIndex};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use prelude::PreludeTypeMap;
 pub use presentation::{
@@ -139,6 +146,15 @@ pub use snapshot::{ModuleQueryProducts, SemanticSnapshot};
 pub use source_index::{
     EditorSymbolKind, ModuleReferenceContribution, ReferenceIndex, SourceIndexUpdateStats, TargetReferenceSet, WorkspaceSymbolEntry, WorkspaceSymbolId,
     WorkspaceSymbolIndex,
+};
+pub use static_definition::{
+    CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr, StaticDefinitionProduct, StaticDefinitionSignature, StaticDefinitionTable,
+    StaticParameter,
+    resolve_static_definition,
+};
+pub use static_domain::{StaticDomainResolution, StaticValueDomain, is_proper_type, resolve_static_domain, validate_proper_type};
+pub use static_intrinsic::{
+    StaticIntrinsicOperation, StaticIntrinsicRegistry, StaticIntrinsicRegistryError, StaticOperationResolution, StaticOperationResolutionIndex,
 };
 pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,

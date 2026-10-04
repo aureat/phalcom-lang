@@ -14,9 +14,9 @@ requires:
   - LANG007.C3
 prepared_against_revision: 8c3a98aab41ed8631e9f8746a6b29984cf77581d
 prepared: 2026-10-04
-active_plan: none
+active_plan: LANG007.C4.P2
 latest_completed_plan: LANG007.C4.P1
-next_plan: LANG007.C4.P2
+next_plan: LANG007.C4.P3
 ---
 
 # LANG007.C4 — Checkpoint Record
@@ -31,12 +31,11 @@ checkpoint: LANG007.C4
 status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
-active_plan: none
+active_plan: LANG007.C4.P2
 latest_completed_plan: LANG007.C4.P1
-next_plan: LANG007.C4.P2
+next_plan: LANG007.C4.P3
 next_action: >
-  Begin LANG007.C4.P2 from the completed P1 static/runtime declaration and
-  field-lifecycle boundary.
+  T7 focused acceptance is complete: the evaluator checklist and amended checked kinded-expression subset pass the focused integration/unit gates. Continue with T8 StaticConstant query identity and targeted source-input/dependency wiring; keep P2 IN_PROGRESS / PARTIAL / UNVERIFIED until its remaining tasks and gates close.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -141,7 +140,7 @@ The intended C4 decomposition is:
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
-| `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
+| `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | IN_PROGRESS | PARTIAL | UNVERIFIED | active; T0–T7 implemented and focused-tested; T8 is next; later T9/G1/T10/G2/G3/T11 remain |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -646,6 +645,43 @@ immutable-field lifecycle enforcement
 
 ## 5.2 P2 expected seams
 
+Established in P2 (T1–T4):
+
+```text
+StaticDomainSyntax, StaticValueDomain::{Kind, ValueType}
+resolve_static_domain, validate_proper_type
+TypeDefinitionDef, StaticParameterSyntax, StaticDefinitionBody
+GenericArgumentSyntax::Value
+StaticParameter, StaticDefinitionSignature, StaticDefinitionBodyRepr, StaticDefinition
+StaticDefinitionProduct, StaticDefinitionTable, resolve_static_definition
+QueryKey::StaticDefinition(DeclarationId), SemanticProduct::StaticDefinition
+SemanticSnapshot::static_definitions, SemanticSnapshot::static_definition
+StaticValueStoreId, StaticValueId, StaticValueRef, StaticValueStore
+StaticValueData::{Unit, Bool, Int, Float, String, Symbol, Type, StaticTerm}
+StaticInt, StaticFloat, StaticStringId, StaticSymbolId
+StaticValueStore::semantic_eq, semantic_hash, content_fingerprint
+SemanticSnapshot::static_values, SemanticWorkspaceSession::static_values
+```
+
+T5 adds:
+
+```text
+StaticValueData::{Tuple, Record, Data, Variant}
+StaticTupleId, StaticRecordId, StaticDataValueId, StaticVariantValueId
+StaticValueStore::{intern_tuple, intern_record, intern_data, intern_variant}
+StaticValueStore::{static_value_type, check_value_type}
+```
+
+T6 now provides checked bodies, module binding handoff, separate body query ownership, and exact callable allowlisting:
+
+```text
+StaticIntrinsicOperation::NumberAdd
+StaticIntrinsicRegistry::from_canonical_core / operation_for / resolve_ready_expressions
+StaticOperationResolution / StaticOperationResolutionIndex
+ModuleStaticBindingIndex / CheckedStaticBody / StaticBodyId
+QueryKey::ModuleStaticBindings / QueryKey::CheckedStaticBody
+```
+
 Conceptually:
 
 ```rust
@@ -656,6 +692,26 @@ StaticDefinition
 StaticEvalContext
 MaterializationDescriptor
 ```
+
+T6 verification completed:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib checker::static_body::tests -- --nocapture
+    3 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::static_ -- --nocapture
+    19 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic integration::static_definition_bodies -- --nocapture
+    1 passed
+```
+
+The focused session test confirms checked const reads retain canonical
+`SymbolId`, value-result bare-name resolution uses the checked lexical binding,
+and `Number.+(_)` is projected only from the selected ordinary callable.
+Static-body unit tests also cover runtime outer reads and writes as phase
+errors. Broader query invalidation/import-alias coverage remains for T10/G2.
+One expected crate warning family remains: deprecated `Statement::TypeAlias`
+compatibility references.
 
 Outcome direction:
 
@@ -766,8 +822,177 @@ checkpoint closure
 | `LANG007.C4.P1.T7/T8/T10` focused continuation | explicit field layout, field lifecycle/default products, binding flow/runtime representation | semantic capability tests; core `field_layout`, `field_lifecycle`, `binding_init`, `migrated_layout_matches_pre_cutover_oracle`; incremental product tests | FOCUSED PASS | proves selected local semantics, codegen properties, and field layout parity across sides, order, mutability, counts, and superclass prefixes |
 | `LANG007.C4.P1.G1` | semantic bindings/fields plus core corpus | semantic selectors pass; `language-corpus fields` passes 1; `language-corpus classes` and `classes_negative` pass; `language-corpus bindings` fails on `destructure_list_no_rest.ph` (classified D) | COMPLETE / BASELINE_BLOCKED | P1 field and class corpus lanes pass; the bindings corpus failure is classified D and remains outside P1 |
 | `LANG007.C4.P1.G2` | six affected crates | AST and LSP pass; modules fails 1 catalog test (proven D); semantic reports 1,765 pass / 37 fail / 42 ignored (all 37 proven D); core P1-owned library test failures repaired and pass, 3 library baseline failures classified D, broader core test suite deferred per user instruction; REPL fails 1 test (proven D). All P1-owned failures are green. | COMPLETE / BASELINE_BLOCKED | broad stabilization complete to BASELINE_BLOCKED; all P1-owned behavior verified and green; residual failures classified D |
+| `LANG007.C4.P2.T1` | `StaticValueDomain` + `resolve_static_domain` + `validate_proper_type` | `static_domains` 6/6 passed; `cargo check -p phalcom-semantic` clean | FOCUSED PASS | domain model is correct; Kind/ValueType distinction holds |
+| `LANG007.C4.P2.T2` | generalized AST `TypeDefinitionDef` + parser | 288/288 AST tests passed | FOCUSED PASS | grammar and downstream consumers compile cleanly; no regressions |
+| `LANG007.C4.P2.T3` | `StaticDefinition`, `StaticDefinitionTable`, `resolve_static_definition` | `static_definitions` 5/5; `type_annotations` 61/61; `incremental::db` 14/14; `check -p phalcom-semantic` and `check -p phalcom-core` clean | FOCUSED PASS | StaticDefinition is canonical product; TypeAliasInfo projection preserved; value params excluded from TypeStore |
+| `LANG007.C4.P2.T4` | snapshot-safe primitive `StaticValueStore` and TypeStore bridge | `foundations::static_values` selected 1 test and passed, covering exact Int, Float representation/equality/hash, UTF-8 String, Symbol spelling, Type/StaticTerm admission, clone lineage, append stability, and foreign-store rejection | FOCUSED PASS | Primitive static values are semantic-only, append-stable, store-qualified, and retain signed-zero/NaN representation distinctions |
+| `LANG007.C4.P2.T5` | immutable structural Tuple/Record/Data/Variant values, type derivation, and value assignability | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::static_values_structural -- --nocapture` selected 1 test and passed | FOCUSED PASS | ordered tuple equality, order-independent P2 string-key record construction, shared DAGs, canonical data-component mapping, exact VariantId identity, rejection of wrong payload arity/foreign refs, ordinary type projection, and relation-engine mismatch are covered |
+| `LANG007.C4.P2.T6 foundation slices` | canonical `Number.+(_)` identity allowlist, ready-expression projection, and exact local-binding reads | focused integration test `foundations::static_intrinsics` passed 1/1; focused unit test `static_intrinsic::tests::ready_analysis_projection_keeps_exact_callable_and_skips_invalid_sites` passed 1/1; `foundations::binding_init::read_after_assignment_is_proven` passed 1/1; incremental fingerprint regression passed 1/1; `cargo check -p phalcom-semantic` completed | FOCUSED PASS (slices only) | callable authorization retains exact identity; variable-read products retain the exact selected `BindingId`, included in callable body fingerprints |
+| `LANG007.C4.P2.T6 checked-body analyzer` | ordinary checker-backed static body facts, result checking, runtime outer read/write phase errors, evaluator slots | `cargo test -p phalcom-semantic --lib checker::static_body::tests -- --nocapture` selected and passed 4; exact Number addition authorization in `foundations::static_` | FOCUSED PASS | phase access and exact per-expression operation facts come from ordinary checker identity |
+| `LANG007.C4.P2.T6 module binding/session composition` | stable module const identity, linked import aliases, fresh body-local identities, snapshot composition | `cargo test -p phalcom-semantic --test semantic integration::static_definition_bodies -- --nocapture` selected and passed 3 | FOCUSED PASS | same-module and imported const reads use canonical SymbolId; checked bodies are visible in final definitions |
+| `LANG007.C4.P2.T6 checked-body invalidation` | separate checked-body query, module input/product fingerprints, dependency edges and session reuse | integration revision changes provider const from Int to String; checked binding and checked-body input fingerprints changed, and the checked-body Arc was replaced | FOCUSED PASS | a changed provider binding product invalidates/recomputes the importing checked body |
+| `LANG007.C4.P2.T7 evaluator foundation slice` | explicit work queue, ordered blocks, binding-ID local slots, mixed kinded/value argument layout, exact Number addition, selected if branches, lazy and/or, mutable locals, Symbol/Tuple/Record values, query budget, and cancellation | `cargo check -p phalcom-semantic` completed; `cargo test -p phalcom-semantic --lib checker::static_body::tests -- --nocapture` passed 4; `cargo test -p phalcom-semantic --test semantic integration::static_definition_bodies -- --nocapture` passed 3 | FOCUSED PASS (slice only) | checker-authorized 1 + 2 reduces to 3; selected branches reduce; untaken unsupported comparisons are skipped while the taken one fails closed; mutable slot assignment updates the later checked read; Symbol literals, positional Tuple, and bare-label Record values construct; argument count/kind mismatches, budget exhaustion, and cancellation terminate evaluation; T7 remains IN_PROGRESS |
+
+### 2026-10-04 — P2 T7.10 exact static-application authority stop
+
+The active plan requires applications to consume an already-resolved target
+signature and bind arguments by identity/order. Live `Expr` has no static
+application node. `TypeAnnotationExpr::Application` resolves through
+`resolve_type_form` to a canonical `TypeId`, while `ExpressionAnalysis` and
+`CheckedStaticBody` publish no exact static-definition application product.
+`StaticDefinitionProduct` carries the definition/signature and optional C3
+`TypeAliasInfo`, but its alias projection is limited to Type-valued,
+all-kinded definitions. The evaluator currently receives only one checked body,
+its operation index, and arguments; it cannot push a nested exact target frame.
+
+**Trigger:** shared-consultation protocol RED trigger 1/2/7/14 — the planned
+application architecture is underspecified against live products, and adding
+source-name resolution in the evaluator would create a second semantic
+authority. No workaround or speculative architecture was implemented.
+
+### Decision
+
+The user selected the checked-product route: T7.10 adds an ordinary-checker
+static-application product carrying exact target declaration/signature/domain
+and argument identities. The evaluator must consume it without name lookup.
+Value-parameter applications remain within T7 scope. Existing C3
+`TypeAliasInfo` remains the optimized projection for compatible Type-valued
+definitions.
+
+### Plan amendment
+
+T7.10 now includes an ordinary-checker publication seam for exact nested
+static-application products. The product must be derived alongside TypeForm
+resolution to ensure it agrees with the canonical TypeForm result. T7 tests
+must cover target identity, mixed arguments, wrong domains, nested application,
+and recursion outcomes. No static-definition identity or alias authority
+changes. P2 remains `IN_PROGRESS / PARTIAL / UNVERIFIED` while the seam is
+implemented and verified.
 
 Future plan gates must be added only after actual execution.
+
+### Follow-up — checked product seam and snapshot publication blocker
+
+The worktree now contains `CheckedStaticApplication` on `CheckedStaticBody`,
+linked from `SemanticDenotation::StaticApplication`. `TypeResolver` exposes
+the product by resolved declaration identity; checked-body analysis records a
+formal `SemanticDependency::StaticDefinition`, and the DB query has a replay
+path for it. This does not yet implement evaluator application frames.
+
+The focused regression added `type Literal: Int = 3` and
+`type Applied: Int = Literal<>` to the established
+`integration::static_definition_bodies` fixture. That addition makes the
+existing `ReadBase` snapshot lookup fail: the published static-definition
+table is empty. Removing the application restored the prior three-test pass.
+A standalone fixture also yielded an empty table without an application, so
+it is not a useful discriminator. No fallback source-name lookup was added.
+
+### Resolution — checked-body dependency replay
+
+The focused architectural consultation confirmed that the generic
+`TrackingTypeResolver::resolve_type_name` added a `DeclarationShell` edge for
+value-domain static definitions. Replay accepts declaration/alias products,
+but these definitions publish neither. That invalid edge blocked checked-body
+publication and left the prior empty snapshot. The localized
+`resolve_static_definition_name` path preserves `LinkedName` and
+`PublicExport`, resolves through canonical declaration identity, and records
+only the `StaticDefinition` edge. It does not weaken query replay or add a
+second resolver.
+
+The focused `integration::static_definition_bodies` selector passed 3/3 after
+the correction and again after evaluator coverage was added for zero-argument,
+value-parameter, direct kinded, mixed kinded/value, nested nonrecursive, and
+self-reentry applications. The mixed-parameter case was added in the latest
+slice. T7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; the current next step
+is to complete kinded-expression application and remaining resource-boundary
+acceptance. Do not advance to T8 yet.
+
+### Adviser decision — T7.11 canonical constructor authority
+
+The ordinary checker owns Data/Variant constructor selection and payload
+mapping. `CheckedStaticBody` should retain the body-local associated-resolution
+facts and expose a compact checked-construction projection containing exact
+target identity, result type, argument expression IDs, and stable component or
+variant-field IDs. Data's current argument-index mapping must be converted to
+`DataComponentId`s while canonical `DataInfo` is available. If accepted
+Variant syntax permits reordered/labeled payloads, the checker must publish
+exact `VariantFieldId` mapping; the evaluator must not infer it from source
+labels or assume source order.
+
+Canonical `DataInfo`/`VariantInfo` remain owned by snapshot semantic tables.
+Pass borrowed canonical tables and the canonical `TypeStore` into evaluation;
+do not copy catalogs into each body. The evaluator only consumes checked
+construction facts and invokes T5's pure interners. Required discriminators:
+reordered labeled Data payloads and exact Variant identity resistant to a
+same-named case elsewhere. This decision is now the T7.11 implementation
+contract.
+
+### T7.11 focused implementation gate
+
+Implemented the body-local checked construction product with exact target,
+result type, argument expression IDs, and stable DataComponentId/VariantFieldId
+payloads. `CheckedStaticBody` retains associated-resolution facts for its own
+expressions. The evaluator receives borrowed snapshot TypeStore/Data/Enum
+tables and uses the existing pure T5 Data/Variant interners.
+
+The focused `integration::static_definition_bodies` selector passed 3/3. Its
+reordered `Point { y: 2, x: 1 }` assertion matches canonical component
+identity/order, and `LeftChoice::Same(3, 4)` differs from the same-named case
+under `RightChoice`. The gate is focused evidence for T7.11 only. T7 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; kinded-expression applications and
+remaining budget/value-node boundaries remain open.
+
+### T7.12 focused trace and cycle/resource gate
+
+The evaluator exposes definition, exact application, and source-expression
+trace frames. Trace growth uses the existing QueryBudget and checks
+cancellation; there is no independent trace-depth ceiling. The focused
+`integration::static_definition_bodies` selector passed 3/3 with mutual
+A→B→A reentry, application step-budget exhaustion, and trace-path assertions.
+The evaluator unit test continues to distinguish pre-cancelled execution.
+`Recursive`, `BudgetExceeded`, and `Cancelled` remain distinct. T7 is still
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; kinded-expression application and
+remaining resource/value-node acceptance remain open.
+
+### Adviser decision — T7.10 kinded-expression result boundary
+
+The checked product cannot generally project a kinded static application to a
+`TypeId`: its result may depend on evaluated arguments or body control flow.
+Evaluation therefore needs a tagged result across body-completion and
+application-frame boundaries, with `StaticValue(StaticValueRef)` and
+`KindedTerm(TypeId)` cases. The ordinary expression stack remains
+`StaticValueRef`-only, and a kinded result may bind only a checked parameter
+whose signature expects a kinded term. The existing direct checked-`TypeId`
+argument path stays unchanged. T7 scope is limited to the checked
+TypeForm/static-application path; unsupported TypeForm computation must fail
+closed. No evaluator-side resolution or type synthesis is authorized.
+
+The live evaluator borrows the canonical snapshot TypeStore immutably, while
+`TypeView::materialize` requires mutable access. No snapshot-safe read-only
+substitution API exists. Therefore a TypeForm result is supported only when
+its checker-published canonical `TypeId` is independent of the callee's
+kinded parameters, or is exactly one of those parameter nodes, in which case
+the evaluator forwards the supplied canonical `TypeId` unchanged. Composite
+results containing any callee kinded parameter fail closed. Other already
+canonical results are admitted only when their kind matches the checked
+result domain. Do not clone/mutate a parallel TypeStore or publish a
+clone-qualified `TypeId`.
+
+This is the T7.10 plan amendment. The focused
+`integration::static_definition_bodies` selector passed 3/3 after adding an
+independent TypeForm result, exact kinded-parameter forwarding with TypeId
+identity preservation, nested applications through both paths, composite
+parameter-dependent rejection, and a mismatched result-domain rejection.
+Data constructor payload traversal now charges the step budget before
+interning; a bounded regression confirms exhaustion leaves the Data value node
+absent. `QueryBudget` has no separate value-node quota, so the plan's optional
+value-node-limit case is not enabled. T7 focused acceptance is complete. The final selector passed 3/3 after adding
+false/nested `if`, nested arithmetic, source-ordered writes, uninitialized
+local read, and immutable reassignment rejection. Cancellation remains covered
+by the pre-cancelled unit case; QueryBudget has no separate value-node quota.
+The Data-construction budget regression confirms exhaustion occurs before the
+Data value node is interned. T8 is now the next P2 task; P2 itself remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
 
 ### 2026-10-04 — G2 stabilization closure
 
@@ -1277,6 +1502,105 @@ scoped work.
   `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`; this historical continuation
   did not close the plan or authorize P2. See the current G2 result above.
 
+## 2026-10-04 — P2 T6 checked-body query lifecycle consultation
+
+### Trigger and observed code
+
+T6 integration reaches a lifecycle boundary. `session.rs` resolves and queries
+`StaticDefinitionProduct` around lines 3636–3659, before the final ordinary
+checker pass has stabilized canonical dispatch surfaces. The existing
+`query_static_definition` uses `QueryKey::StaticDefinition`, an input
+fingerprint based only on declaration identity, and no semantic dependency
+edges; a cache hit returns the earlier product. Enriching that query with body
+facts after the later checker pass would therefore risk stale body products.
+
+### Consultation decision
+
+The architectural consultation recommends a distinct `CheckedStaticBody`
+SemanticDb query keyed by `StaticBodyId` (the static definition's
+`DeclarationId`). Its input fingerprint must include body/signature/result
+domain and phase-readable outer-binding inputs. The ordinary checker records
+precise semantic dependencies; its product fingerprint includes exact
+selected callables, binding/slot maps, static-operation resolutions, result
+facts, and diagnostics. The snapshot-facing `StaticDefinitionProduct` composes
+the resolved signature/alias projection with this one cached body product; it
+must not compute or cache a second body analysis.
+
+### Plan amendment
+
+The active P2 plan's T6 now requires the distinct checked-body query and
+snapshot composition. It also requires ordinary module checking to publish a
+`ModuleStaticBindingIndex` keyed by stable module constant identity. Static
+bodies consume checked type/phase facts from this handoff, seed body-local
+bindings, and record stable constant reads; T8 consumes the same facts. This
+preserves the §5.4 canonical static-definition contract and the one-body-
+authority rule while adapting to live session ordering. Exact-intrinsic and
+binding-identity invariants are unchanged.
+
+### Remaining boundary
+
+The current `analyze_static_body` helper is locally focused-tested but still
+standalone. Session construction of phase-readable static-constant inputs and
+the query/dependency/fingerprint composition remain unimplemented. P2 stays
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+### Follow-up consultation — stable module-constant checker facts
+
+The ordinary `<main>` `CallableAnalysis` retains binding facts, but this does
+not identify which immutable binding is a `const`, and its `BindingId` is local
+to that body. Do not seed a static-definition checker from a copied `<main>`
+`BindingId` or infer phase from mutability after the fact.
+
+The follow-up architectural consultation recommends that ordinary module
+checking publish a `ModuleStaticBindingIndex` keyed by stable `SymbolId` (or
+equivalent `StaticConstantId`). Each entry carries the source `<main>` body and
+`BindingId`, checked type/contract, source site, and a phase category recorded
+at declaration checking. Static bodies seed local binding IDs from this
+product and preserve their mapping to stable constant identity. They record
+which stable constants they read; the checked-body query depends on the handoff
+product, and T8 uses the same read set and facts for `StaticConstant` products.
+Imported/aliased constants must follow canonical linked identities.
+
+The T6 plan now includes this checker-produced handoff as a prerequisite to
+session integration. This avoids rerunning name/type resolution and makes
+constant phase authority explicit.
+
+### Implementation slice
+
+Added `ModuleStaticBindingIndex` in `phalcom-semantic/src/module_bindings.rs`
+and snapshot publication from each module's final `<main>` `CallableAnalysis`.
+The index is keyed by stable `SymbolId`; each fact retains the owning main
+callable, the exact source `BindingId`, cloned checked `BindingState`, and a
+phase category selected from the top-level AST declaration kind. This creates
+the advised identity/type/phase handoff. It remains UNVERIFIED in this slice:
+focused construction/phase tests and dependency invalidation are still needed,
+and the checked-body query does not yet consume it.
+
+### Implementation continuation — module binding consumption
+
+The module handoff now also includes linked import aliases resolved through
+`LinkedReadSpec::Binding(SymbolId)`. Static-body analysis has a new entry point
+that seeds checked visible module bindings with fresh body-local IDs, marks
+only declaration-time `const` IDs as readable, retains their stable
+`SymbolId` mapping, records stable constant reads, and carries the module
+binding product fingerprint. `CheckingContext::declare_checked_binding`
+copies checked current/contract/consistency facts without rerunning contract
+reconciliation. This keeps source-body `BindingId`s out of the static body and
+avoids a second type-proof path.
+
+The distinct `CheckedStaticBody` query now owns the checked result under its
+own `QueryKey`, stores source/signature/module-binding input identity and a
+complete output fingerprint, and records query edges for captured semantic
+dependencies plus `ModuleStaticBindings`. The final session pass publishes the
+module index, checks or reuses each checked body, and composes it into the
+snapshot-facing `StaticDefinitionProduct`; the early definition query remains
+definition-only. This integration remains UNVERIFIED: no focused construction,
+invalidation, import, or body-analysis gate has run. Continue T6 with focused
+regressions and review any query dependency replay issues before accepting it.
+The early `StaticDefinition` query input fingerprint now includes the resolved
+signature and source body, preventing same-identity edits from reusing its
+prior definition product.
+
 # 9. Performance and resource invariants
 
 C4 performance is part of correctness.
@@ -1441,47 +1765,93 @@ release-wide certification.
 
 # 13. Current next action
 
-The next action is:
+T0–T7 of `LANG007.C4.P2` are implemented and focused-tested. T7's final
+`integration::static_definition_bodies` selector passed 3/3; its coverage and
+the conditional value-node-budget limitation are recorded below. Continue P2
+with T8 targeted `StaticConstant` query identity and initializer source input.
+P2 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; do not start T9 until T8 is
+accepted.
+
+T8 architecture is amended as follows: use `StaticConstantId(SymbolId)` and a
+constant-owned initializer source/check result. Extend `ModuleBindingFact` with
+the exact initializer source site. Locate syntax from parsed module source by
+that site and stable symbol identity. Check it with the shared ordinary
+checker in static-body context. Do not fabricate `StaticDefinition` or reuse
+`StaticBodyId(DeclarationId)`. The distinguishing test changes one of two
+constants in a module and proves only its product invalidates, while the other
+is reused and checked reads retain stable `SymbolId`s.
+
+Required reading for the T8 continuation:
 
 ```text
-Begin LANG007.C4.P2 from the completed P1 static/runtime declaration and
-field-lifecycle boundary.
+LANG007.C4.P2-handoff.md                         — T0–T7 interfaces and T8 source/result decision
+LANG007.C4.P2-walkthrough.md                     — actual T0–T7 implementation and evidence
+LANG007.C4.P2-luna-patch-grade-implementation-plan.md — T8 requirements and appended amendment
+LANG007.C4-CHECKPOINT.md                         — canonical state and consultation record
+implementation-record-lifecycle-convention.md    — lifecycle rules
 ```
 
-Required artifacts:
+T8 entry points:
 
 ```text
-LANG007.C4.P1-requirements-analysis.md
-LANG007.C4.P1-luna-patch-grade-implementation-plan.md
+phalcom-semantic/src/module_bindings.rs       — exact binding/source-site handoff
+phalcom-semantic/src/static_definition.rs     — checked-body precedent; don't reuse its owner key
+phalcom-semantic/src/checker/static_body.rs   — shared ordinary checker context
+phalcom-semantic/src/db/query.rs              — checked-body query precedent and dependency publication
+phalcom-semantic/src/session.rs               — module binding construction and body composition (~7315)
+phalcom-semantic/src/snapshot.rs               — semantic product exposure
 ```
 
-P1 implementation must begin by following its T0 takeover requirements:
+### T7 focused acceptance closure — 2026-10-04
 
-```sh
-git status --short
-git branch --show-current
-git rev-parse HEAD
-git log -5 --oneline
-```
-
-Then re-read:
+The final focused command was:
 
 ```text
-AGENTS.md
-docs/workflow/implementation-record-lifecycle-convention.md
-docs/workflow/luna-patch-grade-plan-schema.md
-docs/workflow/luna-implementer-prompt.md
-docs/workflow/shared-consultation-escalation-protocol.md
-docs/workflow/commit-and-push-discipline.md
-
-LANG007.C3-CHECKPOINT.md
-LANG007.C3.P5-handoff.md
-
-LANG007.C4-CHECKPOINT.md
-LANG007.C4-GUIDANCE.md
-LANG007.C4.P1-requirements-analysis.md
-LANG007.C4.P1-luna-patch-grade-implementation-plan.md
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic integration::static_definition_bodies -- --nocapture
+3 passed, 0 failed
 ```
 
-Do not begin P2 until P1's static/runtime declaration boundary and field
-lifecycle are durably implemented and handed off.
+The selector covers the T7 machine/control checklist, checked value/kinded
+applications, recursion outcomes and trace, Data/Variant identity, checked
+kinded-result boundaries, budget exhaustion before Data node interning,
+pre-cancelled evaluation, mutable local ordering, uninitialized read, and
+immutable reassignment rejection. `QueryBudget` exposes no separate value-node
+quota, so the plan's conditional value-node-limit case is not enabled. The
+step-budget/pre-intern discriminator is the available resource-boundary proof.
+T7 is implemented and focused-tested; P2 remains partial and unverified as a
+whole. Next action: begin T8 targeted `StaticConstant` query identity and source
+input/dependency wiring.
+
+
+## 2026-10-04 — T8 constant-owned initializer source/result consultation
+
+### Evidence
+
+The P2 plan's T8.2/T8.3 requires targeted const initializer source and static
+body checking. Live `ModuleStaticBindingIndex` exposes stable `SymbolId`,
+source-body `CallableId`, body-local `BindingId`, phase, and `BindingState`, but
+not initializer AST/site. `ParsedModuleUnit` retains the AST. `CallableAnalysis`
+contains expression facts but does not retain the AST subtree or explicit
+expression-tree relation needed to safely extract one initializer as an
+evaluator body. The current `CheckedStaticBody` owner is `StaticBodyId(DeclarationId)`
+and its analyzer accepts `StaticDefinition`.
+
+### Adviser decision and plan amendment
+
+`query_static_constant(SymbolId)` owns the initializer source/check result. Add
+a thin `StaticConstantId(SymbolId)` and a constant-specific product keyed by
+that identity; do not fabricate a `StaticDefinition` or force a const through
+`StaticBodyId`. Extend `ModuleBindingFact` with the exact declaration/initializer
+source site when it is built alongside ordinary `<main>` analysis. Parsed syntax
+is selected by that site and stable symbol identity, never by a fresh name
+lookup. The exact initializer is checked by the shared ordinary checker in a
+static-body context using canonical module bindings and existing semantic
+products. This is a new analysis invocation, not a second checker/resolver
+authority. The product owns targeted source fingerprint, checked facts,
+dependencies, and evaluation outcome.
+
+Acceptance discriminator: with two constants in one module, changing one
+initializer invalidates only that `StaticConstant(SymbolId)` result while the
+other product is reused; checked reads retain canonical `SymbolId`s. Update the
+P2 plan T8 write set and add this as a T8 amendment. No T8 source implementation
+has started.

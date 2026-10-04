@@ -705,7 +705,16 @@ fn changing_only_initialization_safety_changes_callable_product_fingerprint() {
     );
     let mut expr = ExpressionAnalysis::ready(expr_id, SourceRange::default(), TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow));
     expr.binding_read_safety = Some(phalcom_semantic::checker::flow::BindingReadSafety::ProvenInitialized);
+    expr.binding_read = Some(binding);
     definite.expressions.insert(expr_id, expr);
+
+    let mut another_binding = definite.clone();
+    another_binding.expressions.get_mut(&expr_id).expect("expr").binding_read = Some(phalcom_semantic::identity::BindingId(12));
+    assert_ne!(
+        callable_body_product_fingerprint(&definite),
+        callable_body_product_fingerprint(&another_binding),
+        "changing the resolved local binding must invalidate the callable product"
+    );
 
     let mut runtime_check = definite.clone();
     runtime_check.bindings.get_mut(&binding).expect("binding").initialization =

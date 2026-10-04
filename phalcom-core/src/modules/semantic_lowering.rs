@@ -2040,6 +2040,7 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
                 }
             }
             Statement::TypeAlias(_)
+            | Statement::TypeDefinition(_)
             | Statement::Data(_)
             | Statement::Trait(_)
             | Statement::Break { .. }

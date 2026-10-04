@@ -239,6 +239,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 typed.denotation = fact.denotation;
                 if let Some(info) = ctx.lookup_binding_info(value) {
                     let binding_id = info.id;
+                    typed.binding_read = Some(binding_id);
                     typed.local_type = ctx.local_binding_type(binding_id).cloned();
                     if let Some(local_type) = typed.local_type.clone() {
                         ctx.record_local_capture(binding_id, local_type);
@@ -257,9 +258,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                             }
                         } else {
                             match state.initialization {
-                                crate::checker::flow::InitializationState::DefinitelyInitialized => {
-                                    crate::checker::flow::BindingReadSafety::ProvenInitialized
-                                }
+                                crate::checker::flow::InitializationState::DefinitelyInitialized => crate::checker::flow::BindingReadSafety::ProvenInitialized,
                                 crate::checker::flow::InitializationState::Uninitialized => {
                                     let diag = crate::diagnostic::SemanticDiagnostic::error_in(
                                         ctx.current_module.clone(),
@@ -272,9 +271,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                                     }
                                     crate::checker::flow::BindingReadSafety::DefinitelyUninitialized
                                 }
-                                crate::checker::flow::InitializationState::MaybeInitialized => {
-                                    crate::checker::flow::BindingReadSafety::RuntimeCheckRequired
-                                }
+                                crate::checker::flow::InitializationState::MaybeInitialized => crate::checker::flow::BindingReadSafety::RuntimeCheckRequired,
                             }
                         };
                         typed.binding_read_safety = Some(safety);
@@ -375,7 +372,10 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 Expr::Field { value: field_name, .. } => ctx
                     .current_class
                     .clone()
-                    .and_then(|class_decl| ctx.resolve_field_contract_in_hierarchy(&class_decl, ctx.current_side, field_name).map(|(_, field)| field))
+                    .and_then(|class_decl| {
+                        ctx.resolve_field_contract_in_hierarchy(&class_decl, ctx.current_side, field_name)
+                            .map(|(_, field)| field)
+                    })
                     .and_then(|field| field.ty().map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::AssignmentContract)))
                     .unwrap_or_default(),
                 _ => ExpectedType::None,
@@ -393,10 +393,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                                 .emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                                     ctx.current_module.clone(),
                                     DiagnosticCode::AssignmentToImmutable,
-                                    format!(
-                                        "cannot reassign immutable binding `{}`; declare it with `let mut` to allow mutation",
-                                        var_name
-                                    ),
+                                    format!("cannot reassign immutable binding `{}`; declare it with `let mut` to allow mutation", var_name),
                                     assign.range,
                                 ))
                                 .expect("error diagnostic has cause");
@@ -439,6 +436,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         }
                     }
                 }
+                let target_binding = ctx.lookup_binding_info(var_name).map(|binding| binding.id);
                 let write = ctx.write_existing(var_name, val_typed.fact(), consistency, causal_invalidity);
                 if matches!(write, BindingWriteResult::Immutable) {
                     // Diagnostic and state preservation are handled above; keep
@@ -447,6 +445,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 }
                 let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
                 result.causal_invalidity = causal_invalidity;
+                result.binding_write = target_binding;
                 return result;
             }
             if let Expr::Field { value: field_name, .. } = &*assign.name {
@@ -456,8 +455,8 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                             .resolve_field_signature(&field_id.owner, field_id.side, &field_id.name)
                             .is_some_and(|signature| signature.mutable);
                         if !mutable {
-                            let canonical_constructor = ctx.current_constructor_owner.as_ref() == Some(&field_id.owner)
-                                && field_id.side == crate::identity::DispatchSide::Instance;
+                            let canonical_constructor =
+                                ctx.current_constructor_owner.as_ref() == Some(&field_id.owner) && field_id.side == crate::identity::DispatchSide::Instance;
                             if !canonical_constructor {
                                 let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
                                 if let Some(cause) = ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
@@ -925,6 +924,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         // value in the semantic universe surface.
         Expr::Ellipsis { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
         Expr::TypeForm(annotation) => {
+            if let Some(static_application) = analyze_checked_static_application(ctx, annotation) {
+                return static_application;
+            }
             let resolver = ctx.resolver.inner();
             let site = if let Some(owner) = ctx.current_class.clone() {
                 crate::types::annotation::TypeFormationSite::member(ctx.current_module.clone(), owner, ctx.current_side)
@@ -1155,6 +1157,63 @@ fn compute_shape_aware_data_argument_mapping(
     adapter.argument_to_components(arguments, &target.signature.parameters, store, &shape)
 }
 
+fn checked_variant_construction_arguments(
+    ctx: &CheckingContext<'_>,
+    variant: &crate::enum_semantics::VariantInfo,
+    arguments: &[super::call::ApplicationArgument<'_>],
+) -> Option<Vec<crate::static_definition::CheckedStaticConstructionArgument>> {
+    use super::call::ApplicationArgument;
+
+    let constructor = variant.constructor.as_ref()?;
+    let mut used = std::collections::BTreeSet::new();
+    let mut next_positional = 0usize;
+    let mut checked = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let (parameter_index, expression_id) = match *argument {
+            ApplicationArgument::Positional { expression, .. } => {
+                while used.contains(&next_positional) {
+                    next_positional = next_positional.checked_add(1)?;
+                }
+                let index = next_positional;
+                next_positional = next_positional.checked_add(1)?;
+                (index, ctx.expression_id_for_static_range(expression.range())?)
+            }
+            ApplicationArgument::Labeled { label, expression, .. } => {
+                let index = constructor.parameters.iter().position(|parameter| {
+                    parameter.external_label.as_deref() == Some(label) || parameter.local_name.as_ref() == label
+                })?;
+                (index, ctx.expression_id_for_static_range(expression.range())?)
+            }
+            ApplicationArgument::PreAnalyzed { label, typed, .. } => {
+                let index = match label {
+                    Some(label) => constructor.parameters.iter().position(|parameter| {
+                        parameter.external_label.as_deref() == Some(label) || parameter.local_name.as_ref() == label
+                    })?,
+                    None => {
+                        while used.contains(&next_positional) {
+                            next_positional = next_positional.checked_add(1)?;
+                        }
+                        let index = next_positional;
+                        next_positional = next_positional.checked_add(1)?;
+                        index
+                    }
+                };
+                (index, typed.expression_id?)
+            }
+            ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. } => return None,
+        };
+        if !used.insert(parameter_index) {
+            return None;
+        }
+        let parameter = constructor.parameters.get(parameter_index)?;
+        checked.push(crate::static_definition::CheckedStaticConstructionArgument {
+            expression: expression_id,
+            payload: crate::static_definition::CheckedStaticPayloadId::VariantField(parameter.field.clone()),
+        });
+    }
+    Some(checked)
+}
+
 fn specialize_data_constructor_target(
     ctx: &mut CheckingContext<'_>,
     data_info: &DataInfo,
@@ -1286,12 +1345,198 @@ fn synthesize_record_construction(
                     member: AssociatedMemberId::DataConstructor(data_info.constructor.constructor.clone()),
                     target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
                     result_type,
-                    argument_mapping,
+                    argument_mapping: argument_mapping.clone(),
                 },
             },
         );
+        if let Some(mapping) = argument_mapping.as_deref() {
+            let arguments = record
+                .entries
+                .iter()
+                .zip(mapping)
+                .map(|(entry, component_index)| {
+                    let component = data_info.components.get(*component_index as usize)?;
+                    Some(crate::static_definition::CheckedStaticConstructionArgument {
+                        expression: ctx.expression_id_for_static_range(entry.value.range())?,
+                        payload: crate::static_definition::CheckedStaticPayloadId::DataComponent(component.id.clone()),
+                    })
+                })
+                .collect::<Option<Vec<_>>>();
+            if let Some(arguments) = arguments {
+                ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
+                    expression,
+                    target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
+                    result_type,
+                    arguments: arguments.into_boxed_slice(),
+                });
+            }
+        }
     }
     result.into()
+}
+
+/// Checks a value-parameter static-definition application at the ordinary
+/// TypeForm boundary. The linked resolver supplies the exact target product;
+/// the checked evaluator product retains parameter order and argument identity.
+fn analyze_checked_static_application(
+    ctx: &mut CheckingContext<'_>,
+    annotation: &phalcom_ast::ast::TypeAnnotation,
+) -> Option<TypedExpression> {
+    use phalcom_ast::ast::{GenericArgumentSyntax, TypeAnnotationExpr};
+    use crate::static_definition::CheckedStaticApplicationArgument as CheckedArgument;
+
+    let TypeAnnotationExpr::Application { origin, arguments, range } = &annotation.expr else {
+        return None;
+    };
+    let TypeAnnotationExpr::Reference(reference) = &origin.expr else {
+        return None;
+    };
+    let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+    let (target, target_product) = ctx
+        .resolver
+        .resolve_static_definition_name(&ctx.current_module, &reference.root, &members)?;
+
+    // Preserve the C3 alias projection for compatible Type-valued aliases.
+    if target_product.alias_info.is_some() {
+        return None;
+    }
+
+    let signature = target_product.definition.signature.clone();
+    if arguments.len() != signature.parameters.len() {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ApplicationTooManyArguments,
+            format!("static definition `{}` expects {} arguments but received {}", target.name, signature.parameters.len(), arguments.len()),
+            *range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+    }
+
+    let mut checked_arguments = Vec::with_capacity(arguments.len());
+    for (parameter, argument) in signature.parameters.iter().zip(arguments) {
+        match parameter.domain {
+            crate::static_domain::StaticValueDomain::Kind(expected_kind) => {
+                let Some(type_form) = static_application_argument_type_form(argument) else {
+                    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ApplicationArgumentKindMismatch,
+                        format!("argument {} of `{}` requires kind {}", parameter.index + 1, target.name, ctx.store.format_kind(expected_kind)),
+                        argument.range(),
+                    ));
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                };
+                let typed = analyze_expression(ctx, &Expr::TypeForm(Box::new(type_form)), &ExpectedType::None);
+                if !matches!(typed.status, AnalysisStatus::Ready) {
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                }
+                let Some(expression) = typed.expression_id else {
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                };
+                let actual_kind = match typed.denotation.as_ref() {
+                    Some(SemanticDenotation::TypeForm(form) | SemanticDenotation::StaticTerm(form)) => Some(ctx.store.kind_of(*form)),
+                    Some(SemanticDenotation::StaticApplication(application)) => ctx
+                        .checked_static_applications
+                        .iter()
+                        .find(|candidate| candidate.id == *application)
+                        .and_then(|candidate| candidate.signature.result_domain.as_kind()),
+                    _ => None,
+                };
+                if actual_kind != Some(expected_kind) {
+                    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ApplicationArgumentKindMismatch,
+                        format!("argument {} of `{}` has the wrong kind", parameter.index + 1, target.name),
+                        argument.range(),
+                    ));
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                }
+                if let Some(SemanticDenotation::TypeForm(form) | SemanticDenotation::StaticTerm(form)) = typed.denotation {
+                    checked_arguments.push(CheckedArgument::Kinded {
+                        parameter_index: parameter.index,
+                        term: form,
+                    });
+                } else {
+                    checked_arguments.push(CheckedArgument::KindedExpression {
+                        parameter_index: parameter.index,
+                        expression,
+                    });
+                }
+            }
+            crate::static_domain::StaticValueDomain::ValueType(expected_type) => {
+                let value_expression = match argument {
+                    GenericArgumentSyntax::Value(expression) => (**expression).clone(),
+                    GenericArgumentSyntax::Single(type_form) => match &type_form.expr {
+                        TypeAnnotationExpr::Reference(reference) if reference.members.is_empty() => Expr::Var {
+                            value: reference.root.clone(),
+                            range: type_form.range,
+                        },
+                        _ => {
+                            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                DiagnosticCode::ApplicationArgumentKindMismatch,
+                                format!("argument {} of `{}` requires a static value", parameter.index + 1, target.name),
+                                type_form.range,
+                            ));
+                            return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                        }
+                    },
+                    GenericArgumentSyntax::Expansion(_) => {
+                        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::ApplicationArgumentKindMismatch,
+                            format!("argument {} of `{}` does not accept an expansion", parameter.index + 1, target.name),
+                            argument.range(),
+                        ));
+                        return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                    }
+                };
+                let typed = analyze_expression(
+                    ctx,
+                    &value_expression,
+                    &ExpectedType::proper_from(expected_type, ExpectationOrigin::DeclarationContract),
+                );
+                if !matches!(typed.status, AnalysisStatus::Ready) {
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                }
+                let Some(expression) = typed.expression_id else {
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                };
+                checked_arguments.push(CheckedArgument::Value {
+                    parameter_index: parameter.index,
+                    expression,
+                });
+            }
+        }
+    }
+
+    let application = ctx.record_checked_static_application(
+        target.clone(),
+        *range,
+        target,
+        signature.clone(),
+        checked_arguments.into_boxed_slice(),
+    )?;
+    let mut typed = match signature.result_domain {
+        crate::static_domain::StaticValueDomain::Kind(_) => TypedExpression::unknown(UnknownReason::UncheckedExpression),
+        crate::static_domain::StaticValueDomain::ValueType(result_type) => {
+            TypedExpression::assumed(result_type, EvidenceOrigin::CallableSignature, *range)
+        }
+    };
+    typed.denotation = Some(SemanticDenotation::StaticApplication(application));
+    Some(typed)
+}
+
+fn static_application_argument_type_form(
+    argument: &phalcom_ast::ast::GenericArgumentSyntax,
+) -> Option<phalcom_ast::ast::TypeAnnotation> {
+    match argument {
+        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => Some(annotation.clone()),
+        phalcom_ast::ast::GenericArgumentSyntax::Value(expression) => match &**expression {
+            Expr::TypeForm(annotation) => Some((**annotation).clone()),
+            _ => None,
+        },
+        phalcom_ast::ast::GenericArgumentSyntax::Expansion(_) => None,
+    }
 }
 
 /// Returns ordinary runtime value type for a type-form value, without
@@ -2156,13 +2401,24 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 lookup_owner: owner.lookup_owner,
                 family: Some(family.id),
                 kind: AssociatedResolutionKind::StaticInvoke {
-                    member: member_id,
+                    member: member_id.clone(),
                     target: invocation_target,
                     result_type,
                     argument_mapping: None,
                 },
             },
         );
+        if let AssociatedMemberId::Variant(variant) = &member_id
+            && let Some(variant_info) = ctx.variant_info(variant).cloned()
+            && let Some(arguments) = checked_variant_construction_arguments(ctx, &variant_info, &arguments)
+        {
+            ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
+                expression,
+                target: InvocationTargetId::VariantConstructor(crate::identity::VariantConstructorId::new(variant.clone())),
+                result_type,
+                arguments: arguments.into_boxed_slice(),
+            });
+        }
     }
     result.into()
 }
@@ -3219,11 +3475,7 @@ fn synthesize_constructor_super_call(
     premise: &CallPremise,
     expected: &ExpectedType,
 ) -> Option<TypedExpression> {
-    if call.method != "new"
-        || !matches!(&call.object, Expr::SuperVar { .. })
-        || ctx.current_constructor_owner.is_none()
-        || !ctx.constructor_super_required
-    {
+    if call.method != "new" || !matches!(&call.object, Expr::SuperVar { .. }) || ctx.current_constructor_owner.is_none() || !ctx.constructor_super_required {
         return None;
     }
 

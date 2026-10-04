@@ -40,7 +40,10 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract))
                 .unwrap_or_default();
             let (mut val_typed, init_state) = if let Some(expr) = &binding.value {
-                (analyze_expression(ctx, expr, &expected_init), crate::checker::flow::InitializationState::DefinitelyInitialized)
+                (
+                    analyze_expression(ctx, expr, &expected_init),
+                    crate::checker::flow::InitializationState::DefinitelyInitialized,
+                )
             } else {
                 if binding.kind.requires_initializer() || !matches!(binding.pattern, Pattern::Name { .. }) {
                     let message = if matches!(binding.pattern, Pattern::Name { .. }) {
@@ -59,7 +62,10 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                         binding.range,
                     ));
                 }
-                (TypedExpression::unknown(UnknownReason::MissingInitializer), crate::checker::flow::InitializationState::Uninitialized)
+                (
+                    TypedExpression::unknown(UnknownReason::MissingInitializer),
+                    crate::checker::flow::InitializationState::Uninitialized,
+                )
             };
 
             let contract = if let Some(declared_k) = declared_k.as_ref().and_then(TypeKnowledge::ty) {

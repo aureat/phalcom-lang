@@ -49,6 +49,22 @@ pub enum TypeMemberDomain {
     Kind(KindId),
 }
 
+impl From<KindId> for TypeMemberDomain {
+    #[inline]
+    fn from(kind: KindId) -> Self {
+        Self::Kind(kind)
+    }
+}
+
+impl TypeMemberDomain {
+    #[inline]
+    pub fn to_static_value_domain(&self) -> crate::static_domain::StaticValueDomain {
+        match self {
+            Self::Kind(kind) => crate::static_domain::StaticValueDomain::Kind(*kind),
+        }
+    }
+}
+
 /// Stable declaration identity for a source type member.
 ///
 /// Unlike `TypeMemberId`, this identity is independent of interner allocation order and

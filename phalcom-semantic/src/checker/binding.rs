@@ -47,6 +47,7 @@ pub enum BindingContractOrigin {
     CallableParameter,
     ContextualBlockParameter,
     PatternBinding,
+    StaticParameter,
 }
 
 /// Persistent type constraint independent of current flow knowledge.

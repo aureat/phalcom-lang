@@ -66,6 +66,10 @@ pub struct ExpressionAnalysis {
     pub explanation: Option<ExplanationId>,
     pub call: Option<CallResolutionId>,
     pub binding_read_safety: Option<crate::checker::flow::BindingReadSafety>,
+    /// Exact lexical binding selected for a local variable read.
+    pub binding_read: Option<BindingId>,
+    /// Exact lexical binding selected as an assignment target.
+    pub binding_write: Option<BindingId>,
 }
 
 impl ExpressionAnalysis {
@@ -86,6 +90,8 @@ impl ExpressionAnalysis {
             explanation: None,
             call: None,
             binding_read_safety: None,
+            binding_read: None,
+            binding_write: None,
         }
     }
 
@@ -106,6 +112,8 @@ impl ExpressionAnalysis {
             explanation: None,
             call: None,
             binding_read_safety: None,
+            binding_read: None,
+            binding_write: None,
         }
     }
 
@@ -438,10 +446,12 @@ pub enum SemanticDependency {
     TypeMemberDeclaration(crate::types::type_member::TypeMemberDeclarationId),
     StaticDomainCaseCatalog(crate::identity::StaticDomainDeclarationId),
     StaticCaseSignature(crate::identity::StaticCaseId),
+    StaticDefinition(DeclarationId),
     ConstructorInitialization(DeclarationId),
     ResolvedImport(phalcom_modules::identity::ImportSiteId),
     LinkedName(ModuleId, String),
     PublicExport(ModuleId, String),
+    ModuleStaticBindings(ModuleId),
 }
 
 /// Status of callable-body analysis.

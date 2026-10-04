@@ -210,6 +210,9 @@ pub enum SemanticProduct {
     ResolvedImport(Arc<phalcom_modules::resolver::ImportResolutionProduct>),
     LinkedName(Arc<LinkedNameProduct>),
     PublicExport(Arc<PublicExportProduct>),
+    StaticDefinition(Arc<crate::static_definition::StaticDefinitionProduct>),
+    ModuleStaticBindings(Arc<crate::module_bindings::ModuleStaticBindingIndex>),
+    CheckedStaticBody(Arc<crate::static_definition::CheckedStaticBody>),
 }
 
 impl SemanticProduct {
@@ -440,6 +443,27 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_static_definition(&self) -> Option<&Arc<crate::static_definition::StaticDefinitionProduct>> {
+        match self {
+            Self::StaticDefinition(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_module_static_bindings(&self) -> Option<&Arc<crate::module_bindings::ModuleStaticBindingIndex>> {
+        match self {
+            Self::ModuleStaticBindings(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_checked_static_body(&self) -> Option<&Arc<crate::static_definition::CheckedStaticBody>> {
+        match self {
+            Self::CheckedStaticBody(product) => Some(product),
+            _ => None,
+        }
+    }
+
     /// Converts typed product into type-erased `QueryValue`.
     pub fn to_query_value(&self) -> QueryValue {
         let kind = match self {
@@ -474,6 +498,9 @@ impl SemanticProduct {
             Self::ResolvedImport(_) => b"resolved-import".as_slice(),
             Self::LinkedName(_) => b"linked-name".as_slice(),
             Self::PublicExport(_) => b"public-export".as_slice(),
+            Self::StaticDefinition(_) => b"static-definition".as_slice(),
+            Self::ModuleStaticBindings(_) => b"module-static-bindings".as_slice(),
+            Self::CheckedStaticBody(_) => b"checked-static-body".as_slice(),
         };
         QueryValue::from_bytes(kind)
     }

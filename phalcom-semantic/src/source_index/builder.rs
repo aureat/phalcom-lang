@@ -297,10 +297,12 @@ impl TypeReferenceTargetCollector<'_> {
                     }
                 }
             }
-            Statement::TypeAlias(alias) => {
-                let alias_bound = self.generic_parameters(bound, &alias.generic_parameters);
+            Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => {
+                let alias_bound = self.generic_parameters(bound, &alias.generic_parameters());
                 self.where_clause(alias.where_clause.as_ref(), &alias_bound);
-                self.annotation(&alias.body, &alias_bound);
+                if let Some(body) = alias.type_form_body() {
+                    self.annotation(body, &alias_bound);
+                }
             }
             Statement::Let(binding) => {
                 if let Some(annotation) = &binding.annotation {
@@ -525,6 +527,7 @@ impl TypeReferenceTargetCollector<'_> {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.annotation(annotation, bound),
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
                 }
             }
@@ -635,6 +638,7 @@ impl TypeReferenceTargetCollector<'_> {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.annotation(annotation, bound),
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
                 }
             }
@@ -692,7 +696,7 @@ pub fn build_source_scope_index(module: ModuleId, program: &Program, context: &S
         if let Statement::Class(class) = statement {
             let declaration = builder.declaration_id(class);
             builder.index.register_class(class.name.clone(), declaration);
-        } else if let Statement::TypeAlias(alias) = statement {
+        } else if let Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) = statement {
             let declaration = DeclarationId::new(module.clone(), alias.name.clone().into());
             builder.index.register_class(alias.name.clone(), declaration);
         } else if let Statement::Data(data_def) = statement {
@@ -791,6 +795,7 @@ impl SourceScopeBuilder<'_> {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.visit_annotation_projection_targets(annotation),
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.visit_annotation_projection_targets(&expansion.operand),
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
                 }
             }
@@ -995,7 +1000,7 @@ impl SourceScopeBuilder<'_> {
         for (statement_index, statement) in statements.iter().enumerate() {
             match statement {
                 Statement::Class(class) => self.visit_class(scope, class),
-                Statement::TypeAlias(alias) => self.visit_type_alias(scope, alias),
+                Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => self.visit_type_alias(scope, alias),
                 Statement::Data(data_def) => {
                     if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
                         self.type_data_definition(data_def);
@@ -2089,7 +2094,7 @@ fn statement_range(statement: &Statement) -> SourceRange {
         Statement::Break { range } | Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
         Statement::Export(export_decl) => export_decl.range,
-        Statement::TypeAlias(type_alias) => type_alias.range,
+        Statement::TypeAlias(type_alias) | Statement::TypeDefinition(type_alias) => type_alias.range,
         Statement::Impl(impl_def) => impl_def.range,
     }
 }

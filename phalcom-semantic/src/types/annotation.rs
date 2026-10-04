@@ -140,6 +140,13 @@ pub trait TypeResolver {
         None
     }
 
+    /// Retrieves the canonical static-definition signature for an already
+    /// resolved declaration. Static-application checking uses this exact
+    /// product instead of looking up parameter names or reconstructing domains.
+    fn resolve_static_definition(&self, _declaration: &DeclarationId) -> Option<std::sync::Arc<crate::static_definition::StaticDefinitionProduct>> {
+        None
+    }
+
     /// Compatibility lookup for expression/type-form consumers that accept only ordinary type forms.
     fn resolve_type_parameter(&self, name: &str) -> Option<TypeId> {
         match self.resolve_type_level_binding(name) {
@@ -212,6 +219,10 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
 
     fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
         self.parent.resolve_alias_form(declaration)
+    }
+
+    fn resolve_static_definition(&self, declaration: &DeclarationId) -> Option<std::sync::Arc<crate::static_definition::StaticDefinitionProduct>> {
+        self.parent.resolve_static_definition(declaration)
     }
 
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
@@ -1287,6 +1298,15 @@ fn lower_scoped_type_form(
                                 DiagnosticCode::AnnotationUnsupported,
                                 "generic pack contributions require an explicit `*`, `**`, or `***` expansion",
                                 argument.range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(expr) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "generic pack contributions require an explicit `*`, `**`, or `***` expansion",
+                                expr.range(),
                             ));
                             return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
                         }
@@ -2626,6 +2646,15 @@ pub fn resolve_type_form(
                             continue;
                         }
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => (expansion.mode, &expansion.operand, expansion.range),
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(expr) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "value generic arguments cannot be resolved as types in this context",
+                                expr.range(),
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
                     };
                     let operand = ready_or_return!(resolve_type_form(store, declarations, resolver, site, operand, diagnostics));
                     let projected = match mode {

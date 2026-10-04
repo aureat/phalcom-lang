@@ -3037,7 +3037,7 @@ fn statement_range(stmt: &Statement) -> SourceRange {
         Statement::Break { range } | Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
         Statement::Export(e) => e.range,
-        Statement::TypeAlias(t) => t.range,
+        Statement::TypeAlias(t) | Statement::TypeDefinition(t) => t.range,
         Statement::Data(d) => d.range,
         Statement::Trait(t) => t.range,
         Statement::Impl(i) => i.range,

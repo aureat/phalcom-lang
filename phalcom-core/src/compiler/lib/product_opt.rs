@@ -623,7 +623,7 @@ impl<'a> ProductPlanner<'a> {
                 }
                 self.current_loop_depth -= 1;
             }
-            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Export(_) => {}
+            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::TypeDefinition(_) | Statement::Export(_) => {}
             Statement::Throw { expr, .. } => {
                 self.visit_expression(expr, UseContext::Value);
             }

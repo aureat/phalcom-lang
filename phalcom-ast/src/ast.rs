@@ -29,7 +29,9 @@ pub enum Statement {
     Data(AlgebraicDef),
     Trait(TraitDef),
     Impl(ImplDef),
-    TypeAlias(TypeAliasDef),
+    TypeDefinition(TypeDefinitionDef),
+    #[deprecated(note = "use Statement::TypeDefinition")]
+    TypeAlias(TypeDefinitionDef),
     Let(LetBinding),
     Return(ReturnStatement),
     Expr {
@@ -1165,17 +1167,46 @@ pub struct TypeTupleElement {
 
 /// A generic application contribution. Expansion remains explicit because one
 /// source entry can assemble a pack argument rather than consume one binder.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum GenericArgumentSyntax {
     Single(TypeAnnotation),
     Expansion(TypePackExpansionSyntax),
+    /// Compile-time static value argument (e.g. `3`, `true`, `"foo"`, `#sym`).
+    Value(Box<Expr>),
+}
+
+
+impl PartialEq for GenericArgumentSyntax {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Single(a), Self::Single(b)) => a == b,
+            (Self::Expansion(a), Self::Expansion(b)) => a == b,
+            (Self::Value(a), Self::Value(b)) => match (&**a, &**b) {
+                (Expr::Int { digits: d1, radix: r1, .. }, Expr::Int { digits: d2, radix: r2, .. }) => d1 == d2 && r1 == r2,
+                (Expr::Float { value: v1, .. }, Expr::Float { value: v2, .. }) => v1.to_bits() == v2.to_bits(),
+                (Expr::String { value: s1, .. }, Expr::String { value: s2, .. }) => s1 == s2,
+                (Expr::Boolean { value: b1, .. }, Expr::Boolean { value: b2, .. }) => b1 == b2,
+                (Expr::Var { value: v1, .. }, Expr::Var { value: v2, .. }) => v1 == v2,
+                (Expr::TypeForm(t1), Expr::TypeForm(t2)) => t1 == t2,
+                _ => a.range() == b.range(),
+            },
+            _ => false,
+        }
+    }
 }
 
 impl GenericArgumentSyntax {
     pub fn as_single(&self) -> Option<&TypeAnnotation> {
         match self {
             Self::Single(ty) => Some(ty),
-            Self::Expansion(_) => None,
+            Self::Expansion(_) | Self::Value(_) => None,
+        }
+    }
+
+    pub fn as_value(&self) -> Option<&Expr> {
+        match self {
+            Self::Value(expr) => Some(expr),
+            _ => None,
         }
     }
 
@@ -1183,6 +1214,7 @@ impl GenericArgumentSyntax {
         match self {
             Self::Single(ty) => ty.range,
             Self::Expansion(expansion) => expansion.range,
+            Self::Value(expr) => expr.range(),
         }
     }
 }
@@ -1286,6 +1318,64 @@ impl KindSyntax {
             KindSyntax::Arrow { range, .. } => *range,
             KindSyntax::Grouped { range, .. } => *range,
             KindSyntax::Invalid { range, .. } => *range,
+        }
+    }
+}
+
+/// Neutral source carrier for a static domain (Kind or ValueType).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StaticDomainSyntax {
+    pub form: TypeAnnotation,
+    pub range: SourceRange,
+}
+
+impl StaticDomainSyntax {
+    pub fn new(form: TypeAnnotation, range: SourceRange) -> Self {
+        Self { form, range }
+    }
+
+    pub fn range(&self) -> SourceRange {
+        self.range
+    }
+
+    pub fn to_kind_syntax(&self) -> KindSyntax {
+        Self::annotation_to_kind(&self.form)
+    }
+
+    fn annotation_to_kind(form: &TypeAnnotation) -> KindSyntax {
+        match &form.expr {
+            TypeAnnotationExpr::Reference(sym) if sym.members.is_empty() => match sym.root.as_str() {
+                "Type" => KindSyntax::Type(form.range),
+                "TypePack" => KindSyntax::TypePack(form.range),
+                "LabeledTypePack" => KindSyntax::LabeledTypePack(form.range),
+                "RecordFields" => KindSyntax::RecordFields(form.range),
+                "CompleteTypePack" => KindSyntax::CompleteTypePack(form.range),
+                "RecordRow" => KindSyntax::RecordRow(form.range),
+                _ => KindSyntax::StaticDomain {
+                    form: Box::new(form.clone()),
+                    range: form.range,
+                },
+            },
+            TypeAnnotationExpr::Callable { parameters, result, .. } if parameters.len() == 1 => {
+                if let TypeCallableItem::Parameter(param) = &parameters[0] {
+                    let param_kind = Self::annotation_to_kind(&param.ty);
+                    let result_kind = Self::annotation_to_kind(result);
+                    KindSyntax::Arrow {
+                        parameter: Box::new(param_kind),
+                        result: Box::new(result_kind),
+                        range: form.range,
+                    }
+                } else {
+                    KindSyntax::StaticDomain {
+                        form: Box::new(form.clone()),
+                        range: form.range,
+                    }
+                }
+            }
+            _ => KindSyntax::StaticDomain {
+                form: Box::new(form.clone()),
+                range: form.range,
+            },
         }
     }
 }
@@ -1430,19 +1520,84 @@ pub struct TypeLambdaParameter {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TypeAliasDef {
+pub struct StaticParameterSyntax {
+    pub mode: Option<ExpansionMode>,
+    pub mode_range: Option<SourceRange>,
+    pub variance: VarianceSyntax,
     pub name: String,
     pub name_range: SourceRange,
-    /// Optional result domain for a static alias, e.g. `type Shape0: Shape = ...`.
-    /// `None` preserves the historical Type-valued alias meaning.
-    pub result_kind: Option<KindSyntax>,
-    pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub domain: Option<StaticDomainSyntax>,
+    pub range: SourceRange,
+}
+
+impl StaticParameterSyntax {
+    pub fn range(&self) -> SourceRange {
+        self.range
+    }
+
+    pub fn to_generic_parameter(&self) -> GenericParameterSyntax {
+        let kind = self.domain.as_ref().map(|d| d.to_kind_syntax());
+        GenericParameterSyntax {
+            mode: self.mode,
+            mode_range: self.mode_range,
+            variance: self.variance,
+            name: self.name.clone(),
+            name_range: self.name_range,
+            kind,
+            range: self.range,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum StaticDefinitionBody {
+    Expression(Box<Expr>),
+    Block(LexicalBlock),
+}
+
+impl StaticDefinitionBody {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Expression(e) => e.range(),
+            Self::Block(b) => b.range,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeDefinitionDef {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub parameters: Vec<StaticParameterSyntax>,
+    pub result_domain: Option<StaticDomainSyntax>,
     pub where_clause: Option<WhereClauseSyntax>,
-    pub body: TypeAnnotation,
+    pub body: StaticDefinitionBody,
     pub implementation: ImplementationKind,
     pub implementation_range: Option<SourceRange>,
     pub range: SourceRange,
 }
+
+impl TypeDefinitionDef {
+    pub fn generic_parameters(&self) -> Vec<GenericParameterSyntax> {
+        self.parameters.iter().map(|p| p.to_generic_parameter()).collect()
+    }
+
+    pub fn type_form_body(&self) -> Option<&TypeAnnotation> {
+        match &self.body {
+            StaticDefinitionBody::Expression(e) => match &**e {
+                Expr::TypeForm(ann) => Some(ann),
+                _ => None,
+            },
+            StaticDefinitionBody::Block(_) => None,
+        }
+    }
+
+    pub fn result_kind(&self) -> Option<KindSyntax> {
+        self.result_domain.as_ref().map(|d| d.to_kind_syntax())
+    }
+}
+
+pub type TypeAliasDef = TypeDefinitionDef;
 
 #[derive(Debug, Clone)]
 #[allow(clippy::large_enum_variant)]

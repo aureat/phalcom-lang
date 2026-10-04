@@ -217,7 +217,7 @@ impl Counter {
 fn c5p1_top_level_type_alias_remains_unchanged() {
     let source = "type Item = Int\n";
     let program = parse_source(source, 0).expect("type alias parses");
-    assert!(matches!(&program.statements[0], Statement::TypeAlias(alias) if alias.name == "Item"));
+    assert!(matches!(&program.statements[0], Statement::TypeDefinition(alias) | Statement::TypeAlias(alias) if alias.name == "Item"));
 }
 
 #[test]

@@ -124,6 +124,8 @@ fn test_dynamic_dispatch_produces_opaque_effects() {
         explanation: None,
         call: None,
         binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
     };
     expressions.insert(eid, expr);
 
@@ -153,6 +155,8 @@ fn test_reflective_perform_produces_opaque_effects() {
         explanation: None,
         call: None,
         binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
     };
     expressions.insert(eid, expr);
 

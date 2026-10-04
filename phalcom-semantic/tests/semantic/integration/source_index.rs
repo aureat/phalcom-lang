@@ -970,6 +970,8 @@ fn formal_products_attach_by_callable_and_checker_ids() {
                 explanation: None,
                 call: None,
                 binding_read_safety: None,
+                binding_read: Some(binding_id),
+                binding_write: None,
             },
         )]),
         bindings: BTreeMap::from([(

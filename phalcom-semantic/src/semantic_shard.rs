@@ -59,7 +59,7 @@ impl ModuleSemanticStructureShard {
                     (&data_def.name, kind)
                 }
                 Statement::Trait(trait_def) => (&trait_def.name, DeclarationKind::Trait),
-                Statement::TypeAlias(alias) => (&alias.name, DeclarationKind::Alias),
+                Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => (&alias.name, DeclarationKind::Alias),
                 _ => continue,
             };
             let declaration = DeclarationId::new(source.id.clone(), name.clone().into());
@@ -97,7 +97,7 @@ impl ModuleSemanticStructureShard {
                         &mut callable_body_fingerprints,
                     );
                 }
-                Statement::TypeAlias(alias) => {
+                Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => {
                     alias_sources.insert(declaration, alias.clone());
                 }
                 _ => {}

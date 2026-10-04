@@ -36,10 +36,7 @@ fn binding_init_join_uninitialized() {
     );
 
     let joined = FlowState::join(&[left, right], &mut store);
-    assert_eq!(
-        joined.get_binding(binding).expect("binding").initialization,
-        InitializationState::Uninitialized
-    );
+    assert_eq!(joined.get_binding(binding).expect("binding").initialization, InitializationState::Uninitialized);
 }
 
 #[test]
@@ -166,10 +163,7 @@ fn assignment_marks_binding_definitely_initialized() {
         true,
         InitializationState::Uninitialized,
     );
-    assert_eq!(
-        flow.get_binding(binding).expect("binding").initialization,
-        InitializationState::Uninitialized
-    );
+    assert_eq!(flow.get_binding(binding).expect("binding").initialization, InitializationState::Uninitialized);
 
     flow.assign(binding, TypeKnowledge::established(int_ty, EvidenceOrigin::Flow));
     assert_eq!(
@@ -292,12 +286,13 @@ class Probe {
     );
     f.assert_no_diagnostic(DiagnosticCode::UninitializedBindingRead);
     let run = f.callable("Probe", "run", DispatchSide::Class);
+    let x_binding = run.bindings.values().find(|binding| binding.name == "x").expect("x binding").binding;
+    assert!(
+        run.expressions.values().any(|expression| expression.binding_read == Some(x_binding)),
+        "expected local reads to retain the exact lexical binding ID"
+    );
     // Find the read expression for `x` (last expression read)
-    let read_safety = run
-        .expressions
-        .values()
-        .filter_map(|expr| expr.binding_read_safety)
-        .collect::<Vec<_>>();
+    let read_safety = run.expressions.values().filter_map(|expr| expr.binding_read_safety).collect::<Vec<_>>();
     assert!(
         read_safety.contains(&BindingReadSafety::ProvenInitialized),
         "expected ProvenInitialized read, got {read_safety:#?}"
@@ -322,11 +317,7 @@ class Probe {
     );
     f.assert_no_diagnostic(DiagnosticCode::UninitializedBindingRead);
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    let read_safety = run
-        .expressions
-        .values()
-        .filter_map(|expr| expr.binding_read_safety)
-        .collect::<Vec<_>>();
+    let read_safety = run.expressions.values().filter_map(|expr| expr.binding_read_safety).collect::<Vec<_>>();
     assert!(
         read_safety.contains(&BindingReadSafety::RuntimeCheckRequired),
         "expected RuntimeCheckRequired read, got {read_safety:#?}"
@@ -348,11 +339,7 @@ class Probe {
     );
     f.assert_no_diagnostic(DiagnosticCode::UninitializedBindingRead);
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    let read_safety = run
-        .expressions
-        .values()
-        .filter_map(|expr| expr.binding_read_safety)
-        .collect::<Vec<_>>();
+    let read_safety = run.expressions.values().filter_map(|expr| expr.binding_read_safety).collect::<Vec<_>>();
     assert!(
         read_safety.contains(&BindingReadSafety::ProvenInitialized),
         "expected ProvenInitialized read for explicit None, got {read_safety:#?}"
@@ -373,11 +360,9 @@ class Probe {
 "#,
     );
     let all_diags = f.analysis.snapshot.all_diagnostics().collect::<Vec<_>>();
-    let immutable_diag = all_diags
-        .iter()
-        .find(|d| d.message.contains("cannot reassign immutable binding `x`; declare it with `let mut` to allow mutation"));
-    assert!(
-        immutable_diag.is_some(),
-        "expected immutable reassignment diagnostic, got: {all_diags:#?}"
-    );
+    let immutable_diag = all_diags.iter().find(|d| {
+        d.message
+            .contains("cannot reassign immutable binding `x`; declare it with `let mut` to allow mutation")
+    });
+    assert!(immutable_diag.is_some(), "expected immutable reassignment diagnostic, got: {all_diags:#?}");
 }

@@ -83,6 +83,8 @@ fn test_interprocedural_effect_propagation() {
             explanation: None,
             call: None,
             binding_read_safety: None,
+            binding_read: None,
+            binding_write: None,
         },
     );
     let leaf = mock_callable(leaf_id.clone(), leaf_exprs, vec![]);

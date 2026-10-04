@@ -846,6 +846,18 @@ impl TypeStore {
         self.nominal_form(declaration, KindId::TYPE)
     }
 
+    /// Returns an already-interned proper nominal type without mutating the store.
+    pub fn nominal_type_id(&self, declaration: &DeclarationId) -> Option<TypeId> {
+        self.type_to_id
+            .get(&(
+                TypeData::Nominal {
+                    declaration: declaration.clone(),
+                },
+                KindId::TYPE,
+            ))
+            .copied()
+    }
+
     pub fn class_object_type(&mut self, declaration: DeclarationId) -> TypeId {
         self.intern_with_kind(TypeData::ClassObject { declaration }, KindId::TYPE)
     }

@@ -23,7 +23,7 @@ fn stmt_range(stmt: &Statement) -> SourceRange {
         Statement::Class(c) => c.range,
         Statement::Data(d) => d.range,
         Statement::Trait(t) => t.range,
-        Statement::TypeAlias(t) => t.range,
+        Statement::TypeAlias(t) | Statement::TypeDefinition(t) => t.range,
         Statement::Let(l) => l.range,
         Statement::Return(r) => r.range,
         Statement::Expr { range, .. } => *range,
@@ -281,9 +281,10 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
             ctx.constructor_parent_owner = Some(parent.clone());
             ctx.constructor_super_required = products.iter().any(|(factory, _)| factory.owner == parent);
             ctx.constructor_super_prologue_allowed = match body.first() {
-                Some(Statement::Expr { expr: phalcom_ast::ast::Expr::MethodCall(call), .. }) => {
-                    call.method == "new" && matches!(&call.object, phalcom_ast::ast::Expr::SuperVar { .. })
-                }
+                Some(Statement::Expr {
+                    expr: phalcom_ast::ast::Expr::MethodCall(call),
+                    ..
+                }) => call.method == "new" && matches!(&call.object, phalcom_ast::ast::Expr::SuperVar { .. }),
                 _ => false,
             };
             ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::HierarchyEdge(owner.clone()));
@@ -512,9 +513,10 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
                     // incremental field edit invalidates this constructor fact.
                     let _ = ctx.resolve_field_signature(&field_id.owner, field_id.side, &name);
                     let initialized_on_every_exit = ctx.normal_return_exits().iter().all(|exit| {
-                        exit.flow.fields.get(&field_id).is_some_and(|state| {
-                            state.initialization == crate::checker::flow::FieldInitialization::DefinitelyInitialized
-                        })
+                        exit.flow
+                            .fields
+                            .get(&field_id)
+                            .is_some_and(|state| state.initialization == crate::checker::flow::FieldInitialization::DefinitelyInitialized)
                     });
                     if !initialized_on_every_exit {
                         ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(

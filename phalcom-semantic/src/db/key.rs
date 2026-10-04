@@ -78,4 +78,10 @@ pub enum QueryKey {
     ResolvedImport(phalcom_modules::identity::ImportSiteId),
     LinkedName(ModuleId, String),
     PublicExport(ModuleId, String),
+    /// Canonical checked static definition product.
+    StaticDefinition(DeclarationId),
+    /// Checked ordinary module binding facts used by static-body analysis.
+    ModuleStaticBindings(ModuleId),
+    /// Ordinary-checker facts and evaluator layout for one static body.
+    CheckedStaticBody(crate::static_definition::StaticBodyId),
 }

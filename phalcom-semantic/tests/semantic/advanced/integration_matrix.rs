@@ -269,6 +269,8 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
             explanation: None,
             call: None,
             binding_read_safety: None,
+            binding_read: None,
+            binding_write: None,
         },
     );
     let analysis = CallableAnalysis {

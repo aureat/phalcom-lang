@@ -5,11 +5,14 @@ use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, TypeId, WorkspaceId};
 use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan, EffectiveCallableDefinition};
+use crate::module_bindings::ModuleStaticBindingIndex;
 use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
 use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{CallableSignatureTable, ConstructorInitializationTable, FieldSignatureTable};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
+use crate::static_definition::{StaticDefinitionProduct, StaticDefinitionTable};
+use crate::static_value::StaticValueStore;
 use crate::surface::DeclarationSurface;
 use crate::trait_dispatch::{TraitDispatchIndex, TraitDispatchResolution};
 use crate::traits::{TraitHeaderTable, TraitRef, TraitSurfaceTable};
@@ -209,6 +212,12 @@ pub struct SemanticSnapshot {
     pub static_case_catalogs: Arc<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
     /// Checked constructor contracts keyed by stable static-case identity.
     pub static_case_signatures: Arc<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
+    /// Checked static definitions keyed by declaration identity.
+    pub static_definitions: Arc<StaticDefinitionTable>,
+    /// Immutable static-value arena shared by semantic products in this store lineage.
+    pub static_values: Arc<StaticValueStore>,
+    /// Ordinary-checker facts keyed by stable module binding identity.
+    pub module_static_bindings: Arc<BTreeMap<ModuleId, Arc<ModuleStaticBindingIndex>>>,
     /// Retained source-local semantic structure shards for incremental reuse.
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     pub status: SnapshotStatus,
@@ -270,6 +279,9 @@ impl SemanticSnapshot {
             associated_static_domains: Arc::new(BTreeMap::new()),
             static_case_catalogs: Arc::new(BTreeMap::new()),
             static_case_signatures: Arc::new(BTreeMap::new()),
+            static_definitions: Arc::new(StaticDefinitionTable::new()),
+            static_values: Arc::new(StaticValueStore::new()),
+            module_static_bindings: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -332,6 +344,9 @@ impl SemanticSnapshot {
             associated_static_domains: Arc::new(BTreeMap::new()),
             static_case_catalogs: Arc::new(BTreeMap::new()),
             static_case_signatures: Arc::new(BTreeMap::new()),
+            static_definitions: Arc::new(StaticDefinitionTable::new()),
+            static_values: Arc::new(StaticValueStore::new()),
+            module_static_bindings: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -391,6 +406,23 @@ impl SemanticSnapshot {
         signatures: Arc<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
     ) -> Self {
         self.static_case_signatures = signatures;
+        self
+    }
+
+    pub fn with_static_definitions(mut self, static_definitions: Arc<StaticDefinitionTable>) -> Self {
+        self.static_definitions = static_definitions;
+        self
+    }
+
+    /// Publishes the session-owned static-value arena for this snapshot.
+    pub fn with_static_values(mut self, static_values: Arc<StaticValueStore>) -> Self {
+        self.static_values = static_values;
+        self
+    }
+
+    /// Publishes ordinary checker facts for stable module binding identities.
+    pub fn with_module_static_bindings(mut self, bindings: Arc<BTreeMap<ModuleId, Arc<ModuleStaticBindingIndex>>>) -> Self {
+        self.module_static_bindings = bindings;
         self
     }
 
@@ -634,6 +666,18 @@ impl SemanticSnapshot {
 
     pub fn declarations(&self) -> &Arc<DeclarationTypeTable> {
         &self.declarations
+    }
+
+    pub fn static_definitions(&self) -> &Arc<StaticDefinitionTable> {
+        &self.static_definitions
+    }
+
+    pub fn static_definition(&self, declaration: &DeclarationId) -> Option<&Arc<StaticDefinitionProduct>> {
+        self.static_definitions.get(declaration)
+    }
+
+    pub fn module_static_binding(&self, symbol: &phalcom_modules::linker::SymbolId) -> Option<&crate::module_bindings::ModuleBindingFact> {
+        self.module_static_bindings.get(&symbol.module)?.get(symbol)
     }
 
     pub fn hierarchy(&self) -> &Arc<MapTypeHierarchy> {
