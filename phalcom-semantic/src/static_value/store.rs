@@ -621,6 +621,16 @@ impl StaticValueStore {
             .ok_or(StaticValueStoreError::UnknownValue(reference.value.0))
     }
 
+    /// Looks up interned string contents by id.
+    pub fn get_string(&self, id: StaticStringId) -> Option<&str> {
+        self.strings.get(id.0 as usize).map(|s| s.as_ref())
+    }
+
+    /// Looks up interned symbol spelling by id.
+    pub fn get_symbol(&self, id: StaticSymbolId) -> Option<&str> {
+        self.symbols.get(id.0 as usize).map(|s| s.as_ref())
+    }
+
     /// Returns a value's semantic domain using the paired canonical type store.
     pub fn domain_of(&self, reference: StaticValueRef, types: &TypeStore) -> Result<StaticValueDomain, StaticValueStoreError> {
         let domain = match self.get(reference)? {

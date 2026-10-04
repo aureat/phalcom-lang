@@ -1355,7 +1355,66 @@ impl<'vm> Compiler<'vm> {
                 }
                 let name_sym = self.vm.interner.intern(&value);
                 if self.is_static_constant(name_sym) {
-                    return Err(CompilerError::StaticConstUnmaterialized(value.clone()));
+                    let has_lowering = self.lowering().is_some();
+                    let spec = self.lowering().and_then(|l| l.static_constants.get(&value)).cloned();
+                    if let Some(spec) = spec {
+                        match spec.descriptor {
+                            phalcom_semantic::materialization::MaterializationDescriptor::Unit => {
+                                let idx = self.add_constant(Value::unit(), range)?;
+                                self.emit(Bytecode::Constant(idx), range);
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Bool(b) => {
+                                if b {
+                                    self.emit(Bytecode::True, range);
+                                } else {
+                                    self.emit(Bytecode::False, range);
+                                }
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Int(static_int) => {
+                                match static_int {
+                                    phalcom_semantic::static_value::StaticInt::Small(i) => {
+                                        let idx = self.add_constant(Value::int(i), range)?;
+                                        self.emit(Bytecode::Constant(idx), range);
+                                    }
+                                    phalcom_semantic::static_value::StaticInt::Large(big) => {
+                                        let obj = self.vm.heap.alloc(crate::heap::Object::LargeInt(big.as_ref().clone()));
+                                        let idx = self.add_constant(Value::obj(obj), range)?;
+                                        self.emit(Bytecode::Constant(idx), range);
+                                    }
+                                }
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Float(static_float) => {
+                                let idx = self.add_constant(Value::float(static_float.to_f64()), range)?;
+                                self.emit(Bytecode::Constant(idx), range);
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::String(s) => {
+                                let string_obj = self.vm.alloc_string_value(s.to_string());
+                                let idx = self.add_constant(string_obj, range)?;
+                                self.emit(Bytecode::Constant(idx), range);
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Symbol(s) => {
+                                let sym = self.vm.interner.intern(s.as_ref());
+                                let idx = self.add_constant(Value::symbol(sym), range)?;
+                                self.emit(Bytecode::Constant(idx), range);
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::DeferredStructural(_) => {
+                                return Err(CompilerError::StaticConstStructuralDeferred(value.clone()));
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Unsupported(msg) => {
+                                return Err(CompilerError::Message(format!("unsupported static constant `{value}`: {msg}")));
+                            }
+                        }
+                    } else if has_lowering {
+                        return Err(CompilerError::Message(format!("internal consistency error: static constant `{value}` is declared but missing successful lowering projection")));
+                    } else {
+                        return Err(CompilerError::StaticConstUnmaterialized(value.clone()));
+                    }
                 }
                 if let Some(variant) = self.vm.canonical_variant_alias(name_sym).cloned()
                     && variant.selector.slots.is_empty()

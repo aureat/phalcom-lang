@@ -76,6 +76,153 @@ pub fn analyze_static_body_with_module_bindings(
     checked
 }
 
+/// Checks a static constant's initializer expression using the caller's ordinary
+/// checker context and the module's visible static bindings.
+pub fn analyze_static_constant_initializer(
+    mut context: CheckingContext<'_>,
+    constant_id: &crate::static_constant::StaticConstantId,
+    declaration_range: SourceRange,
+    initializer_range: SourceRange,
+    initializer: &Expr,
+    expected_type: Option<crate::types::id::TypeId>,
+    module_bindings: &crate::module_bindings::ModuleStaticBindingIndex,
+    intrinsics: &StaticIntrinsicRegistry,
+) -> crate::static_constant::CheckedStaticConstantInitializer {
+    let diagnostic_start = context.diagnostics.len();
+    let existing_expressions = context.expressions.keys().copied().collect::<BTreeSet<_>>();
+    let expression_start = context.next_local_expr_id;
+    let body_id = context.body_id;
+    let runtime_outer_bindings = context
+        .scopes
+        .iter()
+        .flat_map(|scope| scope.values().map(|binding| binding.id))
+        .collect::<BTreeSet<_>>();
+
+    context.push_scope();
+    let mut readable = BTreeSet::new();
+    let mut stable_bindings = BTreeMap::new();
+    let mut runtime_module_bindings = BTreeSet::new();
+    for (visible_name, fact) in module_bindings.visible_bindings() {
+        let inserted = context.declare_checked_binding(visible_name.to_owned(), &fact.state);
+        if let crate::checker::binding::BindingDeclarationResult::Inserted(binding) = inserted {
+            if fact.phase == crate::module_bindings::ModuleBindingPhase::StaticConstant {
+                readable.insert(binding);
+                stable_bindings.insert(binding, fact.symbol.clone());
+            } else {
+                runtime_module_bindings.insert(binding);
+            }
+        }
+    }
+    let first_body_binding = context.next_binding_id;
+
+    let expected = match expected_type {
+        Some(ty) => ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract),
+        None => ExpectedType::None,
+    };
+    let typed_result = analyze_expression(&mut context, initializer, &expected);
+    context.sync_expression_outcome(&typed_result);
+
+    let runtime_accesses = context
+        .expressions
+        .values()
+        .filter(|expression| !existing_expressions.contains(&expression.id) && expression.id.owner == body_id && expression.id.local.0 >= expression_start)
+        .filter_map(|expression| {
+            let binding = expression.binding_read.or(expression.binding_write)?;
+            ((runtime_module_bindings.contains(&binding) || runtime_outer_bindings.contains(&binding)) && !readable.contains(&binding)).then_some((
+                expression.id,
+                expression.range,
+                binding,
+            ))
+        })
+        .collect::<Vec<(ExpressionId, SourceRange, BindingId)>>();
+    for (expression_id, range, binding) in runtime_accesses {
+        let message = format!("runtime binding is not accessible in a static constant initializer (binding {binding:?})");
+        let diagnostic = SemanticDiagnostic::error_in(context.current_module.clone(), DiagnosticCode::TypeOnlyRuntimeValue, message, range);
+        if let Some(cause) = context.emit_diagnostic(diagnostic)
+            && let Some(expression) = context.expressions.get_mut(&expression_id)
+        {
+            expression.status = AnalysisStatus::Invalid(cause);
+            expression.causal_invalidity = expression.causal_invalidity.join(CausalInvalidity::One(cause));
+        }
+    }
+    context.pop_scope();
+
+    let expressions = context
+        .expressions
+        .iter()
+        .filter(|(id, _)| !existing_expressions.contains(id) && id.owner == body_id && id.local.0 >= expression_start)
+        .map(|(id, analysis)| (*id, analysis.clone()))
+        .collect::<ExpressionAnalysisIndex>();
+    let static_operations = intrinsics.resolve_ready_expressions(&expressions);
+    let static_constant_reads = expressions
+        .values()
+        .filter_map(|expression| expression.binding_read.and_then(|binding| stable_bindings.get(&binding).cloned()))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let static_applications = std::mem::take(&mut context.checked_static_applications).into_boxed_slice();
+    let static_constructions = std::mem::take(&mut context.checked_static_constructions);
+    let associated_resolutions = context
+        .associated_resolutions
+        .iter()
+        .filter(|(expression, _)| expressions.contains_key(expression))
+        .map(|(expr, res)| (*expr, res.clone()))
+        .collect();
+
+    let mut bindings: BindingAnalysisIndex = context.binding_history.clone();
+    bindings.extend(context.flow.bindings.clone());
+    bindings.retain(|binding, _| binding.0 >= first_body_binding || readable.contains(binding));
+    let mut local_ids = bindings
+        .keys()
+        .copied()
+        .filter(|binding| binding.0 >= first_body_binding && !stable_bindings.contains_key(binding))
+        .collect::<Vec<_>>();
+    local_ids.sort_unstable();
+    let local_slots = local_ids
+        .into_iter()
+        .enumerate()
+        .map(|(slot, binding)| (binding, slot as u32))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut dependencies = context
+        .semantic_dependencies_snapshot()
+        .into_iter()
+        .filter(|dep| !matches!(dep, SemanticDependency::ModuleStaticBindings(_)))
+        .collect::<Vec<_>>();
+    for read_sym in &static_constant_reads {
+        dependencies.push(SemanticDependency::StaticConstant(crate::static_constant::StaticConstantId(read_sym.clone())));
+    }
+    dependencies.sort();
+    dependencies.dedup();
+
+    let diagnostics = Arc::from(context.diagnostics[diagnostic_start..].to_vec().into_boxed_slice());
+    let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(
+        constant_id,
+        initializer,
+        expected_type,
+    );
+
+    crate::static_constant::CheckedStaticConstantInitializer {
+        id: constant_id.clone(),
+        declaration_range,
+        initializer_range,
+        root: initializer.clone(),
+        expressions: Arc::new(expressions),
+        bindings: Arc::new(bindings),
+        static_operations: Arc::new(static_operations),
+        static_applications: Arc::from(static_applications),
+        static_constructions: Arc::new(static_constructions),
+        associated_resolutions: Arc::new(associated_resolutions),
+        local_slots: Arc::new(local_slots),
+        static_constant_bindings: Arc::new(stable_bindings),
+        static_constant_reads: static_constant_reads.into(),
+        input_fingerprint,
+        dependencies: dependencies.into(),
+        result_type: expected_type,
+        diagnostics,
+    }
+}
+
 fn analyze_static_body_inner(
     mut context: CheckingContext<'_>,
     definition: &StaticDefinition,

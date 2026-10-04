@@ -7,7 +7,8 @@
 use crate::checker::analysis::{BindingState, CallableAnalysis};
 use crate::db::key::{InputFingerprint, ProductFingerprint};
 use crate::identity::{BindingId, CallableId, ModuleId};
-use phalcom_ast::ast::{BindingKind, Pattern, Program, Statement};
+use phalcom_ast::ast::{BindingKind, LetBinding, Pattern, Program, Statement};
+use phalcom_common::range::SourceRange;
 use phalcom_modules::linker::SymbolId;
 use std::collections::BTreeMap;
 
@@ -27,6 +28,8 @@ pub struct ModuleBindingFact {
     pub source_binding: BindingId,
     pub phase: ModuleBindingPhase,
     pub state: BindingState,
+    pub declaration_range: SourceRange,
+    pub initializer_range: Option<SourceRange>,
 }
 
 /// Ordinary-checker facts for simple-name module bindings in one source unit.
@@ -65,12 +68,15 @@ impl ModuleStaticBindingIndex {
                 module: module.clone(),
                 name: name.clone().into_boxed_str(),
             };
+            let initializer_range = binding.value.as_ref().map(|v| v.range());
             let fact = ModuleBindingFact {
                 symbol: symbol.clone(),
                 source_body: analysis.callable.clone(),
                 source_binding: state.binding,
                 phase,
                 state,
+                declaration_range: binding.range,
+                initializer_range,
             };
             bindings.entry(symbol.clone()).or_insert(fact);
         }
@@ -128,4 +134,40 @@ impl ModuleStaticBindingIndex {
     pub fn is_empty(&self) -> bool {
         self.bindings.is_empty()
     }
+}
+
+/// Locates the parsed syntax of a top-level constant binding by its retained
+/// source site and stable symbol identity, without performing a fresh name lookup.
+pub fn find_constant_declaration<'a>(
+    program: &'a Program,
+    symbol: &SymbolId,
+    declaration_range: SourceRange,
+    initializer_range: Option<SourceRange>,
+) -> Option<&'a LetBinding> {
+    for statement in &program.statements {
+        let Statement::Let(binding) = statement else { continue };
+        if binding.kind != BindingKind::Const { continue; }
+        let Pattern::Name { name, .. } = &binding.pattern else { continue };
+        if name.as_str() != symbol.name.as_ref() { continue; }
+        if binding.range == declaration_range {
+            return Some(binding);
+        }
+        if let Some(init_range) = initializer_range {
+            if binding.value.as_ref().map(|v| v.range()) == Some(init_range) {
+                return Some(binding);
+            }
+        }
+    }
+    // Fallback matching symbol name and kind
+    for statement in &program.statements {
+        let Statement::Let(binding) = statement else { continue };
+        if binding.kind == BindingKind::Const {
+            if let Pattern::Name { name, .. } = &binding.pattern {
+                if name.as_str() == symbol.name.as_ref() {
+                    return Some(binding);
+                }
+            }
+        }
+    }
+    None
 }

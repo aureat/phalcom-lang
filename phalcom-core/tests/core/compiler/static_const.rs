@@ -2,7 +2,7 @@ use std::sync::Arc;
 use phalcom_core::bytecode::Bytecode;
 use phalcom_core::compiler::lib::CompilerError;
 use phalcom_core::error::PhError;
-use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer};
+use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCompiler};
 use phalcom_core::vm::VM;
 use phalcom_modules::interface::{InterfaceBuilder, ModuleBindingSemantics};
 
@@ -96,5 +96,32 @@ let mut y = Answer
             assert_eq!(name, "Answer");
         }
         other => panic!("expected StaticConstUnmaterialized, got: {:?}", other),
+    }
+}
+
+#[test]
+fn structural_const_without_runtime_use_compiles_cleanly() {
+    let source: Arc<str> = "const Pair = (1, 2)\n".into();
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source))
+        .expect("structural const without runtime use should analyze and compile");
+    let mut vm = VM::new();
+    vm.run_compiled(&program)
+        .expect("structural const without runtime use should compile and run cleanly");
+}
+
+#[test]
+fn structural_const_runtime_use_fails_with_deferred_error() {
+    let source: Arc<str> = "const Pair = (1, 2)\nlet mut p = Pair\n".into();
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source))
+        .expect("program should analyze cleanly");
+    let mut vm = VM::new();
+    let err = vm
+        .run_compiled(&program)
+        .expect_err("structural const at runtime must fail closed with deferred error");
+    match err {
+        PhError::Compile(CompilerError::StaticConstStructuralDeferred(name)) => {
+            assert_eq!(name, "Pair");
+        }
+        other => panic!("expected StaticConstStructuralDeferred, got: {:?}", other),
     }
 }

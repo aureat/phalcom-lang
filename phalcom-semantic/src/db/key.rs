@@ -80,6 +80,8 @@ pub enum QueryKey {
     PublicExport(ModuleId, String),
     /// Canonical checked static definition product.
     StaticDefinition(DeclarationId),
+    /// Canonical checked compile-time constant product.
+    StaticConstant(crate::static_constant::StaticConstantId),
     /// Checked ordinary module binding facts used by static-body analysis.
     ModuleStaticBindings(ModuleId),
     /// Ordinary-checker facts and evaluator layout for one static body.

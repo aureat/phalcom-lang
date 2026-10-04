@@ -2876,6 +2876,12 @@ impl SemanticWorkspaceSession {
         let mut static_definitions_table = previous_snapshot
             .as_ref()
             .map_or_else(StaticDefinitionTable::new, |snapshot| (*snapshot.static_definitions).clone());
+        let mut static_constants_table = previous_snapshot
+            .as_ref()
+            .map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| (*snapshot.static_constants).clone());
+        for module in &structural_recomputed_modules {
+            static_constants_table.remove_module(module);
+        }
         let mut alias_dependencies = self.alias_dependencies.clone();
         let mut alias_reverse_dependencies = self.alias_reverse_dependencies.clone();
         let mut alias_contract_dependencies = self.alias_contract_dependencies.clone();
@@ -7390,6 +7396,355 @@ impl SemanticWorkspaceSession {
             composed.checked_body = Some(checked_body);
             static_definitions_table.insert(Arc::new(composed));
         }
+
+        struct ConstantDeclInfo<'a> {
+            id: crate::static_constant::StaticConstantId,
+            module_id: ModuleId,
+            declaration_range: SourceRange,
+            initializer_range: Option<SourceRange>,
+            initializer: &'a phalcom_ast::ast::Expr,
+            expected_type: Option<crate::types::id::TypeId>,
+            input_fingerprint: crate::db::key::InputFingerprint,
+        }
+
+        let mut constant_declarations: BTreeMap<crate::static_constant::StaticConstantId, ConstantDeclInfo<'_>> = BTreeMap::new();
+        for module_id in &current_modules {
+            let Some(module_bindings) = module_static_bindings.get(module_id) else { continue };
+            let Some(shard) = self.semantic_structure_shards.get(module_id) else { continue };
+            for (_name, fact) in module_bindings.visible_bindings() {
+                if fact.phase == crate::module_bindings::ModuleBindingPhase::StaticConstant && &fact.symbol.module == module_id {
+                    let id = crate::static_constant::StaticConstantId(fact.symbol.clone());
+                    if let Some(binding) = crate::module_bindings::find_constant_declaration(
+                        &shard.source.program,
+                        &fact.symbol,
+                        fact.declaration_range,
+                        fact.initializer_range,
+                    ) {
+                        if let Some(initializer) = &binding.value {
+                            let expected_type = fact.state.contract.as_ref().map(|c| c.ty);
+                            let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(
+                                &id,
+                                initializer,
+                                expected_type,
+                            );
+                            constant_declarations.insert(id.clone(), ConstantDeclInfo {
+                                id,
+                                module_id: module_id.clone(),
+                                declaration_range: fact.declaration_range,
+                                initializer_range: fact.initializer_range,
+                                initializer,
+                                expected_type,
+                                input_fingerprint,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut checked_constants: BTreeMap<crate::static_constant::StaticConstantId, Arc<crate::static_constant::CheckedStaticConstantInitializer>> = BTreeMap::new();
+        let mut constant_graph: BTreeMap<crate::static_constant::StaticConstantId, BTreeSet<crate::static_constant::StaticConstantId>> = BTreeMap::new();
+
+        for (id, decl) in &constant_declarations {
+            let key = crate::db::QueryKey::StaticConstant(id.clone());
+            let is_input_matching = match self.db.query_state(&key) {
+                Some(crate::db::state::QueryState::Ready { input_fingerprint, .. }) => *input_fingerprint == decl.input_fingerprint,
+                _ => false,
+            };
+            if is_input_matching {
+                if let Some(deps) = self.db.index().dependencies_of(&key) {
+                    let const_deps = deps.iter().filter_map(|edge| match &edge.dependency {
+                        crate::db::QueryKey::StaticConstant(dep_id) => Some(dep_id.clone()),
+                        _ => None,
+                    }).collect::<BTreeSet<_>>();
+                    constant_graph.insert(id.clone(), const_deps);
+                    continue;
+                }
+            }
+
+            let Some(module_bindings) = module_static_bindings.get(&decl.module_id) else { continue };
+            let mut context = CheckingContext::new_with_dispatch_ref(
+                Arc::make_mut(&mut self.store),
+                &hierarchy,
+                &resolver,
+                &declarations,
+                &dispatch,
+                decl.module_id.clone(),
+            );
+            context.set_caller_package(semantic_topology.owning_package(&decl.module_id));
+            context.set_access_topology(semantic_topology.as_ref());
+            context.attach_field_signatures(&field_signatures);
+            context.attach_field_lifecycle(&field_lifecycle);
+            context.attach_enum_semantics(&enum_semantics);
+            context.attach_data_semantics(&data_semantics);
+            context.attach_associated_families(&associated_surfaces_table);
+            context.attach_conformance_semantics(&conformance_semantics);
+
+            let checked = Arc::new(crate::checker::static_body::analyze_static_constant_initializer(
+                context,
+                &decl.id,
+                decl.declaration_range,
+                decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
+                decl.initializer,
+                decl.expected_type,
+                module_bindings,
+                &static_intrinsics,
+            ));
+
+            let const_deps = checked
+                .static_constant_reads
+                .iter()
+                .map(|sym| crate::static_constant::StaticConstantId(sym.clone()))
+                .collect::<BTreeSet<_>>();
+            constant_graph.insert(id.clone(), const_deps);
+            checked_constants.insert(id.clone(), checked);
+        }
+
+        struct ConstantTarjan<'a> {
+            graph: &'a BTreeMap<crate::static_constant::StaticConstantId, BTreeSet<crate::static_constant::StaticConstantId>>,
+            next: usize,
+            indices: HashMap<crate::static_constant::StaticConstantId, usize>,
+            lowlinks: HashMap<crate::static_constant::StaticConstantId, usize>,
+            stack: Vec<crate::static_constant::StaticConstantId>,
+            on_stack: BTreeSet<crate::static_constant::StaticConstantId>,
+            components: Vec<BTreeSet<crate::static_constant::StaticConstantId>>,
+        }
+
+        fn visit_constant(node: crate::static_constant::StaticConstantId, state: &mut ConstantTarjan<'_>) {
+            let index = state.next;
+            state.next += 1;
+            state.indices.insert(node.clone(), index);
+            state.lowlinks.insert(node.clone(), index);
+            state.stack.push(node.clone());
+            state.on_stack.insert(node.clone());
+
+            if let Some(dependencies) = state.graph.get(&node) {
+                for dependency in dependencies {
+                    if state.graph.contains_key(dependency) {
+                        if !state.indices.contains_key(dependency) {
+                            visit_constant(dependency.clone(), state);
+                            let lowlink = state.lowlinks[&node].min(state.lowlinks[dependency]);
+                            state.lowlinks.insert(node.clone(), lowlink);
+                        } else if state.on_stack.contains(dependency) {
+                            let lowlink = state.lowlinks[&node].min(state.indices[dependency]);
+                            state.lowlinks.insert(node.clone(), lowlink);
+                        }
+                    }
+                }
+            }
+
+            if state.lowlinks[&node] == state.indices[&node] {
+                let mut component = BTreeSet::new();
+                while let Some(member) = state.stack.pop() {
+                    state.on_stack.remove(&member);
+                    component.insert(member.clone());
+                    if member == node {
+                        break;
+                    }
+                }
+                state.components.push(component);
+            }
+        }
+
+        let mut tarjan_state = ConstantTarjan {
+            graph: &constant_graph,
+            next: 0,
+            indices: HashMap::new(),
+            lowlinks: HashMap::new(),
+            stack: Vec::new(),
+            on_stack: BTreeSet::new(),
+            components: Vec::new(),
+        };
+
+        for id in constant_graph.keys() {
+            if !tarjan_state.indices.contains_key(id) {
+                visit_constant(id.clone(), &mut tarjan_state);
+            }
+        }
+
+        for component in tarjan_state.components {
+            let is_cycle = component.len() > 1
+                || component.iter().any(|node| constant_graph.get(node).is_some_and(|deps| deps.contains(node)));
+
+            if is_cycle {
+                for id in component {
+                    let Some(decl) = constant_declarations.get(&id) else { continue };
+                    let Some(module_bindings) = module_static_bindings.get(&decl.module_id) else { continue };
+                    let checked = match checked_constants.remove(&id) {
+                        Some(c) => c,
+                        None => {
+                            let mut context = CheckingContext::new_with_dispatch_ref(
+                                Arc::make_mut(&mut self.store),
+                                &hierarchy,
+                                &resolver,
+                                &declarations,
+                                &dispatch,
+                                decl.module_id.clone(),
+                            );
+                            context.set_caller_package(semantic_topology.owning_package(&decl.module_id));
+                            context.set_access_topology(semantic_topology.as_ref());
+                            context.attach_field_signatures(&field_signatures);
+                            context.attach_field_lifecycle(&field_lifecycle);
+                            context.attach_enum_semantics(&enum_semantics);
+                            context.attach_data_semantics(&data_semantics);
+                            context.attach_associated_families(&associated_surfaces_table);
+                            context.attach_conformance_semantics(&conformance_semantics);
+                            Arc::new(crate::checker::static_body::analyze_static_constant_initializer(
+                                context,
+                                &decl.id,
+                                decl.declaration_range,
+                                decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
+                                decl.initializer,
+                                decl.expected_type,
+                                module_bindings,
+                                &static_intrinsics,
+                            ))
+                        }
+                    };
+
+                    let cycle_diag = SemanticDiagnostic::error_in(
+                        decl.module_id.clone(),
+                        DiagnosticCode::StaticConstantCycle,
+                        format!("static constant `{}` participates in a cycle", id.name()),
+                        decl.declaration_range,
+                    );
+                    let mut diags = checked.diagnostics.to_vec();
+                    diags.push(cycle_diag);
+
+                    let product = Arc::new(crate::static_constant::StaticConstantProduct {
+                        id: id.clone(),
+                        declaration_range: decl.declaration_range,
+                        initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
+                        checked,
+                        outcome: crate::static_eval::StaticEvalOutcome::Recursive,
+                        value: None,
+                        lkg_value: previous_snapshot.as_ref().and_then(|prev| prev.static_constant(&id)).and_then(|p| p.value.or(p.lkg_value)),
+                        diagnostics: Arc::from(diags.into_boxed_slice()),
+                    });
+
+                    let published = match crate::db::query::query_static_constant(
+                        &mut self.db,
+                        product,
+                        &self.static_values,
+                        &static_body_formal_inputs,
+                        Arc::make_mut(&mut self.store),
+                    ) {
+                        QueryOutcome::Ready(p) => p,
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    };
+                    diagnostics_map
+                        .entry(decl.module_id.clone())
+                        .or_default()
+                        .extend(published.diagnostics.iter().cloned());
+                    static_constants_table.insert(published);
+                }
+            } else {
+                for id in component {
+                    let Some(decl) = constant_declarations.get(&id) else { continue };
+
+                    if !checked_constants.contains_key(&id) {
+                        if let Some(cached) = crate::db::query::cached_static_constant(&mut self.db, &id, decl.input_fingerprint) {
+                            diagnostics_map
+                                .entry(decl.module_id.clone())
+                                .or_default()
+                                .extend(cached.diagnostics.iter().cloned());
+                            static_constants_table.insert(cached);
+                            continue;
+                        }
+                    }
+
+                    let Some(module_bindings) = module_static_bindings.get(&decl.module_id) else { continue };
+                    let checked = match checked_constants.remove(&id) {
+                        Some(c) => c,
+                        None => {
+                            let mut context = CheckingContext::new_with_dispatch_ref(
+                                Arc::make_mut(&mut self.store),
+                                &hierarchy,
+                                &resolver,
+                                &declarations,
+                                &dispatch,
+                                decl.module_id.clone(),
+                            );
+                            context.set_caller_package(semantic_topology.owning_package(&decl.module_id));
+                            context.set_access_topology(semantic_topology.as_ref());
+                            context.attach_field_signatures(&field_signatures);
+                            context.attach_field_lifecycle(&field_lifecycle);
+                            context.attach_enum_semantics(&enum_semantics);
+                            context.attach_data_semantics(&data_semantics);
+                            context.attach_associated_families(&associated_surfaces_table);
+                            context.attach_conformance_semantics(&conformance_semantics);
+                            Arc::new(crate::checker::static_body::analyze_static_constant_initializer(
+                                context,
+                                &decl.id,
+                                decl.declaration_range,
+                                decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
+                                decl.initializer,
+                                decl.expected_type,
+                                module_bindings,
+                                &static_intrinsics,
+                            ))
+                        }
+                    };
+
+                    let mut eval_budget = budget;
+                    let mut evaluator = crate::static_eval::StaticEvaluator::for_constant(
+                        &checked,
+                        Arc::make_mut(&mut self.static_values),
+                        &mut eval_budget,
+                        cancel,
+                    )
+                    .with_static_constants(&static_constants_table)
+                    .with_static_definitions(&static_definitions_table)
+                    .with_type_store(&self.store)
+                    .with_semantic_tables(&self.store, &data_semantics, &enum_semantics);
+
+                    let outcome = evaluator.evaluate();
+                    let value = match &outcome {
+                        crate::static_eval::StaticEvalOutcome::Reduced(val_ref) => Some(*val_ref),
+                        _ => None,
+                    };
+                    let lkg_value = if value.is_some() {
+                        value
+                    } else {
+                        previous_snapshot.as_ref().and_then(|prev| prev.static_constant(&id)).and_then(|p| p.value.or(p.lkg_value))
+                    };
+
+                    let product = Arc::new(crate::static_constant::StaticConstantProduct {
+                        id: id.clone(),
+                        declaration_range: decl.declaration_range,
+                        initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
+                        checked: checked.clone(),
+                        outcome,
+                        value,
+                        lkg_value,
+                        diagnostics: checked.diagnostics.clone(),
+                    });
+
+                    let published = match crate::db::query::query_static_constant(
+                        &mut self.db,
+                        product,
+                        &self.static_values,
+                        &static_body_formal_inputs,
+                        Arc::make_mut(&mut self.store),
+                    ) {
+                        QueryOutcome::Ready(p) => p,
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    };
+                    diagnostics_map
+                        .entry(decl.module_id.clone())
+                        .or_default()
+                        .extend(published.diagnostics.iter().cloned());
+                    static_constants_table.insert(published);
+                }
+            }
+        }
+
         let mut semantic_diagnostic_contributions = BTreeMap::new();
         for (module_id, diagnostics) in &diagnostics_map {
             let mut semantic_diagnostics = diagnostics.clone();
@@ -7443,6 +7798,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_static_case_signatures(Arc::new(static_case_signatures_table));
         snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
         snapshot_obj = snapshot_obj.with_static_definitions(Arc::new(static_definitions_table));
+        snapshot_obj = snapshot_obj.with_static_constants(Arc::new(static_constants_table));
         snapshot_obj = snapshot_obj.with_static_values(self.static_values.clone());
         snapshot_obj = snapshot_obj.with_module_static_bindings(Arc::new(module_static_bindings));
         snapshot_obj = snapshot_obj.with_trait_headers(Arc::new(trait_headers));
@@ -9356,6 +9712,7 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::ConstructorInitialization(declaration)
         | QueryKey::AssociatedSurface(declaration)
         | QueryKey::StaticDefinition(declaration) => Some(&declaration.module),
+        QueryKey::StaticConstant(constant) => Some(&constant.0.module),
         QueryKey::ModuleStaticBindings(module) => Some(module),
         QueryKey::CheckedStaticBody(body) => Some(&body.0.module),
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),

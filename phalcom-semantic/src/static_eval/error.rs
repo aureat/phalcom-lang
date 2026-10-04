@@ -50,6 +50,8 @@ pub enum StaticEvalOutcome {
 pub enum StaticEvalTraceFrame {
     /// Static definition currently executing.
     Definition(DeclarationId),
+    /// Static constant currently executing.
+    Constant(crate::static_constant::StaticConstantId),
     /// Exact checked application currently entering a target definition.
     Application { target: DeclarationId, source_range: SourceRange },
     /// Source expression currently being evaluated.

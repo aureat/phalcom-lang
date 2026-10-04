@@ -11,6 +11,7 @@ use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{CallableSignatureTable, ConstructorInitializationTable, FieldSignatureTable};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
+use crate::static_constant::{StaticConstantId, StaticConstantProduct, StaticConstantTable};
 use crate::static_definition::{StaticDefinitionProduct, StaticDefinitionTable};
 use crate::static_value::StaticValueStore;
 use crate::surface::DeclarationSurface;
@@ -214,6 +215,8 @@ pub struct SemanticSnapshot {
     pub static_case_signatures: Arc<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
     /// Checked static definitions keyed by declaration identity.
     pub static_definitions: Arc<StaticDefinitionTable>,
+    /// Checked compile-time constants keyed by canonical static constant identity.
+    pub static_constants: Arc<StaticConstantTable>,
     /// Immutable static-value arena shared by semantic products in this store lineage.
     pub static_values: Arc<StaticValueStore>,
     /// Ordinary-checker facts keyed by stable module binding identity.
@@ -280,6 +283,7 @@ impl SemanticSnapshot {
             static_case_catalogs: Arc::new(BTreeMap::new()),
             static_case_signatures: Arc::new(BTreeMap::new()),
             static_definitions: Arc::new(StaticDefinitionTable::new()),
+            static_constants: Arc::new(StaticConstantTable::new()),
             static_values: Arc::new(StaticValueStore::new()),
             module_static_bindings: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
@@ -345,6 +349,7 @@ impl SemanticSnapshot {
             static_case_catalogs: Arc::new(BTreeMap::new()),
             static_case_signatures: Arc::new(BTreeMap::new()),
             static_definitions: Arc::new(StaticDefinitionTable::new()),
+            static_constants: Arc::new(StaticConstantTable::new()),
             static_values: Arc::new(StaticValueStore::new()),
             module_static_bindings: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
@@ -411,6 +416,11 @@ impl SemanticSnapshot {
 
     pub fn with_static_definitions(mut self, static_definitions: Arc<StaticDefinitionTable>) -> Self {
         self.static_definitions = static_definitions;
+        self
+    }
+
+    pub fn with_static_constants(mut self, static_constants: Arc<StaticConstantTable>) -> Self {
+        self.static_constants = static_constants;
         self
     }
 
@@ -674,6 +684,22 @@ impl SemanticSnapshot {
 
     pub fn static_definition(&self, declaration: &DeclarationId) -> Option<&Arc<StaticDefinitionProduct>> {
         self.static_definitions.get(declaration)
+    }
+
+    pub fn static_values(&self) -> &Arc<StaticValueStore> {
+        &self.static_values
+    }
+
+    pub fn static_constants(&self) -> &Arc<StaticConstantTable> {
+        &self.static_constants
+    }
+
+    pub fn static_constant(&self, id: &StaticConstantId) -> Option<&Arc<StaticConstantProduct>> {
+        self.static_constants.get(id)
+    }
+
+    pub fn static_constant_by_symbol(&self, symbol: &phalcom_modules::linker::SymbolId) -> Option<&Arc<StaticConstantProduct>> {
+        self.static_constants.get_by_symbol(symbol)
     }
 
     pub fn module_static_binding(&self, symbol: &phalcom_modules::linker::SymbolId) -> Option<&crate::module_bindings::ModuleBindingFact> {

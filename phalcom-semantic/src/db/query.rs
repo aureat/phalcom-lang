@@ -99,6 +99,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::LinkedName(module, name) => QueryKey::LinkedName(module.clone(), name.clone()),
         crate::checker::analysis::SemanticDependency::PublicExport(module, name) => QueryKey::PublicExport(module.clone(), name.clone()),
         crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module) => QueryKey::ModuleStaticBindings(module.clone()),
+        crate::checker::analysis::SemanticDependency::StaticConstant(id) => QueryKey::StaticConstant(id.clone()),
     }
 }
 
@@ -125,6 +126,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::LinkedName(module, name) => Some(crate::checker::analysis::SemanticDependency::LinkedName(module.clone(), name.clone())),
         QueryKey::PublicExport(module, name) => Some(crate::checker::analysis::SemanticDependency::PublicExport(module.clone(), name.clone())),
         QueryKey::ModuleStaticBindings(module) => Some(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module.clone())),
+        QueryKey::StaticConstant(id) => Some(crate::checker::analysis::SemanticDependency::StaticConstant(id.clone())),
         _ => None,
     }
 }
@@ -1182,6 +1184,103 @@ pub fn cached_checked_static_body(
     product
 }
 
+/// Returns a current static constant product when its exact source and dependency
+/// fingerprints remain valid.
+pub fn cached_static_constant(
+    db: &mut SemanticDb,
+    id: &crate::static_constant::StaticConstantId,
+    input_fingerprint: InputFingerprint,
+) -> Option<Arc<crate::static_constant::StaticConstantProduct>> {
+    let key = QueryKey::StaticConstant(id.clone());
+    if !db.validate_reuse(&key, input_fingerprint) {
+        return None;
+    }
+    let product = db.product(&key).and_then(|value| value.as_static_constant()).cloned();
+    if product.is_some() {
+        db.metrics().record_hit();
+    }
+    product
+}
+
+/// Publishes one checked static constant product under its stable identity.
+/// Every recorded semantic dependency must be current before the constant product
+/// can be reused or published.
+pub fn query_static_constant(
+    db: &mut SemanticDb,
+    product: Arc<crate::static_constant::StaticConstantProduct>,
+    value_store: &crate::static_value::StaticValueStore,
+    inputs: &FormalQueryInputs<'_>,
+    type_store: &mut TypeStore,
+) -> QueryOutcome<Arc<crate::static_constant::StaticConstantProduct>> {
+    match &product.outcome {
+        crate::static_eval::StaticEvalOutcome::Cancelled => return QueryOutcome::Cancelled,
+        crate::static_eval::StaticEvalOutcome::BudgetExceeded(report) => {
+            return QueryOutcome::BudgetExceeded(report.clone());
+        }
+        _ => {}
+    }
+    let key = QueryKey::StaticConstant(product.id.clone());
+    let input_fingerprint = product.checked.input_fingerprint;
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_static_constant()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    if !matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive) {
+        for semantic_dependency in product.checked.dependencies.iter() {
+            match ensure_formal_semantic_dependency_current(db, semantic_dependency, inputs, type_store) {
+                QueryOutcome::Ready(()) => {}
+                QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+            }
+            let dependency_key = semantic_dependency_query_key(semantic_dependency);
+            if dependency_key == key {
+                return query_failure(db, key, "static constant captured a self-dependency");
+            }
+            if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = semantic_dependency {
+                let Some(fingerprint) = inputs.conformance_semantics.and_then(|view| view.fingerprint_for(impl_id)) else {
+                    return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+                };
+                recorder.record(dependency_key, fingerprint);
+            } else if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
+                return query_failure(db, key, error);
+            }
+        }
+    } else {
+        for semantic_dependency in product.checked.dependencies.iter() {
+            let dependency_key = semantic_dependency_query_key(semantic_dependency);
+            if dependency_key == key {
+                continue;
+            }
+            if db.query_state(&dependency_key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+                let _ = db.record_dependency(&mut recorder, dependency_key);
+            }
+        }
+    }
+    let dependencies = recorder.finish();
+    let product_fingerprint = crate::db::fingerprint::static_constant_product_fingerprint(&product, value_store);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::StaticConstant(product.clone()),
+        dependencies,
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
 /// Publishes one checked static definition product under its declaration identity.
 pub fn query_static_definition(
     db: &mut SemanticDb,
@@ -1756,6 +1855,14 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
         crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module) => {
             let key = QueryKey::ModuleStaticBindings(module.clone());
             if db.product(&key).and_then(|product| product.as_module_static_bindings()).is_some() && db.validate_ready(&key) {
+                QueryOutcome::Ready(())
+            } else {
+                QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+            }
+        }
+        crate::checker::analysis::SemanticDependency::StaticConstant(id) => {
+            let key = QueryKey::StaticConstant(id.clone());
+            if db.product(&key).and_then(|product| product.as_static_constant()).is_some() && db.validate_ready(&key) {
                 QueryOutcome::Ready(())
             } else {
                 QueryOutcome::Blocked(BlockReason::SuppressedDependency)

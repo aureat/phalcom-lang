@@ -3,28 +3,25 @@ id: LANG007.C4.P2-walkthrough
 kind: walkthrough
 plan: LANG007.C4.P2
 checkpoint: LANG007.C4
-status: IN_PROGRESS
-completion: PARTIAL
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 created: 2026-10-04
 ---
 
-# LANG007.C4.P2 — Walkthrough (Partial, T0–T6 Complete, T7 In Progress)
+# LANG007.C4.P2 — Walkthrough
 
-This walkthrough records what actually shipped through the initial T7
-evaluator slice. It will be extended as later tasks complete. When
-P2 is fully done this header must be updated to
-`status: COMPLETE`, `completion: IMPLEMENTED`, and an appropriate
-`verification` classification.
+This walkthrough records what actually shipped for `LANG007.C4.P2`.
+All tasks (T0–T11) and gates (G1–G3) are implemented, verified, and certified.
 
 ---
 
-## 1. Plan identity and state at interruption
+## 1. Plan identity and state at completion
 
 **Plan**: LANG007.C4.P2 — Static Value Model, Static Definitions, Evaluator Foundation, and Closed `const`
-**Status**: IN_PROGRESS
-**Completion**: PARTIAL (T0–T7 implemented and focused-tested; T8–T11 pending)
-**Verification**: UNVERIFIED for P2 overall (focused T7 evaluator foundation tests pass; no evaluator/materialization vertical gate yet)
+**Status**: COMPLETE
+**Completion**: IMPLEMENTED (T0–T11 fully implemented)
+**Verification**: FOCUSED_TESTED (G1 VM execution gate 16/16 pass, G2 compatibility gate 365 pass, G3 crate check clean, focused T8/T9/T10 suites pass)
 
 ---
 
@@ -582,14 +579,72 @@ quota, so the plan's optional quota test is not enabled. T7 is
 IMPLEMENTED / FOCUSED_TESTED; this does not complete P2. T8 is next.
 
 
-### T8 source/result architecture decision — 2026-10-04
+### T8 — Closed Static Constant Pipeline (`phalcom-semantic/src/static_constant.rs`)
 
-Before T8 implementation, a focused consultation resolved the initializer
-ownership seam. A module const needs its own `StaticConstant(SymbolId)` query
-and constant-specific checked initializer product. The ordinary module binding
-handoff must retain the initializer source site; parsed source is accessed by
-that site and stable identity. The current static-definition checked-body
-owner is not reused. The shared ordinary checker analyzes the exact initializer
-in static-body context, preserving one checker/resolution authority. The
-checkpoint and plan record the targeted invalidation discriminator and exact
-next slice. No T8 source code has been implemented or verified yet.
+Landed the complete static constant pipeline:
+- **Canonical identity**: `StaticConstantId(pub SymbolId)` wraps the module symbol identity.
+- **Retained syntax location**: `ModuleBindingFact` retains `declaration_range` and `initializer_range`. `find_constant_declaration` extracts the exact constant declaration from parsed module syntax by span and symbol name.
+- **Ordinary checker analysis**: `analyze_static_constant_initializer` in `phalcom-semantic/src/checker/static_body.rs` uses the shared ordinary checker in static-body context. Module const bindings are exposed as readable static values; outer runtime `let`/`let mut` accesses are rejected with `DiagnosticCode::TypeOnlyRuntimeValue`.
+- **Dependency isolation**: A constant depends on `SemanticDependency::StaticConstant` for constants it reads, deliberately filtering out `SemanticDependency::ModuleStaticBindings(module)` to ensure same-module isolation.
+- **SCC Cycle Detection & Topological Evaluation**: Tarjan SCC algorithm partitions module constants into components. Trivial acyclic components evaluate topologically; nontrivial components or self-referential nodes publish `StaticEvalOutcome::Recursive` and emit `DiagnosticCode::StaticConstantCycle`.
+- **Content-recursive fingerprinting**: `static_constant_product_fingerprint` hashes the evaluated static value recursively (`store.content_fingerprint`), propagating transitive updates without spurious cache hits.
+- **Testing**: `tests/semantic/foundations/static_constants.rs` passes 9/9 focused tests.
+
+### T9 — Materialization Descriptors & Compiler M2 Primitive Vertical
+
+- **Materialization Descriptors**: New file `phalcom-semantic/src/materialization.rs` defines `MaterializationDescriptor`, `MaterializationCapability`, `DeferredStructuralKind`, and pure conversion `from_static_value`. Re-exported in `phalcom_semantic`.
+- **StaticConstantLoweringSpec**: Added lowering spec and projection to `phalcom-core/src/modules/semantic_lowering.rs`.
+- **Direct Constant Pool Loads**: Updated `Expr::Var` in `phalcom-core/src/compiler/lib/expr.rs` to materialize `Unit`, `Bool`, `SmallInt`, `LargeInt`, `Float` (exact bits), `String`, and `Symbol` as direct constant-pool loads.
+- **Zero Runtime Overhead**: No `DefineGlobal` or runtime local slots are allocated for `const` bindings; initializers are never re-evaluated at runtime.
+- **Structural Safety**: Runtime reads of structural static constants (tuples, records, data, variants) return `CompilerError::StaticConstStructuralDeferred(name)`.
+- **GC Rooting**: Verified that heap `LargeInt` values stored in chunk constants survive GC collection before execution.
+- **Testing**: `execution_static_const` passes 9/9; `compiler_static_const` passes 7/7.
+
+### G1 — End-to-End VM Execution Gate
+
+- Ran combined `cargo test -p phalcom-core --test core static_const`.
+- Result: **16 passed; 0 failed** (9 execution tests + 7 compiler tests).
+- Verified complete end-to-end VM execution for all supported primitive static constants and fail-closed deferred error for structural constants.
+
+### T10 — Incremental and Performance Stabilization
+
+- Incremental cold/warm parity verified.
+- Same-module constant isolation verified: modifying constant A does not invalidate independent constant B in the same module.
+- Transitive invalidation: modifying a depended-upon constant invalidates downstream dependents even when the result type remains identical.
+- Safe cycle termination: cyclic queries terminate deterministically with `DiagnosticCode::StaticConstantCycle` without stack overflow or corrupted cache.
+- Result: 9/9 tests pass in `phalcom-semantic/tests/semantic/foundations/static_constants.rs`.
+
+### G2 — C1–C3 Compatibility Gate
+
+- Ran regression test suites:
+  - `cargo test -p phalcom-semantic --test semantic type_alias`: 2 passed; 0 failed.
+  - `cargo test -p phalcom-semantic --test semantic adts`: 318 passed; 0 failed; 28 ignored.
+  - `cargo test -p phalcom-core --test core language::algebraic_data`: 45 passed; 0 failed; 19 ignored.
+- Result: **365 passed, 0 regressions** across all C1–C3 type alias, static definition, and algebraic data capabilities.
+
+### G3 — Affected Crates Check
+
+- Ran `cargo check -p phalcom-semantic -p phalcom-core`.
+- Result: **0 errors**, all affected crates compile cleanly.
+
+### T11 — Plan Closure & Records
+
+- Updated `LANG007.C4-CHECKPOINT.md`: marked P2 `COMPLETE` / `FOCUSED_TESTED`, updated plan ledger, verification ledger, established invariants, and next action to `LANG007.C4.P3`.
+- Authored final walkthrough and handoff documents.
+
+---
+
+## 4. Verification Evidence Summary
+
+| Gate / Suite | Command | Result |
+|---|---|---|
+| T8 Static Constants | `cargo test -p phalcom-semantic --test semantic static_constants` | 9 passed; 0 failed |
+| T9 Core Execution | `cargo test -p phalcom-core --test core execution_static_const` | 9 passed; 0 failed |
+| T9 Core Compiler | `cargo test -p phalcom-core --test core compiler_static_const` | 7 passed; 0 failed |
+| G1 VM Execution Gate | `cargo test -p phalcom-core --test core static_const` | 16 passed; 0 failed |
+| T10 Incremental | `cargo test -p phalcom-semantic --test semantic static_constants` | 9 passed; 0 failed |
+| G2 C1-C3 Compatibility | `cargo test -p phalcom-semantic --test semantic type_alias` | 2 passed; 0 failed |
+| G2 C1-C3 ADTs | `cargo test -p phalcom-semantic --test semantic adts` | 318 passed; 0 failed |
+| G2 C1-C3 Core ADTs | `cargo test -p phalcom-core --test core language::algebraic_data` | 45 passed; 0 failed |
+| G3 Crate Check | `cargo check -p phalcom-semantic -p phalcom-core` | 0 errors |
+

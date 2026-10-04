@@ -447,6 +447,7 @@ pub enum SemanticDependency {
     StaticDomainCaseCatalog(crate::identity::StaticDomainDeclarationId),
     StaticCaseSignature(crate::identity::StaticCaseId),
     StaticDefinition(DeclarationId),
+    StaticConstant(crate::static_constant::StaticConstantId),
     ConstructorInitialization(DeclarationId),
     ResolvedImport(phalcom_modules::identity::ImportSiteId),
     LinkedName(ModuleId, String),

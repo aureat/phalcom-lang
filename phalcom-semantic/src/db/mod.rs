@@ -492,6 +492,7 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::ConstructorInitialization(declaration)
         | QueryKey::AssociatedSurface(declaration)
         | QueryKey::StaticDefinition(declaration) => Some(&declaration.module),
+        QueryKey::StaticConstant(constant) => Some(&constant.0.module),
         QueryKey::CheckedStaticBody(body) => Some(&body.0.module),
         QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
         QueryKey::StaticDomainCaseCatalog(domain) => Some(match domain {

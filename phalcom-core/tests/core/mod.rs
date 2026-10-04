@@ -74,6 +74,8 @@ mod execution_family_runtime;
 mod execution_repair_regressions;
 #[path = "execution/send_arity.rs"]
 mod execution_send_arity;
+#[path = "execution/static_const.rs"]
+mod execution_static_const;
 #[path = "memory/gc.rs"]
 mod memory_gc;
 #[path = "memory/pack_gc.rs"]

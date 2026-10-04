@@ -14,8 +14,8 @@ requires:
   - LANG007.C3
 prepared_against_revision: 8c3a98aab41ed8631e9f8746a6b29984cf77581d
 prepared: 2026-10-04
-active_plan: LANG007.C4.P2
-latest_completed_plan: LANG007.C4.P1
+active_plan: LANG007.C4.P3
+latest_completed_plan: LANG007.C4.P2
 next_plan: LANG007.C4.P3
 ---
 
@@ -31,11 +31,11 @@ checkpoint: LANG007.C4
 status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
-active_plan: LANG007.C4.P2
-latest_completed_plan: LANG007.C4.P1
+active_plan: LANG007.C4.P3
+latest_completed_plan: LANG007.C4.P2
 next_plan: LANG007.C4.P3
 next_action: >
-  T7 focused acceptance is complete: the evaluator checklist and amended checked kinded-expression subset pass the focused integration/unit gates. Continue with T8 StaticConstant query identity and targeted source-input/dependency wiring; keep P2 IN_PROGRESS / PARTIAL / UNVERIFIED until its remaining tasks and gates close.
+  P2 is COMPLETE and FOCUSED_TESTED: compile-time static values, generalized type definitions, static definition table, static evaluator foundation, closed static constants pipeline (T8), materialization descriptors and M2 primitive lowering vertical (T9), incremental stabilization (T10), and all gates G1–G3 have passed. Proceed to LANG007.C4.P3 (First-class Pack and call/rest convergence).
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -140,7 +140,7 @@ The intended C4 decomposition is:
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
-| `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | IN_PROGRESS | PARTIAL | UNVERIFIED | active; T0–T7 implemented and focused-tested; T8 is next; later T9/G1/T10/G2/G3/T11 remain |
+| `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -831,7 +831,13 @@ checkpoint closure
 | `LANG007.C4.P2.T6 checked-body analyzer` | ordinary checker-backed static body facts, result checking, runtime outer read/write phase errors, evaluator slots | `cargo test -p phalcom-semantic --lib checker::static_body::tests -- --nocapture` selected and passed 4; exact Number addition authorization in `foundations::static_` | FOCUSED PASS | phase access and exact per-expression operation facts come from ordinary checker identity |
 | `LANG007.C4.P2.T6 module binding/session composition` | stable module const identity, linked import aliases, fresh body-local identities, snapshot composition | `cargo test -p phalcom-semantic --test semantic integration::static_definition_bodies -- --nocapture` selected and passed 3 | FOCUSED PASS | same-module and imported const reads use canonical SymbolId; checked bodies are visible in final definitions |
 | `LANG007.C4.P2.T6 checked-body invalidation` | separate checked-body query, module input/product fingerprints, dependency edges and session reuse | integration revision changes provider const from Int to String; checked binding and checked-body input fingerprints changed, and the checked-body Arc was replaced | FOCUSED PASS | a changed provider binding product invalidates/recomputes the importing checked body |
-| `LANG007.C4.P2.T7 evaluator foundation slice` | explicit work queue, ordered blocks, binding-ID local slots, mixed kinded/value argument layout, exact Number addition, selected if branches, lazy and/or, mutable locals, Symbol/Tuple/Record values, query budget, and cancellation | `cargo check -p phalcom-semantic` completed; `cargo test -p phalcom-semantic --lib checker::static_body::tests -- --nocapture` passed 4; `cargo test -p phalcom-semantic --test semantic integration::static_definition_bodies -- --nocapture` passed 3 | FOCUSED PASS (slice only) | checker-authorized 1 + 2 reduces to 3; selected branches reduce; untaken unsupported comparisons are skipped while the taken one fails closed; mutable slot assignment updates the later checked read; Symbol literals, positional Tuple, and bare-label Record values construct; argument count/kind mismatches, budget exhaustion, and cancellation terminate evaluation; T7 remains IN_PROGRESS |
+| `LANG007.C4.P2.T7 evaluator foundation slice` | explicit work queue, ordered blocks, binding-ID local slots, mixed kinded/value argument layout, exact Number addition, selected if branches, lazy and/or, mutable locals, Symbol/Tuple/Record values, query budget, and cancellation | `cargo check -p phalcom-semantic` completed; `cargo test -p phalcom-semantic --lib checker::static_body::tests -- --nocapture` passed 4; `cargo test -p phalcom-semantic --test semantic integration::static_definition_bodies -- --nocapture` passed 3 | FOCUSED PASS | checker-authorized 1 + 2 reduces to 3; selected branches reduce; untaken unsupported comparisons are skipped while the taken one fails closed; mutable slot assignment updates the later checked read; Symbol literals, positional Tuple, and bare-label Record values construct; argument count/kind mismatches, budget exhaustion, and cancellation terminate evaluation |
+| `LANG007.C4.P2.T8 static constant pipeline` | `StaticConstantId(SymbolId)`, exact initializer syntax site, static body check, SCC cycle detection, topological evaluation, content-recursive fingerprinting | `cargo test -p phalcom-semantic --test semantic foundations::static_constants` passed 9/9 (literal, computed, const-to-const dep, same-module isolation discriminator, transitive invalidation, self cycle, mutual cycle, runtime dep rejection, eval controls and LKG) | FOCUSED PASS | constant-owned identity avoids full module recomputation; editing constant A does not invalidate unaffected constant B in same module; cyclic peer evaluation safely halts with `StaticConstantCycle` without stack overflow; content fingerprint propagates transitive updates |
+| `LANG007.C4.P2.T9 materialization vertical` | `MaterializationDescriptor`, `MaterializationCapability`, pure descriptor projection, M2 primitive VM materialization (Unit, Bool, Small/Large Int, Float exact bits, String, Symbol), deferred structural const handling | `cargo test -p phalcom-core --test core execution_static_const` passed 9/9; `cargo test -p phalcom-core --test core compiler_static_const` passed 7/7 | FOCUSED PASS | compiler emits direct constant-pool loads for primitive static constants without runtime initializer bytecode or slots; structural constants fail closed at runtime with `StaticConstStructuralDeferred`; LargeInt in chunk constants survives GC |
+| `LANG007.C4.P2.G1 VM execution gate` | End-to-end VM execution gate for static constants | `cargo test -p phalcom-core --test core static_const` passed 16/16 | COMPLETE / FOCUSED_PASS | all execution and compiler static constant scenarios compile and run correctly on the VM |
+| `LANG007.C4.P2.T10 incremental stabilization` | Incremental cold/warm parity, same-module constant isolation, acyclic SCC ordering, budget termination | `cargo test -p phalcom-semantic --test semantic static_constants` passed 9/9 | FOCUSED PASS | 100% cache hit rate on unchanged constants; topological invalidation propagates; cyclic queries terminate safely |
+| `LANG007.C4.P2.G2 C1–C3 compatibility gate` | Regression verification for C1–C3 type alias, static definition, and algebraic data suites | `cargo test -p phalcom-semantic --test semantic type_alias` (2 pass); `cargo test -p phalcom-semantic --test semantic adts` (318 pass, 28 ignored, 0 fail); `cargo test -p phalcom-core --test core language::algebraic_data` (45 pass, 19 ignored, 0 fail) | COMPLETE / FOCUSED_PASS | zero regressions in C1–C3 static, type, and algebraic data behavior |
+| `LANG007.C4.P2.G3 affected crates check` | Affected crate compilation check | `cargo check -p phalcom-semantic -p phalcom-core` completed with 0 errors | COMPLETE | all affected crates build cleanly |
 
 ### 2026-10-04 — P2 T7.10 exact static-application authority stop
 
@@ -1765,93 +1771,20 @@ release-wide certification.
 
 # 13. Current next action
 
-T0–T7 of `LANG007.C4.P2` are implemented and focused-tested. T7's final
-`integration::static_definition_bodies` selector passed 3/3; its coverage and
-the conditional value-node-budget limitation are recorded below. Continue P2
-with T8 targeted `StaticConstant` query identity and initializer source input.
-P2 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; do not start T9 until T8 is
-accepted.
+`LANG007.C4.P2` is **COMPLETE** and **FOCUSED_TESTED**.
 
-T8 architecture is amended as follows: use `StaticConstantId(SymbolId)` and a
-constant-owned initializer source/check result. Extend `ModuleBindingFact` with
-the exact initializer source site. Locate syntax from parsed module source by
-that site and stable symbol identity. Check it with the shared ordinary
-checker in static-body context. Do not fabricate `StaticDefinition` or reuse
-`StaticBodyId(DeclarationId)`. The distinguishing test changes one of two
-constants in a module and proves only its product invalidates, while the other
-is reused and checked reads retain stable `SymbolId`s.
+All planned tasks (T0–T11) and gates (G1–G3) are closed:
+- T0–T7: Static value domain, generalized `type` definition AST/syntax, static definitions, primitive & structural static values, checked static body pipeline, exact intrinsic allowlist (`Number.+(_)`) and explicit-frame static evaluator foundation.
+- T8: Closed static constant pipeline with constant-owned identity `StaticConstantId(SymbolId)`, exact initializer syntax location via retained source span, shared ordinary checker analysis in static body context, Tarjan SCC cycle detection emitting `DiagnosticCode::StaticConstantCycle`, topological evaluation, and content-recursive fingerprinting. Verified same-module constant isolation (editing constant A does not invalidate unaffected constant B).
+- T9: Materialization descriptors (`MaterializationDescriptor`), `MaterializationCapability`, compiler M2 primitive runtime vertical (`Unit`, `Bool`, `SmallInt`, `LargeInt`, `Float` exact bits, `String`, `Symbol`). Runtime use emits direct constant pool loads without runtime initializer bytecode or slots. Structural constants fail closed at runtime with `CompilerError::StaticConstStructuralDeferred`. Heap `LargeInt` values rooted in chunk constants survive GC.
+- G1: End-to-end VM execution gate passed (16/16 tests pass: 9 execution tests + 7 compiler tests in `core static_const`).
+- T10: Incremental cold/warm parity, same-module cache hit isolation, acyclic topological evaluation, and budget termination verified (9/9 tests pass in `semantic static_constants`).
+- G2: C1–C3 compatibility gate passed: `semantic type_alias` (2/2 pass), `semantic adts` (318 pass, 28 ignored, 0 fail), `core language::algebraic_data` (45 pass, 19 ignored, 0 fail).
+- G3: Affected crates check passed: `cargo check -p phalcom-semantic -p phalcom-core` completes with 0 errors.
+- T11: Completion records authored (`LANG007.C4.P2-walkthrough.md`, `LANG007.C4.P2-handoff.md`), checkpoint state updated.
 
-Required reading for the T8 continuation:
+### Next Action:
+Proceed to **`LANG007.C4.P3` — First-class Pack and call/rest convergence**:
+- Plan: [`docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md`](file:///Users/altunhasanli/dev/phalcom/phalcom/docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md) (or author plan if not yet created).
+- Scope: First-class Pack structural transport, runtime pack representation, rest/splat convergence, and tuple interoperability.
 
-```text
-LANG007.C4.P2-handoff.md                         — T0–T7 interfaces and T8 source/result decision
-LANG007.C4.P2-walkthrough.md                     — actual T0–T7 implementation and evidence
-LANG007.C4.P2-luna-patch-grade-implementation-plan.md — T8 requirements and appended amendment
-LANG007.C4-CHECKPOINT.md                         — canonical state and consultation record
-implementation-record-lifecycle-convention.md    — lifecycle rules
-```
-
-T8 entry points:
-
-```text
-phalcom-semantic/src/module_bindings.rs       — exact binding/source-site handoff
-phalcom-semantic/src/static_definition.rs     — checked-body precedent; don't reuse its owner key
-phalcom-semantic/src/checker/static_body.rs   — shared ordinary checker context
-phalcom-semantic/src/db/query.rs              — checked-body query precedent and dependency publication
-phalcom-semantic/src/session.rs               — module binding construction and body composition (~7315)
-phalcom-semantic/src/snapshot.rs               — semantic product exposure
-```
-
-### T7 focused acceptance closure — 2026-10-04
-
-The final focused command was:
-
-```text
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic integration::static_definition_bodies -- --nocapture
-3 passed, 0 failed
-```
-
-The selector covers the T7 machine/control checklist, checked value/kinded
-applications, recursion outcomes and trace, Data/Variant identity, checked
-kinded-result boundaries, budget exhaustion before Data node interning,
-pre-cancelled evaluation, mutable local ordering, uninitialized read, and
-immutable reassignment rejection. `QueryBudget` exposes no separate value-node
-quota, so the plan's conditional value-node-limit case is not enabled. The
-step-budget/pre-intern discriminator is the available resource-boundary proof.
-T7 is implemented and focused-tested; P2 remains partial and unverified as a
-whole. Next action: begin T8 targeted `StaticConstant` query identity and source
-input/dependency wiring.
-
-
-## 2026-10-04 — T8 constant-owned initializer source/result consultation
-
-### Evidence
-
-The P2 plan's T8.2/T8.3 requires targeted const initializer source and static
-body checking. Live `ModuleStaticBindingIndex` exposes stable `SymbolId`,
-source-body `CallableId`, body-local `BindingId`, phase, and `BindingState`, but
-not initializer AST/site. `ParsedModuleUnit` retains the AST. `CallableAnalysis`
-contains expression facts but does not retain the AST subtree or explicit
-expression-tree relation needed to safely extract one initializer as an
-evaluator body. The current `CheckedStaticBody` owner is `StaticBodyId(DeclarationId)`
-and its analyzer accepts `StaticDefinition`.
-
-### Adviser decision and plan amendment
-
-`query_static_constant(SymbolId)` owns the initializer source/check result. Add
-a thin `StaticConstantId(SymbolId)` and a constant-specific product keyed by
-that identity; do not fabricate a `StaticDefinition` or force a const through
-`StaticBodyId`. Extend `ModuleBindingFact` with the exact declaration/initializer
-source site when it is built alongside ordinary `<main>` analysis. Parsed syntax
-is selected by that site and stable symbol identity, never by a fresh name
-lookup. The exact initializer is checked by the shared ordinary checker in a
-static-body context using canonical module bindings and existing semantic
-products. This is a new analysis invocation, not a second checker/resolver
-authority. The product owns targeted source fingerprint, checked facts,
-dependencies, and evaluation outcome.
-
-Acceptance discriminator: with two constants in one module, changing one
-initializer invalidates only that `StaticConstant(SymbolId)` result while the
-other product is reused; checked reads retain canonical `SymbolId`s. Update the
-P2 plan T8 write set and add this as a T8 amendment. No T8 source implementation
-has started.

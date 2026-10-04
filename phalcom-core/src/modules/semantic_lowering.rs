@@ -500,10 +500,19 @@ pub struct DetachedMethodSpec {
     pub source: DetachedMethodSource,
 }
 
+/// Materialization specification for one evaluated compile-time static constant.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StaticConstantLoweringSpec {
+    pub id: phalcom_semantic::static_constant::StaticConstantId,
+    pub descriptor: phalcom_semantic::materialization::MaterializationDescriptor,
+}
+
 /// Complete compiled lowering semantics for a single module.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleLoweringSemantics {
     pub module: ModuleId,
+    /// Evaluated compile-time static constants projected for runtime materialization.
+    pub static_constants: BTreeMap<String, StaticConstantLoweringSpec>,
     /// Canonical callable signatures used to materialize compiler-only
     /// constructor projections without rebuilding signature authority.
     pub callable_signatures: Arc<phalcom_semantic::signature::CallableSignatureTable>,
@@ -576,6 +585,7 @@ impl ModuleLoweringSemantics {
     pub fn new(module: ModuleId) -> Self {
         Self {
             module,
+            static_constants: BTreeMap::new(),
             callable_signatures: Arc::new(phalcom_semantic::signature::CallableSignatureTable::default()),
             constructor_initializations: Arc::new(phalcom_semantic::signature::ConstructorInitializationTable::default()),
             constructor_super_initializers: BTreeMap::new(),
@@ -1515,9 +1525,11 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         .map(|source| project_anonymous_products(module, snapshot, &source.program, runtime_type_roots))
         .unwrap_or_default();
     let type_form_values = project_type_form_values(module, snapshot);
+    let static_constants = project_static_constants(module, snapshot);
 
     Ok(ModuleLoweringSemantics {
         module: module.clone(),
+        static_constants,
         callable_signatures: snapshot.callable_signatures.clone(),
         constructor_initializations: snapshot.constructor_initializations.clone(),
         constructor_super_initializers,
@@ -1545,6 +1557,26 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         known_invalid_positional_expansions,
         detached_methods,
     })
+}
+
+fn project_static_constants(module: &ModuleId, snapshot: &SemanticSnapshot) -> BTreeMap<String, StaticConstantLoweringSpec> {
+    let mut projected = BTreeMap::new();
+    let static_constants_table = snapshot.static_constants();
+    let store = snapshot.static_values();
+    for product in static_constants_table.module_constants(module) {
+        if product.is_successful() {
+            if let Some(descriptor) = product.materialization_descriptor(store) {
+                projected.insert(
+                    product.id.name().to_string(),
+                    StaticConstantLoweringSpec {
+                        id: product.id.clone(),
+                        descriptor,
+                    },
+                );
+            }
+        }
+    }
+    projected
 }
 
 fn project_type_form_values(module: &ModuleId, snapshot: &SemanticSnapshot) -> BTreeMap<SourceRange, RuntimeTypeFormValueSpec> {

@@ -30,6 +30,7 @@ mod receiver_specialization;
 mod record_row_inference;
 mod record_row_materialization;
 mod semantic_correctness_regressions;
+mod static_constants;
 mod static_definitions;
 mod static_domain_inference;
 mod static_domains;

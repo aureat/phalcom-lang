@@ -37,6 +37,7 @@ pub mod match_semantics;
 pub mod metadata;
 pub mod module_bindings;
 pub mod module_product;
+pub mod materialization;
 pub mod prelude;
 pub mod presentation;
 pub mod prover;
@@ -51,6 +52,7 @@ pub mod source;
 pub mod source_index;
 pub mod stable_identity;
 pub mod static_case;
+pub mod static_constant;
 pub mod static_definition;
 pub mod static_domain;
 pub mod static_eval;
@@ -146,6 +148,9 @@ pub use snapshot::{ModuleQueryProducts, SemanticSnapshot};
 pub use source_index::{
     EditorSymbolKind, ModuleReferenceContribution, ReferenceIndex, SourceIndexUpdateStats, TargetReferenceSet, WorkspaceSymbolEntry, WorkspaceSymbolId,
     WorkspaceSymbolIndex,
+};
+pub use static_constant::{
+    CheckedStaticConstantInitializer, StaticConstantId, StaticConstantProduct, StaticConstantTable,
 };
 pub use static_definition::{
     CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr, StaticDefinitionProduct, StaticDefinitionSignature, StaticDefinitionTable,

@@ -1,8 +1,11 @@
 use super::{StaticEvalError, StaticEvalOutcome, StaticEvalTraceFrame};
+use crate::checker::analysis::{BindingAnalysisIndex, ExpressionAnalysisIndex};
+use crate::checker::associated::AssociatedResolutionIndex;
 use crate::db::{CancellationToken, QueryBudget};
 use crate::identity::{BindingId, ExpressionId};
-use crate::static_definition::{CheckedStaticApplication, CheckedStaticBody, StaticApplicationId, StaticDefinitionTable};
-use crate::static_intrinsic::StaticIntrinsicOperation;
+use crate::static_constant::{CheckedStaticConstantInitializer, StaticConstantTable};
+use crate::static_definition::{CheckedStaticApplication, CheckedStaticBody, CheckedStaticConstruction, StaticApplicationId, StaticDefinitionTable};
+use crate::static_intrinsic::{StaticIntrinsicOperation, StaticOperationResolutionIndex};
 use crate::static_value::{StaticValueData, StaticValueRef, StaticValueStore};
 use crate::types::id::TypeId;
 use num_bigint::BigInt;
@@ -19,12 +22,130 @@ pub enum StaticArgument {
     Value(StaticValueRef),
 }
 
+/// Unified body reference for either a static definition or a static constant initializer.
+#[derive(Clone, Copy)]
+pub enum EvaluatorBody<'a> {
+    Definition(&'a CheckedStaticBody),
+    Constant(&'a CheckedStaticConstantInitializer),
+}
+
+pub enum EvaluatorRootWork<'a> {
+    Expression(&'a Expr),
+    Block(&'a LexicalBlock),
+    TypeForm(&'a phalcom_ast::ast::TypeAnnotation),
+}
+
+impl<'a> EvaluatorBody<'a> {
+    pub fn expressions(&self) -> &'a ExpressionAnalysisIndex {
+        match self {
+            Self::Definition(d) => &d.expressions,
+            Self::Constant(c) => &c.expressions,
+        }
+    }
+
+    pub fn bindings(&self) -> &'a BindingAnalysisIndex {
+        match self {
+            Self::Definition(d) => &d.bindings,
+            Self::Constant(c) => &c.bindings,
+        }
+    }
+
+    pub fn static_operations(&self) -> &'a StaticOperationResolutionIndex {
+        match self {
+            Self::Definition(d) => &d.static_operations,
+            Self::Constant(c) => &c.static_operations,
+        }
+    }
+
+    pub fn static_applications(&self) -> &'a [CheckedStaticApplication] {
+        match self {
+            Self::Definition(d) => &d.static_applications,
+            Self::Constant(c) => &c.static_applications,
+        }
+    }
+
+    pub fn static_constructions(&self) -> &'a BTreeMap<ExpressionId, CheckedStaticConstruction> {
+        match self {
+            Self::Definition(d) => &d.static_constructions,
+            Self::Constant(c) => &c.static_constructions,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn associated_resolutions(&self) -> &'a AssociatedResolutionIndex {
+        match self {
+            Self::Definition(d) => &d.associated_resolutions,
+            Self::Constant(c) => &c.associated_resolutions,
+        }
+    }
+
+    pub fn local_slots(&self) -> &'a BTreeMap<BindingId, u32> {
+        match self {
+            Self::Definition(d) => &d.local_slots,
+            Self::Constant(c) => &c.local_slots,
+        }
+    }
+
+    pub fn static_constant_bindings(&self) -> &'a BTreeMap<BindingId, phalcom_modules::linker::SymbolId> {
+        match self {
+            Self::Definition(d) => &d.static_constant_bindings,
+            Self::Constant(c) => &c.static_constant_bindings,
+        }
+    }
+
+    pub fn trace_frame(&self) -> StaticEvalTraceFrame {
+        match self {
+            Self::Definition(d) => StaticEvalTraceFrame::Definition(d.owner.0.clone()),
+            Self::Constant(c) => StaticEvalTraceFrame::Constant(c.id.clone()),
+        }
+    }
+
+    pub fn root_work(&self) -> EvaluatorRootWork<'a> {
+        match self {
+            Self::Definition(d) => match &d.root {
+                crate::static_definition::StaticDefinitionBodyRepr::Expression(expression) => EvaluatorRootWork::Expression(expression),
+                crate::static_definition::StaticDefinitionBodyRepr::Block(block) => EvaluatorRootWork::Block(block),
+                crate::static_definition::StaticDefinitionBodyRepr::TypeForm(annotation) => EvaluatorRootWork::TypeForm(annotation),
+            },
+            Self::Constant(c) => EvaluatorRootWork::Expression(&c.root),
+        }
+    }
+
+    pub fn result_as_kind(&self) -> Option<crate::types::id::KindId> {
+        match self {
+            Self::Definition(d) => d.result.as_kind(),
+            Self::Constant(_) => None,
+        }
+    }
+
+    pub fn is_value_result(&self) -> bool {
+        match self {
+            Self::Definition(d) => matches!(d.result, crate::static_domain::StaticValueDomain::ValueType(_)),
+            Self::Constant(_) => true,
+        }
+    }
+
+    pub fn contains_kinded_parameter(&self, types: &crate::types::store::TypeStore, form: crate::types::id::TypeId) -> bool {
+        match self {
+            Self::Definition(d) => d.kinded_parameters.values().any(|param| types.contains_type_parameter(form, *param)),
+            Self::Constant(_) => false,
+        }
+    }
+
+    pub fn kinded_parameter_index(&self, parameter: crate::types::id::TypeParameterId) -> Option<u32> {
+        match self {
+            Self::Definition(d) => d.kinded_parameters.iter().find(|(_, candidate)| **candidate == parameter).map(|(idx, _)| *idx),
+            Self::Constant(_) => None,
+        }
+    }
+}
+
 /// Evaluates the currently supported, checker-authorized static expression subset.
 ///
 /// Each guest expression is represented by a work item. The host call stack is
 /// independent of guest expression nesting.
 pub struct StaticEvaluator<'a> {
-    body: &'a CheckedStaticBody,
+    body: EvaluatorBody<'a>,
     values: &'a mut StaticValueStore,
     budget: &'a mut QueryBudget,
     cancellation: &'a CancellationToken,
@@ -34,6 +155,7 @@ pub struct StaticEvaluator<'a> {
     argument_error: Option<StaticEvalError>,
     expression_sites: BTreeMap<(usize, usize), Vec<ExpressionId>>,
     definitions: Option<&'a StaticDefinitionTable>,
+    constants: Option<&'a StaticConstantTable>,
     canonical_types: Option<&'a crate::types::store::TypeStore>,
     semantic_tables: Option<(
         &'a crate::types::store::TypeStore,
@@ -48,12 +170,12 @@ pub struct StaticEvaluator<'a> {
 }
 
 struct SavedFrame<'a> {
-    body: &'a CheckedStaticBody,
+    body: EvaluatorBody<'a>,
     locals: Vec<Option<StaticValueRef>>,
     parameter_values: BTreeMap<BindingId, StaticValueRef>,
     kinded_arguments: BTreeMap<u32, TypeId>,
     expression_sites: BTreeMap<(usize, usize), Vec<ExpressionId>>,
-    definition: crate::identity::DeclarationId,
+    definition: Option<crate::identity::DeclarationId>,
 }
 
 enum Work<'a> {
@@ -133,7 +255,7 @@ impl<'a> StaticEvaluator<'a> {
         }
         let locals = vec![None; body.local_slots.len()];
         Self {
-            body,
+            body: EvaluatorBody::Definition(body),
             values,
             budget,
             cancellation,
@@ -143,6 +265,7 @@ impl<'a> StaticEvaluator<'a> {
             argument_error,
             expression_sites,
             definitions: None,
+            constants: None,
             canonical_types: None,
             semantic_tables: None,
             active_definitions: vec![body.owner.0.clone()],
@@ -151,6 +274,46 @@ impl<'a> StaticEvaluator<'a> {
             completed_kinded_result: None,
             trace: Vec::new(),
         }
+    }
+
+    /// Creates an evaluator for a module-owned static constant initializer.
+    pub fn for_constant(
+        body: &'a CheckedStaticConstantInitializer,
+        values: &'a mut StaticValueStore,
+        budget: &'a mut QueryBudget,
+        cancellation: &'a CancellationToken,
+    ) -> Self {
+        let mut expression_sites: BTreeMap<(usize, usize), Vec<ExpressionId>> = BTreeMap::new();
+        for (id, expression) in body.expressions.iter() {
+            expression_sites.entry((expression.range.start, expression.range.end)).or_default().push(*id);
+        }
+        let locals = vec![None; body.local_slots.len()];
+        Self {
+            body: EvaluatorBody::Constant(body),
+            values,
+            budget,
+            cancellation,
+            locals,
+            parameter_values: BTreeMap::new(),
+            kinded_arguments: BTreeMap::new(),
+            argument_error: None,
+            expression_sites,
+            definitions: None,
+            constants: None,
+            canonical_types: None,
+            semantic_tables: None,
+            active_definitions: Vec::new(),
+            saved_frames: Vec::new(),
+            pending_application_arguments: BTreeMap::new(),
+            completed_kinded_result: None,
+            trace: Vec::new(),
+        }
+    }
+
+    /// Supplies the snapshot's evaluated static constants for constant-read evaluation.
+    pub fn with_static_constants(mut self, constants: &'a StaticConstantTable) -> Self {
+        self.constants = Some(constants);
+        self
     }
 
     /// Supplies the snapshot's checked static definitions for exact-target
@@ -201,11 +364,11 @@ impl<'a> StaticEvaluator<'a> {
         if let Some(error) = self.argument_error.take() {
             return Err(Stop::invalid(error));
         }
-        self.push_trace(StaticEvalTraceFrame::Definition(self.body.owner.0.clone()))?;
-        let mut work = match &self.body.root {
-            crate::static_definition::StaticDefinitionBodyRepr::Expression(expression) => vec![Work::Evaluate(expression)],
-            crate::static_definition::StaticDefinitionBodyRepr::Block(block) => vec![Work::EvaluateBlock(block)],
-            crate::static_definition::StaticDefinitionBodyRepr::TypeForm(annotation) => vec![Work::EvaluateTypeForm(annotation)],
+        self.push_trace(self.body.trace_frame())?;
+        let mut work = match self.body.root_work() {
+            EvaluatorRootWork::Expression(expression) => vec![Work::Evaluate(expression)],
+            EvaluatorRootWork::Block(block) => vec![Work::EvaluateBlock(block)],
+            EvaluatorRootWork::TypeForm(annotation) => vec![Work::EvaluateTypeForm(annotation)],
         };
         let mut stack = Vec::new();
         while let Some(item) = work.pop() {
@@ -240,11 +403,11 @@ impl<'a> StaticEvaluator<'a> {
                     Expr::TypeForm(annotation) => {
                         let application = self
                             .body
-                            .static_applications
+                            .static_applications()
                             .iter()
                             .find(|application| {
                                 self.body
-                                    .expressions
+                                    .expressions()
                                     .get(&application.expression)
                                     .is_some_and(|analysis| analysis.range == expression.range())
                             })
@@ -272,11 +435,11 @@ impl<'a> StaticEvaluator<'a> {
                         let id = self.expression_id(assignment.range)?;
                         let binding = self
                             .body
-                            .expressions
+                            .expressions()
                             .get(&id)
                             .and_then(|entry| entry.binding_write)
                             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                        if !self.body.local_slots.contains_key(&binding) || !self.body.bindings.get(&binding).is_some_and(|state| state.mutable) {
+                        if !self.body.local_slots().contains_key(&binding) || !self.body.bindings().get(&binding).is_some_and(|state| state.mutable) {
                             return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                         }
                         work.push(Work::StoreAssignment(binding));
@@ -323,7 +486,7 @@ impl<'a> StaticEvaluator<'a> {
                     }
                     Expr::RecordConstruction(record) => {
                         let id = self.expression_id(expression.range())?;
-                        let construction = self.body.static_constructions.get(&id)
+                        let construction = self.body.static_constructions().get(&id)
                             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                         if construction.arguments.len() != record.entries.len() {
                             return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
@@ -331,14 +494,14 @@ impl<'a> StaticEvaluator<'a> {
                         work.push(Work::FinishStaticConstruction(id, record.entries.len()));
                         for argument in construction.arguments.iter().rev() {
                             let entry = record.entries.iter().find(|entry| {
-                                self.body.expressions.get(&argument.expression).is_some_and(|analysis| analysis.range == entry.value.range())
+                                self.body.expressions().get(&argument.expression).is_some_and(|analysis| analysis.range == entry.value.range())
                             }).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                             work.push(Work::Evaluate(&entry.value));
                         }
                     }
                     Expr::AssociatedInvoke(invoke) => {
                         let id = self.expression_id(expression.range())?;
-                        let construction = self.body.static_constructions.get(&id)
+                        let construction = self.body.static_constructions().get(&id)
                             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                         if construction.arguments.len() != invoke.args.len() {
                             return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
@@ -351,7 +514,7 @@ impl<'a> StaticEvaluator<'a> {
                                     | phalcom_ast::ast::PackItem::Labeled { value: expr, .. }
                                     | phalcom_ast::ast::PackItem::Expand { expr, .. } => expr,
                                 };
-                                self.body.expressions.get(&argument.expression).is_some_and(|analysis| analysis.range == source.range())
+                                self.body.expressions().get(&argument.expression).is_some_and(|analysis| analysis.range == source.range())
                             }).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                             let source = match item {
                                 phalcom_ast::ast::PackItem::Positional { expr, .. }
@@ -366,7 +529,7 @@ impl<'a> StaticEvaluator<'a> {
                 }
                 Work::EvaluateTypeForm(annotation) => {
                     let expression = self.expression_id(annotation.range)?;
-                    if let Some(application) = self.body.static_applications.iter().find(|item| item.expression == expression) {
+                    if let Some(application) = self.body.static_applications().iter().find(|item| item.expression == expression) {
                         let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
                             return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                         };
@@ -452,7 +615,7 @@ impl<'a> StaticEvaluator<'a> {
                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                     };
                     let values = stack.split_off(start);
-                    let construction = self.body.static_constructions.get(&id)
+                    let construction = self.body.static_constructions().get(&id)
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     if construction.arguments.len() != values.len() {
                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
@@ -497,7 +660,7 @@ impl<'a> StaticEvaluator<'a> {
                     let left = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     let operation = self
                         .body
-                        .static_operations
+                        .static_operations()
                         .get(&id)
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedOperation(id)))?;
                     if operation.operation != StaticIntrinsicOperation::NumberAdd {
@@ -576,7 +739,7 @@ impl<'a> StaticEvaluator<'a> {
                                 }
                             }
                             crate::static_definition::CheckedStaticApplicationArgument::KindedExpression { parameter_index, expression } => {
-                                let nested = self.body.static_applications.iter()
+                                let nested = self.body.static_applications().iter()
                                     .find(|candidate| candidate.expression == *expression)
                                     .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                                 let annotation = match syntax {
@@ -659,7 +822,7 @@ impl<'a> StaticEvaluator<'a> {
             if !stack.is_empty() {
                 return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
             }
-            let Some(expected_kind) = self.body.result.as_kind() else {
+            let Some(expected_kind) = self.body.result_as_kind() else {
                 return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
             };
             let types = self.canonical_types
@@ -672,7 +835,7 @@ impl<'a> StaticEvaluator<'a> {
             }
             Ok(StaticEvalResult::KindedTerm(term))
         } else if stack.len() == 1 {
-            if !matches!(self.body.result, crate::static_domain::StaticValueDomain::ValueType(_)) {
+            if !self.body.is_value_result() {
                 return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
             }
             if self.cancellation.is_cancelled() {
@@ -685,14 +848,14 @@ impl<'a> StaticEvaluator<'a> {
     }
 
     fn complete_checked_type_form(&mut self, expression: ExpressionId) -> Result<(), Stop> {
-        let analysis = self.body.expressions.get(&expression)
+        let analysis = self.body.expressions().get(&expression)
             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
         let form = match analysis.denotation.as_ref() {
             Some(crate::types::denotation::SemanticDenotation::TypeForm(form)
                 | crate::types::denotation::SemanticDenotation::StaticTerm(form)) => *form,
             _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
         };
-        let expected_kind = self.body.result.as_kind()
+        let expected_kind = self.body.result_as_kind()
             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
         let types = self.canonical_types
             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
@@ -701,8 +864,8 @@ impl<'a> StaticEvaluator<'a> {
         // or interning any replacement type. Composite substitution is outside
         // this immutable-snapshot evaluator contract.
         if let crate::types::store::TypeData::Parameter(parameter) = types.get(form) {
-            if let Some((index, _)) = self.body.kinded_parameters.iter().find(|(_, candidate)| *candidate == parameter) {
-                let forwarded = *self.kinded_arguments.get(index)
+            if let Some(index) = self.body.kinded_parameter_index(*parameter) {
+                let forwarded = *self.kinded_arguments.get(&index)
                     .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                 if types.kind_of(forwarded) != expected_kind {
                     return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
@@ -711,7 +874,7 @@ impl<'a> StaticEvaluator<'a> {
                 return Ok(());
             }
         }
-        if self.body.kinded_parameters.values().any(|parameter| types.contains_type_parameter(form, *parameter))
+        if self.body.contains_kinded_parameter(types, form)
             || types.kind_of(form) != expected_kind
         {
             return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
@@ -761,14 +924,25 @@ impl<'a> StaticEvaluator<'a> {
     fn read_binding_value(&self, id: ExpressionId) -> Result<StaticValueRef, Stop> {
         let binding = self
             .body
-            .expressions
+            .expressions()
             .get(&id)
             .and_then(|entry| entry.binding_read)
             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
         if let Some(value) = self.parameter_values.get(&binding) {
             return Ok(*value);
         }
-        if let Some(slot) = self.body.local_slots.get(&binding) {
+        if let Some(symbol) = self.body.static_constant_bindings().get(&binding) {
+            if let Some(constants) = self.constants {
+                let const_id = crate::static_constant::StaticConstantId(symbol.clone());
+                if let Some(constant) = constants.get(&const_id) {
+                    if let Some(value) = constant.value {
+                        return Ok(value);
+                    }
+                }
+            }
+            return Err(Stop::invalid(StaticEvalError::UnboundBinding(binding)));
+        }
+        if let Some(slot) = self.body.local_slots().get(&binding) {
             return self.locals.get(*slot as usize).copied().flatten()
                 .ok_or_else(|| Stop::invalid(StaticEvalError::UninitializedBinding(binding)));
         }
@@ -776,13 +950,17 @@ impl<'a> StaticEvaluator<'a> {
     }
 
     fn save_current_frame(&mut self) {
+        let definition = match self.body {
+            EvaluatorBody::Definition(d) => Some(d.owner.0.clone()),
+            EvaluatorBody::Constant(_) => None,
+        };
         self.saved_frames.push(SavedFrame {
             body: self.body,
             locals: std::mem::take(&mut self.locals),
             parameter_values: std::mem::take(&mut self.parameter_values),
             kinded_arguments: std::mem::take(&mut self.kinded_arguments),
             expression_sites: std::mem::take(&mut self.expression_sites),
-            definition: self.body.owner.0.clone(),
+            definition,
         });
     }
 
@@ -810,7 +988,7 @@ impl<'a> StaticEvaluator<'a> {
         for (id, expression) in body.expressions.iter() {
             expression_sites.entry((expression.range.start, expression.range.end)).or_default().push(*id);
         }
-        self.body = body;
+        self.body = EvaluatorBody::Definition(body);
         self.locals = vec![None; body.local_slots.len()];
         self.parameter_values = parameter_values;
         self.kinded_arguments = kinded_arguments;
@@ -826,7 +1004,11 @@ impl<'a> StaticEvaluator<'a> {
         self.parameter_values = frame.parameter_values;
         self.kinded_arguments = frame.kinded_arguments;
         self.expression_sites = frame.expression_sites;
-        debug_assert_eq!(self.body.owner.0, frame.definition);
+        if let Some(def) = frame.definition {
+            if let EvaluatorBody::Definition(current_def) = self.body {
+                debug_assert_eq!(current_def.owner.0, def);
+            }
+        }
         Ok(())
     }
 
@@ -836,9 +1018,9 @@ impl<'a> StaticEvaluator<'a> {
         };
         let mut candidates = self
             .body
-            .bindings
+            .bindings()
             .iter()
-            .filter(|(_, state)| state.name == *name && state.range == *range && self.body.local_slots.contains_key(&state.binding))
+            .filter(|(_, state)| state.name == *name && state.range == *range && self.body.local_slots().contains_key(&state.binding))
             .map(|(id, _)| *id);
         let Some(binding) = candidates.next() else {
             return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
@@ -850,7 +1032,7 @@ impl<'a> StaticEvaluator<'a> {
     }
 
     fn local_slot(&self, binding: BindingId) -> Result<usize, Stop> {
-        let Some(slot) = self.body.local_slots.get(&binding).copied() else {
+        let Some(slot) = self.body.local_slots().get(&binding).copied() else {
             return Err(Stop::invalid(StaticEvalError::UnboundBinding(binding)));
         };
         let slot = slot as usize;

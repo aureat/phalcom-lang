@@ -2773,6 +2773,63 @@ pub fn checked_static_body_product_fingerprint(body: &crate::static_definition::
     finish_product(hasher)
 }
 
+/// Fingerprints a static constant's targeted initializer source and declared type.
+pub fn static_constant_input_fingerprint(
+    id: &crate::static_constant::StaticConstantId,
+    initializer: &phalcom_ast::ast::Expr,
+    expected_type: Option<crate::types::id::TypeId>,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    id.hash(&mut hasher);
+    format!("{initializer:?}").hash(&mut hasher);
+    expected_type.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+/// Fingerprints the reduced static constant product, including evaluated content,
+/// outcome, and diagnostics.
+pub fn static_constant_product_fingerprint(
+    product: &crate::static_constant::StaticConstantProduct,
+    store: &crate::static_value::StaticValueStore,
+) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.id.hash(&mut hasher);
+    match &product.outcome {
+        crate::static_eval::StaticEvalOutcome::Reduced(val_ref) => {
+            0u8.hash(&mut hasher);
+            if let Ok(content_hash) = store.content_fingerprint(*val_ref) {
+                content_hash.hash(&mut hasher);
+            } else {
+                val_ref.hash(&mut hasher);
+            }
+        }
+        crate::static_eval::StaticEvalOutcome::ReducedKinded(type_id) => {
+            1u8.hash(&mut hasher);
+            type_id.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Symbolic => {
+            2u8.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Invalid(err) => {
+            3u8.hash(&mut hasher);
+            format!("{err:?}").hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Recursive => {
+            4u8.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::BudgetExceeded(_) => {
+            5u8.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Cancelled => {
+            6u8.hash(&mut hasher);
+        }
+    }
+    for diag in product.diagnostics.iter() {
+        format!("{diag:?}").hash(&mut hasher);
+    }
+    finish_product(hasher)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

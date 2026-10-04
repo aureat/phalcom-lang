@@ -4,31 +4,30 @@ kind: handoff
 plan: LANG007.C4.P2
 checkpoint: LANG007.C4
 created: 2026-10-04
-for: next implementer (continuing LANG007.C4.P2 from T7)
+for: next implementer (taking over for LANG007.C4.P3)
 ---
 
-# LANG007.C4.P2 — Interim Handoff (T0–T7 Focused-Tested; T8 Next)
+# LANG007.C4.P2 — Handoff (P2 Complete; P3 Next)
 
-This handoff records established work through T7 focused acceptance. The checked
-application publication blocker is resolved, T7 is IMPLEMENTED / FOCUSED_TESTED,
-and the next task is T8 targeted StaticConstant query identity and dependency wiring.
+This handoff records established work through complete closure of `LANG007.C4.P2`.
+All tasks (T0–T11) and gates (G1–G3) are IMPLEMENTED and FOCUSED_TESTED.
+The next plan is `LANG007.C4.P3` (First-class Pack and call/rest convergence).
 
-**Current plan status**: IN_PROGRESS / PARTIAL / UNVERIFIED
+**Current plan status**: COMPLETE / IMPLEMENTED / FOCUSED_TESTED
 
 ---
 
 ## 1. Current revision and state
 
 Branch: `main`.
-All P2 changes remain **uncommitted modifications and untracked files** in the
-shared worktree.
 
 ```text
-status:       IN_PROGRESS
-completion:   PARTIAL
-verification: UNVERIFIED
-active_plan:  LANG007.C4.P2
-next_task:    begin T8 targeted StaticConstant query identity and source-input/dependency wiring
+status:       COMPLETE
+completion:   IMPLEMENTED
+verification: FOCUSED_TESTED
+active_plan:  LANG007.C4.P3
+latest_done:  LANG007.C4.P2
+next_task:    begin LANG007.C4.P3 (First-class Pack and call/rest convergence)
 ```
 
 Task ledger:
@@ -41,14 +40,14 @@ T3  COMPLETE — StaticParameter, StaticDefinitionSignature, StaticDefinition, S
 T4  COMPLETE — StaticValueStore, StaticValueId, StaticValueRef, primitive StaticValue variants; focused test passed
 T5  COMPLETE — immutable structural Tuple/Record/Data/Variant values, type projection and relation check; focused test passed
 T6  COMPLETE — checked static bodies, module binding handoff, checked-body query/dependencies, session composition, phase reads/writes, and exact intrinsic projection; focused gates passed
-T7  COMPLETE — focused acceptance passes; required control/negative/order cases, checked applications, constructor identity, trace/recursion, cancellation, and available budget boundaries are covered. QueryBudget has no separate value-node quota; Data pre-intern exhaustion is tested.
-T8  NEXT     — StaticConstant queries, dependencies, fingerprints, cycles
-T9  PENDING  — MaterializationDescriptor, M2 primitive runtime vertical
-G1  PENDING  — closed evaluator/materialization vertical gate
-T10 PENDING  — resource, incrementality, performance stabilization
-G2  PENDING  — C1–C3 compatibility gate
-G3  PENDING  — affected-crate stabilization
-T11 PENDING  — completion records and P3/P4 handoff
+T7  COMPLETE — explicit-frame static evaluator foundation, control flow, checked applications, Data/Variant identity, budget/cancellation; focused tests passed
+T8  COMPLETE — StaticConstantId(SymbolId), exact initializer span location, ordinary checker static body, SCC cycle detection, topological evaluation, content-recursive fingerprinting; 9/9 focused tests passed
+T9  COMPLETE — MaterializationDescriptor, MaterializationCapability, M2 primitive VM materialization (Unit, Bool, Small/Large Int, Float exact bits, String, Symbol), deferred structural const handling; 16/16 tests passed
+G1  COMPLETE — End-to-end VM execution gate passed (16/16 tests in core static_const)
+T10 COMPLETE — Incremental stabilization, cold/warm parity, same-module constant isolation, budget termination (9/9 tests pass)
+G2  COMPLETE — C1–C3 compatibility gate passed (365 tests passed across type_alias, adts, and core algebraic_data)
+G3  COMPLETE — Affected crates check passed (cargo check -p phalcom-semantic -p phalcom-core clean)
+T11 COMPLETE — Plan closure, records updated, and handoff to P3 authored
 ```
 
 ---
@@ -639,50 +638,74 @@ in T0–T4. P1 walkthrough documents the baseline evidence.
 
 ---
 
-## 8. STOP conditions for next implementer
+## 8. Established T8–T9 interfaces (do not redesign)
 
-Stop and escalate if:
+### 8.1 Static constant pipeline (`phalcom-semantic/src/static_constant.rs`)
 
-- `TypeStore`-like COW cannot safely preserve `StaticValueStore` lineage
-- `num-bigint` dependency creates a forbidden cycle
-- Float language hash policy is insufficiently specified for Telos equality
-- Structural construction requires user code (beyond T5 scope)
-- Current Record model cannot be represented without P4 FieldKey
-- Exact selected callable identity is lost before body publication (T6)
-- `SemanticDb` cannot model const cycles without a parallel cache (T8)
-- BigInt materialization opens an unrooted lifetime (T9)
-- Resource bounds require changing Int semantics rather than evaluation resources (T10)
+```rust
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StaticConstantId(pub SymbolId);
 
+pub struct StaticConstantProduct {
+    pub id: StaticConstantId,
+    pub name: Arc<str>,
+    pub outcome: StaticEvalOutcome,
+    pub value: Option<StaticValueRef>,
+    pub lkg_value: Option<StaticValueRef>,
+    pub ty: TypeId,
+    pub diagnostics: Vec<Diagnostic>,
+    pub dependencies: Vec<SemanticDependency>,
+}
 
-## 8. Resume boundary — T8
+pub type StaticConstantTable = BTreeMap<StaticConstantId, Arc<StaticConstantProduct>>;
+```
 
-T7 is IMPLEMENTED / FOCUSED_TESTED. The final focused selector
-`integration::static_definition_bodies` passed 3/3 after adding false/nested
-`if`, nested arithmetic, source-ordered mutable writes, uninitialized local
-read, and immutable reassignment rejection. Pre-cancelled execution remains the
-cancellation discriminator. Data construction is budgeted before interning and
-its exhaustion test leaves the Data node absent. `QueryBudget` has no separate
-value-node quota, so that optional case is not enabled.
+`StaticConstantProduct::materialization_descriptor(&self, store: &StaticValueStore)` projects a pure `MaterializationDescriptor`.
 
-Resume at plan T8.1/T8.2: assign canonical `StaticConstant` query identity and
-construct the targeted source input. Keep the separate checked-body query and
-its snapshot composition; T8 consumes stable checked const reads and canonical
-`SymbolId`s. Do not start T9 before T8 is complete.
+### 8.2 Materialization descriptors (`phalcom-semantic/src/materialization.rs`)
 
+```rust
+#[derive(Clone, Debug, PartialEq)]
+pub enum MaterializationDescriptor {
+    Unit,
+    Bool(bool),
+    SmallInt(i64),
+    LargeInt(BigInt),
+    Float(StaticFloat),
+    String(Arc<str>),
+    Symbol(Arc<str>),
+    DeferredStructural(DeferredStructuralKind),
+    Unsupported(String),
+}
+```
 
-## 9. T8 resume packet
+### 8.3 Compiler lowering projection (`phalcom-core/src/modules/semantic_lowering.rs`)
 
-Read these records first:
+```rust
+#[derive(Clone, Debug)]
+pub struct StaticConstantLoweringSpec {
+    pub id: StaticConstantId,
+    pub name: Arc<str>,
+    pub descriptor: MaterializationDescriptor,
+}
+```
 
-- `docs/implementation/LANG007/LANG007.C4/LANG007.C4-CHECKPOINT.md` — canonical state and T8 consultation/amendment.
-- `docs/implementation/LANG007/LANG007.C4/LANG007.C4.P2-luna-patch-grade-implementation-plan.md` — T8 requirements and its appended constant-owned initializer amendment.
-- This handoff — T0–T7 stable interfaces and the T8 boundary above.
-- `docs/implementation/LANG007/LANG007.C4/LANG007.C4.P2-walkthrough.md` — actual T0–T7 implementation and focused evidence.
-- `docs/workflow/implementation-record-lifecycle-convention.md` — record lifecycle rules.
+In `phalcom-core/src/compiler/lib/expr.rs`, reads of `const` bindings emit direct `Bytecode::Constant` pool loads with zero runtime initializer overhead, no `DefineGlobal`, and no local slots. Structural constants return `CompilerError::StaticConstStructuralDeferred(name)`.
 
-Start with `phalcom-semantic/src/module_bindings.rs`, `static_definition.rs`,
-`checker/static_body.rs`, `db/query.rs::query_checked_static_body`, and the
-checked-body loop in `session.rs` near line 7315. Preserve unrelated dirty
-work. First implement the exact initializer source-site handoff and
-constant-owned query seam; then cover same-module dependency and targeted
-invalidation before proceeding to cycles/current-vs-LKG.
+---
+
+## 9. Takeover boundary — LANG007.C4.P3
+
+`LANG007.C4.P2` is certified COMPLETE and FOCUSED_TESTED.
+
+The next plan is **`LANG007.C4.P3` — First-class Pack and call/rest convergence**:
+- Scope:
+  - First-class `Pack` structural value and type representation in Telos;
+  - Positional and labeled element transport without intermediate heap allocations;
+  - Rest/splat syntax and semantic convergence (`...pack`);
+  - Interoperability between tuples and packs.
+- Read before starting:
+  - `docs/implementation/LANG007/LANG007.C4/LANG007.C4-CHECKPOINT.md`
+  - `docs/implementation/LANG007/LANG007.C4/LANG007.C4.P2-walkthrough.md`
+  - `docs/workflow/implementation-record-lifecycle-convention.md`
+
