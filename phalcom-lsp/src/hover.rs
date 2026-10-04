@@ -116,12 +116,13 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
     ),
     (
         "let",
-        "Introduces a mutable binding; can be reassigned. `let x` with no initializer reads as `None` (there is no uninitialized-variable error).",
+        "Introduces an immutable runtime binding and requires an initializer. Use `let mut` for a mutable binding.",
     ),
     (
         "const",
-        "Introduces an immutable binding; must be initialized (unlike `let`), and cannot be reassigned (ADR-0064).",
+        "Introduces a compile-time static constant. It is distinct from an immutable runtime `let` binding.",
     ),
+    ("mut", "Contextual modifier for a mutable runtime binding, field, trait property, or read/write delegation."),
     (
         "fn",
         "Reserved for a future function-literal form; not yet consumed by the parser — closures are written today as `{ ... }` block literals.",
@@ -241,11 +242,15 @@ pub fn keyword_blurb(word: &str) -> Option<&'static str> {
 /// Returns `None` if the token containing `offset` is not a keyword/
 /// contextual word (e.g. an ordinary identifier, a literal, or punctuation).
 pub fn keyword_at_offset(text: &str, offset: usize) -> Option<(&'static str, std::ops::Range<usize>)> {
+    let contextual_mut = crate::contextual::contextual_mut_ranges(text);
     for item in Lexer::new(text) {
         let Ok((start, token, end)) = item else {
             continue;
         };
         if start <= offset && offset < end {
+            if contextual_mut.contains(&(start, end)) {
+                return Some(("mut", start..end));
+            }
             return keyword_spelling(&token).map(|spelling| (spelling, start..end));
         }
     }

@@ -43,6 +43,7 @@ pub mod analysis_service;
 pub mod analysis_status;
 pub mod backend;
 pub mod completion;
+mod contextual;
 pub mod diagnostics;
 pub mod documents;
 pub mod hover;

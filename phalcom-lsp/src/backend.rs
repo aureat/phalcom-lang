@@ -671,7 +671,9 @@ impl Backend {
             | phalcom_semantic::SourceBindingKind::SetterParameter
             | phalcom_semantic::SourceBindingKind::IndexParameter
             | phalcom_semantic::SourceBindingKind::ClosureParameter => "parameter",
-            _ => "mutable binding",
+            phalcom_semantic::SourceBindingKind::TopLevelConst | phalcom_semantic::SourceBindingKind::LocalConst => "static constant",
+            _ if info.mutable => "mutable binding",
+            _ => "immutable binding",
         };
         let mut sections = vec![format!("`{}` — {kind}", info.name)];
         if let Some(state) = compiler.formal_binding_at(binding) {
@@ -1004,11 +1006,19 @@ impl Backend {
 
     fn hover_at_request(&self, request: &RequestContext, _uri: &Url, position: Position) -> Option<Hover> {
         let offset = request.document.line_index.offset(position);
-        let compiler = request.compiler.as_deref()?;
-        let module = request.compiler_module()?;
         if !matches!(request.source_match, SourceMatch::Exact) {
             return None;
         }
+        if let Some((word, range)) = hover::keyword_at_offset(&request.document.text, offset)
+            && let Some(blurb) = hover::keyword_blurb(word)
+        {
+            return Some(Hover {
+                contents: markdown_contents(format!("`{word}` — {blurb}")),
+                range: Some(request.document.line_index.range(range)),
+            });
+        }
+        let compiler = request.compiler.as_deref()?;
+        let module = request.compiler_module()?;
         let occurrence = compiler.occurrence_at(module, offset);
         let Some(occurrence) = occurrence else {
             // Stale or unmapped text is syntax-only. Semantic fallbacks would

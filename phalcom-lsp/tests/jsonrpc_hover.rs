@@ -255,18 +255,41 @@ async fn hover_at(client_end: &mut tokio::io::DuplexStream, id: i64, uri: &str, 
 }
 
 #[tokio::test]
-async fn keywords_and_literals_are_not_semantic_hovers() {
+async fn keyword_hovers_describe_canonical_binding_forms() {
     let (mut client_end, server_task, publication) = spawn_server();
     initialize(&mut client_end, None).await;
 
     let uri = "file:///workspace/main.ph";
-    let text = "class Point {\n  x() { self }\n}\nlet flag = true\n";
+    let text = "let immutable = 1\nlet mut mutable\nconst STATIC = 2\n";
     did_open(&mut client_end, &publication, uri, text).await;
 
-    for (id, needle) in [(2, "class"), (3, "self"), (4, "let"), (5, "true")] {
+    for (id, needle, expected) in [
+        (2, "let immutable", "immutable runtime binding"),
+        (3, "mut mutable", "mutable runtime binding"),
+        (4, "const", "compile-time static constant"),
+    ] {
         let response = hover_at(&mut client_end, id, uri, text, needle).await;
-        assert!(response["result"].is_null(), "{needle} hover should be absent: {response:?}");
+        let value = response["result"]["contents"]["value"].as_str().expect("keyword hover");
+        assert!(value.contains(expected), "{needle} hover should describe {expected:?}: {value:?}");
     }
+
+    drop(client_end);
+    let _ = server_task.await;
+}
+
+#[tokio::test]
+async fn identifier_named_mut_is_not_presented_as_a_modifier() {
+    let (mut client_end, server_task, publication) = spawn_server();
+    initialize(&mut client_end, None).await;
+
+    let uri = "file:///workspace/main.ph";
+    let text = "let mut = 2\n";
+    did_open(&mut client_end, &publication, uri, text).await;
+
+    let response = hover_at(&mut client_end, 2, uri, text, "mut =").await;
+    let value = response["result"]["contents"]["value"].as_str().expect("binding hover");
+    assert!(value.contains("immutable binding"), "{value:?}");
+    assert!(!value.contains("Contextual modifier"), "{value:?}");
 
     drop(client_end);
     let _ = server_task.await;
@@ -472,7 +495,7 @@ async fn binding_hover_ranges_are_exact_and_scope_aware() {
     initialize(&mut client_end, None).await;
 
     let uri = "file:///workspace/main.ph";
-    let text = "class Sample {\n  method(parameter) {\n    let local = parameter\n    local\n  }\n}\n";
+    let text = "class Sample {\n  method(parameter) {\n    let local = parameter\n    let mut changing = 1\n    local\n  }\n}\n";
     did_open(&mut client_end, &publication, uri, text).await;
 
     let parameter_decl = text.find("parameter").unwrap();
@@ -481,9 +504,9 @@ async fn binding_hover_ranges_are_exact_and_scope_aware() {
     let local_use = text.rfind("local").unwrap();
     for (id, offset, token, expected) in [
         (2, parameter_decl, "parameter", "parameter"),
-        (3, local_decl, "local", "mutable binding"),
+        (3, local_decl, "local", "immutable binding"),
         (4, parameter_use, "parameter", "parameter"),
-        (5, local_use, "local", "mutable binding"),
+        (5, local_use, "local", "immutable binding"),
     ] {
         let line = text[..offset].matches('\n').count();
         let character = offset - text[..offset].rfind('\n').map(|index| index + 1).unwrap_or(0);
