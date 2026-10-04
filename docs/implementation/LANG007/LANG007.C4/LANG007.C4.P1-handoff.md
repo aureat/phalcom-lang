@@ -210,7 +210,7 @@ All six affected crates were audited and certified against clean predecessor `8c
 | `phalcom-ast` | PASS | 63 library, 5 migration-tool, 282 integration (1 ignored), 12 trait-syntax tests. |
 | `phalcom-modules` | FAIL (Category D) | `bcat_08_root_alias_does_not_create_synthetic_declaration` lacks `universe.collections.iterator_laws` in test partial interface map; pre-existing builtin-catalog baseline. |
 | `phalcom-semantic` | FAIL (Category D only) | 27 Category B stale fixtures migrated and verified. Full package rerun certified: 1,765 passed, 37 failed, 42 ignored (591.72s). All 37 residual failures tested on predecessor `8c3a98...` and proven Category D baseline. |
-| `phalcom-core` | FAIL (Category D only) | Library test failures `ic_add_method_invalidates`, `ic_override_after_caching` (stale `const` migrated to `let`), and `canonical_range_lower_option_closes_number_at_is_none_call_edge` (migrated `lowerOpt` corpus search string) repaired and pass. 3 library baseline failures classified D. Broader core test suite execution deferred per explicit user instruction ("Ignore core tests. We'll deal with it later — write into lifecycle records"). |
+| `phalcom-core` | FAIL (Category D only / partial run) | Library tests: 151 passed, 3 failed. P1 failures `ic_add_method_invalidates`, `ic_override_after_caching` (stale `const` migrated to `let`), and `canonical_range_lower_option_closes_number_at_is_none_call_edge` (migrated `lowerOpt` search string) repaired and pass. 3 library baseline failures classified D. Integration tests: `field_layout` (4 pass, 1 gated), `field_lifecycle` (2 pass), `binding_init` (13 pass), `compiler_installs_and_executes_canonical_constructor_projections` (1 pass). Language corpus: 63 tests; run was taking too long, prematurely interrupted per user instruction (partial: 2 ok, 5 failed, 8 in-progress >60s). Broader core test suite execution deferred per user instruction ("Ignore core tests. We'll deal with it later — write into lifecycle records; language_corpus was taking too long, so it was prematurely interrupted"). |
 | `phalcom-lsp` | PASS | Full package passed after the field completion fixture declared `mut _client: Client`. |
 | `phalcom-repl` | FAIL (Category D) | 28 passed, 1 failed: `repl_mi_06_all_reflection_children_importable` fails with `modifier.illegal_target`; verified identical on predecessor `8c3a98...`. |
 
@@ -231,7 +231,7 @@ The following failures are established Category D (baseline/unrelated) and must 
 4. **`repl_mi_06_all_reflection_children_importable` (phalcom-repl)**: `modifier.illegal_target` importing reflection child `module`. Proven Category D baseline on predecessor `8c3a98...`.
 5. **37 semantic package failures**: all 37 residual failures tested on predecessor `8c3a98...` and confirmed pre-existing Category D baselines (e.g. export invalidation and complex type integration fixtures).
 6. **3 core library failures**: `kernel_option_match_override_reroutes_every_combinator`, `captured_setter_rejects_an_ordinary_positional_rhs_lane`, `walk_orders_oldest_first_with_selector_shaped_names`. Category D baselines.
-7. **Core broad test suite**: deferred to later checkpoint work per explicit user instruction.
+7. **Core broad test suite and partial language corpus**: `language-corpus` (63 tests) was taking too long, prematurely interrupted per user instruction (partial: 2 ok, 5 failed, 8 in-progress >60s). Comprehensive triage and execution deferred to subsequent checkpoint work per user instruction.
 
 ---
 

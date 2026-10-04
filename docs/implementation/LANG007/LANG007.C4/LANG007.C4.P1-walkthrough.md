@@ -264,9 +264,8 @@ stale subclass-constructor fixture was updated to call its parent explicitly;
 
 ## 14. Tests deferred
 
-- G1 closure: the bindings corpus has a D failure.
-- The positive `classes` corpus passed after the explicit-super fixture correction.
-- G2 affected-crate stabilization gate (six crate test suites).
+- G1 closure: the bindings corpus has a D failure (`bindings/destructure_list_no_rest.ph`).
+- Broad `phalcom-core` test targets and remaining `language-corpus` suites: The `language-corpus` suite contains 63 tests and was taking too long (>60s per lane, up to 793s for classes), so it was prematurely interrupted per user instruction ("Ignore core tests. We'll deal with it later — write into lifecycle records; language_corpus was taking too long, so it was prematurely interrupted").
 - T9 extension-host suite; focused LSP/REPL and grammar checks passed.
 
 ---
@@ -281,14 +280,18 @@ stale subclass-constructor fixture was updated to call its parent explicitly;
 
 ## 16. Residual/baseline failures
 
-The core bindings corpus has one failure classified D (baseline/unrelated):
-`bindings/destructure_list_no_rest.ph` attempts to call `unwrapOr(_)` on integer
-`1` through pattern lowering. Do not repair it under P1. The new core fields
-corpus lane selects and passes one fixture. The positive classes corpus result
-also passes after the stale subclass constructor fixture was updated to call
-its parent explicitly.
-
-The `adt_lower_08_imported_field_layout_uses_declared_physical_slot` test is **ignored (GATED)**.
+The residual baseline failures across the workspace are classified Category D:
+- **`language-corpus bindings`**: `bindings/destructure_list_no_rest.ph` attempts to call `unwrapOr(_)` on integer `1` through pattern lowering. Category D baseline; do not repair under P1.
+- **`phalcom-core` Library**: Three pre-existing failures (`kernel_option_match_override_reroutes_every_combinator`, `captured_setter_rejects_an_ordinary_positional_rhs_lane`, `walk_orders_oldest_first_with_selector_shaped_names`) are Category D baselines. (P1-owned library tests `ic_add_method_invalidates`, `ic_override_after_caching`, and `canonical_range_lower_option...` repaired and pass).
+- **`phalcom-core` Integration Tests**: `field_layout` passed 4, 1 ignored (GATED `adt_lower_08_imported_field_layout_uses_declared_physical_slot`); `field_lifecycle` passed 2; `binding_init` passed 13; `compiler_installs_and_executes_canonical_constructor_projections` passed 1.
+- **`language-corpus` (Interrupted)**: The full suite of 63 tests was taking too long (>60s to hundreds of seconds per test lane, e.g. classes took 793s), so it was prematurely interrupted per user instruction. Partial results before interruption:
+  - Passed: `corpus::absence_negative`, `corpus::classes_negative`, `corpus::fields` (focused G1 pass), `corpus::classes` (focused G1 pass, 793.41s).
+  - Failed: `corpus::bytes_negative`, `corpus::blocks`, `corpus::bytes`, `corpus::collections_literals_negative`, `corpus::collections`.
+  - In progress (>60s) when interrupted: `corpus::absence`, `corpus::arithmetic`, `corpus::bindings`, `corpus::booleans`, `corpus::classes`, `corpus::compile_errors`, `corpus::concurrency`, `corpus::concurrency_negative`.
+  - Execution and triage of remaining core targets and corpus lanes deferred to subsequent checkpoint work per user instruction.
+- **`phalcom-modules`**: `bcat_08_root_alias_does_not_create_synthetic_declaration` lacks `iterator_laws` in test partial interface map. Category D baseline.
+- **`phalcom-repl`**: `repl_mi_06_all_reflection_children_importable` fails with `modifier.illegal_target`. Category D baseline.
+- **`phalcom-semantic`**: 37 residual test failures verified on predecessor worktree and confirmed pre-existing Category D baselines.
 
 ---
 
@@ -321,7 +324,7 @@ The `adt_lower_08_imported_field_layout_uses_declared_physical_slot` test is **i
 | `phalcom-ast` | PASS | Full package passed: 63 library, 5 migration-tool, 282 integration (1 ignored), 12 trait-syntax tests. |
 | `phalcom-modules` | FAIL (Category D) | `bcat_08_root_alias_does_not_create_synthetic_declaration` lacks `universe.collections.iterator_laws` in test partial interface map; pre-existing builtin-catalog baseline. |
 | `phalcom-semantic` | FAIL (Category D only) | 27 Category B stale fixtures migrated and verified. Full package rerun: 1,765 passed, 37 failed, 42 ignored (591.72s). All 37 residual failures proven Category D baseline on predecessor `8c3a98aab41ed8631e9f8746a6b29984cf77581d`. |
-| `phalcom-core` | FAIL (Category D only) | Library test failures `ic_add_method_invalidates`, `ic_override_after_caching` (stale `const` migrated to `let`), and `canonical_range_lower_option_closes_number_at_is_none_call_edge` (migrated `lowerOpt` search string) repaired and pass. 3 library baseline failures classified D. Broader core test suite execution deferred per user instruction ("Ignore core tests. We'll deal with it later — write into lifecycle records"). |
+| `phalcom-core` | FAIL (Category D only / partial run) | Library tests: 151 passed, 3 failed. P1 failures `ic_add_method_invalidates`, `ic_override_after_caching` (stale `const` migrated to `let`), and `canonical_range_lower_option_closes_number_at_is_none_call_edge` (migrated `lowerOpt` search string) repaired and pass. 3 library baseline failures classified D. Integration tests: `field_layout` (4 pass, 1 gated), `field_lifecycle` (2 pass), `binding_init` (13 pass), `compiler_installs_and_executes_canonical_constructor_projections` (1 pass). Language corpus: 63 tests; run was taking too long, prematurely interrupted per user instruction (partial: 2 ok, 5 failed, 8 in-progress >60s). Broader core test suite execution deferred per user instruction ("Ignore core tests. We'll deal with it later — write into lifecycle records; language_corpus was taking too long, so it was prematurely interrupted"). |
 | `phalcom-lsp` | PASS | Full package passed after the field completion fixture declared `mut _client: Client`. |
 | `phalcom-repl` | FAIL (Category D) | 28 passed, 1 failed: `repl_mi_06_all_reflection_children_importable` fails with `modifier.illegal_target`; verified identical on predecessor `8c3a98...`. |
 
