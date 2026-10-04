@@ -119,6 +119,7 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
         return_explanation: None,
         dependencies: Arc::from(vec![]),
         semantic_dependencies: Arc::from([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
@@ -145,6 +146,7 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
         return_explanation: None,
         dependencies: Arc::from(vec![leaf_id.clone()]),
         semantic_dependencies: Arc::from([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
@@ -198,6 +200,7 @@ fn test_matrix_3_termination_and_control_facts() {
         return_explanation: None,
         dependencies: Arc::from(vec![]),
         semantic_dependencies: Arc::from([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
@@ -265,6 +268,7 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
             causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,
             explanation: None,
             call: None,
+            binding_read_safety: None,
         },
     );
     let analysis = CallableAnalysis {
@@ -289,6 +293,7 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
         return_explanation: None,
         dependencies: Arc::from(vec![]),
         semantic_dependencies: Arc::from([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };

@@ -31,6 +31,8 @@ pub enum TopLevelBindingKind {
     ImmutableGlobal,
     /// Class declaration.
     Class,
+    /// Static compile-time constant.
+    StaticConstant,
     /// Immutable indexed linked import.
     Import(ImportBindingId),
 }

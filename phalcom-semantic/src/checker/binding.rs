@@ -21,6 +21,7 @@ pub struct BindingSeed {
     pub denotation: Option<SemanticDenotation>,
     pub causal_invalidity: crate::checker::causal::CausalInvalidity,
     pub mutable: bool,
+    pub initialization: crate::checker::flow::InitializationState,
 }
 
 /// Result of inserting a declaration into its current lexical scope.

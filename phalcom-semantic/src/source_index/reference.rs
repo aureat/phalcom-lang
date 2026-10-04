@@ -64,7 +64,10 @@ impl ModuleReferenceContribution {
             defs.entry(SemanticTargetId::Binding(binding.declaration_site.clone()))
                 .or_default()
                 .push(binding.declaration_site.clone());
-            if matches!(binding.kind, SourceBindingKind::TopLevelLet | SourceBindingKind::TopLevelConst) {
+            if matches!(
+                binding.kind,
+                SourceBindingKind::TopLevelLet | SourceBindingKind::TopLevelLetMut | SourceBindingKind::TopLevelConst
+            ) {
                 if let Some(target) = structure.target_for(&binding.declaration_site) {
                     if matches!(target, SemanticTargetId::ModuleBinding(_)) {
                         defs.entry(target.clone()).or_default().push(binding.declaration_site.clone());

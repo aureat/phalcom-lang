@@ -3,6 +3,7 @@ mod authority_boundaries;
 mod bidirectional_calls;
 
 mod binding_contracts;
+mod binding_init;
 mod canonical_call_application;
 mod causal;
 mod declarations;

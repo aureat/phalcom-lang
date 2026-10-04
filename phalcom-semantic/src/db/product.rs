@@ -8,7 +8,7 @@ use crate::diagnostic::SemanticDiagnostic;
 use crate::hierarchy_product::HierarchyEdgeProduct;
 use crate::identity::AssociatedStaticDomainDeclarationId;
 use crate::module_product::ResolvedImportsProduct;
-use crate::signature::{CallableSemanticSignature, FieldSemanticSignature};
+use crate::signature::{CallableSemanticSignature, ConstructorInitializationProduct, FieldSemanticSignature};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
@@ -131,6 +131,19 @@ pub struct EnumRequirementsProduct {
     pub diagnostics: Arc<[SemanticDiagnostic]>,
 }
 
+/// Dependency-visible constructor paths published for one declaring class.
+///
+/// The owner-scoped product has a stable query key even when its path list is
+/// empty, so removing the last constructor path invalidates subclasses that
+/// consumed the previous construction lifecycle.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConstructorInitializationOwnerProduct {
+    /// Class that owns the constructor paths.
+    pub owner: crate::identity::DeclarationId,
+    /// Canonical paths in factory identity order.
+    pub paths: Box<[ConstructorInitializationProduct]>,
+}
+
 /// Fact representing the resolution of a local name within a module.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LinkedNameFact {
@@ -178,6 +191,7 @@ pub enum SemanticProduct {
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
     FieldSignature(Arc<FieldSemanticSignature>),
+    ConstructorInitialization(Arc<ConstructorInitializationOwnerProduct>),
     CallableBody(Arc<CallableAnalysis>),
     SourceStructure(Arc<ModuleSourceIndex>),
     SourceFormalAttachment(Arc<CallableSourceAttachment>),
@@ -289,6 +303,13 @@ impl SemanticProduct {
     pub fn as_field_signature(&self) -> Option<&Arc<FieldSemanticSignature>> {
         match self {
             Self::FieldSignature(sig) => Some(sig),
+            _ => None,
+        }
+    }
+
+    pub fn as_constructor_initialization(&self) -> Option<&Arc<ConstructorInitializationOwnerProduct>> {
+        match self {
+            Self::ConstructorInitialization(product) => Some(product),
             _ => None,
         }
     }
@@ -434,6 +455,7 @@ impl SemanticProduct {
             Self::HierarchyEdge(_) => b"hierarchy-edge".as_slice(),
             Self::CallableSignature(_) => b"callable-signature".as_slice(),
             Self::FieldSignature(_) => b"field-signature".as_slice(),
+            Self::ConstructorInitialization(_) => b"constructor-initialization".as_slice(),
             Self::CallableBody(_) => b"callable-body".as_slice(),
             Self::SourceStructure(_) => b"source-structure".as_slice(),
             Self::SourceFormalAttachment(_) => b"source-formal-attachment".as_slice(),

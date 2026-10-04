@@ -11,7 +11,7 @@ use crate::heap::{ClassId, Heap, ObjRef};
 use crate::interner::Symbol;
 use crate::value::Value;
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Selector → [`MethodObject`](crate::method::MethodObject) handle table.
 type MethodsMap = IndexMap<Symbol, ObjRef>;
@@ -40,6 +40,10 @@ pub struct ClassObject {
     pub field_slots: IndexMap<Symbol, u16>,
     /// Number of instance slots (ADR-0011).
     pub field_count: u16,
+    /// Immutable instance slots flattened through the superclass chain.
+    pub immutable_instance_slots: HashSet<u16>,
+    /// Immutable class-side slots on this class object.
+    pub immutable_static_slots: HashSet<u16>,
     /// Class-side stored fields (static fields), stored as a fixed-size slot vector (ADR-0017).
     pub static_slots: Box<[Value]>,
     /// The per-class **base-name index** (selectors.md §3.1, U16-Open):
@@ -130,6 +134,8 @@ impl ClassObject {
             rest_methods: HashMap::new(),
             field_slots: IndexMap::new(),
             field_count: 0,
+            immutable_instance_slots: HashSet::new(),
+            immutable_static_slots: HashSet::new(),
             static_slots: Box::default(),
             base_names: HashMap::new(),
             attributes: Vec::new(),

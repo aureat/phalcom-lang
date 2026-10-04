@@ -76,9 +76,17 @@ impl VM {
         if let Some(layout) = self.field_layouts.get(&class_key).cloned() {
             self.heap.class_mut(class).field_slots = layout.field_slots;
             self.heap.class_mut(class).field_count = layout.field_count;
+            self.heap.class_mut(class).immutable_instance_slots = layout.immutable_instance_slots;
+            self.heap.class_mut(class).immutable_static_slots = layout.immutable_static_slots.clone();
             self.heap.class_mut(metaclass).field_slots = layout.static_field_slots;
             self.heap.class_mut(metaclass).field_count = layout.static_field_count;
-            self.heap.class_mut(class).static_slots = vec![Value::nil(); layout.static_field_count as usize].into_boxed_slice();
+            let mut static_slots = vec![Value::nil(); layout.static_field_count as usize];
+            for slot in layout.immutable_static_slots {
+                if let Some(value) = static_slots.get_mut(slot as usize) {
+                    *value = Value::uninitialized_binding();
+                }
+            }
+            self.heap.class_mut(class).static_slots = static_slots.into_boxed_slice();
         }
 
         let meta_key = super::ClassKey { module, name: meta_sym };
@@ -90,6 +98,21 @@ impl VM {
         }
 
         class
+    }
+
+    /// Allocates a source-class instance and seeds every immutable field slot
+    /// with the private sentinel until its canonical constructor initializes it.
+    pub(crate) fn allocate_class_instance(&mut self, class: ClassId) -> ObjRef {
+        let class_object = self.heap.class(class);
+        let field_count = class_object.field_count;
+        let immutable_slots = class_object.immutable_instance_slots.clone();
+        let mut instance = crate::heap::InstanceObject::new(class, field_count);
+        for slot in immutable_slots {
+            if let Some(value) = instance.slots.get_mut(slot as usize) {
+                *value = Value::uninitialized_binding();
+            }
+        }
+        self.heap.alloc(Object::Instance(instance))
     }
 
     /// Allocates an ad-hoc module with a synthetic identity and registers it.

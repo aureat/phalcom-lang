@@ -889,6 +889,7 @@ fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
         hash_binding_contract(&state.contract, hasher);
         hash_binding_consistency(&state.consistency, hasher);
         state.mutable.hash(hasher);
+        state.initialization.hash(hasher);
     }
     summary.fields.len().hash(hasher);
     for (field, state) in &summary.fields {
@@ -1427,6 +1428,26 @@ pub fn field_signature_product_fingerprint(signature: &FieldSemanticSignature) -
     finish_product(hasher)
 }
 
+/// Computes the input identity of one owner's published constructor paths.
+pub fn constructor_initialization_owner_input_fingerprint(
+    product: &crate::db::product::ConstructorInitializationOwnerProduct,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.owner.hash(&mut hasher);
+    product.paths.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+/// Computes the semantic identity of one owner's published constructor paths.
+pub fn constructor_initialization_owner_product_fingerprint(
+    product: &crate::db::product::ConstructorInitializationOwnerProduct,
+) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.owner.hash(&mut hasher);
+    product.paths.hash(&mut hasher);
+    finish_product(hasher)
+}
+
 /// Computes direct input identity for a hierarchy-edge query.
 ///
 /// The source spelling is hashed together with the currently resolved target.
@@ -1732,6 +1753,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_denotation(&expression.denotation, &mut hasher);
         hash_analysis_status(&expression.status, &analysis.internal_incidents, &mut hasher);
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
+        expression.binding_read_safety.hash(&mut hasher);
     }
 
     let expansion_field_count = analysis
@@ -1764,6 +1786,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_binding_consistency(&binding.consistency, &mut hasher);
         hash_causal_invalidity(binding.causal_invalidity, &mut hasher);
         binding.mutable.hash(&mut hasher);
+        binding.initialization.hash(&mut hasher);
         binding.version.hash(&mut hasher);
     }
 
@@ -1797,6 +1820,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     }
 
     analysis.dependencies.hash(&mut hasher);
+    analysis.constructor_super_initializer.hash(&mut hasher);
     hash_callable_analysis_status(analysis.status, &analysis.internal_incidents, &mut hasher);
     hash_return_contract_validation(analysis.return_validation, &mut hasher);
     // `dependency_fingerprint` is assigned from this fingerprint after

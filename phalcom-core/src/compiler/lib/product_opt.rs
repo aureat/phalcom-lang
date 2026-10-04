@@ -7,7 +7,7 @@ use crate::bytecode::Bytecode;
 use crate::compiler::lib::Compiler;
 use crate::compiler::lib::error::CompilerError;
 use crate::modules::semantic_lowering::{AssociatedLoweringSpec, DataConstructionLoweringSpec, LoweringSiteKind, ModuleLoweringSemantics};
-use phalcom_ast::ast::{BindingKind, Expr, MatchExpr, PackItem, Pattern, Program, Statement};
+use phalcom_ast::ast::{Expr, MatchExpr, PackItem, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_semantic::identity::{BindingId, DataConstructorId, VariantId};
 use std::collections::BTreeMap;
@@ -567,7 +567,7 @@ impl<'a> ProductPlanner<'a> {
         match stmt {
             Statement::Let(binding) => {
                 let is_global = self.module_body;
-                let mutable = matches!(binding.kind, BindingKind::Let);
+                let mutable = binding.kind.is_mutable();
 
                 // Analyze initializer BEFORE inserting into scope
                 let shape = if let Some(init_expr) = &binding.value {

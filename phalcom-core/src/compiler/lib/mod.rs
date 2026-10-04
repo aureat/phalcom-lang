@@ -127,6 +127,10 @@ pub(crate) struct Compiler<'vm> {
     const_fact_scopes: Vec<HashMap<String, boundedness::SourceFacts>>,
     /// The class identity [`ClassKey`] currently being compiled, if any (ADR-0011, U-CLASSNS).
     current_class: Option<ClassKey>,
+    /// Scoped static constants (T6 / P1-INV-05, P1-INV-28).
+    pub(crate) static_const_scopes: Vec<std::collections::HashSet<Symbol>>,
+    /// Global-level static constants.
+    pub(crate) global_static_constants: std::collections::HashSet<Symbol>,
     /// Whether the current method/scope context is static (metaclass-side) (ADR-0017).
     is_static_context: bool,
     /// The stack of enclosing `for`-loop contexts, innermost last (ADR-0035 §3,
@@ -245,7 +249,20 @@ impl<'vm> Compiler<'vm> {
             inherent_impl_defs: BTreeMap::new(),
             conditional_method_objects: std::collections::HashMap::new(),
             product_optimization_mode,
+            static_const_scopes: vec![std::collections::HashSet::new()],
+            global_static_constants: std::collections::HashSet::new(),
         }
+    }
+
+    /// Reports whether `name` was declared as a static compile-time constant
+    /// (T6 / P1-INV-05, P1-INV-28).
+    pub(crate) fn is_static_constant(&self, name: Symbol) -> bool {
+        self.static_const_scopes.iter().any(|scope| scope.contains(&name))
+            || self.global_static_constants.contains(&name)
+            || self.linked_bindings.as_ref().is_some_and(|b| {
+                let name_str = self.vm.resolve_symbol(name);
+                b.entries.get(name_str).is_some_and(|info| matches!(info.kind, crate::modules::linkage::TopLevelBindingKind::StaticConstant))
+            })
     }
 
     /// Returns lowering semantics if attached.
@@ -765,14 +782,49 @@ impl<'vm> Compiler<'vm> {
             }
             Statement::Let(binding) => {
                 let range = binding.range;
+                if binding.kind == BindingKind::Const {
+                    let Pattern::Name { name, .. } = &binding.pattern else {
+                        if binding.value.is_none() {
+                            return Err(CompilerError::DestructuringWithoutInitializer(binding.pattern.range()));
+                        }
+                        return Err(CompilerError::StaticConstUnmaterialized("<destructured const>".into()));
+                    };
+                    if binding.value.is_none() {
+                        return Err(CompilerError::ConstWithoutInitializer(name.clone()));
+                    }
+                    let name_sym = self.vm.interner.intern(name);
+                    let as_global = self.functions.last().unwrap().scope_depth == 0;
+                    if as_global {
+                        if self.global_bindings.contains_key(&name_sym) || self.global_static_constants.contains(&name_sym) {
+                            return Err(CompilerError::BindingRedeclared(name.clone()));
+                        }
+                        self.global_static_constants.insert(name_sym);
+                    } else {
+                        let is_local_redeclared = self
+                            .functions
+                            .last()
+                            .unwrap()
+                            .locals
+                            .iter()
+                            .take(self.functions.last().unwrap().num_locals)
+                            .any(|l| l.name == name_sym)
+                            || self.static_const_scopes.last().is_some_and(|s| s.contains(&name_sym));
+                        if is_local_redeclared {
+                            return Err(CompilerError::BindingRedeclared(name.clone()));
+                        }
+                        if let Some(scope) = self.static_const_scopes.last_mut() {
+                            scope.insert(name_sym);
+                        }
+                    }
+                    return Ok(());
+                }
                 let facts = binding.value.as_ref().map(|expr| self.const_facts_for(expr));
-                // `let` is mutable and may be left uninitialized; `const` is
-                // immutable and *requires* an initializer (ADR-0064). A
-                // destructuring pattern (`Pattern::Tuple`/`Pattern::List`)
-                // always requires an initializer regardless of `let`/`const`
-                // (U14, open-questions.md Q7, ADR-0046 §2) — there is nothing
-                // to unpack from an absent value.
-                let mutable = matches!(binding.kind, BindingKind::Let);
+                // `let` is runtime immutable and requires an initializer.
+                // `let mut` is runtime mutable and may be left uninitialized.
+                // A destructuring pattern (`Pattern::Tuple`/`Pattern::List`)
+                // always requires an initializer regardless of binding kind —
+                // there is nothing to unpack from an absent value.
+                let mutable = binding.kind.is_mutable();
                 let as_global = self.functions.last().unwrap().scope_depth == 0;
 
                 // Check if product optimizer decided to virtualize this binding
@@ -819,14 +871,11 @@ impl<'vm> Compiler<'vm> {
                         let Pattern::Name { name, .. } = &binding.pattern else {
                             return Err(CompilerError::DestructuringWithoutInitializer(binding.pattern.range()));
                         };
-                        if !mutable {
-                            // `const x` with no initializer is a compile error.
+                        if binding.kind.requires_initializer() {
                             return Err(CompilerError::ConstWithoutInitializer(name.clone()));
                         }
-                        // `let x` with no initializer is backed by the private
-                        // `nil` sentinel; the VM surfaces every read of that
-                        // slot as the surface `None` value (ADR-0007/ADR-0010).
-                        self.emit(Bytecode::Nil, range);
+                        // Uninitialized `let mut` binding slot initialization (T5)
+                        self.emit(Bytecode::UninitializedBinding, range);
                     }
                 }
 

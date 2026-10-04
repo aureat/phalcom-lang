@@ -4,10 +4,13 @@ use crate::method::{SignatureKind, encode_selector};
 use crate::vm::ClassKey;
 use phalcom_ast::ast::{
     AssignmentExpr, AttrKind, Attribute, BinaryExpr, BinaryOp, BuiltinAttr, ClassDef, ClassMember, Expr, FieldDef, FieldKind, GetPropertyExpr, GetterDef,
-    ImplementationKind, IndexAccessor, MemberBody, MethodDef, ParameterDef, ReturnStatement, SetterDef, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr,
-    VariantDef, Visibility,
+    ImplementationKind, IndexAccessor, MemberBody, MethodDef, ParameterDef, RestMode, ReturnStatement, SetterDef, StaticSymbolRef, TypeAnnotation,
+    TypeAnnotationExpr, VariantDef, Visibility,
 };
-use std::collections::HashMap;
+use phalcom_common::range::SourceRange;
+use phalcom_semantic::identity::{CallableId, DeclarationId};
+use phalcom_semantic::signature::{ConstructorInitializationProduct, ConstructorOrigin};
+use std::collections::{BTreeMap, HashMap};
 
 /// The active contract-stripping mode (U-ANNOT-CONTRACTS plan §3.6,
 /// `annotations-contract-semantics.md`'s stripping table).
@@ -90,6 +93,34 @@ pub struct ExpandCtx<'a> {
     pub universe_module: Option<ObjRef>,
     /// Whether the currently-compiling module is privileged bootstrap Universe.
     pub privileged_universe: bool,
+    /// Semantic constructor paths owned by the declaring class currently
+    /// being expanded. Missing analysis is an error for constructor lowering.
+    pub constructor_initializations: Option<&'a phalcom_semantic::signature::ConstructorInitializationTable>,
+    /// Canonical callable signatures paired with those constructor paths.
+    pub callable_signatures: Option<&'a phalcom_semantic::signature::CallableSignatureTable>,
+    /// Stable semantic identity of the class currently being expanded.
+    pub constructor_owner: Option<DeclarationId>,
+    /// Resolved parent initializer links from the same semantic snapshot.
+    pub constructor_super_initializers: Option<&'a BTreeMap<SourceRange, CallableId>>,
+    /// Product ownership paired with exact source ranges while compiler-only
+    /// constructor members are projected for the existing emitter.
+    pub(crate) constructor_products_by_range: BTreeMap<SourceRange, ConstructorInitializationProduct>,
+}
+
+/// Canonical factory/initializer identities paired with their expanded class
+/// member positions for compiler code generation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConstructorMemberProjection {
+    /// Source range used to remap member positions after native anchors drop.
+    pub range: SourceRange,
+    /// Class member index for the factory method.
+    pub factory_member: usize,
+    /// Class member index for the same-instance initializer method.
+    pub initializer_member: usize,
+    /// Semantic factory identity consumed by class code generation.
+    pub factory: CallableId,
+    /// Semantic initializer identity consumed by class code generation.
+    pub initializer: CallableId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -125,10 +156,9 @@ pub trait AttributeExpander {
 }
 
 use phalcom_ast::ast::{
-    BindingKind, BlockExpr, LetBinding, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, Pattern, RestMode,
+    BindingKind, BlockExpr, LetBinding, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, Pattern,
     SetLiteralEntry, Statement,
 };
-use phalcom_common::range::SourceRange;
 
 fn is_pure_expr(expr: &Expr) -> bool {
     match expr {
@@ -930,8 +960,288 @@ fn field_assign_stmt(field_name: &str, value: Expr, range: SourceRange) -> State
     }
 }
 
-/// Derives a `@constructor` `new(...)` member from `class`'s own declared
-/// [`FieldDef`]s, in declaration order, and appends it to `class.members`
+fn constructor_product_for_origin(
+    ctx: &ExpandCtx<'_>,
+    origin: ConstructorOrigin,
+    range: SourceRange,
+) -> Result<ConstructorInitializationProduct, CompilerError> {
+    let owner = ctx.constructor_owner.as_ref().ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_product_missing: no semantic owner for class construction at {range:?}"))
+    })?;
+    let products = ctx.constructor_initializations.ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_product_missing: no analyzed constructor products for `{}`", owner.name))
+    })?;
+    let mut matching = products
+        .iter()
+        .map(|(_, product)| product)
+        .filter(|product| product.factory.try_declaration_owner() == Some(owner) && product.origin == origin);
+    let product = matching.next().cloned().ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_product_missing: `{}` has no {origin:?} construction product", owner.name))
+    })?;
+    if matching.next().is_some() {
+        return Err(CompilerError::Message(format!(
+            "constructor.semantic_product_ambiguous: `{}` has multiple {origin:?} construction products",
+            owner.name
+        )));
+    }
+    validate_constructor_signature_pair(ctx, &product, range)?;
+    Ok(product)
+}
+
+fn validate_constructor_signature_pair(
+    ctx: &ExpandCtx<'_>,
+    product: &ConstructorInitializationProduct,
+    range: SourceRange,
+) -> Result<(), CompilerError> {
+    let signatures = ctx.callable_signatures.ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_signature_missing: no canonical callable signatures at {range:?}"))
+    })?;
+    let factory = signatures.get(&product.factory).ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_signature_missing: factory `{}`", product.factory.selector.encode()))
+    })?;
+    let initializer = signatures.get(&product.initializer).ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_signature_missing: initializer `{}`", product.initializer.selector.encode()))
+    })?;
+    if factory.callable != product.factory
+        || factory.selector != product.factory.selector
+        || initializer.callable != product.initializer
+        || initializer.selector != product.initializer.selector
+        || factory.parameters.len() != initializer.parameters.len()
+        || factory
+            .parameters
+            .iter()
+            .zip(initializer.parameters.iter())
+            .enumerate()
+            .any(|(index, (factory, initializer))| {
+                factory.external_label != initializer.external_label
+                    || factory.rest != initializer.rest
+                    || factory.id.callable != product.factory
+                    || factory.id.index != index as u32
+                    || initializer.id.callable != product.initializer
+                    || initializer.id.index != index as u32
+            })
+    {
+        return Err(CompilerError::Message(format!(
+            "constructor.semantic_signature_mismatch: factory `{}` and initializer `{}` do not form the published pair",
+            product.factory.selector.encode(),
+            product.initializer.selector.encode()
+        )));
+    }
+    Ok(())
+}
+
+fn register_constructor_product(
+    ctx: &mut ExpandCtx<'_>,
+    range: SourceRange,
+    product: ConstructorInitializationProduct,
+) -> Result<(), CompilerError> {
+    if let Some(previous) = ctx.constructor_products_by_range.insert(range, product.clone())
+        && previous != product
+    {
+        return Err(CompilerError::Message(format!("constructor.semantic_product_ambiguous: multiple construction paths claim {range:?}")));
+    }
+    Ok(())
+}
+
+fn constructor_parameters(
+    ctx: &ExpandCtx<'_>,
+    product: &ConstructorInitializationProduct,
+    range: SourceRange,
+) -> Result<Vec<ParameterDef>, CompilerError> {
+    validate_constructor_signature_pair(ctx, product, range)?;
+    let signatures = ctx.callable_signatures.ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_signature_missing: no canonical callable signatures at {range:?}"))
+    })?;
+    let signature = signatures.get(&product.factory).ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_signature_missing: factory `{}`", product.factory.selector.encode()))
+    })?;
+    let has_generated_mapping = matches!(product.origin, ConstructorOrigin::Construct | ConstructorOrigin::Data);
+    if (has_generated_mapping
+        && (product.parameter_fields.len() != signature.parameters.len()
+            || product
+                .parameter_fields
+                .iter()
+                .zip(signature.parameters.iter())
+                .any(|(mapping, parameter)| mapping.parameter != parameter.id)))
+        || (!has_generated_mapping && !product.parameter_fields.is_empty())
+        || (product.origin == ConstructorOrigin::DefaultOnly && !signature.parameters.is_empty())
+    {
+        return Err(CompilerError::Message(format!(
+            "constructor.semantic_mapping_mismatch: factory `{}` does not match its published parameter-to-field mapping",
+            product.factory.selector.encode()
+        )));
+    }
+    signature
+        .parameters
+        .iter()
+        .map(|parameter| {
+            if parameter.rest != RestMode::None {
+                return Err(CompilerError::Message(format!(
+                    "constructor.rest_unsupported: canonical constructor `{}` has a rest parameter",
+                    product.factory.selector.encode()
+                )));
+            }
+            let parameter_range = parameter.source.as_ref().map(|source| source.range).unwrap_or(range);
+            Ok(ParameterDef {
+                name: parameter.local_name.to_string(),
+                name_range: parameter_range,
+                label: parameter.external_label.as_ref().map(ToString::to_string),
+                label_range: None,
+                rest_mode: parameter.rest,
+                annotation: None,
+                range: parameter_range,
+            })
+        })
+        .collect()
+}
+
+fn source_field_for_id<'a>(
+    fields: &'a [FieldDef],
+    ctx: &ExpandCtx<'_>,
+    field: &phalcom_semantic::identity::FieldId,
+    range: SourceRange,
+) -> Result<&'a FieldDef, CompilerError> {
+    if Some(&field.owner) != ctx.constructor_owner.as_ref() || field.side != phalcom_semantic::identity::DispatchSide::Instance {
+        return Err(CompilerError::Message(format!("constructor.semantic_field_mismatch: field `{}` is not owned by this instance class", field.name)));
+    }
+    let mut matching = fields.iter().filter(|declaration| declaration.name == field.name.as_ref());
+    let declaration = matching.next().ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_field_missing: source has no declaration for `{}` at {range:?}", field.name))
+    })?;
+    if matching.next().is_some() {
+        return Err(CompilerError::Message(format!("constructor.semantic_field_ambiguous: `{}` has duplicate source declarations", field.name)));
+    }
+    Ok(declaration)
+}
+
+fn default_field_assignments(
+    fields: &[FieldDef],
+    ctx: &ExpandCtx<'_>,
+    product: &ConstructorInitializationProduct,
+    fallback_range: SourceRange,
+) -> Result<Vec<Statement>, CompilerError> {
+    product
+        .default_fields
+        .iter()
+        .map(|field_id| {
+            let field = source_field_for_id(fields, ctx, field_id, fallback_range)?;
+            let default = field.default.as_ref().ok_or_else(|| {
+                CompilerError::Message(format!("constructor.semantic_default_missing: `{}` has no source default", field_id.name))
+            })?;
+            Ok(field_assign_stmt(&field.name, default.clone(), field.range))
+        })
+        .collect()
+}
+
+fn constructor_parameter_assignments(
+    fields: &[FieldDef],
+    ctx: &ExpandCtx<'_>,
+    product: &ConstructorInitializationProduct,
+    parameters: &[ParameterDef],
+) -> Result<Vec<Statement>, CompilerError> {
+    let signatures = ctx.callable_signatures.ok_or_else(|| {
+        CompilerError::Message("constructor.semantic_signature_missing: no canonical callable signatures".to_string())
+    })?;
+    let signature = signatures.get(&product.factory).ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_signature_missing: factory `{}`", product.factory.selector.encode()))
+    })?;
+    if product.parameter_fields.len() != parameters.len() || signature.parameters.len() != parameters.len() {
+        return Err(CompilerError::Message(format!(
+            "constructor.semantic_mapping_mismatch: factory `{}` has inconsistent parameter and field counts",
+            product.factory.selector.encode()
+        )));
+    }
+    product
+        .parameter_fields
+        .iter()
+        .zip(parameters)
+        .zip(signature.parameters.iter())
+        .map(|((mapping, parameter), signature_parameter)| {
+            if mapping.parameter != signature_parameter.id || signature_parameter.id.callable != product.factory {
+                return Err(CompilerError::Message(format!(
+                    "constructor.semantic_mapping_mismatch: factory `{}` has a noncanonical parameter-to-field mapping",
+                    product.factory.selector.encode()
+                )));
+            }
+            let field = source_field_for_id(fields, ctx, &mapping.field, parameter.range)?;
+            Ok(field_assign_stmt(
+                &field.name,
+                Expr::Var {
+                    value: parameter.name.clone(),
+                    range: parameter.range,
+                },
+                parameter.range,
+            ))
+        })
+        .collect()
+}
+
+fn source_constructor_product_range(
+    ctx: &ExpandCtx<'_>,
+    product: &ConstructorInitializationProduct,
+) -> Result<SourceRange, CompilerError> {
+    let signatures = ctx.callable_signatures.ok_or_else(|| {
+        CompilerError::Message("constructor.semantic_signature_missing: no canonical callable signatures".to_string())
+    })?;
+    let signature = signatures.get(&product.factory).ok_or_else(|| {
+        CompilerError::Message(format!("constructor.semantic_signature_missing: factory `{}`", product.factory.selector.encode()))
+    })?;
+    signature
+        .source
+        .as_ref()
+        .filter(|source| Some(&source.module) == product.factory.try_declaration_owner().map(|owner| &owner.module))
+        .map(|source| source.range)
+        .ok_or_else(|| {
+            CompilerError::Message(format!("constructor.semantic_source_missing: source factory `{}` has no matching source span", product.factory.selector.encode()))
+        })
+}
+
+fn register_source_constructor_products(class: &ClassDef, ctx: &mut ExpandCtx<'_>) -> Result<(), CompilerError> {
+    let (Some(owner), Some(products)) = (ctx.constructor_owner.as_ref(), ctx.constructor_initializations) else {
+        return Ok(());
+    };
+    let source_products = products
+        .iter()
+        .map(|(_, product)| product)
+        .filter(|product| product.origin == ConstructorOrigin::Source && product.factory.try_declaration_owner() == Some(owner))
+        .cloned()
+        .collect::<Vec<_>>();
+    for product in source_products {
+        validate_constructor_signature_pair(ctx, &product, class.range)?;
+        let range = source_constructor_product_range(ctx, &product)?;
+        let matching_methods = class.members.iter().filter_map(|member| match member {
+            ClassMember::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor") => {
+                (method.range == range).then_some(method)
+            }
+            _ => None,
+        });
+        let count = matching_methods.count();
+        if count != 1 {
+            return Err(CompilerError::Message(format!(
+                "constructor.semantic_source_mismatch: source factory `{}` matched {count} constructor declarations at {range:?}",
+                product.factory.selector.encode()
+            )));
+        }
+        register_constructor_product(ctx, range, product)?;
+    }
+    Ok(())
+}
+
+fn constructor_super_statement_index(statements: &[Statement], ctx: &ExpandCtx<'_>) -> Option<usize> {
+    statements.iter().position(|statement| {
+        let Statement::Expr { expr: Expr::MethodCall(call), .. } = statement else {
+            return false;
+        };
+        matches!(&call.object, Expr::SuperVar { .. })
+            && call.method == "new"
+            && ctx
+                .constructor_super_initializers
+                .is_some_and(|initializers| initializers.contains_key(&call.range))
+    })
+}
+
+/// Projects a canonical constructor product into the emitter's existing
+/// factory-plus-initializer member shape and appends it to `class.members`
 /// (U-ANNOT-LAYOUT §3.3, `annotations-construct.md` "The derive").
 ///
 /// **Own-fields-only case**: this does not chain a superclass constructor
@@ -958,65 +1268,47 @@ fn field_assign_stmt(field_name: &str, value: Expr, range: SourceRange) -> State
 /// selectored hand-written constructor (e.g. `@constructor anonymous()`)
 /// coexists unaffected, since the collision check is selector-keyed, not
 /// "any hand-written construct present".
-fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRange) -> Result<(), CompilerError> {
-    let fields: Vec<FieldDef> = class
-        .members
-        .iter()
-        .filter_map(|m| match m {
-            ClassMember::Field(f) => Some(f.clone()),
-            _ => None,
-        })
-        .collect();
-
-    let param_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.default.is_none()).collect();
-    let labels: Vec<Option<String>> = param_fields.iter().map(|f| Some(strip_leading_underscore(&f.name))).collect();
-    let arity = checked_send_arity("constructor declaration", param_fields.len(), attr_range)?;
-
-    let derived_selector = encode_selector("new", &labels, SignatureKind::Method(arity));
-    let derived_sym = ctx.interner.intern(&derived_selector);
-
-    for m in &class.members {
-        if let ClassMember::Method(c) = m
-            && c.is_constructor
-        {
-            let c_labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
-            let c_arity = checked_send_arity("constructor declaration", c.params.len(), c.range)?;
-            let c_selector = encode_selector(&c.name, &c_labels, SignatureKind::Method(c_arity));
-            if ctx.interner.intern(&c_selector) == derived_sym {
+fn derive_construct(
+    class: &mut ClassDef,
+    ctx: &mut ExpandCtx,
+    attr_range: SourceRange,
+    origin: ConstructorOrigin,
+) -> Result<(), CompilerError> {
+    let product = match constructor_product_for_origin(ctx, origin, attr_range) {
+        Ok(product) => product,
+        Err(error) => {
+            let owner = ctx.constructor_owner.as_ref();
+            let source_collision = ctx.constructor_initializations.is_some_and(|products| {
+                products.iter().any(|(_, product)| {
+                    product.origin == ConstructorOrigin::Source
+                        && owner.is_some_and(|owner| product.factory.try_declaration_owner() == Some(owner))
+                })
+            });
+            if source_collision && origin == ConstructorOrigin::Construct {
                 return Err(CompilerError::Message(format!(
-                    "attr.accessor_collision: `@construct` on class `{}` collides with a hand-written `construct {}(...)` of the same selector",
-                    class.name, c.name
+                    "attr.accessor_collision: `@construct` on class `{}` collides with a hand-written constructor of the same canonical selector",
+                    class.name
                 )));
             }
+            return Err(error);
+        }
+    };
+    let params = constructor_parameters(ctx, &product, attr_range)?;
+    let generated_selector = product.factory.selector.clone();
+    if let Some(products) = ctx.constructor_initializations {
+        for (_, existing) in products.iter().filter(|(_, existing)| {
+            existing.origin == ConstructorOrigin::Source
+                && existing.factory.try_declaration_owner() == ctx.constructor_owner.as_ref()
+                && existing.factory.selector == generated_selector
+        }) {
+            let _ = existing;
+            return Err(CompilerError::Message(format!(
+                "attr.accessor_collision: `@construct` on class `{}` collides with a hand-written constructor of the same canonical selector",
+                class.name
+            )));
         }
     }
-
-    let params: Vec<ParameterDef> = param_fields
-        .iter()
-        .map(|f| {
-            let pname = strip_leading_underscore(&f.name);
-            ParameterDef {
-                name: pname.clone(),
-                name_range: f.range,
-                label: Some(pname),
-                label_range: None,
-                rest_mode: RestMode::None,
-                annotation: None,
-                range: f.range,
-            }
-        })
-        .collect();
-
-    let mut body = Vec::new();
-    for f in &fields {
-        if let Some(default_expr) = &f.default {
-            body.push(field_assign_stmt(&f.name, default_expr.clone(), f.range));
-        }
-    }
-    for f in &param_fields {
-        let pname = strip_leading_underscore(&f.name);
-        body.push(field_assign_stmt(&f.name, Expr::Var { value: pname, range: f.range }, f.range));
-    }
+    register_constructor_product(ctx, attr_range, product)?;
 
     class.members.push(ClassMember::Method(MethodDef {
         name: "new".to_string(),
@@ -1024,7 +1316,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
         params,
         return_annotation: None,
         where_clause: None,
-        body: MemberBody::Block(body),
+        body: MemberBody::Block(Vec::new()),
         is_static: false,
         is_constructor: true,
         attributes: Vec::new(),
@@ -1552,9 +1844,9 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
     let has_new_construct = class
         .members
         .iter()
-        .any(|m| matches!(m, ClassMember::Method(c) if c.is_constructor && c.name == "new"));
+        .any(|m| matches!(m, ClassMember::Method(c) if c.name == "new" && (c.is_constructor || c.attributes.iter().any(|attribute| attribute.name == "constructor"))));
     if !has_new_construct {
-        derive_construct(class, ctx, attr_range)?;
+        derive_construct(class, ctx, attr_range, ConstructorOrigin::Data)?;
     }
 
     let eq_selector = encode_selector("==", &[None], SignatureKind::Method(1));
@@ -2189,7 +2481,8 @@ pub fn expand_class_attributes(
     ctx: &mut ExpandCtx,
     registry: &AttributeRegistry,
     is_attribute_class: bool,
-) -> Result<(ClassDef, Vec<Statement>), CompilerError> {
+) -> Result<(ClassDef, Vec<Statement>, Vec<ConstructorMemberProjection>), CompilerError> {
+    register_source_constructor_products(&class, ctx)?;
     // 1. Expand class-level attributes
     let class_attrs = std::mem::take(&mut class.attributes);
     let mut class_invariants = std::mem::take(&mut class.invariants);
@@ -2244,7 +2537,7 @@ pub fn expand_class_attributes(
                         }
                     }
                     BuiltinAttr::Construct => {
-                        derive_construct(&mut class, ctx, attr.range)?;
+                        derive_construct(&mut class, ctx, attr.range, ConstructorOrigin::Construct)?;
                     }
                     BuiltinAttr::Data => {
                         derive_data(&mut class, ctx, attr.range)?;
@@ -2271,6 +2564,44 @@ pub fn expand_class_attributes(
             // `compiler::lib::class_decl::compile_class`, not here.
         } else {
             return Err(CompilerError::Message(format!("attr.unknown: unknown attribute `@{}`", attr.name)));
+        }
+    }
+
+    let class_has_constructor = class.members.iter().any(|member| {
+        matches!(member, ClassMember::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor"))
+    });
+    let has_generated_constructor_attribute = class_attrs.iter().any(|attribute| matches!(attribute.name.as_str(), "construct" | "data"));
+    if !class_has_constructor && !has_generated_constructor_attribute {
+        let default_only = ctx.constructor_initializations.and_then(|products| {
+            let owner = ctx.constructor_owner.as_ref()?;
+            let mut matching = products
+                .iter()
+                .map(|(_, product)| product)
+                .filter(|product| product.origin == ConstructorOrigin::DefaultOnly && product.factory.try_declaration_owner() == Some(owner));
+            let product = matching.next()?.clone();
+            matching.next().is_none().then_some(product)
+        });
+        if let Some(product) = default_only {
+            validate_constructor_signature_pair(ctx, &product, class.range)?;
+            let params = constructor_parameters(ctx, &product, class.range)?;
+            register_constructor_product(ctx, class.range, product)?;
+            class.members.push(ClassMember::Method(MethodDef {
+                name: "new".to_string(),
+                generic_parameters: Vec::new(),
+                params,
+                return_annotation: None,
+                where_clause: None,
+                body: MemberBody::Block(Vec::new()),
+                is_static: false,
+                is_constructor: true,
+                attributes: Vec::new(),
+                visibility: Visibility::Public,
+                visibility_range: None,
+                implementation: ImplementationKind::Phalcom,
+                implementation_range: None,
+                range: class.range,
+                name_range: class.range,
+            }));
         }
     }
 
@@ -2430,19 +2761,28 @@ pub fn expand_class_attributes(
         }
     }
 
-    lower_constructors(&mut class.members);
+    let constructor_projections = lower_constructors(&mut class.members, ctx)?;
 
     class.invariants = class_invariants;
-    Ok((class, sibling_statements))
+    Ok((class, sibling_statements, constructor_projections))
 }
 
-/// Lowers each constructor marker into an ordinary class-side factory plus an
-/// ordinary instance-side initializer. The initializer name is intentionally
-/// unspellable in source so its protocol remains compiler-owned.
-fn lower_constructors(members: &mut Vec<ClassMember>) {
+/// Lowers each semantic constructor product into an ordinary class-side
+/// factory plus its paired instance-side initializer. Source AST supplies
+/// executable expressions; identity, field mapping, and default ordering
+/// come from the semantic product.
+fn lower_constructors(members: &mut Vec<ClassMember>, ctx: &mut ExpandCtx<'_>) -> Result<Vec<ConstructorMemberProjection>, CompilerError> {
+    let source_fields = members
+        .iter()
+        .filter_map(|member| match member {
+            ClassMember::Field(field) if !field.is_static => Some(field.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     let original = std::mem::take(members);
+    let mut projections = Vec::new();
     for member in original {
-        let ClassMember::Method(method) = member else {
+        let ClassMember::Method(mut method) = member else {
             members.push(member);
             continue;
         };
@@ -2452,28 +2792,80 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
         }
 
         let range = method.range;
-        let init_name = format!("init {}", method.name);
-        let args = method
-            .params
+        let product = ctx.constructor_products_by_range.remove(&range).ok_or_else(|| {
+            CompilerError::Message(format!("constructor.semantic_product_missing: no canonical construction path for `{}` at {range:?}", method.name))
+        })?;
+        validate_constructor_signature_pair(ctx, &product, range)?;
+        let parameters = constructor_parameters(ctx, &product, range)?;
+        let mut initializer_body = match std::mem::replace(&mut method.body, MemberBody::Block(Vec::new())) {
+            MemberBody::Block(statements) => statements,
+            MemberBody::Declaration => {
+                return Err(CompilerError::Message(format!("constructor.body_missing: `{}` has no initializer body", method.name)));
+            }
+        };
+        match product.origin {
+            ConstructorOrigin::Construct | ConstructorOrigin::Data => {
+                initializer_body = default_field_assignments(&source_fields, ctx, &product, range)?;
+                initializer_body.extend(constructor_parameter_assignments(&source_fields, ctx, &product, &parameters)?);
+            }
+            ConstructorOrigin::DefaultOnly => {
+                if !parameters.is_empty() || !product.parameter_fields.is_empty() {
+                    return Err(CompilerError::Message(format!(
+                        "constructor.semantic_mapping_mismatch: default-only path `{}` must not have parameters",
+                        product.factory.selector.encode()
+                    )));
+                }
+                initializer_body = default_field_assignments(&source_fields, ctx, &product, range)?;
+            }
+            ConstructorOrigin::Source => {
+                let defaults = default_field_assignments(&source_fields, ctx, &product, range)?;
+                if let Some(super_index) = constructor_super_statement_index(&initializer_body, ctx) {
+                    initializer_body.splice(super_index + 1..super_index + 1, defaults);
+                } else {
+                    initializer_body.splice(0..0, defaults);
+                }
+            }
+        }
+
+        let factory_name = match &product.factory.selector.base {
+            phalcom_common::selector::SelectorBase::Named(name) => name.clone(),
+            phalcom_common::selector::SelectorBase::Subscript => {
+                return Err(CompilerError::Message("constructor.semantic_selector_mismatch: factory selector cannot be a subscript".to_string()));
+            }
+        };
+        let initializer_name = match &product.initializer.selector.base {
+            phalcom_common::selector::SelectorBase::Named(name) => name.clone(),
+            phalcom_common::selector::SelectorBase::Subscript => {
+                return Err(CompilerError::Message("constructor.semantic_selector_mismatch: initializer selector cannot be a subscript".to_string()));
+            }
+        };
+        if product.factory.selector.slots != product.initializer.selector.slots {
+            return Err(CompilerError::Message(format!(
+                "constructor.semantic_signature_mismatch: factory `{}` and initializer `{}` use different selector slots",
+                product.factory.selector.encode(),
+                product.initializer.selector.encode()
+            )));
+        }
+        let args = parameters
             .iter()
-            .map(|param| match &param.label {
+            .map(|parameter| match &parameter.label {
                 Some(label) => PackItem::Labeled {
                     label: PackLabel::Static {
                         text: label.clone(),
-                        range: param.range,
+                        range: parameter.range,
                     },
                     value: Expr::Var {
-                        value: param.name.clone(),
-                        range: param.range,
+                        value: parameter.name.clone(),
+                        range: parameter.range,
                     },
-                    range: param.range,
+                    range: parameter.range,
                 },
                 None => PackItem::Positional {
                     expr: Expr::Var {
-                        value: param.name.clone(),
-                        range: param.range,
+                        value: parameter.name.clone(),
+                        range: parameter.range,
                     },
-                    range: param.range,
+                    range: parameter.range,
                 },
             })
             .collect();
@@ -2502,7 +2894,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
             Statement::Expr {
                 expr: Expr::MethodCall(Box::new(MethodCallExpr {
                     object: instance.clone(),
-                    method: init_name,
+                    method: initializer_name.clone(),
                     method_range: None,
                     args,
                     invocation_authority: Default::default(),
@@ -2512,11 +2904,11 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
             },
             Statement::Return(ReturnStatement { value: Some(instance), range }),
         ];
-        let constructor_name = method.name.clone();
+        let factory_member = members.len();
         members.push(ClassMember::Method(MethodDef {
-            name: constructor_name.clone(),
+            name: factory_name,
             generic_parameters: Vec::new(),
-            params: method.params.clone(),
+            params: parameters.clone(),
             return_annotation: None,
             where_clause: None,
             body: MemberBody::Block(factory_body),
@@ -2537,13 +2929,14 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
             range,
             name_range: method.name_range,
         }));
+        let initializer_member = members.len();
         members.push(ClassMember::Method(MethodDef {
-            name: format!("init {constructor_name}"),
+            name: initializer_name,
             generic_parameters: Vec::new(),
-            params: method.params,
+            params: parameters,
             return_annotation: None,
             where_clause: None,
-            body: method.body,
+            body: MemberBody::Block(initializer_body),
             is_static: false,
             is_constructor: true,
             attributes: method.attributes,
@@ -2554,7 +2947,19 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
             range,
             name_range: method.name_range,
         }));
+        projections.push(ConstructorMemberProjection {
+            range,
+            factory_member,
+            initializer_member,
+            factory: product.factory,
+            initializer: product.initializer,
+        });
     }
+    if !ctx.constructor_products_by_range.is_empty() {
+        let unused = ctx.constructor_products_by_range.keys().next().copied().unwrap_or_default();
+        return Err(CompilerError::Message(format!("constructor.semantic_product_unconsumed: projected constructor product at {unused:?} has no source member")));
+    }
+    Ok(projections)
 }
 
 /// Builds `predicate.ifFalse { <error_class>.raise("<msg>") }` — the shared

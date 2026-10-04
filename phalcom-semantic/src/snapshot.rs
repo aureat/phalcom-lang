@@ -7,7 +7,7 @@ use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, Sou
 use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan, EffectiveCallableDefinition};
 use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
 use crate::semantic_shard::ModuleSemanticStructureShard;
-use crate::signature::{CallableSignatureTable, FieldSignatureTable};
+use crate::signature::{CallableSignatureTable, ConstructorInitializationTable, FieldSignatureTable};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
 use crate::surface::DeclarationSurface;
@@ -160,6 +160,8 @@ pub struct SemanticSnapshot {
     pub surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
     pub dispatch: Arc<SurfaceDispatchResolver>,
     pub callable_signatures: Arc<CallableSignatureTable>,
+    /// Canonical class-side factory to instance-initializer construction paths.
+    pub constructor_initializations: Arc<ConstructorInitializationTable>,
     /// Canonical accepted callable-definition provenance, keyed by the
     /// target-owned callable identity. Backend lowering consumes this map
     /// directly and must not reconstruct acceptance from source locations.
@@ -240,6 +242,7 @@ impl SemanticSnapshot {
             surfaces,
             dispatch,
             callable_signatures,
+            constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
             callable_definitions: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
@@ -301,6 +304,7 @@ impl SemanticSnapshot {
             surfaces,
             dispatch,
             callable_signatures,
+            constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
             callable_definitions: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
@@ -413,6 +417,12 @@ impl SemanticSnapshot {
 
     pub fn with_field_signatures(mut self, field_signatures: Arc<FieldSignatureTable>) -> Self {
         self.field_signatures = field_signatures;
+        self
+    }
+
+    /// Replaces the snapshot's canonical constructor/initializer products.
+    pub fn with_constructor_initializations(mut self, products: Arc<ConstructorInitializationTable>) -> Self {
+        self.constructor_initializations = products;
         self
     }
 
@@ -615,6 +625,11 @@ impl SemanticSnapshot {
 
     pub fn callable_signatures(&self) -> &Arc<CallableSignatureTable> {
         &self.callable_signatures
+    }
+
+    /// Returns canonical source and generated constructor/initializer paths.
+    pub fn constructor_initializations(&self) -> &Arc<ConstructorInitializationTable> {
+        &self.constructor_initializations
     }
 
     pub fn declarations(&self) -> &Arc<DeclarationTypeTable> {

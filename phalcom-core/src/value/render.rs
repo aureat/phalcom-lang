@@ -18,6 +18,9 @@ impl Value {
     /// heap object renders via its debug form. Returns an owned [`String`]
     /// rather than allocating a heap object.
     pub fn to_string(&self, vm: &VM) -> String {
+        if self.is_uninitialized_binding() {
+            panic!("uninitialized binding reached user string conversion");
+        }
         if self.is_some() {
             return render_option(*self, vm, false);
         }
@@ -118,6 +121,9 @@ impl Value {
     /// Identical to [`Value::to_string`] except that a symbol renders as
     /// `<symbol N>`.
     pub fn to_debug(&self, vm: &VM) -> String {
+        if self.is_uninitialized_binding() {
+            panic!("uninitialized binding reached user print representation");
+        }
         if self.is_some() {
             return render_option(*self, vm, true);
         }
@@ -245,6 +251,7 @@ fn fmt_base_value(f: &mut fmt::Formatter<'_>, base: Value) -> fmt::Result {
         ValueTag::None => write!(f, "None"),
         ValueTag::AdtSingleton => write!(f, "<singleton {:?}>", base.as_adt_singleton()),
         ValueTag::DataSingleton => write!(f, "<data singleton {:?}>", base.as_data_singleton()),
+        ValueTag::UninitializedBinding => write!(f, "<uninitialized binding>"),
     }
 }
 

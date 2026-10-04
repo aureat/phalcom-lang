@@ -580,7 +580,7 @@ fn direct_field_delegation_negative_matrix_is_deterministic() {
     );
 
     let immutable = WorkspaceFixture::new()
-        .module("main", "class Counter { const _count: Int\n count=(_) via _count }\n")
+        .module("main", "class Counter { _count: Int\n count=(_) via _count }\n")
         .analyze();
     assert!(
         immutable
@@ -1800,6 +1800,8 @@ fn callable_body_accepts_explicit_trait_owner_generics_without_nominal_entry() {
             cancel: &cancel,
             field_signatures: None,
             field_lifecycle: None,
+            constructor_initializations: None,
+            callable_signatures: None,
             enum_semantics: None,
             data_semantics: None,
             associated_families: None,

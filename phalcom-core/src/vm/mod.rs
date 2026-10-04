@@ -127,12 +127,14 @@ pub struct ClassLayout {
     pub field_count: u16,
     pub static_field_slots: IndexMap<Symbol, u16>,
     pub static_field_count: u16,
-    /// Names of this class's own fields (instance or static) declared with
-    /// `const` (ADR-0064 §3, U-BINDINGS §5). A write to one of these outside
-    /// a constructor body is `field.const_write`. Fields are non-inherited
-    /// (ADR-0011), so this set holds only this class's own declarations —
-    /// no superclass merge.
-    pub const_fields: std::collections::HashSet<Symbol>,
+    /// Names of this class's own immutable fields, split by dispatch side for
+    /// compiler write validation.
+    pub immutable_instance_fields: std::collections::HashSet<Symbol>,
+    pub immutable_static_fields: std::collections::HashSet<Symbol>,
+    /// Physical immutable slots, flattened through the superclass layout.
+    /// Runtime allocation uses these to seed private uninitialized sentinels.
+    pub immutable_instance_slots: std::collections::HashSet<u16>,
+    pub immutable_static_slots: std::collections::HashSet<u16>,
     /// Dispatch identities still requiring an implementation in this class.
     /// The boolean is `true` for class-side members and `false` for instance
     /// members.

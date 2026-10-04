@@ -27,14 +27,11 @@ use std::ops::Range;
 /// snapshots.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
-    /// The `let` keyword introducing a mutable binding (ADR-0064).
-    ///
-    /// Distinct from [`Token::Const`] only in mutability: `let x` with no
-    /// initializer reads the surface `None` value, whereas `const x` with no
-    /// initializer is rejected at compile time. See
-    /// `docs/spec/values-and-absence.md` §3.1.
+    /// The `let` keyword introducing an immutable runtime binding. The
+    /// contextual `mut` word opts a `let` binding into runtime mutability;
+    /// `const` introduces a static-phase binding.
     Let,
-    /// The `const` keyword introducing an immutable binding (ADR-0064).
+    /// The `const` keyword introducing a static-phase binding.
     Const,
     /// The `fn` keyword.
     Fn,

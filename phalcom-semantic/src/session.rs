@@ -21,7 +21,7 @@ use crate::db::query::{
     query_advisory_callable, query_advisory_module, query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface,
     query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_definition, query_callable_signature_with_inputs,
     query_data_declaration, query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements,
-    query_field_signature_with_inputs, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
+    query_constructor_initialization_owner, query_field_signature_with_inputs, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
     query_static_case_signature, query_static_domain_case_catalog, query_type_member_declaration, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
@@ -36,7 +36,10 @@ use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId
 use crate::presentation::FormalSemanticProjection;
 use crate::resolver::LinkedTypeResolver;
 use crate::semantic_shard::ModuleSemanticStructureShard;
-use crate::signature::{CallableSemanticSignature, CallableSignatureTable, FieldSignatureTable};
+use crate::signature::{
+    CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, ConstructorInitializationProduct, ConstructorInitializationTable,
+    ConstructorOrigin, ConstructorParameterField, FieldSignatureTable, ReturnContractValidation,
+};
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{
@@ -57,7 +60,7 @@ use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
 use phalcom_ast::ast::{ClassMember, PackItem, PackLabel, Statement, TraitMember, TypeAnnotation, TypeAnnotationExpr};
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable};
 use phalcom_modules::graph::{SemanticEdge, SemanticEdgeKind, SemanticNodeId};
 use phalcom_modules::interface::{InterfaceBuilder, LinkedExportTarget};
@@ -4599,6 +4602,244 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
+
+        // Constructor identities are semantic products even when the source
+        // class does not spell the generated factory or initializer. Rebuild
+        // each affected module from its retained source shard and canonical
+        // field/callable signatures; neither the source index nor compiler
+        // attribute expansion owns these identities.
+        let mut constructor_initializations = previous_snapshot.as_ref().map_or_else(ConstructorInitializationTable::default, |snapshot| {
+            (*snapshot.constructor_initializations).clone()
+        });
+        let mut constructor_product_work_modules = formal_declaration_modules
+            .iter()
+            .cloned()
+            .chain(structural_work_modules.iter().cloned())
+            .chain(removed_modules.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        let mut constructor_product_work_owners = self
+            .semantic_structure_shards
+            .values()
+            .filter(|shard| constructor_product_work_modules.contains(&shard.module))
+            .flat_map(|shard| shard.declaration_header_fingerprints.keys().cloned())
+            .collect::<BTreeSet<_>>();
+        loop {
+            let mut newly_affected = Vec::new();
+            for (child, parent) in &hierarchy.superclasses {
+                if constructor_product_work_owners.contains(parent) && !constructor_product_work_owners.contains(child) {
+                    constructor_product_work_owners.insert(child.clone());
+                    newly_affected.push(child.clone());
+                }
+            }
+            if newly_affected.is_empty() {
+                break;
+            }
+            constructor_product_work_modules.extend(newly_affected.iter().map(|owner| owner.module.clone()));
+        }
+        for module in &constructor_product_work_modules {
+            let prior_products = constructor_initializations
+                .iter()
+                .filter(|(factory, _)| factory.module() == module)
+                .map(|(factory, product)| (factory.clone(), product.initializer.clone(), product.origin))
+                .collect::<Vec<_>>();
+            for (factory, initializer, origin) in prior_products {
+                callable_signatures.remove(&initializer);
+                if origin != ConstructorOrigin::Source {
+                    callable_signatures.remove(&factory);
+                }
+            }
+            constructor_initializations.remove_module(module);
+        }
+
+        for module_id in &constructor_product_work_modules {
+            let Some(shard) = self.semantic_structure_shards.get(module_id) else {
+                continue;
+            };
+            for statement in &shard.source.program.statements {
+                let Statement::Class(class_def) = statement else {
+                    continue;
+                };
+                let owner = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let instance_fields = class_def
+                    .members
+                    .iter()
+                    .filter_map(|member| match member {
+                        ClassMember::Field(field) if !field.is_static => {
+                            crate::checker::declaration_signature::field_id_for_member(&owner, member).map(|field_id| (field, field_id))
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let default_fields = instance_fields
+                    .iter()
+                    .filter(|(field, _)| field.default.is_some())
+                    .map(|(_, field_id)| field_id.clone())
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                let field_input_fingerprint = constructor_field_input_fingerprint(&instance_fields, &shard.source.text);
+
+                let source_constructors = class_def
+                    .members
+                    .iter()
+                    .filter_map(|member| match member {
+                        ClassMember::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor") => {
+                            Some(method)
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+
+                for method in &source_constructors {
+                    let Some(factory) = crate::checker::declaration_signature::callable_id_for_member(&owner, &ClassMember::Method((*method).clone())) else {
+                        continue;
+                    };
+                    let Some(factory_signature) = callable_signatures.get(&factory).cloned() else {
+                        continue;
+                    };
+                    let initializer_selector = Selector::method(format!("init {}", method.name), factory.selector.slots.to_vec())
+                        .expect("a valid constructor selector remains valid with a generated initializer name");
+                    let initializer = CallableId::new(factory.owner.clone(), initializer_selector, DispatchSide::Instance);
+                    let initializer_signature = initializer_signature_for_factory(&factory_signature, initializer.clone());
+                    callable_signatures.insert(initializer_signature);
+                    constructor_initializations.insert(ConstructorInitializationProduct {
+                        factory,
+                        initializer,
+                        origin: ConstructorOrigin::Source,
+                        field_input_fingerprint,
+                        default_fields: default_fields.clone(),
+                        parameter_fields: Box::new([]),
+                    });
+                }
+
+                let has_construct_attribute = class_def.attributes.iter().any(|attribute| attribute.name == "construct");
+                let has_data_attribute = class_def.attributes.iter().any(|attribute| attribute.name == "data");
+                let source_new = source_constructors.iter().any(|method| method.name == "new");
+                let parent_requires_initialization = hierarchy.superclasses.get(&owner).is_some_and(|parent| {
+                    constructor_initializations.iter().any(|(factory, _)| factory.owner == *parent)
+                        || self.semantic_structure_shards.get(&parent.module).is_some_and(|parent_shard| {
+                            parent_shard.source.program.statements.iter().any(|statement| {
+                                matches!(statement, Statement::Class(parent_class) if parent_class.name == parent.name.as_ref() && class_declares_constructor_lifecycle(parent_class))
+                            })
+                        })
+                });
+                let generated_origin = if has_construct_attribute {
+                    Some(ConstructorOrigin::Construct)
+                } else if has_data_attribute && !source_new {
+                    Some(ConstructorOrigin::Data)
+                } else if source_constructors.is_empty()
+                    && !has_construct_attribute
+                    && !has_data_attribute
+                    && !default_fields.is_empty()
+                    && !parent_requires_initialization
+                {
+                    Some(ConstructorOrigin::DefaultOnly)
+                } else {
+                    None
+                };
+                let Some(origin) = generated_origin else {
+                    continue;
+                };
+
+                let parameter_fields = if matches!(origin, ConstructorOrigin::Construct | ConstructorOrigin::Data) {
+                    instance_fields
+                        .iter()
+                        .filter(|(field, _)| field.default.is_none())
+                        .map(|(field, field_id)| {
+                            let label = strip_constructor_field_prefix(&field.name);
+                            let declared_type = field_signatures
+                                .get(field_id)
+                                .map(|signature| signature.declared_type.clone())
+                                .unwrap_or_else(|| crate::declaration_type::DeclaredTypeFact::unknown(crate::types::evidence::UnknownReason::NoTypeEvidence));
+                            (label.clone(), label, field_id.clone(), declared_type)
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+                let slots = parameter_fields
+                    .iter()
+                    .map(|(_, label, _, _)| SelectorSlot::Label(label.clone()))
+                    .collect::<Vec<_>>();
+                let Ok(factory_selector) = Selector::method("new", slots) else {
+                    continue;
+                };
+                let factory = CallableId::new(owner.clone(), factory_selector, DispatchSide::Class);
+                // A source constructor with the generated selector is already
+                // the canonical source path; compiler-side collision handling
+                // remains authoritative for invalid duplicate declarations.
+                if source_constructors.iter().any(|method| {
+                    crate::checker::declaration_signature::callable_id_for_member(&owner, &ClassMember::Method((*method).clone()))
+                        .is_some_and(|source_factory| source_factory == factory)
+                }) {
+                    continue;
+                }
+                let initializer_selector =
+                    Selector::method("init new", factory.selector.slots.to_vec()).expect("a valid generated factory selector remains valid with an initializer name");
+                let initializer = CallableId::new(owner.clone(), initializer_selector, DispatchSide::Instance);
+                let (factory_signature, initializer_signature, parameter_bindings) =
+                    generated_constructor_signatures(&owner, factory.clone(), initializer.clone(), parameter_fields, Arc::make_mut(&mut self.store));
+                callable_signatures.insert(factory_signature);
+                callable_signatures.insert(initializer_signature);
+                constructor_initializations.insert(ConstructorInitializationProduct {
+                    factory,
+                    initializer,
+                    origin,
+                    field_input_fingerprint,
+                    default_fields: default_fields.clone(),
+                    parameter_fields: parameter_bindings.into_boxed_slice(),
+                });
+            }
+        }
+
+        // Owner construction paths are query products too. Publish them before
+        // body scheduling so changed parent paths seed their exact semantic
+        // dependents, including when the only source edit was a field default.
+        let mut constructor_query_owners = constructor_product_work_owners.clone();
+        if let Some(previous) = previous_snapshot.as_ref() {
+            constructor_query_owners.extend(
+                previous
+                    .constructor_initializations
+                    .iter()
+                    .filter(|(factory, _)| constructor_product_work_modules.contains(factory.module()))
+                    .filter_map(|(factory, _)| factory.try_declaration_owner().cloned()),
+            );
+        }
+        let mut changed_constructor_owner_queries = BTreeSet::new();
+        for owner in constructor_query_owners {
+            let key = QueryKey::ConstructorInitialization(owner.clone());
+            let previous_fingerprint = self.db.ready_product_fingerprint(&key);
+            let paths = constructor_initializations
+                .iter()
+                .filter(|(factory, _)| factory.owner == owner)
+                .map(|(_, product)| product.clone())
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            match query_constructor_initialization_owner(
+                &mut self.db,
+                Arc::new(crate::db::product::ConstructorInitializationOwnerProduct { owner, paths }),
+            ) {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+            let current_fingerprint = self.db.ready_product_fingerprint(&key);
+            if previous_fingerprint.is_some() && previous_fingerprint != current_fingerprint {
+                changed_constructor_owner_queries.insert(key);
+            }
+        }
+        if !changed_constructor_owner_queries.is_empty() {
+            let changed_dependents = self.db.index().reverse_closure(changed_constructor_owner_queries);
+            for key in changed_dependents {
+                if let QueryKey::CallableBody(callable) = key {
+                    if current_modules.contains(callable.module()) {
+                        callable_body_work.insert(callable.clone());
+                        semantic_work_modules.insert(callable.module().clone());
+                    }
+                }
+            }
+        }
         // 6b. Compile and publish data declarations, enum declarations, associated surfaces, and closed-enum requirements.
         let mut data_semantics = previous_snapshot
             .as_ref()
@@ -5818,6 +6059,8 @@ impl SemanticWorkspaceSession {
                         type_aliases: &type_aliases,
                         field_signatures: None,
                         field_lifecycle: None,
+                        constructor_initializations: Some(&constructor_initializations),
+                        callable_signatures: Some(&callable_signatures),
                         enum_semantics: Some(&enum_semantics),
                         data_semantics: Some(&data_semantics),
                         associated_families: Some(&associated_surfaces_table),
@@ -5965,6 +6208,8 @@ impl SemanticWorkspaceSession {
                                     type_aliases: &type_aliases,
                                     field_signatures: Some(&field_signatures),
                                     field_lifecycle: Some(if is_constructor { &default_field_lifecycle } else { &field_lifecycle }),
+                                    constructor_initializations: Some(&constructor_initializations),
+                                    callable_signatures: Some(&callable_signatures),
                                     enum_semantics: Some(&enum_semantics),
                                     data_semantics: Some(&data_semantics),
                                     associated_families: Some(&associated_surfaces_table),
@@ -6138,6 +6383,8 @@ impl SemanticWorkspaceSession {
                                     type_aliases: &type_aliases,
                                     field_signatures: Some(&field_signatures),
                                     field_lifecycle: Some(&field_lifecycle),
+                                    constructor_initializations: Some(&constructor_initializations),
+                                    callable_signatures: Some(&callable_signatures),
                                     enum_semantics: Some(&enum_semantics),
                                     data_semantics: Some(&data_semantics),
                                     associated_families: Some(&associated_surfaces_table),
@@ -6325,6 +6572,8 @@ impl SemanticWorkspaceSession {
                                     type_aliases: &type_aliases,
                                     field_signatures: Some(&field_signatures),
                                     field_lifecycle: Some(&field_lifecycle),
+                                    constructor_initializations: Some(&constructor_initializations),
+                                    callable_signatures: Some(&callable_signatures),
                                     enum_semantics: Some(&enum_semantics),
                                     data_semantics: Some(&data_semantics),
                                     associated_families: Some(&associated_surfaces_table),
@@ -6433,6 +6682,7 @@ impl SemanticWorkspaceSession {
             let Some(unit) = retained_sources.get(callable.module()).cloned() else {
                 continue;
             };
+            let callable_signature_snapshot = callable_signatures.clone();
             let is_constructor = callable_signatures.get_for_body(&callable).is_some_and(|signature| signature.is_constructor());
             let formal_inputs = FormalQueryInputs {
                 sources: &retained_sources,
@@ -6447,6 +6697,8 @@ impl SemanticWorkspaceSession {
                 type_aliases: &type_aliases,
                 field_signatures: Some(&field_signatures),
                 field_lifecycle: Some(if is_constructor { &default_field_lifecycle } else { &field_lifecycle }),
+                constructor_initializations: Some(&constructor_initializations),
+                callable_signatures: Some(&callable_signature_snapshot),
                 enum_semantics: Some(&enum_semantics),
                 data_semantics: Some(&data_semantics),
                 associated_families: Some(&associated_surfaces_table),
@@ -6545,6 +6797,8 @@ impl SemanticWorkspaceSession {
                 type_aliases: &type_aliases,
                 field_signatures: Some(&field_signatures),
                 field_lifecycle: Some(&field_lifecycle),
+                constructor_initializations: Some(&constructor_initializations),
+                callable_signatures: Some(&reanalysis_signature_snapshot),
                 data_semantics: Some(&data_semantics),
                 enum_semantics: Some(&enum_semantics),
                 associated_families: Some(&associated_surfaces_table),
@@ -6589,6 +6843,7 @@ impl SemanticWorkspaceSession {
             declarations: &declarations,
             dispatch: &mut dispatch,
             callable_signatures: &mut callable_signatures,
+            constructor_initializations: &constructor_initializations,
             callable_analyses: &mut callable_analyses,
             previous_callable_analyses: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_analyses.as_ref()),
             field_signatures: &field_signatures,
@@ -6696,6 +6951,8 @@ impl SemanticWorkspaceSession {
                 type_aliases: &type_aliases,
                 field_signatures: Some(&field_signatures),
                 field_lifecycle: Some(&field_lifecycle),
+                constructor_initializations: Some(&constructor_initializations),
+                callable_signatures: Some(&reanalysis_signature_snapshot),
                 data_semantics: Some(&data_semantics),
                 enum_semantics: Some(&enum_semantics),
                 associated_families: Some(&associated_surfaces_table),
@@ -7076,6 +7333,7 @@ impl SemanticWorkspaceSession {
         );
 
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
+        snapshot_obj = snapshot_obj.with_constructor_initializations(Arc::new(constructor_initializations));
         snapshot_obj = snapshot_obj.with_callable_definitions(Arc::new(callable_definitions));
         snapshot_obj = snapshot_obj.with_conformance_index(Arc::new(conformance_index));
         snapshot_obj = snapshot_obj.with_conformance_witness_plans(Arc::new(conformance_witness_plans));
@@ -8849,6 +9107,113 @@ fn associated_static_domain_shell(
     })
 }
 
+fn class_declares_constructor_lifecycle(class_def: &phalcom_ast::ast::ClassDef) -> bool {
+    class_def.members.iter().any(|member| {
+        matches!(member, ClassMember::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor"))
+    }) || class_def.attributes.iter().any(|attribute| matches!(attribute.name.as_str(), "construct" | "data"))
+        || class_def
+            .members
+            .iter()
+            .any(|member| matches!(member, ClassMember::Field(field) if !field.is_static && field.default.is_some()))
+}
+
+fn strip_constructor_field_prefix(name: &str) -> String {
+    name.strip_prefix('_').unwrap_or(name).to_string()
+}
+
+fn constructor_field_input_fingerprint(
+    fields: &[(&phalcom_ast::ast::FieldDef, FieldId)],
+    source_text: &str,
+) -> crate::db::ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    for (field, field_id) in fields {
+        field_id.hash(&mut hasher);
+        field.range.hash(&mut hasher);
+        source_text.get(field.range.start..field.range.end).hash(&mut hasher);
+    }
+    crate::db::ProductFingerprint::new(hasher.finish())
+}
+
+fn initializer_signature_for_factory(factory: &CallableSemanticSignature, initializer: CallableId) -> CallableSemanticSignature {
+    let parameters = factory
+        .parameters
+        .iter()
+        .enumerate()
+        .map(|(index, parameter)| {
+            let mut parameter = parameter.clone();
+            parameter.id = crate::identity::CallableParameterId::new(initializer.clone(), index as u32);
+            parameter.source = None;
+            parameter
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    CallableSemanticSignature {
+        callable: initializer.clone(),
+        owner: factory.owner.clone(),
+        side: DispatchSide::Instance,
+        selector: initializer.selector.clone(),
+        // Constructor lowering does not retain method-local generic binders on
+        // the hidden initializer. Owner-level type terms remain canonical.
+        generics: None,
+        parameters,
+        declared_return: factory.declared_return.clone(),
+        return_validation: ReturnContractValidation::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: factory.implementation,
+        native_id: None,
+        effects: factory.effects.clone(),
+        raises: factory.raises.clone(),
+        flow: factory.flow,
+        lifecycle: factory.lifecycle,
+    }
+}
+
+fn generated_constructor_signatures(
+    owner: &DeclarationId,
+    factory: CallableId,
+    initializer: CallableId,
+    parameter_fields: Vec<(String, String, FieldId, crate::declaration_type::DeclaredTypeFact)>,
+    store: &mut TypeStore,
+) -> (CallableSemanticSignature, CallableSemanticSignature, Vec<ConstructorParameterField>) {
+    let self_type = store.self_type(crate::types::parameter::SelfTypeTerm {
+        owner: owner.clone(),
+        side: DispatchSide::Class,
+        role: crate::types::parameter::SelfRole::InstanceType,
+    });
+    let declared_return = crate::declaration_type::DeclaredTypeFact::known(
+        crate::types::parameter::TypeTerm::Canonical(self_type),
+        crate::declaration_type::DeclaredTypeBasis::ConstructorSemantics,
+    );
+    let mut factory_parameters = Vec::with_capacity(parameter_fields.len());
+    let mut parameter_bindings = Vec::with_capacity(parameter_fields.len());
+    for (index, (local_name, label, field, declared_type)) in parameter_fields.into_iter().enumerate() {
+        let parameter = crate::identity::CallableParameterId::new(factory.clone(), index as u32);
+        factory_parameters.push(CallableParameterSemantic::new(parameter.clone(), local_name, declared_type).with_label(label));
+        parameter_bindings.push(ConstructorParameterField { parameter, field });
+    }
+    let factory_signature = CallableSemanticSignature {
+        callable: factory.clone(),
+        owner: owner.clone(),
+        side: DispatchSide::Class,
+        selector: factory.selector.clone(),
+        generics: None,
+        parameters: factory_parameters.into_boxed_slice(),
+        declared_return,
+        return_validation: ReturnContractValidation::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
+        native_id: None,
+        effects: phalcom_native_meta::EffectSpec::Unknown,
+        raises: phalcom_native_meta::RaisesSpec::Unknown,
+        flow: phalcom_native_meta::ReturnFlowSpec::Value,
+        lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+    };
+    let initializer_signature = initializer_signature_for_factory(&factory_signature, initializer);
+    (factory_signature, initializer_signature, parameter_bindings)
+}
+
 fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {
     let mut hasher = DefaultHasher::new();
     unit.id.hash(&mut hasher);
@@ -8892,6 +9257,7 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::DataDeclaration(declaration)
         | QueryKey::EnumDeclaration(declaration)
         | QueryKey::EnumRequirements(declaration)
+        | QueryKey::ConstructorInitialization(declaration)
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
         QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
@@ -10131,6 +10497,7 @@ struct InferredCallableRefreshInputs<'a> {
     declarations: &'a DeclarationTypeTable,
     dispatch: &'a mut SurfaceDispatchResolver,
     callable_signatures: &'a mut CallableSignatureTable,
+    constructor_initializations: &'a ConstructorInitializationTable,
     callable_analyses: &'a mut HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     previous_callable_analyses: Option<&'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
     field_signatures: &'a FieldSignatureTable,
@@ -10370,6 +10737,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         declarations,
         dispatch,
         callable_signatures,
+        constructor_initializations,
         callable_analyses,
         previous_callable_analyses,
         field_signatures,
@@ -10586,6 +10954,8 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             cancel,
                             field_signatures: Some(field_signatures),
                             field_lifecycle: Some(field_lifecycle),
+                            constructor_initializations: Some(constructor_initializations),
+                            callable_signatures: Some(&*callable_signatures),
                             enum_semantics: Some(enum_semantics),
                             data_semantics: Some(data_semantics),
                             associated_families: Some(associated_surfaces),

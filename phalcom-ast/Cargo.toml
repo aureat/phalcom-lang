@@ -11,6 +11,10 @@ phalcom-common = { path = "../phalcom-common" }
 [dev-dependencies]
 insta = "1"
 
+[[bin]]
+name = "c4_migrate"
+path = "src/bin/c4_migrate.rs"
+
 [[test]]
 name = "integration"
 path = "tests/integration.rs"

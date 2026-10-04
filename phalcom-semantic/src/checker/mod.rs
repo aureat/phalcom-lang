@@ -54,7 +54,7 @@ pub use expected::{ExpectationOrigin, ExpectedType};
 pub use expression::{analyze_expression, check_expr, check_typed_expr, synthesize_expr, synthesize_typed_expr};
 pub use incident::{BindingContractSummary, InternalFailurePolicy, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 
-pub use flow::FlowState;
+pub use flow::{BindingReadSafety, FlowState, InitializationState};
 pub use gadt_proof::{GadtProofResult, solve_gadt_branch_proof};
 pub use inference::{
     AmbiguousInference, InferenceCandidate, InferenceConstraintRole, InferenceMaterializationFailure, InferenceOutcome, InferenceSession, InferenceSupport,

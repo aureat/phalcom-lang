@@ -28,6 +28,7 @@ pub(crate) enum ValueTag {
     AdtSingleton = 8,
     DataSingleton = 9,
     EmptyRecord = 10,
+    UninitializedBinding = 11,
 }
 
 impl ValueTag {
@@ -45,6 +46,7 @@ impl ValueTag {
             8 => Self::AdtSingleton,
             9 => Self::DataSingleton,
             10 => Self::EmptyRecord,
+            11 => Self::UninitializedBinding,
             _ => panic!("invalid ValueTag"),
         }
     }
@@ -60,7 +62,7 @@ pub struct Value {
 
 impl Value {
     #[inline]
-    pub(crate) const fn nil() -> Self {
+    pub const fn nil() -> Self {
         Self {
             payload: 0,
             meta: ValueTag::Nil as u64,
@@ -128,6 +130,14 @@ impl Value {
         Self {
             payload: 0,
             meta: ValueTag::None as u64,
+        }
+    }
+
+    #[inline]
+    pub const fn uninitialized_binding() -> Self {
+        Self {
+            payload: 0,
+            meta: ValueTag::UninitializedBinding as u64,
         }
     }
 
@@ -250,6 +260,11 @@ impl Value {
     }
 
     #[inline]
+    pub fn is_uninitialized_binding(self) -> bool {
+        self.tag() == ValueTag::UninitializedBinding && self.some_depth_raw() == 0
+    }
+
+    #[inline]
     pub fn as_bool(self) -> Option<bool> {
         if self.is_bool() { Some(self.payload != 0) } else { None }
     }
@@ -315,6 +330,10 @@ impl PartialEq for Value {
             ValueTag::Symbol => (self.payload as u32) == (other.payload as u32),
             ValueTag::Obj => self.payload == other.payload,
             ValueTag::AdtSingleton | ValueTag::DataSingleton => (self.payload as u32) == (other.payload as u32),
+            ValueTag::UninitializedBinding => {
+                debug_assert!(false, "uninitialized binding reached Value::eq");
+                false
+            }
         }
     }
 }
@@ -343,6 +362,9 @@ impl Hash for Value {
             ValueTag::Symbol => (self.payload as u32).hash(state),
             ValueTag::Obj => self.payload.hash(state),
             ValueTag::AdtSingleton | ValueTag::DataSingleton => (self.payload as u32).hash(state),
+            ValueTag::UninitializedBinding => {
+                debug_assert!(false, "uninitialized binding reached Value::hash");
+            }
         }
     }
 }

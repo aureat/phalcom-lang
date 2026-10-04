@@ -188,6 +188,7 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
         return_explanation: None,
         dependencies: Arc::from([]),
         semantic_dependencies: Arc::from([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: ProductFingerprint::new(7),
         status: CallableAnalysisStatus::Complete,
     };
@@ -257,6 +258,7 @@ fn presentation_preserves_non_ready_formal_states() {
         return_explanation: None,
         dependencies: Arc::from([]),
         semantic_dependencies: Arc::from([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: ProductFingerprint::new(8),
         status: CallableAnalysisStatus::Complete,
     };

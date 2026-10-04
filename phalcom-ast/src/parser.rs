@@ -3204,6 +3204,15 @@ impl<'source> Parser<'source> {
     fn parse_binding(&mut self, kind: BindingKind) -> ParserResult<Statement> {
         let start = self.cur_start();
         self.advance(); // 'let' or 'var'
+        let kind = if kind == BindingKind::Let
+            && self.at_contextual_word("mut")
+            && !matches!(self.peek_at(1), Token::Equal | Token::Colon | Token::Newline | Token::Semicolon | Token::Eof | Token::RBrace)
+        {
+            self.advance();
+            BindingKind::LetMut
+        } else {
+            kind
+        };
         let pattern = self.parse_pattern()?;
         let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
         let value = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
@@ -5489,11 +5498,9 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses a field declaration: `const`-prefixed (immutable) or bare
-    /// (mutable) — ADR-0064 §3, L-2. `is_const` records whether the caller
-    /// already consumed a leading `Token::Const`; a bare field has no keyword
-    /// to consume at all, so [`Self::parse_class_member`] dispatches here
-    /// without advancing past anything first.
+    /// Parses a field declaration: bare fields are immutable and `mut`
+    /// fields are mutable. `mutable` records whether the caller consumed the
+    /// contextual `mut` prefix before entering this parser.
     ///
     /// Field eligibility is structural: lexer emits `FieldIdentifier`.
     /// Prefixes do not carry semantics.
@@ -5503,7 +5510,7 @@ impl<'source> Parser<'source> {
     /// Returns an error if the field name is missing, the initializer
     /// expression is malformed, or the
     /// declaration is not followed by a newline, `}`, or end-of-file.
-    fn parse_field_decl(&mut self, start: usize, is_const: bool, modifiers: ParsedModifiers) -> ParserResult<ClassMember> {
+    fn parse_field_decl(&mut self, start: usize, mutable: bool, modifiers: ParsedModifiers) -> ParserResult<ClassMember> {
         if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
             let k = modifiers.implementation.as_str();
             return Err(SyntaxError {
@@ -5533,7 +5540,7 @@ impl<'source> Parser<'source> {
         Ok(ClassMember::Field(FieldDef {
             name,
             name_range,
-            mutable: !is_const,
+            mutable,
             is_static: false,
             visibility: modifiers.visibility,
             visibility_range: modifiers.visibility_range,
@@ -5567,27 +5574,31 @@ impl<'source> Parser<'source> {
             .or(modifiers.implementation_range)
             .map(|r| r.start)
             .unwrap_or_else(|| self.cur_start());
-        // Field grammar (ADR-0064 §4, U-BINDINGS §4.1), in dispatch order:
-        // `const` unambiguously starts a field; `let` at field position is a
-        // hard error (L-2 — there is no mutable-with-keyword field form);
-        // a field token followed by a terminator or initializer is the bare
-        // mutable field form. Field tokens in method-shaped positions fall
-        // through and are rejected as non-selector names below.
+        // Field grammar: bare declarations are immutable, while the
+        // contextual `mut` prefix explicitly requests mutable storage. Field
+        // tokens in method-shaped positions fall through and are rejected as
+        // non-selector names below.
         if matches!(self.peek(), Token::Const) {
+            let start = self.cur_start();
             self.advance();
-            return self.parse_field_decl(start, true, modifiers);
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message(
+                    "`const` is not field syntax; use `_field` for an immutable field or `mut _field` for a mutable field".to_string(),
+                ),
+                range: start..self.prev_end,
+            });
         }
         if matches!(self.peek(), Token::Let) {
             self.advance();
             let range = start..self.prev_end;
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message("mutable fields take no keyword; write `_name` instead of `let _name`".to_string()),
+                kind: SyntaxErrorKind::Message("`let` is not field syntax; use `_field` for an immutable field or `mut _field` for a mutable field".to_string()),
                 range,
             });
         }
         if self.starts_mut_member() && matches!(self.peek_at(1), Token::FieldIdentifier(_)) {
             self.advance();
-            return self.parse_field_decl(start, false, modifiers);
+            return self.parse_field_decl(start, true, modifiers);
         }
         if matches!(self.peek(), Token::Class) && matches!(self.peek_next(), Token::Identifier(_)) {
             let range = start..self.cur_start() + 5;
@@ -10083,7 +10094,7 @@ mod tests {
     }
 
     #[test]
-    fn let_binding_records_mutable_kind() {
+    fn let_binding_records_immutable_kind() {
         let Statement::Let(binding) = only_statement("let x = 1") else {
             panic!("expected a let binding");
         };
@@ -10100,6 +10111,114 @@ mod tests {
         assert_eq!(binding.kind, BindingKind::Const);
         assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
         assert!(binding.value.is_some());
+    }
+
+    #[test]
+    fn parse_let_is_runtime_immutable_kind() {
+        let Statement::Let(binding) = only_statement("let x = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::Let);
+        assert_eq!(binding.kind.phase(), crate::ast::BindingPhase::Runtime);
+        assert_eq!(binding.kind.runtime_mutability(), Some(crate::ast::RuntimeMutability::Immutable));
+        assert!(!binding.kind.is_mutable());
+        assert!(!binding.kind.is_static());
+        assert!(binding.kind.requires_initializer());
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
+        assert!(binding.value.is_some());
+    }
+
+    #[test]
+    fn parse_let_mut_is_distinct_binding_kind() {
+        let Statement::Let(binding) = only_statement("let mut x = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::LetMut);
+        assert_eq!(binding.kind.phase(), crate::ast::BindingPhase::Runtime);
+        assert_eq!(binding.kind.runtime_mutability(), Some(crate::ast::RuntimeMutability::Mutable));
+        assert!(binding.kind.is_mutable());
+        assert!(!binding.kind.is_static());
+        assert!(!binding.kind.requires_initializer());
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
+        assert!(binding.value.is_some());
+    }
+
+    #[test]
+    fn parse_initializerless_let_mut_name() {
+        let Statement::Let(binding) = only_statement("let mut x") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::LetMut);
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
+        assert!(binding.value.is_none());
+
+        let Statement::Let(binding_typed) = only_statement("let mut y: Int") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding_typed.kind, BindingKind::LetMut);
+        assert!(matches!(&binding_typed.pattern, Pattern::Name { name, .. } if name == "y"));
+        assert!(binding_typed.annotation.is_some());
+        assert!(binding_typed.value.is_none());
+    }
+
+    #[test]
+    fn parse_contextual_mut_binding_named_mut() {
+        // `let mut = 1` binds variable named `mut` as runtime immutable `let`
+        let Statement::Let(binding) = only_statement("let mut = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::Let);
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "mut"));
+        assert!(binding.value.is_some());
+
+        // `let mut mut = 1` binds variable named `mut` as runtime mutable `let mut`
+        let Statement::Let(binding2) = only_statement("let mut mut = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding2.kind, BindingKind::LetMut);
+        assert!(matches!(&binding2.pattern, Pattern::Name { name, .. } if name == "mut"));
+        assert!(binding2.value.is_some());
+    }
+
+    #[test]
+    fn contextual_mut_does_not_become_global_keyword() {
+        let Statement::Let(binding) = only_statement("let mut_var = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::Let);
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "mut_var"));
+    }
+
+    #[test]
+    fn parse_contextual_mut_field() {
+        let Statement::Class(class_def) = only_statement("class C {\n  mut _x: Int\n}\n") else {
+            panic!("expected class def");
+        };
+        let ClassMember::Field(field) = &class_def.members[0] else {
+            panic!("expected field def");
+        };
+        assert_eq!(field.name, "_x");
+        assert!(field.mutable);
+    }
+
+    #[test]
+    fn parse_bare_field_as_immutable_target_form() {
+        let Statement::Class(class_def) = only_statement("class C {\n  _x: Int\n}\n") else {
+            panic!("expected class def");
+        };
+        let ClassMember::Field(field) = &class_def.members[0] else {
+            panic!("expected field def");
+        };
+        assert_eq!(field.name, "_x");
+        assert!(!field.mutable);
+    }
+
+    #[test]
+    fn legacy_const_field_spelling_is_rejected_with_migration_guidance() {
+        let parsed = parse("class C {\n  const _x: Int\n}\n", 0);
+        assert_eq!(parsed.errors.len(), 1);
+        assert!(parsed.errors[0].to_string().contains("`const` is not field syntax"));
+        assert!(parsed.errors[0].to_string().contains("`mut _field`"));
     }
 
     #[test]
@@ -10800,7 +10919,7 @@ native class NativeClass is Object {
     internal native fred() -> Int
     foreign plugh() -> Int
     private _field: Int = 42
-    internal const _const_field: Int = 100
+    internal _immutable_field: Int = 100
 }
 native data NativeEnum {
     A

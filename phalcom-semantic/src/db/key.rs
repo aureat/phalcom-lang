@@ -48,6 +48,8 @@ pub enum QueryKey {
     CallableDefinition(CallableId),
     HierarchyEdge(DeclarationId),
     FieldSignature(FieldId),
+    /// Canonical owner-scoped constructor/initializer path set.
+    ConstructorInitialization(DeclarationId),
     CallableSignature(CallableId),
     CallableBody(CallableId),
     CallableEffects(CallableId),

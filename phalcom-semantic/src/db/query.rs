@@ -48,6 +48,8 @@ pub struct FormalQueryInputs<'a> {
     pub type_aliases: &'a crate::type_alias::TypeAliasTable,
     pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
     pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub constructor_initializations: Option<&'a crate::signature::ConstructorInitializationTable>,
+    pub callable_signatures: Option<&'a crate::signature::CallableSignatureTable>,
     pub data_semantics: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
@@ -80,6 +82,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::TraitHeader(declaration) => QueryKey::TraitHeader(declaration.clone()),
         crate::checker::analysis::SemanticDependency::CallableSignature(callable) => QueryKey::CallableSignature(callable.clone()),
         crate::checker::analysis::SemanticDependency::FieldSignature(field) => QueryKey::FieldSignature(field.clone()),
+        crate::checker::analysis::SemanticDependency::ConstructorInitialization(owner) => QueryKey::ConstructorInitialization(owner.clone()),
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::TraitSurface(declaration) => QueryKey::TraitSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) => QueryKey::ConformanceDispatch(impl_id.clone()),
@@ -103,6 +106,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::TraitHeader(declaration) => Some(crate::checker::analysis::SemanticDependency::TraitHeader(declaration.clone())),
         QueryKey::CallableSignature(callable) => Some(crate::checker::analysis::SemanticDependency::CallableSignature(callable.clone())),
         QueryKey::FieldSignature(field) => Some(crate::checker::analysis::SemanticDependency::FieldSignature(field.clone())),
+        QueryKey::ConstructorInitialization(owner) => Some(crate::checker::analysis::SemanticDependency::ConstructorInitialization(owner.clone())),
         QueryKey::DeclarationSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration.clone())),
         QueryKey::TraitSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::TraitSurface(declaration.clone())),
         QueryKey::ConformanceDispatch(impl_id) => Some(crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id.clone())),
@@ -1313,6 +1317,9 @@ fn ensure_semantic_dependency_current(
                 QueryOutcome::Failed(failure) => QueryOutcome::Failed(failure),
             }
         }
+        crate::checker::analysis::SemanticDependency::ConstructorInitialization(_) => {
+            QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+        }
         _ => QueryOutcome::Ready(()),
     }
 }
@@ -1403,6 +1410,24 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                     type_aliases: Some(inputs.type_aliases),
                     import_products: Some(inputs.import_products),
                 },
+            ))
+        }
+        crate::checker::analysis::SemanticDependency::ConstructorInitialization(owner) => {
+            let Some(table) = inputs.constructor_initializations else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            let paths = table
+                .iter()
+                .filter(|(factory, _)| factory.owner == *owner)
+                .map(|(_, product)| product.clone())
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            unit_outcome(query_constructor_initialization_owner(
+                db,
+                Arc::new(crate::db::product::ConstructorInitializationOwnerProduct {
+                    owner: owner.clone(),
+                    paths,
+                }),
             ))
         }
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => {
@@ -2059,6 +2084,40 @@ pub fn query_field_signature(
             import_products: None,
         },
     )
+}
+
+/// Publishes the constructor paths contributed by one class owner.
+///
+/// Empty path sets are meaningful: they revoke a previously published
+/// lifecycle and invalidate dependent explicit-super resolutions.
+pub fn query_constructor_initialization_owner(
+    db: &mut SemanticDb,
+    product: Arc<crate::db::product::ConstructorInitializationOwnerProduct>,
+) -> QueryOutcome<Arc<crate::db::product::ConstructorInitializationOwnerProduct>> {
+    let key = QueryKey::ConstructorInitialization(product.owner.clone());
+    let input_fingerprint = crate::db::fingerprint::constructor_initialization_owner_input_fingerprint(&product);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|product| product.as_constructor_initialization()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::constructor_initialization_owner_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::ConstructorInitialization(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
 }
 
 pub fn query_field_signature_with_inputs(
@@ -2748,6 +2807,8 @@ fn query_callable_body_with_requirement(
             cancel,
             field_signatures: formal_inputs.and_then(|inputs| inputs.field_signatures),
             field_lifecycle: formal_inputs.and_then(|inputs| inputs.field_lifecycle),
+            constructor_initializations: formal_inputs.and_then(|inputs| inputs.constructor_initializations),
+            callable_signatures: formal_inputs.and_then(|inputs| inputs.callable_signatures),
             enum_semantics: formal_inputs.and_then(|inputs| inputs.enum_semantics),
             data_semantics: formal_inputs.and_then(|inputs| inputs.data_semantics),
             associated_families: formal_inputs.and_then(|inputs| inputs.associated_families),

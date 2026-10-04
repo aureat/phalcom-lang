@@ -52,6 +52,8 @@ mod compiler_contract_metadata;
 mod compiler_declaration_dispatch;
 #[path = "compiler/product_optimization.rs"]
 mod compiler_product_optimization;
+#[path = "compiler/static_const.rs"]
+mod compiler_static_const;
 #[path = "collections/contract.rs"]
 mod core_collections;
 #[path = "collections/outgoing_packs.rs"]
@@ -60,6 +62,8 @@ mod core_outgoing_packs;
 mod core_outgoing_packs_completion;
 #[path = "collections/symbol_selector.rs"]
 mod core_symbol_selector;
+#[path = "execution/binding_init.rs"]
+mod execution_binding_init;
 #[path = "execution/compiler_authority.rs"]
 mod execution_compiler_authority;
 #[path = "execution/depth_limits.rs"]

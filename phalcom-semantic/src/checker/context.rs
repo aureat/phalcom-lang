@@ -447,6 +447,9 @@ pub struct CheckingContext<'a> {
     pub current_class: Option<DeclarationId>,
     pub current_side: DispatchSide,
     pub current_callable: Option<CallableId>,
+    /// Owner whose canonical instance constructor body is currently checked.
+    /// Set only from a declaration signature carrying constructor semantics.
+    pub(crate) current_constructor_owner: Option<DeclarationId>,
     pub internal_failure_policy: InternalFailurePolicy,
     pub control: CheckerControl,
     pub expected_return: Option<CallableReturnContract>,
@@ -485,6 +488,13 @@ pub struct CheckingContext<'a> {
     semantic_dependencies: SharedSemanticDependencies,
     field_signatures: Option<&'a FieldSignatureTable>,
     field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub(crate) constructor_initializations: Option<&'a crate::signature::ConstructorInitializationTable>,
+    pub(crate) callable_signatures: Option<&'a crate::signature::CallableSignatureTable>,
+    pub(crate) constructor_parent_owner: Option<DeclarationId>,
+    pub(crate) constructor_super_required: bool,
+    pub(crate) constructor_super_prologue_allowed: bool,
+    pub(crate) constructor_super_call_seen: bool,
+    pub(crate) constructor_super_initializer: Option<crate::checker::analysis::ConstructorSuperCallResolution>,
     pub data_table: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub enum_table: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_table: Option<&'a crate::associated::AssociatedFamilyTable>,
@@ -563,6 +573,7 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
+            current_constructor_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control: CheckerControl::default(),
             expected_return: None,
@@ -600,6 +611,13 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             field_signatures: None,
             field_lifecycle: None,
+            constructor_initializations: None,
+            callable_signatures: None,
+            constructor_parent_owner: None,
+            constructor_super_required: false,
+            constructor_super_prologue_allowed: false,
+            constructor_super_call_seen: false,
+            constructor_super_initializer: None,
             data_table: None,
             enum_table: None,
             associated_table: None,
@@ -658,6 +676,7 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
+            current_constructor_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control,
             expected_return: None,
@@ -695,6 +714,13 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             field_signatures: None,
             field_lifecycle: None,
+            constructor_initializations: None,
+            callable_signatures: None,
+            constructor_parent_owner: None,
+            constructor_super_required: false,
+            constructor_super_prologue_allowed: false,
+            constructor_super_call_seen: false,
+            constructor_super_initializer: None,
             data_table: None,
             enum_table: None,
             associated_table: None,
@@ -732,6 +758,7 @@ impl<'a> CheckingContext<'a> {
             current_class: self.current_class.clone(),
             current_side: self.current_side,
             current_callable: self.current_callable.clone(),
+            current_constructor_owner: self.current_constructor_owner.clone(),
             internal_failure_policy: self.internal_failure_policy,
             control: self.control.clone(),
             expected_return: self.expected_return.clone(),
@@ -769,6 +796,13 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies: self.semantic_dependencies.clone(),
             field_signatures: self.field_signatures,
             field_lifecycle: self.field_lifecycle,
+            constructor_initializations: self.constructor_initializations,
+            callable_signatures: self.callable_signatures,
+            constructor_parent_owner: self.constructor_parent_owner.clone(),
+            constructor_super_required: self.constructor_super_required,
+            constructor_super_prologue_allowed: self.constructor_super_prologue_allowed,
+            constructor_super_call_seen: self.constructor_super_call_seen,
+            constructor_super_initializer: self.constructor_super_initializer.clone(),
             data_table: self.data_table,
             enum_table: self.enum_table,
             associated_table: self.associated_table,
@@ -920,6 +954,7 @@ impl<'a> CheckingContext<'a> {
                         contract: state.contract.clone(),
                         consistency: state.consistency.clone(),
                         mutable: state.mutable,
+                        initialization: state.initialization,
                     },
                 )
             })
@@ -1142,6 +1177,13 @@ impl<'a> CheckingContext<'a> {
 
     pub fn resolved_callable_for_current_expression(&self) -> Option<CallableId> {
         self.current_expression_id().and_then(|id| self.resolved_callables.get(&id).cloned())
+    }
+
+    pub(crate) fn record_explicit_callable_selection(&mut self, callable: &CallableId) {
+        self.dependencies.insert(callable.clone());
+        if let Some(expression) = self.current_expression_id() {
+            self.resolved_callables.insert(expression, callable.clone());
+        }
     }
 
     pub(crate) fn seed_stable_record_row_lacks(&mut self, facts: impl IntoIterator<Item = crate::checker::row_inference::StableRecordRowLack>) {
@@ -1611,6 +1653,7 @@ impl<'a> CheckingContext<'a> {
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
         analysis.explanation = explanation;
+        analysis.binding_read_safety = typed.binding_read_safety;
 
         self.expressions.insert(id, analysis.clone());
         analysis
@@ -1638,6 +1681,7 @@ impl<'a> CheckingContext<'a> {
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
+        analysis.binding_read_safety = typed.binding_read_safety;
     }
 
     pub(crate) fn take_call_specialization(&mut self, id: ExpressionId) -> Option<crate::checker::analysis::CallSpecialization> {
@@ -1790,6 +1834,7 @@ impl<'a> CheckingContext<'a> {
             denotation: None,
             causal_invalidity,
             mutable: false,
+            initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
         })
     }
 
@@ -1807,6 +1852,7 @@ impl<'a> CheckingContext<'a> {
             denotation: None,
             causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
             mutable: false,
+            initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
         })
     }
 
@@ -1820,6 +1866,7 @@ impl<'a> CheckingContext<'a> {
             denotation: None,
             causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
             mutable: false,
+            initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
         })
     }
 
@@ -1843,7 +1890,8 @@ impl<'a> CheckingContext<'a> {
             current: fact.knowledge,
             denotation: fact.denotation,
             causal_invalidity,
-            mutable: true,
+            mutable: false,
+            initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
         })
     }
 
@@ -1862,6 +1910,13 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn binding_is_in_current_scope(&self, binding: BindingId) -> bool {
         self.scopes.last().is_some_and(|scope| scope.values().any(|info| info.id == binding))
+    }
+
+    pub(crate) fn is_enclosing_closure_binding(&self, binding: BindingId) -> bool {
+        let Some(boundary) = self.closure_capture_frames.last().map(|(boundary, _)| *boundary) else {
+            return false;
+        };
+        self.scopes.iter().take(boundary).any(|scope| scope.values().any(|info| info.id == binding))
     }
 
     pub(crate) fn local_binding_type(&self, binding: BindingId) -> Option<&LocalType> {
@@ -2008,6 +2063,16 @@ impl<'a> CheckingContext<'a> {
     /// every query-owned callable's type contract is represented by its
     /// canonical `CallableSignature` product, including partial declarations.
     pub(crate) fn record_consumed_callable_signature(&self, callable: &CallableId, _signature: &crate::dispatch::CallableSignature) {
+        // Generated constructor signatures are canonical snapshot members but
+        // have no source CallableSignature query of their own. Their owner
+        // ConstructorInitialization product is the dependency authority.
+        if self
+            .constructor_initializations
+            .and_then(|products| products.get(callable))
+            .is_some_and(|product| product.origin != crate::signature::ConstructorOrigin::Source)
+        {
+            return;
+        }
         let Some(owner) = callable.try_declaration_owner() else {
             self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
             return;
@@ -2027,6 +2092,14 @@ impl<'a> CheckingContext<'a> {
     /// Attaches compiler-owned instance field lifecycle table.
     pub fn attach_field_lifecycle(&mut self, field_lifecycle: &'a crate::checker::field_lifecycle::FieldLifecycleTable) {
         self.field_lifecycle = Some(field_lifecycle);
+    }
+
+    pub fn attach_constructor_initializations(&mut self, products: &'a crate::signature::ConstructorInitializationTable) {
+        self.constructor_initializations = Some(products);
+    }
+
+    pub fn attach_callable_signatures(&mut self, signatures: &'a crate::signature::CallableSignatureTable) {
+        self.callable_signatures = Some(signatures);
     }
 
     /// Attaches compiler-owned data semantics table.
@@ -3051,14 +3124,51 @@ impl<'a> CheckingContext<'a> {
         Some(signature)
     }
 
+    /// Resolves the nearest declaration-owned field signature in the class
+    /// hierarchy, preserving the declaring field's canonical `FieldId`.
+    pub(crate) fn resolve_field_signature_in_hierarchy(
+        &self,
+        owner: &DeclarationId,
+        side: DispatchSide,
+        name: &str,
+    ) -> Option<&crate::signature::FieldSemanticSignature> {
+        let mut current = owner.clone();
+        let mut visited = BTreeSet::new();
+        while visited.insert(current.clone()) {
+            if let Some(signature) = self.resolve_field_signature(&current, side, name) {
+                return Some(signature);
+            }
+            let Some(parent) = self.hierarchy.superclass(&current) else {
+                break;
+            };
+            current = parent.clone();
+        }
+        None
+    }
+
+    pub(crate) fn resolve_field_contract_in_hierarchy(
+        &self,
+        owner: &DeclarationId,
+        side: DispatchSide,
+        name: &str,
+    ) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
+        let signature = self.resolve_field_signature_in_hierarchy(owner, side, name)?;
+        Some((signature.field.clone(), signature.declared_type.to_knowledge()))
+    }
+
     pub(crate) fn resolve_field_read(
         &self,
         owner: &DeclarationId,
         side: DispatchSide,
         name: &str,
     ) -> Option<(crate::identity::FieldId, TypeKnowledge, crate::checker::causal::CausalInvalidity)> {
-        let (field, contract) = self.resolve_field_contract(owner, side, name)?;
-        if self.current_class.as_ref() == Some(owner) && self.current_side == side {
+        let (field, contract) = self.resolve_field_contract_in_hierarchy(owner, side, name)?;
+        let checking_same_receiver_hierarchy = self.current_side == side
+            && self
+                .current_class
+                .as_ref()
+                .is_some_and(|current_class| self.hierarchy.is_subclass(current_class, &field.owner));
+        if checking_same_receiver_hierarchy {
             if let Some(state) = self.flow.get_field(&field) {
                 return Some((field, state.current.clone(), state.causal_invalidity));
             }
@@ -3236,6 +3346,7 @@ impl<'a> CheckingContext<'a> {
             return_explanation,
             dependencies: std::sync::Arc::from(self.dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
             semantic_dependencies: std::sync::Arc::from(semantic_dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
+            constructor_super_initializer: self.constructor_super_initializer,
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
         }

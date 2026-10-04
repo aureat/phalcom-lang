@@ -354,6 +354,14 @@ pub fn check_class_field_initializers(ctx: &mut CheckingContext<'_>, class_def: 
         let side = member_side(member);
         let old_side = ctx.current_side;
         ctx.current_side = side;
+        if side == crate::identity::DispatchSide::Class && !field.mutable && field.default.is_none() {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImmutableClassFieldRequiresInitializer,
+                format!("immutable class-side field `{}` requires a declaration initializer", field.name),
+                field.range,
+            ));
+        }
         if let Some(declared) = ctx.get_field(&decl_id, side, &field.name) {
             check_field_initializer_against_declared(ctx, field, &declared);
         }

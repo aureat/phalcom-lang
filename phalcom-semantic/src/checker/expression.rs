@@ -248,6 +248,36 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         if let Some(explanation) = state.explanation {
                             typed.explanation_parents.push(explanation);
                         }
+                        let is_cross_boundary = ctx.is_enclosing_closure_binding(binding_id);
+                        let safety = if is_cross_boundary {
+                            if state.mutable {
+                                crate::checker::flow::BindingReadSafety::RuntimeCheckRequired
+                            } else {
+                                crate::checker::flow::BindingReadSafety::ProvenInitialized
+                            }
+                        } else {
+                            match state.initialization {
+                                crate::checker::flow::InitializationState::DefinitelyInitialized => {
+                                    crate::checker::flow::BindingReadSafety::ProvenInitialized
+                                }
+                                crate::checker::flow::InitializationState::Uninitialized => {
+                                    let diag = crate::diagnostic::SemanticDiagnostic::error_in(
+                                        ctx.current_module.clone(),
+                                        DiagnosticCode::UninitializedBindingRead,
+                                        format!("binding `{value}` is read before it is initialized"),
+                                        *range,
+                                    );
+                                    if let Some(cause) = ctx.emit_diagnostic(diag) {
+                                        typed.invalidate(cause);
+                                    }
+                                    crate::checker::flow::BindingReadSafety::DefinitelyUninitialized
+                                }
+                                crate::checker::flow::InitializationState::MaybeInitialized => {
+                                    crate::checker::flow::BindingReadSafety::RuntimeCheckRequired
+                                }
+                            }
+                        };
+                        typed.binding_read_safety = Some(safety);
                     }
                 }
                 typed
@@ -345,7 +375,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 Expr::Field { value: field_name, .. } => ctx
                     .current_class
                     .clone()
-                    .and_then(|class_decl| ctx.get_field(&class_decl, ctx.current_side, field_name))
+                    .and_then(|class_decl| ctx.resolve_field_contract_in_hierarchy(&class_decl, ctx.current_side, field_name).map(|(_, field)| field))
                     .and_then(|field| field.ty().map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::AssignmentContract)))
                     .unwrap_or_default(),
                 _ => ExpectedType::None,
@@ -364,7 +394,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                                     ctx.current_module.clone(),
                                     DiagnosticCode::AssignmentToImmutable,
                                     format!(
-                                        "Cannot reassign immutable `const` binding `{}`; declare it with `let` to allow mutation.",
+                                        "cannot reassign immutable binding `{}`; declare it with `let mut` to allow mutation",
                                         var_name
                                     ),
                                     assign.range,
@@ -421,7 +451,45 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
             if let Expr::Field { value: field_name, .. } = &*assign.name {
                 if let Some(class_decl) = ctx.current_class.clone() {
-                    if let Some((field_id, field_k)) = ctx.resolve_field_contract(&class_decl, ctx.current_side, field_name) {
+                    if let Some((field_id, field_k)) = ctx.resolve_field_contract_in_hierarchy(&class_decl, ctx.current_side, field_name) {
+                        let mutable = ctx
+                            .resolve_field_signature(&field_id.owner, field_id.side, &field_id.name)
+                            .is_some_and(|signature| signature.mutable);
+                        if !mutable {
+                            let canonical_constructor = ctx.current_constructor_owner.as_ref() == Some(&field_id.owner)
+                                && field_id.side == crate::identity::DispatchSide::Instance;
+                            if !canonical_constructor {
+                                let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
+                                if let Some(cause) = ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                                    ctx.current_module.clone(),
+                                    DiagnosticCode::ImmutableFieldWriteOutsideConstruction,
+                                    format!("immutable field `{field_name}` may only be initialized in its canonical constructor"),
+                                    assign.range,
+                                )) {
+                                    result.invalidate(cause);
+                                }
+                                result.causal_invalidity = val_typed.causal_invalidity;
+                                return result;
+                            }
+                            let initialization = ctx
+                                .flow
+                                .get_field(&field_id)
+                                .map(|state| state.initialization)
+                                .unwrap_or(crate::checker::flow::FieldInitialization::Uninitialized);
+                            if initialization != crate::checker::flow::FieldInitialization::Uninitialized {
+                                let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
+                                if let Some(cause) = ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                                    ctx.current_module.clone(),
+                                    DiagnosticCode::ImmutableFieldAlreadyInitialized,
+                                    format!("immutable field `{field_name}` is already initialized"),
+                                    assign.range,
+                                )) {
+                                    result.invalidate(cause);
+                                }
+                                result.causal_invalidity = val_typed.causal_invalidity;
+                                return result;
+                            }
+                        }
                         if !ctx.check_local_type_escape(val_typed.local_type.as_ref(), field_k.ty(), &[], assign.range) {
                             val_typed.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
                             val_typed.local_type = None;
@@ -441,6 +509,18 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         ctx.write_current_field(field_id, field_k, reconciliation.current, reconciliation.validity, write_causal);
                         return result;
                     }
+
+                    let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
+                    if let Some(cause) = ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::FieldNotDeclared,
+                        format!("field '{field_name}' is not declared on '{}'", class_decl.name),
+                        assign.range,
+                    )) {
+                        result.invalidate(cause);
+                    }
+                    result.causal_invalidity = val_typed.causal_invalidity;
+                    return result;
                 }
             }
             TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range)
@@ -570,8 +650,15 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             ctx.throw_exit_flows = outer_throw_exits;
 
             // Constructing a closure does not execute its body. Keep facts
-            // produced while checking the captured body inside that body.
-            ctx.flow = outer_flow;
+            // produced while checking the captured body inside that body,
+            // but join initialization states of outer bindings written inside
+            // the closure (cross-boundary initialization: P1-INV §23.7).
+            let block_flow = std::mem::replace(&mut ctx.flow, outer_flow);
+            for (id, block_binding) in &block_flow.bindings {
+                if let Some(outer_binding) = ctx.flow.get_binding_mut(*id) {
+                    outer_binding.initialization = outer_binding.initialization.join(block_binding.initialization);
+                }
+            }
 
             // An inference-local callable is still inside its consuming
             // generic application. Preserve captured branch rigids until a
@@ -3122,9 +3209,117 @@ fn synthesize_family_value_call(
     }
 }
 
+/// Resolves a constructor-chain call from the canonical parent construction
+/// products. Source constructor bodies run instance-side, while their public
+/// factories and signatures are class-side; ordinary `super` dispatch cannot
+/// reconstruct this paired identity safely.
+fn synthesize_constructor_super_call(
+    ctx: &mut CheckingContext<'_>,
+    call: &MethodCallExpr,
+    premise: &CallPremise,
+    expected: &ExpectedType,
+) -> Option<TypedExpression> {
+    if call.method != "new"
+        || !matches!(&call.object, Expr::SuperVar { .. })
+        || ctx.current_constructor_owner.is_none()
+        || !ctx.constructor_super_required
+    {
+        return None;
+    }
+
+    if ctx.constructor_super_call_seen {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "a subclass constructor may call its parent initializer only once",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+    ctx.constructor_super_call_seen = true;
+    if !ctx.constructor_super_prologue_allowed {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "the parent initializer call must be the first statement in a subclass constructor",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+
+    let Some(parent) = ctx.constructor_parent_owner.clone() else {
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    };
+    let arguments = application_arguments(&call.args);
+    let slots = match static_call_shape(&arguments) {
+        StaticCallShape::Exact(slots) => slots,
+        StaticCallShape::Dynamic(_) => {
+            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ConstructorSuperInvalid,
+                "parent constructor selection requires a statically known argument shape",
+                call.range,
+            ));
+            return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+        }
+    };
+    let Ok(selector) = phalcom_common::selector::Selector::method("new", slots) else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "invalid parent constructor argument shape",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    };
+    let factory = crate::identity::CallableId::new(parent.clone(), selector, crate::identity::DispatchSide::Class);
+    let Some(product) = ctx.constructor_initializations.and_then(|products| products.get(&factory)).cloned() else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "no direct-parent constructor matches this `super.new(...)` call",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    };
+    let Some(semantic_signature) = ctx.callable_signatures.and_then(|signatures| signatures.get(&factory)).cloned() else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "the selected parent constructor has no canonical factory signature",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    };
+    if semantic_signature.callable != product.factory || semantic_signature.owner != parent || !semantic_signature.is_constructor() {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "the selected parent factory and initializer product are inconsistent",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+
+    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConstructorInitialization(parent));
+    ctx.record_explicit_callable_selection(&factory);
+    let projected_signature = crate::checker::declaration_signature::project_semantic_signature(&semantic_signature);
+    ctx.record_consumed_callable_signature(&factory, &projected_signature);
+    ctx.constructor_super_initializer = Some(crate::checker::analysis::ConstructorSuperCallResolution {
+        call_range: call.range,
+        initializer: product.initializer,
+    });
+    let target = CallableApplicationTarget::exact(factory, projected_signature);
+    Some(apply_resolved_callable(ctx, &target, premise, &arguments, expected, call.range).into())
+}
+
 fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, expected: &ExpectedType) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &call.object, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &recv_typed);
+
+    if let Some(typed) = synthesize_constructor_super_call(ctx, call, &premise, expected) {
+        return typed;
+    }
 
     if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected, &recv_typed) {
         typed.causal_invalidity = typed.causal_invalidity.join(recv_typed.causal_invalidity);

@@ -33,7 +33,7 @@ fn loop_join_includes_preheader_and_body_types() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let x: Number = 1
+    let mut x: Number = 1
     while flag {
       x = 2.5
     }
@@ -62,7 +62,7 @@ fn break_and_continue_preserve_loop_exit_and_backedge_facts() {
 class Probe {
   @class
   run(_ skip: Bool) {
-    let x = 1
+    let mut x = 1
     for n in [1, 2, 3] {
       if skip {
         x = "continued"
@@ -112,7 +112,7 @@ fn captured_block_write_is_not_applied_until_execution_is_proven() {
 class Probe {
   @class
   run() {
-    let x = 1
+    let mut x = 1
     let action = || {
       x = "changed"
     }
@@ -134,8 +134,8 @@ fn loop_fixpoint_preserves_mutated_integer_and_abrupt_edges() {
 class Probe {
   @class
   run(_ limit: Int) -> Int {
-    let total = 0
-    let i = 0
+    let mut total = 0
+    let mut i = 0
     while (i < limit) {
       i = i + 1
       if (i == 2) { continue }
@@ -184,7 +184,7 @@ fn continue_state_feeds_header_not_direct_post_loop_exit() {
 class Probe {
   @class
   run(_ keepGoing: Bool, _ skip: Bool) {
-    let x = 1
+    let mut x = 1
     while keepGoing {
       if skip {
         x = "continued"
@@ -216,7 +216,7 @@ fn statement_after_continue_never_contributes_loop_fact() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let x = 1
+    let mut x = 1
     while flag {
       x = "seen"
       continue
@@ -241,7 +241,7 @@ fn statement_after_break_never_contributes_loop_fact() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let x = 1
+    let mut x = 1
     while flag {
       x = "seen"
       break
@@ -266,7 +266,7 @@ fn while_let_is_cyclic_with_scoped_pattern_bindings() {
 class Probe {
   @class
   run(_ opt: Int) {
-    let x = 1
+    let mut x = 1
     while let n = opt {
       x = "seen"
     }
@@ -288,7 +288,7 @@ fn nested_loop_target_ownership() {
 class Probe {
   @class
   run(_ outer: Bool, _ inner: Bool, _ skip: Bool, _ keepInner: Bool) {
-    let x: Object = 1
+    let mut x: Object = 1
     while outer {
       while inner {
         x = "inner-break"
@@ -327,7 +327,7 @@ fn all_abrupt_loop_body_yields_false_condition_exit() {
 class Probe {
   @class
   run(_ flag: Bool) -> Object {
-    let x: Object = 1
+    let mut x: Object = 1
     while flag {
       x = "returning"
       return 42
@@ -353,7 +353,7 @@ class Counter {
 
   init() {
     self._val = 0
-    let count = 0
+    let mut count = 0
     while (count < 3) {
       count = count + 1
       self._val = self._val + 1

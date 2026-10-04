@@ -504,10 +504,20 @@ pub struct DetachedMethodSpec {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleLoweringSemantics {
     pub module: ModuleId,
+    /// Canonical callable signatures used to materialize compiler-only
+    /// constructor projections without rebuilding signature authority.
+    pub callable_signatures: Arc<phalcom_semantic::signature::CallableSignatureTable>,
+    /// Canonical constructor/initializer identities shared by semantic checking and code generation.
+    pub constructor_initializations: Arc<phalcom_semantic::signature::ConstructorInitializationTable>,
+    /// Semantic direct-parent initializer selections keyed by their exact
+    /// explicit `super` call sites.
+    pub constructor_super_initializers: BTreeMap<SourceRange, CallableId>,
     /// Canonical local-binding attachments keyed by their current source
     /// ranges. The compiler may use these facts to classify AST uses, but it
     /// never resolves names or scopes independently.
     pub bindings: BTreeMap<SourceRange, BindingId>,
+    /// Read safety classifications for binding reads published by static flow analysis.
+    pub binding_read_safeties: BTreeMap<SourceRange, phalcom_semantic::checker::flow::BindingReadSafety>,
     pub type_form_values: BTreeMap<SourceRange, RuntimeTypeFormValueSpec>,
     pub anonymous_products: BTreeMap<SourceRange, Arc<AnonymousProductConstructionLoweringSpec>>,
     pub call_environment_recipes: BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
@@ -566,7 +576,11 @@ impl ModuleLoweringSemantics {
     pub fn new(module: ModuleId) -> Self {
         Self {
             module,
+            callable_signatures: Arc::new(phalcom_semantic::signature::CallableSignatureTable::default()),
+            constructor_initializations: Arc::new(phalcom_semantic::signature::ConstructorInitializationTable::default()),
+            constructor_super_initializers: BTreeMap::new(),
             bindings: BTreeMap::new(),
+            binding_read_safeties: BTreeMap::new(),
             type_form_values: BTreeMap::new(),
             anonymous_products: BTreeMap::new(),
             call_environment_recipes: BTreeMap::new(),
@@ -601,6 +615,8 @@ pub enum ProjectionError {
     DataTypeMetadata(String),
     #[error("ambiguous lowering site attachment at {0:?}")]
     AmbiguousLoweringSiteAttachment(LoweringSite),
+    #[error("ambiguous constructor super-initializer attachment at {0:?}")]
+    AmbiguousConstructorSuperInitializerAttachment(SourceRange),
     #[error("missing source range for expression {0:?}")]
     MissingSourceRange(ExpressionId),
     #[error("missing variant metadata for {0:?}")]
@@ -873,6 +889,22 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         SourceId(module.to_string().into_boxed_str())
     };
 
+    let mut constructor_super_initializers = BTreeMap::new();
+    for (callable, analysis) in snapshot.callable_analyses.iter() {
+        if *callable.owner.module() != *module {
+            continue;
+        }
+        let Some(resolution) = analysis.constructor_super_initializer.as_ref() else {
+            continue;
+        };
+        if constructor_super_initializers
+            .insert(resolution.call_range, resolution.initializer.clone())
+            .is_some()
+        {
+            return Err(ProjectionError::AmbiguousConstructorSuperInitializerAttachment(resolution.call_range));
+        }
+    }
+
     // Project canonical binding identity once at the semantic/codegen
     // boundary. Declaration sites come from the formal callable attachment;
     // variable occurrences come from the source-index target attachments.
@@ -903,6 +935,18 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 if let Some(binding) = binding_by_site.get(site) {
                     bindings.insert(occurrence.range, *binding);
                 }
+            }
+        }
+    }
+
+    let mut binding_read_safeties = BTreeMap::new();
+    for (callable_id, analysis) in snapshot.callable_analyses.iter() {
+        if *callable_id.owner.module() != *module {
+            continue;
+        }
+        for expr in analysis.expressions.values() {
+            if let Some(safety) = expr.binding_read_safety {
+                binding_read_safeties.insert(expr.range, safety);
             }
         }
     }
@@ -1474,7 +1518,11 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
 
     Ok(ModuleLoweringSemantics {
         module: module.clone(),
+        callable_signatures: snapshot.callable_signatures.clone(),
+        constructor_initializations: snapshot.constructor_initializations.clone(),
+        constructor_super_initializers,
         bindings,
+        binding_read_safeties,
         type_form_values,
         anonymous_products,
         call_environment_recipes: runtime_call_environment_recipes.clone(),

@@ -50,6 +50,7 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         return_explanation: None,
         dependencies: Arc::from(dependencies),
         semantic_dependencies: Arc::from([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     }
@@ -81,6 +82,7 @@ fn test_interprocedural_effect_propagation() {
             causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,
             explanation: None,
             call: None,
+            binding_read_safety: None,
         },
     );
     let leaf = mock_callable(leaf_id.clone(), leaf_exprs, vec![]);

@@ -298,6 +298,11 @@ impl Value {
     pub fn value_eq(&self, other: &Value, heap: &crate::heap::Heap) -> bool {
         use crate::heap::Object;
 
+        debug_assert!(!self.is_uninitialized_binding() && !other.is_uninitialized_binding(), "uninitialized binding reached value_eq");
+        if self.is_uninitialized_binding() || other.is_uninitialized_binding() {
+            return false;
+        }
+
         if self.is_option() || other.is_option() {
             if self.option_depth() != other.option_depth() {
                 return false;

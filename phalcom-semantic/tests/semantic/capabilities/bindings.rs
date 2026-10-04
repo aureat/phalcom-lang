@@ -35,7 +35,7 @@ fn broad_contract_survives_narrow_initializer_and_later_refuted_write() {
 class Probe {
   @class
   run() {
-    let value: Number = 1
+    let mut value: Number = 1
     value = "bad"
     let observed = value
   }
@@ -60,7 +60,7 @@ fn invalid_assignment_preserves_actual_evidence_for_downstream_reads() {
 class Probe {
   @class
   run() {
-    let value: Number = 1
+    let mut value: Number = 1
     value = "bad"
     let observed = value
   }
@@ -193,4 +193,129 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Class);
     f.assert_binding_expectation(run, "number", binding().current(known(int_ty)));
     f.assert_binding_expectation(run, "text", binding().current(known(string_ty)));
+}
+
+#[test]
+fn let_binding_is_immutable() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let x = 10
+    x = 20
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let x = f.binding(run, "x");
+    assert!(!x.mutable);
+    assert_eq!(f.diagnostics(phalcom_semantic::DiagnosticCode::AssignmentToImmutable).len(), 1);
+}
+
+#[test]
+fn let_mut_binding_is_mutable() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let mut x = 10
+    x = 20
+    let y = x
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let x = f.binding(run, "x");
+    assert!(x.mutable);
+    f.assert_no_error_diagnostics();
+    let int_ty = f.ty("Int");
+    f.assert_binding_type(run, "y", int_ty);
+}
+
+#[test]
+fn definitely_uninitialized_binding_read_is_diagnostic() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let mut x: Int
+    let observed = x
+  }
+}
+"#,
+    );
+
+    assert_eq!(f.diagnostics(phalcom_semantic::DiagnosticCode::UninitializedBindingRead).len(), 1);
+}
+
+#[test]
+fn source_index_reports_let_mut_only_as_mutable() {
+    let source = r#"
+let top_imm = 1
+let mut top_mut = 2
+const top_const = 3
+
+class Foo {
+  method(param: Int) {
+    let loc_imm = 4
+    let mut loc_mut = 5
+    const loc_const = 6
+    for i in [1, 2] {
+      let inner = i
+    }
+  }
+}
+"#;
+    let parsed = phalcom_ast::parser::parse(source, 0);
+    assert!(parsed.errors.is_empty());
+    let index = phalcom_semantic::source_index::build_source_scope_index(
+        phalcom_semantic::identity::ModuleId::universe_root(),
+        &parsed.program,
+        &phalcom_semantic::source_index::SourceIndexContext::default(),
+    );
+
+    let find = |name: &str| {
+        index
+            .bindings
+            .values()
+            .find(|b| b.name.as_ref() == name)
+            .unwrap_or_else(|| panic!("binding {} not found", name))
+    };
+
+    let top_imm = find("top_imm");
+    assert_eq!(top_imm.kind, phalcom_semantic::source_index::SourceBindingKind::TopLevelLet);
+    assert!(!top_imm.mutable);
+
+    let top_mut = find("top_mut");
+    assert_eq!(top_mut.kind, phalcom_semantic::source_index::SourceBindingKind::TopLevelLetMut);
+    assert!(top_mut.mutable);
+
+    let top_const = find("top_const");
+    assert_eq!(top_const.kind, phalcom_semantic::source_index::SourceBindingKind::TopLevelConst);
+    assert!(!top_const.mutable);
+
+    let loc_imm = find("loc_imm");
+    assert_eq!(loc_imm.kind, phalcom_semantic::source_index::SourceBindingKind::LocalLet);
+    assert!(!loc_imm.mutable);
+
+    let loc_mut = find("loc_mut");
+    assert_eq!(loc_mut.kind, phalcom_semantic::source_index::SourceBindingKind::LocalLetMut);
+    assert!(loc_mut.mutable);
+
+    let loc_const = find("loc_const");
+    assert_eq!(loc_const.kind, phalcom_semantic::source_index::SourceBindingKind::LocalConst);
+    assert!(!loc_const.mutable);
+
+    let param = find("param");
+    assert_eq!(param.kind, phalcom_semantic::source_index::SourceBindingKind::MethodParameter);
+    assert!(!param.mutable);
+
+    let loop_var = find("i");
+    assert_eq!(loop_var.kind, phalcom_semantic::source_index::SourceBindingKind::ForBinding);
+    assert!(!loop_var.mutable);
 }

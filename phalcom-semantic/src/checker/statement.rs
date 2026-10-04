@@ -39,12 +39,16 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 .and_then(TypeKnowledge::ty)
                 .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract))
                 .unwrap_or_default();
-            let mut val_typed = if let Some(expr) = &binding.value {
-                analyze_expression(ctx, expr, &expected_init)
+            let (mut val_typed, init_state) = if let Some(expr) = &binding.value {
+                (analyze_expression(ctx, expr, &expected_init), crate::checker::flow::InitializationState::DefinitelyInitialized)
             } else {
-                if binding.kind == BindingKind::Const || !matches!(binding.pattern, Pattern::Name { .. }) {
+                if binding.kind.requires_initializer() || !matches!(binding.pattern, Pattern::Name { .. }) {
                     let message = if matches!(binding.pattern, Pattern::Name { .. }) {
-                        "const binding requires an initializer"
+                        match binding.kind {
+                            BindingKind::Const => "const binding requires an initializer",
+                            BindingKind::Let => "let binding requires an initializer",
+                            BindingKind::LetMut => "uninitialized binding requires an initializer",
+                        }
                     } else {
                         "a destructuring let/const pattern requires an initializer to unpack"
                     };
@@ -55,7 +59,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                         binding.range,
                     ));
                 }
-                TypedExpression::unknown(UnknownReason::MissingInitializer)
+                (TypedExpression::unknown(UnknownReason::MissingInitializer), crate::checker::flow::InitializationState::Uninitialized)
             };
 
             let contract = if let Some(declared_k) = declared_k.as_ref().and_then(TypeKnowledge::ty) {
@@ -152,7 +156,8 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 },
                 contract,
                 causal_invalidity,
-                binding.kind == BindingKind::Let,
+                binding.kind.is_mutable(),
+                init_state,
                 binding.range,
                 val_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)),
                 val_typed.local_type.clone(),
@@ -399,6 +404,7 @@ fn bind_declaration_pattern(
     contract: Option<BindingContract>,
     causal_invalidity: crate::checker::causal::CausalInvalidity,
     mutable: bool,
+    initialization: crate::checker::flow::InitializationState,
     range: phalcom_common::range::SourceRange,
     explanation: Option<crate::identity::ExplanationId>,
     local_type: Option<LocalType>,
@@ -415,6 +421,7 @@ fn bind_declaration_pattern(
                 denotation: fact.denotation,
                 causal_invalidity,
                 mutable,
+                initialization,
             });
             let (binding_id, inserted) = match result {
                 crate::checker::binding::BindingDeclarationResult::Inserted(binding) => (binding, true),
@@ -454,6 +461,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    initialization,
                     range,
                     component_explanation,
                     local_type.as_ref().and_then(|local| match local {
@@ -476,6 +484,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    initialization,
                     range,
                     explanation,
                     local_type.as_ref().and_then(local_list_element),
@@ -492,6 +501,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    initialization,
                     range,
                     explanation,
                     local_type.clone(),
@@ -520,6 +530,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    initialization,
                     range,
                     explanation,
                     None,
@@ -551,6 +562,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    initialization,
                     range,
                     explanation,
                     None,

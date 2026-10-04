@@ -47,6 +47,8 @@ mod data_e2e;
 mod data_runtime;
 #[path = "derived_conformance.rs"]
 mod derived_conformance;
+#[path = "field_lifecycle.rs"]
+mod field_lifecycle;
 #[path = "generic_conformance.rs"]
 mod generic_conformance;
 #[path = "golden.rs"]

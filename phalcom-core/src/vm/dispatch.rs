@@ -2051,6 +2051,7 @@ impl VM {
                 // surfaced to immediate `None` at reads (see the `Get*` handlers and
                 // `surface_absence`). See [`Bytecode::Nil`]'s rustdoc.
                 Bytecode::Nil => self.stack.push(self.none_value()),
+                Bytecode::UninitializedBinding => self.stack.push(Value::uninitialized_binding()),
                 Bytecode::True => self.stack.push(TRUE),
                 Bytecode::False => self.stack.push(FALSE),
                 Bytecode::Pop => {
@@ -2081,6 +2082,10 @@ impl VM {
                             && hit.version == version
                             && let Some(value) = self.heap.module(hit.module).get_by_slot(hit.slot)
                         {
+                            if value.is_uninitialized_binding() {
+                                let name = self.resolve_symbol(name_sym).to_string();
+                                return Err(RuntimeError::UninitializedBinding { name }.into());
+                            }
                             let value = self.surface_absence(value);
                             self.stack.push(value);
                             continue;
@@ -2101,9 +2106,56 @@ impl VM {
                         }));
 
                         let value = self.heap.module(resolved_module).get_by_slot(slot).expect("resolved slot");
+                        if value.is_uninitialized_binding() {
+                            let name = self.resolve_symbol(name_sym).to_string();
+                            return Err(RuntimeError::UninitializedBinding { name }.into());
+                        }
                         // A declared-but-unassigned global holds the private
                         // sentinel (module slots initialize to `Value::Nil`);
                         // surface it as `None` on read.
+                        let value = self.surface_absence(value);
+                        self.stack.push(value);
+                    }
+                }
+                Bytecode::GetGlobalChecked(idx) => {
+                    let name_val = callable.chunk.constants[idx as usize];
+                    if let Some(name_sym) = name_val.symbol_value() {
+                        let module_id = self.heap.closure(closure_id).module;
+                        let version = self.heap.module(module_id).globals_version;
+
+                        let cached = callable.chunk.gcaches[ip].get();
+                        if let Some(hit) = cached
+                            && hit.version == version
+                            && let Some(value) = self.heap.module(hit.module).get_by_slot(hit.slot)
+                        {
+                            if value.is_uninitialized_binding() {
+                                let name = self.resolve_symbol(name_sym).to_string();
+                                return Err(RuntimeError::UninitializedBinding { name }.into());
+                            }
+                            let value = self.surface_absence(value);
+                            self.stack.push(value);
+                            continue;
+                        }
+
+                        let (resolved_module, slot) = match self.heap.module(module_id).slot_of(name_sym) {
+                            Some(slot) => (module_id, slot),
+                            None => {
+                                let name = self.resolve_symbol(name_sym).to_string();
+                                return Err(RuntimeError::UndefinedVariable { name }.into());
+                            }
+                        };
+
+                        callable.chunk.gcaches[ip].set(Some(crate::chunk::GlobalCache {
+                            module: resolved_module,
+                            slot,
+                            version,
+                        }));
+
+                        let value = self.heap.module(resolved_module).get_by_slot(slot).expect("resolved slot");
+                        if value.is_uninitialized_binding() {
+                            let name = self.resolve_symbol(name_sym).to_string();
+                            return Err(RuntimeError::UninitializedBinding { name }.into());
+                        }
                         let value = self.surface_absence(value);
                         self.stack.push(value);
                     }
@@ -2146,9 +2198,20 @@ impl VM {
                 Bytecode::GetLocal(slot) => {
                     let local_idx = stack_offset + slot as usize;
                     if local_idx < self.stack.len() {
-                        // An uninitialized `var` slot is backed by the private
-                        // sentinel; surface it as `None` on read (Invariant 4).
-                        let value = self.surface_absence(self.stack[local_idx]);
+                        self.stack.push(self.stack[local_idx]);
+                    } else {
+                        return Err(RuntimeError::Internal(format!("Local variable slot {slot} out of bounds")).into());
+                    }
+                }
+                Bytecode::GetLocalChecked(slot, name_idx) => {
+                    let local_idx = stack_offset + slot as usize;
+                    if local_idx < self.stack.len() {
+                        let value = self.stack[local_idx];
+                        if value.is_uninitialized_binding() {
+                            let name_val = callable.chunk.constants[name_idx as usize];
+                            let name = name_val.symbol_value().map(|s| self.resolve_symbol(s).to_string()).unwrap_or_else(|| "variable".to_string());
+                            return Err(RuntimeError::UninitializedBinding { name }.into());
+                        }
                         self.stack.push(value);
                     } else {
                         return Err(RuntimeError::Internal(format!("Local variable slot {slot} out of bounds")).into());
@@ -2495,6 +2558,46 @@ impl VM {
                         .into());
                     }
                 }
+                Bytecode::GetFieldChecked(slot, name_idx) => {
+                    let receiver = self.stack.pop().ok_or("Stack underflow for GetFieldChecked receiver")?;
+                    if let Some(guard) = self.frames.last().and_then(|frame| frame.foreign_receiver_guard) {
+                        self.guard_foreign_layout_access(receiver, guard)?;
+                    }
+                    let Some(id) = receiver.as_obj() else {
+                        let mut val_str = receiver.to_string(self);
+                        if val_str.chars().count() > 40 {
+                            val_str = val_str.chars().take(40).collect();
+                        }
+                        return Err(RuntimeError::AccessFieldsNonInstance {
+                            value: val_str,
+                            found: receiver.type_name(),
+                        }
+                        .into());
+                    };
+                    let value = if let Some(instance) = self.heap.as_instance(id) {
+                        instance.slots.get(slot as usize).copied().unwrap_or(Value::nil())
+                    } else if let Some(class) = self.heap.as_class(id) {
+                        class.static_slots.get(slot as usize).copied().unwrap_or(Value::nil())
+                    } else if matches!(self.heap.get(id), Object::AdtCase(_)) {
+                        self.case_payload_at(receiver, slot as usize)?
+                    } else {
+                        let mut val_str = receiver.to_string(self);
+                        if val_str.chars().count() > 40 {
+                            val_str = val_str.chars().take(40).collect();
+                        }
+                        return Err(RuntimeError::AccessFieldsNonInstance {
+                            value: val_str,
+                            found: receiver.type_name(),
+                        }
+                        .into());
+                    };
+                    if value.is_uninitialized_binding() {
+                        let name_val = callable.chunk.constants[name_idx as usize];
+                        let name = name_val.symbol_value().map(|symbol| self.resolve_symbol(symbol).to_string()).unwrap_or_else(|| "field".to_string());
+                        return Err(RuntimeError::UninitializedField { name }.into());
+                    }
+                    self.stack.push(self.surface_absence(value));
+                }
                 Bytecode::SetField(slot) => {
                     let value_to_assign = self.stack.pop().ok_or("Stack underflow on field assignment")?;
                     let receiver = self.stack.pop().ok_or("Stack underflow for SetField receiver")?;
@@ -2551,8 +2654,7 @@ impl VM {
                             return Err(RuntimeError::DirectEnumRootInstantiation.into());
                         }
                         if self.heap.as_class(class_id).is_some() {
-                            let field_count = self.heap.class(class_id).field_count;
-                            let instance_ref = self.heap.alloc(Object::Instance(crate::heap::InstanceObject::new(class_id, field_count)));
+                            let instance_ref = self.allocate_class_instance(class_id);
                             self.stack.push(Value::obj(instance_ref));
                         } else if self.heap.as_instance(class_id).is_some() {
                             // Super-construct (U-INH §3.5): a parent initializer
@@ -3000,7 +3102,7 @@ impl VM {
                     if local_idx >= self.stack.len() {
                         return Err(RuntimeError::Internal(format!("Local variable slot {slot} out of bounds")).into());
                     }
-                    let value = self.surface_absence(self.stack[local_idx]);
+                    let value = self.stack[local_idx];
                     self.stack.push(value);
                     self.frames.last_mut().unwrap().ip += 1;
                     self.invoke_at(callable, ip + 1, arity, selector_idx, None)?;
@@ -3026,7 +3128,29 @@ impl VM {
                         }
                         Upvalue::Closed(value) => value,
                     };
-                    // A captured-but-uninitialized `var` cell surfaces as `None`.
+                    if value.is_uninitialized_binding() {
+                        return Err(RuntimeError::UninitializedBinding { name: "captured variable".into() }.into());
+                    }
+                    let value = self.surface_absence(value);
+                    self.stack.push(value);
+                }
+                Bytecode::GetUpvalueChecked(idx, name_idx) => {
+                    let cell = self.heap.closure(closure_id).upvalues[idx as usize];
+                    let value = match *self.heap.upvalue(cell) {
+                        Upvalue::Open { fiber, slot } => {
+                            if fiber == self.current {
+                                self.stack[slot]
+                            } else {
+                                self.heap.fiber(fiber).stack[slot]
+                            }
+                        }
+                        Upvalue::Closed(value) => value,
+                    };
+                    if value.is_uninitialized_binding() {
+                        let name_val = callable.chunk.constants[name_idx as usize];
+                        let name = name_val.symbol_value().map(|s| self.resolve_symbol(s).to_string()).unwrap_or_else(|| "captured variable".to_string());
+                        return Err(RuntimeError::UninitializedBinding { name }.into());
+                    }
                     let value = self.surface_absence(value);
                     self.stack.push(value);
                 }

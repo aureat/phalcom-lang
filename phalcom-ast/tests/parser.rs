@@ -250,7 +250,7 @@ fn parser_retains_exact_written_binding_and_parameter_ranges() {
 
 #[test]
 fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
-    let source = "class Sample {\n  const _field\n}\n";
+    let source = "class Sample {\n  _field\n}\n";
     let program = parse_source(source, 0).expect("field class parses");
     let Statement::Class(class) = &program.statements[0] else {
         panic!("expected class");

@@ -111,6 +111,11 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "InvokeTraitRequirement",
     "MakeTraitBoundMethod",
     "GetDataProductSlot",
+    "UninitializedBinding",
+    "GetLocalChecked",
+    "GetUpvalueChecked",
+    "GetGlobalChecked",
+    "GetFieldChecked",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -189,6 +194,10 @@ pub enum Bytecode {
     /// Pushes the value of an instance field onto the stack.
     /// 0: The slot offset of the field in the receiver's slots array (ADR-0011).
     GetField(u16),
+
+    /// Pushes an immutable field after checking its private initialization sentinel.
+    /// 0: field slot; 1: field-name symbol constant for the diagnostic.
+    GetFieldChecked(u16, u16),
 
     /// Sets the value of an instance field of the receiver.
     /// 0: The slot offset of the field in the receiver's slots array (ADR-0011).
@@ -719,12 +728,27 @@ pub enum Bytecode {
         kind: FamilySpecKind,
         conditional: u16,
     },
+
+    /// Pushes the uninitialized-binding sentinel onto the stack.
+    UninitializedBinding,
+
+    /// Pushes local variable by slot index after asserting it is not uninitialized.
+    /// 0: slot index, 1: name symbol constant index.
+    GetLocalChecked(u16, u16),
+
+    /// Pushes upvalue by index after asserting it is not uninitialized.
+    /// 0: upvalue index, 1: name symbol constant index.
+    GetUpvalueChecked(u16, u16),
+
+    /// Pushes global variable by name constant index after asserting it is not uninitialized.
+    /// 0: name symbol constant index.
+    GetGlobalChecked(u16),
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 107;
+    pub const VARIANTS: usize = 112;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -842,6 +866,11 @@ impl Bytecode {
             Bytecode::InvokeTraitRequirement { .. } => 103,
             Bytecode::MakeTraitBoundMethod(..) => 104,
             Bytecode::GetDataProductSlot(..) => 106,
+            Bytecode::UninitializedBinding => 107,
+            Bytecode::GetLocalChecked(..) => 108,
+            Bytecode::GetUpvalueChecked(..) => 109,
+            Bytecode::GetGlobalChecked(..) => 110,
+            Bytecode::GetFieldChecked(..) => 111,
         }
     }
 

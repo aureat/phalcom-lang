@@ -36,6 +36,7 @@ pub struct TypedExpression {
     /// Query-local type view. Never copied into durable expression metadata.
     pub(crate) local_type: Option<LocalType>,
     pub(crate) symbolic_result: Option<SymbolicInferenceResult>,
+    pub binding_read_safety: Option<crate::checker::flow::BindingReadSafety>,
 }
 
 impl TypedExpression {
@@ -83,6 +84,7 @@ impl TypedExpression {
             causal_invalidity: CausalInvalidity::Clean,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -103,6 +105,7 @@ impl TypedExpression {
             causal_invalidity: CausalInvalidity::Clean,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -123,6 +126,7 @@ impl TypedExpression {
             causal_invalidity: CausalInvalidity::Clean,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -140,6 +144,7 @@ impl TypedExpression {
             causal_invalidity: CausalInvalidity::Clean,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -157,6 +162,7 @@ impl TypedExpression {
             causal_invalidity: CausalInvalidity::Clean,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -197,6 +203,11 @@ impl TypedExpression {
         self
     }
 
+    pub fn with_binding_read_safety(mut self, safety: crate::checker::flow::BindingReadSafety) -> Self {
+        self.binding_read_safety = Some(safety);
+        self
+    }
+
     pub fn ty(&self) -> Option<TypeId> {
         self.knowledge.ty()
     }
@@ -231,6 +242,7 @@ impl From<crate::checker::analysis::ExpressionAnalysis> for TypedExpression {
         expr.denotation = analysis.denotation;
         expr.status = analysis.status;
         expr.causal_invalidity = analysis.causal_invalidity;
+        expr.binding_read_safety = analysis.binding_read_safety;
         expr
     }
 }

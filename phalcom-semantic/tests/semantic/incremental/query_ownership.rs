@@ -314,6 +314,8 @@ class Owner {
         type_aliases: &type_aliases,
         field_signatures: None,
         field_lifecycle: None,
+        constructor_initializations: None,
+        callable_signatures: None,
         enum_semantics: None,
         data_semantics: None,
         associated_families: None,

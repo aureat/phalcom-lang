@@ -132,7 +132,8 @@ pub use scope::ScopeTable;
 pub use semantic_shard::ModuleSemanticStructureShard;
 pub use session::{SemanticPublicationEffects, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 pub use signature::{
-    CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation,
+    CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, ConstructorInitializationProduct, ConstructorInitializationTable,
+    ConstructorOrigin, ConstructorParameterField, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation,
 };
 pub use snapshot::{ModuleQueryProducts, SemanticSnapshot};
 pub use source_index::{

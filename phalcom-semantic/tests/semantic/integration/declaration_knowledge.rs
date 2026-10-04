@@ -49,7 +49,7 @@ class Probe {
     _value: String
 
     @class
-    const _shared
+    _shared: Int = 0
 }
 "#,
     );

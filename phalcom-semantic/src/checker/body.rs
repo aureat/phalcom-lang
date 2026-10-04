@@ -71,6 +71,8 @@ pub struct CallableBodyRequest<'a> {
     pub cancel: &'a CancellationToken,
     pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
     pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub constructor_initializations: Option<&'a crate::signature::ConstructorInitializationTable>,
+    pub callable_signatures: Option<&'a crate::signature::CallableSignatureTable>,
     pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub data_semantics: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
@@ -102,6 +104,8 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         cancel,
         field_signatures,
         field_lifecycle,
+        constructor_initializations,
+        callable_signatures,
         enum_semantics,
         data_semantics,
         associated_families,
@@ -228,6 +232,12 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     if let Some(field_lifecycle) = field_lifecycle {
         ctx.attach_field_lifecycle(field_lifecycle);
     }
+    if let Some(constructor_initializations) = constructor_initializations {
+        ctx.attach_constructor_initializations(constructor_initializations);
+    }
+    if let Some(callable_signatures) = callable_signatures {
+        ctx.attach_callable_signatures(callable_signatures);
+    }
     if let Some(enum_semantics) = enum_semantics {
         ctx.attach_enum_semantics(enum_semantics);
     }
@@ -252,8 +262,36 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     // Bind parameters and the constraining return requirement from the exact
     // canonical declaration signature. `inferred_return` is deliberately not
     // consulted here; a body-derived result can never become its own premise.
-    let constructor_body = declared_signature
-        .is_some_and(|(signature_id, _)| callable.side == crate::identity::DispatchSide::Instance && signature_id.side == crate::identity::DispatchSide::Class);
+    let constructor_owner = declared_signature.and_then(|(signature_id, signature)| {
+        let owner = callable.try_declaration_owner()?;
+        (signature.is_constructor()
+            && signature.callable == *signature_id
+            && signature.owner == *owner
+            && signature.selector == callable.selector
+            && signature_id.selector == signature.selector
+            && signature_id.try_declaration_owner() == Some(&signature.owner)
+            && signature_id.side == crate::identity::DispatchSide::Class
+            && callable.side == crate::identity::DispatchSide::Instance)
+            .then(|| signature.owner.clone())
+    });
+    let constructor_body = constructor_owner.is_some();
+    ctx.current_constructor_owner = constructor_owner.clone();
+    if let (Some(owner), Some(products)) = (constructor_owner.as_ref(), constructor_initializations) {
+        if let Some(parent) = hierarchy.superclass(owner).cloned() {
+            ctx.constructor_parent_owner = Some(parent.clone());
+            ctx.constructor_super_required = products.iter().any(|(factory, _)| factory.owner == parent);
+            ctx.constructor_super_prologue_allowed = match body.first() {
+                Some(Statement::Expr { expr: phalcom_ast::ast::Expr::MethodCall(call), .. }) => {
+                    call.method == "new" && matches!(&call.object, phalcom_ast::ast::Expr::SuperVar { .. })
+                }
+                _ => false,
+            };
+            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::HierarchyEdge(owner.clone()));
+            // Publish the empty owner product too: a parent gaining its first
+            // constructor must refresh this subclass body.
+            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConstructorInitialization(parent));
+        }
+    }
     let setter_body = matches!(
         callable.selector.kind,
         phalcom_common::selector::SelectorKind::Setter | phalcom_common::selector::SelectorKind::SubscriptSet
@@ -458,6 +496,46 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
             direct_result_dependency: None,
         };
         ctx.record_return_exit(fact);
+    }
+
+    if status == CallableAnalysisStatus::Complete {
+        if let (Some(owner), Some(field_signatures)) = (constructor_owner.as_ref(), field_signatures) {
+            let exits = ctx.normal_return_exits();
+            if !exits.is_empty() {
+                let immutable_fields = field_signatures
+                    .iter()
+                    .filter(|(field_id, signature)| field_id.owner == *owner && field_id.side == crate::identity::DispatchSide::Instance && !signature.mutable)
+                    .map(|(field_id, signature)| (field_id.clone(), signature.name.to_string()))
+                    .collect::<Vec<_>>();
+                for (field_id, name) in immutable_fields {
+                    // Record the declaration-owned signature dependency so an
+                    // incremental field edit invalidates this constructor fact.
+                    let _ = ctx.resolve_field_signature(&field_id.owner, field_id.side, &name);
+                    let initialized_on_every_exit = ctx.normal_return_exits().iter().all(|exit| {
+                        exit.flow.fields.get(&field_id).is_some_and(|state| {
+                            state.initialization == crate::checker::flow::FieldInitialization::DefinitelyInitialized
+                        })
+                    });
+                    if !initialized_on_every_exit {
+                        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            crate::diagnostic::DiagnosticCode::ImmutableFieldNotInitialized,
+                            format!("immutable field `{name}` is not initialized on every successful constructor path"),
+                            body_range,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    if ctx.constructor_super_required && !ctx.constructor_super_call_seen {
+        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            crate::diagnostic::DiagnosticCode::ConstructorSuperRequired,
+            "subclass constructor must begin with an explicit `super.new(...)` call",
+            body_range,
+        ));
     }
 
     if let Some(AnalysisStatus::InternalFailure(incident)) = ctx.terminal_status {
