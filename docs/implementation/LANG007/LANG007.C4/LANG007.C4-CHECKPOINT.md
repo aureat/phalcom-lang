@@ -209,9 +209,9 @@ P4 remains the checkpoint's primary `active_plan`; P10 is concurrent and does
 not change `latest_completed_plan` or singleton `next_plan` metadata. P10's
 worktree was created clean from the shared `419ec6e66ce90cba6003b7627eb4c99fa2345a7a`
 anchor while P4 edits were active in the main checkout. P10's pre-barrier work
-was committed on `codex/lang007-c4-p10` through `46d00056`; it is now integrated
-into `main`. The P10 checkout is preserved detached at the consolidated
-revision so its ignored/local workspace state is not discarded.
+was committed on `codex/lang007-c4-p10` through `46d00056`; merge commit
+`58a4a5db` integrates it into `main`. The P10 checkout is preserved detached at
+the consolidated revision so its ignored/local workspace state is not discarded.
 
 The coherent P4 frontend and current T2 source slice are now integrated into
 main at `59976d25`. This made synchronization eligible; the S1 merge and its
@@ -221,8 +221,8 @@ unimplemented here. Both plans' checkpoint state was retained during merge.
 
 ### S1 merge-conflict audit and completed synchronization — 2026-10-05
 
-A three-way merge of main at `18750433` and P10 at `46d00056` found two content
-conflicts:
+The three-way merge of main at `18750433` and P10 at `46d00056` produced merge
+commit `58a4a5db` after resolving two content conflicts:
 
 - `phalcom-semantic/src/checker/context.rs`: retained P4's `FieldKey`-typed
   stable Record-row lacks set together with P10's `expected_kinded_return`

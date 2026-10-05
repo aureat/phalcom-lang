@@ -10,7 +10,7 @@
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Main before merge: `18750433`
 - P10 source head: `46d00056`
-- Merge commit: recorded in Git history; checkpoint carries the durable state
+- Merge commit: `58a4a5db7e86843a13da38c2607bc78d0ea5cb03`
 
 ## 2. Impact
 
