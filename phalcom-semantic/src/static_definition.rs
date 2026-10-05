@@ -23,6 +23,7 @@ use std::sync::Arc;
 pub struct StaticParameter {
     pub name: String,
     pub domain: StaticValueDomain,
+    pub mode: crate::types::parameter::GenericParameterMode,
     pub index: u32,
     /// Allocated only when `domain` is in the kinded lane (`StaticValueDomain::Kind`).
     /// Ordinary value parameters (Int, Bool, etc.) have `None`.
@@ -260,9 +261,17 @@ pub fn resolve_static_definition(
             value_param_names.insert(param.name.clone());
         }
 
+        let mode = match param.mode {
+            None => crate::types::parameter::GenericParameterMode::Single,
+            Some(phalcom_ast::ast::ExpansionMode::Positional) => crate::types::parameter::GenericParameterMode::PositionalPack,
+            Some(phalcom_ast::ast::ExpansionMode::Labeled) => crate::types::parameter::GenericParameterMode::LabeledPack,
+            Some(phalcom_ast::ast::ExpansionMode::Complete) => crate::types::parameter::GenericParameterMode::CompletePack,
+        };
+
         parameters.push(StaticParameter {
             name: param.name.clone(),
             domain,
+            mode,
             index: i as u32,
             type_parameter_id: None,
             range: param.range,

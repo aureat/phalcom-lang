@@ -158,6 +158,55 @@ fn static_definition_value_parameter_has_no_fake_type_parameter_id() {
 }
 
 #[test]
+fn static_definition_variadic_value_parameter_has_pack_mode_and_no_fake_type_parameter_id() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+
+    let def = TypeDefinitionDef {
+        name: "SumPacks".into(),
+        name_range: RANGE,
+        parameters: vec![StaticParameterSyntax {
+            mode: Some(phalcom_ast::ast::ExpansionMode::Positional),
+            mode_range: Some(RANGE),
+            variance: VarianceSyntax::Invariant,
+            name: "Nums".into(),
+            name_range: RANGE,
+            domain: Some(domain_syntax("Int")),
+            range: RANGE,
+        }],
+        where_clause: None,
+        result_domain: Some(domain_syntax("Int")),
+        body: type_form_body("Int"),
+        implementation: ImplementationKind::Phalcom,
+        implementation_range: None,
+        range: RANGE,
+    };
+
+    let product = resolve_static_definition(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &def,
+        &env.module,
+        Box::new([]),
+        &mut diagnostics,
+    );
+
+    assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:?}");
+    assert_eq!(product.definition.signature.parameters.len(), 1);
+    let param = &product.definition.signature.parameters[0];
+    assert_eq!(param.name, "Nums");
+    let int_id = DeclarationId::new(env.module.clone(), "Int".into());
+    let int_type = env.store.nominal_type(int_id);
+    assert_eq!(param.domain, StaticValueDomain::ValueType(int_type));
+    assert_eq!(param.mode, phalcom_semantic::types::parameter::GenericParameterMode::PositionalPack);
+    assert_eq!(param.type_parameter_id, None, "variadic value parameter must have no TypeParameterId");
+    assert_eq!(product.definition.signature.generic_signature, None);
+    assert!(product.alias_info.is_none());
+}
+
+#[test]
 fn static_definition_mixed_parameters_and_nominal_shape_domain() {
     let mut env = setup();
     let mut diagnostics = Vec::new();

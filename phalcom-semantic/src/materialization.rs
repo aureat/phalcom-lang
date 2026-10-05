@@ -24,6 +24,7 @@ pub enum DeferredStructuralKind {
     Record,
     Data,
     Variant,
+    Pack,
 }
 
 /// Standalone materialization descriptor for one evaluated static constant value.
@@ -72,6 +73,7 @@ impl MaterializationDescriptor {
             StaticValueData::Record(_) => Self::DeferredStructural(DeferredStructuralKind::Record),
             StaticValueData::Data(_) => Self::DeferredStructural(DeferredStructuralKind::Data),
             StaticValueData::Variant(_) => Self::DeferredStructural(DeferredStructuralKind::Variant),
+            StaticValueData::Pack(_) => Self::DeferredStructural(DeferredStructuralKind::Pack),
             StaticValueData::Type(ty) => Self::Unsupported(format!("type value {ty:?} cannot be materialized at runtime in P2")),
             StaticValueData::StaticTerm(ty) => Self::Unsupported(format!("static term {ty:?} cannot be materialized at runtime in P2")),
         };

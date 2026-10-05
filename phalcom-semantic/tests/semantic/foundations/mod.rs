@@ -37,6 +37,7 @@ mod static_domain_inference;
 mod static_domains;
 mod static_intrinsics;
 mod static_values;
+mod static_values_pack;
 mod static_values_structural;
 mod substitution;
 mod type_annotations;

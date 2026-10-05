@@ -97,6 +97,24 @@ structural_id!(StaticTupleId);
 structural_id!(StaticRecordId);
 structural_id!(StaticDataValueId);
 structural_id!(StaticVariantValueId);
+structural_id!(StaticPackBackingId);
+structural_id!(StaticPackId);
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct StaticPackBacking {
+    pub positionals: Box<[StaticValueRef]>,
+    pub labels: Box<[StaticSymbolId]>,
+    pub labeled_values: Box<[StaticValueRef]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct StaticPackData {
+    pub backing: StaticPackBackingId,
+    pub positional_start: u32,
+    pub positional_len: u32,
+    pub labeled_start: u32,
+    pub labeled_len: u32,
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct StaticRecordField {
@@ -216,6 +234,8 @@ pub enum StaticValueData {
     Data(StaticDataValueId),
     /// Immutable exact enum variant value.
     Variant(StaticVariantValueId),
+    /// Immutable first-class Pack value (whole or slice).
+    Pack(StaticPackId),
 }
 
 /// Invalid operation on a store-qualified static-value reference.
@@ -248,6 +268,12 @@ pub enum StaticValueStoreError {
     /// The same record key occurred more than once.
     #[error("duplicate static record key `{0}`")]
     DuplicateRecordKey(Box<str>),
+    /// The same static pack label occurred more than once.
+    #[error("duplicate static pack label `{0}`")]
+    DuplicatePackLabel(Box<str>),
+    /// A static pack slice range is invalid.
+    #[error("invalid static pack slice range")]
+    InvalidPackSliceRange,
     /// The canonical data declaration/constructor metadata is inconsistent.
     #[error("static data components do not match canonical declaration metadata")]
     InvalidDataComponents,
@@ -280,6 +306,10 @@ pub struct StaticValueStore {
     data_value_ids: HashMap<StaticDataValue, StaticDataValueId>,
     variant_values: Vec<StaticVariantValue>,
     variant_value_ids: HashMap<StaticVariantValue, StaticVariantValueId>,
+    pack_backings: Vec<StaticPackBacking>,
+    pack_backing_ids: HashMap<StaticPackBacking, StaticPackBackingId>,
+    packs: Vec<StaticPackData>,
+    pack_ids: HashMap<StaticPackData, StaticPackId>,
 }
 
 impl Default for StaticValueStore {
@@ -307,6 +337,10 @@ impl StaticValueStore {
             data_value_ids: HashMap::new(),
             variant_values: Vec::new(),
             variant_value_ids: HashMap::new(),
+            pack_backings: Vec::new(),
+            pack_backing_ids: HashMap::new(),
+            packs: Vec::new(),
+            pack_ids: HashMap::new(),
         }
     }
 
@@ -360,10 +394,10 @@ impl StaticValueStore {
         self.intern(StaticValueData::String(id))
     }
 
-    /// Interns a symbol spelling by content, independently of VM symbol identity.
-    pub fn intern_symbol(&mut self, spelling: impl AsRef<str>) -> StaticValueRef {
+    /// Interns a symbol spelling and returns its store-local `StaticSymbolId`.
+    pub fn intern_symbol_id(&mut self, spelling: impl AsRef<str>) -> StaticSymbolId {
         let text = spelling.as_ref();
-        let id = if let Some(id) = self.symbol_ids.get(text) {
+        if let Some(id) = self.symbol_ids.get(text) {
             *id
         } else {
             let id = StaticSymbolId(self.symbols.len() as u32);
@@ -371,7 +405,12 @@ impl StaticValueStore {
             self.symbols.push(text.clone());
             self.symbol_ids.insert(text, id);
             id
-        };
+        }
+    }
+
+    /// Interns a symbol spelling by content, independently of VM symbol identity.
+    pub fn intern_symbol(&mut self, spelling: impl AsRef<str>) -> StaticValueRef {
+        let id = self.intern_symbol_id(spelling);
         self.intern(StaticValueData::Symbol(id))
     }
 
@@ -414,6 +453,133 @@ impl StaticValueStore {
             id
         };
         Ok(self.intern(StaticValueData::Record(id)))
+    }
+
+    /// Interns an immutable StaticPack from whole positional and labeled sequences.
+    /// Labels must be unique and preserve their encounter order.
+    pub fn intern_pack(
+        &mut self,
+        positionals: Vec<StaticValueRef>,
+        labeled: Vec<(StaticSymbolId, StaticValueRef)>,
+    ) -> Result<StaticValueRef, StaticValueStoreError> {
+        self.check_children(positionals.iter().copied().chain(labeled.iter().map(|(_, v)| *v)))?;
+
+        // Validate duplicate labels in labeled sequence
+        let mut seen_labels = std::collections::HashSet::new();
+        for (sym_id, _) in &labeled {
+            let spelling = self.get_symbol(*sym_id).ok_or(StaticValueStoreError::UnknownValue(sym_id.0))?;
+            if !seen_labels.insert(spelling.to_string()) {
+                return Err(StaticValueStoreError::DuplicatePackLabel(spelling.into()));
+            }
+        }
+
+        let pos_len = positionals.len() as u32;
+        let lab_len = labeled.len() as u32;
+
+        let (labels, labeled_values): (Vec<_>, Vec<_>) = labeled.into_iter().unzip();
+
+        let backing_node = StaticPackBacking {
+            positionals: positionals.into_boxed_slice(),
+            labels: labels.into_boxed_slice(),
+            labeled_values: labeled_values.into_boxed_slice(),
+        };
+
+        let backing_id = if let Some(id) = self.pack_backing_ids.get(&backing_node) {
+            *id
+        } else {
+            let id = StaticPackBackingId(self.pack_backings.len() as u32);
+            self.pack_backings.push(backing_node.clone());
+            self.pack_backing_ids.insert(backing_node, id);
+            id
+        };
+
+        let pack_data = StaticPackData {
+            backing: backing_id,
+            positional_start: 0,
+            positional_len: pos_len,
+            labeled_start: 0,
+            labeled_len: lab_len,
+        };
+
+        let pack_id = if let Some(id) = self.pack_ids.get(&pack_data) {
+            *id
+        } else {
+            let id = StaticPackId(self.packs.len() as u32);
+            self.packs.push(pack_data);
+            self.pack_ids.insert(pack_data, id);
+            id
+        };
+
+        Ok(self.intern(StaticValueData::Pack(pack_id)))
+    }
+
+    /// Interns an O(1) slice of an existing StaticPack over the same backing.
+    pub fn intern_pack_slice(
+        &mut self,
+        pack_ref: StaticValueRef,
+        pos_offset: u32,
+        pos_len: u32,
+        lab_offset: u32,
+        lab_len: u32,
+    ) -> Result<StaticValueRef, StaticValueStoreError> {
+        let pack_id = match *self.get(pack_ref)? {
+            StaticValueData::Pack(id) => id,
+            _ => return Err(StaticValueStoreError::InvalidPackSliceRange),
+        };
+        let pack_data = *self.packs.get(pack_id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(pack_id.0))?;
+
+        if pos_offset.checked_add(pos_len).ok_or(StaticValueStoreError::InvalidPackSliceRange)? > pack_data.positional_len
+            || lab_offset.checked_add(lab_len).ok_or(StaticValueStoreError::InvalidPackSliceRange)? > pack_data.labeled_len
+        {
+            return Err(StaticValueStoreError::InvalidPackSliceRange);
+        }
+
+        let new_pos_start = pack_data.positional_start + pos_offset;
+        let new_lab_start = pack_data.labeled_start + lab_offset;
+
+        let new_pack_data = StaticPackData {
+            backing: pack_data.backing,
+            positional_start: new_pos_start,
+            positional_len: pos_len,
+            labeled_start: new_lab_start,
+            labeled_len: lab_len,
+        };
+
+        let id = if let Some(id) = self.pack_ids.get(&new_pack_data) {
+            *id
+        } else {
+            let id = StaticPackId(self.packs.len() as u32);
+            self.packs.push(new_pack_data);
+            self.pack_ids.insert(new_pack_data, id);
+            id
+        };
+
+        Ok(self.intern(StaticValueData::Pack(id)))
+    }
+
+    /// Looks up a pack's slice descriptor and backing.
+    pub fn get_pack(&self, id: StaticPackId) -> Result<(&StaticPackData, &StaticPackBacking), StaticValueStoreError> {
+        let pack_data = self.packs.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?;
+        let backing = self.pack_backings.get(pack_data.backing.0 as usize).ok_or(StaticValueStoreError::UnknownValue(pack_data.backing.0))?;
+        Ok((pack_data, backing))
+    }
+
+    /// Returns the visible positional slice for a pack.
+    pub fn pack_positionals(&self, id: StaticPackId) -> Result<&[StaticValueRef], StaticValueStoreError> {
+        let (data, backing) = self.get_pack(id)?;
+        let start = data.positional_start as usize;
+        let end = start + data.positional_len as usize;
+        backing.positionals.get(start..end).ok_or(StaticValueStoreError::InvalidPackSliceRange)
+    }
+
+    /// Returns the visible labeled slice for a pack as an iterator of `(StaticSymbolId, StaticValueRef)`.
+    pub fn pack_labeled(&self, id: StaticPackId) -> Result<Vec<(StaticSymbolId, StaticValueRef)>, StaticValueStoreError> {
+        let (data, backing) = self.get_pack(id)?;
+        let start = data.labeled_start as usize;
+        let end = start + data.labeled_len as usize;
+        let labels = backing.labels.get(start..end).ok_or(StaticValueStoreError::InvalidPackSliceRange)?;
+        let values = backing.labeled_values.get(start..end).ok_or(StaticValueStoreError::InvalidPackSliceRange)?;
+        Ok(labels.iter().copied().zip(values.iter().copied()).collect())
     }
 
     /// Interns a declared data value using canonical component/constructor products.
@@ -592,6 +758,21 @@ impl StaticValueStore {
                 self.checked_kind(node.result_type, types)?;
                 node.result_type
             }
+            StaticValueData::Pack(id) => {
+                let pos = self.pack_positionals(id)?.to_vec();
+                let lab = self.pack_labeled(id)?;
+                let mut elements = Vec::with_capacity(pos.len() + lab.len());
+                for p in pos {
+                    let ty = self.static_value_type(p, types, data, enums)?;
+                    elements.push(crate::types::store::PackTypeElement::unlabeled(ty));
+                }
+                for (sym_id, val) in lab {
+                    let spelling: Box<str> = self.get_symbol(sym_id).ok_or(StaticValueStoreError::UnknownValue(sym_id.0))?.into();
+                    let ty = self.static_value_type(val, types, data, enums)?;
+                    elements.push(crate::types::store::PackTypeElement::labeled(spelling, ty));
+                }
+                types.pack(elements.into_boxed_slice()).map_err(|_| StaticValueStoreError::StructuralValueNeedsSemanticProducts)?
+            }
         })
     }
 
@@ -645,7 +826,7 @@ impl StaticValueStore {
                 StaticValueDomain::Kind(KindId::TYPE)
             }
             StaticValueData::StaticTerm(ty) => StaticValueDomain::Kind(self.checked_kind(*ty, types)?),
-            StaticValueData::Tuple(_) | StaticValueData::Record(_) | StaticValueData::Data(_) | StaticValueData::Variant(_) => {
+            StaticValueData::Tuple(_) | StaticValueData::Record(_) | StaticValueData::Data(_) | StaticValueData::Variant(_) | StaticValueData::Pack(_) => {
                 return Err(StaticValueStoreError::StructuralValueNeedsSemanticProducts);
             }
         };
@@ -701,6 +882,31 @@ impl StaticValueStore {
                     && a.fields.iter().zip(b.fields.iter()).try_fold(true, |same, ((aid, av), (bid, bv))| {
                         Ok::<_, StaticValueStoreError>(same && aid == bid && self.semantic_eq(*av, *bv)?)
                     })?
+            }
+            (StaticValueData::Pack(a), StaticValueData::Pack(b)) => {
+                let pos_a = self.pack_positionals(*a)?;
+                let pos_b = self.pack_positionals(*b)?;
+                if pos_a.len() != pos_b.len() {
+                    return Ok(false);
+                }
+                for (&va, &vb) in pos_a.iter().zip(pos_b.iter()) {
+                    if !self.semantic_eq(va, vb)? {
+                        return Ok(false);
+                    }
+                }
+                let lab_a = self.pack_labeled(*a)?;
+                let lab_b = self.pack_labeled(*b)?;
+                if lab_a.len() != lab_b.len() {
+                    return Ok(false);
+                }
+                for ((sa, va), (sb, vb)) in lab_a.into_iter().zip(lab_b.into_iter()) {
+                    let text_a = self.get_symbol(sa).ok_or(StaticValueStoreError::UnknownValue(sa.0))?;
+                    let text_b = self.get_symbol(sb).ok_or(StaticValueStoreError::UnknownValue(sb.0))?;
+                    if text_a != text_b || !self.semantic_eq(va, vb)? {
+                        return Ok(false);
+                    }
+                }
+                true
             }
             _ => false,
         })
@@ -778,6 +984,21 @@ impl StaticValueStore {
                     hash.u64(self.content_fingerprint(*value)?);
                 }
             }
+            StaticValueData::Pack(id) => {
+                hash.byte(12);
+                let pos = self.pack_positionals(*id)?;
+                hash.u64(pos.len() as u64);
+                let lab = self.pack_labeled(*id)?;
+                hash.u64(lab.len() as u64);
+                for &child in pos {
+                    hash.u64(self.content_fingerprint(child)?);
+                }
+                for (sym_id, child) in lab {
+                    let spelling = self.get_symbol(sym_id).ok_or(StaticValueStoreError::UnknownValue(sym_id.0))?;
+                    hash.bytes(spelling.as_bytes());
+                    hash.u64(self.content_fingerprint(child)?);
+                }
+            }
         }
         Ok(hash.finish())
     }
@@ -852,6 +1073,21 @@ impl StaticValueStore {
                 for (field, value) in node.fields.iter() {
                     field.hash(&mut hash);
                     hash.u64(self.semantic_hash(*value)?);
+                }
+            }
+            StaticValueData::Pack(id) => {
+                hash.byte(12);
+                let pos = self.pack_positionals(*id)?;
+                hash.u64(pos.len() as u64);
+                let lab = self.pack_labeled(*id)?;
+                hash.u64(lab.len() as u64);
+                for &child in pos {
+                    hash.u64(self.semantic_hash(child)?);
+                }
+                for (sym_id, child) in lab {
+                    let spelling = self.get_symbol(sym_id).ok_or(StaticValueStoreError::UnknownValue(sym_id.0))?;
+                    hash.bytes(spelling.as_bytes());
+                    hash.u64(self.semantic_hash(child)?);
                 }
             }
         }

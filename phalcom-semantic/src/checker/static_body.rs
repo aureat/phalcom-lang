@@ -248,16 +248,40 @@ fn analyze_static_body_inner(
         .collect::<BTreeMap<_, _>>();
     let mut static_parameter_bindings = BTreeSet::new();
     for parameter in definition.signature.parameters.iter() {
-        let StaticValueDomain::ValueType(ty) = parameter.domain else {
+        let StaticValueDomain::ValueType(elem_ty) = parameter.domain else {
             continue;
         };
-        let current = TypeKnowledge::assumed(ty, EvidenceOrigin::CallableSignature);
+        let bound_ty = match parameter.mode {
+            crate::types::parameter::GenericParameterMode::Single => elem_ty,
+            crate::types::parameter::GenericParameterMode::PositionalPack => {
+                let remainder = crate::types::store::AnonymousTupleRemainder::Typed(elem_ty);
+                context
+                    .store
+                    .open_pack(Box::new([]), remainder, crate::types::store::AnonymousTupleRemainder::None)
+                    .unwrap_or(elem_ty)
+            }
+            crate::types::parameter::GenericParameterMode::LabeledPack => {
+                let remainder = crate::types::store::AnonymousTupleRemainder::Typed(elem_ty);
+                context
+                    .store
+                    .open_pack(Box::new([]), crate::types::store::AnonymousTupleRemainder::None, remainder)
+                    .unwrap_or(elem_ty)
+            }
+            crate::types::parameter::GenericParameterMode::CompletePack => {
+                let remainder = crate::types::store::AnonymousTupleRemainder::Typed(elem_ty);
+                context
+                    .store
+                    .open_pack(Box::new([]), remainder, remainder)
+                    .unwrap_or(elem_ty)
+            }
+        };
+        let current = TypeKnowledge::assumed(bound_ty, EvidenceOrigin::CallableSignature);
         let inserted = context.declare_binding(BindingSeed {
             name: parameter.name.clone(),
             parameter: None,
             range: parameter.range,
             contract: Some(BindingContract {
-                ty,
+                ty: bound_ty,
                 origin: BindingContractOrigin::StaticParameter,
                 source: Some(parameter.range),
             }),
@@ -502,6 +526,7 @@ mod tests {
         let parameter = StaticParameter {
             name: "value".into(),
             domain: StaticValueDomain::ValueType(unit),
+            mode: crate::types::parameter::GenericParameterMode::Single,
             index: 0,
             type_parameter_id: None,
             range: SourceRange::default(),
@@ -717,6 +742,7 @@ mod tests {
                 parameters: vec![StaticParameter {
                     name: "input".into(),
                     domain: StaticValueDomain::ValueType(unit),
+                    mode: crate::types::parameter::GenericParameterMode::Single,
                     index: 0,
                     type_parameter_id: None,
                     range: SourceRange { start: 11, end: 16 },
