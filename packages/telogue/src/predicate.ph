@@ -1,35 +1,35 @@
 from prolog.id import PredicateId
-from prolog.term import Term
-from prolog.goal import Goal
-from prolog.clause import Clause
+from .term import Term
+from .goal import Goal
+from .clause import Clause
 
 data Predicate<*Ts> private(
   id: PredicateId,
   name: Symbol,
 )
 
-data Relationship<*Ts> {
-  predicate: Predicate<*Ts>,
-  args: Pack<*(Ts::Map<Term>)>,
-}
-
 impl<*Ts> Predicate<*Ts> {
   @class
-  named(name: Symbol) -> Self {
+  named(name: Symbol) -> Self<*Ts> {
     Predicate<*Ts>(
-      PredicateId.fresh,
-      name,
+      id: PredicateId.fresh,
+      name: name
     )
   }
 
   call(
-    *args: *(Ts::Map<Term>)
+    *args: Pack<*(Ts::Map<Term>)>
   ) -> Relationship<*Ts> {
-    Relationship<*Ts> {
+    Relationship<> {
       predicate: self,
-      args: args,
+      args: args
     }
   }
+}
+
+data Relationship<*Ts> {
+  predicate: Predicate<*Ts>,
+  args: Pack<*(Ts::Map<Term>)>,
 }
 
 impl<*Ts> Relationship<*Ts> {
