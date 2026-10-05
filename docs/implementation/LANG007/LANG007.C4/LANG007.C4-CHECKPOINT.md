@@ -2494,9 +2494,11 @@ traversal ordinal) and a short-lived checked-projection set carrying the shared
 `CheckedStaticExpression`, `Concrete`/`DeferredToP7`/`Invalid` result, and
 checker-selected semantic dependencies. Type formation can consume those
 precomputed facts through a resolver overlay; it does not check or evaluate key
-expressions. A deferred key propagates as unresolved and cannot enter a
-canonical row. The focused `cargo check -p phalcom-semantic` passed after this
-change.
+expressions. A depth-first visitor enumerates computed keys across nested type
+annotations, and an owner-supplied checker/projector helper prepares facts for
+one or several annotations under the same query identity. A deferred key
+propagates as unresolved and cannot enter a canonical row. The focused
+`cargo check -p phalcom-semantic` passed after these changes.
 
 This is an integration seam only: no existing publishing owner supplies the
 facts yet. Exact forcing, owner dependency publication, invalidation and
