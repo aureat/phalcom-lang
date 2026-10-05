@@ -22,7 +22,7 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     let fixture = WorkspaceFixture::new()
         .module(
             "main",
-            "data Point { x: Int, y: Int }\ndata LeftChoice { @variant Same(_ first: Int, _ second: Int) }\ndata RightChoice { @variant Same(_ first: Int, _ second: Int) }\ndata Boxed<T> { value: T }\nconst base: Int = 2\ntype ReadBase: Int = base\ntype AddBase: Int = base + 0\ntype AddLiteral: Int = 1 + 2\ntype Choose: Int = if true { 7 } else { 9 }\ntype ChooseElse: Int = if false { 7 } else { 9 }\ntype NestedChoose: Int = if false { 0 } else { if true { 5 } else { 6 } }\ntype NestedArithmetic: Int = 1 + (2 + 3)\ntype LazyAnd: Bool = false and (true == true)\ntype EagerAnd: Bool = true and (true == true)\ntype LazyOr: Bool = true or (true == true)\ntype TupleValue: (Int, Int) { (1, 2) }\ntype RecordValue: {left: Int, right: Int} { {left: 1, right: 2} }\ntype SymbolValue: Symbol = #move\ntype MutableLocal: Int { let mut value = 1\n value = 2\n value }\ntype OrderedWrites: Int { let mut value = 0\n value = 1\n value = 2\n value }\ntype UninitializedRead: Int { let value: Int\n value }\ntype ImmutableReassignment: Int { let value = 1\n value = 2\n value }\ntype Literal: Int = 3\ntype Applied: Int = Literal<>\ntype Identity<N: Int>: Int { N }\ntype AppliedValue: Int = Identity<7>\ntype Mixed<T: Type, N: Int>: Int { N }\ntype AppliedMixed: Int = Mixed<Int, 9>\ntype FixedKind<N: Int>: Type = Int\ntype ForwardKind<T: Type, N: Int>: Type = T\ntype CompositeKind<T: Type, N: Int>: Type = Boxed<T>\ntype KindConsumer<T: Type>: Int { 11 }\ntype AppliedFixedKind: Int = KindConsumer<FixedKind<0>>\ntype AppliedForwardKind: Int = KindConsumer<ForwardKind<Int, 0>>\ntype AppliedCompositeKind: Int = KindConsumer<CompositeKind<Int, 0>>\ntype OuterValue: Int { Literal<> }\ntype RecursiveValue: Int { RecursiveValue<> }\ntype RecursiveA: Int { RecursiveB<> }\ntype RecursiveB: Int { RecursiveA<> }\ntype StaticPoint: Point { Point { y: 2, x: 1 } }\ntype StaticLeft: LeftChoice { LeftChoice::Same(3, 4) }\ntype StaticRight: RightChoice { RightChoice::Same(3, 4) }\n",
+            "data Point { x: Int, y: Int }\ndata LeftChoice { @variant Same(_ first: Int, _ second: Int) }\ndata RightChoice { @variant Same(_ first: Int, _ second: Int) }\ndata Boxed<T> { value: T }\nconst base: Int = 2\ntype ReadBase: Int = base\ntype AddBase: Int = base + 0\ntype AddLiteral: Int = 1 + 2\ntype Choose: Int = if true { 7 } else { 9 }\ntype ChooseElse: Int = if false { 7 } else { 9 }\ntype NestedChoose: Int = if false { 0 } else { if true { 5 } else { 6 } }\ntype NestedArithmetic: Int = 1 + (2 + 3)\ntype LazyAnd: Bool = false and (true == true)\ntype EagerAnd: Bool = true and (true == true)\ntype LazyOr: Bool = true or (true == true)\ntype TupleValue: (Int, Int) { (1, 2) }\ntype RecordValue: {left: Int, right: Int} { {left: 1, right: 2} }\ntype MixedRecordValue: { [#same]: Int, [\"same\"]: Int, [42]: Int, [true]: Bool } { { [#same]: 1, [\"same\"]: 2, [42]: 3, [true]: false } }\ntype InvalidRecordKeyOrder: { [#valid]: Int } { { [1.5]: 1 + true } }\ntype SymbolValue: Symbol = #move\ntype MutableLocal: Int { let mut value = 1\n value = 2\n value }\ntype OrderedWrites: Int { let mut value = 0\n value = 1\n value = 2\n value }\ntype UninitializedRead: Int { let value: Int\n value }\ntype ImmutableReassignment: Int { let value = 1\n value = 2\n value }\ntype Literal: Int = 3\ntype Applied: Int = Literal<>\ntype Identity<N: Int>: Int { N }\ntype AppliedValue: Int = Identity<7>\ntype Mixed<T: Type, N: Int>: Int { N }\ntype AppliedMixed: Int = Mixed<Int, 9>\ntype FixedKind<N: Int>: Type = Int\ntype ForwardKind<T: Type, N: Int>: Type = T\ntype CompositeKind<T: Type, N: Int>: Type = Boxed<T>\ntype KindConsumer<T: Type>: Int { 11 }\ntype AppliedFixedKind: Int = KindConsumer<FixedKind<0>>\ntype AppliedForwardKind: Int = KindConsumer<ForwardKind<Int, 0>>\ntype AppliedCompositeKind: Int = KindConsumer<CompositeKind<Int, 0>>\ntype OuterValue: Int { Literal<> }\ntype RecursiveValue: Int { RecursiveValue<> }\ntype RecursiveA: Int { RecursiveB<> }\ntype RecursiveB: Int { RecursiveA<> }\ntype StaticPoint: Point { Point { y: 2, x: 1 } }\ntype StaticLeft: LeftChoice { LeftChoice::Same(3, 4) }\ntype StaticRight: RightChoice { RightChoice::Same(3, 4) }\n",
         )
         .analyze();
     let module = fixture.module("main").clone();
@@ -116,6 +116,43 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         panic!("checked record constructor should reduce, got {record:?}");
     };
     assert!(matches!(record_values.get(record).unwrap(), StaticValueData::Record(_)));
+
+    let mixed_record = evaluate_named("MixedRecordValue", &mut record_values);
+    let StaticEvalOutcome::Reduced(mixed_record) = mixed_record else {
+        panic!("checked computed-key Record should reduce, got {mixed_record:?}");
+    };
+    let one = record_values.intern_int(1);
+    let two = record_values.intern_int(2);
+    let three = record_values.intern_int(3);
+    let false_value = record_values.intern_bool(false);
+    let expected_mixed_record = record_values
+        .intern_record(vec![
+            (phalcom_semantic::field_key::FieldKey::symbol("same"), one),
+            (phalcom_semantic::field_key::FieldKey::string("same"), two),
+            (phalcom_semantic::field_key::FieldKey::int(phalcom_semantic::scalar::StaticInt::from(42)), three),
+            (phalcom_semantic::field_key::FieldKey::bool(true), false_value),
+        ])
+        .expect("expected mixed-key static Record");
+    assert!(record_values.semantic_eq(mixed_record, expected_mixed_record).unwrap());
+
+    let invalid_record_key = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "InvalidRecordKeyOrder"))
+        .and_then(|definition| definition.checked_body.as_ref())
+        .expect("checked invalid-key static body");
+    let invalid_key_result = StaticEvaluator::new(
+        invalid_record_key,
+        &mut StaticValueStore::new(),
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        &[],
+    )
+    .evaluate();
+    assert!(matches!(
+        invalid_key_result,
+        StaticEvalOutcome::Invalid(StaticEvalError::ValueStore(message)) if message.contains("not a valid Record field key")
+    ));
 
     let mut symbol_values = StaticValueStore::new();
     let symbol = evaluate_named("SymbolValue", &mut symbol_values);

@@ -29,6 +29,8 @@ mod knowledge;
 mod pack_types;
 mod predicate_transfer;
 mod receiver_specialization;
+mod record_rows_field_keys;
+mod static_values_record_keys;
 mod record_row_inference;
 mod record_row_materialization;
 mod semantic_correctness_regressions;

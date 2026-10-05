@@ -524,13 +524,14 @@ impl VM {
             (Some(lhs_id), Some(rhs_id)) => {
                 let Some(lhs_view) = self.record_view(lhs_id) else { return false };
                 let Some(rhs_view) = self.record_view(rhs_id) else { return false };
-                if lhs_view.len() != rhs_view.len() {
+                if lhs_view.logical_keys() != rhs_view.logical_keys() {
                     return false;
                 }
-                return lhs_view.labels().iter().all(|label| {
-                    rhs_view
-                        .get(*label)
-                        .is_some_and(|right| lhs_view.get(*label).is_some_and(|left| self.semantic_same(left, right)))
+                return (0..lhs_view.len()).all(|index| {
+                    lhs_view
+                        .logical_value_at(index)
+                        .zip(rhs_view.logical_value_at(index))
+                        .is_some_and(|(left, right)| self.semantic_same(left, right))
                 });
             }
             (Some(_), None) | (None, Some(_)) => return false,

@@ -5,6 +5,7 @@
 //! across all instances rather than copied per value.
 
 use crate::interner::Symbol;
+use phalcom_semantic::field_key::FieldKey;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -66,80 +67,88 @@ impl PackProductShape {
 /// Coordinate and presentation shape for a Record product.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RecordProductShape {
-    /// Observable encounter/presentation order.
-    pub presentation_labels: Box<[Symbol]>,
     /// Canonical logical/storage coordinate labels.
-    pub logical_labels: Box<[Symbol]>,
+    pub logical_keys: Box<[FieldKey]>,
     /// presentation index -> logical/storage index.
     pub presentation_to_logical: Box<[u32]>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecordProductShapeError {
+    DuplicateKey(FieldKey),
+    InvalidCanonicalKeys,
+    InvalidPermutation,
+}
+
 impl RecordProductShape {
-    pub fn new(presentation_labels: Box<[Symbol]>, logical_labels: Box<[Symbol]>, presentation_to_logical: Box<[u32]>) -> Self {
-        assert_eq!(
-            presentation_labels.len(),
-            logical_labels.len(),
-            "presentation and logical label count must match"
-        );
-        assert_eq!(
-            presentation_labels.len(),
-            presentation_to_logical.len(),
-            "presentation label and mapping count must match"
-        );
-        for (i, label) in presentation_labels.iter().enumerate() {
-            assert!(!presentation_labels[..i].contains(label), "presentation labels must be unique");
+    /// Builds a shape from canonical keys and a checked presentation permutation.
+    pub fn new(logical_keys: Box<[FieldKey]>, presentation_to_logical: Box<[u32]>) -> Result<Self, RecordProductShapeError> {
+        if logical_keys.len() != presentation_to_logical.len() {
+            return Err(RecordProductShapeError::InvalidPermutation);
         }
-        for (i, label) in logical_labels.iter().enumerate() {
-            assert!(!logical_labels[..i].contains(label), "logical labels must be unique");
+        if logical_keys.windows(2).any(|pair| pair[0].canonical_cmp(&pair[1]) != Ordering::Less) {
+            return Err(RecordProductShapeError::InvalidCanonicalKeys);
         }
         let mut mapping_seen = vec![false; presentation_to_logical.len()];
         for logical_index in presentation_to_logical.iter().copied() {
-            let index = usize::try_from(logical_index).expect("record shape logical index must fit usize");
-            assert!(index < mapping_seen.len(), "record shape logical index out of bounds");
-            assert!(!mapping_seen[index], "record shape presentation mapping must be a permutation");
+            let index = usize::try_from(logical_index).map_err(|_| RecordProductShapeError::InvalidPermutation)?;
+            if index >= mapping_seen.len() || mapping_seen[index] {
+                return Err(RecordProductShapeError::InvalidPermutation);
+            }
             mapping_seen[index] = true;
         }
-        assert!(mapping_seen.iter().all(|seen| *seen), "record shape presentation mapping must be complete");
-        Self {
-            presentation_labels,
-            logical_labels,
+        if mapping_seen.iter().any(|seen| !seen) {
+            return Err(RecordProductShapeError::InvalidPermutation);
+        }
+        Ok(Self {
+            logical_keys,
             presentation_to_logical,
-        }
+        })
     }
 
-    /// Helper to construct a shape where presentation order is identical to logical order.
-    pub fn from_ordered_labels(labels: Box<[Symbol]>) -> Self {
-        let len = labels.len() as u32;
-        let mapping: Box<[u32]> = (0..len).collect();
-        Self::new(labels.clone(), labels, mapping)
-    }
-
-    /// Constructs canonical logical/storage coordinates from presentation labels.
-    pub fn from_presentation_labels<F>(presentation_labels: Box<[Symbol]>, mut compare: F) -> Self
-    where
-        F: FnMut(Symbol, Symbol) -> Ordering,
-    {
-        let mut logical_with_source = presentation_labels.iter().copied().enumerate().collect::<Vec<_>>();
-        logical_with_source.sort_by(|(_, left), (_, right)| compare(*left, *right));
-        let mut logical_labels = Vec::with_capacity(logical_with_source.len());
-        let mut presentation_to_logical = vec![0; presentation_labels.len()];
-        for (logical_index, (source_index, label)) in logical_with_source.into_iter().enumerate() {
-            logical_labels.push(label);
-            presentation_to_logical[source_index] = logical_index as u32;
+    /// Constructs canonical logical/storage coordinates from source-order keys.
+    pub fn from_presentation_keys(presentation_keys: Vec<FieldKey>) -> Result<Self, RecordProductShapeError> {
+        let mut logical_with_source = presentation_keys
+            .into_iter()
+            .enumerate()
+            .map(|(source_index, key)| (key, source_index))
+            .collect::<Vec<_>>();
+        logical_with_source.sort_by(|(left, _), (right, _)| left.canonical_cmp(right));
+        for pair in logical_with_source.windows(2) {
+            if pair[0].0.canonical_cmp(&pair[1].0) == Ordering::Equal {
+                return Err(RecordProductShapeError::DuplicateKey(pair[0].0.clone()));
+            }
         }
-        Self::new(
-            presentation_labels,
-            logical_labels.into_boxed_slice(),
-            presentation_to_logical.into_boxed_slice(),
-        )
+        let mut logical_keys = Vec::with_capacity(logical_with_source.len());
+        let mut presentation_to_logical = vec![0; logical_with_source.len()];
+        for (logical_index, (key, source_index)) in logical_with_source.into_iter().enumerate() {
+            logical_keys.push(key);
+            presentation_to_logical[source_index] = u32::try_from(logical_index).map_err(|_| RecordProductShapeError::InvalidPermutation)?;
+        }
+        Self::new(logical_keys.into_boxed_slice(), presentation_to_logical.into_boxed_slice())
     }
 
     pub fn len(&self) -> usize {
-        self.presentation_labels.len()
+        self.logical_keys.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.presentation_labels.is_empty()
+        self.logical_keys.is_empty()
+    }
+
+    pub fn presentation_key(&self, index: usize) -> Option<&FieldKey> {
+        let logical = *self.presentation_to_logical.get(index)? as usize;
+        self.logical_keys.get(logical)
+    }
+
+    pub fn lookup_logical_index_by<F>(&self, mut compare: F) -> Option<u32>
+    where
+        F: FnMut(&FieldKey) -> Ordering,
+    {
+        self.logical_keys
+            .binary_search_by(|key| compare(key))
+            .ok()
+            .and_then(|index| u32::try_from(index).ok())
     }
 }
 
@@ -156,8 +165,6 @@ pub enum ProductShape {
 pub struct ProductShapeRegistry {
     shapes: Vec<ProductShape>,
     shape_by_key: HashMap<ProductShape, ProductShapeId>,
-    /// Non-key label-to-logical lookup cache for record shapes.
-    record_lookup_cache: Vec<HashMap<Symbol, u32>>,
 }
 
 impl ProductShapeRegistry {
@@ -172,13 +179,6 @@ impl ProductShapeRegistry {
         }
 
         let id = ProductShapeId(self.shapes.len() as u32);
-        let mut lookup_map = HashMap::new();
-        if let ProductShape::Record(rec) = &shape {
-            for (logical_idx, label) in rec.logical_labels.iter().enumerate() {
-                lookup_map.insert(*label, logical_idx as u32);
-            }
-        }
-        self.record_lookup_cache.push(lookup_map);
         self.shapes.push(shape.clone());
         self.shape_by_key.insert(shape, id);
         id
@@ -209,8 +209,8 @@ impl ProductShapeRegistry {
         }
     }
 
-    /// Fast logical index lookup by label for a registered Record shape.
-    pub fn lookup_record_logical_index(&self, id: ProductShapeId, label: Symbol) -> Option<u32> {
-        self.record_lookup_cache.get(id.0 as usize).and_then(|map| map.get(&label).copied())
+    /// Binary-searches the canonical key vector of a registered Record shape.
+    pub fn lookup_record_logical_index(&self, id: ProductShapeId, key: &FieldKey) -> Option<u32> {
+        self.get_record(id)?.lookup_logical_index_by(|candidate| candidate.canonical_cmp(key))
     }
 }

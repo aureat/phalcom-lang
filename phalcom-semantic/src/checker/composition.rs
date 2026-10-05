@@ -3,6 +3,8 @@ use crate::checker::typed_expr::TypedExpression;
 use crate::field_key::FieldKey;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
+use crate::types::outcome::{CancellationToken, QueryBudget};
+use crate::types::relation::{TypeHierarchy, UnorderedFieldLookup, lookup_unordered_field};
 use crate::types::row::RecordRowTail;
 use crate::types::store::{TypeData, TypeStore};
 
@@ -148,10 +150,12 @@ pub(crate) fn project_record_shape(store: &TypeStore, knowledge: &TypeKnowledge)
                         .elements
                         .iter()
                         .filter_map(|element| {
-                            element
-                                .label
-                                .clone()
-                                .map(|name| (FieldKey::symbol(name), knowledge.derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition)))
+                            element.label.clone().map(|name| {
+                                (
+                                    FieldKey::symbol(name),
+                                    knowledge.derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition),
+                                )
+                            })
                         })
                         .collect(),
                     tail: RecordRowTail::Closed,
@@ -162,6 +166,21 @@ pub(crate) fn project_record_shape(store: &TypeStore, knowledge: &TypeKnowledge)
         TypeKnowledge::Unknown(reason) => Err(TypeKnowledge::Unknown(reason.clone())),
         TypeKnowledge::Dynamic(reason) => Err(TypeKnowledge::Dynamic(reason.clone())),
     }
+}
+
+/// Returns a concrete non-Symbol key from a checked Record shape. Open-tail
+/// possibilities remain unknown here and are enforced at the runtime boundary.
+pub(crate) fn known_non_symbol_record_key(store: &TypeStore, knowledge: &TypeKnowledge) -> Option<FieldKey> {
+    let ty = knowledge.ty()?;
+    let TypeData::Record(row) = store.get(ty) else {
+        return None;
+    };
+    store
+        .record_row(*row)
+        .fields
+        .iter()
+        .find(|field| !matches!(&field.key, FieldKey::Symbol(_)))
+        .map(|field| field.key.clone())
 }
 
 /// Complete field enumeration is only sound for a closed Record row.
@@ -193,20 +212,26 @@ pub(crate) fn project_complete_record_fields(store: &TypeStore, knowledge: &Type
 
 /// Projects one known prefix field. Open rows are safe here because a known
 /// prefix is guaranteed; absence from the prefix remains unknown.
-pub(crate) fn lookup_record_field(store: &TypeStore, knowledge: &TypeKnowledge, name: &str) -> Result<TypeKnowledge, TypeKnowledge> {
+pub(crate) fn lookup_record_field(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    knowledge: &TypeKnowledge,
+    key: &FieldKey,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+) -> Result<TypeKnowledge, TypeKnowledge> {
     match knowledge {
         TypeKnowledge::Known(_) => {
             let Some(source_ty) = knowledge.ty() else {
                 unreachable!("Known knowledge has a type");
             };
             match store.get(source_ty) {
-                TypeData::Record(row_id) => {
-                    let row = store.record_row(*row_id);
-                    match row.find_field(&FieldKey::symbol(name)) {
-                        Some(field_ty) => Ok(knowledge.derive_known_type(field_ty, EvidenceOrigin::PatternDecomposition)),
-                        None => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
+                TypeData::Record(row_id) => match lookup_unordered_field(store, hierarchy, *row_id, key, budget, cancellation) {
+                    UnorderedFieldLookup::Required(field_ty) | UnorderedFieldLookup::Optional(field_ty) => {
+                        Ok(knowledge.derive_known_type(field_ty, EvidenceOrigin::PatternDecomposition))
                     }
-                }
+                    UnorderedFieldLookup::Absent | UnorderedFieldLookup::Unknown(_) => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
+                },
                 _ => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
             }
         }

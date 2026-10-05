@@ -2,18 +2,18 @@
 
 use crate::data_semantics::DataInfo;
 use crate::enum_semantics::VariantInfo;
+use crate::field_key::FieldKey;
 use crate::identity::{DataComponentId, DataConstructorId, VariantId};
+pub use crate::scalar::StaticInt;
 use crate::static_domain::StaticValueDomain;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
 use crate::types::id::{KindId, TypeId};
 use crate::types::relation::{Assignability, TypeHierarchy};
 use crate::types::row::{RecordRowField, RecordRowTail};
 use crate::types::store::{TupleTypeElement, TypeData, TypeStore};
-pub use crate::scalar::StaticInt;
 use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_STATIC_VALUE_STORE_ID: AtomicU64 = AtomicU64::new(1);
@@ -119,7 +119,7 @@ pub struct StaticPackData {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct StaticRecordField {
-    key: Box<str>,
+    key: FieldKey,
     value: StaticValueRef,
 }
 
@@ -190,7 +190,7 @@ pub enum StaticValueData {
     StaticTerm(TypeId),
     /// Ordered immutable tuple value.
     Tuple(StaticTupleId),
-    /// Immutable record value with current P2 string keys.
+    /// Immutable Record value with canonical heterogeneous FieldKey keys.
     Record(StaticRecordId),
     /// Immutable declared data product.
     Data(StaticDataValueId),
@@ -229,7 +229,10 @@ pub enum StaticValueStoreError {
     ForeignChild,
     /// The same record key occurred more than once.
     #[error("duplicate static record key `{0}`")]
-    DuplicateRecordKey(Box<str>),
+    DuplicateRecordKey(FieldKey),
+    /// A reduced static value is outside the closed FieldKey domain.
+    #[error("static value is not a valid Record field key")]
+    NotAFieldKey,
     /// The same static pack label occurred more than once.
     #[error("duplicate static pack label `{0}`")]
     DuplicatePackLabel(Box<str>),
@@ -395,11 +398,11 @@ impl StaticValueStore {
         Ok(self.intern(StaticValueData::Tuple(id)))
     }
 
-    /// Interns a closed P2 record, sorting string keys and rejecting duplicates.
-    pub fn intern_record(&mut self, fields: Vec<(Box<str>, StaticValueRef)>) -> Result<StaticValueRef, StaticValueStoreError> {
+    /// Interns a closed Record with canonical FieldKey ordering and exact duplicate rejection.
+    pub fn intern_record(&mut self, fields: Vec<(FieldKey, StaticValueRef)>) -> Result<StaticValueRef, StaticValueStoreError> {
         self.check_children(fields.iter().map(|(_, value)| *value))?;
         let mut fields = fields.into_iter().map(|(key, value)| StaticRecordField { key, value }).collect::<Vec<_>>();
-        fields.sort_by(|a, b| a.key.cmp(&b.key));
+        fields.sort_by(|a, b| a.key.canonical_cmp(&b.key));
         for pair in fields.windows(2) {
             if pair[0].key == pair[1].key {
                 return Err(StaticValueStoreError::DuplicateRecordKey(pair[0].key.clone()));
@@ -522,7 +525,10 @@ impl StaticValueStore {
     /// Looks up a pack's slice descriptor and backing.
     pub fn get_pack(&self, id: StaticPackId) -> Result<(&StaticPackData, &StaticPackBacking), StaticValueStoreError> {
         let pack_data = self.packs.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?;
-        let backing = self.pack_backings.get(pack_data.backing.0 as usize).ok_or(StaticValueStoreError::UnknownValue(pack_data.backing.0))?;
+        let backing = self
+            .pack_backings
+            .get(pack_data.backing.0 as usize)
+            .ok_or(StaticValueStoreError::UnknownValue(pack_data.backing.0))?;
         Ok((pack_data, backing))
     }
 
@@ -684,7 +690,7 @@ impl StaticValueStore {
                     .iter()
                     .map(|field| {
                         self.static_value_type(field.value, types, data, enums)
-                            .map(|ty| RecordRowField::required(crate::field_key::FieldKey::symbol(field.key.clone()), ty))
+                            .map(|ty| RecordRowField::required(field.key.clone(), ty))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 types
@@ -733,7 +739,9 @@ impl StaticValueStore {
                     let ty = self.static_value_type(val, types, data, enums)?;
                     elements.push(crate::types::store::PackTypeElement::labeled(spelling, ty));
                 }
-                types.pack(elements.into_boxed_slice()).map_err(|_| StaticValueStoreError::StructuralValueNeedsSemanticProducts)?
+                types
+                    .pack(elements.into_boxed_slice())
+                    .map_err(|_| StaticValueStoreError::StructuralValueNeedsSemanticProducts)?
             }
         })
     }
@@ -772,6 +780,18 @@ impl StaticValueStore {
     /// Looks up interned symbol spelling by id.
     pub fn get_symbol(&self, id: StaticSymbolId) -> Option<&str> {
         self.symbols.get(id.0 as usize).map(|s| s.as_ref())
+    }
+
+    /// Converts a reduced static value into an owned canonical Record key.
+    /// String and Symbol contents are copied out of store-local intern tables.
+    pub fn field_key_of(&self, reference: StaticValueRef) -> Result<FieldKey, StaticValueStoreError> {
+        match self.get(reference)? {
+            StaticValueData::String(id) => self.get_string(*id).map(FieldKey::string).ok_or(StaticValueStoreError::UnknownValue(id.0)),
+            StaticValueData::Symbol(id) => self.get_symbol(*id).map(FieldKey::symbol).ok_or(StaticValueStoreError::UnknownValue(id.0)),
+            StaticValueData::Int(value) => Ok(FieldKey::int(value.clone())),
+            StaticValueData::Bool(value) => Ok(FieldKey::bool(*value)),
+            _ => Err(StaticValueStoreError::NotAFieldKey),
+        }
     }
 
     /// Returns a value's semantic domain using the paired canonical type store.
@@ -921,7 +941,7 @@ impl StaticValueStore {
                 let fields = self.records.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
                 hash.u64(fields.len() as u64);
                 for field in fields.iter() {
-                    hash.bytes(field.key.as_bytes());
+                    hash.bytes(&field.key.stable_fingerprint_bytes());
                     hash.u64(self.content_fingerprint(field.value)?);
                 }
             }
@@ -1012,7 +1032,7 @@ impl StaticValueStore {
                 let fields = self.records.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
                 hash.u64(fields.len() as u64);
                 for field in fields.iter() {
-                    hash.bytes(field.key.as_bytes());
+                    hash.bytes(&field.key.stable_fingerprint_bytes());
                     hash.u64(self.semantic_hash(field.value)?);
                 }
             }

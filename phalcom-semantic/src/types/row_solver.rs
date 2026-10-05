@@ -343,18 +343,33 @@ impl<V: Clone + Eq> RecordRowSolver<V> {
         let mut field_equations = Vec::new();
         let mut only_left = Vec::new();
         let mut only_right = Vec::new();
-        for field in left.fields.iter() {
-            if let Some(other) = right.fields.iter().find(|candidate| candidate.key == field.key) {
-                field_equations.push((field.key.clone(), field.ty.clone(), other.ty.clone()));
-            } else {
-                only_left.push(field.clone());
+        let (mut left_index, mut right_index) = (0, 0);
+        while left_index < left.fields.len() && right_index < right.fields.len() {
+            let left_field = &left.fields[left_index];
+            let right_field = &right.fields[right_index];
+            match left_field.key.canonical_cmp(&right_field.key) {
+                std::cmp::Ordering::Less => {
+                    only_left.push(left_field.clone());
+                    left_index += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    only_right.push(right_field.clone());
+                    right_index += 1;
+                }
+                std::cmp::Ordering::Equal => {
+                    field_equations.push((left_field.key.clone(), left_field.ty.clone(), right_field.ty.clone()));
+                    left_index += 1;
+                    right_index += 1;
+                }
             }
         }
-        for field in right.fields.iter() {
-            if !left.fields.iter().any(|candidate| candidate.key == field.key) {
-                only_right.push(field.clone());
-            }
-        }
+        only_left.extend(left.fields[left_index..].iter().cloned());
+        only_right.extend(right.fields[right_index..].iter().cloned());
+
+        // The public term constructors and normalization path keep fixed
+        // prefixes canonical. Equal comparisons here therefore correspond to
+        // exact FieldKey identity, including the Symbol/String distinction.
+        debug_assert!(field_equations.windows(2).all(|pair| pair[0].0 < pair[1].0));
 
         if only_left.is_empty() && only_right.is_empty() {
             self.unify_tails(left.tail, right.tail, budget, cancellation, payload_occurs)?;

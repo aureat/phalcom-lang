@@ -260,8 +260,7 @@ pub enum AnonymousProductConstructionKind {
         labels: Box<[Box<str>]>,
     },
     Record {
-        presentation_labels: Box<[Box<str>]>,
-        logical_labels: Box<[Box<str>]>,
+        logical_keys: Box<[phalcom_semantic::field_key::FieldKey]>,
         source_to_logical: Box<[u32]>,
     },
     Pack {
@@ -2336,18 +2335,10 @@ fn project_anonymous_products(
             } {
                 continue;
             }
-            let Some(logical_labels) = row
-                .fields
-                .iter()
-                .map(|field| field.key.as_symbol().map(Box::<str>::from))
-                .collect::<Option<Vec<_>>>()
-            else {
-                continue;
-            };
+            let logical_keys = row.fields.iter().map(|field| field.key.clone()).collect::<Vec<_>>();
             AnonymousProductConstructionLoweringSpec {
                 kind: AnonymousProductConstructionKind::Record {
-                    presentation_labels: labels.into_boxed_slice(),
-                    logical_labels: logical_labels.into_boxed_slice(),
+                    logical_keys: logical_keys.into_boxed_slice(),
                     source_to_logical: source_to_logical.into_boxed_slice(),
                 },
                 layout: crate::product::ProductLayoutSpec::new(

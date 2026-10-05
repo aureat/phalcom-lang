@@ -406,6 +406,15 @@ pub enum RuntimeError {
     #[error("duplicate {product} `{label}`")]
     DuplicateProductLabel { product: &'static str, label: String },
 
+    #[error("Record field key must be Symbol, String, Int, or Bool; got {found}")]
+    RecordFieldKeyType { found: String },
+
+    #[error("Record.labelAt requires a Symbol key; got `{key}`")]
+    RecordLabelNotSymbol { key: String },
+
+    #[error("Record field key `{key}` cannot enter a Symbol-only labeled lane")]
+    NonSymbolRecordKeyInExpansion { key: String },
+
     #[error("* expansion requires Tuple, Unit, or an iterable value; got {found}")]
     NonIterableStarOperand { found: &'static str },
 

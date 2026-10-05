@@ -12,7 +12,7 @@ use phalcom_semantic::types::annotation::{
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::{InferVarId, KindId, TypeId};
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericParameterMode, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
-use phalcom_semantic::types::row::RecordRowTail;
+use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowTail};
 use phalcom_semantic::types::store::{CallableType, StaticArgument, TypeData, TypeStore};
 use phalcom_semantic::types::substitution::TypeSubstitution;
 use phalcom_semantic::types::type_lambda::{ScopedOpenRecord, ScopedRecordField, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData, TypeLambdaArena};
@@ -482,6 +482,265 @@ fn lowers_structural_record_annotations() {
     let (res, diags) = resolve(&mut env, &record_ann);
     assert!(diags.is_empty());
     assert!(matches!(env.store.get(res.ty().unwrap()), TypeData::Record(row_id) if env.store.record_row(*row_id).fields.len() == 2));
+}
+
+fn parsed_record_type(source: &str) -> TypeAnnotation {
+    let program = phalcom_ast::parse_source(source, 0).expect("record type source should parse");
+    program
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            phalcom_ast::ast::Statement::TypeDefinition(definition) if definition.name == "R" => definition.type_form_body().cloned(),
+            _ => None,
+        })
+        .expect("source should contain type R")
+}
+
+fn record_with_tail(tail: phalcom_ast::ast::RecordRowTailSyntax) -> TypeAnnotation {
+    TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: Vec::new(),
+            tail: Some(tail),
+            range: RANGE,
+        },
+        range: RANGE,
+    }
+}
+
+fn resolve_record_tail(env: &mut TestEnv, tail: phalcom_ast::ast::AnonymousRecordRemainderSyntax) -> RecordRowTail {
+    let annotation = record_with_tail(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(tail));
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &annotation,
+        &mut diagnostics,
+    );
+    assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:?}");
+    let TypeFormResolution::Ready(ty) = result else {
+        panic!("expected Record type for anonymous tail, got {result:?}");
+    };
+    let TypeData::Record(row_id) = env.store.get(ty) else {
+        panic!("expected canonical Record type");
+    };
+    env.store.record_row(*row_id).tail
+}
+
+#[test]
+fn record_type_static_literal_keys_reduce_to_canonical_field_keys() {
+    let mut env = setup();
+    let annotation = parsed_record_type("type R = { [#token]: Int, [\"text\"]: Int, [42]: Int, [true]: Int }\n");
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &annotation,
+        &mut diagnostics,
+    );
+    assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:?}");
+    let TypeFormResolution::Ready(ty) = result else {
+        panic!("expected a concrete Record type, got {result:?}");
+    };
+    let TypeData::Record(row_id) = env.store.get(ty) else {
+        panic!("expected canonical Record type");
+    };
+    let row = env.store.record_row(*row_id);
+    assert_eq!(
+        row.fields.iter().map(|field| field.key.clone()).collect::<Vec<_>>(),
+        vec![
+            phalcom_semantic::field_key::FieldKey::symbol("token"),
+            phalcom_semantic::field_key::FieldKey::string("text"),
+            phalcom_semantic::field_key::FieldKey::int(phalcom_semantic::scalar::StaticInt::from(42)),
+            phalcom_semantic::field_key::FieldKey::bool(true),
+        ]
+    );
+}
+
+#[test]
+fn record_type_names_and_general_expressions_fail_closed_before_row_interning() {
+    let sources = [
+        "type R = { [Key]: Int }\n",
+        "const Key = #token\ntype R = { [Key]: Int }\n",
+        "type R<T> = { [T]: Int }\n",
+        "type R = { [1 + 2]: Int }\n",
+    ];
+
+    for source in sources {
+        let mut env = setup();
+        let annotation = parsed_record_type(source);
+        let rows_before = env.store.record_row_count();
+        let mut diagnostics = Vec::new();
+        let result = phalcom_semantic::types::annotation::resolve_type_form(
+            &mut env.store,
+            &env.declarations,
+            &env.resolver,
+            &env.site,
+            &annotation,
+            &mut diagnostics,
+        );
+        assert_eq!(result, TypeFormResolution::Invalid(TypeFormationInvalid::RecordKeyNotStatic), "source: {source}");
+        assert_eq!(diagnostics.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(), vec![DiagnosticCode::RecordKeyNotStatic]);
+        assert_eq!(env.store.record_row_count(), rows_before, "unresolved key must not enter canonical row storage: {source}");
+    }
+}
+
+#[test]
+fn anonymous_record_tail_key_domains_default_and_substitute_correctly() {
+    let mut env = setup();
+    let default_key_type = env.store.field_key_type(&env.declarations);
+    let typed_value = TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: Vec::new(),
+            tail: Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(
+                phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue {
+                    value_type: Box::new(reference("String")),
+                    range: RANGE,
+                },
+            )),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let (knowledge, diagnostics) = resolve(&mut env, &typed_value);
+    assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:?}");
+    let TypeKnowledge::Known(typed_value) = knowledge else {
+        panic!("expected typed Record remainder");
+    };
+    let TypeData::Record(row_id) = env.store.get(typed_value.ty()) else {
+        panic!("expected canonical Record");
+    };
+    assert_eq!(
+        env.store.record_row(*row_id).tail,
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+            key_type: default_key_type,
+            value_type: env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap(),
+        })
+    );
+
+    let body = TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: Vec::new(),
+            tail: Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(
+                phalcom_ast::ast::AnonymousRecordRemainderSyntax::Typed {
+                    key_type: Box::new(reference("K")),
+                    value_type: Box::new(reference("V")),
+                    range: RANGE,
+                },
+            )),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let lambda = type_lambda(&["K", "V"], body);
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &lambda,
+        &mut diagnostics,
+    );
+    assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:?}");
+    let TypeFormResolution::Ready(lambda) = result else {
+        panic!("expected scoped Record type lambda");
+    };
+    let int_type = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let string_type = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
+    let applied = env.store.apply_type_form(lambda, &[int_type, string_type]).expect("tail key/value binders should substitute");
+    let TypeData::Record(row_id) = env.store.get(applied) else {
+        panic!("expected specialized Record");
+    };
+    assert_eq!(
+        env.store.record_row(*row_id).tail,
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+            key_type: int_type,
+            value_type: string_type,
+        })
+    );
+}
+
+#[test]
+fn record_tail_syntax_preserves_all_anonymous_key_domains() {
+    let mut env = setup();
+    let field_key_type = env.store.field_key_type(&env.declarations);
+    let string_type = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
+    let int_type = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+
+    assert_eq!(
+        resolve_record_tail(&mut env, phalcom_ast::ast::AnonymousRecordRemainderSyntax::Unconstrained(RANGE)),
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_type })
+    );
+    assert_eq!(
+        resolve_record_tail(
+            &mut env,
+            phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue {
+                value_type: Box::new(reference("Int")),
+                range: RANGE,
+            },
+        ),
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+            key_type: field_key_type,
+            value_type: int_type,
+        })
+    );
+    assert_eq!(
+        resolve_record_tail(
+            &mut env,
+            phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedKey {
+                key_type: Box::new(reference("String")),
+                range: RANGE,
+            },
+        ),
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: string_type })
+    );
+    assert_eq!(
+        resolve_record_tail(
+            &mut env,
+            phalcom_ast::ast::AnonymousRecordRemainderSyntax::Typed {
+                key_type: Box::new(reference("String")),
+                value_type: Box::new(reference("Int")),
+                range: RANGE,
+            },
+        ),
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+            key_type: string_type,
+            value_type: int_type,
+        })
+    );
+}
+
+#[test]
+fn anonymous_record_tail_rejects_non_type_key_domains() {
+    let mut env = setup();
+    let annotation = TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: Vec::new(),
+            tail: Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(
+                phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedKey {
+                    key_type: Box::new(reference("List")),
+                    range: RANGE,
+                },
+            )),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &annotation,
+        &mut diagnostics,
+    );
+    assert!(matches!(result, TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { .. })));
+    assert_eq!(diagnostics.first().map(|diagnostic| diagnostic.code), Some(DiagnosticCode::KindExpectedType));
 }
 
 #[test]

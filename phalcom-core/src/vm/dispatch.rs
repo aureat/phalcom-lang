@@ -35,26 +35,17 @@ impl VM {
     ///
     /// Empty lanes normalize directly to `Value::empty_pack()`.
     /// Otherwise, allocates an immutable root Pack object.
-    pub fn capture_rest_pack(
-        &mut self,
-        positionals: &[Value],
-        labeled: &[(Symbol, Value)],
-    ) -> PhResult<Value> {
+    pub fn capture_rest_pack(&mut self, positionals: &[Value], labeled: &[(Symbol, Value)]) -> PhResult<Value> {
         self.capture_rest_pack_owned(positionals.to_vec(), labeled.to_vec())
     }
 
     /// Captures owned staging buffers without copying them again at the VM
     /// rest-binding boundary.
-    pub fn capture_rest_pack_owned(
-        &mut self,
-        positionals: Vec<Value>,
-        labeled: Vec<(Symbol, Value)>,
-    ) -> PhResult<Value> {
+    pub fn capture_rest_pack_owned(&mut self, positionals: Vec<Value>, labeled: Vec<(Symbol, Value)>) -> PhResult<Value> {
         if positionals.is_empty() && labeled.is_empty() {
             return Ok(Value::empty_pack());
         }
-        crate::product::finish_pack(self, positionals, labeled)
-            .map_err(|error| crate::product::runtime_error(self, "Pack label", error).into())
+        crate::product::finish_pack(self, positionals, labeled).map_err(|error| crate::product::runtime_error(self, "Pack label", error).into())
     }
 
     /// Captures a positional rest Pack from already-evaluated positional arguments.
@@ -70,8 +61,7 @@ impl VM {
         if positionals.is_empty() {
             return Ok(Value::empty_pack());
         }
-        crate::product::finish_pack(self, positionals, Vec::new())
-            .map_err(|error| crate::product::runtime_error(self, "Pack label", error).into())
+        crate::product::finish_pack(self, positionals, Vec::new()).map_err(|error| crate::product::runtime_error(self, "Pack label", error).into())
     }
 
     /// Captures a labeled rest Pack from already-evaluated labeled argument entries.
@@ -87,8 +77,7 @@ impl VM {
         if labeled.is_empty() {
             return Ok(Value::empty_pack());
         }
-        crate::product::finish_pack(self, Vec::new(), labeled)
-            .map_err(|error| crate::product::runtime_error(self, "Pack label", error).into())
+        crate::product::finish_pack(self, Vec::new(), labeled).map_err(|error| crate::product::runtime_error(self, "Pack label", error).into())
     }
 
     /// Returns Unit/EmptyPack/Tuple/Pack positional-lane values without invoking ordinary
@@ -236,7 +225,7 @@ impl VM {
     /// Copies the ordered labeled lane exposed by a `**` source. The returned
     /// associations own no heap borrows, so destinations may re-enter the VM
     /// while consuming them.
-    fn snapshot_labeled_lane(&self, source: Value) -> Result<Vec<(Symbol, Value)>, RuntimeError> {
+    fn snapshot_labeled_lane(&mut self, source: Value) -> Result<Vec<(Symbol, Value)>, RuntimeError> {
         if source.is_unit() || source.is_empty_record() || source.is_empty_pack() {
             Ok(Vec::new())
         } else if let Some(view) = self.pack_view_value(source) {
@@ -253,10 +242,19 @@ impl VM {
                     .tuple_view(id)
                     .map(|tuple| tuple.labeled_entries())
                     .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".into())),
-                Object::Record(_) => self
-                    .record_view(id)
-                    .map(|record| record.entries())
-                    .ok_or_else(|| RuntimeError::Internal("Record descriptor is unavailable".into())),
+                Object::Record(_) => {
+                    let entries = self
+                        .record_view(id)
+                        .map(|record| record.entries())
+                        .ok_or_else(|| RuntimeError::Internal("Record descriptor is unavailable".into()))?;
+                    entries
+                        .into_iter()
+                        .map(|(key, value)| match key {
+                            phalcom_semantic::field_key::FieldKey::Symbol(text) => Ok((self.interner.intern(&text), value)),
+                            key => Err(RuntimeError::NonSymbolRecordKeyInExpansion { key: key.to_string() }),
+                        })
+                        .collect()
+                }
                 Object::Map(_) => self
                     .heap
                     .map(id)
@@ -270,6 +268,52 @@ impl VM {
             }
         } else {
             Err(RuntimeError::InvalidStarStarOperand { found: source.type_name() })
+        }
+    }
+
+    /// Copies Record-compatible labeled fields with their canonical key kind.
+    /// Record-to-Record expansion preserves heterogeneous keys; Tuple and Map
+    /// contributors retain their existing Symbol-only label contract.
+    fn snapshot_record_fields(&self, source: Value) -> Result<Vec<(phalcom_semantic::field_key::FieldKey, Value)>, RuntimeError> {
+        use phalcom_semantic::field_key::FieldKey;
+        if source.is_unit() || source.is_empty_record() || source.is_empty_pack() {
+            return Ok(Vec::new());
+        }
+        if let Some(view) = self.pack_view_value(source) {
+            return Ok(view
+                .labeled_entries()
+                .into_iter()
+                .map(|(label, value)| (FieldKey::symbol(self.resolve_symbol(label)), value))
+                .collect());
+        }
+        let Some(id) = source.as_obj() else {
+            return Err(RuntimeError::InvalidStarStarOperand { found: source.type_name() });
+        };
+        match self.heap.get(id) {
+            Object::Tuple(_) => self
+                .tuple_view(id)
+                .map(|tuple| {
+                    tuple
+                        .labeled_entries()
+                        .into_iter()
+                        .map(|(label, value)| (FieldKey::symbol(self.resolve_symbol(label)), value))
+                        .collect()
+                })
+                .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".into())),
+            Object::Record(_) => self
+                .record_view(id)
+                .map(|record| record.entries())
+                .ok_or_else(|| RuntimeError::Internal("Record descriptor is unavailable".into())),
+            Object::Map(_) => self
+                .heap
+                .map(id)
+                .entries()
+                .map(|(key, value)| match key.symbol_value() {
+                    Some(label) => Ok((FieldKey::symbol(self.resolve_symbol(label)), value)),
+                    None => Err(RuntimeError::NonSymbolMapKeyInExpansion { found: key.type_name() }),
+                })
+                .collect(),
+            _ => Err(RuntimeError::InvalidStarStarOperand { found: source.type_name() }),
         }
     }
 
@@ -3422,6 +3466,38 @@ impl VM {
                         .into());
                     }
                 }
+                Bytecode::GuardFieldKey => {
+                    let value = *self
+                        .stack
+                        .last()
+                        .ok_or(RuntimeError::Internal("Stack underflow for GuardFieldKey".to_string()))?;
+                    crate::product::validate_field_key_value(self, value)?;
+                }
+                Bytecode::RecordLiteralCheckKey => {
+                    let key_value = *self
+                        .stack
+                        .last()
+                        .ok_or(RuntimeError::Internal("Stack underflow for RecordLiteralCheckKey".to_string()))?;
+                    let builder = *self
+                        .stack
+                        .get(self.stack.len().saturating_sub(2))
+                        .ok_or(RuntimeError::Internal("RecordLiteralCheckKey requires builder and key".to_string()))?;
+                    let key = crate::product::value_to_field_key(self, key_value)?;
+                    let Some(id) = builder.as_obj() else {
+                        return Err(RuntimeError::Internal("Record literal builder is not an object".into()).into());
+                    };
+                    let is_builder = matches!(self.heap.get(id), Object::RecordLiteralBuilder(_));
+                    if !is_builder {
+                        return Err(RuntimeError::Internal("Record literal builder has wrong object kind".into()).into());
+                    }
+                    if self.heap.record_literal_builder(id).contains_key(&key) {
+                        return Err(RuntimeError::DuplicateProductLabel {
+                            product: "Record field",
+                            label: key.to_string(),
+                        }
+                        .into());
+                    }
+                }
                 Bytecode::NewArgumentPack => {
                     let id = self.heap.alloc(Object::PackBuilder(Box::new(crate::heap::ArgumentPackBuilderObject::new())));
                     self.stack.push(Value::obj(id));
@@ -3747,15 +3823,9 @@ impl VM {
                     let mut entries = Vec::with_capacity(fields as usize);
                     for _ in 0..fields {
                         let value = self.pop()?;
-                        let label = self.pop()?;
-                        let Some(label) = label.symbol_value() else {
-                            return Err(RuntimeError::Type {
-                                expected: "Symbol record label",
-                                found: label.type_name(),
-                            }
-                            .into());
-                        };
-                        entries.push((label, value));
+                        let key_value = self.pop()?;
+                        let key = crate::product::value_to_field_key(self, key_value)?;
+                        entries.push((key, value));
                     }
                     entries.reverse();
                     let product = crate::product::finish_record(self, entries).map_err(|error| crate::product::runtime_error(self, "Record field", error))?;
@@ -3781,7 +3851,7 @@ impl VM {
                 Bytecode::BuildStaticRecord { spec } => {
                     let spec = callable.chunk.executable_semantics.anonymous_product_spec(spec);
                     let count = match &spec.kind {
-                        crate::modules::semantic_lowering::AnonymousProductConstructionKind::Record { presentation_labels, .. } => presentation_labels.len(),
+                        crate::modules::semantic_lowering::AnonymousProductConstructionKind::Record { logical_keys, .. } => logical_keys.len(),
                         _ => return Err(RuntimeError::Internal("Record bytecode carried a Tuple construction spec".into()).into()),
                     };
                     let mut values = Vec::with_capacity(count);
@@ -3816,22 +3886,16 @@ impl VM {
                 }
                 Bytecode::RecordLiteralAppend => {
                     let value = self.pop()?;
-                    let label = self.pop()?;
+                    let key_value = self.pop()?;
+                    let key = crate::product::value_to_field_key(self, key_value)?;
                     let builder = self.pop()?;
-                    let Some(label) = label.symbol_value() else {
-                        return Err(RuntimeError::Type {
-                            expected: "Symbol Record label",
-                            found: label.type_name(),
-                        }
-                        .into());
-                    };
                     let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("Record literal builder is not an object".into()).into());
                     };
                     if !matches!(self.heap.get(id), Object::RecordLiteralBuilder(_)) {
                         return Err(RuntimeError::Internal("Record literal builder has wrong object kind".into()).into());
                     }
-                    self.heap.record_literal_builder_mut(id).append(label, value);
+                    self.heap.record_literal_builder_mut(id).append(key, value);
                 }
                 Bytecode::RecordLiteralExpandLabels => {
                     let source = self.pop()?;
@@ -3842,8 +3906,15 @@ impl VM {
                     if !matches!(self.heap.get(id), Object::RecordLiteralBuilder(_)) {
                         return Err(RuntimeError::Internal("Record literal builder has wrong object kind".into()).into());
                     }
-                    for (label, value) in self.snapshot_labeled_lane(source)? {
-                        self.heap.record_literal_builder_mut(id).append(label, value);
+                    for (key, value) in self.snapshot_record_fields(source)? {
+                        if self.heap.record_literal_builder(id).contains_key(&key) {
+                            return Err(RuntimeError::DuplicateProductLabel {
+                                product: "Record field",
+                                label: key.to_string(),
+                            }
+                            .into());
+                        }
+                        self.heap.record_literal_builder_mut(id).append(key, value);
                     }
                 }
                 Bytecode::FinishRecordLiteral => {

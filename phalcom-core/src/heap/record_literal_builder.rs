@@ -1,12 +1,12 @@
 //! Private, GC-traced assembly state for dynamic Record literals.
 
-use crate::interner::Symbol;
 use crate::value::Value;
+use phalcom_semantic::field_key::FieldKey;
 
 /// Compiler-owned, deliberately unobservable Record construction accumulator.
 #[derive(Default)]
 pub struct RecordLiteralBuilderObject {
-    entries: Vec<(Symbol, Value)>,
+    entries: Vec<(FieldKey, Value)>,
 }
 
 impl RecordLiteralBuilderObject {
@@ -14,15 +14,19 @@ impl RecordLiteralBuilderObject {
         Self::default()
     }
 
-    pub fn append(&mut self, label: Symbol, value: Value) {
-        self.entries.push((label, value));
+    pub fn append(&mut self, key: FieldKey, value: Value) {
+        self.entries.push((key, value));
     }
 
-    pub fn entries(&self) -> &[(Symbol, Value)] {
+    pub fn contains_key(&self, key: &FieldKey) -> bool {
+        self.entries.iter().any(|(candidate, _)| candidate == key)
+    }
+
+    pub fn entries(&self) -> &[(FieldKey, Value)] {
         &self.entries
     }
 
-    pub fn take_entries(&mut self) -> Vec<(Symbol, Value)> {
+    pub fn take_entries(&mut self) -> Vec<(FieldKey, Value)> {
         std::mem::take(&mut self.entries)
     }
 }

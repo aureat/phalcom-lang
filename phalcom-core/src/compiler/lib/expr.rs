@@ -1283,8 +1283,11 @@ impl<'vm> Compiler<'vm> {
                     return Ok(());
                 }
 
-                let dynamic = record_expr.entries.iter().any(|entry| matches!(entry, RecordLiteralEntry::Expansion { .. }));
-                if !dynamic {
+                let needs_builder = record_expr.entries.iter().any(|entry| match entry {
+                    RecordLiteralEntry::Expansion { .. } => true,
+                    RecordLiteralEntry::Field(field) => matches!(field.label, ProductLabel::Computed { .. }),
+                });
+                if !needs_builder {
                     let mut seen = std::collections::HashSet::new();
                     let fields = checked_product_count("Record", record_expr.entries.len(), record_expr.range)?;
                     for entry in record_expr.entries {
@@ -1292,7 +1295,7 @@ impl<'vm> Compiler<'vm> {
                             unreachable!("static Record literal cannot contain expansion");
                         };
                         let phalcom_ast::ast::RecordLiteralField { label, value, range } = field;
-                        self.compile_product_label(label, &mut seen, range)?;
+                        self.compile_record_field_key(label, &mut seen, range)?;
                         self.compile_expr(value)?;
                     }
                     self.emit(Bytecode::BuildRecord { fields }, record_expr.range);
@@ -1312,7 +1315,8 @@ impl<'vm> Compiler<'vm> {
                             // can consume `builder | label | value` after the
                             // label's required-before-value evaluation.
                             self.emit(Bytecode::GetLocal(builder_slot), range);
-                            self.compile_product_label(label, &mut seen, range)?;
+                            self.compile_record_field_key(label, &mut seen, range)?;
+                            self.emit(Bytecode::RecordLiteralCheckKey, range);
                             self.compile_expr(value)?;
                             self.emit(Bytecode::RecordLiteralAppend, range);
                         }
@@ -2316,6 +2320,30 @@ impl<'vm> Compiler<'vm> {
             ProductLabel::Computed { expr, range } => {
                 self.compile_expr(*expr)?;
                 self.emit(Bytecode::GuardSymbol, range);
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_record_field_key(
+        &mut self,
+        label: ProductLabel,
+        seen: &mut std::collections::HashSet<phalcom_semantic::field_key::FieldKey>,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        match label {
+            ProductLabel::Static { symbol, .. } => {
+                let symbol = self.canonical_symbol(symbol, range)?;
+                let key = phalcom_semantic::field_key::FieldKey::symbol(self.vm.resolve_symbol(symbol));
+                if !seen.insert(key.clone()) {
+                    return Err(CompilerError::Message(format!("duplicate Record field key `{key}`")));
+                }
+                let idx = self.add_constant(Value::symbol(symbol), range)?;
+                self.emit(Bytecode::Constant(idx), range);
+            }
+            ProductLabel::Computed { expr, range } => {
+                self.compile_expr(*expr)?;
+                self.emit(Bytecode::GuardFieldKey, range);
             }
         }
         Ok(())

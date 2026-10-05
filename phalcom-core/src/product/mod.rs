@@ -10,7 +10,7 @@ pub mod view;
 pub use anonymous::{RuntimeAnonymousProductDescriptor, RuntimeAnonymousProductDescriptorId, RuntimeAnonymousProductDescriptorRegistry};
 pub use layout::{ProductComponentLayout, ProductComponentSpec, ProductLayout, ProductLayoutId, ProductLayoutSpec, ProductSlotRepr};
 pub use registry::ProductLayoutRegistry;
-pub use shape::{AnonymousProductKind, PackProductShape, ProductShape, ProductShapeId, ProductShapeRegistry, RecordProductShape, TupleProductShape};
+pub use shape::{AnonymousProductKind, PackProductShape, ProductShape, ProductShapeId, ProductShapeRegistry, RecordProductShape, RecordProductShapeError, TupleProductShape};
 pub use storage::ProductStorage;
 pub use view::{PackView, RecordView, TupleView};
 
@@ -21,11 +21,16 @@ use crate::modules::semantic_lowering::{AnonymousProductConstructionKind, Anonym
 use crate::typing::{RuntimeTypeEnvironmentId, RuntimeTypeRecipe, RuntimeTypeRef, instantiate_type_recipe};
 use crate::value::Value;
 use crate::vm::VM;
+use phalcom_semantic::field_key::FieldKey;
+use phalcom_semantic::scalar::StaticInt;
+use std::cmp::Ordering;
 use std::collections::HashSet;
+use std::sync::Arc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProductBuildError {
     DuplicateLabel(Symbol),
+    DuplicateRecordKey(FieldKey),
     Storage(&'static str),
     InvalidSpec,
     RuntimeTypeUnavailable,
@@ -37,10 +42,138 @@ pub(crate) fn runtime_error(vm: &VM, product: &'static str, error: ProductBuildE
             product,
             label: vm.resolve_symbol(label).to_owned(),
         },
+        ProductBuildError::DuplicateRecordKey(key) => RuntimeError::DuplicateProductLabel {
+            product,
+            label: key.to_string(),
+        },
         ProductBuildError::Storage(message) => RuntimeError::Internal(format!("{product} storage construction failed: {message}")),
         ProductBuildError::InvalidSpec => RuntimeError::Internal(format!("{product} construction specification is invalid")),
         ProductBuildError::RuntimeTypeUnavailable => RuntimeError::Internal(format!("{product} runtime type could not be materialized")),
     }
+}
+
+/// Converts a runtime value into content-owned structural Record identity.
+/// No heap reference is retained in the returned key.
+pub(crate) fn value_to_field_key(vm: &VM, value: Value) -> Result<FieldKey, RuntimeError> {
+    if let Some(symbol) = value.symbol_value() {
+        return Ok(FieldKey::symbol(Arc::<str>::from(vm.resolve_symbol(symbol))));
+    }
+    if let Some(string) = value.as_obj().and_then(|id| vm.heap.as_string(id)) {
+        return Ok(FieldKey::string(Arc::<str>::from(string.as_str())));
+    }
+    if let Some(integer) = value.as_int() {
+        return Ok(FieldKey::int(StaticInt::Small(integer)));
+    }
+    if let Some(integer) = value.as_obj().and_then(|id| vm.heap.as_large_int(id)) {
+        return Ok(FieldKey::int(StaticInt::new(integer.clone())));
+    }
+    if let Some(boolean) = value.as_bool() {
+        return Ok(FieldKey::bool(boolean));
+    }
+    Err(RuntimeError::RecordFieldKeyType { found: runtime_key_type_name(vm, value) })
+}
+
+pub(crate) fn validate_field_key_value(vm: &VM, value: Value) -> Result<(), RuntimeError> {
+    if runtime_key_kind(vm, value).is_some() {
+        Ok(())
+    } else {
+        Err(RuntimeError::RecordFieldKeyType { found: runtime_key_type_name(vm, value) })
+    }
+}
+
+/// Materializes a runtime observation value for a canonical Record key.
+pub(crate) fn field_key_to_value(vm: &mut VM, key: &FieldKey) -> Value {
+    match key {
+        FieldKey::Symbol(text) => Value::symbol(vm.interner.intern(text)),
+        FieldKey::String(text) => vm.alloc_string_value(text.to_string()),
+        FieldKey::Int(integer) => crate::value::normalize_bigint(integer.to_bigint(), &mut vm.heap),
+        FieldKey::Bool(boolean) => Value::bool(*boolean),
+    }
+}
+
+/// Compares an owned shape key to a runtime key without materializing the
+/// runtime value as a String, BigInt, or FieldKey.
+pub(crate) fn compare_field_key_to_value(vm: &VM, key: &FieldKey, value: Value) -> Result<Ordering, RuntimeError> {
+    let Some(kind) = runtime_key_kind(vm, value) else {
+        return Err(RuntimeError::RecordFieldKeyType { found: runtime_key_type_name(vm, value) });
+    };
+    match key.kind().cmp(&kind) {
+        Ordering::Equal => {}
+        ordering => return Ok(ordering),
+    }
+    match (key, value.symbol_value(), value.as_int(), value.as_bool(), value.as_obj()) {
+        (FieldKey::Symbol(expected), Some(actual), _, _, _) => Ok(expected.as_ref().cmp(vm.resolve_symbol(actual))),
+        (FieldKey::String(expected), _, _, _, Some(id)) => {
+            let actual = vm.heap.as_string(id).ok_or_else(|| RuntimeError::Internal("runtime Record key kind changed during lookup".into()))?;
+            Ok(expected.as_ref().cmp(actual.as_str()))
+        }
+        (FieldKey::Int(expected), _, Some(actual), _, _) => Ok(compare_static_int_to_i64(expected, actual)),
+        (FieldKey::Int(expected), _, _, _, Some(id)) => {
+            let actual = vm.heap.as_large_int(id).ok_or_else(|| RuntimeError::Internal("runtime Record key kind changed during lookup".into()))?;
+            Ok(compare_static_int_to_bigint(expected, actual))
+        }
+        (FieldKey::Bool(expected), _, _, Some(actual), _) => Ok(expected.cmp(&actual)),
+        _ => Err(RuntimeError::Internal("runtime Record key kind changed during lookup".into())),
+    }
+}
+
+fn runtime_key_kind(vm: &VM, value: Value) -> Option<phalcom_semantic::field_key::FieldKeyKind> {
+    use phalcom_semantic::field_key::FieldKeyKind;
+    if value.symbol_value().is_some() {
+        Some(FieldKeyKind::Symbol)
+    } else if value.as_obj().is_some_and(|id| vm.heap.as_string(id).is_some()) {
+        Some(FieldKeyKind::String)
+    } else if value.is_int() || value.as_obj().is_some_and(|id| vm.heap.as_large_int(id).is_some()) {
+        Some(FieldKeyKind::Int)
+    } else if value.is_bool() {
+        Some(FieldKeyKind::Bool)
+    } else {
+        None
+    }
+}
+
+fn runtime_key_type_name(vm: &VM, value: Value) -> String {
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_string(id).is_some() {
+            return "String".to_string();
+        }
+        if vm.heap.as_large_int(id).is_some() {
+            return "Int".to_string();
+        }
+        return vm.heap.class(value.class(vm)).name.clone();
+    }
+    value.type_name().to_string()
+}
+
+fn compare_static_int_to_i64(expected: &StaticInt, actual: i64) -> Ordering {
+    match expected {
+        StaticInt::Small(integer) => integer.cmp(&actual),
+        StaticInt::Large(integer) => compare_bigint_to_i64(integer, actual),
+    }
+}
+
+fn compare_static_int_to_bigint(expected: &StaticInt, actual: &num_bigint::BigInt) -> Ordering {
+    match expected {
+        StaticInt::Small(integer) => compare_i64_to_bigint(*integer, actual),
+        StaticInt::Large(integer) => integer.as_ref().cmp(actual),
+    }
+}
+
+fn compare_bigint_to_i64(bigint: &num_bigint::BigInt, integer: i64) -> Ordering {
+    use num_traits::ToPrimitive;
+    match bigint.to_i64() {
+        Some(bigint) => bigint.cmp(&integer),
+        None if bigint_sign_is_negative(bigint) => Ordering::Less,
+        None => Ordering::Greater,
+    }
+}
+
+fn compare_i64_to_bigint(integer: i64, bigint: &num_bigint::BigInt) -> Ordering {
+    compare_bigint_to_i64(bigint, integer).reverse()
+}
+
+fn bigint_sign_is_negative(bigint: &num_bigint::BigInt) -> bool {
+    bigint.sign() == num_bigint::Sign::Minus
 }
 
 fn unique(entries: &[(Symbol, Value)]) -> Result<(), ProductBuildError> {
@@ -111,13 +244,17 @@ pub fn finish_tuple_value(vm: &mut VM, positionals: Vec<Value>, labeled: Vec<(Sy
 /// The compiler normalizes source `{}` directly to `EmptyRecord` as an
 /// allocation optimization. This runtime check is still required for dynamic
 /// construction: no heap-allocated empty [`RecordObject`] may exist.
-pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(Symbol, Value)>) -> Result<Value, ProductBuildError> {
-    unique(&fields)?;
+pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(FieldKey, Value)>) -> Result<Value, ProductBuildError> {
     if fields.is_empty() {
         return Ok(Value::empty_record());
     }
-    let (labels, values): (Vec<_>, Vec<_>) = fields.into_iter().unzip();
-    let shape = RecordProductShape::from_presentation_labels(labels.into_boxed_slice(), |left, right| vm.resolve_symbol(left).cmp(vm.resolve_symbol(right)));
+    let (keys, values): (Vec<_>, Vec<_>) = fields.into_iter().unzip();
+    let shape = RecordProductShape::from_presentation_keys(keys).map_err(|error| match error {
+        crate::product::RecordProductShapeError::DuplicateKey(key) => ProductBuildError::DuplicateRecordKey(key),
+        crate::product::RecordProductShapeError::InvalidCanonicalKeys | crate::product::RecordProductShapeError::InvalidPermutation => {
+            ProductBuildError::InvalidSpec
+        }
+    })?;
     let mut logical_values = vec![Value::unit(); values.len()];
     for (source_index, logical_index) in shape.presentation_to_logical.iter().copied().enumerate() {
         logical_values[logical_index as usize] = values[source_index];
@@ -306,35 +443,22 @@ pub(crate) fn finish_record_from_spec(
     source_values: Vec<Value>,
 ) -> Result<Value, ProductBuildError> {
     let AnonymousProductConstructionKind::Record {
-        presentation_labels,
-        logical_labels,
+        logical_keys,
         source_to_logical,
     } = &spec.kind
     else {
         return Err(ProductBuildError::InvalidSpec);
     };
-    let total = presentation_labels.len();
-    if total == 0 || source_values.len() != total || logical_labels.len() != total || source_to_logical.len() != total || spec.layout.components.len() != total
-    {
+    let total = logical_keys.len();
+    if total == 0 || source_values.len() != total || source_to_logical.len() != total || spec.layout.components.len() != total {
         return if total == 0 && source_values.is_empty() {
             Ok(Value::empty_record())
         } else {
             Err(ProductBuildError::InvalidSpec)
         };
     }
-    let presentation = presentation_labels
-        .iter()
-        .map(|label| vm.interner.intern(label))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-    let logical = logical_labels
-        .iter()
-        .map(|label| vm.interner.intern(label))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-    let shape_id = vm
-        .product_shapes
-        .register(ProductShape::Record(RecordProductShape::new(presentation, logical, source_to_logical.clone())));
+    let shape = RecordProductShape::new(logical_keys.clone(), source_to_logical.clone()).map_err(|_| ProductBuildError::InvalidSpec)?;
+    let shape_id = vm.product_shapes.register(ProductShape::Record(shape));
     let layout = spec.layout.build_layout().map_err(ProductBuildError::Storage)?;
     let layout_id = vm.heap.product_layouts.register(layout);
     let layout = vm
@@ -431,10 +555,9 @@ mod tests {
                     type_recipe: crate::typing::RuntimeTypeRecipe::Closed(crate::typing::RuntimeTypeRef::Overlay(crate::typing::RuntimeOverlayTypeId(0))),
                 };
                 let empty_record_spec = AnonymousProductConstructionLoweringSpec {
-                    kind: AnonymousProductConstructionKind::Record {
-                        presentation_labels: Box::new([]),
-                        logical_labels: Box::new([]),
-                        source_to_logical: Box::new([]),
+            kind: AnonymousProductConstructionKind::Record {
+                logical_keys: Box::new([]),
+                source_to_logical: Box::new([]),
                     },
                     layout: super::layout::ProductLayoutSpec::new(Vec::new()),
                     type_recipe: crate::typing::RuntimeTypeRecipe::Closed(crate::typing::RuntimeTypeRef::Overlay(crate::typing::RuntimeOverlayTypeId(0))),
@@ -572,8 +695,10 @@ mod tests {
         let mut vm = VM::new_kernel();
         let spec = AnonymousProductConstructionLoweringSpec {
             kind: AnonymousProductConstructionKind::Record {
-                presentation_labels: Box::new(["z".into(), "a".into()]),
-                logical_labels: Box::new(["a".into(), "z".into()]),
+                logical_keys: Box::new([
+                    FieldKey::symbol("a"),
+                    FieldKey::symbol("z"),
+                ]),
                 source_to_logical: Box::new([1, 0]),
             },
             layout: super::layout::ProductLayoutSpec::new(vec![
@@ -598,31 +723,55 @@ mod tests {
                 .is_some()
         );
         assert_eq!(vm.heap.record(id).storage().word_len(), 2);
-        let z = vm.interner.intern("z");
-        let a = vm.interner.intern("a");
         let view = vm.record_view(id).expect("record view");
-        assert_eq!(view.labels(), &[z, a]);
+        assert_eq!(
+            (0..view.len()).filter_map(|index| view.presentation_key(index).cloned()).collect::<Vec<_>>(),
+            vec![FieldKey::symbol("z"), FieldKey::symbol("a")]
+        );
         assert_eq!(view.values(), vec![Value::float(2.5), Value::bool(false)]);
     }
 
     #[test]
     fn dynamic_record_uses_canonical_logical_storage() {
         let mut vm = VM::new_kernel();
-        let z = vm.interner.intern("z");
-        let a = vm.interner.intern("a");
-        let value = finish_record(&mut vm, vec![(z, Value::int(7)), (a, Value::int(3))]).expect("dynamic record");
+        let z = FieldKey::symbol("z");
+        let a = FieldKey::symbol("a");
+        let value = finish_record(&mut vm, vec![(z.clone(), Value::int(7)), (a.clone(), Value::int(3))]).expect("dynamic record");
         let id = value.as_obj().expect("record object");
         let view = vm.record_view(id).expect("record view");
-        assert_eq!(view.labels(), &[z, a]);
+        assert_eq!(
+            (0..view.len()).filter_map(|index| view.presentation_key(index).cloned()).collect::<Vec<_>>(),
+            vec![z.clone(), a.clone()]
+        );
         assert_eq!(view.values(), vec![Value::int(7), Value::int(3)]);
-        assert_eq!(view.get(a), Some(Value::int(3)));
-        assert_eq!(view.get(z), Some(Value::int(7)));
+        assert_eq!(view.get(&a), Some(Value::int(3)));
+        assert_eq!(view.get(&z), Some(Value::int(7)));
         let descriptor = vm.anonymous_product_descriptors.get(vm.heap.record(id).descriptor()).unwrap();
         let shape = match vm.product_shapes.get(descriptor.shape).unwrap() {
             super::shape::ProductShape::Record(shape) => shape,
             _ => panic!("expected record shape"),
         };
-        assert_eq!(&*shape.logical_labels, &[a, z]);
+        assert_eq!(&*shape.logical_keys, &[FieldKey::symbol("a"), FieldKey::symbol("z")]);
         assert_eq!(&*shape.presentation_to_logical, &[1, 0]);
+    }
+
+    #[test]
+    fn dynamic_record_keeps_same_text_symbol_and_string_keys_distinct() {
+        let mut vm = VM::new_kernel();
+        let symbol_key = FieldKey::symbol("same");
+        let string_key = FieldKey::string("same");
+        let value = finish_record(
+            &mut vm,
+            vec![(string_key.clone(), Value::int(2)), (symbol_key.clone(), Value::int(1))],
+        )
+        .expect("heterogeneous record");
+        let view = vm.record_view(value.as_obj().expect("record object")).expect("record view");
+        assert_eq!(view.get(&symbol_key), Some(Value::int(1)));
+        assert_eq!(view.get(&string_key), Some(Value::int(2)));
+        assert_ne!(view.logical_keys()[0], view.logical_keys()[1]);
+        assert_eq!(
+            view.logical_keys(),
+            &[FieldKey::symbol("same"), FieldKey::string("same")]
+        );
     }
 }

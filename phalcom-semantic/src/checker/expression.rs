@@ -2190,12 +2190,8 @@ fn constructor_parameter_knowledge(
             let ty = TypeView::new(*p_ty, env.clone()).materialize(store);
             Some(TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics))
         }
-        crate::declaration_type::DeclaredTypeState::Dynamic(reason) => {
-            Some(TypeKnowledge::Dynamic(reason.clone()))
-        }
-        crate::declaration_type::DeclaredTypeState::Unknown(reason) => {
-            Some(TypeKnowledge::Unknown(reason.clone()))
-        }
+        crate::declaration_type::DeclaredTypeState::Dynamic(reason) => Some(TypeKnowledge::Dynamic(reason.clone())),
+        crate::declaration_type::DeclaredTypeState::Unknown(reason) => Some(TypeKnowledge::Unknown(reason.clone())),
         _ => None,
     }
 }
@@ -2302,10 +2298,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 .iter()
                 .map(|parameter| {
                     let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &env).ok_or(())?;
-                    let mut callable_parameter = crate::dispatch::CallableParameter::new(
-                        parameter.local_name.to_string(),
-                        knowledge,
-                    );
+                    let mut callable_parameter = crate::dispatch::CallableParameter::new(parameter.local_name.to_string(), knowledge);
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
                     }
@@ -2365,10 +2358,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 .iter()
                 .map(|parameter| {
                     let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &env).ok_or(())?;
-                    let mut callable_parameter = crate::dispatch::CallableParameter::new(
-                        parameter.local_name.to_string(),
-                        knowledge,
-                    );
+                    let mut callable_parameter = crate::dispatch::CallableParameter::new(parameter.local_name.to_string(), knowledge);
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
                     }
@@ -2765,6 +2755,17 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
             }
             TupleLiteralEntry::Expand { mode, expr, range } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                if matches!(mode, phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete)
+                    && let Some(key) = crate::checker::composition::known_non_symbol_record_key(ctx.store, &typed.knowledge)
+                {
+                    let diagnostic = SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::RecordSpreadNonSymbolCallKey,
+                        format!("Record key `{key}` cannot enter a Symbol-only ordered labeled lane"),
+                        *range,
+                    );
+                    ctx.emit_diagnostic(diagnostic);
+                }
                 if matches!(mode, phalcom_ast::ast::ExpansionMode::Positional) {
                     if let TypeKnowledge::Known(evidence) = &typed.knowledge {
                         let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
@@ -2858,13 +2859,18 @@ fn expected_tuple_component(expected: &ExpectedType, store: &crate::types::store
     }
 }
 
-fn expected_record_field(ctx: &CheckingContext<'_>, expected: &ExpectedType, name: &str) -> ExpectedType {
+fn expected_record_field(ctx: &mut CheckingContext<'_>, expected: &ExpectedType, key: &crate::field_key::FieldKey) -> ExpectedType {
     if let Some(expected_ty) = expected.ty() {
         let expected_knowledge = match expected.origin() {
             Some(ExpectationOrigin::ExplicitCheck) => TypeKnowledge::established(expected_ty, EvidenceOrigin::ContextualDerivation),
             _ => TypeKnowledge::assumed(expected_ty, EvidenceOrigin::ContextualDerivation),
         };
-        if let Ok(field) = crate::checker::composition::lookup_record_field(ctx.store, &expected_knowledge, name) {
+        let store = &mut *ctx.store;
+        let hierarchy = &ctx.hierarchy;
+        let field = ctx.control.relation(|budget, cancellation| {
+            crate::checker::composition::lookup_record_field(store, hierarchy, &expected_knowledge, key, budget, cancellation)
+        });
+        if let Ok(field) = field {
             if let Some(field_ty) = field.ty() {
                 return ExpectedType::proper_from(field_ty, expected.origin().unwrap_or(ExpectationOrigin::ProductComponent));
             }
@@ -2877,7 +2883,7 @@ fn expected_record_field(ctx: &CheckingContext<'_>, expected: &ExpectedType, nam
         origin,
     } = expected
     {
-        if let Some(field) = record.fields.iter().find(|field| field.key.as_symbol() == Some(name)) {
+        if let Some(field) = record.fields.iter().find(|field| &field.key == key) {
             return ExpectedType::inference_from(*context, field.term.clone(), *origin);
         }
     }
@@ -2925,6 +2931,32 @@ fn record_extension_lacks_is_proven(
     };
     let row = ctx.store.record_row(*row_id);
     row.tail == RecordRowTail::Parameter(parameter) && row.fields.iter().any(|candidate| candidate.key == *field)
+}
+
+fn merge_anonymous_record_tails(
+    store: &mut crate::types::store::TypeStore,
+    left: crate::types::row::AnonymousRecordRemainder,
+    right: crate::types::row::AnonymousRecordRemainder,
+) -> crate::types::row::AnonymousRecordRemainder {
+    use crate::types::row::AnonymousRecordRemainder::{Typed, Unconstrained};
+
+    let key_type = store.union(&[left.key_type(), right.key_type()]);
+    match (left, right) {
+        (Typed { value_type: left_value, .. }, Typed { value_type: right_value, .. }) => Typed {
+            key_type,
+            value_type: store.union(&[left_value, right_value]),
+        },
+        (Unconstrained { .. }, _) | (_, Unconstrained { .. }) => Unconstrained { key_type },
+    }
+}
+
+fn merge_record_literal_tails(store: &mut crate::types::store::TypeStore, left: RecordRowTail, right: RecordRowTail) -> Option<RecordRowTail> {
+    match (left, right) {
+        (left, RecordRowTail::Closed) | (RecordRowTail::Closed, left) => Some(left),
+        (left, right) if left == right => Some(left),
+        (RecordRowTail::Anonymous(left), RecordRowTail::Anonymous(right)) => Some(RecordRowTail::Anonymous(merge_anonymous_record_tails(store, left, right))),
+        _ => None,
+    }
 }
 
 fn emit_record_literal_shape_failure(ctx: &mut CheckingContext<'_>, failure: RecordLiteralShapeFailure, result: &mut TypedExpression) {
@@ -3021,40 +3053,76 @@ fn record_record_literal_internal_failure(
 fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::ast::RecordLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let mut names: Vec<crate::field_key::FieldKey> = Vec::new();
     let mut knowledge = Vec::new();
+    let mut dynamic_key_knowledge = Vec::new();
+    let mut dynamic_value_knowledge = Vec::new();
+    let mut dynamic_key_ranges = Vec::new();
     let mut operands = Vec::new();
     let mut open_tail = None;
     let mut shape_failure = None;
+    let mut dynamic_tail_unresolved = false;
     for entry in &rec.entries {
         match entry {
             RecordLiteralEntry::Field(f) => {
-                let name = product_label_name(&f.label).map(crate::field_key::FieldKey::symbol);
-                let field_expected = name
-                    .as_ref()
-                    .and_then(crate::field_key::FieldKey::as_symbol)
-                    .map(|name| expected_record_field(ctx, expected, name))
-                    .unwrap_or(ExpectedType::None);
-                let typed = analyze_expression(ctx, &f.value, &field_expected);
-                if let Some(name) = name {
-                    if names.iter().any(|existing| existing == &name) {
+                let (key, dynamic_key) = match &f.label {
+                    ProductLabel::Static { .. } => (product_label_name(&f.label).map(crate::field_key::FieldKey::symbol), false),
+                    ProductLabel::Computed { expr, range } => {
+                        let mut key_typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                        if let Some(key) = crate::types::annotation::literal_record_field_key(expr) {
+                            operands.push(key_typed);
+                            (Some(key), false)
+                        } else {
+                            let key_domain = ctx.store.field_key_type_from_core();
+                            let application = ctx.apply_knowledge_against_type(
+                                &key_typed.knowledge,
+                                key_domain,
+                                DiagnosticCode::RecordInvalidFieldKey,
+                                "computed Record key must have a type within FieldKey",
+                                *range,
+                            );
+                            let is_dynamic_key = application.outcome.is_proven() && key_typed.knowledge.ty().is_some();
+                            if !is_dynamic_key {
+                                dynamic_tail_unresolved = true;
+                            }
+                            apply_relation_application_to_typed(&mut key_typed, &application);
+                            dynamic_key_knowledge.push(key_typed.knowledge.clone());
+                            dynamic_key_ranges.push(*range);
+                            operands.push(key_typed);
+                            (None, is_dynamic_key)
+                        }
+                    }
+                };
+
+                if let Some(key) = key {
+                    let field_expected = expected_record_field(ctx, expected, &key);
+                    let typed = analyze_expression(ctx, &f.value, &field_expected);
+                    if names.iter().any(|existing| existing == &key) {
                         shape_failure = Some(RecordLiteralShapeFailure::DuplicateField {
-                            field: name.clone(),
+                            field: key.clone(),
                             range: f.range,
                         });
                     } else {
                         if let Some(RecordRowTail::Parameter(parameter)) = open_tail {
-                            if !record_extension_lacks_is_proven(ctx, expected, parameter, &name) {
+                            if !record_extension_lacks_is_proven(ctx, expected, parameter, &key) {
                                 shape_failure.get_or_insert(RecordLiteralShapeFailure::LacksUnproven {
                                     parameter,
-                                    field: name.clone(),
+                                    field: key.clone(),
                                     range: f.range,
                                 });
                             }
                         }
-                        names.push(name);
+                        names.push(key);
                         knowledge.push(typed.knowledge.clone());
                     }
+                    operands.push(typed);
+                } else if dynamic_key {
+                    let typed = analyze_expression(ctx, &f.value, &ExpectedType::None);
+                    dynamic_value_knowledge.push(typed.knowledge.clone());
+                    operands.push(typed);
+                } else {
+                    dynamic_tail_unresolved = true;
+                    let typed = analyze_expression(ctx, &f.value, &ExpectedType::None);
+                    operands.push(typed);
                 }
-                operands.push(typed);
             }
             RecordLiteralEntry::Expansion { expr, range } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
@@ -3075,7 +3143,12 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                     Ok(projection) => {
                         if let Some(existing_tail) = open_tail {
                             if existing_tail != projection.tail && projection.tail != RecordRowTail::Closed {
-                                shape_failure.get_or_insert(RecordLiteralShapeFailure::OpenTailConflict { range: *range });
+                                match merge_record_literal_tails(ctx.store, existing_tail, projection.tail) {
+                                    Some(merged) => open_tail = Some(merged),
+                                    None => {
+                                        shape_failure.get_or_insert(RecordLiteralShapeFailure::OpenTailConflict { range: *range });
+                                    }
+                                }
                             }
                         } else if projection.tail != RecordRowTail::Closed {
                             open_tail = Some(projection.tail);
@@ -3121,24 +3194,48 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
     }
 
     let mut formation_failure = None;
-    let knowledge = if shape_failure.is_some() {
+    let knowledge = if shape_failure.is_some() || dynamic_tail_unresolved {
         TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
     } else {
-        crate::types::evidence::compose_required_knowledge(knowledge, EvidenceOrigin::Syntax, |types| {
-            if types.len() != names.len() {
+        let fixed_count = names.len();
+        let dynamic_key_count = dynamic_key_knowledge.len();
+        let dynamic_value_count = dynamic_value_knowledge.len();
+        let all_knowledge = knowledge
+            .into_iter()
+            .chain(dynamic_key_knowledge)
+            .chain(dynamic_value_knowledge)
+            .collect::<Vec<_>>();
+        crate::types::evidence::compose_required_knowledge(all_knowledge, EvidenceOrigin::Syntax, |types| {
+            let key_end = fixed_count + dynamic_key_count;
+            if types.len() != key_end + dynamic_value_count {
                 return Err(UnknownReason::UncheckedExpression);
             }
             let fields = names
                 .iter()
                 .cloned()
-                .zip(types.iter().copied())
+                .zip(types[..fixed_count].iter().copied())
                 .map(|(key, ty)| RecordTypeField {
                     key,
                     ty,
                     presence: crate::types::row::StructuralMemberPresence::Required,
                 })
                 .collect::<Vec<_>>();
-            match ctx.store.record_row_type_checked(fields, open_tail.unwrap_or(RecordRowTail::Closed)) {
+            let mut tail = open_tail.unwrap_or(RecordRowTail::Closed);
+            if dynamic_key_count > 0 {
+                let dynamic_key_type = ctx.store.union(&types[fixed_count..key_end]);
+                let dynamic_value_type = ctx.store.union(&types[key_end..]);
+                let dynamic_tail = RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed {
+                    key_type: dynamic_key_type,
+                    value_type: dynamic_value_type,
+                });
+                let range = dynamic_key_ranges.first().copied().unwrap_or(rec.range);
+                let Some(merged_tail) = merge_record_literal_tails(ctx.store, tail, dynamic_tail) else {
+                    shape_failure.get_or_insert(RecordLiteralShapeFailure::OpenTailConflict { range });
+                    return Err(UnknownReason::UncheckedExpression);
+                };
+                tail = merged_tail;
+            }
+            match ctx.store.record_row_type_checked(fields, tail) {
                 Ok(ty) => Ok(ty),
                 Err(error) => {
                     formation_failure = Some(error);
@@ -3310,10 +3407,7 @@ fn associated_constructor_application_target(
                 .iter()
                 .map(|parameter| {
                     let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &environment)?;
-                    let mut callable_parameter = crate::dispatch::CallableParameter::new(
-                        parameter.local_name.to_string(),
-                        knowledge,
-                    );
+                    let mut callable_parameter = crate::dispatch::CallableParameter::new(parameter.local_name.to_string(), knowledge);
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
                     }
@@ -3367,10 +3461,7 @@ fn associated_constructor_application_target(
                 .iter()
                 .map(|parameter| {
                     let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &environment)?;
-                    let mut callable_parameter = crate::dispatch::CallableParameter::new(
-                        parameter.local_name.to_string(),
-                        knowledge,
-                    );
+                    let mut callable_parameter = crate::dispatch::CallableParameter::new(parameter.local_name.to_string(), knowledge);
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
                     }

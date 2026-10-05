@@ -56,6 +56,8 @@ mod compiler_product_optimization;
 mod compiler_static_const;
 #[path = "collections/contract.rs"]
 mod core_collections;
+#[path = "collections/record_field_keys.rs"]
+mod record_field_keys;
 #[path = "collections/pack.rs"]
 mod core_pack;
 #[path = "collections/outgoing_packs.rs"]

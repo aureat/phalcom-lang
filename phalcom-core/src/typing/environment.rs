@@ -189,7 +189,7 @@ fn instantiate_type_ref(
                     for f in fields.iter() {
                         let new_ty = instantiate_type_ref(f.ty, env, context, registry, depth + 1)?;
                         new_fields.push(crate::typing::overlay::RuntimeRecordField {
-                            name: f.name.clone(),
+                            key: f.key.clone(),
                             ty: new_ty,
                         });
                     }
@@ -262,7 +262,7 @@ fn instantiate_type_ref(
                                 let mut fields = Vec::with_capacity(row.fields.len());
                                 for field in row.fields.iter() {
                                     fields.push(crate::typing::overlay::RuntimeRecordField {
-                                        name: field.name.clone(),
+                                        key: phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
                                         ty: instantiate_type_ref(RuntimeTypeRef::Base { pool, node: field.ty }, env, context, registry, depth + 1)?,
                                     });
                                 }
@@ -316,7 +316,7 @@ fn instantiate_type_ref(
                     for f in fields.iter() {
                         let new_ty = instantiate_type_ref(RuntimeTypeRef::Base { pool, node: f.ty }, env, context, registry, depth + 1)?;
                         new_fields.push(crate::typing::overlay::RuntimeRecordField {
-                            name: f.name.clone(),
+                            key: phalcom_semantic::field_key::FieldKey::symbol(f.name.clone()),
                             ty: new_ty,
                         });
                     }
@@ -370,7 +370,7 @@ fn instantiate_record_row(
     let mut fields = Vec::with_capacity(row.fields.len());
     for field in row.fields.iter() {
         fields.push(crate::typing::overlay::RuntimeRecordField {
-            name: field.name.clone(),
+            key: field.key.clone(),
             ty: instantiate_type_ref(field.ty, env, context, registry, depth + 1)?,
         });
     }
@@ -634,14 +634,14 @@ mod tests {
         assert_eq!(
             int_row.fields.as_ref(),
             &[RuntimeRecordField {
-                name: "payload".into(),
+                key: phalcom_semantic::field_key::FieldKey::symbol("payload"),
                 ty: int_ty
             }]
         );
         assert_eq!(
             string_row.fields.as_ref(),
             &[RuntimeRecordField {
-                name: "payload".into(),
+                key: phalcom_semantic::field_key::FieldKey::symbol("payload"),
                 ty: string_ty
             }]
         );
@@ -663,7 +663,7 @@ mod tests {
             origin: int_ty,
             arguments: vec![RuntimeStaticArgument::RecordRow(RuntimeRecordRow {
                 fields: Box::new([RuntimeRecordField {
-                    name: "payload".into(),
+                    key: phalcom_semantic::field_key::FieldKey::symbol("payload"),
                     ty: RuntimeTypeRef::Base {
                         pool: MetadataPoolId(0),
                         node: TypeNodeId(2),
@@ -690,14 +690,14 @@ mod tests {
         );
 
         let proper_record = context.overlay.type_ref(RuntimeOverlayTypeNode::Record(Box::new([RuntimeRecordField {
-            name: "payload".into(),
+            key: phalcom_semantic::field_key::FieldKey::symbol("payload"),
             ty: int_ty,
         }])));
         let row_applied = context.overlay.type_ref(RuntimeOverlayTypeNode::Applied {
             origin: int_ty,
             arguments: vec![RuntimeStaticArgument::RecordRow(RuntimeRecordRow {
                 fields: Box::new([RuntimeRecordField {
-                    name: "payload".into(),
+                    key: phalcom_semantic::field_key::FieldKey::symbol("payload"),
                     ty: int_ty,
                 }]),
                 tail: None,

@@ -119,6 +119,8 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "FinishPack",
     "BuildStaticPack",
     "BuildPack",
+    "GuardFieldKey",
+    "RecordLiteralCheckKey",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -759,12 +761,21 @@ pub enum Bytecode {
     /// Pushes global variable by name constant index after asserting it is not uninitialized.
     /// 0: name symbol constant index.
     GetGlobalChecked(u16),
+
+    /// Peeks the top value and raises unless it is a valid Record key.
+    /// Tuple, Pack, and call labels remain Symbol-only.
+    GuardFieldKey,
+
+    /// Checks `builder | key` for duplicate Record keys and leaves both values
+    /// on the stack. The compiler emits this after key validation and before
+    /// evaluating the associated field value.
+    RecordLiteralCheckKey,
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 115;
+    pub const VARIANTS: usize = 117;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -890,6 +901,8 @@ impl Bytecode {
             Bytecode::FinishPack => 112,
             Bytecode::BuildStaticPack { .. } => 113,
             Bytecode::BuildPack { .. } => 114,
+            Bytecode::GuardFieldKey => 115,
+            Bytecode::RecordLiteralCheckKey => 116,
         }
     }
 

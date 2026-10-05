@@ -7,6 +7,7 @@ use phalcom_semantic::data_semantics::{
 };
 use phalcom_semantic::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use phalcom_semantic::enum_semantics::{AlgebraicCasePayloadKind, EnumSemanticTable, VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility};
+use phalcom_semantic::field_key::FieldKey;
 use phalcom_semantic::identity::{DataComponentId, DataConstructorId, DeclarationId, VariantFieldId, VariantId};
 use phalcom_semantic::static_value::{StaticValueData, StaticValueStore, StaticValueStoreError};
 use phalcom_semantic::types::TypeId;
@@ -129,11 +130,11 @@ fn structural_static_values_are_canonical_typed_and_acyclic() {
     assert_ne!(values.content_fingerprint(tuple).unwrap(), values.content_fingerprint(reversed_tuple).unwrap());
     assert!(matches!(values.get(tuple), Ok(StaticValueData::Tuple(_))));
 
-    let record_ab = values.intern_record(vec![("b".into(), two), ("a".into(), one)]).unwrap();
-    let record_ba = values.intern_record(vec![("a".into(), one), ("b".into(), two)]).unwrap();
+    let record_ab = values.intern_record(vec![(FieldKey::symbol("b"), two), (FieldKey::symbol("a"), one)]).unwrap();
+    let record_ba = values.intern_record(vec![(FieldKey::symbol("a"), one), (FieldKey::symbol("b"), two)]).unwrap();
     assert_eq!(record_ab, record_ba, "record construction order is not semantic");
     assert!(matches!(
-        values.intern_record(vec![("x".into(), one), ("x".into(), two)]),
+        values.intern_record(vec![(FieldKey::symbol("x"), one), (FieldKey::symbol("x"), two)]),
         Err(StaticValueStoreError::DuplicateRecordKey(_))
     ));
 

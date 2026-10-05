@@ -82,11 +82,14 @@ fn static_anonymous_products_compile_and_execute_through_program_path() {
         .expect("record global");
     let record_view = vm.record_view(record.as_obj().expect("record object")).expect("record view");
     assert_eq!(
-        record_view.labels().iter().map(|label| vm.interner.lookup(*label)).collect::<Vec<_>>(),
-        vec!["b", "a"]
+        (0..record_view.len())
+            .filter_map(|index| record_view.presentation_key(index))
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec!["#b", "#a"]
     );
-    assert_eq!(record_view.get(vm.interner.find("a").expect("a symbol")), Some(Value::int(4)));
-    assert_eq!(record_view.get(vm.interner.find("b").expect("b symbol")), Some(Value::int(3)));
+    assert_eq!(record_view.get(&phalcom_semantic::field_key::FieldKey::symbol("a")), Some(Value::int(4)));
+    assert_eq!(record_view.get(&phalcom_semantic::field_key::FieldKey::symbol("b")), Some(Value::int(3)));
 }
 
 #[test]

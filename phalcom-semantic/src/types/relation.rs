@@ -1,12 +1,13 @@
 use super::evidence::TypeKnowledge;
 use super::id::{RecordRowId, TypeId};
 use super::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationFailure, RelationOutcome};
-use super::row::RecordRowTail;
+use super::row::{AnonymousRecordRemainder, RecordRowTail, StructuralMemberPresence};
 use super::specialization::project_direct_supertype;
 use super::store::{TypeData, TypeStore};
 use super::variance::Variance;
 use crate::core_surface::CoreDeclarationIds;
 use crate::declarations::GenericSupertypeTemplate;
+use crate::field_key::FieldKey;
 use crate::identity::{DeclarationId, ModuleId};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -940,7 +941,6 @@ pub fn check_assignability(store: &mut TypeStore, hierarchy: &dyn TypeHierarchy,
 
 // Recursive record checking carries shared query state explicitly for budget and cycle control.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub fn check_record_row_subtype(
     store: &mut TypeStore,
     hierarchy: &dyn TypeHierarchy,
@@ -956,104 +956,347 @@ pub fn check_record_row_subtype(
     let sub_row = store.record_row(sub_row_id).clone();
     let sup_row = store.record_row(sup_row_id).clone();
 
-    // 1. Check all target fields in sup_row.
-    for target_field in sup_row.fields.iter() {
-        if let Some(source_field) = sub_row.fields.iter().find(|f| f.key == target_field.key) {
-            // Presence check: source Optional cannot satisfy target Required.
-            // `{ k?: S } <: { k: T }` is Refuted even when S <: T.
-            if target_field.presence.is_required() && source_field.presence.is_optional() {
-                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                    actual: sub_ty,
-                    expected: sup_ty,
-                });
+    // Both fixed prefixes are stored in canonical FieldKey order. A single
+    // merge walk classifies equal, source-only, and target-only keys.
+    let (mut sub_index, mut sup_index) = (0, 0);
+    while sub_index < sub_row.fields.len() && sup_index < sup_row.fields.len() {
+        let source_field = &sub_row.fields[sub_index];
+        let target_field = &sup_row.fields[sup_index];
+        match source_field.key.canonical_cmp(&target_field.key) {
+            std::cmp::Ordering::Less => {
+                let outcome = check_fixed_field_against_tail(
+                    store,
+                    hierarchy,
+                    &source_field.key,
+                    source_field.ty,
+                    sup_row.tail,
+                    sub_ty,
+                    sup_ty,
+                    budget,
+                    cancellation,
+                    visited,
+                    depth + 1,
+                );
+                if !outcome.is_proven() {
+                    return outcome;
+                }
+                sub_index += 1;
             }
-            // Type compatibility check.
-            let outcome = check_subtype_impl(store, hierarchy, source_field.ty, target_field.ty, budget, cancellation, visited, depth + 1);
-            if !outcome.is_proven() {
-                return outcome;
+            std::cmp::Ordering::Greater => {
+                let outcome = check_absent_optional_field(
+                    store,
+                    hierarchy,
+                    &target_field.key,
+                    target_field.ty,
+                    target_field.presence,
+                    sub_row.tail,
+                    sub_ty,
+                    sup_ty,
+                    budget,
+                    cancellation,
+                    visited,
+                    depth + 1,
+                );
+                if !outcome.is_proven() {
+                    return outcome;
+                }
+                sup_index += 1;
             }
-        } else if target_field.presence.is_required() {
-            return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                actual: sub_ty,
-                expected: sup_ty,
-            });
-        } else {
-            // Optional target field absent in sub_row
-            match sub_row.tail {
-                RecordRowTail::Closed => {}
-                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { value_type: elem_ty, .. }) => {
-                    let outcome = check_subtype_impl(store, hierarchy, elem_ty, target_field.ty, budget, cancellation, visited, depth + 1);
-                    if !outcome.is_proven() {
-                        return outcome;
-                    }
+            std::cmp::Ordering::Equal => {
+                if target_field.presence.is_required() && source_field.presence.is_optional() {
+                    return record_row_mismatch(sub_ty, sup_ty);
                 }
-                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { .. })
-                | RecordRowTail::Parameter(_)
-                | RecordRowTail::Projection(_) => {
-                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                        actual: sub_ty,
-                        expected: sup_ty,
-                    });
+                let outcome = check_subtype_impl(store, hierarchy, source_field.ty, target_field.ty, budget, cancellation, visited, depth + 1);
+                if !outcome.is_proven() {
+                    return outcome;
                 }
-            }
-        }
-    }
-
-    // 2. Check extra source fields (fields in sub_row not in sup_row)
-    for source_field in sub_row.fields.iter() {
-        if !sup_row.fields.iter().any(|f| f.key == source_field.key) {
-            match sup_row.tail {
-                RecordRowTail::Closed => {
-                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                        actual: sub_ty,
-                        expected: sup_ty,
-                    });
-                }
-                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { .. }) => {}
-                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { value_type: target_elem, .. }) => {
-                    let outcome = check_subtype_impl(store, hierarchy, source_field.ty, target_elem, budget, cancellation, visited, depth + 1);
-                    if !outcome.is_proven() {
-                        return outcome;
-                    }
-                }
-                RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => {
-                    return RelationOutcome::Blocked(BlockReason::RecursiveFixpoint);
-                }
+                sub_index += 1;
+                sup_index += 1;
             }
         }
     }
 
-    // 3. Tail-to-tail compatibility
-    match sup_row.tail {
-        RecordRowTail::Closed => match sub_row.tail {
-            RecordRowTail::Closed => RelationOutcome::proven(()),
-            _ => RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                actual: sub_ty,
-                expected: sup_ty,
-            }),
-        },
-        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { .. }) => match sub_row.tail {
-            RecordRowTail::Closed | RecordRowTail::Anonymous(_) | RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => RelationOutcome::proven(()),
-        },
-        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { value_type: sup_elem, .. }) => match sub_row.tail {
-            RecordRowTail::Closed => RelationOutcome::proven(()),
-            RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { value_type: sub_elem, .. }) => {
-                check_subtype_impl(store, hierarchy, sub_elem, sup_elem, budget, cancellation, visited, depth + 1)
+    for source_field in sub_row.fields[sub_index..].iter() {
+        let outcome = check_fixed_field_against_tail(
+            store,
+            hierarchy,
+            &source_field.key,
+            source_field.ty,
+            sup_row.tail,
+            sub_ty,
+            sup_ty,
+            budget,
+            cancellation,
+            visited,
+            depth + 1,
+        );
+        if !outcome.is_proven() {
+            return outcome;
+        }
+    }
+    for target_field in sup_row.fields[sup_index..].iter() {
+        let outcome = check_absent_optional_field(
+            store,
+            hierarchy,
+            &target_field.key,
+            target_field.ty,
+            target_field.presence,
+            sub_row.tail,
+            sub_ty,
+            sup_ty,
+            budget,
+            cancellation,
+            visited,
+            depth + 1,
+        );
+        if !outcome.is_proven() {
+            return outcome;
+        }
+    }
+
+    check_record_tail_subtype(
+        store,
+        hierarchy,
+        sub_row.tail,
+        sup_row.tail,
+        sub_ty,
+        sup_ty,
+        budget,
+        cancellation,
+        visited,
+        depth + 1,
+    )
+}
+
+fn record_row_mismatch(sub_ty: TypeId, sup_ty: TypeId) -> RelationOutcome {
+    RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+        actual: sub_ty,
+        expected: sup_ty,
+    })
+}
+
+fn field_key_type(store: &mut TypeStore, key: &FieldKey) -> TypeId {
+    let core = CoreDeclarationIds::default();
+    let declaration = match key {
+        FieldKey::Symbol(_) => core.symbol,
+        FieldKey::String(_) => core.string,
+        FieldKey::Int(_) => core.int,
+        FieldKey::Bool(_) => core.bool_,
+    };
+    store.nominal_type(declaration)
+}
+
+fn key_domain_contains_unresolved_parameter(store: &TypeStore, key_type: TypeId) -> bool {
+    match store.get(key_type) {
+        TypeData::Parameter(_) => true,
+        TypeData::Union(members) => members.iter().any(|&member| key_domain_contains_unresolved_parameter(store, member)),
+        _ => false,
+    }
+}
+
+fn preserve_unknown_key_membership(store: &TypeStore, key_type: TypeId, outcome: RelationOutcome) -> RelationOutcome {
+    match outcome {
+        RelationOutcome::Refuted(_) if key_domain_contains_unresolved_parameter(store, key_type) => {
+            RelationOutcome::Blocked(BlockReason::UnknownType(super::evidence::UnknownReason::InferenceBlocked))
+        }
+        other => other,
+    }
+}
+
+/// Checks a concrete Record key against a key-domain type using the ordinary
+/// relation engine. Every non-refutation outcome is retained for callers.
+pub fn check_field_key_domain_membership(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    key: &FieldKey,
+    key_type: TypeId,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+) -> RelationOutcome {
+    let concrete_type = field_key_type(store, key);
+    let outcome = check_subtype_bounded(store, hierarchy, concrete_type, key_type, budget, cancellation);
+    preserve_unknown_key_membership(store, key_type, outcome)
+}
+
+fn check_field_key_domain_membership_impl(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    key: &FieldKey,
+    key_type: TypeId,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+    visited: &mut HashSet<(TypeId, TypeId)>,
+    depth: u16,
+) -> RelationOutcome {
+    let concrete_type = field_key_type(store, key);
+    let outcome = check_subtype_impl(store, hierarchy, concrete_type, key_type, budget, cancellation, visited, depth);
+    preserve_unknown_key_membership(store, key_type, outcome)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn check_fixed_field_against_tail(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    key: &FieldKey,
+    value_type: TypeId,
+    target_tail: RecordRowTail,
+    sub_ty: TypeId,
+    sup_ty: TypeId,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+    visited: &mut HashSet<(TypeId, TypeId)>,
+    depth: u16,
+) -> RelationOutcome {
+    match target_tail {
+        RecordRowTail::Closed => record_row_mismatch(sub_ty, sup_ty),
+        RecordRowTail::Anonymous(remainder) => {
+            let key_outcome = check_field_key_domain_membership_impl(store, hierarchy, key, remainder.key_type(), budget, cancellation, visited, depth);
+            if !key_outcome.is_proven() {
+                return key_outcome;
             }
-            RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { .. }) => RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                actual: sub_ty,
-                expected: sup_ty,
-            }),
+            match remainder {
+                AnonymousRecordRemainder::Unconstrained { .. } => RelationOutcome::proven(()),
+                AnonymousRecordRemainder::Typed { value_type: expected, .. } => {
+                    check_subtype_impl(store, hierarchy, value_type, expected, budget, cancellation, visited, depth + 1)
+                }
+            }
+        }
+        RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn check_absent_optional_field(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    key: &FieldKey,
+    target_type: TypeId,
+    presence: StructuralMemberPresence,
+    source_tail: RecordRowTail,
+    sub_ty: TypeId,
+    sup_ty: TypeId,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+    visited: &mut HashSet<(TypeId, TypeId)>,
+    depth: u16,
+) -> RelationOutcome {
+    if presence.is_required() {
+        return record_row_mismatch(sub_ty, sup_ty);
+    }
+    match source_tail {
+        RecordRowTail::Closed => RelationOutcome::proven(()),
+        RecordRowTail::Anonymous(remainder) => {
+            let membership = check_field_key_domain_membership_impl(store, hierarchy, key, remainder.key_type(), budget, cancellation, visited, depth);
+            match membership {
+                RelationOutcome::Refuted(_) => RelationOutcome::proven(()),
+                RelationOutcome::Proven { .. } => match remainder {
+                    AnonymousRecordRemainder::Typed { value_type, .. } => {
+                        check_subtype_impl(store, hierarchy, value_type, target_type, budget, cancellation, visited, depth + 1)
+                    }
+                    AnonymousRecordRemainder::Unconstrained { .. } => record_row_mismatch(sub_ty, sup_ty),
+                },
+                other => other,
+            }
+        }
+        RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn check_record_tail_subtype(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    sub_tail: RecordRowTail,
+    sup_tail: RecordRowTail,
+    sub_ty: TypeId,
+    sup_ty: TypeId,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+    visited: &mut HashSet<(TypeId, TypeId)>,
+    depth: u16,
+) -> RelationOutcome {
+    match sup_tail {
+        RecordRowTail::Closed => match sub_tail {
+            RecordRowTail::Closed => RelationOutcome::proven(()),
+            _ => record_row_mismatch(sub_ty, sup_ty),
+        },
+        RecordRowTail::Anonymous(sup_remainder) => match sub_tail {
+            RecordRowTail::Closed => RelationOutcome::proven(()),
+            RecordRowTail::Anonymous(sub_remainder) => {
+                let keys = check_subtype_impl(
+                    store,
+                    hierarchy,
+                    sub_remainder.key_type(),
+                    sup_remainder.key_type(),
+                    budget,
+                    cancellation,
+                    visited,
+                    depth,
+                );
+                if !keys.is_proven() {
+                    return keys;
+                }
+                match (sub_remainder, sup_remainder) {
+                    (AnonymousRecordRemainder::Typed { value_type: sub_value, .. }, AnonymousRecordRemainder::Typed { value_type: sup_value, .. }) => {
+                        check_subtype_impl(store, hierarchy, sub_value, sup_value, budget, cancellation, visited, depth + 1)
+                    }
+                    (AnonymousRecordRemainder::Typed { .. }, AnonymousRecordRemainder::Unconstrained { .. })
+                    | (AnonymousRecordRemainder::Unconstrained { .. }, AnonymousRecordRemainder::Unconstrained { .. }) => RelationOutcome::proven(()),
+                    (AnonymousRecordRemainder::Unconstrained { .. }, AnonymousRecordRemainder::Typed { .. }) => record_row_mismatch(sub_ty, sup_ty),
+                }
+            }
             RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
         },
-        RecordRowTail::Parameter(required_tail) => match sub_row.tail {
+        RecordRowTail::Parameter(required_tail) => match sub_tail {
             RecordRowTail::Parameter(actual_tail) if actual_tail == required_tail => RelationOutcome::proven(()),
             _ => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
         },
-        RecordRowTail::Projection(required_proj) => match sub_row.tail {
-            RecordRowTail::Projection(actual_proj) if actual_proj == required_proj => RelationOutcome::proven(()),
+        RecordRowTail::Projection(required_projection) => match sub_tail {
+            RecordRowTail::Projection(actual_projection) if actual_projection == required_projection => RelationOutcome::proven(()),
             _ => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
         },
+    }
+}
+
+/// Result of looking up one exact key in a canonical unordered Record row.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UnorderedFieldLookup {
+    Required(TypeId),
+    Optional(TypeId),
+    Absent,
+    Unknown(RelationOutcome),
+}
+
+/// Looks up one FieldKey using canonical row fields and anonymous-tail key
+/// domains. Unresolved captured tails remain explicitly unknown.
+pub fn lookup_unordered_field(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    row_id: RecordRowId,
+    key: &FieldKey,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+) -> UnorderedFieldLookup {
+    let row = store.record_row(row_id).clone();
+    if let Some(field) = row.find_field_entry(key) {
+        return match field.presence {
+            StructuralMemberPresence::Required => UnorderedFieldLookup::Required(field.ty),
+            StructuralMemberPresence::Optional => UnorderedFieldLookup::Optional(field.ty),
+        };
+    }
+    match row.tail {
+        RecordRowTail::Closed => UnorderedFieldLookup::Absent,
+        RecordRowTail::Anonymous(remainder) => match check_field_key_domain_membership(store, hierarchy, key, remainder.key_type(), budget, cancellation) {
+            RelationOutcome::Refuted(_) => UnorderedFieldLookup::Absent,
+            RelationOutcome::Proven { .. } => match remainder {
+                AnonymousRecordRemainder::Typed { value_type, .. } => UnorderedFieldLookup::Optional(value_type),
+                AnonymousRecordRemainder::Unconstrained { .. } => UnorderedFieldLookup::Unknown(RelationOutcome::Blocked(BlockReason::UnknownType(
+                    super::evidence::UnknownReason::NoTypeEvidence,
+                ))),
+            },
+            other => UnorderedFieldLookup::Unknown(other),
+        },
+        RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => UnorderedFieldLookup::Unknown(RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)),
     }
 }
 

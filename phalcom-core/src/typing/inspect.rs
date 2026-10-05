@@ -96,7 +96,7 @@ pub fn static_arguments(context: &TypingContextData, registry: &RuntimeTypingReg
                                 .fields
                                 .iter()
                                 .map(|field| crate::typing::overlay::RuntimeRecordField {
-                                    name: field.name.clone(),
+                                    key: phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
                                     ty: RuntimeTypeRef::Base { pool, node: field.ty },
                                 })
                                 .collect(),
@@ -225,7 +225,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                             "{{{}{}}}",
                             row.fields
                                 .iter()
-                                .map(|field| format!("{}: {}", field.name, display_inner(context, registry, heap, field.ty, depth + 1)))
+                                .map(|field| format!("{}: {}", field.key, display_inner(context, registry, heap, field.ty, depth + 1)))
                                 .collect::<Vec<_>>()
                                 .join(", "),
                             row.tail.as_ref().map_or(String::new(), |tail| format!(
@@ -257,7 +257,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                 "{{{}}}",
                 fields
                     .iter()
-                    .map(|f| format!("{}: {}", f.name, display_inner(context, registry, heap, f.ty, depth + 1)))
+                    .map(|f| format!("{}: {}", f.key, display_inner(context, registry, heap, f.ty, depth + 1)))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),

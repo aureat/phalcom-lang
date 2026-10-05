@@ -2,6 +2,7 @@
 
 use crate::heap::ClassId;
 use crate::typing::handle::{RuntimeOverlayKindId, RuntimeOverlayTypeId, RuntimeTypeRef};
+use phalcom_semantic::field_key::FieldKey;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -39,7 +40,7 @@ pub enum RuntimeOverlayTypeNode {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeRecordField {
-    pub name: Box<str>,
+    pub key: FieldKey,
     pub ty: RuntimeTypeRef,
 }
 

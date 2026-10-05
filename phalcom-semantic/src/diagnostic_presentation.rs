@@ -180,6 +180,7 @@ impl<'a> DiagnosticPresenter<'a> {
             DiagnosticCode::GenericConstraintUnsatisfied => "generic constraint is not satisfied".into(),
             DiagnosticCode::RecordDuplicateField => "record contains duplicate field".into(),
             DiagnosticCode::RecordSpreadSourceUnsupported => "Record spread requires a statically known RecordFields shape".into(),
+            DiagnosticCode::RecordSpreadNonSymbolCallKey => "Record contains a non-Symbol key that cannot enter an ordered labeled lane".into(),
             DiagnosticCode::RecordRowTailUnresolved => "record row tail cannot be resolved".into(),
             DiagnosticCode::RecordRowTailKindMismatch => "record row tail has the wrong kind".into(),
             DiagnosticCode::RecordRowLacksViolation => "record row contains a forbidden field".into(),

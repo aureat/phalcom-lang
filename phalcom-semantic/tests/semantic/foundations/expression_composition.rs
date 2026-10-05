@@ -4,7 +4,8 @@ use phalcom_semantic::checker::causal::CausalInvalidity;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::{EvidenceStatus, TypeKnowledge, UnknownReason};
-use phalcom_semantic::types::row::RecordRowTail;
+use phalcom_semantic::field_key::FieldKey;
+use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowTail};
 use phalcom_semantic::types::store::TypeData;
 
 #[test]
@@ -218,6 +219,83 @@ class Probe {
         "an uncontextualized empty Map must remain underconstrained rather than defaulting its arguments"
     );
     fixture.assert_no_error_diagnostics();
+}
+
+#[test]
+fn record_literal_computed_keys_project_literals_and_type_dynamic_tails() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ key: String, _ second: Symbol, _ value: Int, _ flag: Bool) {
+    let literal = { ["name"]: "A", [42]: 1, [true]: false, [#token]: 2 }
+    let dynamic = { [key]: value }
+    let joined = { [key]: value, [second]: flag }
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+
+    let literal_ty = fixture.binding(run, "literal").current.ty().expect("literal Record type");
+    let TypeData::Record(literal_row_id) = fixture.analysis.snapshot.store.get(literal_ty) else {
+        panic!("computed literals should form a Record type")
+    };
+    let literal_row = fixture.analysis.snapshot.store.record_row(*literal_row_id);
+    assert_eq!(literal_row.tail, RecordRowTail::Closed);
+    assert_eq!(
+        literal_row.fields.iter().map(|field| field.key.clone()).collect::<Vec<_>>(),
+        vec![FieldKey::symbol("token"), FieldKey::string("name"), FieldKey::int(42.into()), FieldKey::bool(true)]
+    );
+
+    let dynamic_ty = fixture.binding(run, "dynamic").current.ty().expect("dynamic Record type");
+    let TypeData::Record(dynamic_row_id) = fixture.analysis.snapshot.store.get(dynamic_ty) else {
+        panic!("dynamic key should form a Record type with an anonymous tail")
+    };
+    let dynamic_row = fixture.analysis.snapshot.store.record_row(*dynamic_row_id);
+    assert!(dynamic_row.fields.is_empty());
+    assert_eq!(
+        dynamic_row.tail,
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+            key_type: fixture.ty("String"),
+            value_type: fixture.ty("Int"),
+        })
+    );
+
+    let joined_ty = fixture.binding(run, "joined").current.ty().expect("joined Record type");
+    let TypeData::Record(joined_row_id) = fixture.analysis.snapshot.store.get(joined_ty) else {
+        panic!("multiple dynamic keys should form a Record type")
+    };
+    let joined_row = fixture.analysis.snapshot.store.record_row(*joined_row_id);
+    let RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) = joined_row.tail else {
+        panic!("joined dynamic keys should retain typed key and value domains")
+    };
+    let TypeData::Union(key_members) = fixture.analysis.snapshot.store.get(key_type) else {
+        panic!("String and Symbol key domains should join to a union")
+    };
+    assert!(key_members.contains(&fixture.ty("String")));
+    assert!(key_members.contains(&fixture.ty("Symbol")));
+    let TypeData::Union(value_members) = fixture.analysis.snapshot.store.get(value_type) else {
+        panic!("Int and Bool value domains should join to a union")
+    };
+    assert!(value_members.contains(&fixture.ty("Int")));
+    assert!(value_members.contains(&fixture.ty("Bool")));
+    assert!(fixture.diagnostics(DiagnosticCode::RecordInvalidFieldKey).is_empty());
+}
+
+#[test]
+fn record_literal_rejects_computed_keys_outside_field_key() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let invalid = { [1.0]: 2 }
+  }
+}
+"#,
+    );
+    assert_eq!(fixture.diagnostics(DiagnosticCode::RecordInvalidFieldKey).len(), 1);
 }
 
 #[test]

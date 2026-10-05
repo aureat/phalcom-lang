@@ -1371,7 +1371,8 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
         AnonymousTupleRemainder::None,
     );
 
-    let field_key_ty = store.field_key_type_from_core();
+    // The v10 name-only Record remainder is valid only for a Symbol key domain.
+    let symbol_key_ty = store.nominal(phalcom_semantic::core_surface::CoreDeclarationIds::default().symbol);
 
     // 2. Anonymous record with unconstrained remainder: { a: Int, b?: String, **... }
     let row_id = store
@@ -1380,7 +1381,7 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
                 RecordRowField::symbol_required("a", int_ty),
                 RecordRowField::symbol_optional("b", str_ty),
             ],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: symbol_key_ty }),
         )
         .unwrap();
     let anon_record_ty = store.intern_with_kind(
@@ -1418,6 +1419,74 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
     assert_eq!(anon_r.fields[0].presence, StructuralMemberPresenceRef::Required);
     assert_eq!(anon_r.fields[1].presence, StructuralMemberPresenceRef::Optional);
     assert_eq!(anon_r.remainder, AnonymousRecordRemainderRef::Unconstrained);
+}
+
+#[test]
+fn legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains() {
+    use num_bigint::BigInt;
+    use phalcom_semantic::field_key::{FieldKey, FieldKeyKind};
+    use phalcom_semantic::metadata::MetadataExportError;
+    use phalcom_semantic::scalar::StaticInt;
+    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
+    use phalcom_semantic::types::store::TypeData;
+
+    let mut store = TypeStore::new();
+    let value_type = store.nominal(dummy_decl("Int"));
+    let non_symbol_keys = [
+        FieldKey::string("text"),
+        FieldKey::int(StaticInt::new(BigInt::from(42))),
+        FieldKey::bool(true),
+    ];
+
+    for key in non_symbol_keys {
+        let row = store
+            .record_row_checked(vec![RecordRowField::required(key, value_type)], RecordRowTail::Closed)
+            .expect("unique FieldKey row");
+        let record = store.intern_with_kind(TypeData::Record(row), KindId::TYPE);
+        let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        assert!(matches!(
+            exporter.export_type_form(record),
+            Err(MetadataExportError::NonExportableRecordKey(kind)) if kind != FieldKeyKind::Symbol
+        ));
+    }
+
+    let field_key_type = store.field_key_type_from_core();
+    for remainder in [
+        AnonymousRecordRemainder::Unconstrained { key_type: field_key_type },
+        AnonymousRecordRemainder::Typed {
+            key_type: store.nominal(phalcom_semantic::core_surface::CoreDeclarationIds::default().int),
+            value_type,
+        },
+    ] {
+        let row = store.record_row_checked(Vec::new(), RecordRowTail::Anonymous(remainder)).expect("proper key/value types");
+        let record = store.intern_with_kind(TypeData::Record(row), KindId::TYPE);
+        let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        assert_eq!(exporter.export_type_form(record), Err(MetadataExportError::NonExportableRecordKeyDomain));
+    }
+
+    let symbol_key_type = store.nominal(phalcom_semantic::core_surface::CoreDeclarationIds::default().symbol);
+    let typed_symbol_row = store
+        .record_row_checked(
+            Vec::new(),
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                key_type: symbol_key_type,
+                value_type,
+            }),
+        )
+        .expect("Symbol key and typed value domains");
+    let typed_symbol_record = store.intern_with_kind(TypeData::Record(typed_symbol_row), KindId::TYPE);
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let record_id = exporter.export_type_form(typed_symbol_record).expect("legacy typed Symbol remainder");
+    let value_id = exporter.export_type_form(value_type).expect("typed remainder value type");
+    let bundle = exporter.build_bundle(&[]).expect("metadata bundle");
+    let TypeNode::AnonymousRecord(record) = &bundle.types[record_id.0 as usize].form else {
+        panic!("expected anonymous Record metadata")
+    };
+    assert_eq!(
+        record.remainder,
+        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed(value_id),
+        "legacy export must preserve the typed remainder value type"
+    );
 }
 
 #[test]

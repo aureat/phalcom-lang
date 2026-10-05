@@ -20,7 +20,7 @@ use crate::types::instantiation::TypeMaterializationError;
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner, TypeTerm};
 use crate::types::row::RecordRowFormationError;
 use crate::types::store::{StaticArgument, StaticDomainData, TypeData, TypeStore};
-use phalcom_ast::ast::{Expr, PackItem, PackLabel, RestMode};
+use phalcom_ast::ast::{ExpansionMode, Expr, PackItem, PackLabel, RestMode};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
@@ -103,9 +103,9 @@ impl DataConstructorShapeAdapter {
             .parameters
             .iter()
             .filter_map(|contribution| match contribution {
-                DataConstructorParameterContribution::Parameter(parameter) if self.shape == DataShape::Record => {
-                    Some(crate::field_key::FieldKey::symbol(parameter.external_label.as_ref().unwrap_or(&parameter.local_name).clone()))
-                }
+                DataConstructorParameterContribution::Parameter(parameter) if self.shape == DataShape::Record => Some(crate::field_key::FieldKey::symbol(
+                    parameter.external_label.as_ref().unwrap_or(&parameter.local_name).clone(),
+                )),
                 _ => None,
             })
             .collect()
@@ -590,6 +590,7 @@ pub(crate) enum ApplicationArgument<'a> {
     },
     Expansion {
         expression: &'a Expr,
+        mode: ExpansionMode,
         range: SourceRange,
     },
     /// Source operand analyzed before target selection because bilateral
@@ -647,6 +648,18 @@ fn analyze_application_argument(ctx: &mut CheckingContext<'_>, argument: Applica
     } else if let (Some(ty), Some(local_type)) = (typed.knowledge.ty(), typed.local_type.clone()) {
         ctx.record_call_local_type(ty, local_type);
     }
+    if let ApplicationArgument::Expansion { mode, range, .. } = argument
+        && matches!(mode, ExpansionMode::Labeled | ExpansionMode::Complete)
+        && let Some(key) = crate::checker::composition::known_non_symbol_record_key(ctx.store, &typed.knowledge)
+    {
+        let diagnostic = SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::RecordSpreadNonSymbolCallKey,
+            format!("Record key `{key}` cannot enter a Symbol-only ordered labeled lane"),
+            range,
+        );
+        ctx.emit_diagnostic(diagnostic);
+    }
     if let ApplicationArgument::Expansion { range, .. } = argument {
         if let TypeKnowledge::Known(evidence) = &typed.knowledge {
             let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), range);
@@ -680,8 +693,9 @@ pub(crate) fn application_arguments(args: &[PackItem]) -> Vec<ApplicationArgumen
                 expression: value,
                 range: *range,
             },
-            PackItem::Expand { expr, range, .. } => ApplicationArgument::Expansion {
+            PackItem::Expand { expr, mode, range } => ApplicationArgument::Expansion {
                 expression: expr,
+                mode: *mode,
                 range: *range,
             },
         })
@@ -1559,12 +1573,10 @@ fn apply_generic_callable_in_context(
                         }
                         DataConstructorArgumentRole::RecordField { parameter, label } => {
                             expansion_terms.parameter = Some(parameter);
-                            expansion_terms
-                                .fields
-                                .push(crate::checker::row_inference::InferenceRecordField {
-                                    key: crate::field_key::FieldKey::symbol(label),
-                                    term,
-                                });
+                            expansion_terms.fields.push(crate::checker::row_inference::InferenceRecordField {
+                                key: crate::field_key::FieldKey::symbol(label),
+                                term,
+                            });
                         }
                         DataConstructorArgumentRole::Fixed { .. } => unreachable!(),
                     }
@@ -2740,9 +2752,7 @@ impl<'a> ParameterUseWalker<'a> {
             TypeData::LabeledTypePack(elements) => elements.iter().any(|element| self.visit_type(element.element)),
             TypeData::CompleteTypePack { positionals, labeled }
             | TypeData::TupleFromPacks { positionals, labeled }
-            | TypeData::PackFromPacks { positionals, labeled } => {
-                self.visit_type(positionals) || self.visit_type(labeled)
-            }
+            | TypeData::PackFromPacks { positionals, labeled } => self.visit_type(positionals) || self.visit_type(labeled),
             TypeData::CallableFromPacks {
                 positionals,
                 labeled,
@@ -2850,9 +2860,7 @@ impl<'a> ParameterUseWalker<'a> {
             ScopedTypeData::RecordRow(row) => {
                 row.fields.iter().any(|field| self.visit_scoped_type(field.ty))
                     || match row.tail {
-                        ScopedRecordRowTail::Closed
-                        | ScopedRecordRowTail::Bound { .. }
-                        => false,
+                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } => false,
                         ScopedRecordRowTail::Anonymous(crate::types::type_lambda::ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
                             self.visit_scoped_type(key_type)
                         }
@@ -2880,9 +2888,7 @@ impl<'a> ParameterUseWalker<'a> {
             ScopedTypeData::LabeledTypePack(elements) => elements.iter().any(|element| self.visit_scoped_type(element.element)),
             ScopedTypeData::CompleteTypePack { positionals, labeled }
             | ScopedTypeData::TupleFromPacks { positionals, labeled }
-            | ScopedTypeData::PackFromPacks { positionals, labeled } => {
-                self.visit_scoped_type(positionals) || self.visit_scoped_type(labeled)
-            }
+            | ScopedTypeData::PackFromPacks { positionals, labeled } => self.visit_scoped_type(positionals) || self.visit_scoped_type(labeled),
             ScopedTypeData::TypePackConcat(segments) => segments.iter().copied().any(|segment| self.visit_scoped_type(segment)),
             ScopedTypeData::CallableFromPacks {
                 positionals,
@@ -4345,6 +4351,7 @@ mod tests {
         let expr = Expr::Ellipsis { range: SourceRange::default() };
         let expansion = [ApplicationArgument::Expansion {
             expression: &expr,
+            mode: phalcom_ast::ast::ExpansionMode::Labeled,
             range: SourceRange::default(),
         }];
         assert_eq!(

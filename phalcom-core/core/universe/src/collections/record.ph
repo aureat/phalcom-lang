@@ -19,54 +19,44 @@ intrinsic type EmptyRecord = Record<>
 impl<**Fs: RecordFields> Record<**Fs> {
   internal native rawSize -> Int
   internal native rawLabelAt(_ index: Int) -> Symbol
+  internal native rawKeyAt(_ index: Int) -> FieldKey
   internal native rawValueAt(_ index: Int) -> Record<**Fs>::Value
+  internal native rawLogicalValueAt(_ index: Int) -> Record<**Fs>::Value
+  internal native rawSameKeys(_ other: Dynamic) -> Bool
+  internal native rawKeyHashAt(_ index: Int) -> Int
+  internal native rawLookup(_ key: FieldKey) -> Option<Record<**Fs>::Value>
   size { self.rawSize }
   labelAt(_ index) { self.rawLabelAt(index) }
-
-  private rawValueAtChecked(_ index: Int) -> Record<**Fs>::Value {
-    self.rawValueAt(index)
-  }
+  keyAt(_ index) { self.rawKeyAt(index) }
 
   /// Returns the value for `key`, or `None` when the label is absent.
-  get(_ key) -> Option<Record<**Fs>::Value> {
-    let mut i = 0
-    while i < self.size {
-      if self.labelAt(i) === key {
-        return Some(self.rawValueAt(i))
-      }
-      i = i + 1
-    }
-    None
-  }
+  get(_ key: FieldKey) -> Option<Record<**Fs>::Value> { self.rawLookup(key) }
 
-  /// Compares records by label set and corresponding value equality.
+  /// Compares records by canonical key set and corresponding value equality.
   ==(_ other) {
     if other is not Record {
       return false
     }
-    let mut same = self.size == other.size
+    if self.size != other.size {
+      return false
+    }
+    if not self.rawSameKeys(other) {
+      return false
+    }
+    let mut same = true
     let mut i = 0
     while same and i < self.size {
-      let mut label = self.rawLabelAt(i)
-      let mut j = 0
-      let mut found = false
-      while not found and j < other.size {
-        if other.rawLabelAt(j) == label {
-          found = self.rawValueAtChecked(i) == other.rawValueAtChecked(j)
-        }
-        j = j + 1
-      }
-      same = found
+      same = self.rawLogicalValueAt(i) == other.rawLogicalValueAt(i)
       i = i + 1
     }
     same
   }
 
   hash {
-    let mut acc = 101 + self.size
+    let mut acc = 5391693 + self.size
     let mut i = 0
     while i < self.size {
-      acc = (acc + ((self.rawLabelAt(i).hash * 31) + self.rawValueAtChecked(i).hash)) % 999999937
+      acc = (acc * 31 + (self.rawKeyHashAt(i) * 31) + self.rawLogicalValueAt(i).hash) % 999999937
       i = i + 1
     }
     return acc

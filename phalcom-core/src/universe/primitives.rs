@@ -51,7 +51,7 @@ use crate::primitive::primitive_shape;
 use crate::primitive::primitive_static;
 use crate::primitive::primitive_static_internal;
 use crate::primitive::range::{range_raw_lower, range_raw_upper, range_raw_upper_inclusive};
-use crate::primitive::record::{record_raw_label_at, record_raw_size, record_raw_value_at};
+use crate::primitive::record::{record_raw_key_at, record_raw_label_at, record_raw_lookup, record_raw_size, record_raw_value_at};
 use crate::primitive::reflection::*;
 use crate::primitive::selector::*;
 use crate::primitive::selector_pattern::*;
@@ -693,7 +693,9 @@ impl Universe {
         let record_cls = vm.universe.classes.record_class;
         primitive_internal!(vm, record_cls, "rawSize", SignatureKind::Getter, record_raw_size);
         primitive_internal!(vm, record_cls, "rawLabelAt", SignatureKind::Method(1), record_raw_label_at);
+        primitive_internal!(vm, record_cls, "rawKeyAt", SignatureKind::Method(1), record_raw_key_at);
         primitive_internal!(vm, record_cls, "rawValueAt", SignatureKind::Method(1), record_raw_value_at);
+        primitive_internal!(vm, record_cls, "rawLookup", SignatureKind::Method(1), record_raw_lookup);
 
         // Range syntax uses BuildRange directly. The floor only observes its
         // optional bounds and inclusion bit.

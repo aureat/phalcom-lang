@@ -2,6 +2,7 @@ use super::{StaticEvalError, StaticEvalOutcome, StaticEvalTraceFrame};
 use crate::checker::analysis::{BindingAnalysisIndex, ExpressionAnalysisIndex};
 use crate::checker::associated::AssociatedResolutionIndex;
 use crate::db::{CancellationToken, QueryBudget};
+use crate::field_key::FieldKey;
 use crate::identity::{BindingId, ExpressionId};
 use crate::static_constant::{CheckedStaticConstantInitializer, StaticConstantTable};
 use crate::static_definition::{CheckedStaticApplication, CheckedStaticBody, CheckedStaticConstruction, StaticApplicationId, StaticDefinitionTable};
@@ -193,7 +194,9 @@ enum Work<'a> {
     StoreAssignment(BindingId),
     AfterIf(&'a phalcom_ast::ast::IfExpr),
     FinishTuple(usize),
-    FinishRecord(Vec<Box<str>>),
+    RecordNext(Vec<&'a phalcom_ast::ast::RecordLiteralField>, usize, Vec<(FieldKey, StaticValueRef)>),
+    RecordKeyReady(Vec<&'a phalcom_ast::ast::RecordLiteralField>, usize, Vec<(FieldKey, StaticValueRef)>, &'a Expr),
+    RecordValueReady(Vec<&'a phalcom_ast::ast::RecordLiteralField>, usize, Vec<(FieldKey, StaticValueRef)>, FieldKey),
     FinishStaticConstruction(ExpressionId, usize),
     PopTrace,
     ApplyBinary(ExpressionId),
@@ -514,26 +517,14 @@ impl<'a> StaticEvaluator<'a> {
                         }
                         Expr::RecordLiteral(record) => {
                             let mut fields = Vec::with_capacity(record.entries.len());
-                            let mut values = Vec::with_capacity(record.entries.len());
                             for entry in &record.entries {
                                 let RecordLiteralEntry::Field(field) = entry else {
                                     return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                                 };
-                                let ProductLabel::Static {
-                                    symbol: SymbolLiteralKind::Name(name),
-                                    ..
-                                } = &field.label
-                                else {
-                                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-                                };
-                                fields.push(name.as_str().into());
-                                values.push(&field.value);
+                                fields.push(field);
                             }
-                            self.charge_variable_work(values.len())?;
-                            work.push(Work::FinishRecord(fields));
-                            for value in values.into_iter().rev() {
-                                work.push(Work::Evaluate(value));
-                            }
+                            self.charge_variable_work(fields.len())?;
+                            work.push(Work::RecordNext(fields, 0, Vec::new()));
                         }
                         Expr::RecordConstruction(record) => {
                             let id = self.expression_id(expression.range())?;
@@ -698,13 +689,51 @@ impl<'a> StaticEvaluator<'a> {
                     let elements = stack.split_off(start);
                     stack.push(self.values.intern_tuple(elements).map_err(Stop::from)?);
                 }
-                Work::FinishRecord(fields) => {
-                    let Some(start) = stack.len().checked_sub(fields.len()) else {
-                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                Work::RecordNext(fields, index, accumulated) => {
+                    let Some(field) = fields.get(index).copied() else {
+                        self.charge_variable_work(accumulated.len())?;
+                        stack.push(self.values.intern_record(accumulated).map_err(Stop::from)?);
+                        continue;
                     };
-                    let field_values = stack.split_off(start);
-                    let record = fields.into_iter().zip(field_values).collect();
-                    stack.push(self.values.intern_record(record).map_err(Stop::from)?);
+                    match &field.label {
+                        ProductLabel::Static {
+                            symbol: SymbolLiteralKind::Name(name),
+                            ..
+                        } => {
+                            work.push(Work::RecordValueReady(fields, index + 1, accumulated, FieldKey::symbol(name.as_str())));
+                            work.push(Work::Evaluate(&field.value));
+                        }
+                        ProductLabel::Computed { expr, .. } => {
+                            work.push(Work::RecordKeyReady(fields, index + 1, accumulated, &field.value));
+                            work.push(Work::Evaluate(expr));
+                        }
+                        _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                    }
+                }
+                Work::RecordKeyReady(fields, next_index, accumulated, value) => {
+                    let key_value = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let work_units = match self.values.get(key_value).map_err(Stop::from)? {
+                        StaticValueData::String(id) => self
+                            .values
+                            .get_string(*id)
+                            .ok_or_else(|| Stop::from(crate::static_value::StaticValueStoreError::UnknownValue(id.raw())))?
+                            .len(),
+                        StaticValueData::Symbol(id) => self
+                            .values
+                            .get_symbol(*id)
+                            .ok_or_else(|| Stop::from(crate::static_value::StaticValueStoreError::UnknownValue(id.raw())))?
+                            .len(),
+                        _ => 1,
+                    };
+                    self.charge_variable_work(work_units)?;
+                    let key = self.values.field_key_of(key_value).map_err(Stop::from)?;
+                    work.push(Work::RecordValueReady(fields, next_index, accumulated, key));
+                    work.push(Work::Evaluate(value));
+                }
+                Work::RecordValueReady(fields, next_index, mut accumulated, key) => {
+                    let value = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    accumulated.push((key, value));
+                    work.push(Work::RecordNext(fields, next_index, accumulated));
                 }
                 Work::FinishStaticConstruction(id, count) => {
                     // Data and Variant interning traverse/reorder payloads in

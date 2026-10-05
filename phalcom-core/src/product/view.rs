@@ -5,6 +5,7 @@ use crate::heap::ObjRef;
 use crate::interner::Symbol;
 use crate::value::Value;
 use crate::vm::VM;
+use phalcom_semantic::field_key::FieldKey;
 
 /// Read-only view over a materialized Tuple and its shared metadata.
 pub struct TupleView<'a> {
@@ -99,31 +100,61 @@ impl<'a> RecordView<'a> {
         self.shape.map_or(true, super::RecordProductShape::is_empty)
     }
 
-    pub fn labels(&self) -> &[Symbol] {
-        self.shape.map_or(&[], |shape| shape.presentation_labels.as_ref())
+    pub fn logical_keys(&self) -> &[FieldKey] {
+        self.shape.map_or(&[], |shape| shape.logical_keys.as_ref())
     }
 
-    pub fn values(&self) -> Vec<Value> {
-        let (Some(object), Some(shape), Some(layout)) = (self.object, self.shape, self.layout) else {
-            return Vec::new();
-        };
-        shape
-            .presentation_to_logical
-            .iter()
-            .filter_map(|logical| object.storage().load_component(layout, *logical).ok())
-            .collect()
+    pub fn presentation_key(&self, index: usize) -> Option<&FieldKey> {
+        self.shape?.presentation_key(index)
     }
 
-    pub fn get(&self, label: Symbol) -> Option<Value> {
+    pub fn logical_value_at(&self, index: usize) -> Option<Value> {
         let (Some(object), Some(shape), Some(layout)) = (self.object, self.shape, self.layout) else {
             return None;
         };
-        let logical = shape.logical_labels.iter().position(|candidate| *candidate == label)?;
-        object.storage().load_component(layout, logical as u32).ok()
+        (index < shape.logical_keys.len())
+            .then(|| object.storage().load_component(layout, index as u32).ok())
+            .flatten()
     }
 
-    pub fn entries(&self) -> Vec<(Symbol, Value)> {
-        self.labels().iter().copied().zip(self.values()).collect()
+    pub fn values(&self) -> Vec<Value> {
+        (0..self.len())
+            .filter_map(|index| {
+                let logical = *self.shape?.presentation_to_logical.get(index)? as usize;
+                self.logical_value_at(logical)
+            })
+            .collect()
+    }
+
+    pub fn get(&self, key: &FieldKey) -> Option<Value> {
+        let shape = self.shape?;
+        let logical = shape.lookup_logical_index_by(|candidate| candidate.canonical_cmp(key))?;
+        self.logical_value_at(logical as usize)
+    }
+
+    pub fn get_by_value(&self, vm: &VM, key: Value) -> Result<Option<Value>, crate::error::RuntimeError> {
+        crate::product::validate_field_key_value(vm, key)?;
+        let Some(shape) = self.shape else {
+            return Ok(None);
+        };
+        let mut low = 0;
+        let mut high = shape.logical_keys.len();
+        while low < high {
+            let mid = low + (high - low) / 2;
+            match crate::product::compare_field_key_to_value(vm, &shape.logical_keys[mid], key)? {
+                std::cmp::Ordering::Less => low = mid + 1,
+                std::cmp::Ordering::Greater => high = mid,
+                std::cmp::Ordering::Equal => return Ok(self.logical_value_at(mid)),
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn entries(&self) -> Vec<(FieldKey, Value)> {
+        let values = self.values();
+        (0..self.len())
+            .filter_map(|index| Some((self.presentation_key(index)?.clone(), values.get(index).copied()?)))
+            .collect()
     }
 }
 
@@ -181,16 +212,30 @@ impl VM {
     pub fn pack_view(&self, id: ObjRef) -> Option<PackView<'_>> {
         let object = self.heap.as_pack(id)?;
         let (root_id, storage, descriptor_id, pos_start, pos_len, lab_start, lab_len) = match object.storage() {
-            crate::heap::pack::PackStorage::Root { descriptor, storage } => {
-                (id, storage, *descriptor, object.positional_start(), object.positional_len(), object.labeled_start(), object.labeled_len())
-            }
+            crate::heap::pack::PackStorage::Root { descriptor, storage } => (
+                id,
+                storage,
+                *descriptor,
+                object.positional_start(),
+                object.positional_len(),
+                object.labeled_start(),
+                object.labeled_len(),
+            ),
             crate::heap::pack::PackStorage::Slice { root } => {
                 let root_obj = self.heap.as_pack(*root)?;
                 let (descriptor, storage) = match root_obj.storage() {
                     crate::heap::pack::PackStorage::Root { descriptor, storage } => (*descriptor, storage),
                     crate::heap::pack::PackStorage::Slice { .. } => return None,
                 };
-                (*root, storage, descriptor, object.positional_start(), object.positional_len(), object.labeled_start(), object.labeled_len())
+                (
+                    *root,
+                    storage,
+                    descriptor,
+                    object.positional_start(),
+                    object.positional_len(),
+                    object.labeled_start(),
+                    object.labeled_len(),
+                )
             }
         };
         let (shape_id, layout) = product_metadata(self, descriptor_id)?;

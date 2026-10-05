@@ -477,6 +477,7 @@ pub fn install(vm: &mut VM) {
     primitive!(vm, descriptor, "returnType", crate::method::SignatureKind::Getter, descriptor_return_type);
     primitive!(vm, descriptor, "fieldCount", crate::method::SignatureKind::Getter, descriptor_field_count);
     primitive!(vm, descriptor, "fieldNameAt", crate::method::SignatureKind::Method(1), descriptor_field_name_at);
+    primitive!(vm, descriptor, "fieldKeyAt", crate::method::SignatureKind::Method(1), descriptor_field_key_at);
     primitive!(vm, descriptor, "fieldTypeAt", crate::method::SignatureKind::Method(1), descriptor_field_type_at);
     primitive!(vm, descriptor, "fields", crate::method::SignatureKind::Getter, descriptor_fields);
     primitive!(vm, descriptor, "body", crate::method::SignatureKind::Getter, descriptor_body);
@@ -1378,7 +1379,7 @@ fn descriptor_field_name_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
                 _ => unreachable!(),
             };
             match context_data.overlay.type_node(id) {
-                Some(RuntimeOverlayTypeNode::Record(fields)) => fields.get(index).map(|f| f.name.to_string()),
+                Some(RuntimeOverlayTypeNode::Record(fields)) => fields.get(index).and_then(|field| field.key.as_symbol().map(str::to_owned)),
                 _ => None,
             }
         }
@@ -1403,6 +1404,49 @@ fn descriptor_field_name_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
 
     let sym = vm.get_or_intern(&name);
     Ok(Value::symbol(sym))
+}
+
+fn descriptor_field_key_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let (context, handle) = descriptor_parts(receiver, vm)?;
+    let index = args.first().and_then(|v| v.as_int()).ok_or_else(|| RuntimeError::Type {
+        expected: "Int",
+        found: args.first().map_or("missing", Value::type_name),
+    })? as usize;
+    let key = match handle {
+        RuntimeTypeRef::Overlay(id) => {
+            let context_data = match &vm.heap.typing_object(context).payload {
+                TypingPayload::Context(data) => data,
+                _ => unreachable!(),
+            };
+            match context_data.overlay.type_node(id) {
+                Some(RuntimeOverlayTypeNode::Record(fields)) => fields.get(index).map(|field| field.key.clone()),
+                _ => None,
+            }
+        }
+        RuntimeTypeRef::Base { pool, node } => {
+            let loaded = vm
+                .typing_registry
+                .get_pool(pool)
+                .ok_or_else(|| RuntimeError::Internal("pool not found".into()))?;
+            let entry = loaded
+                .bundle
+                .types
+                .get(node.0 as usize)
+                .ok_or_else(|| RuntimeError::Internal("node not found".into()))?;
+            match &entry.form {
+                phalcom_type_meta::type_node::TypeNode::Record(fields) => fields
+                    .get(index)
+                    .map(|field| phalcom_semantic::field_key::FieldKey::symbol(field.name.clone())),
+                phalcom_type_meta::type_node::TypeNode::OpenRecord(record) => record
+                    .fields
+                    .get(index)
+                    .map(|field| phalcom_semantic::field_key::FieldKey::symbol(field.name.clone())),
+                _ => None,
+            }
+        }
+    }
+    .ok_or_else(|| RuntimeError::Message("field index out of range".into()))?;
+    Ok(crate::product::field_key_to_value(vm, &key))
 }
 
 fn descriptor_field_type_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -1448,14 +1492,14 @@ fn descriptor_field_type_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
 
 fn descriptor_fields(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let (context, handle) = descriptor_parts(receiver, vm)?;
-    let field_handles: Vec<(String, RuntimeTypeRef)> = match handle {
+    let field_handles: Vec<(phalcom_semantic::field_key::FieldKey, RuntimeTypeRef)> = match handle {
         RuntimeTypeRef::Overlay(id) => {
             let context_data = match &vm.heap.typing_object(context).payload {
                 TypingPayload::Context(data) => data,
                 _ => unreachable!(),
             };
             match context_data.overlay.type_node(id) {
-                Some(RuntimeOverlayTypeNode::Record(fields)) => fields.iter().map(|f| (f.name.to_string(), f.ty)).collect(),
+                Some(RuntimeOverlayTypeNode::Record(fields)) => fields.iter().map(|field| (field.key.clone(), field.ty)).collect(),
                 _ => Vec::new(),
             }
         }
@@ -1471,23 +1515,30 @@ fn descriptor_fields(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
                 .ok_or_else(|| RuntimeError::Internal("node not found".into()))?;
             match &entry.form {
                 phalcom_type_meta::type_node::TypeNode::Record(f) => {
-                    f.iter().map(|f| (f.name.to_string(), RuntimeTypeRef::Base { pool, node: f.ty })).collect()
+                    f.iter()
+                        .map(|field| (phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()), RuntimeTypeRef::Base { pool, node: field.ty }))
+                        .collect()
                 }
                 phalcom_type_meta::type_node::TypeNode::OpenRecord(o) => o
                     .fields
                     .iter()
-                    .map(|f| (f.name.to_string(), RuntimeTypeRef::Base { pool, node: f.ty }))
+                    .map(|field| {
+                        (
+                            phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
+                            RuntimeTypeRef::Base { pool, node: field.ty },
+                        )
+                    })
                     .collect(),
                 _ => Vec::new(),
             }
         }
     };
     let mut values = Vec::with_capacity(field_handles.len());
-    for (name, ty_handle) in field_handles {
+    for (key, ty_handle) in field_handles {
         let desc_class = descriptor_class_for_handle(vm, context, ty_handle)?;
         let ty_val = crate::typing::reify::reify_type_form(context, ty_handle, &vm.typing_registry, &mut vm.heap, desc_class)?;
-        let name_sym = vm.get_or_intern(&name);
-        values.push(finish_typing_tuple(vm, vec![Value::symbol(name_sym), ty_val])?);
+        let key_value = crate::product::field_key_to_value(vm, &key);
+        values.push(finish_typing_tuple(vm, vec![key_value, ty_val])?);
     }
     finish_typing_tuple(vm, values)
 }
@@ -2440,10 +2491,10 @@ fn typing_context_record_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
                 .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
                 .values();
             if pair.len() == 2 {
-                let name = pair[0].symbol_value().map(|s| vm.resolve_symbol(s).to_string()).unwrap_or_default();
+                let key = crate::product::value_to_field_key(vm, pair[0])?;
                 let ty = nominal_handle(vm, context, &pair[1])?;
                 fields.push(RuntimeRecordField {
-                    name: name.into_boxed_str(),
+                    key,
                     ty,
                 });
             }

@@ -302,7 +302,7 @@ impl Fixture {
         assert_eq!(row.tail, RecordRowTail::Closed, "expected closed Record row: {row:?}");
         assert_eq!(row.fields.len(), expected_fields.len(), "wrong Record field count: {row:?}");
         for (actual, (expected_name, expected_ty)) in row.fields.iter().zip(expected_fields) {
-            assert_eq!(actual.name.as_ref(), *expected_name, "wrong Record field name: {row:?}");
+            assert_eq!(actual.key.as_symbol(), Some(*expected_name), "wrong Record field key: {row:?}");
             assert_eq!(actual.ty, *expected_ty, "wrong type for Record field `{expected_name}`: {row:?}");
         }
         *row_id
@@ -320,7 +320,7 @@ impl Fixture {
         assert_eq!(row.tail, RecordRowTail::Parameter(expected_tail), "wrong Record row tail: {row:?}");
         assert_eq!(row.fields.len(), expected_fields.len(), "wrong Record field count: {row:?}");
         for (actual, (expected_name, expected_ty)) in row.fields.iter().zip(expected_fields) {
-            assert_eq!(actual.name.as_ref(), *expected_name, "wrong Record field name: {row:?}");
+            assert_eq!(actual.key.as_symbol(), Some(*expected_name), "wrong Record field key: {row:?}");
             assert_eq!(actual.ty, *expected_ty, "wrong type for Record field `{expected_name}`: {row:?}");
         }
         *row_id
@@ -409,7 +409,7 @@ impl Fixture {
                 assert_eq!(row.tail, RecordRowTail::Closed, "expected closed Record row: {row:?}");
                 assert_eq!(row.fields.len(), fields.len(), "wrong Record field count: {row:?}");
                 for (actual_field, (expected_name, expected_ty)) in row.fields.iter().zip(fields) {
-                    assert_eq!(actual_field.name.as_ref(), *expected_name, "wrong Record field name: {row:?}");
+                    assert_eq!(actual_field.key.as_symbol(), Some(*expected_name), "wrong Record field key: {row:?}");
                     self.assert_type(actual_field.ty, expected_ty);
                 }
             }

@@ -793,6 +793,12 @@ fn record_field_key_literal(expr: &Expr) -> Result<FieldKey, RecordKeyProjection
     }
 }
 
+/// Projects only an exact literal Record key expression. Computed names and
+/// binding resolution remain owned by the checker/static-query pipeline.
+pub(crate) fn literal_record_field_key(expr: &Expr) -> Option<FieldKey> {
+    record_field_key_literal(expr).ok()
+}
+
 fn record_key_syntax(key: &phalcom_ast::ast::RecordKeySyntax) -> Result<FieldKey, RecordKeyProjectionFailure> {
     match key {
         phalcom_ast::ast::RecordKeySyntax::Symbol { name, .. } => Ok(FieldKey::symbol(name.clone())),
