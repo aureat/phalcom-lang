@@ -2179,7 +2179,26 @@ pub fn query_callable_definition(
             hasher.finish().rotate_left(7)
         }
     };
-    let value = signature_fingerprint.raw() ^ origin_tag.rotate_left(17) ^ (definition.source_member_index as u64).rotate_left(33);
+    let body_context_tag = definition.inherent_body_context.as_ref().map_or(0, |context| {
+        let mut hasher = DefaultHasher::new();
+        if let Some(generics) = &context.generic_signature {
+            generics.owner.hash(&mut hasher);
+            for parameter in generics.parameters.iter() {
+                parameter.hash(&mut hasher);
+            }
+        }
+        if let Some(covering) = &context.covering {
+            let mut mappings = covering.decl_to_impl.iter().collect::<Vec<_>>();
+            mappings.sort_unstable_by_key(|(declaration, _)| **declaration);
+            for (declaration, implementation) in mappings {
+                declaration.hash(&mut hasher);
+                implementation.hash(&mut hasher);
+            }
+        }
+        hasher.finish()
+    });
+    let value =
+        signature_fingerprint.raw() ^ origin_tag.rotate_left(17) ^ (definition.source_member_index as u64).rotate_left(33) ^ body_context_tag.rotate_left(11);
     let input_fingerprint = crate::db::InputFingerprint::new(value);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_definition()) {

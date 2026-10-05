@@ -358,6 +358,21 @@ impl CoveringImplSubstitution {
         }
         Ok(instantiation)
     }
+
+    /// Builds the inverse instantiation used only while checking the source
+    /// body of a covering impl member.
+    pub fn to_body_instantiation(&self, store: &mut TypeStore) -> Result<GenericInstantiation, TypeMaterializationError> {
+        let mut instantiation = GenericInstantiation::default();
+        for (&declaration_parameter, &impl_parameter) in &self.decl_to_impl {
+            if store.type_parameter(impl_parameter).kind == KindId::RECORD_ROW {
+                let row = store.record_row_checked(Vec::new(), RecordRowTail::Parameter(impl_parameter))?;
+                instantiation.bind_row(declaration_parameter, row);
+            } else {
+                instantiation.bind_type(declaration_parameter, store.parameter_form(impl_parameter));
+            }
+        }
+        Ok(instantiation)
+    }
 }
 
 use crate::types::parameter::GenericConstraint;
@@ -3842,6 +3857,31 @@ pub struct EffectiveCallableDefinition {
     pub origin: CallableDefinitionOrigin,
     pub source_member_index: usize,
     pub signature: CallableSemanticSignature,
+    /// Source-only provenance for an accepted inherent implementation body.
+    /// The published signature remains declaration-canonical.
+    pub inherent_body_context: Option<InherentBodyContext>,
+}
+
+/// The impl-relative coordinate system used when checking an inherent member's
+/// source body.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InherentBodyContext {
+    pub generic_signature: Option<GenericSignature>,
+    pub covering: Option<CoveringImplSubstitution>,
+}
+
+impl InherentBodyContext {
+    pub fn signature_for_body(
+        &self,
+        store: &mut TypeStore,
+        canonical_signature: CallableSemanticSignature,
+    ) -> Result<CallableSemanticSignature, TypeMaterializationError> {
+        let Some(covering) = &self.covering else {
+            return Ok(canonical_signature);
+        };
+        let instantiation = covering.to_body_instantiation(store)?;
+        apply_covering_instantiation_to_signature(store, &instantiation, canonical_signature)
+    }
 }
 
 /// Product of merging a primary declared surface with inherent impl contributions.
@@ -3999,6 +4039,7 @@ pub fn build_effective_surface(
                         origin: CallableDefinitionOrigin::PrimaryDeclaration,
                         source_member_index: 0,
                         signature: sem_sig.clone(),
+                        inherent_body_context: None,
                     },
                 );
             }
@@ -4093,6 +4134,10 @@ pub fn build_effective_surface(
                         origin: CallableDefinitionOrigin::InherentImpl(contribution.id.clone()),
                         source_member_index: member.source_member,
                         signature: member.signature.clone(),
+                        inherent_body_context: Some(InherentBodyContext {
+                            generic_signature: contribution.generic_signature.clone(),
+                            covering: contribution.covering.clone(),
+                        }),
                     },
                 );
             }
@@ -5433,7 +5478,7 @@ pub fn apply_covering_to_signature(store: &mut TypeStore, subst: &TypeSubstituti
 
 /// Applies a domain-aware covering instantiation to every canonical type in a
 /// callable signature, preserving RecordFields as a row binding.
-fn apply_covering_instantiation_to_signature(
+pub(crate) fn apply_covering_instantiation_to_signature(
     store: &mut TypeStore,
     instantiation: &GenericInstantiation,
     mut signature: CallableSemanticSignature,

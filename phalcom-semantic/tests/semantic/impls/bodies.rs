@@ -152,6 +152,105 @@ impl<A, B> Pair<B, A> {
 }
 
 #[test]
+fn test_covering_class_impl_body_uses_impl_generic_coordinates() {
+    let module = test_module();
+    let src = r#"
+data Token()
+
+data Id<Tag>(
+  _ token: Token,
+)
+
+impl<Tag> Id<Tag> {
+  @class
+  fresh() -> Id<Tag> {
+    Id<Tag>(Token())
+  }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module.clone(), src));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let callable = CallableId::new(
+        DeclarationId::new(module, "Id".into()),
+        Selector::method("fresh", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let analysis = update.snapshot.callable_analyses.get(&callable).expect("fresh body analysis");
+    assert!(analysis.diagnostics.is_empty());
+}
+
+#[test]
+fn test_covering_permutation_body_specializes_parameters_and_return() {
+    let module = test_module();
+    let src = r#"
+data Pair<X, Y>(
+  _ first: X,
+  _ second: Y,
+)
+
+impl<A, B> Pair<B, A> {
+  @class
+  duplicate(_ b: B, _ a: A) -> Pair<B, A> {
+    Pair<B, A>(b, a)
+  }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module.clone(), src));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let callable = CallableId::new(
+        DeclarationId::new(module, "Pair".into()),
+        Selector::method(
+            "duplicate",
+            [
+                phalcom_common::selector::SelectorSlot::Positional,
+                phalcom_common::selector::SelectorSlot::Positional,
+            ],
+        )
+        .unwrap(),
+        DispatchSide::Class,
+    );
+    let analysis = update.snapshot.callable_analyses.get(&callable).expect("duplicate body analysis");
+    assert!(analysis.diagnostics.is_empty());
+}
+
+#[test]
+fn test_covering_body_incremental_binder_rename_matches_cold_analysis() {
+    let source_v1 = r#"
+data Token()
+data Id<Tag>(_ token: Token)
+impl<Tag> Id<Tag> {
+  @class
+  fresh() -> Id<Tag> { Id<Tag>(Token()) }
+}
+"#;
+    let source_v2 = r#"
+data Token()
+data Id<Marker>(_ token: Token)
+impl<Marker> Id<Marker> {
+  @class
+  fresh() -> Id<Marker> { Id<Marker>(Token()) }
+}
+"#;
+    let module = test_module();
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental.update(single_module_input(module.clone(), source_v1));
+    assert!(!first.snapshot.has_errors(), "v1 diagnostics: {:?}", first.snapshot.diagnostics);
+    let second = incremental.update(single_module_input(module.clone(), source_v2));
+    assert!(!second.snapshot.has_errors(), "incremental diagnostics: {:?}", second.snapshot.diagnostics);
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold = cold.update(single_module_input(module, source_v2));
+    assert_eq!(
+        second.snapshot.diagnostics, cold.snapshot.diagnostics,
+        "incremental and cold diagnostics must agree"
+    );
+}
+
+#[test]
 fn test_subclass_inherits_inherent_impl_method() {
     let module = test_module();
     let src = r#"

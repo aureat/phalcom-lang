@@ -4551,6 +4551,7 @@ impl SemanticWorkspaceSession {
                                             origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(contribution.impl_id.clone()),
                                             source_member_index,
                                             signature: signature.clone(),
+                                            inherent_body_context: None,
                                         };
                                         callable_definitions.insert(callable.clone(), definition.clone());
                                         let _ = query_callable_definition(&mut self.db, Arc::new(definition));
@@ -4675,6 +4676,7 @@ impl SemanticWorkspaceSession {
                                         origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(rule_head.impl_id.clone()),
                                         source_member_index,
                                         signature: signature.clone(),
+                                        inherent_body_context: None,
                                     };
                                     callable_definitions.insert(callable.clone(), definition.clone());
                                     let _ = query_callable_definition(&mut self.db, Arc::new(definition));
@@ -4858,6 +4860,10 @@ impl SemanticWorkspaceSession {
                                     origin: crate::impls::CallableDefinitionOrigin::InherentImpl(contrib.id.clone()),
                                     source_member_index: member.source_member,
                                     signature: member.signature.clone(),
+                                    inherent_body_context: Some(crate::impls::InherentBodyContext {
+                                        generic_signature: contrib.generic_signature.clone(),
+                                        covering: contrib.covering.clone(),
+                                    }),
                                 };
                                 callable_definitions.insert(definition.callable.clone(), definition.clone());
                                 let _ = query_callable_definition(&mut self.db, Arc::new(definition.clone()));
@@ -5933,6 +5939,19 @@ impl SemanticWorkspaceSession {
                                 }) {
                                     continue;
                                 }
+                                let body_context = accepted_definition.and_then(|definition| definition.inherent_body_context.clone());
+                                let canonical_signature = callable_signatures
+                                    .get(&callable_id)
+                                    .expect("accepted inherent callable must have a canonical signature")
+                                    .clone();
+                                let body_signature = body_context
+                                    .as_ref()
+                                    .map(|context| {
+                                        context
+                                            .signature_for_body(Arc::make_mut(&mut self.store), canonical_signature.clone())
+                                            .expect("validated covering substitution must materialize its accepted callable signature")
+                                    })
+                                    .unwrap_or(canonical_signature);
                                 let query_key = QueryKey::CallableBody(callable_id.clone());
 
                                 let formal_inputs = FormalQueryInputs {
@@ -5979,8 +5998,8 @@ impl SemanticWorkspaceSession {
                                         callable: callable_id.clone(),
                                         body,
                                         body_range: range,
-                                        declared_signature: None,
-                                        owner_generic_signature: None,
+                                        declared_signature: Some((&callable_id, &body_signature)),
+                                        owner_generic_signature: body_context.as_ref().and_then(|context| context.generic_signature.as_ref()),
                                         self_type_override: None,
                                         trait_surface: None,
                                         store: Arc::make_mut(&mut self.store),
@@ -10438,8 +10457,16 @@ fn revalidate_downstream_callable_body(
     let Some((body, body_range)) = source_body_for_callable(callable, unit) else {
         return Ok(());
     };
+    let body_context = db
+        .product(&QueryKey::CallableDefinition(callable.clone()))
+        .and_then(|product| product.as_callable_definition())
+        .and_then(|definition| definition.inherent_body_context.clone());
     let mut type_parameters = HashMap::new();
-    if let Some(signature) = formal_inputs.declarations.generic_signature(callable.declaration_owner()) {
+    let owner_signature = body_context
+        .as_ref()
+        .and_then(|context| context.generic_signature.as_ref())
+        .or_else(|| formal_inputs.declarations.generic_signature(callable.declaration_owner()));
+    if let Some(signature) = owner_signature {
         for &parameter in signature.parameters.iter() {
             let name = store.type_parameter(parameter).name.to_string();
             type_parameters.insert(name, type_level_binding_for_parameter(store, parameter));
@@ -10452,14 +10479,26 @@ fn revalidate_downstream_callable_body(
     let key = QueryKey::CallableBody(callable.clone());
     refresh_cached_body_dependencies(db, &key, formal_inputs, store)?;
     let previous_computation_revision = db.query_state(&key).and_then(|state| state.revision());
+    let canonical_signature = callable_signatures
+        .get(callable)
+        .expect("current callable body must have a canonical signature")
+        .clone();
+    let body_signature = body_context
+        .as_ref()
+        .map(|context| {
+            context
+                .signature_for_body(store, canonical_signature.clone())
+                .expect("validated covering substitution must materialize its accepted callable signature")
+        })
+        .unwrap_or(canonical_signature);
     let outcome = query_callable_body_with_formal_inputs(
         db,
         CallableBodyQuery {
             callable: callable.clone(),
             body,
             body_range,
-            declared_signature: None,
-            owner_generic_signature: None,
+            declared_signature: Some((callable, &body_signature)),
+            owner_generic_signature: body_context.as_ref().and_then(|context| context.generic_signature.as_ref()),
             self_type_override: None,
             trait_surface: None,
             store,
