@@ -1,7 +1,7 @@
-use crate::identity::{BindingId, ExpressionId};
 use crate::identity::DeclarationId;
-use phalcom_common::range::SourceRange;
+use crate::identity::{BindingId, ExpressionId};
 use crate::types::outcome::BudgetReport;
+use phalcom_common::range::SourceRange;
 use thiserror::Error;
 
 /// A fail-closed reason why a checked static body could not be reduced.

@@ -23,7 +23,10 @@ let cell = Cell.new()
         Ok(_) => panic!("early immutable field read must trap"),
         Err(error) => error,
     };
-    assert!(error.to_string().contains("immutable field `_value` is read before it is initialized"), "{error}");
+    assert!(
+        error.to_string().contains("immutable field `_value` is read before it is initialized"),
+        "{error}"
+    );
 }
 
 #[test]

@@ -1411,7 +1411,9 @@ impl<'vm> Compiler<'vm> {
                             }
                         }
                     } else if has_lowering {
-                        return Err(CompilerError::Message(format!("internal consistency error: static constant `{value}` is declared but missing successful lowering projection")));
+                        return Err(CompilerError::Message(format!(
+                            "internal consistency error: static constant `{value}` is declared but missing successful lowering projection"
+                        )));
                     } else {
                         return Err(CompilerError::StaticConstUnmaterialized(value.clone()));
                     }

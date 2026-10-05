@@ -9,8 +9,8 @@ use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
 use phalcom_ast::ast::{
-    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, DelegatedAccessorKind, Expr, ImplementationKind, IndexAccessor,
-    MethodCallExpr, PackItem, RestMode, Statement, Visibility,
+    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, DelegatedAccessorKind, Expr, ImplementationKind, IndexAccessor, MethodCallExpr,
+    PackItem, RestMode, Statement, Visibility,
 };
 use phalcom_common::range::SourceRange;
 
@@ -299,8 +299,7 @@ impl<'vm> Compiler<'vm> {
         // sibling `extends` this class by name, so its own `Bytecode::Class`
         // resolves that name via `GetGlobal`, which requires this class's
         // `DefineGlobal` to have already run).
-        let (mut class_def, sibling_classes, mut constructor_projections) =
-            expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
+        let (mut class_def, sibling_classes, mut constructor_projections) = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
         drop(ctx);
         // Native source members are declaration anchors for the descriptor
         // installer, not bytecode bodies. Their implementation kind is the
@@ -323,8 +322,15 @@ impl<'vm> Compiler<'vm> {
             projection.initializer_member = class_def
                 .members
                 .iter()
-                .position(|member| matches!(member, ClassMember::Method(method) if method.range == projection.range && method.is_constructor && !method.is_static))
-                .ok_or_else(|| CompilerError::Message(format!("constructor.semantic_projection_missing: initializer `{}`", projection.initializer.selector.encode())))?;
+                .position(
+                    |member| matches!(member, ClassMember::Method(method) if method.range == projection.range && method.is_constructor && !method.is_static),
+                )
+                .ok_or_else(|| {
+                    CompilerError::Message(format!(
+                        "constructor.semantic_projection_missing: initializer `{}`",
+                        projection.initializer.selector.encode()
+                    ))
+                })?;
         }
         let factory_by_member = constructor_projections
             .iter()
@@ -382,13 +388,17 @@ impl<'vm> Compiler<'vm> {
                         let is_constructor = m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor");
                         let is_class_side = if m.is_constructor { false } else { m.is_static || is_constructor };
                         let projection = if m.is_constructor {
-                            Some(initializer_by_member.get(&member_index).ok_or_else(|| {
-                                CompilerError::Message(format!("constructor.semantic_projection_missing: initializer `{}`", m.name))
-                            })?)
+                            Some(
+                                initializer_by_member
+                                    .get(&member_index)
+                                    .ok_or_else(|| CompilerError::Message(format!("constructor.semantic_projection_missing: initializer `{}`", m.name)))?,
+                            )
                         } else if m.attributes.iter().any(|attribute| attribute.name == "constructor") {
-                            Some(factory_by_member.get(&member_index).ok_or_else(|| {
-                                CompilerError::Message(format!("constructor.semantic_projection_missing: factory `{}`", m.name))
-                            })?)
+                            Some(
+                                factory_by_member
+                                    .get(&member_index)
+                                    .ok_or_else(|| CompilerError::Message(format!("constructor.semantic_projection_missing: factory `{}`", m.name)))?,
+                            )
                         } else {
                             None
                         };
@@ -493,9 +503,7 @@ impl<'vm> Compiler<'vm> {
             .members
             .iter()
             .filter_map(|m| match m {
-                ClassMember::Field(f)
-                    if !f.mutable && !(m.is_static() || m.attributes().iter().any(|attribute| attribute.name == "class")) =>
-                {
+                ClassMember::Field(f) if !f.mutable && !(m.is_static() || m.attributes().iter().any(|attribute| attribute.name == "class")) => {
                     Some(self.vm.interner.intern(&f.name))
                 }
                 _ => None,
@@ -1066,9 +1074,10 @@ impl<'vm> Compiler<'vm> {
                 }
                 ClassMember::Method(construct_def) => {
                     let range = construct_def.range;
-                    let projection = initializer_by_member.get(&member_index).copied().ok_or_else(|| {
-                        CompilerError::Message(format!("constructor.semantic_projection_missing: initializer `{}`", construct_def.name))
-                    })?;
+                    let projection = initializer_by_member
+                        .get(&member_index)
+                        .copied()
+                        .ok_or_else(|| CompilerError::Message(format!("constructor.semantic_projection_missing: initializer `{}`", construct_def.name)))?;
                     let arity = checked_send_arity("constructor declaration", construct_def.params.len(), construct_def.range)?;
                     let selector = projection.initializer.selector.encode();
                     let selector_sym = self.vm.interner.intern(&selector);

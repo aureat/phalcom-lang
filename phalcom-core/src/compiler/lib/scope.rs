@@ -308,9 +308,8 @@ impl<'vm> Compiler<'vm> {
         }
         let is_throwaway = source_name == "_";
         if !is_throwaway {
-            let redeclared_this_unit = self.global_bindings.contains_key(&name)
-                || self.import_bindings.contains_key(&name)
-                || self.global_static_constants.contains(&name);
+            let redeclared_this_unit =
+                self.global_bindings.contains_key(&name) || self.import_bindings.contains_key(&name) || self.global_static_constants.contains(&name);
             let redeclared_prior_unit = self.unit_kind != UnitKind::Repl && self.vm.heap.module(self.module).global_bindings.contains_key(&name);
             if redeclared_this_unit || redeclared_prior_unit {
                 return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));

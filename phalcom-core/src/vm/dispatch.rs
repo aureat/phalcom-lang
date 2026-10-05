@@ -2209,7 +2209,10 @@ impl VM {
                         let value = self.stack[local_idx];
                         if value.is_uninitialized_binding() {
                             let name_val = callable.chunk.constants[name_idx as usize];
-                            let name = name_val.symbol_value().map(|s| self.resolve_symbol(s).to_string()).unwrap_or_else(|| "variable".to_string());
+                            let name = name_val
+                                .symbol_value()
+                                .map(|s| self.resolve_symbol(s).to_string())
+                                .unwrap_or_else(|| "variable".to_string());
                             return Err(RuntimeError::UninitializedBinding { name }.into());
                         }
                         self.stack.push(value);
@@ -2593,7 +2596,10 @@ impl VM {
                     };
                     if value.is_uninitialized_binding() {
                         let name_val = callable.chunk.constants[name_idx as usize];
-                        let name = name_val.symbol_value().map(|symbol| self.resolve_symbol(symbol).to_string()).unwrap_or_else(|| "field".to_string());
+                        let name = name_val
+                            .symbol_value()
+                            .map(|symbol| self.resolve_symbol(symbol).to_string())
+                            .unwrap_or_else(|| "field".to_string());
                         return Err(RuntimeError::UninitializedField { name }.into());
                     }
                     self.stack.push(self.surface_absence(value));
@@ -3129,7 +3135,10 @@ impl VM {
                         Upvalue::Closed(value) => value,
                     };
                     if value.is_uninitialized_binding() {
-                        return Err(RuntimeError::UninitializedBinding { name: "captured variable".into() }.into());
+                        return Err(RuntimeError::UninitializedBinding {
+                            name: "captured variable".into(),
+                        }
+                        .into());
                     }
                     let value = self.surface_absence(value);
                     self.stack.push(value);
@@ -3148,7 +3157,10 @@ impl VM {
                     };
                     if value.is_uninitialized_binding() {
                         let name_val = callable.chunk.constants[name_idx as usize];
-                        let name = name_val.symbol_value().map(|s| self.resolve_symbol(s).to_string()).unwrap_or_else(|| "captured variable".to_string());
+                        let name = name_val
+                            .symbol_value()
+                            .map(|s| self.resolve_symbol(s).to_string())
+                            .unwrap_or_else(|| "captured variable".to_string());
                         return Err(RuntimeError::UninitializedBinding { name }.into());
                     }
                     let value = self.surface_absence(value);

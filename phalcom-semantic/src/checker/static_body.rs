@@ -196,11 +196,7 @@ pub fn analyze_static_constant_initializer(
     dependencies.dedup();
 
     let diagnostics = Arc::from(context.diagnostics[diagnostic_start..].to_vec().into_boxed_slice());
-    let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(
-        constant_id,
-        initializer,
-        expected_type,
-    );
+    let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(constant_id, initializer, expected_type);
 
     crate::static_constant::CheckedStaticConstantInitializer {
         id: constant_id.clone(),

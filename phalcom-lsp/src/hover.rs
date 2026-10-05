@@ -122,7 +122,10 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
         "const",
         "Introduces a compile-time static constant. It is distinct from an immutable runtime `let` binding.",
     ),
-    ("mut", "Contextual modifier for a mutable runtime binding, field, trait property, or read/write delegation."),
+    (
+        "mut",
+        "Contextual modifier for a mutable runtime binding, field, trait property, or read/write delegation.",
+    ),
     (
         "fn",
         "Reserved for a future function-literal form; not yet consumed by the parser — closures are written today as `{ ... }` block literals.",

@@ -18,13 +18,14 @@ pub(crate) fn contextual_mut_ranges(text: &str) -> BTreeSet<(usize, usize)> {
         let next = tokens.get(index + 1).map(|next| &next.1);
         let after_next = tokens.get(index + 2).map(|next| &next.1);
 
-        let let_binding = matches!(previous, Some(Token::Let))
-            && !matches!(next, Some(Token::Equal | Token::Colon));
+        let let_binding = matches!(previous, Some(Token::Let)) && !matches!(next, Some(Token::Equal | Token::Colon));
         let mutable_field = matches!(next, Some(Token::FieldIdentifier(_)))
-            && matches!(after_next, None | Some(Token::Newline | Token::RBrace | Token::Eof | Token::Equal | Token::Colon));
+            && matches!(
+                after_next,
+                None | Some(Token::Newline | Token::RBrace | Token::Eof | Token::Equal | Token::Colon)
+            );
         let mutable_trait_property = matches!(next, Some(Token::Identifier(_))) && matches!(after_next, Some(Token::Colon));
-        let read_write_delegation = matches!(next, Some(Token::Identifier(_)))
-            && matches!(after_next, Some(Token::Identifier(word)) if word == "via");
+        let read_write_delegation = matches!(next, Some(Token::Identifier(_))) && matches!(after_next, Some(Token::Identifier(word)) if word == "via");
 
         if let_binding || mutable_field || mutable_trait_property || read_write_delegation {
             ranges.insert((*start, *end));

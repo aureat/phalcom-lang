@@ -61,10 +61,7 @@ fn test_const_to_const_dependency() {
 
     let prod_b = update.snapshot.static_constant(&id_b).expect("static constant B");
     assert!(prod_b.is_successful());
-    assert!(
-        prod_b.checked.static_constant_reads.contains(id_a.symbol()),
-        "B should record dependency on A"
-    );
+    assert!(prod_b.checked.static_constant_reads.contains(id_a.symbol()), "B should record dependency on A");
 
     let val_b = update.snapshot.static_values().get(prod_b.value().unwrap()).unwrap();
     assert_eq!(val_b, &StaticValueData::Int(StaticInt::Small(15)));
@@ -99,10 +96,7 @@ fn test_key_discriminator_same_module_isolation() {
     assert_eq!(val_a2, &StaticValueData::Int(StaticInt::Small(15)));
 
     // B must be a cache hit (Arc::ptr_eq preserved)
-    assert!(
-        Arc::ptr_eq(&prod_b1, &prod_b2),
-        "B should be reused from cache without recomputation"
-    );
+    assert!(Arc::ptr_eq(&prod_b1, &prod_b2), "B should be reused from cache without recomputation");
     let val_b2 = update2.snapshot.static_values().get(prod_b2.value().unwrap()).unwrap();
     assert_eq!(val_b2, &StaticValueData::Int(StaticInt::Small(20)));
 }
@@ -210,11 +204,7 @@ fn test_evaluation_controls_and_lkg() {
         let mut session = SemanticWorkspaceSession::new();
         let cancel = CancellationToken::new();
         cancel.cancel();
-        let res = session.update_with_budget_and_cancel(
-            single_module_input(module.clone(), "const A: Int = 42\n", 1),
-            QueryBudget::default(),
-            &cancel,
-        );
+        let res = session.update_with_budget_and_cancel(single_module_input(module.clone(), "const A: Int = 42\n", 1), QueryBudget::default(), &cancel);
         assert!(matches!(res, Err(QueryOutcome::Cancelled)));
     }
 
@@ -226,11 +216,7 @@ fn test_evaluation_controls_and_lkg() {
             max_steps: 0,
             ..QueryBudget::default()
         };
-        let res = session.update_with_budget_and_cancel(
-            single_module_input(module.clone(), "const A: Int = 42\n", 1),
-            zero_budget,
-            &cancel,
-        );
+        let res = session.update_with_budget_and_cancel(single_module_input(module.clone(), "const A: Int = 42\n", 1), zero_budget, &cancel);
         assert!(matches!(res, Err(QueryOutcome::BudgetExceeded(_))));
     }
 
@@ -252,10 +238,6 @@ fn test_evaluation_controls_and_lkg() {
         let prod_a2 = update2.snapshot.static_constant(&id_a).expect("A rev 2");
         assert!(!prod_a2.is_successful());
         assert_eq!(prod_a2.value, None);
-        assert_eq!(
-            prod_a2.lkg_value,
-            Some(val1),
-            "LKG value must persist across failed revision"
-        );
+        assert_eq!(prod_a2.lkg_value, Some(val1), "LKG value must persist across failed revision");
     }
 }

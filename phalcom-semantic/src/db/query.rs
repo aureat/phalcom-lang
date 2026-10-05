@@ -1127,7 +1127,9 @@ pub fn query_checked_static_body(
     db.metrics().record_miss();
 
     let mut semantic_dependencies = product.dependencies.iter().cloned().collect::<BTreeSet<_>>();
-    semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(product.owner.0.module.clone()));
+    semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(
+        product.owner.0.module.clone(),
+    ));
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     for semantic_dependency in semantic_dependencies {
         match ensure_formal_semantic_dependency_current(db, &semantic_dependency, inputs, store) {

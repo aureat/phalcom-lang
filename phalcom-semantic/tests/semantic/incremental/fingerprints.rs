@@ -717,15 +717,11 @@ fn changing_only_initialization_safety_changes_callable_product_fingerprint() {
     );
 
     let mut runtime_check = definite.clone();
-    runtime_check.bindings.get_mut(&binding).expect("binding").initialization =
-        phalcom_semantic::checker::flow::InitializationState::MaybeInitialized;
+    runtime_check.bindings.get_mut(&binding).expect("binding").initialization = phalcom_semantic::checker::flow::InitializationState::MaybeInitialized;
     runtime_check.expressions.get_mut(&expr_id).expect("expr").binding_read_safety =
         Some(phalcom_semantic::checker::flow::BindingReadSafety::RuntimeCheckRequired);
 
-    assert_ne!(
-        callable_body_product_fingerprint(&definite),
-        callable_body_product_fingerprint(&runtime_check)
-    );
+    assert_ne!(callable_body_product_fingerprint(&definite), callable_body_product_fingerprint(&runtime_check));
 }
 
 #[test]
@@ -918,8 +914,16 @@ fn constructor_products_refresh_when_attributes_and_field_defaults_change() {
     let changed_default = "@construct\nclass Parent {\n  _required: Int\n  _defaulted: Int = 9\n}\nclass Child is Parent {\n  _child: Int = 3\n}\n";
     let second = session.update(super::support::single_module_input(module.clone(), changed_default, 2));
     assert_ne!(
-        first.snapshot.constructor_initializations.get(&generated).map(|product| product.field_input_fingerprint),
-        second.snapshot.constructor_initializations.get(&generated).map(|product| product.field_input_fingerprint),
+        first
+            .snapshot
+            .constructor_initializations
+            .get(&generated)
+            .map(|product| product.field_input_fingerprint),
+        second
+            .snapshot
+            .constructor_initializations
+            .get(&generated)
+            .map(|product| product.field_input_fingerprint),
         "editing a field declaration/default changes the canonical construction product"
     );
 
@@ -964,9 +968,9 @@ fn constructor_products_refresh_when_attributes_and_field_defaults_change() {
 #[test]
 fn parent_constructor_product_change_revalidates_explicit_super_body() {
     use phalcom_common::selector::Selector;
+    use phalcom_semantic::db::QueryKey;
     use phalcom_semantic::identity::DispatchSide;
     use phalcom_semantic::session::SemanticWorkspaceSession;
-    use phalcom_semantic::db::QueryKey;
 
     let module = module("constructor_super_dependency");
     let initial = "class ParentDefaults {\n  _base: Int = 1\n}\nclass Child is ParentDefaults {\n  @constructor new() { super.new() }\n}\n";
@@ -996,7 +1000,12 @@ fn parent_constructor_product_change_revalidates_explicit_super_body() {
     let second = session.update(super::support::single_module_input(module, changed, 2));
     assert_ne!(
         initial_field_fingerprint,
-        second.snapshot.constructor_initializations.get(&parent_factory).unwrap().field_input_fingerprint,
+        second
+            .snapshot
+            .constructor_initializations
+            .get(&parent_factory)
+            .unwrap()
+            .field_input_fingerprint,
         "changing a parent default changes its constructor input fingerprint"
     );
     assert_ne!(
@@ -1005,10 +1014,7 @@ fn parent_constructor_product_change_revalidates_explicit_super_body() {
         "the owner query fingerprint publishes the changed constructor product"
     );
     assert!(
-        session
-            .db()
-            .revision_recomputed_keys()
-            .any(|key| key == &QueryKey::CallableBody(child.clone())),
+        session.db().revision_recomputed_keys().any(|key| key == &QueryKey::CallableBody(child.clone())),
         "a changed direct-parent construction product must recompute the subclass constructor body"
     );
     assert!(second.snapshot.callable_analyses[&child].constructor_super_initializer.is_some());

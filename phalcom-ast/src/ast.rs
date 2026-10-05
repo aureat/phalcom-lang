@@ -1175,7 +1175,6 @@ pub enum GenericArgumentSyntax {
     Value(Box<Expr>),
 }
 
-
 impl PartialEq for GenericArgumentSyntax {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

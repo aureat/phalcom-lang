@@ -578,11 +578,17 @@ fn plan_file_edits(content: &str) -> Result<Vec<Edit>, String> {
     // 2. Class fields & implicit fields
     for stmt in &res.program.statements {
         if let Statement::Class(c) = stmt {
-            let declared_instance_fields: Vec<String> = c.members.iter().filter_map(|m| {
-                if let ClassMember::Field(f) = m {
-                    if !f.is_static { Some(f.name.clone()) } else { None }
-                } else { None }
-            }).collect();
+            let declared_instance_fields: Vec<String> = c
+                .members
+                .iter()
+                .filter_map(|m| {
+                    if let ClassMember::Field(f) = m {
+                        if !f.is_static { Some(f.name.clone()) } else { None }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
             // Declared fields rewrite
             for m in &c.members {
@@ -744,11 +750,17 @@ fn main() {
                 }
                 for stmt in &res.program.statements {
                     if let Statement::Class(c) = stmt {
-                        let declared_instance_fields: Vec<String> = c.members.iter().filter_map(|m| {
-                            if let ClassMember::Field(f) = m {
-                                if !f.is_static { Some(f.name.clone()) } else { None }
-                            } else { None }
-                        }).collect();
+                        let declared_instance_fields: Vec<String> = c
+                            .members
+                            .iter()
+                            .filter_map(|m| {
+                                if let ClassMember::Field(f) = m {
+                                    if !f.is_static { Some(f.name.clone()) } else { None }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
                         for m in &c.members {
                             if let ClassMember::Field(f) = m {
                                 if legacy_const_field_error(f, &res.errors).is_some() {
@@ -762,17 +774,23 @@ fn main() {
                                 match m {
                                     ClassMember::Method(m) if !m.is_static => {
                                         if let Some(stmts) = m.body.statements() {
-                                            for s in stmts { collect_assigned_fields_stmt(s, &mut assigned); }
+                                            for s in stmts {
+                                                collect_assigned_fields_stmt(s, &mut assigned);
+                                            }
                                         }
                                     }
                                     ClassMember::Getter(g) if !g.is_static => {
                                         if let Some(stmts) = g.body.statements() {
-                                            for s in stmts { collect_assigned_fields_stmt(s, &mut assigned); }
+                                            for s in stmts {
+                                                collect_assigned_fields_stmt(s, &mut assigned);
+                                            }
                                         }
                                     }
                                     ClassMember::Setter(s) if !s.is_static => {
                                         if let Some(stmts) = s.body.statements() {
-                                            for s in stmts { collect_assigned_fields_stmt(s, &mut assigned); }
+                                            for s in stmts {
+                                                collect_assigned_fields_stmt(s, &mut assigned);
+                                            }
                                         }
                                     }
                                     _ => {}
@@ -788,14 +806,13 @@ fn main() {
         }
     }
 
-    println!("Repository Census: let={}, let_mut={}, const={}, const_fields={}, implicit_classes={}",
-        repo_total_let, repo_total_let_mut, repo_total_const, repo_total_const_fields, repo_total_implicit_classes);
+    println!(
+        "Repository Census: let={}, let_mut={}, const={}, const_fields={}, implicit_classes={}",
+        repo_total_let, repo_total_let_mut, repo_total_const, repo_total_const_fields, repo_total_implicit_classes
+    );
 
-    let is_repo_migrated = files.len() > 1
-        && repo_total_const == 0
-        && repo_total_const_fields == 0
-        && repo_total_implicit_classes == 0
-        && repo_total_let_mut > 0;
+    let is_repo_migrated =
+        files.len() > 1 && repo_total_const == 0 && repo_total_const_fields == 0 && repo_total_implicit_classes == 0 && repo_total_let_mut > 0;
 
     if is_repo_migrated {
         println!("Repository is ALREADY MIGRATED to C4 target syntax.");
@@ -908,7 +925,10 @@ mod tests {
         let src = "class Counter {\n  @constructor\n  new() { _count = 0 }\n  inc() { _count = _count + 1 }\n}\n";
         let edits = plan_file_edits(src).unwrap();
         let out = apply_edits(src, edits);
-        assert_eq!(out, "class Counter {\n  mut _count\n  @constructor\n  new() { _count = 0 }\n  inc() { _count = _count + 1 }\n}\n");
+        assert_eq!(
+            out,
+            "class Counter {\n  mut _count\n  @constructor\n  new() { _count = 0 }\n  inc() { _count = _count + 1 }\n}\n"
+        );
     }
 
     #[test]
@@ -924,7 +944,9 @@ class Example {
 "#;
         let edits = plan_file_edits(src).unwrap();
         let out = apply_edits(src, edits);
-        assert_eq!(out, r#"// let x = 1, const y = 2
+        assert_eq!(
+            out,
+            r#"// let x = 1, const y = 2
 let mut s = "let a = const b"
 let mut mut = 10
 class Example {
@@ -932,6 +954,7 @@ class Example {
   mut _total = 0
   bump() { _total = _total + 1 }
 }
-"#);
+"#
+        );
     }
 }

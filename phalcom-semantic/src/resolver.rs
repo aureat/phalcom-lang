@@ -135,7 +135,10 @@ impl LinkedTypeResolver {
     /// stable declaration and signature are already final at this stage.
     pub fn update_static_definitions(&self, definitions: &crate::static_definition::StaticDefinitionTable) {
         if let Ok(mut current) = self.static_definitions.write() {
-            *current = definitions.iter().map(|(declaration, product)| (declaration.clone(), product.clone())).collect();
+            *current = definitions
+                .iter()
+                .map(|(declaration, product)| (declaration.clone(), product.clone()))
+                .collect();
         }
     }
 }

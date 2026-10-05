@@ -111,7 +111,10 @@ class Child is ParentDefaults {
         DispatchSide::Instance,
     );
 
-    assert_eq!(child.constructor_super_initializer.as_ref().map(|call| &call.initializer), Some(&parent_initializer));
+    assert_eq!(
+        child.constructor_super_initializer.as_ref().map(|call| &call.initializer),
+        Some(&parent_initializer)
+    );
     f.assert_no_error_diagnostics();
 }
 

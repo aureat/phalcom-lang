@@ -146,9 +146,13 @@ pub fn find_constant_declaration<'a>(
 ) -> Option<&'a LetBinding> {
     for statement in &program.statements {
         let Statement::Let(binding) = statement else { continue };
-        if binding.kind != BindingKind::Const { continue; }
+        if binding.kind != BindingKind::Const {
+            continue;
+        }
         let Pattern::Name { name, .. } = &binding.pattern else { continue };
-        if name.as_str() != symbol.name.as_ref() { continue; }
+        if name.as_str() != symbol.name.as_ref() {
+            continue;
+        }
         if binding.range == declaration_range {
             return Some(binding);
         }

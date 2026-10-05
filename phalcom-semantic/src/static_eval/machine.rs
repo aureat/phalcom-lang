@@ -9,7 +9,10 @@ use crate::static_intrinsic::{StaticIntrinsicOperation, StaticOperationResolutio
 use crate::static_value::{StaticValueData, StaticValueRef, StaticValueStore};
 use crate::types::id::TypeId;
 use num_bigint::BigInt;
-use phalcom_ast::ast::{BinaryOp, Expr, GenericArgumentSyntax, IfElseBody, LexicalBlock, Pattern, ProductLabel, RecordLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, TypeAnnotationExpr};
+use phalcom_ast::ast::{
+    BinaryOp, Expr, GenericArgumentSyntax, IfElseBody, LexicalBlock, Pattern, ProductLabel, RecordLiteralEntry, Statement, SymbolLiteralKind,
+    TupleLiteralEntry, TypeAnnotationExpr,
+};
 use phalcom_common::range::SourceRange;
 use std::collections::BTreeMap;
 
@@ -381,150 +384,170 @@ impl<'a> StaticEvaluator<'a> {
                     self.push_trace(StaticEvalTraceFrame::Expression(expression.range()))?;
                     work.push(Work::PopTrace);
                     match expression {
-                    Expr::Int { digits, radix, .. } => {
-                        self.charge_variable_work(digits.len())?;
-                        let integer = BigInt::parse_bytes(digits.as_bytes(), *radix).ok_or_else(|| Stop::invalid(StaticEvalError::InvalidIntegerLiteral))?;
-                        stack.push(self.values.intern_int(integer));
-                    }
-                    Expr::Float { value, .. } => {
-                        stack.push(self.values.intern_float(crate::static_value::StaticFloat::from_f64(*value)));
-                    }
-                    Expr::String { value, .. } => stack.push(self.values.intern_string(value)),
-                    Expr::Boolean { value, .. } => stack.push(self.values.intern_bool(*value)),
-                    Expr::Symbol(symbol) => {
-                        let spelling = canonical_symbol_spelling(&symbol.kind).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                        self.charge_variable_work(spelling.len())?;
-                        stack.push(self.values.intern_symbol(spelling));
-                    }
-                    Expr::Var { .. } => {
-                        let id = self.expression_id(expression.range())?;
-                        stack.push(self.read_binding_value(id)?);
-                    }
-                    Expr::TypeForm(annotation) => {
-                        let application = self
-                            .body
-                            .static_applications()
-                            .iter()
-                            .find(|application| {
-                                self.body
-                                    .expressions()
-                                    .get(&application.expression)
-                                    .is_some_and(|analysis| analysis.range == expression.range())
-                            })
-                            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                        let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
-                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-                        };
-                        work.push(Work::StartStaticApplication(application, arguments));
-                    }
-                    Expr::Binary(binary) if matches!(&binary.op, BinaryOp::And | BinaryOp::Or) => {
-                        work.push(Work::AfterLogicalLeft(binary));
-                        work.push(Work::Evaluate(&binary.left));
-                    }
-                    Expr::Binary(binary) => {
-                        let id = self.expression_id(binary.range)?;
-                        work.push(Work::ApplyBinary(id));
-                        work.push(Work::Evaluate(&binary.right));
-                        work.push(Work::Evaluate(&binary.left));
-                    }
-                    Expr::If(if_expression) => {
-                        work.push(Work::AfterIf(if_expression));
-                        work.push(Work::Evaluate(&if_expression.condition));
-                    }
-                    Expr::Assignment(assignment) => {
-                        let id = self.expression_id(assignment.range)?;
-                        let binding = self
-                            .body
-                            .expressions()
-                            .get(&id)
-                            .and_then(|entry| entry.binding_write)
-                            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                        if !self.body.local_slots().contains_key(&binding) || !self.body.bindings().get(&binding).is_some_and(|state| state.mutable) {
-                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                        Expr::Int { digits, radix, .. } => {
+                            self.charge_variable_work(digits.len())?;
+                            let integer =
+                                BigInt::parse_bytes(digits.as_bytes(), *radix).ok_or_else(|| Stop::invalid(StaticEvalError::InvalidIntegerLiteral))?;
+                            stack.push(self.values.intern_int(integer));
                         }
-                        work.push(Work::StoreAssignment(binding));
-                        work.push(Work::Evaluate(&assignment.value));
-                    }
-                    Expr::TupleLiteral(tuple) => {
-                        let mut elements = Vec::with_capacity(tuple.entries.len());
-                        for entry in &tuple.entries {
-                            match entry {
-                                TupleLiteralEntry::Positional { expr, .. } => elements.push(expr),
-                                TupleLiteralEntry::Labeled { .. } | TupleLiteralEntry::Expand { .. } => {
-                                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                        Expr::Float { value, .. } => {
+                            stack.push(self.values.intern_float(crate::static_value::StaticFloat::from_f64(*value)));
+                        }
+                        Expr::String { value, .. } => stack.push(self.values.intern_string(value)),
+                        Expr::Boolean { value, .. } => stack.push(self.values.intern_bool(*value)),
+                        Expr::Symbol(symbol) => {
+                            let spelling = canonical_symbol_spelling(&symbol.kind).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            self.charge_variable_work(spelling.len())?;
+                            stack.push(self.values.intern_symbol(spelling));
+                        }
+                        Expr::Var { .. } => {
+                            let id = self.expression_id(expression.range())?;
+                            stack.push(self.read_binding_value(id)?);
+                        }
+                        Expr::TypeForm(annotation) => {
+                            let application = self
+                                .body
+                                .static_applications()
+                                .iter()
+                                .find(|application| {
+                                    self.body
+                                        .expressions()
+                                        .get(&application.expression)
+                                        .is_some_and(|analysis| analysis.range == expression.range())
+                                })
+                                .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            };
+                            work.push(Work::StartStaticApplication(application, arguments));
+                        }
+                        Expr::Binary(binary) if matches!(&binary.op, BinaryOp::And | BinaryOp::Or) => {
+                            work.push(Work::AfterLogicalLeft(binary));
+                            work.push(Work::Evaluate(&binary.left));
+                        }
+                        Expr::Binary(binary) => {
+                            let id = self.expression_id(binary.range)?;
+                            work.push(Work::ApplyBinary(id));
+                            work.push(Work::Evaluate(&binary.right));
+                            work.push(Work::Evaluate(&binary.left));
+                        }
+                        Expr::If(if_expression) => {
+                            work.push(Work::AfterIf(if_expression));
+                            work.push(Work::Evaluate(&if_expression.condition));
+                        }
+                        Expr::Assignment(assignment) => {
+                            let id = self.expression_id(assignment.range)?;
+                            let binding = self
+                                .body
+                                .expressions()
+                                .get(&id)
+                                .and_then(|entry| entry.binding_write)
+                                .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            if !self.body.local_slots().contains_key(&binding) || !self.body.bindings().get(&binding).is_some_and(|state| state.mutable) {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            work.push(Work::StoreAssignment(binding));
+                            work.push(Work::Evaluate(&assignment.value));
+                        }
+                        Expr::TupleLiteral(tuple) => {
+                            let mut elements = Vec::with_capacity(tuple.entries.len());
+                            for entry in &tuple.entries {
+                                match entry {
+                                    TupleLiteralEntry::Positional { expr, .. } => elements.push(expr),
+                                    TupleLiteralEntry::Labeled { .. } | TupleLiteralEntry::Expand { .. } => {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    }
                                 }
                             }
+                            self.charge_variable_work(elements.len())?;
+                            work.push(Work::FinishTuple(elements.len()));
+                            for element in elements.into_iter().rev() {
+                                work.push(Work::Evaluate(element));
+                            }
                         }
-                        self.charge_variable_work(elements.len())?;
-                        work.push(Work::FinishTuple(elements.len()));
-                        for element in elements.into_iter().rev() {
-                            work.push(Work::Evaluate(element));
-                        }
-                    }
-                    Expr::RecordLiteral(record) => {
-                        let mut fields = Vec::with_capacity(record.entries.len());
-                        let mut values = Vec::with_capacity(record.entries.len());
-                        for entry in &record.entries {
-                            let RecordLiteralEntry::Field(field) = entry else {
-                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-                            };
-                            let ProductLabel::Static {
-                                symbol: SymbolLiteralKind::Name(name),
-                                ..
-                            } = &field.label
-                            else {
-                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-                            };
-                            fields.push(name.as_str().into());
-                            values.push(&field.value);
-                        }
-                        self.charge_variable_work(values.len())?;
-                        work.push(Work::FinishRecord(fields));
-                        for value in values.into_iter().rev() {
-                            work.push(Work::Evaluate(value));
-                        }
-                    }
-                    Expr::RecordConstruction(record) => {
-                        let id = self.expression_id(expression.range())?;
-                        let construction = self.body.static_constructions().get(&id)
-                            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                        if construction.arguments.len() != record.entries.len() {
-                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-                        }
-                        work.push(Work::FinishStaticConstruction(id, record.entries.len()));
-                        for argument in construction.arguments.iter().rev() {
-                            let entry = record.entries.iter().find(|entry| {
-                                self.body.expressions().get(&argument.expression).is_some_and(|analysis| analysis.range == entry.value.range())
-                            }).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                            work.push(Work::Evaluate(&entry.value));
-                        }
-                    }
-                    Expr::AssociatedInvoke(invoke) => {
-                        let id = self.expression_id(expression.range())?;
-                        let construction = self.body.static_constructions().get(&id)
-                            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                        if construction.arguments.len() != invoke.args.len() {
-                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-                        }
-                        work.push(Work::FinishStaticConstruction(id, invoke.args.len()));
-                        for argument in construction.arguments.iter().rev() {
-                            let item = invoke.args.iter().find(|item| {
-                                let source = match item {
-                                    phalcom_ast::ast::PackItem::Positional { expr, .. }
-                                    | phalcom_ast::ast::PackItem::Labeled { value: expr, .. }
-                                    | phalcom_ast::ast::PackItem::Expand { expr, .. } => expr,
+                        Expr::RecordLiteral(record) => {
+                            let mut fields = Vec::with_capacity(record.entries.len());
+                            let mut values = Vec::with_capacity(record.entries.len());
+                            for entry in &record.entries {
+                                let RecordLiteralEntry::Field(field) = entry else {
+                                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                                 };
-                                self.body.expressions().get(&argument.expression).is_some_and(|analysis| analysis.range == source.range())
-                            }).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                            let source = match item {
-                                phalcom_ast::ast::PackItem::Positional { expr, .. }
-                                | phalcom_ast::ast::PackItem::Labeled { value: expr, .. } => expr,
-                                phalcom_ast::ast::PackItem::Expand { .. } => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
-                            };
-                            work.push(Work::Evaluate(source));
+                                let ProductLabel::Static {
+                                    symbol: SymbolLiteralKind::Name(name),
+                                    ..
+                                } = &field.label
+                                else {
+                                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                };
+                                fields.push(name.as_str().into());
+                                values.push(&field.value);
+                            }
+                            self.charge_variable_work(values.len())?;
+                            work.push(Work::FinishRecord(fields));
+                            for value in values.into_iter().rev() {
+                                work.push(Work::Evaluate(value));
+                            }
                         }
-                    }
-                    _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                        Expr::RecordConstruction(record) => {
+                            let id = self.expression_id(expression.range())?;
+                            let construction = self
+                                .body
+                                .static_constructions()
+                                .get(&id)
+                                .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            if construction.arguments.len() != record.entries.len() {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            work.push(Work::FinishStaticConstruction(id, record.entries.len()));
+                            for argument in construction.arguments.iter().rev() {
+                                let entry = record
+                                    .entries
+                                    .iter()
+                                    .find(|entry| {
+                                        self.body
+                                            .expressions()
+                                            .get(&argument.expression)
+                                            .is_some_and(|analysis| analysis.range == entry.value.range())
+                                    })
+                                    .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                work.push(Work::Evaluate(&entry.value));
+                            }
+                        }
+                        Expr::AssociatedInvoke(invoke) => {
+                            let id = self.expression_id(expression.range())?;
+                            let construction = self
+                                .body
+                                .static_constructions()
+                                .get(&id)
+                                .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            if construction.arguments.len() != invoke.args.len() {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            work.push(Work::FinishStaticConstruction(id, invoke.args.len()));
+                            for argument in construction.arguments.iter().rev() {
+                                let item = invoke
+                                    .args
+                                    .iter()
+                                    .find(|item| {
+                                        let source = match item {
+                                            phalcom_ast::ast::PackItem::Positional { expr, .. }
+                                            | phalcom_ast::ast::PackItem::Labeled { value: expr, .. }
+                                            | phalcom_ast::ast::PackItem::Expand { expr, .. } => expr,
+                                        };
+                                        self.body
+                                            .expressions()
+                                            .get(&argument.expression)
+                                            .is_some_and(|analysis| analysis.range == source.range())
+                                    })
+                                    .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                let source = match item {
+                                    phalcom_ast::ast::PackItem::Positional { expr, .. } | phalcom_ast::ast::PackItem::Labeled { value: expr, .. } => expr,
+                                    phalcom_ast::ast::PackItem::Expand { .. } => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                                };
+                                work.push(Work::Evaluate(source));
+                            }
+                        }
+                        _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                     }
                 }
                 Work::EvaluateTypeForm(annotation) => {
@@ -615,37 +638,51 @@ impl<'a> StaticEvaluator<'a> {
                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                     };
                     let values = stack.split_off(start);
-                    let construction = self.body.static_constructions().get(&id)
+                    let construction = self
+                        .body
+                        .static_constructions()
+                        .get(&id)
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     if construction.arguments.len() != values.len() {
                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                     }
-                    let (types, data, enums) = self.semantic_tables
-                        .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let (types, data, enums) = self.semantic_tables.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     let value = match &construction.target {
                         crate::identity::InvocationTargetId::DataConstructor(constructor) => {
-                            let info = data.get(&constructor.owner)
+                            let info = data
+                                .get(&constructor.owner)
                                 .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                            let components = construction.arguments.iter().zip(values).map(|(argument, value)| {
-                                let crate::static_definition::CheckedStaticPayloadId::DataComponent(component) = &argument.payload else {
-                                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-                                };
-                                Ok((component.clone(), value))
-                            }).collect::<Result<Vec<_>, Stop>>()?;
+                            let components = construction
+                                .arguments
+                                .iter()
+                                .zip(values)
+                                .map(|(argument, value)| {
+                                    let crate::static_definition::CheckedStaticPayloadId::DataComponent(component) = &argument.payload else {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    };
+                                    Ok((component.clone(), value))
+                                })
+                                .collect::<Result<Vec<_>, Stop>>()?;
                             if info.constructor.constructor != *constructor {
                                 return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                             }
                             self.values.intern_data(info, construction.result_type, components, types).map_err(Stop::from)?
                         }
                         crate::identity::InvocationTargetId::VariantConstructor(constructor) => {
-                            let info = enums.variant_info(&constructor.variant)
+                            let info = enums
+                                .variant_info(&constructor.variant)
                                 .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                            let fields = construction.arguments.iter().zip(values).map(|(argument, value)| {
-                                let crate::static_definition::CheckedStaticPayloadId::VariantField(field) = &argument.payload else {
-                                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-                                };
-                                Ok((field.clone(), value))
-                            }).collect::<Result<Vec<_>, Stop>>()?;
+                            let fields = construction
+                                .arguments
+                                .iter()
+                                .zip(values)
+                                .map(|(argument, value)| {
+                                    let crate::static_definition::CheckedStaticPayloadId::VariantField(field) = &argument.payload else {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    };
+                                    Ok((field.clone(), value))
+                                })
+                                .collect::<Result<Vec<_>, Stop>>()?;
                             self.values.intern_variant(info, construction.result_type, fields, types).map_err(Stop::from)?
                         }
                         _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
@@ -719,9 +756,12 @@ impl<'a> StaticEvaluator<'a> {
                     for (checked, syntax) in application.arguments.iter().zip(syntax_arguments).rev() {
                         match checked {
                             crate::static_definition::CheckedStaticApplicationArgument::Kinded { parameter_index, term } => {
-                                let arguments = self.pending_application_arguments.get_mut(&application.id)
+                                let arguments = self
+                                    .pending_application_arguments
+                                    .get_mut(&application.id)
                                     .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                                let slot = arguments.get_mut(*parameter_index as usize)
+                                let slot = arguments
+                                    .get_mut(*parameter_index as usize)
                                     .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                                 *slot = Some(StaticArgument::Kinded(*term));
                             }
@@ -739,7 +779,10 @@ impl<'a> StaticEvaluator<'a> {
                                 }
                             }
                             crate::static_definition::CheckedStaticApplicationArgument::KindedExpression { parameter_index, expression } => {
-                                let nested = self.body.static_applications().iter()
+                                let nested = self
+                                    .body
+                                    .static_applications()
+                                    .iter()
                                     .find(|candidate| candidate.expression == *expression)
                                     .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                                 let annotation = match syntax {
@@ -762,18 +805,26 @@ impl<'a> StaticEvaluator<'a> {
                 Work::EvaluateBinding(expression) => stack.push(self.read_binding_value(expression)?),
                 Work::StoreStaticArgument(application, index) => {
                     let value = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                    let arguments = self.pending_application_arguments.get_mut(&application)
+                    let arguments = self
+                        .pending_application_arguments
+                        .get_mut(&application)
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                    let slot = arguments.get_mut(index as usize)
+                    let slot = arguments
+                        .get_mut(index as usize)
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     *slot = Some(StaticArgument::Value(value));
                 }
                 Work::StoreStaticKindedArgument(application, index) => {
-                    let term = self.completed_kinded_result.take()
+                    let term = self
+                        .completed_kinded_result
+                        .take()
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                    let arguments = self.pending_application_arguments.get_mut(&application)
+                    let arguments = self
+                        .pending_application_arguments
+                        .get_mut(&application)
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                    let slot = arguments.get_mut(index as usize)
+                    let slot = arguments
+                        .get_mut(index as usize)
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     *slot = Some(StaticArgument::Kinded(term));
                 }
@@ -782,16 +833,23 @@ impl<'a> StaticEvaluator<'a> {
                         return Err(Stop::Recursive);
                     }
                     let definitions = self.definitions.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                    let product = definitions.get(&application.target)
+                    let product = definitions
+                        .get(&application.target)
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     if product.definition.signature != application.signature {
                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                     }
-                    let target_body = product.checked_body.as_ref()
+                    let target_body = product
+                        .checked_body
+                        .as_ref()
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                    let args = self.pending_application_arguments.remove(&application.id)
+                    let args = self
+                        .pending_application_arguments
+                        .remove(&application.id)
                         .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                    let args = args.into_iter().map(|argument| argument.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression)))
+                    let args = args
+                        .into_iter()
+                        .map(|argument| argument.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression)))
                         .collect::<Result<Vec<_>, _>>()?;
                     self.validate_application_arguments(&product.definition.signature, &args)?;
                     if target_body.result != product.definition.signature.result_domain {
@@ -825,8 +883,7 @@ impl<'a> StaticEvaluator<'a> {
             let Some(expected_kind) = self.body.result_as_kind() else {
                 return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
             };
-            let types = self.canonical_types
-                .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+            let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
             if types.kind_of(term) != expected_kind {
                 return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
             }
@@ -848,24 +905,29 @@ impl<'a> StaticEvaluator<'a> {
     }
 
     fn complete_checked_type_form(&mut self, expression: ExpressionId) -> Result<(), Stop> {
-        let analysis = self.body.expressions().get(&expression)
+        let analysis = self
+            .body
+            .expressions()
+            .get(&expression)
             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
         let form = match analysis.denotation.as_ref() {
-            Some(crate::types::denotation::SemanticDenotation::TypeForm(form)
-                | crate::types::denotation::SemanticDenotation::StaticTerm(form)) => *form,
+            Some(crate::types::denotation::SemanticDenotation::TypeForm(form) | crate::types::denotation::SemanticDenotation::StaticTerm(form)) => *form,
             _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
         };
-        let expected_kind = self.body.result_as_kind()
+        let expected_kind = self
+            .body
+            .result_as_kind()
             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-        let types = self.canonical_types
-            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
 
         // A checked parameter by itself can be forwarded without constructing
         // or interning any replacement type. Composite substitution is outside
         // this immutable-snapshot evaluator contract.
         if let crate::types::store::TypeData::Parameter(parameter) = types.get(form) {
             if let Some(index) = self.body.kinded_parameter_index(*parameter) {
-                let forwarded = *self.kinded_arguments.get(&index)
+                let forwarded = *self
+                    .kinded_arguments
+                    .get(&index)
                     .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                 if types.kind_of(forwarded) != expected_kind {
                     return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
@@ -874,9 +936,7 @@ impl<'a> StaticEvaluator<'a> {
                 return Ok(());
             }
         }
-        if self.body.contains_kinded_parameter(types, form)
-            || types.kind_of(form) != expected_kind
-        {
+        if self.body.contains_kinded_parameter(types, form) || types.kind_of(form) != expected_kind {
             return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
         }
         self.completed_kinded_result = Some(form);
@@ -898,8 +958,7 @@ impl<'a> StaticEvaluator<'a> {
             match (parameter.domain, argument) {
                 (crate::static_domain::StaticValueDomain::ValueType(_), StaticArgument::Value(_)) => {}
                 (crate::static_domain::StaticValueDomain::Kind(expected), StaticArgument::Kinded(term)) => {
-                    let types = self.canonical_types
-                        .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     if types.kind_of(*term) != expected {
                         return Err(Stop::invalid(StaticEvalError::InvalidArgumentKind { index: parameter.index }));
                     }
@@ -943,7 +1002,11 @@ impl<'a> StaticEvaluator<'a> {
             return Err(Stop::invalid(StaticEvalError::UnboundBinding(binding)));
         }
         if let Some(slot) = self.body.local_slots().get(&binding) {
-            return self.locals.get(*slot as usize).copied().flatten()
+            return self
+                .locals
+                .get(*slot as usize)
+                .copied()
+                .flatten()
                 .ok_or_else(|| Stop::invalid(StaticEvalError::UninitializedBinding(binding)));
         }
         Err(Stop::invalid(StaticEvalError::UnboundBinding(binding)))
@@ -965,22 +1028,33 @@ impl<'a> StaticEvaluator<'a> {
     }
 
     fn load_frame(&mut self, body: &'a CheckedStaticBody, arguments: &[StaticArgument]) -> Result<(), Stop> {
-        let parameter_count = body.parameter_bindings.keys().chain(body.kinded_parameters.keys())
-            .max().map_or(0, |index| *index as usize + 1);
+        let parameter_count = body
+            .parameter_bindings
+            .keys()
+            .chain(body.kinded_parameters.keys())
+            .max()
+            .map_or(0, |index| *index as usize + 1);
         if arguments.len() != parameter_count {
-            return Err(Stop::invalid(StaticEvalError::InvalidArgumentCount { expected: parameter_count, actual: arguments.len() }));
+            return Err(Stop::invalid(StaticEvalError::InvalidArgumentCount {
+                expected: parameter_count,
+                actual: arguments.len(),
+            }));
         }
         let mut parameter_values = BTreeMap::new();
         let mut kinded_arguments = BTreeMap::new();
         for (index, binding) in body.parameter_bindings.iter() {
             match arguments.get(*index as usize) {
-                Some(StaticArgument::Value(value)) => { parameter_values.insert(*binding, *value); }
+                Some(StaticArgument::Value(value)) => {
+                    parameter_values.insert(*binding, *value);
+                }
                 _ => return Err(Stop::invalid(StaticEvalError::InvalidArgumentKind { index: *index })),
             }
         }
         for index in body.kinded_parameters.keys() {
             match arguments.get(*index as usize) {
-                Some(StaticArgument::Kinded(ty)) => { kinded_arguments.insert(*index, *ty); }
+                Some(StaticArgument::Kinded(ty)) => {
+                    kinded_arguments.insert(*index, *ty);
+                }
                 _ => return Err(Stop::invalid(StaticEvalError::InvalidArgumentKind { index: *index })),
             }
         }

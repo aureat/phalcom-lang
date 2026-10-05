@@ -27,10 +27,7 @@ impl PhalcomCompleter {
     fn hint(&mut self, line: &str, pos: usize) -> Option<String> {
         let (kind, start, prefix) = classify_position(line, pos);
 
-        if matches!(kind, Cx::Identifier)
-            && is_let_mut_completion_context(&line[..start])
-            && "mut".starts_with(prefix)
-        {
+        if matches!(kind, Cx::Identifier) && is_let_mut_completion_context(&line[..start]) && "mut".starts_with(prefix) {
             return Some("mut"[prefix.len()..].to_string());
         }
 
@@ -97,7 +94,9 @@ impl PhalcomCompleter {
 
 fn is_let_mut_completion_context(before_prefix: &str) -> bool {
     let before = before_prefix.trim_end();
-    before.strip_suffix("let").is_some_and(|prefix| prefix.is_empty() || prefix.chars().last().is_some_and(char::is_whitespace))
+    before
+        .strip_suffix("let")
+        .is_some_and(|prefix| prefix.is_empty() || prefix.chars().last().is_some_and(char::is_whitespace))
 }
 
 impl Completer for PhalcomCompleter {
@@ -109,10 +108,7 @@ impl Completer for PhalcomCompleter {
             Cx::MemberAccess { receiver } => self.collect_members_for_receiver(receiver, prefix),
             Cx::Identifier => self.collect_identifiers(prefix),
         };
-        if matches!(kind, Cx::Identifier)
-            && is_let_mut_completion_context(&line[..start])
-            && "mut".starts_with(prefix)
-        {
+        if matches!(kind, Cx::Identifier) && is_let_mut_completion_context(&line[..start]) && "mut".starts_with(prefix) {
             items.push("mut".to_string());
             items.sort();
             items.dedup();

@@ -1548,11 +1548,7 @@ impl<'source> Parser<'source> {
         let name_range = (name_start..self.prev_end).into();
 
         let parameters = self.parse_optional_static_parameters()?;
-        let result_domain = if self.eat(&Token::Colon) {
-            Some(self.parse_static_domain()?)
-        } else {
-            None
-        };
+        let result_domain = if self.eat(&Token::Colon) { Some(self.parse_static_domain()?) } else { None };
 
         self.skip_newlines_if_followed_by(&Token::Where);
         let where_clause = if matches!(self.peek(), Token::Where) {
@@ -3469,8 +3465,10 @@ impl<'source> Parser<'source> {
         self.advance(); // 'let' or 'var'
         let kind = if kind == BindingKind::Let
             && self.at_contextual_word("mut")
-            && !matches!(self.peek_at(1), Token::Equal | Token::Colon | Token::Newline | Token::Semicolon | Token::Eof | Token::RBrace)
-        {
+            && !matches!(
+                self.peek_at(1),
+                Token::Equal | Token::Colon | Token::Newline | Token::Semicolon | Token::Eof | Token::RBrace
+            ) {
             self.advance();
             BindingKind::LetMut
         } else {
@@ -5861,7 +5859,9 @@ impl<'source> Parser<'source> {
             self.advance();
             let range = start..self.prev_end;
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message("`let` is not field syntax; use `_field` for an immutable field or `mut _field` for a mutable field".to_string()),
+                kind: SyntaxErrorKind::Message(
+                    "`let` is not field syntax; use `_field` for an immutable field or `mut _field` for a mutable field".to_string(),
+                ),
                 range,
             });
         }

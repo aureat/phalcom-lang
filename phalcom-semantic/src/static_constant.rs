@@ -27,10 +27,7 @@ pub struct StaticConstantId(pub SymbolId);
 
 impl StaticConstantId {
     pub fn new(module: ModuleId, name: impl Into<Box<str>>) -> Self {
-        Self(SymbolId {
-            module,
-            name: name.into(),
-        })
+        Self(SymbolId { module, name: name.into() })
     }
 
     pub fn symbol(&self) -> &SymbolId {
@@ -126,10 +123,7 @@ impl StaticConstantTable {
 
     pub fn insert(&mut self, product: Arc<StaticConstantProduct>) {
         let id = product.id.clone();
-        self.module_constants
-            .entry(id.0.module.clone())
-            .or_default()
-            .insert(id.clone());
+        self.module_constants.entry(id.0.module.clone()).or_default().insert(id.clone());
         self.by_symbol.insert(id.0.clone(), id.clone());
         self.constants.insert(id, product);
     }

@@ -539,14 +539,8 @@ class Foo {}
             interface.declarations["mutable_val"].semantics,
             ModuleBindingSemantics::Runtime { mutable: true }
         );
-        assert_eq!(
-            interface.declarations["static_const"].semantics,
-            ModuleBindingSemantics::StaticConstant
-        );
-        assert_eq!(
-            interface.declarations["Foo"].semantics,
-            ModuleBindingSemantics::Declaration
-        );
+        assert_eq!(interface.declarations["static_const"].semantics, ModuleBindingSemantics::StaticConstant);
+        assert_eq!(interface.declarations["Foo"].semantics, ModuleBindingSemantics::Declaration);
     }
 
     #[test]

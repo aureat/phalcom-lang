@@ -129,7 +129,8 @@ async fn declaration_modifiers_are_keyword_tokens() {
 
 #[tokio::test]
 async fn contextual_mut_tokens_preserve_identifier_named_mut() {
-    let src = "let mut value = 1\nlet mut = 2\nclass Widget { mut _field }\ntrait Mutable { mut property: Number }\nclass Delegated { mut property via _field }\n";
+    let src =
+        "let mut value = 1\nlet mut = 2\nclass Widget { mut _field }\ntrait Mutable { mut property: Number }\nclass Delegated { mut property via _field }\n";
     let uri = "file:///test_contextual_mut.ph";
 
     let mut lsp = TestLsp::start().await;

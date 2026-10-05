@@ -202,9 +202,7 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     )));
     let mut wrong_result_application = (**applied).clone();
     let mut wrong_result_products = wrong_result_application.static_applications.to_vec();
-    wrong_result_products[0].signature.result_domain = phalcom_semantic::static_domain::StaticValueDomain::Kind(
-        phalcom_semantic::types::id::KindId::TYPE,
-    );
+    wrong_result_products[0].signature.result_domain = phalcom_semantic::static_domain::StaticValueDomain::Kind(phalcom_semantic::types::id::KindId::TYPE);
     wrong_result_application.static_applications = wrong_result_products.into();
     let wrong_result = StaticEvaluator::new(
         &wrong_result_application,
@@ -212,7 +210,9 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         &mut QueryBudget::default(),
         &CancellationToken::new(),
         &[],
-    ).with_static_definitions(fixture.analysis.snapshot.static_definitions()).evaluate();
+    )
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .evaluate();
     assert_eq!(wrong_result, StaticEvalOutcome::Invalid(StaticEvalError::UnsupportedExpression));
     let applied_value = fixture
         .analysis
@@ -220,7 +220,11 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         .static_definition(&fixture.decl("main", "AppliedValue"))
         .and_then(|definition| definition.checked_body.as_ref())
         .expect("checked value-parameter application body");
-    assert!(applied_value.diagnostics.is_empty(), "unexpected value-application diagnostics: {:?}", applied_value.diagnostics);
+    assert!(
+        applied_value.diagnostics.is_empty(),
+        "unexpected value-application diagnostics: {:?}",
+        applied_value.diagnostics
+    );
     assert_eq!(applied_value.static_applications.len(), 1);
     let value_application = &applied_value.static_applications[0];
     assert_eq!(value_application.target, fixture.decl("main", "Identity"));
@@ -235,19 +239,16 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
             if *target == fixture.decl("main", "Identity")
     )));
     let mut application_values = StaticValueStore::new();
-    let applied_value_result = StaticEvaluator::new(
-        applied,
-        &mut application_values,
-        &mut QueryBudget::default(),
-        &CancellationToken::new(),
-        &[],
-    )
-    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
-    .evaluate();
+    let applied_value_result = StaticEvaluator::new(applied, &mut application_values, &mut QueryBudget::default(), &CancellationToken::new(), &[])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .evaluate();
     let StaticEvalOutcome::Reduced(applied_value_result) = applied_value_result else {
         panic!("zero-argument static application should reduce: {applied_value_result:?}");
     };
-    assert_eq!(application_values.get(applied_value_result).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(3)));
+    assert_eq!(
+        application_values.get(applied_value_result).unwrap(),
+        &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(3))
+    );
 
     let mut parameter_values = StaticValueStore::new();
     let applied_parameter_result = StaticEvaluator::new(
@@ -262,7 +263,10 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     let StaticEvalOutcome::Reduced(applied_parameter_result) = applied_parameter_result else {
         panic!("value-parameter static application should reduce: {applied_parameter_result:?}");
     };
-    assert_eq!(parameter_values.get(applied_parameter_result).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(7)));
+    assert_eq!(
+        parameter_values.get(applied_parameter_result).unwrap(),
+        &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(7))
+    );
 
     let applied_mixed = fixture
         .analysis
@@ -271,27 +275,31 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         .and_then(|definition| definition.checked_body.as_ref())
         .expect("checked mixed-parameter application body");
     let mut mixed_values = StaticValueStore::new();
-    let mixed_result = StaticEvaluator::new(
-        applied_mixed,
-        &mut mixed_values,
-        &mut QueryBudget::default(),
-        &CancellationToken::new(),
-        &[],
-    )
-    .with_type_store(fixture.analysis.snapshot.store())
-    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
-    .evaluate();
+    let mixed_result = StaticEvaluator::new(applied_mixed, &mut mixed_values, &mut QueryBudget::default(), &CancellationToken::new(), &[])
+        .with_type_store(fixture.analysis.snapshot.store())
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .evaluate();
     let StaticEvalOutcome::Reduced(mixed_result) = mixed_result else {
         panic!("mixed kinded/value static application should reduce: {mixed_result:?}");
     };
-    assert_eq!(mixed_values.get(mixed_result).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(9)));
+    assert_eq!(
+        mixed_values.get(mixed_result).unwrap(),
+        &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(9))
+    );
 
-    let int_form = fixture.analysis.snapshot.declarations
+    let int_form = fixture
+        .analysis
+        .snapshot
+        .declarations
         .form(&phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int))
         .expect("canonical Int TypeId");
     let mut kind_values = StaticValueStore::new();
-    let fixed_body = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "FixedKind"))
-        .and_then(|product| product.checked_body.as_ref()).expect("checked independent kinded result");
+    let fixed_body = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "FixedKind"))
+        .and_then(|product| product.checked_body.as_ref())
+        .expect("checked independent kinded result");
     let fixed_zero = kind_values.intern_int(0);
     let fixed_result = StaticEvaluator::new(
         fixed_body,
@@ -299,11 +307,17 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         &mut QueryBudget::default(),
         &CancellationToken::new(),
         &[phalcom_semantic::static_eval::StaticArgument::Value(fixed_zero)],
-    ).with_type_store(fixture.analysis.snapshot.store()).evaluate();
+    )
+    .with_type_store(fixture.analysis.snapshot.store())
+    .evaluate();
     assert_eq!(fixed_result, StaticEvalOutcome::ReducedKinded(int_form));
 
-    let forward_body = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "ForwardKind"))
-        .and_then(|product| product.checked_body.as_ref()).expect("checked kinded parameter forwarding");
+    let forward_body = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "ForwardKind"))
+        .and_then(|product| product.checked_body.as_ref())
+        .expect("checked kinded parameter forwarding");
     let zero = kind_values.intern_int(0);
     let forwarded = StaticEvaluator::new(
         forward_body,
@@ -314,33 +328,56 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
             phalcom_semantic::static_eval::StaticArgument::Kinded(int_form),
             phalcom_semantic::static_eval::StaticArgument::Value(zero),
         ],
-    ).with_type_store(fixture.analysis.snapshot.store()).evaluate();
-    assert_eq!(forwarded, StaticEvalOutcome::ReducedKinded(int_form), "forwarding preserves canonical TypeId identity");
+    )
+    .with_type_store(fixture.analysis.snapshot.store())
+    .evaluate();
+    assert_eq!(
+        forwarded,
+        StaticEvalOutcome::ReducedKinded(int_form),
+        "forwarding preserves canonical TypeId identity"
+    );
 
     let evaluate_kinded_application = |name: &str, values: &mut StaticValueStore| {
-        let checked = fixture.analysis.snapshot.static_definition(&fixture.decl("main", name))
-            .and_then(|product| product.checked_body.as_ref()).expect("checked kinded application body");
+        let checked = fixture
+            .analysis
+            .snapshot
+            .static_definition(&fixture.decl("main", name))
+            .and_then(|product| product.checked_body.as_ref())
+            .expect("checked kinded application body");
         StaticEvaluator::new(checked, values, &mut QueryBudget::default(), &CancellationToken::new(), &[])
             .with_type_store(fixture.analysis.snapshot.store())
             .with_static_definitions(fixture.analysis.snapshot.static_definitions())
             .evaluate()
     };
-    let applied_fixed = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "AppliedFixedKind"))
-        .and_then(|product| product.checked_body.as_ref()).expect("checked nested kinded application");
-    let consumer_application = applied_fixed.static_applications.iter()
+    let applied_fixed = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "AppliedFixedKind"))
+        .and_then(|product| product.checked_body.as_ref())
+        .expect("checked nested kinded application");
+    let consumer_application = applied_fixed
+        .static_applications
+        .iter()
         .find(|application| application.target == fixture.decl("main", "KindConsumer"))
         .expect("checked outer kind consumer application");
-    assert!(matches!(
-        consumer_application.arguments.as_ref(),
-        [phalcom_semantic::static_definition::CheckedStaticApplicationArgument::KindedExpression { parameter_index: 0, .. }]
-    ), "expected checked nested static application argument, got {:?}", consumer_application.arguments);
+    assert!(
+        matches!(
+            consumer_application.arguments.as_ref(),
+            [phalcom_semantic::static_definition::CheckedStaticApplicationArgument::KindedExpression { parameter_index: 0, .. }]
+        ),
+        "expected checked nested static application argument, got {:?}",
+        consumer_application.arguments
+    );
     for name in ["AppliedFixedKind", "AppliedForwardKind"] {
         let mut values = StaticValueStore::new();
         let outcome = evaluate_kinded_application(name, &mut values);
         let StaticEvalOutcome::Reduced(result) = outcome else {
             panic!("nested kinded application {name} should reduce, got {outcome:?}");
         };
-        assert_eq!(values.get(result).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(11)));
+        assert_eq!(
+            values.get(result).unwrap(),
+            &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(11))
+        );
     }
     let mut composite_values = StaticValueStore::new();
     assert_eq!(
@@ -356,19 +393,16 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         .and_then(|definition| definition.checked_body.as_ref())
         .expect("checked outer application body");
     let mut nested_values = StaticValueStore::new();
-    let nested_result = StaticEvaluator::new(
-        outer,
-        &mut nested_values,
-        &mut QueryBudget::default(),
-        &CancellationToken::new(),
-        &[],
-    )
-    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
-    .evaluate();
+    let nested_result = StaticEvaluator::new(outer, &mut nested_values, &mut QueryBudget::default(), &CancellationToken::new(), &[])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .evaluate();
     let StaticEvalOutcome::Reduced(nested_result) = nested_result else {
         panic!("nested non-recursive static application should reduce: {nested_result:?}");
     };
-    assert_eq!(nested_values.get(nested_result).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(3)));
+    assert_eq!(
+        nested_values.get(nested_result).unwrap(),
+        &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(3))
+    );
 
     let static_point = fixture
         .analysis
@@ -378,26 +412,23 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         .expect("checked data construction body");
     assert_eq!(static_point.static_constructions.len(), 1);
     let point_construction = static_point.static_constructions.values().next().unwrap();
-    assert!(matches!(point_construction.target, phalcom_semantic::identity::InvocationTargetId::DataConstructor(_)));
+    assert!(matches!(
+        point_construction.target,
+        phalcom_semantic::identity::InvocationTargetId::DataConstructor(_)
+    ));
     assert!(point_construction.arguments.iter().any(|argument| matches!(
         &argument.payload,
         phalcom_semantic::static_definition::CheckedStaticPayloadId::DataComponent(component) if component.index == 0
     )));
     let mut point_values = StaticValueStore::new();
     let mut point_budget = QueryBudget::default();
-    let point_result = StaticEvaluator::new(
-        static_point,
-        &mut point_values,
-        &mut point_budget,
-        &CancellationToken::new(),
-        &[],
-    )
-    .with_semantic_tables(
-        fixture.analysis.snapshot.store(),
-        &fixture.analysis.snapshot.data_semantics,
-        &fixture.analysis.snapshot.enum_semantics,
-    )
-    .evaluate();
+    let point_result = StaticEvaluator::new(static_point, &mut point_values, &mut point_budget, &CancellationToken::new(), &[])
+        .with_semantic_tables(
+            fixture.analysis.snapshot.store(),
+            &fixture.analysis.snapshot.data_semantics,
+            &fixture.analysis.snapshot.enum_semantics,
+        )
+        .evaluate();
     let StaticEvalOutcome::Reduced(point_result) = point_result else {
         panic!("checked static Data construction should reduce: {point_result:?}");
     };
@@ -408,7 +439,10 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         .intern_data(
             point_info,
             point_construction.result_type,
-            vec![(point_info.components[0].id.clone(), point_one), (point_info.components[1].id.clone(), point_two)],
+            vec![
+                (point_info.components[0].id.clone(), point_one),
+                (point_info.components[1].id.clone(), point_two),
+            ],
             fixture.analysis.snapshot.store(),
         )
         .unwrap();
@@ -454,7 +488,10 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     };
     assert!(matches!(variant_values.get(left_value).unwrap(), StaticValueData::Variant(_)));
     assert!(matches!(variant_values.get(right_value).unwrap(), StaticValueData::Variant(_)));
-    assert_ne!(left_value, right_value, "same-named cases in distinct enum owners keep distinct canonical identity");
+    assert_ne!(
+        left_value, right_value,
+        "same-named cases in distinct enum owners keep distinct canonical identity"
+    );
 
     let recursive = fixture
         .analysis
@@ -465,14 +502,8 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     let mut recursive_values = StaticValueStore::new();
     let mut recursive_budget = QueryBudget::default();
     let recursive_cancellation = CancellationToken::new();
-    let mut recursive_evaluator = StaticEvaluator::new(
-        recursive,
-        &mut recursive_values,
-        &mut recursive_budget,
-        &recursive_cancellation,
-        &[],
-    )
-    .with_static_definitions(fixture.analysis.snapshot.static_definitions());
+    let mut recursive_evaluator = StaticEvaluator::new(recursive, &mut recursive_values, &mut recursive_budget, &recursive_cancellation, &[])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions());
     let recursive_result = recursive_evaluator.evaluate();
     assert_eq!(recursive_result, StaticEvalOutcome::Recursive);
     assert!(recursive_evaluator.trace().iter().any(|frame| matches!(
@@ -480,10 +511,12 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         phalcom_semantic::static_eval::StaticEvalTraceFrame::Application { target, .. }
             if *target == fixture.decl("main", "RecursiveValue")
     )));
-    assert!(recursive_evaluator.trace().iter().any(|frame| matches!(
-        frame,
-        phalcom_semantic::static_eval::StaticEvalTraceFrame::Expression(_)
-    )));
+    assert!(
+        recursive_evaluator
+            .trace()
+            .iter()
+            .any(|frame| matches!(frame, phalcom_semantic::static_eval::StaticEvalTraceFrame::Expression(_)))
+    );
     let mutual = fixture
         .analysis
         .snapshot
@@ -502,15 +535,9 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     assert_eq!(mutual_result, StaticEvalOutcome::Recursive);
 
     let mut exhausted_budget = QueryBudget::new(0);
-    let budget_result = StaticEvaluator::new(
-        applied,
-        &mut StaticValueStore::new(),
-        &mut exhausted_budget,
-        &CancellationToken::new(),
-        &[],
-    )
-    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
-    .evaluate();
+    let budget_result = StaticEvaluator::new(applied, &mut StaticValueStore::new(), &mut exhausted_budget, &CancellationToken::new(), &[])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .evaluate();
     assert!(matches!(budget_result, StaticEvalOutcome::BudgetExceeded(_)));
     let module_bindings = fixture
         .analysis

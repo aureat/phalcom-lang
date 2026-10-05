@@ -1179,16 +1179,18 @@ fn checked_variant_construction_arguments(
                 (index, ctx.expression_id_for_static_range(expression.range())?)
             }
             ApplicationArgument::Labeled { label, expression, .. } => {
-                let index = constructor.parameters.iter().position(|parameter| {
-                    parameter.external_label.as_deref() == Some(label) || parameter.local_name.as_ref() == label
-                })?;
+                let index = constructor
+                    .parameters
+                    .iter()
+                    .position(|parameter| parameter.external_label.as_deref() == Some(label) || parameter.local_name.as_ref() == label)?;
                 (index, ctx.expression_id_for_static_range(expression.range())?)
             }
             ApplicationArgument::PreAnalyzed { label, typed, .. } => {
                 let index = match label {
-                    Some(label) => constructor.parameters.iter().position(|parameter| {
-                        parameter.external_label.as_deref() == Some(label) || parameter.local_name.as_ref() == label
-                    })?,
+                    Some(label) => constructor
+                        .parameters
+                        .iter()
+                        .position(|parameter| parameter.external_label.as_deref() == Some(label) || parameter.local_name.as_ref() == label)?,
                     None => {
                         while used.contains(&next_positional) {
                             next_positional = next_positional.checked_add(1)?;
@@ -1378,12 +1380,9 @@ fn synthesize_record_construction(
 /// Checks a value-parameter static-definition application at the ordinary
 /// TypeForm boundary. The linked resolver supplies the exact target product;
 /// the checked evaluator product retains parameter order and argument identity.
-fn analyze_checked_static_application(
-    ctx: &mut CheckingContext<'_>,
-    annotation: &phalcom_ast::ast::TypeAnnotation,
-) -> Option<TypedExpression> {
-    use phalcom_ast::ast::{GenericArgumentSyntax, TypeAnnotationExpr};
+fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation: &phalcom_ast::ast::TypeAnnotation) -> Option<TypedExpression> {
     use crate::static_definition::CheckedStaticApplicationArgument as CheckedArgument;
+    use phalcom_ast::ast::{GenericArgumentSyntax, TypeAnnotationExpr};
 
     let TypeAnnotationExpr::Application { origin, arguments, range } = &annotation.expr else {
         return None;
@@ -1392,9 +1391,7 @@ fn analyze_checked_static_application(
         return None;
     };
     let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
-    let (target, target_product) = ctx
-        .resolver
-        .resolve_static_definition_name(&ctx.current_module, &reference.root, &members)?;
+    let (target, target_product) = ctx.resolver.resolve_static_definition_name(&ctx.current_module, &reference.root, &members)?;
 
     // Preserve the C3 alias projection for compatible Type-valued aliases.
     if target_product.alias_info.is_some() {
@@ -1406,7 +1403,12 @@ fn analyze_checked_static_application(
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::ApplicationTooManyArguments,
-            format!("static definition `{}` expects {} arguments but received {}", target.name, signature.parameters.len(), arguments.len()),
+            format!(
+                "static definition `{}` expects {} arguments but received {}",
+                target.name,
+                signature.parameters.len(),
+                arguments.len()
+            ),
             *range,
         ));
         return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
@@ -1420,7 +1422,12 @@ fn analyze_checked_static_application(
                     ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::ApplicationArgumentKindMismatch,
-                        format!("argument {} of `{}` requires kind {}", parameter.index + 1, target.name, ctx.store.format_kind(expected_kind)),
+                        format!(
+                            "argument {} of `{}` requires kind {}",
+                            parameter.index + 1,
+                            target.name,
+                            ctx.store.format_kind(expected_kind)
+                        ),
                         argument.range(),
                     ));
                     return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
@@ -1509,26 +1516,16 @@ fn analyze_checked_static_application(
         }
     }
 
-    let application = ctx.record_checked_static_application(
-        target.clone(),
-        *range,
-        target,
-        signature.clone(),
-        checked_arguments.into_boxed_slice(),
-    )?;
+    let application = ctx.record_checked_static_application(target.clone(), *range, target, signature.clone(), checked_arguments.into_boxed_slice())?;
     let mut typed = match signature.result_domain {
         crate::static_domain::StaticValueDomain::Kind(_) => TypedExpression::unknown(UnknownReason::UncheckedExpression),
-        crate::static_domain::StaticValueDomain::ValueType(result_type) => {
-            TypedExpression::assumed(result_type, EvidenceOrigin::CallableSignature, *range)
-        }
+        crate::static_domain::StaticValueDomain::ValueType(result_type) => TypedExpression::assumed(result_type, EvidenceOrigin::CallableSignature, *range),
     };
     typed.denotation = Some(SemanticDenotation::StaticApplication(application));
     Some(typed)
 }
 
-fn static_application_argument_type_form(
-    argument: &phalcom_ast::ast::GenericArgumentSyntax,
-) -> Option<phalcom_ast::ast::TypeAnnotation> {
+fn static_application_argument_type_form(argument: &phalcom_ast::ast::GenericArgumentSyntax) -> Option<phalcom_ast::ast::TypeAnnotation> {
     match argument {
         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => Some(annotation.clone()),
         phalcom_ast::ast::GenericArgumentSyntax::Value(expression) => match &**expression {

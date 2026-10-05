@@ -261,7 +261,9 @@ impl<'vm> Compiler<'vm> {
             || self.global_static_constants.contains(&name)
             || self.linked_bindings.as_ref().is_some_and(|b| {
                 let name_str = self.vm.resolve_symbol(name);
-                b.entries.get(name_str).is_some_and(|info| matches!(info.kind, crate::modules::linkage::TopLevelBindingKind::StaticConstant))
+                b.entries
+                    .get(name_str)
+                    .is_some_and(|info| matches!(info.kind, crate::modules::linkage::TopLevelBindingKind::StaticConstant))
             })
     }
 
