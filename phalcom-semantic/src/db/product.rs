@@ -212,6 +212,7 @@ pub enum SemanticProduct {
     PublicExport(Arc<PublicExportProduct>),
     StaticDefinition(Arc<crate::static_definition::StaticDefinitionProduct>),
     StaticConstant(Arc<crate::static_constant::StaticConstantProduct>),
+    ModuleStaticBindingCatalog(Arc<crate::module_bindings::ModuleStaticBindingCatalog>),
     ModuleStaticBindings(Arc<crate::module_bindings::ModuleStaticBindingIndex>),
     CheckedStaticBody(Arc<crate::static_definition::CheckedStaticBody>),
 }
@@ -465,6 +466,13 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_module_static_binding_catalog(&self) -> Option<&Arc<crate::module_bindings::ModuleStaticBindingCatalog>> {
+        match self {
+            Self::ModuleStaticBindingCatalog(product) => Some(product),
+            _ => None,
+        }
+    }
+
     pub fn as_checked_static_body(&self) -> Option<&Arc<crate::static_definition::CheckedStaticBody>> {
         match self {
             Self::CheckedStaticBody(product) => Some(product),
@@ -508,6 +516,7 @@ impl SemanticProduct {
             Self::PublicExport(_) => b"public-export".as_slice(),
             Self::StaticDefinition(_) => b"static-definition".as_slice(),
             Self::StaticConstant(_) => b"static-constant".as_slice(),
+            Self::ModuleStaticBindingCatalog(_) => b"module-static-binding-catalog".as_slice(),
             Self::ModuleStaticBindings(_) => b"module-static-bindings".as_slice(),
             Self::CheckedStaticBody(_) => b"checked-static-body".as_slice(),
         };

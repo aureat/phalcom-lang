@@ -79,15 +79,39 @@ pub fn analyze_static_body_with_module_bindings(
 /// Checks a static constant's initializer expression using the caller's ordinary
 /// checker context and the module's visible static bindings.
 pub fn analyze_static_constant_initializer(
-    mut context: CheckingContext<'_>,
+    context: CheckingContext<'_>,
     constant_id: &crate::static_constant::StaticConstantId,
     declaration_range: SourceRange,
     initializer_range: SourceRange,
     initializer: &Expr,
+    annotation: Option<&phalcom_ast::ast::TypeAnnotation>,
     expected_type: Option<crate::types::id::TypeId>,
-    module_bindings: &crate::module_bindings::ModuleStaticBindingIndex,
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> crate::static_constant::CheckedStaticConstantInitializer {
+    let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(constant_id, initializer, annotation, expected_type);
+    let expression = analyze_static_expression(context, initializer, expected_type, catalog, binding_states, intrinsics);
+    crate::static_constant::CheckedStaticConstantInitializer {
+        id: constant_id.clone(),
+        declaration_range,
+        initializer_range,
+        expression,
+        input_fingerprint,
+    }
+}
+
+/// Checks a static expression through the ordinary checker and captures the
+/// reusable expression/evaluator product used by constant initializers and
+/// computed Record-key projection.
+pub fn analyze_static_expression(
+    mut context: CheckingContext<'_>,
+    initializer: &Expr,
+    expected_type: Option<crate::types::id::TypeId>,
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
+    intrinsics: &StaticIntrinsicRegistry,
+) -> crate::static_constant::CheckedStaticExpression {
     let diagnostic_start = context.diagnostics.len();
     let existing_expressions = context.expressions.keys().copied().collect::<BTreeSet<_>>();
     let expression_start = context.next_local_expr_id;
@@ -102,12 +126,15 @@ pub fn analyze_static_constant_initializer(
     let mut readable = BTreeSet::new();
     let mut stable_bindings = BTreeMap::new();
     let mut runtime_module_bindings = BTreeSet::new();
-    for (visible_name, fact) in module_bindings.visible_bindings() {
-        let inserted = context.declare_checked_binding(visible_name.to_owned(), &fact.state);
+    for (visible_name, seed) in catalog.visible_bindings() {
+        let Some(state) = binding_states.get(&seed.symbol) else {
+            continue;
+        };
+        let inserted = context.declare_checked_binding(visible_name.to_owned(), state);
         if let crate::checker::binding::BindingDeclarationResult::Inserted(binding) = inserted {
-            if fact.phase == crate::module_bindings::ModuleBindingPhase::StaticConstant {
+            if seed.phase == crate::module_bindings::ModuleBindingPhase::StaticConstant {
                 readable.insert(binding);
-                stable_bindings.insert(binding, fact.symbol.clone());
+                stable_bindings.insert(binding, seed.symbol.clone());
             } else {
                 runtime_module_bindings.insert(binding);
             }
@@ -189,6 +216,7 @@ pub fn analyze_static_constant_initializer(
         .into_iter()
         .filter(|dep| !matches!(dep, SemanticDependency::ModuleStaticBindings(_)))
         .collect::<Vec<_>>();
+    dependencies.push(SemanticDependency::ModuleStaticBindingCatalog(catalog.module().clone()));
     for read_sym in &static_constant_reads {
         dependencies.push(SemanticDependency::StaticConstant(crate::static_constant::StaticConstantId(read_sym.clone())));
     }
@@ -196,12 +224,7 @@ pub fn analyze_static_constant_initializer(
     dependencies.dedup();
 
     let diagnostics = Arc::from(context.diagnostics[diagnostic_start..].to_vec().into_boxed_slice());
-    let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(constant_id, initializer, expected_type);
-
-    crate::static_constant::CheckedStaticConstantInitializer {
-        id: constant_id.clone(),
-        declaration_range,
-        initializer_range,
+    crate::static_constant::CheckedStaticExpression {
         root: initializer.clone(),
         expressions: Arc::new(expressions),
         bindings: Arc::new(bindings),
@@ -212,9 +235,8 @@ pub fn analyze_static_constant_initializer(
         local_slots: Arc::new(local_slots),
         static_constant_bindings: Arc::new(stable_bindings),
         static_constant_reads: static_constant_reads.into(),
-        input_fingerprint,
         dependencies: dependencies.into(),
-        result_type: expected_type,
+        result_type: expected_type.or_else(|| typed_result.knowledge.ty()),
         diagnostics,
     }
 }

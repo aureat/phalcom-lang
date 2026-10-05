@@ -480,6 +480,7 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::AdvisoryModule(module)
         | QueryKey::ModuleDiagnostics(module)
         | QueryKey::ModuleMetadata(module)
+        | QueryKey::ModuleStaticBindingCatalog(module)
         | QueryKey::ModuleStaticBindings(module) => Some(module),
         QueryKey::DeclarationShell(declaration)
         | QueryKey::HierarchyEdge(declaration)

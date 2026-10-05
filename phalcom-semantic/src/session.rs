@@ -1133,6 +1133,48 @@ impl SemanticWorkspaceSession {
             .map(|(module, shard)| (module.clone(), shard.source.clone()))
             .collect::<BTreeMap<_, _>>();
 
+        // Publish source identity and binding phase before any type-bearing
+        // declaration work. The catalog deliberately contains no checker state
+        // or type information; linked aliases keep their remote SymbolId.
+        let mut module_static_binding_catalogs = retained_sources
+            .iter()
+            .map(|(module, source)| {
+                (
+                    module.clone(),
+                    Arc::new(crate::module_bindings::ModuleStaticBindingCatalog::from_source(module, &source.program)),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        for (module_id, linked_module) in &input.linked.modules {
+            let imported_seeds = linked_module
+                .bindings
+                .imports
+                .iter()
+                .filter_map(|(local_name, import_id)| {
+                    let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
+                        return None;
+                    };
+                    let seed = module_static_binding_catalogs.get(&symbol.module)?.get(symbol)?.clone();
+                    Some((local_name.to_string(), seed))
+                })
+                .collect::<Vec<_>>();
+            if let Some(catalog) = module_static_binding_catalogs.get_mut(module_id) {
+                for (local_name, seed) in imported_seeds {
+                    Arc::make_mut(catalog).insert_imported_binding(&local_name, seed);
+                }
+            }
+        }
+        for (module_id, catalog) in module_static_binding_catalogs.clone() {
+            let catalog = match crate::db::query::query_module_static_binding_catalog(&mut self.db, catalog) {
+                QueryOutcome::Ready(product) => product,
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            };
+            module_static_binding_catalogs.insert(module_id, catalog);
+        }
+
         // 1. Refresh source-owned staged products without eager reverse invalidation.
         //
         // A source edit changes ParsedModule input identity. Query-local recomputation
@@ -6634,6 +6676,30 @@ impl SemanticWorkspaceSession {
         }
         source_index.set_stats(source_index_stats);
 
+        // Static constant checking keeps ordinary checker facts only for
+        // runtime bindings. Constant names get unknown types during dependency
+        // discovery and checked types from published constant products during
+        // the final initializer check.
+        let mut module_static_binding_runtime_states = BTreeMap::new();
+        for (module_id, catalog) in &module_static_binding_catalogs {
+            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+            let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+            let Some(analysis) = callable_analyses.get(&main_callable) else {
+                continue;
+            };
+            for (symbol, seed) in catalog.iter().filter(|(symbol, seed)| {
+                &symbol.module == module_id && seed.phase == crate::module_bindings::ModuleBindingPhase::Runtime
+            }) {
+                if let Some(state) = analysis
+                    .bindings
+                    .values()
+                    .find(|state| state.name.as_str() == symbol.name.as_ref() && state.range == seed.binding_range)
+                {
+                    module_static_binding_runtime_states.insert(symbol.clone(), state.clone());
+                }
+            }
+        }
+
         let mut module_static_bindings = self
             .semantic_structure_shards
             .iter()
@@ -6776,35 +6842,55 @@ impl SemanticWorkspaceSession {
             declaration_range: SourceRange,
             initializer_range: Option<SourceRange>,
             initializer: &'a phalcom_ast::ast::Expr,
+            annotation: Option<&'a phalcom_ast::ast::TypeAnnotation>,
             expected_type: Option<crate::types::id::TypeId>,
             input_fingerprint: crate::db::key::InputFingerprint,
         }
 
         let mut constant_declarations: BTreeMap<crate::static_constant::StaticConstantId, ConstantDeclInfo<'_>> = BTreeMap::new();
         for module_id in &current_modules {
-            let Some(module_bindings) = module_static_bindings.get(module_id) else {
+            let Some(catalog) = module_static_binding_catalogs.get(module_id) else {
                 continue;
             };
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
             };
-            for (_name, fact) in module_bindings.visible_bindings() {
-                if fact.phase == crate::module_bindings::ModuleBindingPhase::StaticConstant && &fact.symbol.module == module_id {
-                    let id = crate::static_constant::StaticConstantId(fact.symbol.clone());
+            for (_name, seed) in catalog.visible_bindings() {
+                if seed.phase == crate::module_bindings::ModuleBindingPhase::StaticConstant && &seed.symbol.module == module_id {
+                    let id = crate::static_constant::StaticConstantId(seed.symbol.clone());
                     if let Some(binding) =
-                        crate::module_bindings::find_constant_declaration(&shard.source.program, &fact.symbol, fact.declaration_range, fact.initializer_range)
+                        crate::module_bindings::find_constant_declaration(&shard.source.program, &seed.symbol, seed.declaration_range, seed.initializer_range)
                     {
                         if let Some(initializer) = &binding.value {
-                            let expected_type = fact.state.contract.as_ref().map(|c| c.ty);
-                            let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(&id, initializer, expected_type);
+                            let expected_type = binding.annotation.as_ref().and_then(|annotation| {
+                                let mut annotation_diagnostics = Vec::new();
+                                let knowledge = crate::types::annotation::resolve_type_annotation(
+                                    Arc::make_mut(&mut self.store),
+                                    &declarations,
+                                    &resolver,
+                                    &TypeFormationSite::module(module_id.clone()),
+                                    annotation,
+                                    &mut annotation_diagnostics,
+                                );
+                                let module_diagnostics = diagnostics_map.entry(module_id.clone()).or_default();
+                                for diagnostic in annotation_diagnostics {
+                                    if !module_diagnostics.contains(&diagnostic) {
+                                        module_diagnostics.push(diagnostic);
+                                    }
+                                }
+                                knowledge.ty()
+                            });
+                            let annotation = binding.annotation.as_ref();
+                            let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(&id, initializer, annotation, expected_type);
                             constant_declarations.insert(
                                 id.clone(),
                                 ConstantDeclInfo {
                                     id,
                                     module_id: module_id.clone(),
-                                    declaration_range: fact.declaration_range,
-                                    initializer_range: fact.initializer_range,
+                                    declaration_range: seed.declaration_range,
+                                    initializer_range: seed.initializer_range,
                                     initializer,
+                                    annotation,
                                     expected_type,
                                     input_fingerprint,
                                 },
@@ -6839,7 +6925,7 @@ impl SemanticWorkspaceSession {
                 }
             }
 
-            let Some(module_bindings) = module_static_bindings.get(&decl.module_id) else {
+            let Some(catalog) = module_static_binding_catalogs.get(&decl.module_id) else {
                 continue;
             };
             let mut context = CheckingContext::new_with_dispatch_ref(
@@ -6859,14 +6945,17 @@ impl SemanticWorkspaceSession {
             context.attach_associated_families(&associated_surfaces_table);
             context.attach_conformance_semantics(&conformance_semantics);
 
+            let binding_states = static_constant_binding_states(catalog, &module_static_binding_runtime_states, None);
             let checked = Arc::new(crate::checker::static_body::analyze_static_constant_initializer(
                 context,
                 &decl.id,
                 decl.declaration_range,
                 decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                 decl.initializer,
+                decl.annotation,
                 decl.expected_type,
-                module_bindings,
+                catalog,
+                &binding_states,
                 &static_intrinsics,
             ));
 
@@ -6947,7 +7036,7 @@ impl SemanticWorkspaceSession {
             if is_cycle {
                 for id in component {
                     let Some(decl) = constant_declarations.get(&id) else { continue };
-                    let Some(module_bindings) = module_static_bindings.get(&decl.module_id) else {
+                    let Some(catalog) = module_static_binding_catalogs.get(&decl.module_id) else {
                         continue;
                     };
                     let checked = match checked_constants.remove(&id) {
@@ -6969,14 +7058,17 @@ impl SemanticWorkspaceSession {
                             context.attach_data_semantics(&data_semantics);
                             context.attach_associated_families(&associated_surfaces_table);
                             context.attach_conformance_semantics(&conformance_semantics);
+                            let binding_states = static_constant_binding_states(catalog, &module_static_binding_runtime_states, None);
                             Arc::new(crate::checker::static_body::analyze_static_constant_initializer(
                                 context,
                                 &decl.id,
                                 decl.declaration_range,
                                 decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                                 decl.initializer,
+                                decl.annotation,
                                 decl.expected_type,
-                                module_bindings,
+                                catalog,
+                                &binding_states,
                                 &static_intrinsics,
                             ))
                         }
@@ -7039,40 +7131,44 @@ impl SemanticWorkspaceSession {
                         }
                     }
 
-                    let Some(module_bindings) = module_static_bindings.get(&decl.module_id) else {
+                    let Some(catalog) = module_static_binding_catalogs.get(&decl.module_id) else {
                         continue;
                     };
-                    let checked = match checked_constants.remove(&id) {
-                        Some(c) => c,
-                        None => {
-                            let mut context = CheckingContext::new_with_dispatch_ref(
-                                Arc::make_mut(&mut self.store),
-                                &hierarchy,
-                                &resolver,
-                                &declarations,
-                                &dispatch,
-                                decl.module_id.clone(),
-                            );
-                            context.set_caller_package(semantic_topology.owning_package(&decl.module_id));
-                            context.set_access_topology(semantic_topology.as_ref());
-                            context.attach_field_signatures(&field_signatures);
-                            context.attach_field_lifecycle(&field_lifecycle);
-                            context.attach_enum_semantics(&enum_semantics);
-                            context.attach_data_semantics(&data_semantics);
-                            context.attach_associated_families(&associated_surfaces_table);
-                            context.attach_conformance_semantics(&conformance_semantics);
-                            Arc::new(crate::checker::static_body::analyze_static_constant_initializer(
-                                context,
-                                &decl.id,
-                                decl.declaration_range,
-                                decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
-                                decl.initializer,
-                                decl.expected_type,
-                                module_bindings,
-                                &static_intrinsics,
-                            ))
-                        }
-                    };
+                    // The first check discovers exact constant reads without
+                    // granting unresolved constants a provisional type. Recheck
+                    // the initializer now that dependency products are current,
+                    // and seed constant names only from their published checked
+                    // result types.
+                    checked_constants.remove(&id);
+                    let binding_states = static_constant_binding_states(catalog, &module_static_binding_runtime_states, Some(&static_constants_table));
+                    let mut context = CheckingContext::new_with_dispatch_ref(
+                        Arc::make_mut(&mut self.store),
+                        &hierarchy,
+                        &resolver,
+                        &declarations,
+                        &dispatch,
+                        decl.module_id.clone(),
+                    );
+                    context.set_caller_package(semantic_topology.owning_package(&decl.module_id));
+                    context.set_access_topology(semantic_topology.as_ref());
+                    context.attach_field_signatures(&field_signatures);
+                    context.attach_field_lifecycle(&field_lifecycle);
+                    context.attach_enum_semantics(&enum_semantics);
+                    context.attach_data_semantics(&data_semantics);
+                    context.attach_associated_families(&associated_surfaces_table);
+                    context.attach_conformance_semantics(&conformance_semantics);
+                    let checked = Arc::new(crate::checker::static_body::analyze_static_constant_initializer(
+                        context,
+                        &decl.id,
+                        decl.declaration_range,
+                        decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
+                        decl.initializer,
+                        decl.annotation,
+                        decl.expected_type,
+                        catalog,
+                        &binding_states,
+                        &static_intrinsics,
+                    ));
 
                     let mut eval_budget = budget;
                     let mut evaluator =
@@ -9126,6 +9222,54 @@ fn field_lifecycle_source_fingerprint(unit: &ParsedModuleUnit) -> u64 {
     hasher.finish()
 }
 
+/// Builds checker-visible module bindings for one static initializer.
+/// Runtime bindings retain their ordinary checker facts so access can be
+/// rejected precisely. Constant bindings are unknown during dependency
+/// discovery and acquire their type only from a published checked constant
+/// product during the final check.
+fn static_constant_binding_states(
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    runtime_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
+    constants: Option<&crate::static_constant::StaticConstantTable>,
+) -> BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState> {
+    let mut states = BTreeMap::new();
+    for (visible_name, binding) in catalog.visible_bindings() {
+        if binding.phase == crate::module_bindings::ModuleBindingPhase::Runtime {
+            if let Some(state) = runtime_states.get(&binding.symbol) {
+                states.insert(binding.symbol.clone(), state.clone());
+            }
+            continue;
+        }
+
+        let result_type = constants
+            .and_then(|constants| constants.get(&crate::static_constant::StaticConstantId(binding.symbol.clone())))
+            .and_then(|product| product.checked.result_type);
+        let current = result_type.map_or_else(
+            || crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+            |ty| crate::types::evidence::TypeKnowledge::established(ty, crate::types::evidence::EvidenceOrigin::Flow),
+        );
+        let seed = crate::checker::binding::BindingSeed {
+            name: visible_name.to_owned(),
+            parameter: None,
+            range: binding.binding_range,
+            contract: None,
+            current: current.clone(),
+            denotation: None,
+            causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+            mutable: false,
+            initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
+        };
+        let state = crate::checker::analysis::BindingState::from_seed(
+            crate::identity::BindingId(0),
+            seed,
+            current,
+            crate::checker::binding::BindingConsistency::Unconstrained,
+        );
+        states.insert(binding.symbol.clone(), state);
+    }
+    states
+}
+
 fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
     match key {
         QueryKey::ParsedModule(module)
@@ -9151,7 +9295,7 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::AssociatedSurface(declaration)
         | QueryKey::StaticDefinition(declaration) => Some(&declaration.module),
         QueryKey::StaticConstant(constant) => Some(&constant.0.module),
-        QueryKey::ModuleStaticBindings(module) => Some(module),
+        QueryKey::ModuleStaticBindingCatalog(module) | QueryKey::ModuleStaticBindings(module) => Some(module),
         QueryKey::CheckedStaticBody(body) => Some(&body.0.module),
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
         QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),

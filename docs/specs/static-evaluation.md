@@ -245,3 +245,38 @@ stable normalized residual semantics only as needed for specialization. Metadata
 serializes evaluator frames, AST pointers, VM object references, or session-local IDs.
 
 Cold and incremental evaluation must agree.
+
+
+## 14. Computed Record keys and static formation cycles
+
+A computed Record key is written as `[expression]`. Its expression is checked
+with ordinary Telos name and binding semantics, then evaluated only when it is
+statically eligible under this specification. Runtime bindings and arbitrary
+runtime effects do not become static merely because they appear in a key.
+
+A computed key required to form a closed Record type or a resolved structural
+pattern must reduce to one concrete key in the Record key domain: `String`,
+`Symbol`, `Int`, or `Bool`. The reduced semantic value determines the key's
+identity. In particular, a Symbol key and a String key with the same printed
+text are distinct. Duplicate detection occurs after reduction and uses
+canonical Record-key identity. A symbolic result is not a concrete key and may
+remain deferred only in a context whose language rules explicitly permit
+symbolic structural residualization; it must not be treated as a closed key.
+
+Static constants may be used by computed keys through their checked static
+values. Forming a constant's declared type may itself require computed keys and
+other constants; these dependencies are demand-driven and recursively checked.
+There is no source-order rule requiring all constants to be evaluated before all
+types, or all types before all constants.
+
+A static formation cycle is invalid when forming a closed static constant's
+declared type requires a computed Record key whose static evaluation directly
+or transitively requires that same constant. Such a dependency cycle has no
+fixed-point meaning. It must not be resolved by source order, initializer-first
+speculation, a guessed value, a symbolic key placeholder, or a value retained
+from an earlier successful analysis. The cycle produces a deterministic
+invalid/recursive semantic result with a diagnostic; it must not hang or publish
+a concrete Record type based on stale information.
+
+Cold analysis and incremental analysis of the same source must agree on reduced
+keys, resulting Record types, diagnostics, and downstream semantic results.

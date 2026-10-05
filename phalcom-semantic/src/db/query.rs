@@ -98,6 +98,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::ResolvedImport(site) => QueryKey::ResolvedImport(site.clone()),
         crate::checker::analysis::SemanticDependency::LinkedName(module, name) => QueryKey::LinkedName(module.clone(), name.clone()),
         crate::checker::analysis::SemanticDependency::PublicExport(module, name) => QueryKey::PublicExport(module.clone(), name.clone()),
+        crate::checker::analysis::SemanticDependency::ModuleStaticBindingCatalog(module) => QueryKey::ModuleStaticBindingCatalog(module.clone()),
         crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module) => QueryKey::ModuleStaticBindings(module.clone()),
         crate::checker::analysis::SemanticDependency::StaticConstant(id) => QueryKey::StaticConstant(id.clone()),
     }
@@ -125,6 +126,9 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::ResolvedImport(site) => Some(crate::checker::analysis::SemanticDependency::ResolvedImport(site.clone())),
         QueryKey::LinkedName(module, name) => Some(crate::checker::analysis::SemanticDependency::LinkedName(module.clone(), name.clone())),
         QueryKey::PublicExport(module, name) => Some(crate::checker::analysis::SemanticDependency::PublicExport(module.clone(), name.clone())),
+        QueryKey::ModuleStaticBindingCatalog(module) => {
+            Some(crate::checker::analysis::SemanticDependency::ModuleStaticBindingCatalog(module.clone()))
+        }
         QueryKey::ModuleStaticBindings(module) => Some(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module.clone())),
         QueryKey::StaticConstant(id) => Some(crate::checker::analysis::SemanticDependency::StaticConstant(id.clone())),
         _ => None,
@@ -1074,6 +1078,37 @@ pub fn query_type_member_declaration(
 }
 
 /// Publishes the ordinary module binding handoff for static-body consumers.
+pub fn query_module_static_binding_catalog(
+    db: &mut SemanticDb,
+    product: Arc<crate::module_bindings::ModuleStaticBindingCatalog>,
+) -> QueryOutcome<Arc<crate::module_bindings::ModuleStaticBindingCatalog>> {
+    let key = QueryKey::ModuleStaticBindingCatalog(product.module().clone());
+    let input_fingerprint = product.input_fingerprint();
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_module_static_binding_catalog()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = product.product_fingerprint();
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::ModuleStaticBindingCatalog(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+/// Publishes the ordinary module binding handoff for static-body consumers.
 pub fn query_module_static_bindings(
     db: &mut SemanticDb,
     product: Arc<crate::module_bindings::ModuleStaticBindingIndex>,
@@ -1853,6 +1888,19 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
             unit_outcome(query_static_definition(db, product))
+        }
+        crate::checker::analysis::SemanticDependency::ModuleStaticBindingCatalog(module) => {
+            let key = QueryKey::ModuleStaticBindingCatalog(module.clone());
+            if db
+                .product(&key)
+                .and_then(|product| product.as_module_static_binding_catalog())
+                .is_some()
+                && db.validate_ready(&key)
+            {
+                QueryOutcome::Ready(())
+            } else {
+                QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+            }
         }
         crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module) => {
             let key = QueryKey::ModuleStaticBindings(module.clone());

@@ -62,6 +62,7 @@ pub mod static_definition;
 pub mod static_domain;
 pub mod static_eval;
 pub mod static_intrinsic;
+pub mod static_key;
 pub mod static_value;
 pub mod structural;
 pub mod surface;
@@ -134,7 +135,7 @@ pub use identity::{
 pub use instrumentation::*;
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use match_semantics::*;
-pub use module_bindings::{ModuleBindingFact, ModuleBindingPhase, ModuleStaticBindingIndex};
+pub use module_bindings::{ModuleBindingFact, ModuleBindingPhase, ModuleStaticBindingCatalog, ModuleStaticBindingIndex, ModuleStaticBindingSeed};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use prelude::PreludeTypeMap;
 pub use presentation::{
@@ -158,7 +159,7 @@ pub use source_index::{
     EditorSymbolKind, ModuleReferenceContribution, ReferenceIndex, SourceIndexUpdateStats, TargetReferenceSet, WorkspaceSymbolEntry, WorkspaceSymbolId,
     WorkspaceSymbolIndex,
 };
-pub use static_constant::{CheckedStaticConstantInitializer, StaticConstantId, StaticConstantProduct, StaticConstantTable};
+pub use static_constant::{CheckedStaticConstantInitializer, CheckedStaticExpression, StaticConstantId, StaticConstantProduct, StaticConstantTable};
 pub use static_definition::{
     CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr, StaticDefinitionProduct, StaticDefinitionSignature, StaticDefinitionTable,
     StaticParameter, resolve_static_definition,
@@ -171,6 +172,7 @@ pub use structural::{
 pub use static_intrinsic::{
     StaticIntrinsicOperation, StaticIntrinsicRegistry, StaticIntrinsicRegistryError, StaticOperationResolution, StaticOperationResolutionIndex,
 };
+pub use static_key::{StaticKeyProjection, StaticKeyProjectionError, exact_static_key_dependencies, project_checked_static_key};
 pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,
     analyze_callable_termination, check_cfg_acyclicity,

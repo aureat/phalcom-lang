@@ -49,12 +49,9 @@ impl std::fmt::Display for StaticConstantId {
     }
 }
 
-/// Ordinary checker products and evaluator layout for one constant initializer.
+/// Ordinary checker products and evaluator layout for one static expression.
 #[derive(Clone, Debug)]
-pub struct CheckedStaticConstantInitializer {
-    pub id: StaticConstantId,
-    pub declaration_range: SourceRange,
-    pub initializer_range: SourceRange,
+pub struct CheckedStaticExpression {
     pub root: Expr,
     pub expressions: Arc<ExpressionAnalysisIndex>,
     pub bindings: Arc<BindingAnalysisIndex>,
@@ -65,10 +62,29 @@ pub struct CheckedStaticConstantInitializer {
     pub local_slots: Arc<BTreeMap<BindingId, u32>>,
     pub static_constant_bindings: Arc<BTreeMap<BindingId, SymbolId>>,
     pub static_constant_reads: Arc<[SymbolId]>,
-    pub input_fingerprint: InputFingerprint,
     pub dependencies: Arc<[SemanticDependency]>,
     pub result_type: Option<TypeId>,
     pub diagnostics: Arc<[SemanticDiagnostic]>,
+}
+
+/// Owner metadata and targeted input identity for one constant initializer.
+/// Its checked body uses the same expression product consumed by static-key
+/// projection.
+#[derive(Clone, Debug)]
+pub struct CheckedStaticConstantInitializer {
+    pub id: StaticConstantId,
+    pub declaration_range: SourceRange,
+    pub initializer_range: SourceRange,
+    pub expression: CheckedStaticExpression,
+    pub input_fingerprint: InputFingerprint,
+}
+
+impl std::ops::Deref for CheckedStaticConstantInitializer {
+    type Target = CheckedStaticExpression;
+
+    fn deref(&self) -> &Self::Target {
+        &self.expression
+    }
 }
 
 /// Product published by static constant queries in the incremental DB and snapshots.

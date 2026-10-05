@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
 next_action: >
-  P4 implementation is stopped at T7.0 pending the principal architect's ruling on stable key-projection ownership, query/dependency publication, consumer republication, and mixed constant/type cycles. The active plan records the required decisions and resume gate. T1-T6 remain implemented and focused-tested; P4 is BLOCKED / PARTIAL / UNVERIFIED. Do not start T7.1-T8 or run T7.0 acceptance tests before the ruling. P10 T6 and while-dependent T9 cases remain outside active P4 scope.
+  The principal architect's T7.0 ruling is incorporated in the P4 plan and static-evaluation specification. The pre-type catalog and product-backed constant type handoff are implemented; recursive demand for constants needed during annotated type formation remains open. T7.0B now has a shared checked-expression representation, evaluator entrypoint, and key projector; these are not yet integrated into type owners or focused-gated. Continue T7.0C-D and finish the cross-slice demand/cycle behavior before T7.0E. T4-T6 remain COMPLETE / IMPLEMENTED / FOCUSED_TESTED; P4 is IN_PROGRESS / PARTIAL / UNVERIFIED. Do not start T7.1 until T7.0E passes. P10 T6 and while-dependent T9 cases remain outside active P4 scope.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -163,7 +163,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
-| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | BLOCKED | PARTIAL | UNVERIFIED | T1-T6 are implemented and focused-tested: canonical rows/tails, row solving/relation/lookup, static Record values, runtime shape/construction/lookup, canonical equality/hash, heterogeneous Record spread, and the Symbol-only ordered-label boundary. T7.0 and dependent T7.1-T8 are stopped pending an architecture ruling; see the 2026-10-05 T7.0 consultation disposition. |
+| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | T1-T6 are COMPLETE / IMPLEMENTED / FOCUSED_TESTED. Under the 2026-10-05 ruling, T7.0A's catalog and product-backed initializer type flow are implemented, but recursive type demand remains open; T7.0B's shared checked-expression/evaluator/projector layer is implemented without owner integration or focused evidence. Continue T7.0C-D, then run T7.0E. T7.1 remains gated on T7.0E. |
 | `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | pre-barrier work through `46d00056` is integrated on main and S1 is complete; focused synchronization checks passed. T1-T5 remain implemented/focused-tested, T7/T8 audits completed, and Pack plus non-loop evaluator T9 harnesses focused-tested. T6 and while-dependent T9 cases are unstarted; an inherited fixed-call Pack runtime test remains unverified. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -2415,7 +2415,74 @@ failure.
 The principal-architect plan review amended T7.0 with five required decisions:
 stable key-site/query identity, exact dependency ownership, publication order,
 consumer invalidation/republication, and mixed constant/type dependency-cycle
-semantics. T7.0 is BLOCKED, and T7.1-T8 cannot begin until a principal-architect
-ruling is durable. No T7 source edits or tests were made. The P4 plan records
-the proposed dependency order and focused resume gates; that recommendation is
-not adopted architecture until approved. T1-T6 evidence remains unchanged.
+semantics. At that point T7.0 was blocked and no T7 source edits or tests had
+been made. The ruling and accepted amendment are recorded in the section below;
+T1-T6 evidence remains unchanged.
+
+
+### T7.0 principal-architect ruling — accepted (2026-10-05)
+
+The attached principal-architect ruling is **APPROVED WITH MATERIAL PLAN
+AMENDMENT**. It resolves the T7.0 ownership, publication-order, dependency,
+republication, and mixed-cycle questions. The previous blocked disposition is
+superseded by the accepted contract in the active P4 plan and normative
+`docs/specs/static-evaluation.md`.
+
+Durable decisions:
+
+- The existing query publishing a type/signature/resolved pattern owns the key
+  projection and its exact dependencies. P4 adds no per-key query or product.
+- A type-free early module static-binding catalog preserves linked local and
+  imported `SymbolId` identity and source recovery without `TypeId`,
+  `BindingState`, or checked contract. `StaticConstant(K)` forms its own
+  annotated expected type and checks/evaluates its initializer; final
+  `ModuleStaticBindingIndex` is a later consumer projection.
+- One checked ordinary-checker expression/projector is shared by type and
+  pattern keys. P2 `StaticEvaluator` remains the only evaluator, and
+  `field_key_of` yields the owned concrete `FieldKey` before canonical row or
+  pattern formation.
+- Consumer queries preserve exact `SemanticDependency::StaticConstant(id)`
+  edges and ordinary checker dependencies. Normal invalidation/revalidation
+  reforms and republishes owners; interned rows are immutable and LKG products
+  are not current semantic inputs.
+- A direct or transitive closed-constant/computed-key cycle is invalid and
+  diagnosed through active semantic-query computation state. No fixed point,
+  source-order break, symbolic placeholder, or stale-value fallback is defined.
+- T7.0 is divided into A early catalog/constant-query decoupling, B shared
+  checked static expression/projector, C type-owner integration, D exact
+  forcing/invalidation/republication/cycles, and E focused acceptance. T7.1
+  cannot begin until T7.0E passes.
+
+The amendment and static-evaluation rule are now recorded. T4-T6 remain
+`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; P4 is `IN_PROGRESS / PARTIAL /
+UNVERIFIED`. The active next action is T7.0A. No T7 implementation evidence is
+claimed by this ruling or these documentation changes.
+
+### T7.0A-B implementation progress — 2026-10-05
+
+The source-only `ModuleStaticBindingCatalog` is built and published before
+type-bearing declaration work. It carries local/imported stable symbols,
+binding phase, and source ranges; imported aliases retain the linked remote
+symbol. Constant declaration discovery and checked initialization consume the
+catalog rather than `ModuleStaticBindingIndex`. The initializer checker uses
+ordinary `<main>` facts only for runtime bindings. Its dependency-discovery pass
+leaves constant types unknown, then its final check reads each dependency's
+type from that constant's published checked product. Annotation syntax is
+included in the constant input fingerprint so unresolved annotation changes
+cannot reuse stale diagnostics. The shared `CheckedStaticExpression` now holds
+the ordinary-checker and evaluator products used by constant initializers and
+key expressions. `StaticEvaluator::for_checked_expression` and
+`project_checked_static_key` use that product, require current reduced values
+for selected constants, and convert through `field_key_of`; no name lookup or
+second evaluator was added. The latest
+`RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic` passed. No
+focused T7.0A/B test or gate has run for this continuation.
+
+T7.0A acceptance remains incomplete: recursive demand for constants needed
+during annotated type formation depends on type-owner projection and cycle
+handling, which remain pending. T7.0B is implemented at the shared
+representation/projector layer only; type-owner integration, forced query
+dependencies, mixed-cycle behavior, and focused acceptance remain outstanding.
+The next implementation action is T7.0C-D: integrate projection at existing
+type owners, then add exact forcing, invalidation/republication, and mixed-cycle
+handling. T7.0E remains unstarted; do not begin T7.1 before it passes.

@@ -4,7 +4,7 @@ use crate::checker::associated::AssociatedResolutionIndex;
 use crate::db::{CancellationToken, QueryBudget};
 use crate::field_key::FieldKey;
 use crate::identity::{BindingId, ExpressionId};
-use crate::static_constant::{CheckedStaticConstantInitializer, StaticConstantTable};
+use crate::static_constant::{CheckedStaticConstantInitializer, CheckedStaticExpression, StaticConstantTable};
 use crate::static_definition::{CheckedStaticApplication, CheckedStaticBody, CheckedStaticConstruction, StaticApplicationId, StaticDefinitionTable};
 use crate::static_intrinsic::{StaticIntrinsicOperation, StaticOperationResolutionIndex};
 use crate::static_value::{StaticValueData, StaticValueRef, StaticValueStore};
@@ -26,11 +26,13 @@ pub enum StaticArgument {
     Value(StaticValueRef),
 }
 
-/// Unified body reference for either a static definition or a static constant initializer.
+/// Unified body reference for a static definition, constant initializer, or
+/// independently checked static expression.
 #[derive(Clone, Copy)]
 pub enum EvaluatorBody<'a> {
     Definition(&'a CheckedStaticBody),
     Constant(&'a CheckedStaticConstantInitializer),
+    Expression(&'a CheckedStaticExpression),
 }
 
 pub enum EvaluatorRootWork<'a> {
@@ -44,6 +46,7 @@ impl<'a> EvaluatorBody<'a> {
         match self {
             Self::Definition(d) => &d.expressions,
             Self::Constant(c) => &c.expressions,
+            Self::Expression(expression) => &expression.expressions,
         }
     }
 
@@ -51,6 +54,7 @@ impl<'a> EvaluatorBody<'a> {
         match self {
             Self::Definition(d) => &d.bindings,
             Self::Constant(c) => &c.bindings,
+            Self::Expression(expression) => &expression.bindings,
         }
     }
 
@@ -58,6 +62,7 @@ impl<'a> EvaluatorBody<'a> {
         match self {
             Self::Definition(d) => &d.static_operations,
             Self::Constant(c) => &c.static_operations,
+            Self::Expression(expression) => &expression.static_operations,
         }
     }
 
@@ -65,6 +70,7 @@ impl<'a> EvaluatorBody<'a> {
         match self {
             Self::Definition(d) => &d.static_applications,
             Self::Constant(c) => &c.static_applications,
+            Self::Expression(expression) => &expression.static_applications,
         }
     }
 
@@ -72,6 +78,7 @@ impl<'a> EvaluatorBody<'a> {
         match self {
             Self::Definition(d) => &d.static_constructions,
             Self::Constant(c) => &c.static_constructions,
+            Self::Expression(expression) => &expression.static_constructions,
         }
     }
 
@@ -80,6 +87,7 @@ impl<'a> EvaluatorBody<'a> {
         match self {
             Self::Definition(d) => &d.associated_resolutions,
             Self::Constant(c) => &c.associated_resolutions,
+            Self::Expression(expression) => &expression.associated_resolutions,
         }
     }
 
@@ -87,6 +95,7 @@ impl<'a> EvaluatorBody<'a> {
         match self {
             Self::Definition(d) => &d.local_slots,
             Self::Constant(c) => &c.local_slots,
+            Self::Expression(expression) => &expression.local_slots,
         }
     }
 
@@ -94,6 +103,7 @@ impl<'a> EvaluatorBody<'a> {
         match self {
             Self::Definition(d) => &d.static_constant_bindings,
             Self::Constant(c) => &c.static_constant_bindings,
+            Self::Expression(expression) => &expression.static_constant_bindings,
         }
     }
 
@@ -101,6 +111,7 @@ impl<'a> EvaluatorBody<'a> {
         match self {
             Self::Definition(d) => StaticEvalTraceFrame::Definition(d.owner.0.clone()),
             Self::Constant(c) => StaticEvalTraceFrame::Constant(c.id.clone()),
+            Self::Expression(expression) => StaticEvalTraceFrame::Expression(expression.root.range()),
         }
     }
 
@@ -112,34 +123,35 @@ impl<'a> EvaluatorBody<'a> {
                 crate::static_definition::StaticDefinitionBodyRepr::TypeForm(annotation) => EvaluatorRootWork::TypeForm(annotation),
             },
             Self::Constant(c) => EvaluatorRootWork::Expression(&c.root),
+            Self::Expression(expression) => EvaluatorRootWork::Expression(&expression.root),
         }
     }
 
     pub fn result_as_kind(&self) -> Option<crate::types::id::KindId> {
         match self {
             Self::Definition(d) => d.result.as_kind(),
-            Self::Constant(_) => None,
+            Self::Constant(_) | Self::Expression(_) => None,
         }
     }
 
     pub fn is_value_result(&self) -> bool {
         match self {
             Self::Definition(d) => matches!(d.result, crate::static_domain::StaticValueDomain::ValueType(_)),
-            Self::Constant(_) => true,
+            Self::Constant(_) | Self::Expression(_) => true,
         }
     }
 
     pub fn contains_kinded_parameter(&self, types: &crate::types::store::TypeStore, form: crate::types::id::TypeId) -> bool {
         match self {
             Self::Definition(d) => d.kinded_parameters.values().any(|param| types.contains_type_parameter(form, *param)),
-            Self::Constant(_) => false,
+            Self::Constant(_) | Self::Expression(_) => false,
         }
     }
 
     pub fn kinded_parameter_index(&self, parameter: crate::types::id::TypeParameterId) -> Option<u32> {
         match self {
             Self::Definition(d) => d.kinded_parameters.iter().find(|(_, candidate)| **candidate == parameter).map(|(idx, _)| *idx),
-            Self::Constant(_) => None,
+            Self::Constant(_) | Self::Expression(_) => None,
         }
     }
 }
@@ -333,6 +345,41 @@ impl<'a> StaticEvaluator<'a> {
         let locals = vec![None; body.local_slots.len()];
         Self {
             body: EvaluatorBody::Constant(body),
+            values,
+            budget,
+            cancellation,
+            locals,
+            parameter_values: BTreeMap::new(),
+            kinded_arguments: BTreeMap::new(),
+            argument_error: None,
+            expression_sites,
+            definitions: None,
+            constants: None,
+            canonical_types: None,
+            semantic_tables: None,
+            active_definitions: Vec::new(),
+            saved_frames: Vec::new(),
+            pending_application_arguments: BTreeMap::new(),
+            completed_kinded_result: None,
+            trace: Vec::new(),
+        }
+    }
+
+    /// Creates an evaluator for one ordinary-checker-approved static
+    /// expression, such as a computed Record key.
+    pub fn for_checked_expression(
+        body: &'a CheckedStaticExpression,
+        values: &'a mut StaticValueStore,
+        budget: &'a mut QueryBudget,
+        cancellation: &'a CancellationToken,
+    ) -> Self {
+        let mut expression_sites: BTreeMap<(usize, usize), Vec<ExpressionId>> = BTreeMap::new();
+        for (id, expression) in body.expressions.iter() {
+            expression_sites.entry((expression.range.start, expression.range.end)).or_default().push(*id);
+        }
+        let locals = vec![None; body.local_slots.len()];
+        Self {
+            body: EvaluatorBody::Expression(body),
             values,
             budget,
             cancellation,
@@ -1167,7 +1214,7 @@ impl<'a> StaticEvaluator<'a> {
     fn save_current_frame(&mut self) {
         let definition = match self.body {
             EvaluatorBody::Definition(d) => Some(d.owner.0.clone()),
-            EvaluatorBody::Constant(_) => None,
+            EvaluatorBody::Constant(_) | EvaluatorBody::Expression(_) => None,
         };
         self.saved_frames.push(SavedFrame {
             body: self.body,

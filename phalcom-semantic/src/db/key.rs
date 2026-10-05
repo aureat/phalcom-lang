@@ -82,6 +82,8 @@ pub enum QueryKey {
     StaticDefinition(DeclarationId),
     /// Canonical checked compile-time constant product.
     StaticConstant(crate::static_constant::StaticConstantId),
+    /// Pre-type, source-only module binding identities and phases.
+    ModuleStaticBindingCatalog(ModuleId),
     /// Checked ordinary module binding facts used by static-body analysis.
     ModuleStaticBindings(ModuleId),
     /// Ordinary-checker facts and evaluator layout for one static body.

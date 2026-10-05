@@ -6,7 +6,7 @@ checkpoint: LANG007.C4
 plan: LANG007.C4.P4
 kind: implementation-plan
 title: "Generalized FieldKey and Unordered-Product Calculus"
-status: BLOCKED
+status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
 started_against_revision: 03967716867684a513cffd6a044af36366859b18
@@ -15,7 +15,7 @@ worktree_path: /Users/altunhasanli/.codex/worktrees/lang007-c4-p4/phalcom
 integrated_branch: main
 integrated_revision: 80e4e854841e71b8292df27a8932f109f6ae2ca5
 started: 2026-10-05
-continued_against_revision: 6fea110003ae8d21f40173d8339fc31222336625
+continued_against_revision: bf17519547d621ff50b399bfb3697c8c8821001c
 continued_branch: main
 continued_worktree_path: /Users/altunhasanli/dev/phalcom/phalcom
 continued: 2026-10-05
@@ -2681,101 +2681,189 @@ The projection must:
 - consume ordinary-checker binding selection and its stable source identity;
 - query the current `StaticConstantProduct` by `StaticConstantId(SymbolId)`;
 - convert concrete static value content to owned `FieldKey` values;
-- record targeted dependencies on the owning type/annotation product and
-  invalidate only affected dependents after a constant edit;
-- retain generic/symbolic results for specialization without inserting
-  placeholders into canonical rows;
-- rerun canonical duplicate detection after specialization;
+- make the existing publishing query own projection and record exact
+  `StaticConstant` dependencies;
+- defer genuinely symbolic results to P7 without creating a `FieldKey` or row
+  placeholder;
+- rerun canonical duplicate detection after concrete projection;
 - share one checked projection between Record type and pattern keys, without
   adding evaluation/name lookup to `TypeResolver` or a pattern-only evaluator.
 
 If existing checked products cannot provide stable identity and dependency edges
 without a new parallel authority, stop and consult before changing ownership.
 
-#### T7.0 architecture consultation disposition — BLOCKED (2026-10-05)
+#### T7.0 principal-architect ruling and amended implementation contract — 2026-10-05
 
-The required follow-up consultation found no safe bounded implementation
-contract in the current plan or live query/session architecture. T7.0 is stopped;
-T7.1–T7.5 cannot start until the principal architect resolves the decisions
-below and amends this plan. The requirements above remain fixed acceptance
-invariants, not permission to invent the missing owner or scheduling model.
+The principal architect approved T7.0 with material plan amendment. The ruling
+resolves the owner, cold-start ordering, exact dependency, republication, and
+mixed-cycle questions raised by the implementation stop. T7.0 is resumed under
+the contract below. The checkpoint records the consultation and current plan
+state; this subsection is the executable T7.0 amendment.
 
-Live-tree evidence:
+**Fixed architecture**
 
-- `TypeFormationSite` in `phalcom-semantic/src/types/annotation.rs` carries
-  module/type context but no stable query-owner or source-expression identity.
-  `record_field_key_literal` deliberately projects literals only; general
-  computed expressions are not checked or evaluated there.
-- `QueryKey` in `phalcom-semantic/src/db/key.rs` has owner queries such as
-  `CallableSignature`, `CallableBody`, `TypeMemberDeclaration`,
-  `StaticDefinition`, and `StaticConstant`, but no computed-key projection
-  query. A checker `ExpressionId` is currently local to an analyzed body and is
-  not a uniform identity for type-annotation expressions.
-- `SemanticWorkspaceSession` forms type annotations and callable signatures
-  before its static-constant publication stage. `StaticConstantProduct` is
-  therefore unavailable to those early consumers. Static-constant checking
-  also consumes the binding contract's expected `TypeId`, so blindly moving
-  every constant ahead of all type formation would create a reverse dependency.
-- Existing semantic query dependencies can express an exact
-  `SemanticDependency::StaticConstant(id)`, but no established owner currently
-  records that edge for a type-key projection and no session contract rebuilds
-  already-published type/signature/pattern consumers after the constant product
-  changes.
-- `docs/specs/static-evaluation.md` defines reduced/symbolic/recursive outcomes
-  and closed-constant requirements, but does not define cycles spanning static
-  constant checking and computed-key-dependent type formation.
+- The existing semantic query that publishes the type, signature, or resolved
+  pattern owns computed-key projection and its dependencies. `TypeFormationSite`
+  remains context only.
+- Do not add `QueryKey::RecordKeyProjection` or an equivalent per-key query or
+  product in P4. Owner-relative `RecordKeyUseId` is permitted for diagnostics,
+  provenance, and local indexing; it is not a query key. Derive it from stable
+  owner identity plus deterministic traversal ordinal/path, never a source range
+  or ownerless `ExpressionId`.
+- Introduce an early, type-free module static-binding catalog backed by linked
+  namespace/import authority. It identifies stable `SymbolId`, binding phase,
+  declaration/source identity, and syntax locations, but carries no `TypeId`,
+  `BindingState`, or checked contract. Imported aliases retain their canonical
+  remote `SymbolId`; ordinary checker binding selection remains authoritative.
+- `StaticConstant(K)` owns formation of K's declared/expected type, then checks
+  its initializer and publishes its `StaticConstantProduct`. The final
+  `ModuleStaticBindingIndex` is a later checked projection/snapshot consumer,
+  not a prerequisite for static-constant semantics.
+- One shared ordinary-checker-based checked-static-expression/projector serves
+  type keys and, in T7.1, pattern keys. Reuse P2 `StaticEvaluator` and its
+  `StaticValueRef`; `StaticValueStore::field_key_of` converts the value to an
+  owned concrete `FieldKey`. No evaluation or textual name resolution is added
+  to `TypeResolver` or pattern lowering.
+- The owner query records every exact selected
+  `SemanticDependency::StaticConstant(StaticConstantId(symbol_id))`, alongside
+  other dependencies from ordinary checking. A module-wide binding/interface
+  dependency does not replace those exact edges.
+- Projection yields `Concrete(FieldKey)`, `DeferredToP7`, or `Invalid`. A
+  deferred symbolic key is never a `FieldKey`, row entry, or AST placeholder.
+  Closed Record formation requires concrete keys; canonical row formation and
+  duplicate detection occur only after projection, through the existing mutable
+  `TypeStore`/row authority.
+- A dependency cycle where closed static-constant formation needs a computed
+  Record key that directly or transitively requires that constant is invalid.
+  Diagnose it via active semantic-query evaluation/`Computing` state and
+  transient key-projection cause. Do not define fixed points, source-order
+  semantics, initializer-first speculation, symbolic placeholders, or LKG
+  semantic inputs. Publish a diagnosed invalid/recursive semantic product, not
+  an indefinitely blocked or internal-failure query.
+- Recompute changed owner products and canonical rows through normal exact
+  dependency invalidation. Never mutate an interned row or retain an obsolete
+  `TypeId` as current semantic truth. Cold and incremental results agree.
 
-Before implementation, the architect must resolve all of the following in a
-plan amendment (and add/ratify an ADR if the choice establishes new architecture):
+**Mechanically flexible:** private helper names, catalog decomposition, the
+owner-local representation of checked key facts, and equivalent query/session
+plumbing may follow the live tree. Keep the established owner query and exact
+identity chain intact.
 
-1. **Stable owner and query/product.** Choose the canonical owner for every
-   computed-key site: declaration/type-member/callable-signature annotations,
-   constant declared-type annotations, and callable-body patterns. Decide
-   whether checked projections are embedded in each existing owner product or
-   published through one new checked-key product with a stable owner/site ID.
-   The choice must reuse one ordinary-checker projection and must not add a
-   parallel evaluator or resolver.
-2. **Exact dependency owner.** Name the query key that records
-   `SemanticDependency::StaticConstant(StaticConstantId(SymbolId))` for each
-   projected key, and define the dependency edge from that projection to its
-   consuming type/signature/pattern product. Do not substitute a whole-module
-   dependency when the selected constant identity is known.
-3. **Publication order.** Define how ordinary binding selection, constant
-   checking/evaluation, key projection, and canonical mutable-`TypeStore` row
-   formation are scheduled. The order must account for a constant's expected
-   type being produced by type formation that may itself use a computed key.
-4. **Invalidation and republication.** Define the cold and incremental path
-   after one constant changes: invalidate only exact dependent projection and
-   consumer products, recompute the canonical row in the checker/type-form
-   owner, and republish every affected signature/body/pattern consumer. Never
-   mutate an interned row or leave a ready consumer carrying an obsolete
-   `TypeId`.
-5. **Mixed dependency cycles.** Specify the result when constant checking
-   depends on a type/pattern containing a computed key whose selected constant
-   transitively depends on that check. Options include diagnosing a mixed
-   dependency SCC as a closed static cycle, defining a staging rule that
-   breaks the dependency, or defining fixed-point semantics; the latter needs
-   explicit interaction with P7 residualization. The current specification
-   does not choose between these semantics.
+**Verify first:** inspect live linked namespace/import products, all query
+publication paths for type-bearing owners, the static-constant expected-type
+path, and `Computing`/dependency revalidation behavior before choosing private
+APIs. Adapt mechanical drift locally. If evidence requires a different owner,
+identity, lifetime, canonicalization, or cross-layer contract, stop and escalate
+under `shared-consultation-escalation-protocol.md`.
 
-Architectural recommendation for the ruling: keep one shared checker-owned
-projection and make exact semantic dependency edges drive an explicit staged
-rebuild/worklist; diagnose only a proven mixed dependency cycle that prevents a
-closed constant from reducing, while leaving genuinely generic residualization
-to P7. This is a recommendation, not an implementation decision. Do not begin
-T7.0 until the owner/query model, publication/republication contract, and mixed
-cycle semantics are accepted and written here.
+##### T7.0A Early catalog and self-sufficient static-constant queries
 
-**Resume gate:** after the ruling, split T7.0 into independently verifiable
-units for the shared checked projection, type-annotation owner integration,
-and pattern owner integration as needed. Before T7.1, focused semantic evidence
-must prove stable owner identities, exact constant-only invalidation, cold vs
-incremental parity, changed-row/signature republication, a non-cyclic const-key
-success, a mixed-cycle diagnostic matching the accepted rule, and canonical
-duplicate rejection after specialization. Do not run T7.0 acceptance tests or
-begin implementation while the owner/order/cycle contract remains unresolved.
+Add/publish a pre-type `ModuleStaticBindingCatalog` (or mechanically named
+product) from parsed declarations and existing linked namespace/import
+resolution. Preserve local and imported stable symbol identities and enough
+source/declaration identity to recover the const declaration and initializer.
+Keep the existing checked `ModuleStaticBindingIndex` as the later ordinary
+module result.
+
+Make `QueryKey::StaticConstant(K)` recover K through that catalog, form its
+annotated expected type itself when present, then check/evaluate the initializer.
+An unannotated constant continues to obtain its value type from ordinary
+initializer checking. Checker contexts that read a constant must be able to use
+the published constant's checked type without consulting final module-body
+`BindingState`.
+
+Acceptance for this slice: catalog publication is type-free; linked imports map
+to the remote symbol; constant semantic publication no longer waits on final
+`ModuleStaticBindings`; annotated constants may recursively demand constants
+needed by their declared types; runtime `let` bindings remain ineligible.
+
+##### T7.0B Shared checked static expression and key projector
+
+Factor the reusable ordinary-checker result of a static expression out of the
+constant-initializer-only shape. Preserve checked expression products, binding
+selections, static operations/applications/constructions, associated
+resolutions, local slots, result type, diagnostics, and complete semantic
+dependencies. Use the same representation for const initializers and computed
+key expressions.
+
+Extend/factor P2 `StaticEvaluator` to evaluate this already-checked expression;
+do not create another evaluator. The projector maps each selected `BindingId`
+through the checker-selected binding to `SymbolId`, then to
+`StaticConstantId`, forces/pulls the ready product, evaluates through P2, and
+calls `field_key_of`. It performs no name lookup. A literal fast path is allowed
+only behind this shared entry point. Return `Concrete`, `DeferredToP7`, or
+`Invalid`; no symbolic key reaches row construction.
+
+Acceptance for this slice: shared checking/evaluation works for static String,
+Symbol, Int, and Bool keys and supported operations; invalid/unreduced values
+fail through the existing `field_key_of` domain; ordinary runtime bindings are
+rejected; dependency collection retains all selected constants and other
+checker-produced dependencies.
+
+##### T7.0C Existing type-owner integration
+
+Find each existing query that publishes a type-bearing fact and make that
+query own projection before canonical row formation. This includes declaration
+shell/surface, trait header/surface where applicable, field signature,
+callable signature, type-member declaration, static-case signature,
+associated-static-domain declaration, and a constant's declared type. The
+publishing query—not `TypeFormationSite`—supplies stable owner identity, captures
+projection facts, merges dependencies, and forms the final type using the normal
+mutable `TypeStore` row constructor.
+
+Project all required keys before row formation. Run duplicate checking only
+after reduction, using canonical row rules. Do not publish provisional rows,
+patch rows in place, or move evaluation into `TypeResolver`.
+
+Acceptance for this slice: a noncyclic const-key type forms cold; canonical
+duplicates caused by reduction are rejected; a changed key recomputes and
+republishes the owning type/signature through the existing owner query.
+
+##### T7.0D Exact forcing, invalidation, republication, and mixed cycles
+
+The semantic query/session orchestrator forces not-ready selected constants
+during owner computation, tracks the active evaluation stack/`Computing` state,
+and retains transient cause information for recursive entry through key
+projection. Classify a cycle containing this edge and a closed `StaticConstant`
+as an invalid static-formation cycle. Prefer a dedicated diagnostic such as
+`StaticConstantFormationCycle`, or reuse the established cycle diagnostic with
+a clear computed-key/type-formation note. Do not add a persistent second cycle
+graph.
+
+Keep exact consumer-to-constant dependency edges. Use normal reverse dependency
+invalidation and fingerprint revalidation: unchanged constant products may let
+consumers validate; changed products cause only exact consumers to reproject,
+reform canonical rows, and republish dependent products. Old interned rows stay
+immutable. Previous-snapshot/LKG values cannot satisfy a current computation.
+
+Acceptance for this slice: direct and transitive mixed cycles diagnose
+deterministically without hanging; an edit that introduces a cycle cannot keep
+a previously successful type/signature as current truth; edits to K invalidate
+consumers that selected K without substituting whole-module invalidation.
+
+##### T7.0E Focused acceptance gate
+
+Run the exact focused semantic gates added for T7.0 after A–D form a coherent
+vertical slice. Confirm each selector actually runs tests. Cover:
+
+- stable owner/site identity and exact local/imported `StaticConstant` edges;
+- static String/Symbol/Int/Bool values and supported operations, invalid key
+  values, and rejection of runtime `let`;
+- duplicate detection after reduction, including `Symbol(#x)` versus
+  `String("x")` remaining distinct;
+- key edit `#a` to `#b`, same-result source edit, targeted invalidation,
+  canonical row/type/signature republication, and cold/incremental parity;
+- direct and transitive mixed cycles, deterministic diagnostic, no hang, no
+  stale LKG semantic reuse, and no placeholder in a canonical row;
+- symbolic deferral without `FieldKey`, `RecordRowData`, or AST placeholder.
+
+T7.0E passes only when cold and incrementally updated sessions agree on key,
+Record type, diagnostics, and downstream signature/body visibility, and all
+mixed-cycle requirements above are demonstrated. **Do not begin T7.1 until this
+gate passes.** T7.0 is not complete merely because the code compiles.
 
 #### T7.1 Static pattern keys
+
 
 Pattern forms:
 
@@ -2788,8 +2876,13 @@ Pattern forms:
 
 must resolve to concrete FieldKey before canonical pattern resolution. Runtime key expressions are not fixed structural pattern keys.
 
-Consume the shared T7.0 checked static-key projection. Do not create a
-pattern-only evaluator.
+Consume the shared T7.0 checked static-key projection from the ordinary
+`CallableBody` checker. Record exact `SemanticDependency::StaticConstant(id)`
+edges on `QueryKey::CallableBody(callable)`, then require a concrete `FieldKey`
+before producing `ResolvedRecordFieldPattern`. Preserve the `FieldKey` through
+coverage, destructuring, and lowering, and use exact identity for rest exclusion.
+Do not create a pattern-only evaluator or invalidate a callable signature solely
+because a body pattern changed.
 
 #### T7.2 Semantic pattern product
 

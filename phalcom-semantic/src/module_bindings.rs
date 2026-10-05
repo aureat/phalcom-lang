@@ -11,6 +11,105 @@ use phalcom_ast::ast::{BindingKind, LetBinding, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::linker::SymbolId;
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
+
+/// Type-free source identity for a module-owned binding before checked
+/// `BindingState` products are available.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModuleStaticBindingSeed {
+    pub symbol: SymbolId,
+    pub phase: ModuleBindingPhase,
+    /// Source span of the simple-name binding pattern, used to recover the
+    /// corresponding ordinary checker binding fact.
+    pub binding_range: SourceRange,
+    pub declaration_range: SourceRange,
+    pub initializer_range: Option<SourceRange>,
+}
+
+/// Pre-type catalog of source module bindings. This product carries source
+/// identity and phase only; it is not a name/type lookup authority for the
+/// ordinary checker.
+#[derive(Clone, Debug)]
+pub struct ModuleStaticBindingCatalog {
+    module: ModuleId,
+    bindings: BTreeMap<SymbolId, ModuleStaticBindingSeed>,
+    visible_names: BTreeMap<Box<str>, SymbolId>,
+}
+
+impl ModuleStaticBindingCatalog {
+    /// Builds local top-level simple-name seeds without checking annotations or
+    /// inferring types.
+    pub fn from_source(module: &ModuleId, program: &Program) -> Self {
+        let mut bindings = BTreeMap::new();
+        for statement in &program.statements {
+            let Statement::Let(binding) = statement else { continue };
+            let Pattern::Name { name, range } = &binding.pattern else { continue };
+            let phase = match binding.kind {
+                BindingKind::Const => ModuleBindingPhase::StaticConstant,
+                BindingKind::Let | BindingKind::LetMut => ModuleBindingPhase::Runtime,
+            };
+            let symbol = SymbolId {
+                module: module.clone(),
+                name: name.clone().into_boxed_str(),
+            };
+            let seed = ModuleStaticBindingSeed {
+                symbol: symbol.clone(),
+                phase,
+                binding_range: *range,
+                declaration_range: binding.range,
+                initializer_range: binding.value.as_ref().map(|value| value.range()),
+            };
+            bindings.entry(symbol.clone()).or_insert(seed);
+        }
+        let visible_names = bindings.keys().map(|symbol| (symbol.name.clone(), symbol.clone())).collect();
+        Self {
+            module: module.clone(),
+            bindings,
+            visible_names,
+        }
+    }
+
+    /// Adds a linked import using its canonical remote symbol identity.
+    pub fn insert_imported_binding(&mut self, local_name: &str, seed: ModuleStaticBindingSeed) {
+        let symbol = seed.symbol.clone();
+        self.bindings.entry(symbol.clone()).or_insert(seed);
+        self.visible_names.entry(local_name.into()).or_insert(symbol);
+    }
+
+    pub fn module(&self) -> &ModuleId {
+        &self.module
+    }
+
+    pub fn get(&self, symbol: &SymbolId) -> Option<&ModuleStaticBindingSeed> {
+        self.bindings.get(symbol)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&SymbolId, &ModuleStaticBindingSeed)> {
+        self.bindings.iter()
+    }
+
+    pub fn visible_bindings(&self) -> impl Iterator<Item = (&str, &ModuleStaticBindingSeed)> {
+        self.visible_names
+            .iter()
+            .filter_map(|(name, symbol)| self.bindings.get(symbol).map(|seed| (name.as_ref(), seed)))
+    }
+
+    pub fn input_fingerprint(&self) -> InputFingerprint {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.module.hash(&mut hasher);
+        for (name, seed) in self.visible_bindings() {
+            name.hash(&mut hasher);
+            seed.symbol.hash(&mut hasher);
+            seed.phase.hash(&mut hasher);
+            format!("{:?}{:?}{:?}", seed.binding_range, seed.declaration_range, seed.initializer_range).hash(&mut hasher);
+        }
+        InputFingerprint::new(hasher.finish())
+    }
+
+    pub fn product_fingerprint(&self) -> ProductFingerprint {
+        ProductFingerprint::new(self.input_fingerprint().raw())
+    }
+}
 
 /// Declaration-time phase category for a module-owned binding.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

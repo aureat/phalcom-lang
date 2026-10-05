@@ -2778,11 +2778,13 @@ pub fn checked_static_body_product_fingerprint(body: &crate::static_definition::
 pub fn static_constant_input_fingerprint(
     id: &crate::static_constant::StaticConstantId,
     initializer: &phalcom_ast::ast::Expr,
+    annotation: Option<&phalcom_ast::ast::TypeAnnotation>,
     expected_type: Option<crate::types::id::TypeId>,
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     id.hash(&mut hasher);
     format!("{initializer:?}").hash(&mut hasher);
+    format!("{annotation:?}").hash(&mut hasher);
     expected_type.hash(&mut hasher);
     finish_input(hasher)
 }
