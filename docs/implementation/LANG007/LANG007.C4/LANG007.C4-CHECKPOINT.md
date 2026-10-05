@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
 next_action: >
-  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. First-class Pack, call/rest convergence, and one-step views are established with verified G1-G4 evidence. Next plan is LANG007.C4.P4 (Generalized FieldKey and unordered-product calculus) proceeding concurrently in a separate worktree.
+  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. P4 is active on main at 80e4e854841e71b8292df27a8932f109f6ae2ca5. T1 has introduced the FieldKey scalar and shared StaticInt owner, but has no post-edit verification; Record-specific AST/parser work remains. Continue T1 and preserve P3 Pack branches.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -147,7 +147,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
-| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | NOT_STARTED | UNVERIFIED | T0 complete on isolated `codex/lang007-c4-p4` worktree based at `03967716867684a513cffd6a044af36366859b18`; semantic static-Record discriminator and P3 Pack-spread discriminator passed; implementation not started |
+| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | integrated to `main` at `80e4e854841e71b8292df27a8932f109f6ae2ca5`; T0 focused baselines passed; T1 FieldKey scalar and shared StaticInt extraction are present but unverified; Record AST/parser, rows, runtime, patterns, and metadata work remain |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |

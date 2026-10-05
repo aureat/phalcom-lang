@@ -7,11 +7,13 @@ plan: LANG007.C4.P4
 kind: implementation-plan
 title: "Generalized FieldKey and Unordered-Product Calculus"
 status: IN_PROGRESS
-completion: NOT_STARTED
+completion: PARTIAL
 verification: UNVERIFIED
 started_against_revision: 03967716867684a513cffd6a044af36366859b18
 worktree_branch: codex/lang007-c4-p4
 worktree_path: /Users/altunhasanli/.codex/worktrees/lang007-c4-p4/phalcom
+integrated_branch: main
+integrated_revision: 80e4e854841e71b8292df27a8932f109f6ae2ca5
 started: 2026-10-05
 depends_on:
   - LANG007.C4.P2
